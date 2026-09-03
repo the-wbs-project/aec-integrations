@@ -23,9 +23,9 @@
  * `withEventReplay()` injects a version-generated inline script that a hash
  * allowlist would have to chase across upgrades.
  *
- * `script-src 'unsafe-inline'` therefore covers the three trusted inline
- * scripts (the `index.html` theme bootstrap, the injected Datadog RUM
- * bootstrap, and Angular's event-replay script). It also allowlists
+ * `script-src 'unsafe-inline'` therefore covers the trusted inline scripts (the
+ * `index.html` theme bootstrap, the injected Algolia / Supabase / PostHog
+ * bootstraps, and Angular's event-replay script). It also allowlists
  * `https://static.cloudflareinsights.com`, the host of the Cloudflare Web
  * Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge
  * for the zone; without it the injected `<script>` is CSP-refused. The
@@ -37,18 +37,9 @@
  *     Angular SSR also inlines component `<style>` blocks → `'unsafe-inline'`.
  *   - `img-src 'self' data: https:` — vendor/Airtable `logo_url`s come from
  *     arbitrary https origins; `data:` for inline SVG/placeholders.
- *   - `connect-src` — `'self'` for the `/api/*` service-binding proxy plus the
- *     Datadog RUM intake host(s). The v7 browser SDK ships beacons to a
- *     per-`DD_SITE` host (a distinct registrable domain, NOT a `*.datadoghq.com`
- *     subdomain — the wildcard would not match it). Two are allowlisted: the
- *     US1 default `browser-intake-datadoghq.com` (the local `.dev.vars` default
- *     `DD_SITE=datadoghq.com`) and `browser-intake-us5-datadoghq.com` for the
- *     deployed preview/staging/production envs, which run `DD_SITE=us5.datadoghq.com`
- *     (see `wrangler.jsonc` env vars; the SDK maps `us5.datadoghq.com` →
- *     `browser-intake-us5-datadoghq.com`). AECI-162 caught the missing US5 host —
- *     RUM beacons were CSP-blocked in every deployed env. Other sites use yet
- *     another `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`), so
- *     add its intake host here if `DD_SITE` changes again. The Algolia search origins
+ *   - `connect-src` — `'self'` for the `/api/*` service-binding proxy. (Two
+ *     `browser-intake-*` Datadog RUM hosts lived here until AECI-651 removed the
+ *     Datadog leg.) The Algolia search origins
  *     (`https://*.algolia.net https://*.algolianet.com`) were added in AECI-136
  *     (Phase 3.4) for InstantSearch: the browser client resolves its query host
  *     as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry
@@ -68,9 +59,9 @@
  *     `@supabase/ssr` `createBrowserClient` XHRs to `https://<ref>.supabase.co/auth/v1/*`
  *     for `getSession()`/token-refresh, magic-link OTP, and sign-out. Per
  *     ADR 0017 there is now ONE shared auth project across all environments, so
- *     a SINGLE ref — `ktuhnlypztujpsseujzx` — is allowlisted explicitly
- *     (mirroring the Datadog intake hosts, not a `*.supabase.co` wildcard; see
- *     the `SUPABASE_URL` env vars in `apps/web/wrangler.jsonc`). If the auth
+ *     a SINGLE ref — `ktuhnlypztujpsseujzx` — is allowlisted explicitly (not a
+ *     `*.supabase.co` wildcard; see the `SUPABASE_URL` env vars in
+ *     `apps/web/wrangler.jsonc`). If the auth
  *     project ref ever changes it must be updated here or every signed-in page
  *     CSP-refuses its session probe — the bug this fixed: the staging header's
  *     `SessionStatus`
@@ -85,7 +76,7 @@ const CSP_DIRECTIVES: readonly string[] = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com https://ktuhnlypztujpsseujzx.supabase.co",
+  "connect-src 'self' https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com https://ktuhnlypztujpsseujzx.supabase.co",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

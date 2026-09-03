@@ -25,18 +25,16 @@
  * Edge cache, KV, and cookie-stripping middleware land in subsequent
  * Phase 1 issues.
  *
- * Datadog (AECI-31) — secrets, NOT vars, so values stay out of git. Push per
- * env with `wrangler secret put <KEY> --env <preview|production>`:
- *   DD_APPLICATION_ID   client-exposed RUM application id (rendered into HTML)
- *   DD_CLIENT_TOKEN     client-exposed RUM client token   (rendered into HTML)
- *   DD_API_KEY          server-only; Datadog Logs HTTP intake
- *   DD_SITE             public; defaults to datadoghq.com when unset
+ * Observability (ADR 0024) holds NO secret: the publishable `phc_`
+ * POSTHOG_PROJECT_KEY is a committed per-env var below (AECI-640) and
+ * authenticates all three PostHog intakes. The four DD_* Datadog secrets this
+ * block used to document were retired with the Datadog leg in AECI-651.
  *
- * Cache-tag purge (AECI-56 / Phase 2.10):
- *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents
- *   CF_PURGE_API_TOKEN  secret; CF API token, scoped to Zone.Cache Purge on
- *                       aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)
- *   CF_ZONE_ID          public var; CF zone the purge call targets
+ * Cache purge (AECI-56 / Phase 2.10; native Workers Cache since WC-6 / AECI-320):
+ *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents.
+ *                       /admin/purge invalidates in-process via ctx.cache.purge()
+ *                       (WC-6) — no Cloudflare API token (the old CF_PURGE_API_TOKEN
+ *                       / CF_ZONE_ID purge secrets were retired in WC-10 / AECI-324)
  *
  * Algolia search (AECI-134) — secrets, NOT vars (values stay out of git). Both
  * are client-exposed (rendered into HTML by injectAlgoliaBootstrap), but the
@@ -60,15 +58,17 @@
  *                       with `Invalid API key`. The service-role key is NEVER set
  *                       on any Worker (AUTH_AND_RLS.md §3).
  *
- * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
- * per-env `vars` block once the production / preview zone IDs are known.
+ * Push secrets per env (`wrangler secret put`).
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-web",
   "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
   "main": "./dist/server/server.mjs",
-  "compatibility_date": "2026-05-14",
+  "compatibility_date": "2026-07-10",
+  // `nodejs_compat` — @angular/ssr Node polyfills (see the header note).
+  // `ctx.exports` is default-on for this compatibility date. Do not add the retired
+  // `enable_ctx_exports` flag: current workerd rejects that redundant opt-in at startup.
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
@@ -85,6 +85,30 @@
       "name": "aeci-web",
       "workers_dev": true,
       "observability": { "enabled": true },
+      // WC-3 (AECI-317) + WC-4 (AECI-318) — native Cloudflare Workers Cache via
+      // the two-entrypoint gateway pattern (ADR 0020 §2). The `default` export is
+      // a cache-key-normalizing gateway with its OWN cache DISABLED (so it runs on
+      // every request: strips utm_*/non-allowlisted params, canonicalizes order,
+      // then forwards a normalized `cf.cacheKey` to `Renderer`); `Renderer` is the
+      // cached SSR entrypoint — the platform stores its response from
+      // `Cache-Control` and serves future HITs without running the render. Set
+      // per-env, NEVER at top level (so a bare `wrangler dev` stays uncached).
+      // Caching is live on preview + staging only; `demo`/`production` ship the
+      // same two-entrypoint code but stay UNCACHED (no `cache`/`exports` block).
+      // The prod-enable gate (WC-4/5/6/8) is fully merged; flipping demo/prod on
+      // (add this `exports` block there) is a deliberate future step (ADR 0020 §1).
+      // WC-5 (queue purge, AECI-319)
+      // + WC-6 (native /admin/purge, AECI-320) are DONE: the cross-Worker purge queue
+      // consumer is wired per-env on staging/demo/production below (`queues.consumers`;
+      // none on preview) and, because the cache lives on `Renderer`, delegates the
+      // `ctx.cache.purge()` into that entrypoint via the `ctx.exports` loopback
+      // (ADR 0020 §2/§3). `cross_version_cache` left at the
+      // default (per-version isolation ⇒ each deploy cold-starts the cache, so a
+      // template change is live on the first post-deploy request — ADR 0020 §5).
+      "exports": {
+        "default": { "type": "worker", "cache": { "enabled": false } },
+        "Renderer": { "type": "worker", "cache": { "enabled": true } },
+      },
       // COMMIT_SHA / DEPLOYED_AT are sentinels overridden by `wrangler deploy
       // --var` in CI (AECI-92 /_version, AECI-74 parity with apps/api).
       "vars": {
@@ -99,17 +123,31 @@
         // set the indexable env's value to "true". Do NOT key off ENV:
         // production is the pre-launch demo.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // AECI-193 / ADR 0017: Supabase base URL (public). The SINGLE shared
         // auth project — identical across preview/staging/production. Pairs with
         // the CI-pushed SUPABASE_ANON_KEY secret — see the header comment.
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
-        // AECI-239: PostHog ingestion host (public; US Cloud). The CSP
-        // connect-src is pinned to the US hosts. The POSTHOG_KEY is a CI-pushed
-        // secret (absent → analytics no-ops, fail-open).
+        // AECI-239 / AECI-640: PostHog INGEST host + publishable project key.
+        // `us.i.posthog.com` is the ingest host — `us.posthog.com` (no `.i`) is
+        // the management API and 404s on an intake path. The CSP connect-src is
+        // pinned to the US ingest + assets hosts (server/seo-headers.ts).
+        //
+        // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. It is rendered into
+        // the served HTML on every page (window.__AECI_POSTHOG__), so it is not
+        // a secret and committing it costs nothing. AECI-239 kept it as a
+        // CI-pushed secret for tidiness; that is exactly what produced the
+        // weeks-dark production analytics of AECI-326 (push step present,
+        // secret absent, warn-and-skip silent). A committed var has no
+        // provisioning step to forget and gives PR previews analytics for free.
+        //
+        // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview,
+        // staging, demo and stage2 all report to `aec-integrations-dev`
+        // (525793); ONLY production reports to `aec-integrations` (354071).
+        // Tiers inside the non-prod project are separated by `$host`/`env`.
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
@@ -119,13 +157,25 @@
         "ENV": "staging",
         // See the preview env's note. Staging is behind Access AND non-indexable.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640): non-prod tiers report to
+        // `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "observability": { "enabled": true },
+      // WC-3 (AECI-317) + WC-4 (AECI-318) — native Workers Cache via the gateway
+      // (`default`, cache off) + cached `Renderer` entrypoint pair. See the preview
+      // env note above; staging is the pre-prod validation tier for the "preview →
+      // staging first" rollout (ADR 0020 §1). demo/production remain uncached pending
+      // the deliberate prod-enable flip (gate WC-4/5/6/8 all merged). The WC-5 purge
+      // queue consumer is wired just below (`queues.consumers`).
+      "exports": {
+        "default": { "type": "worker", "cache": { "enabled": false } },
+        "Renderer": { "type": "worker", "cache": { "enabled": true } },
+      },
       "routes": [
         {
           "pattern": "staging.aecintegrations.com",
@@ -133,6 +183,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue. The API Worker
+      // (producer) enqueues on promote/moderation; this Worker issues `ctx.cache.purge()`
+      // (ADR 0020 §3). Consumer only — no producer here. The queue is provisioned before
+      // this deploy by the idempotent `create_queue` step in deploy.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
     "demo": {
       "name": "aeci-web-demo",
@@ -141,14 +205,23 @@
         // Public (NOT behind Access), pre-launch — no-index. Keep "false". See
         // the preview env's note; `indexingAllowed` keys off this, not `ENV`.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // ADR 0017: the single shared auth project (same value in every env).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640 REPOINT: demo previously received POSTHOG_KEY_PRODUCTION from
+        // promote-to-demo.yml, so synthetic demo traffic landed in the PROD
+        // project (354071) and skewed every production number. Demo is a
+        // non-prod tier and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "observability": { "enabled": true },
+      // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code like
+      // every env, but caching stays OFF here (no `cache`/`exports` block) — the
+      // gateway still forwards to `Renderer`, just uncached. The prod-enable gate
+      // (WC-4/5/6/8) is fully merged; enabling caching here (add the preview-style
+      // `exports` block) is a deliberate future step (ADR 0020 §1).
       // The public showcase tier. `custom_domain: true` makes wrangler reconcile
       // the demo.aecintegrations.com DNS record + cert on deploy — on the first
       // demo deploy it REASSIGNS that hostname off the old production Worker, so
@@ -160,6 +233,65 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-demo" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered here ahead of `cache.enabled` (demo is currently uncached):
+      // with no cache yet, the `Renderer.purgeCache()` delegate returns null so the
+      // consumer no-ops each message (`outcome:no_cache`) and acks — fully wired for
+      // when demo/prod caching is enabled. Provisioned by promote-to-demo.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
+    },
+    // AECI-637 — TEMPORARY `stage2` tier. Delete this whole block at teardown.
+    // The SSR half of the hand-deployed Stage 2 test surface (see the matching
+    // block + rationale in apps/api/wrangler.jsonc, and docs/environments.md §10).
+    //
+    //   - NO `exports` block ⇒ UNCACHED, like demo/production. It still ships the
+    //     WC-4 two-entrypoint code (the gateway forwards to `Renderer`), just with
+    //     the platform cache off. Deliberate for a test tier: every request runs the
+    //     render, so what you see is the deploy you just made, with no MISS→HIT wait
+    //     and no purge story to operate.
+    //   - NO `queues` consumer — with no cache there is nothing to purge, and the
+    //     API Worker has no `CACHE_PURGE_QUEUE` producer to feed it.
+    //   - Access-gated (unlike public demo): `stage2.aecintegrations.com` is added as
+    //     a destination on the `AECi Non-Prod` app (docs/access.md §1).
+    //   - `ALLOW_INDEXING` stays "false" — Access already keeps crawlers out, but the
+    //     header is the fail-closed layer and a test tier must never be indexable.
+    //
+    // `custom_domain: true` provisions `stage2.aecintegrations.com` + its cert on the
+    // first deploy. This is a NEW hostname — nothing is reassigned off another Worker,
+    // unlike the demo/apex cutovers — and the DNS record is removed when the Worker is
+    // deleted at teardown.
+    "stage2": {
+      "name": "aeci-web-stage2",
+      "vars": {
+        "ENV": "stage2",
+        // See the preview env's note. stage2 is behind Access AND non-indexable.
+        "ALLOW_INDEXING": "false",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // ADR 0017: the single shared auth project (same value in every env).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640). stage2 is a TEMPORARY test tier
+        // (AECI-637) and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
+      },
+      "observability": { "enabled": true },
+      "routes": [
+        {
+          "pattern": "stage2.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+      "services": [{ "binding": "API", "service": "aeci-api-stage2" }],
     },
     "production": {
       "name": "aeci-web-production",
@@ -173,13 +305,20 @@
         // launch-only SEO secret (INDEXNOW_KEY) at the same
         // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
         "ALLOW_INDEXING": "true",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640: the ONLY tier that reports to the production PostHog project
+        // `aec-integrations` (354071). Every other tier uses the dev project —
+        // see the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
       },
       "observability": { "enabled": true },
+      // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code, but
+      // caching stays OFF here (no `cache`/`exports` block). The prod-enable gate
+      // (WC-4/5/6/8) is fully merged; enabling it (add the preview-style `exports`
+      // block) is a deliberate future step (ADR 0020 §1) — see the preview env note.
       // AECI-247/277 apex cutover. Web prod now serves the public apex
       // `aecintegrations.com` + `www.` AND the Access-gated internal
       // `prod.aecintegrations.com`. `custom_domain: true` makes wrangler reconcile
@@ -204,6 +343,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-production" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered ahead of `cache.enabled` (production is currently uncached):
+      // with no cache yet, the `Renderer.purgeCache()` delegate returns null so the
+      // consumer no-ops each message (`outcome:no_cache`) and acks. Provisioned by promote-to-prod.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
   },
 }

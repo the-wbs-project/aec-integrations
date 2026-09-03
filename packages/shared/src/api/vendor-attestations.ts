@@ -1,0 +1,379 @@
+import { z } from 'zod';
+
+import { AGREEMENT_STATES } from '../agreement';
+import { ProductLinkSchema } from './common';
+import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
+import type { AttestationSource } from './promote';
+
+/**
+ * Vendor attestation authoring contracts (AECI-301 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §5), behind `requireVendor()` plus the
+ * authority + Verified checks in `apps/api/src/routes/vendor-attestations.ts`:
+ *
+ *   GET    /api/vendor/integrations                    — the attestable surface.
+ *   POST   /api/vendor/claims                          — create a claim + affirm it.
+ *   PUT    /api/vendor/claims/:claimId/attestation     — assert or deny.
+ *   DELETE /api/vendor/claims/:claimId/attestation     — retract (204).
+ *
+ * Source of truth: `STAGE_2_ATTESTATIONS_SPEC.md` §5, `API_CONTRACTS.md` §6.14.
+ *
+ * ⚠️ **"Claim" is overloaded three ways in this codebase.** Here it is a
+ * *data-flow claim* — "this `data_object` flows in this `direction` through this
+ * integration" (`STAGE_1_5_SPEC.md` §3.1). It is NOT the public correction/claim
+ * *request* (`./requests.ts`) and NOT the vendor-account *claim* an admin grants
+ * (`./admin-claims.ts`).
+ *
+ * Four things these schemas encode:
+ *
+ * 1. **No vendor id and no slot on any write shape.** Which `attestations.source`
+ *    slot the caller may fill is derived server-side from product ownership
+ *    (`lib/attestation-authority.ts`, §2.1), never from the request — the
+ *    AECI-520 `vendor_id`-scoping invariant extended to a two-slot model. `slot`
+ *    appears on the READ only, as "which one is yours".
+ * 2. **Direction is caller-relative on the wire, canonical in the DB.** The
+ *    vendor speaks `inbound`/`outbound`/`both`; `claims.direction` stores
+ *    `a_to_b`/`b_to_a`/`both` relative to the integration row's own endpoints
+ *    (§3.2). `claimDirectionForContext` / `claimDirectionFromContext`
+ *    (`../integration-context`) are the two halves of that translation.
+ * 3. **`data_object` is find-only.** A free string resolved against the frozen
+ *    `taxonomy_data_objects` vocabulary by slug or alias
+ *    (`docs/DATA_OBJECT_VOCABULARY.md`). A vendor cannot mint a term; an
+ *    unmatched one is a `400 VALIDATION_FAILED` naming the field, not a silent
+ *    drop (promote's `skipped[]` behaviour is for a batch job, not an
+ *    interactive caller).
+ * 4. **`agreement` is computed and echoed, never sent.** Both writes return the
+ *    claim's recomputed state so the dashboard never re-derives `computeAgreement`
+ *    client-side — and so a lone affirmation visibly lands on `single_source`
+ *    rather than looking like agreement (§4.2, the §8.1(4) invariant).
+ *
+ * i18n note: this package is framework-agnostic (no `$localize`) — the messages
+ * below are for API consumers / logs; the Angular dashboard renders its own copy.
+ */
+
+// ─── Field primitives ────────────────────────────────────────────────────────
+
+/**
+ * A vendor's free-text qualifier on its attestation ("only for RFIs created
+ * after 2025"). Same 2000-character ceiling as the editable long-text fields on
+ * `./vendor.ts`; it renders in the pair page's provenance disclosure, so it is a
+ * sentence or two, not a document.
+ */
+const attestationNote = z.string().trim().max(2000);
+
+/**
+ * A `data_object` reference — a slug or any of its seeded aliases. Free text
+ * because the vocabulary owns the matching (case and spacing are normalized
+ * server-side by the same `safeSlugify` promote uses), NOT because a vendor may
+ * invent one. The §6 dashboard should offer the closed list rather than a text
+ * input in the first place.
+ */
+const dataObjectRef = z.string().trim().min(1).max(100);
+
+/** A `product_versions.id`. Its authority is checked server-side (§8.2): the
+ *  version must belong to the endpoint product of the slot it stamps. */
+const versionId = z.string().uuid();
+
+// ─── Vocabulary ──────────────────────────────────────────────────────────────
+
+/**
+ * The two vendor-writable `attestations.source` values — `ATTESTATION_SOURCES`
+ * minus the `aeci` seed, which no vendor may ever write. Declared here rather
+ * than in the Worker so the wire contract and `lib/attestation-authority.ts`
+ * cannot drift apart: that module imports this tuple.
+ *
+ * `vendor_a` is the integration's endpoint A (`source_product_id`), `vendor_b`
+ * its endpoint B (`target_product_id`) — `STAGE_1_5_SPEC.md` §3.2/§3.3.
+ */
+export const VENDOR_ATTESTATION_SLOTS = [
+  'vendor_a',
+  'vendor_b',
+] as const satisfies readonly AttestationSource[];
+
+export type VendorAttestationSlot = (typeof VENDOR_ATTESTATION_SLOTS)[number];
+
+export const VendorAttestationSlotSchema = z.enum(VENDOR_ATTESTATION_SLOTS);
+
+/**
+ * Claim provenance (§2.2). `vendor` means a vendor created the claim through
+ * this surface; `aeci` means promote seeded it. It exists for **write
+ * arbitration** — §3 scopes promote's deletes on it — and for the AECi ops view.
+ * It is deliberately **not** a reader-facing trust badge: a vendor-created claim
+ * renders through the same agreement states as an AECi-seeded one.
+ */
+export const CLAIM_ORIGINS = ['aeci', 'vendor'] as const;
+
+export const ClaimOriginSchema = z.enum(CLAIM_ORIGINS);
+
+export type ClaimOrigin = z.infer<typeof ClaimOriginSchema>;
+
+/**
+ * One term of the closed `data_object` vocabulary, as the §6 dashboard's picker
+ * renders it (`GET /api/vendor/data-objects`, AECI-606).
+ *
+ * This is the closed list `dataObjectRef` above says the dashboard "should offer
+ * rather than a text input in the first place". The picker submits a canonical
+ * `slug`, so the free-text ref stays the wire type — the vocabulary still owns
+ * the matching — but a vendor never has to guess a term.
+ *
+ * **`aliases` is deliberately absent**, and that is the load-bearing exclusion.
+ * The picker sends a slug, which always resolves, so alias matching buys nothing
+ * here; shipping the aliases would invite a client-side match that has to
+ * reimplement `safeSlugify`'s normalization, and a second matcher is exactly the
+ * drift `lib/data-object-vocabulary.ts` was extracted from `promote.ts` to
+ * eliminate. They are also raw curation metadata ("ITB", "P6", "AP") — matching
+ * keys, not translatable copy.
+ *
+ * **`id` is absent** because nothing on this surface takes one (`data_object` on
+ * `CreateVendorClaimSchema` is a slug-or-alias string), and shipping it would
+ * offer a client a second, unvalidated identity path. **`display_order` is
+ * absent** because the array arrives ordered — a client re-sort is the one way
+ * the picker's order could drift from the claim lanes'. (`TaxonomyTermWithCount`
+ * on `./taxonomy.ts` does expose `display_order`; that facet is re-sorted by
+ * several surfaces, this one is not.)
+ *
+ * `description` rides along as the picker's disambiguating hint on a 20-term
+ * list; it is nullable because the column is.
+ */
+export const DataObjectOptionSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+});
+
+export type DataObjectOption = z.infer<typeof DataObjectOptionSchema>;
+
+/**
+ * `GET /api/vendor/data-objects` — the whole frozen vocabulary, ordered by
+ * `display_order` then `slug` (NULLs last), the **same** ordering
+ * `GET /api/vendor/integrations` applies to a claim list, so the picker's rows
+ * and the tab's lanes agree.
+ *
+ * Never paginated: a closed 20-term list. An unseeded vocabulary is an empty
+ * array, not an error — the dashboard degrades the "add a data flow" affordance
+ * rather than failing the whole tab.
+ */
+export const ListDataObjectsResponseSchema = z.object({
+  data_objects: z.array(DataObjectOptionSchema),
+});
+
+export type ListDataObjectsResponse = z.infer<typeof ListDataObjectsResponseSchema>;
+
+// ─── Entity shapes ───────────────────────────────────────────────────────────
+
+/**
+ * One of the caller's own live attestations, per slot. A vendor owning **both**
+ * endpoints of an integration gets two entries — its write fills every slot it
+ * owns (§2.1), which is why this is an array rather than a single object.
+ *
+ * Retracted rows never appear: the read filters `retracted_at IS NULL`, exactly
+ * as the public pair page does.
+ */
+export const VendorOwnAttestationSchema = z.object({
+  slot: VendorAttestationSlotSchema,
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+  introduced_version_id: z.string().uuid().nullable(),
+  deprecated_version_id: z.string().uuid().nullable(),
+  updated_at: z.string().datetime(),
+});
+
+export type VendorOwnAttestation = z.infer<typeof VendorOwnAttestationSchema>;
+
+/**
+ * The counterparty vendor's live position on the claim, deliberately reduced to
+ * stance + note. §6 requires a conflict to be legible from the vendor's side
+ * with the other party's position shown; it does not require — and must not
+ * leak — the counterparty's version stamps or its `attested_by_vendor_id`. The
+ * note is already public on the pair page's provenance disclosure, so surfacing
+ * it here reveals nothing new.
+ *
+ * `null` when the counterparty slot is empty. That silence is the whole point of
+ * `single_source`: absence of an attestation is never rendered as agreement
+ * (`STAGE_2_SPEC.md` §8.1(4)).
+ */
+export const CounterpartyAttestationSchema = z.object({
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+});
+
+export type CounterpartyAttestation = z.infer<typeof CounterpartyAttestationSchema>;
+
+/**
+ * One data-flow claim as its own vendor sees it. `direction` is already
+ * translated into the caller's frame and `agreement` is already computed — the
+ * dashboard renders both verbatim.
+ *
+ * `data_object_slug` / `data_object_name` are flat, matching
+ * `ProductPairClaimSchema`, so the two surfaces read the same way.
+ */
+export const VendorClaimSchema = z.object({
+  id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  /** Relative to `VendorIntegration.context_product`, never to the DB's A/B. */
+  direction: ContextDirectionSchema,
+  agreement: z.enum(AGREEMENT_STATES),
+  origin: ClaimOriginSchema,
+  /** The caller's own live attestations — `[]` when it has not voted. */
+  mine: z.array(VendorOwnAttestationSchema),
+  counterparty: CounterpartyAttestationSchema.nullable(),
+});
+
+export type VendorClaim = z.infer<typeof VendorClaimSchema>;
+
+/**
+ * One integration the caller may attest on, **as filed under ONE of the caller's
+ * products**. `context_product` / `other_product` borrow the pair page's
+ * vocabulary: the context is the caller's own endpoint, and every `direction` on
+ * the claims below is framed against it.
+ *
+ * `slots` is the answer to "which slot is mine" — one entry normally, two when
+ * the caller owns both endpoints. It is never empty: an integration only appears
+ * here because the caller owns at least one endpoint.
+ *
+ * ── `id` IS NOT UNIQUE IN THIS LIST (AECI-666) ──────────────────────────────
+ * The portal files integrations under the product they touch, so an integration
+ * whose endpoints the caller owns BOTH appears **twice** — once framed against
+ * each — with `direction` mirrored between the two. **The key is
+ * `(id, context_product.id)`**; anything tracking or splicing by `id` alone will
+ * collapse or cross-wire the pair.
+ *
+ * The two entries are one *position* viewed from two sides, not two positions:
+ * `slots`, `mine`, `counterparty` and `agreement` are identical on both, because
+ * a write fills every slot the caller owns and §4 dedupes voters by vendor (one
+ * company is one voter however many endpoints it owns). A UI that lets a vendor
+ * act on one of them must say the change applies to the other — `slots.length === 2`
+ * is the test for "this is the shared case".
+ */
+export const VendorIntegrationSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  context_product: ProductLinkSchema,
+  other_product: ProductLinkSchema,
+  slots: z.array(VendorAttestationSlotSchema).min(1),
+  /**
+   * Whether this edge may be attested at all (AECI-705 / §14).
+   *
+   * `false` on a **connector-powered** edge — one carrying
+   * `powered_by_product_id`, or typed `mechanism_kind='iPaaS'` — where neither
+   * endpoint vendor built the plumbing. The row still ships: the vendor's own
+   * public pair page shows the edge, so omitting it from the portal would read as
+   * data loss, and filtering the list would change the scoping predicate the
+   * AECI-627 `integrations` cursor has to match (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   * The client renders it read-only with an explanation instead.
+   *
+   * **The server computes this; the client never re-derives it.** The union
+   * predicate is deliberately non-obvious (see `apps/api/src/lib/connector-powered.ts`),
+   * and a browser-side copy would drift the way the direction helpers once did.
+   *
+   * `.default(true)` for the same reason `sync_headline.single_source` carries
+   * `.default(0)`: the SSR and API Workers deploy per-commit but not atomically,
+   * so this must still parse a response from an API Worker that predates the
+   * field. `true` is what such an API implies — the skew window degrades to
+   * pre-AECI-705 behaviour rather than blanking the tab, and the write is refused
+   * server-side with a 403 regardless.
+   */
+  attestable: z.boolean().default(true),
+  /**
+   * The connector product delivering this edge, when it is itself promoted.
+   *
+   * `null` on the 53-of-132 production edges whose connector is not a promoted
+   * product (Zapier, Workato, n8n, Make, Boomi …) — there the UI falls back to
+   * the free-text `mechanism_name` above. A `ProductLink` rather than a raw
+   * `powered_by_product_id`, per §4.5's "attribution is a display concern".
+   *
+   * Non-null implies `attestable: false`, but the converse does not hold, so read
+   * the flag and never this field for the decision.
+   */
+  powered_by: ProductLinkSchema.nullable().default(null),
+  claims: z.array(VendorClaimSchema),
+});
+
+export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
+
+// ─── GET /api/vendor/integrations ────────────────────────────────────────────
+
+/**
+ * The caller's whole attestable surface. A bare object, **never paginated** —
+ * same posture as `GET /api/vendor/me`'s product list and the product-version
+ * list: the set is bounded by the vendor's own catalog, not by the site's.
+ */
+export const ListVendorIntegrationsResponseSchema = z.object({
+  integrations: z.array(VendorIntegrationSchema),
+});
+
+export type ListVendorIntegrationsResponse = z.infer<typeof ListVendorIntegrationsResponseSchema>;
+
+// ─── POST /api/vendor/claims ─────────────────────────────────────────────────
+
+/**
+ * Create a data-flow claim and the caller's affirming attestation, in one batch.
+ *
+ * `integration_id` is the only client-supplied id that decides authority, and it
+ * is proven against `product_vendors` before anything is read or written — a
+ * miss is a **404**, never a 403.
+ *
+ * There is no `asserted` field: creating a claim IS affirming it. A vendor that
+ * wants to record a denial is denying a claim that already exists, which is what
+ * `PUT` is for.
+ */
+export const CreateVendorClaimSchema = z.object({
+  integration_id: z.string().uuid(),
+  data_object: dataObjectRef,
+  /** Caller-relative. Translated to `a_to_b`/`b_to_a`/`both` server-side. */
+  direction: ContextDirectionSchema,
+  /**
+   * WHICH of the caller's endpoints `direction` is relative to (AECI-666).
+   *
+   * Load-bearing whenever the caller owns **both** endpoints: "outbound" means
+   * opposite things from the two sides, so without this the server has to guess,
+   * and its old guess (endpoint A, "arbitrary, but it has to be something") writes
+   * the *reverse* flow for a vendor authoring from its other product's tab.
+   *
+   * Optional for compatibility — omitted keeps the endpoint-A default, which is
+   * unambiguous for the common case of owning exactly one endpoint. A product the
+   * caller does not own on this integration is a `400`, not a silent re-frame.
+   */
+  context_product_id: z.string().uuid().nullable().optional(),
+  note: attestationNote.nullable().optional(),
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export type CreateVendorClaimInput = z.infer<typeof CreateVendorClaimSchema>;
+
+// ─── PUT /api/vendor/claims/:claimId/attestation ─────────────────────────────
+
+/**
+ * Assert or deny — replace the caller's attestation on every slot it owns.
+ *
+ * **This is a PUT, and the absent-leaves-alone convention of the `/api/vendor/*`
+ * PATCH shapes deliberately does NOT apply.** Supersession is retract-then-insert
+ * (§2.1), so there is no prior row to leave a field alone on: an omitted `note`
+ * or version stamp lands as `null` on the new row. Send the whole position every
+ * time.
+ */
+export const UpsertVendorAttestationSchema = z.object({
+  asserted: z.boolean(),
+  /**
+   * The frame for the ECHO only (AECI-666) — this write carries no direction, so
+   * unlike `CreateVendorClaimSchema` nothing about what is stored depends on it.
+   * It exists so the echoed claim comes back framed against the tab the vendor
+   * acted from, and the client can splice it straight in instead of re-deriving a
+   * frame it already knows. Same 400 rule for a product the caller does not own.
+   */
+  context_product_id: z.string().uuid().nullable().optional(),
+  note: attestationNote.nullable().optional(),
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export type UpsertVendorAttestationInput = z.infer<typeof UpsertVendorAttestationSchema>;
+
+/** `POST` and `PUT` both echo the claim's post-write state, agreement included. */
+export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });
+
+export type VendorClaimResponse = z.infer<typeof VendorClaimResponseSchema>;

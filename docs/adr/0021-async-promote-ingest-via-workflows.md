@@ -1,6 +1,6 @@
 # ADR 0021: Promote ingest runs in a Cloudflare Workflow, keyed by a caller-supplied job ID
 
-**Status:** Accepted (amended 2026-08-13 — the residual at-least-once window is now closed by a D1 job ledger; amended 2026-08-27 — the hook dispatch is now bounded and watchdogged; see the [Amendment](#amendment-2026-08-13--the-promote_jobs-ledger) sections below)
+**Status:** Accepted (amended 2026-08-13 — the residual at-least-once window is now closed by a D1 job ledger; amended 2026-08-27 — the hook dispatch is now bounded and watchdogged; amended 2026-08-31 — a second job kind rides the same binding, and atomicity stops at the page boundary; see the Amendment sections below)
 **Date:** 2026-08-12
 **Context owner:** chrisw@thewbsproject.com
 **Relates to:** AECI-563 (this change), AECI-571 / AECI-666 (the amendments), AECI-561 (epic), AECI-567 / AECI-570 (the review-app half, other repo); narrows ADR 0013's cron→queue posture for a *request*-triggered job; ADR 0016 (D1 has no interactive transactions)
@@ -40,7 +40,7 @@ Three shapes were considered:
 - **The ingest keeps its shape.** The 1,550-line plan-then-batch body is unchanged; only its dependency on Hono's `Context` was narrowed to a four-member `PromoteRunCtx` (`env` / `waitUntil` / `request` / `bookmark`). All five post-commit seams are untouched.
 - **Post-commit hooks stay fire-and-forget** (`ctx.waitUntil`: audit forwards, cache purge, Algolia, IndexNow, Google Indexing, home-stats), dispatched from `run()` *after* the step resolves rather than inside it — so a step replay cannot re-fire them, and the job reaches `complete` the moment the batch commits. The poller gets its IDs without waiting on Algolia or Cloudflare. **Fire-and-forget is not fire-and-ignore** — see the [2026-08-27 amendment](#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for the connection budget the dispatch must respect and the watchdog that keeps one wedged hook from killing the rest.
 - **Oversize bundles stage in KV.** Workflow event params cap at 1 MiB; above 512 KiB the validated payload goes to `promote:payload:{jobId}` (24h) and the params carry `payloadRef: 'kv'`. The committed ID map is also mirrored to `promote:result:{jobId}` (90 days) so the IDs outlive the 30-day instance retention. Both key spaces live in `apps/api/src/lib/promote-jobs.ts`.
-- **Job-level observability.** `aeci.api.promote.kickoff`, `aeci.api.promote.job`, `aeci.api.promote.job.duration_ms`, plus an explicit `aeci.api.promote.job_failed` error log from the Workflow. Necessary, not decorative: `aeci.api.query.duration_ms{endpoint:/api/promote}` now times only the kick-off, and a Workflow failure never passes through the router's `errorHandler`, so without the log `REVIEW_APP_PROMOTE_API.md` §6.3's "every rejected promote is in Datadog" would quietly stop holding.
+- **Job-level observability.** `aeci.api.promote.kickoff`, `aeci.api.promote.job`, `aeci.api.promote.job.duration_ms`, plus an explicit `aeci.api.promote.job_failed` error log from the Workflow. Necessary, not decorative: `aeci.api.query.duration_ms{endpoint:/api/promote}` now times only the kick-off, and a Workflow failure never passes through the router's `errorHandler`, so without the log `REVIEW_APP_PROMOTE_API.md` §6.3's "every rejected promote is logged" would quietly stop holding. *(That guarantee is vendor-independent and must survive the ADR 0024 Datadog → PostHog swap — it is item 7 of the migration's verification checklist.)*
 
 **Hard cutover, no dual mode.** There is no opt-in flag and no synchronous fallback: `POST /api/promote` always returns `202`. Two shapes for one endpoint would have to be maintained, documented, and tested in both directions for the life of the transition, and the sync path is precisely the thing being removed. The cost is a coordinated release — see Consequences.
 
@@ -145,13 +145,14 @@ The decision above stands. What it did not specify — and what production then 
 — is *how many connections* the fire-and-forget tail is allowed to open at once.
 
 **What happened.** `dispatchPromoteHooks` handed every transport to `waitUntil`
-simultaneously, and the §26.5 audit forwards issued one Datadog request **per
-`audit_log` row**. Four of those transports (Datadog, Cloudflare purge, IndexNow,
-Google Indexing) also never read their success-path response body, so each held its
-connection until garbage collection. A Worker invocation may hold only a bounded
-number of open connections; past that the runtime cancels the stalled responses to
-break the deadlock, and **a cancelled `fetch` returns a promise that never settles** —
-neither resolve nor reject, so each transport's own `catch` never fired.
+simultaneously, and the §26.5 audit forwards issued one request **per `audit_log`
+row**. Several of
+those transports also never read their success-path response body, so each held
+its connection until garbage collection. A Worker invocation may hold only a
+bounded number of open connections; past that the runtime cancels the stalled
+responses to break the deadlock, and **a cancelled `fetch` returns a promise that
+never settles** — neither resolve nor reject, so each transport's own `catch`
+never fired.
 
 Measured on production during a 63-promote backfill (2026-08-26 22:50–23:20 UTC):
 745 `"A stalled HTTP response was canceled to prevent deadlock"` warnings, 1–77 per
@@ -166,17 +167,27 @@ tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Sile
 1. **Every transport releases its response body** on every path
    (`discardResponseBody`, `packages/shared/src/response-drain.ts`). This is the
    actual fix — an unread body is what holds the connection.
-2. **The audit forwards are one request, not N** (`logBatchToDatadog`). The v2 logs
-   intake accepts an array; the per-entry loop was the only hook whose request count
-   scaled with bundle size.
-3. **Google Indexing publishes in waves of 6** rather than opening up to 100
-   connections at once — it has no batch endpoint, so bounding concurrency is the
-   only lever.
-4. **Each hook is dispatched behind a 20s watchdog** (`dispatchHook`). A hook that
+2. **The audit forwards are one request, not N** — `logBatchToPosthog`
+   (`apps/api/src/posthog.ts`). OTLP's `logRecords` accepts an array; the
+   per-entry loop was the only hook whose request count scaled with bundle size. The
+   same treatment applies to the other two per-entry loops on this branch,
+   `lib/attestation-notify.ts` and `routes/vendor-shared.ts`.
+3. **Google Indexing publishes in bounded waves** rather than opening up to 100
+   connections at once — it has no batch endpoint, so bounding concurrency
+   (`mapWithConcurrency`, `packages/shared/src/concurrency.ts`) is the only lever.
+4. **The cache purge enqueues via one `queue.sendBatch()`**, not a concurrent
+   `send()` per batch. A Queue producer call counts against the same budget as
+   `fetch`. Latent today — `CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote's tag
+   set is one batch — but the shape is the rule, and it stops being latent if that
+   cap moves. See ADR 0020 §3.
+5. **Each hook is dispatched behind a 20s watchdog** (`dispatchHook`). A hook that
    never settles is abandoned with a `console.warn` instead of wedging `waitUntil`
    until the runtime kills the invocation. Losing one hook is survivable; losing the
    invocation takes every *other* in-flight hook with it, which is what turned a
-   transport bug into a silent outage.
+   transport bug into a silent outage. **20s, not 30s:** `waitUntil` is documented to
+   extend execution for *up to* 30s after the response, so a 30s watchdog races the
+   platform tearing the invocation down and the warning — the whole point of it —
+   might never be emitted.
 
 **The rule this establishes.** Any code that fans out `fetch` from a single
 invocation must (a) release bodies it does not read, and (b) prefer one batched
@@ -184,17 +195,68 @@ request over N concurrent ones — falling back to
 `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` only when the upstream
 has no batch endpoint. Recorded as a non-negotiable constraint in `CLAUDE.md`.
 
-**The same defect existed outside the promote path** and was fixed in the same
-change: `lib/email.ts` (Resend — leaked on *both* branches, so a digest cron
-sending a run of emails was exposed), `lib/toxicity.ts` (the non-2xx branch),
-and `lib/supabase-admin.ts` — where `fetchAuthUserEmails` was additionally a bare
-`Promise.all` of one GoTrue GET per reviewer id, scaling with the admin
-moderation page size. That one was the promote bug in miniature, on a surface
-nobody had connected to it.
+**AECI-651 halved this cost again.** While ADR 0024's dual-run was live every log
+line and every metric point was two connections; deleting the Datadog leg makes one
+emission one connection. The budget is still a budget, and the batched senders stay
+— they are why a fat bundle fits inside it at all.
 
-**Still open.** The promote path issues ~20 further Datadog requests per run from
-individual `submitCount` / `logToDatadog` call sites. With bodies drained these queue
-harmlessly rather than deadlocking, but coalescing them into a per-invocation buffer
-flushed once would cut the tail's request count by an order of magnitude. Deferred —
-it changes the transport's contract for both Workers and was not needed to close the
-incident.
+**The same defect existed outside the promote path** and was fixed in the same
+change: `lib/email.ts` (both Resend senders), `lib/toxicity.ts`,
+`lib/algolia-orphan-purge.ts` (including a poll loop that could park 20 held
+connections in one invocation), `lib/data-quality.ts`,
+`apps/datatool/src/algolia-reindex.ts`, and `lib/supabase-admin.ts` — where
+`fetchAuthUserEmails` and `fetchAuthAccountsByEmail` were bare `Promise.all`s of one
+GoTrue GET per id, the latter bounded only by the admin page size of 100. Those were
+the promote bug in miniature, on surfaces nobody had connected to it.
+
+**Still open.** The promote path issues ~20 further telemetry requests per run from
+individual `submitCount` / `logToPosthog` call sites — doubled again by the dual-run.
+With bodies drained these queue harmlessly rather than deadlocking, but coalescing
+them into a per-invocation buffer flushed once would cut the tail's request count by
+an order of magnitude. Deferred — it changes the transport's contract for both
+Workers and was not needed to close the incident.
+
+## Amendment 2026-08-31 — a second job kind, and where atomicity stops (AECI-714)
+
+Everything above continues to hold **per job**. This records a second arm on the same
+protocol and, more importantly, the one guarantee it deliberately does not extend.
+
+**What was added.** `POST /api/promote/connector-catalog` sends one **page** of one connector
+catalogue. It reuses this ADR wholesale — the same `PROMOTE_WORKFLOW` binding, the same
+`PROMOTE_KV` staging and result mirror, the same single non-retried `commit-promote` step, the
+same `promote_jobs` ledger-first batch, the same `GET /api/promote/jobs/:id` poll, the same
+`NonRetryableError(message, code)` conversion. `PromoteWorkflowParams` became a discriminated
+union whose `kind` is **absent** for the product arm, so instances created before this
+amendment and still inside their 30-day retention window keep replaying as product promotes.
+The one place "the same staging" is *not* the same is validation: the read-back parses against
+the arm's own schema, selected off `kind`, because the spill runs before the arm branches and a
+staged connector page put through `PromotePayloadSchema` dies on its `superRefine` as an opaque
+`INTERNAL_ERROR` (AECI-733 — latent until AECI-731 sends a page carrying fetched `actions`
+blobs, which is what trips the 512 KiB threshold).
+**No `wrangler.jsonc` change was needed in any environment**, which is the whole reason for
+one Workflow class rather than two.
+
+**Where atomicity stops, and why that is a decision rather than a gap.** A catalogue is ~3,573
+rows today and ~15k once Zapier lands. It cannot be one transaction — D1 has none to offer,
+and one `promote_jobs` row protects one commit, not N. So a catalogue sync is a *sequence* of
+independent jobs, and the cross-page property is **idempotence rather than atomicity**:
+
+- every statement the connector planner emits is an upsert keyed on the review app's own
+  record id, which is also the app-DB primary key (see `DATABASE_SCHEMA.md` §9a for why that
+  key choice is forced rather than convenient);
+- a page re-sent with nothing changed emits **zero** statements and writes **no** audit row;
+- a half-finished catalogue sync is therefore always safe to re-run from page one, and a
+  dangling reference between pages is reported in `skipped[]` and re-sendable rather than
+  fatal.
+
+The product arm's guarantee is unchanged and must stay unchanged: its writes are **not**
+idempotent by construction — a create with no `supabaseId` mints a new row — which is exactly
+why the ledger PK exists there and why the commit step must never be auto-retried.
+
+**Post-commit hooks: two, not seven.** The connector arm dispatches only the §26.5 audit
+forward and the skip report. No Algolia sync, no IndexNow, no Google Indexing, no home-stats
+refresh, and no cache purge — `STAGE_1_5_SPEC.md` §13.5 is categorical that reachable data
+never counts anywhere, and no cacheable route depends on these rows until AECI-715/716. The
+absence is asserted by a source guard in `routes/promote-connector.spec.ts` rather than by a
+spy, because the thing worth preventing is a future refactor wiring this arm into
+`dispatchPromoteHooks` wholesale.

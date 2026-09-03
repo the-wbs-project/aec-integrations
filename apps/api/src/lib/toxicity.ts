@@ -39,12 +39,13 @@
  */
 
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 
 /**
  * Minimal context shape `scoreToxicity` needs: env (for the key) plus the
- * Datadog logging triple (`executionCtx`, `env`, `req.raw`). Typed structurally
+ * telemetry logging triple (`executionCtx`, `env`, `req.raw`). Typed structurally
  * rather than as `Context<{ Bindings: Env }>` so the handler's richer
  * `AuthContext` (which carries `Variables`) is assignable — Hono's `Context` is
  * invariant on its generic, so the nominal form would not accept it.
@@ -172,7 +173,7 @@ function isTimeoutError(err: unknown): boolean {
  * Emit the toxicity-scoring observability pair (AECI-206 / Phase 5.15, repointed
  * to Anthropic by AECI-258): the `aeci.toxicity.api` outcome count (the
  * error-rate / outage signal) and the `aeci.toxicity.api.duration_ms` latency
- * distribution. Wrapped so a missing `DD_API_KEY` / ExecutionContext can never
+ * distribution. Wrapped so a missing `POSTHOG_PROJECT_KEY` / ExecutionContext can never
  * turn a graceful `null` into a throw (same ethos as `warn`). `reason` tags the
  * failure cause; success omits it.
  */
@@ -199,12 +200,12 @@ function emitToxicity(
   }
 }
 
-/** Best-effort `warn` to Datadog; wrapped so a missing ExecutionContext (test
- *  harness) or absent `DD_API_KEY` can never turn a graceful `null` into a throw
+/** Best-effort `warn` to the observability plane; wrapped so a missing ExecutionContext (test
+ *  harness) or absent `POSTHOG_PROJECT_KEY` can never turn a graceful `null` into a throw
  *  (mirrors `reportMissingVendors` in `handler-utils.ts`). */
 function warn(c: ScoreContext, message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message,
       source: 'toxicity',

@@ -9,9 +9,12 @@
  * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
  *
- * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, and by AECI-586
- * with the Audience pair. Every read endpoint the epic adds belongs in
- * {@link ROUTES} — that is the point of the file.
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
+ * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, and
+ * by AECI-722 with the five `/api/admin/connector-catalogs` reads, and by
+ * AECI-739 with `GET /api/admin/claims/:id`.
+ * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
+ * of the file.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
@@ -25,7 +28,7 @@
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { profiles } from '../db/schema';
+import { connectorCatalogs, products, profiles, vendorRequests, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -34,12 +37,26 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
+import { createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
 import { createAdminSystemHandler } from './admin-system';
+import {
+  createAdminConnectorAuditHandler,
+  createAdminConnectorCatalogDetailHandler,
+  createAdminConnectorCatalogsListHandler,
+  createAdminConnectorPairsHandler,
+  createAdminConnectorStubsHandler,
+} from './admin-connectors';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
+import {
+  createAdminVendorAuditHandler,
+  createAdminVendorDetailHandler,
+  createAdminVendorsListHandler,
+} from './admin-vendors';
+import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -48,6 +65,19 @@ const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}
 const REVIEWER = u(900);
 const ADMIN = u(901);
 const ADMIN_BANNED = u(902);
+/** A real vendor row, because the two `/api/admin/vendors/:id` routes 404 on an
+ *  unknown id — and this file asserts **200** for an admin, so an empty `vendors`
+ *  table would fail the matrix for a reason that has nothing to do with the gate. */
+const VENDOR = u(950);
+/** A real product + catalogue, for the same reason `VENDOR` exists: the four
+ *  `/api/admin/connector-catalogs/:id*` routes 404 on an unknown id, and this
+ *  file asserts **200** for an admin. `connector_product_id` is NOT NULL with an
+ *  FK, and the handlers inner-join `products`, so the product has to be real too. */
+const CONNECTOR_PRODUCT = u(960);
+const CATALOG = 'authz-matrix-catalog';
+// AECI-739. The claim detail 404s on an unknown id and this matrix asserts 200
+// for an admin, so it addresses a SEEDED claim.
+const CLAIM = u(970);
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
@@ -74,6 +104,45 @@ const ROUTES = [
     url: '/api/admin/audience?from=2026-08-10&to=2026-08-10',
   },
   { name: 'GET /api/admin/feedback', url: '/api/admin/feedback' },
+  // AECI-652 — the §5.6 vendor surface. The DELETE is covered by
+  // `admin-vendors.spec.ts` instead: this file is `get()`-shaped, and a write
+  // route belongs with the rest of its write semantics.
+  { name: 'GET /api/admin/vendors', url: '/api/admin/vendors' },
+  { name: 'GET /api/admin/vendors/:id', url: `/api/admin/vendors/${VENDOR}` },
+  { name: 'GET /api/admin/vendors/:id/audit', url: `/api/admin/vendors/${VENDOR}/audit` },
+  // AECI-692 — the §5.8 user surface. Two reads; ban/reinstate is not here at
+  // all, it reuses `PATCH /api/admin/reviewers/:id` unchanged, so this file
+  // stays `get()`-shaped. The detail 404s on an unknown id and this matrix
+  // asserts 200 for an admin, so it addresses a SEEDED profile — REVIEWER, who
+  // exists for the deny cases anyway.
+  { name: 'GET /api/admin/users', url: '/api/admin/users' },
+  { name: 'GET /api/admin/users/:id', url: `/api/admin/users/${REVIEWER}` },
+  // AECI-722 — the §5.9 connector surface. FIVE reads and no write: the
+  // `managed_by` flip is AECI-720's PATCH, covered by
+  // `admin-connector-catalogs.spec.ts` with the rest of its write semantics, so
+  // this file stays `get()`-shaped.
+  { name: 'GET /api/admin/connector-catalogs', url: '/api/admin/connector-catalogs' },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id',
+    url: `/api/admin/connector-catalogs/${CATALOG}`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/stubs',
+    url: `/api/admin/connector-catalogs/${CATALOG}/stubs`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/pairs',
+    url: `/api/admin/connector-catalogs/${CATALOG}/pairs`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/audit',
+    url: `/api/admin/connector-catalogs/${CATALOG}/audit`,
+  },
+  // AECI-739 — the §5.2 claim detail. ONE read; `PATCH …/:id/notes` is not here
+  // at all, for the same reason the vendor DELETE and the AECI-720 PATCH are
+  // not: this file is `get()`-shaped, and a write belongs with the rest of its
+  // write semantics (`admin-claims.spec.ts`).
+  { name: 'GET /api/admin/claims/:id', url: `/api/admin/claims/${CLAIM}` },
 ] as const;
 
 let jwks: TestJwks;
@@ -85,6 +154,25 @@ const tokenFor = (sub: string) => jwks.mintToken({ sub, supabaseUrl: SUPABASE_UR
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
+  await t.db
+    .insert(vendors)
+    .values({ id: VENDOR, slug: 'authz-matrix-vendor', companyName: 'Authz Matrix Vendor' });
+  await t.db.insert(products).values({
+    id: CONNECTOR_PRODUCT,
+    slug: 'authz-matrix-connector',
+    name: 'Authz Matrix Connector',
+  });
+  await t.db
+    .insert(connectorCatalogs)
+    .values({ id: CATALOG, connectorProductId: CONNECTOR_PRODUCT });
+  await t.db.insert(vendorRequests).values({
+    id: CLAIM,
+    kind: 'claim',
+    targetType: 'vendor',
+    targetId: VENDOR,
+    submitterEmail: 'authz-matrix@vendor.test',
+    body: 'Authz matrix claim.',
+  });
   await t.db.insert(profiles).values([
     { id: REVIEWER, role: 'reviewer' },
     { id: ADMIN, role: 'admin' },
@@ -122,6 +210,80 @@ function makeApp() {
   app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   app.get('/api/admin/audience', requireAdmin(guard), createAdminAudienceHandler(t.factory, clock));
   app.get('/api/admin/feedback', requireAdmin(guard), createAdminFeedbackHandler(t.factory, clock));
+  // The vendor reads take no clock; the detail/audit handlers take the email seam
+  // second, and its default would reach GoTrue. Stub it — this file is about the
+  // gate, not the seam.
+  const noEmails = async () => ({
+    available: true,
+    emails: new Map<string, string>(),
+    reason: 'ok' as const,
+  });
+  app.get('/api/admin/vendors', requireAdmin(guard), createAdminVendorsListHandler(t.factory));
+  app.get(
+    '/api/admin/vendors/:id',
+    requireAdmin(guard),
+    createAdminVendorDetailHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/vendors/:id/audit',
+    requireAdmin(guard),
+    createAdminVendorAuditHandler(t.factory, noEmails),
+  );
+  // AECI-692. Same reasoning as `noEmails`: the record seam's default would
+  // reach GoTrue, and `available: true` with an empty map is the "seam up, no
+  // account" branch — the cheapest one that still 200s.
+  const noRecords = async () => ({
+    available: true,
+    records: new Map<string, never>(),
+    reason: 'ok' as const,
+  });
+  app.get(
+    '/api/admin/users',
+    requireAdmin(guard),
+    createAdminUsersListHandler(t.factory, noRecords),
+  );
+  app.get(
+    '/api/admin/users/:id',
+    requireAdmin(guard),
+    createAdminUserDetailHandler(t.factory, noRecords),
+  );
+  // AECI-722. The list, stubs and pairs handlers take only the db factory; the
+  // detail and audit handlers take the email seam second, so they get `noEmails`
+  // for the same reason the vendor reads do.
+  app.get(
+    '/api/admin/connector-catalogs',
+    requireAdmin(guard),
+    createAdminConnectorCatalogsListHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id',
+    requireAdmin(guard),
+    createAdminConnectorCatalogDetailHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/stubs',
+    requireAdmin(guard),
+    createAdminConnectorStubsHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/pairs',
+    requireAdmin(guard),
+    createAdminConnectorPairsHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/audit',
+    requireAdmin(guard),
+    createAdminConnectorAuditHandler(t.factory, noEmails),
+  );
+  // AECI-739. The claim detail's second argument is the GoTrue `has_auth_account`
+  // seam, whose default would reach out; an empty map is the "seam up, no
+  // account" branch, which is the cheapest one that still 200s.
+  const noAuthAccounts = async () => new Map<string, boolean>();
+  app.get(
+    '/api/admin/claims/:id',
+    requireAdmin(guard),
+    createAdminClaimDetailHandler(t.factory, noAuthAccounts),
+  );
   return app;
 }
 

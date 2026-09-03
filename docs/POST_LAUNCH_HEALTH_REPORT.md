@@ -21,16 +21,17 @@ nil-to-negligible. The value is a known zero to accrue against.
 | Signal | Status | Source |
 |---|---|---|
 | Worker error rate / APM | ✅ live | `aeci.api.query.duration_ms`, SSR error logs |
-| Edge cache hit rate + render latency | ✅ live | `aeci.page.render.duration_ms{cache_status}` |
-| 11 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors (**absence**); `job_runs` + `/admin/system` (**the record**). The eleventh (`asn-registry`, AECI-624) is **weekly**, so a no-data monitor on it needs a ≥2-week window |
+| Edge cache hit rate + render latency | ⚠️ split (WC-8) | render latency (MISS) `aeci.page.render.duration_ms{cache_status:miss}`; **edge hit-rate moved off Datadog** to the Cloudflare Workers observability dashboard + `Cf-Cache-Status` (a native-cache HIT skips the Worker; AECI-322) |
+| 13 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + the AECI-647 external CI liveness sweep (**absence** — PostHog has no `notify_no_data`); `job_runs` + `/admin/system` (**the record**, unchanged). The thirteenth (`asn-registry`, AECI-624) arrived with the AECI-750 reconcile and is **weekly**, so the sweep's window had to widen to 15 days for it (`observability/posthog/project-config.json`) |
 | Moderation queue depth / age | ✅ live | `aeci.moderation.queue_*`, `/api/admin/*` |
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
 | Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |
 | Server pageviews / entry pages | ✅ live | `page_views` D1 via the admin panel's read endpoints (`API_CONTRACTS.md` §6.10) |
 | Whether a "human" page view really is one | ⚠️ **partial, and now says so out loud** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic. Since **AECI-683** the digest and `/admin/overview` print a **corroborated floor** (named external referrer) beside the upper and lower bounds, and report what the operator-pair retro-join removed. On the one day decomposed so far, the honest figure was **8 views / 7 visitors against a headline of 102** — so this row is closer to answered than it has ever been, and the answer is that the headline is roughly an order of magnitude high. **AECI-743** then found the floor itself could be inflated by a double-fire — one arrival written twice — fixed at ingest from 2026-09-01, with two published days corrected in the entry below |
-| Algolia query latency / error rate | ⚠️ live but low-sample | browser RUM `aeci.search.query` |
-| **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12 |
-| **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12 |
+| Algolia query latency / error rate | ⚠️ live but low-sample, **and narrowing** | browser RUM `aeci.search.query` — **retiring** (ADR 0024 §3.9): `status` / `duration_ms` / `results_bucket` fold into the `search_performed` PostHog event, which is on the **consented** slice, where the RUM action saw every search |
+| **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12. Since **AECI-640** the `phc_` token is a committed wrangler var, not a secret — there is no provisioning step left to fail. Production is the only tier on project 354071 |
+| **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12. **Dual-run (ADR 0024):** PostHog `$web_vitals` is the successor and covers a *wider* sample (Tier 2 anonymous slice — every visitor, DNT/GPC included); Datadog RUM is deleted at AECI-651 |
+| **Error tracking** (browser exceptions) | ⚠️ **not yet capturing** | PostHog error tracking is an **operator toggle that is still off on both projects** — a provisioning gap, not a code gap. Source maps already upload before every deploy (AECI-646) |
 
 ---
 
@@ -46,7 +47,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 **Edge cache hit rate:** <%; per route_class notes>
 **Render latency:** <p95 detail MISS>
 **Algolia:** <query p95 + error rate; sync outcome; drift>
-**Scheduled crons:** <all 10 green on `/admin/system`? any missed heartbeat / failure in Datadog>
+**Scheduled crons:** <all 10 green on `/admin/system`? any missed heartbeat / failure in the alerting console — Datadog today, PostHog + the CI liveness sweep after AECI-651>
 **Request→Linear + moderation:** <pipeline failure rate; stuck; HMAC; queue depth + oldest age>
 **Core Web Vitals (field):** <p75 LCP / CLS / INP per page type vs §12 — or "blocked, RUM dark">
 **Traffic / signups:** <weekly visitors (PostHog); mailing_list count; top entry pages>

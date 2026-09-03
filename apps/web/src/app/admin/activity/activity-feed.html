@@ -113,13 +113,13 @@
     </div>
 
     <div class="flex flex-wrap items-end gap-x-6 gap-y-3">
-      <aec-admin-select
+      <aec-select
         [label]="sourceLabel"
         [options]="sourceOptions()"
         [value]="source()"
         (changed)="setSource($event)"
       />
-      <aec-admin-select
+      <aec-select
         [label]="countryLabel"
         [options]="countryOptions()"
         [value]="country()"

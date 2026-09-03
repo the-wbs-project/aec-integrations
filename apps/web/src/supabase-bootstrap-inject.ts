@@ -1,7 +1,6 @@
 /**
  * Injects the public Supabase auth config `<script>` into the SSR HTML
- * response (AECI-194 / Phase 5.3). Mirrors `algolia-bootstrap-inject.ts` (and
- * transitively `server-bootstrap-inject.ts`, the Datadog RUM bootstrap)
+ * response (AECI-194 / Phase 5.3). Mirrors `algolia-bootstrap-inject.ts`
  * exactly — same status / content-type / `</head>` / content-length guards.
  *
  * The login page's browser Supabase client (`@supabase/ssr`

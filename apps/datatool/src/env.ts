@@ -3,9 +3,11 @@
  *
  * This Worker is unusual: it binds ALL FOUR remote D1 databases at once (the
  * whole point — copy/seed any env from one place). Everything optional-secret is
- * graceful-skip: a missing Algolia/CF-purge key degrades the post-write refresh,
- * never the D1 write itself.
+ * graceful-skip: a missing Algolia key or unbound cache-purge queue degrades the
+ * post-write refresh, never the D1 write itself.
  */
+import type { CachePurgeMessage } from '@aeci/shared/cache-purge';
+
 export type Env = {
   // ── D1: the four remote application databases (ADR 0016), one per deploy tier
   //    (preview → staging → demo → production; docs/environments.md). A deployed
@@ -16,6 +18,19 @@ export type Env = {
   DB_STAGING: D1Database;
   DB_DEMO: D1Database;
   DB_PRODUCTION: D1Database;
+
+  // ── Cache-purge queue producers (WC-7 / AECI-321) ───────────────────────────
+  //    One producer per CACHEABLE tier, bound to that tier's own
+  //    `aeci-cache-purge-{env}` Queue (WC-5 / AECI-319). After a copy/seed/reindex
+  //    the datatool enqueues a `{ purgeEverything: true, source: 'datatool' }`
+  //    message that the TARGET tier's SSR Worker consumes (`ctx.cache.purge()`),
+  //    so a purge evicts only that tier's own Workers Cache — no cross-tier bleed.
+  //    There is intentionally NO `preview` producer: preview is `*.workers.dev`
+  //    with no edge cache and no `aeci-cache-purge-preview` queue, so a preview
+  //    (or unbound) target is a graceful no-op. See `cache-purge.ts` / `targets.ts`.
+  CACHE_PURGE_QUEUE_STAGING?: Queue<CachePurgeMessage>;
+  CACHE_PURGE_QUEUE_DEMO?: Queue<CachePurgeMessage>;
+  CACHE_PURGE_QUEUE_PRODUCTION?: Queue<CachePurgeMessage>;
 
   // ── Vars (plain, public) ────────────────────────────────────────────────────
   /** `tool` for this Worker (not a deployment tier). */
@@ -37,13 +52,11 @@ export type Env = {
    *  available. Compared constant-time. Absent → only the Access JWT authenticates. */
   TOOL_TOKEN?: string;
 
-  // NOTE: the Algolia + cache-purge credentials below are SINGLE shared secrets,
-  // not per-env. One Algolia app backs every tier (its admin key reaches all
-  // `{env}_*` indexes), and staging/demo/production all live on the one
-  // `aecintegrations.com` Cloudflare zone — the same values the apps/api + apps/web
-  // Workers receive from the un-suffixed `ALGOLIA_*` / `CF_*` GitHub secrets. Only
-  // the Algolia index PREFIX differs per env, and that's derived from `algoliaEnv`
-  // in targets.ts — not from a per-env key.
+  // NOTE: the Algolia credentials below are a SINGLE shared secret, not per-env.
+  // One Algolia app backs every tier (its admin key reaches all `{env}_*` indexes)
+  // — the same value the apps/api + apps/web Workers receive from the un-suffixed
+  // `ALGOLIA_*` GitHub secret. Only the Algolia index PREFIX differs per env, and
+  // that's derived from `algoliaEnv` in targets.ts — not from a per-env key.
 
   /** Algolia application id — one app across all envs (index prefixes differ). */
   ALGOLIA_APP_ID?: string;
@@ -51,11 +64,4 @@ export type Env = {
    *  reindex. One app's admin key reaches every `{env}_*` index, so it's shared.
    *  Absent → reindex is a graceful skip. */
   ALGOLIA_ADMIN_KEY?: string;
-
-  /** Cloudflare API token scoped to `Zone.Cache Purge`, for the post-write edge-
-   *  cache purge. Shared — all purgeable tiers are on the one zone. Absent →
-   *  purge is a graceful skip. */
-  CF_PURGE_API_TOKEN?: string;
-  /** The single `aecintegrations.com` Cloudflare zone id the purge targets (public). */
-  CF_ZONE_ID?: string;
 };

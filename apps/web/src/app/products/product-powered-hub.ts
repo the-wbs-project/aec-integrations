@@ -39,7 +39,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  *
  * Every row links the canonical product-PAIR page for its pair
  * (`defaultIntegrationContext` picks the context slug, matching
- * `IntegrationCard` / `IntegrationTile` / the `/integrations/:id` 301 target, so
+ * `IntegrationTile` / the `/integrations/:id` 301 target, so
  * we never link the redirecting orientation), where the mechanism cards —
  * including this connector's own "Powered by" byline — live. One link per row,
  * so there is no stretched-link overlay to manage: the partner's own product

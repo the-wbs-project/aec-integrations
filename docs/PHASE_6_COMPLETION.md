@@ -22,7 +22,7 @@ This is the "Phase 6 is Done" gate. Like the Phase 2/3/4/5 gates it **surfaces**
 | Gate | Result |
 |------|--------|
 | `pnpm typecheck` (shared, api, datatool — web excluded by design, no web code changed) | ✅ exit 0 |
-| `pnpm lint` (ESLint ×5 packages + `check-logical-properties` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
+| `pnpm lint` (ESLint ×5 packages + `check-source-constraints` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
 | `pnpm test` (unit + integration) | ✅ **api 573** (60 files) · **shared 272** (21 files) · **web 576** (86 files) · web integration: no files |
 | `ng extract-i18n` (verification only — **not** committed) | ✅ exit 0 · **770 messages → 724 trans-units** · committed `src/locale/messages.xlf` untouched · ⚠️ 4 pre-existing duplicate-id warnings (see §F3) |
 | `grep -rin "slack\|n8n"` over `apps/ packages/ .github/` | ✅ no live wiring — only historical "dropped" comments (one stale `n8n` comment fixed, §4.2) |
@@ -87,6 +87,8 @@ Now that the site→Linear sync is wired (§4.1), an admin resolve/reject writes
 `ng extract-i18n` reports 4 duplicate-message warnings where the same `@@id` is reused across templates with **whitespace-different** source text (the extractor dedupes to the first source): `admin.shell.eyebrow` and `admin.shell.nav.reviewers` (admin-shell vs. nav-menu/user-menu — Phase 6 admin nav), `listing.filters.title` (facet-sidebar, Phase 3), and `app.header.account` (nav-menu vs. user-menu, Phase 5). These are benign **intentional label reuse** (same translation, incidental template padding), not new Phase 6 build defects, and extraction still exits 0. The Phase 5 gate fixed analogous warnings by giving distinct contexts distinct ids (`PHASE_5_COMPLETION.md` §4.2); the same treatment (or an explicit "reuse is intentional" decision) would clear these. Punt for Chris to file — touching `nav-menu.ts`/`user-menu.ts`/`admin-shell.ts`/`facet-sidebar.ts` templates is its own UI change with its own design/axe pass.
 
 > **Update — header "More" menu restructure.** Two of the four are now resolved as a side effect: `admin.shell.eyebrow` and `admin.shell.nav.reviewers` no longer collide, because the admin link set moved into one shared `$localize` array (`admin/admin-nav.ts`) that both the shell and the header's "More" menu render. The same change reused the `@@app.footer.*` ids for the More menu's Legal/Company links and pre-empted seven new collisions by applying the documented tight `<ng-container i18n>` wrap in `site-footer.ts`. **Two warnings remain**: `listing.filters.title` (facet-sidebar) and `app.header.account` (nav-menu vs. user-menu). Extraction still exits 0.
+>
+> *Later note (kept for the record, not corrected above): the header "More" menu described here was retired and its destinations moved to the footer, with `/admin` reduced to a single "Admin portal" door in the account menu. The i18n outcome is unchanged — the shared-id and tight-`<ng-container i18n>`-wrap conventions this update established are exactly what let those links move between surfaces without a collision. See `DESIGN.md` §Navigation → The Overflow Rule.*
 
 ### Not a defect — deferred items are spec'd, not missed
 

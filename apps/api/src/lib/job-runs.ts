@@ -329,6 +329,39 @@ export type JobRunDetail =
       window: { fromDay: string; toDay: string };
       missingCount: number;
       missingDays: string[];
+    }
+  /** The Stage 2 §7 detector sweep (AECI-302), which became a first-class cron at
+   *  the AECI-619 reconciliation. `failed` counts per-nudge send failures and does
+   *  NOT make the run `failed` — the sweep is fail-open, and a Resend hiccup on one
+   *  recipient is not a failed sweep. `capped` non-zero means `NOTIFY_BATCH_CAP`
+   *  stopped the run short and the next day continues the backlog. */
+  | {
+      job: 'attestation-notify';
+      found: number;
+      sent: number;
+      suppressed: number;
+      failed: number;
+      skipped: number;
+      capped: number;
+    }
+  /** The Stage 2 §7 term-expiry warning sweep (AECI-613). `due` is terms inside
+   *  the horizon BEFORE the `expiry_notice_sent_at` fence and `suppressed` is what
+   *  the fence removed — the pair is what makes "one notice per term" auditable
+   *  from the row alone. `warned` counts terms that got a delivered notice AND a
+   *  stamped fence. Per-channel outcomes are recorded because a deployed tier
+   *  reporting `vendor.skipped` is a real finding (no `SUPABASE_SERVICE_ROLE_KEY`,
+   *  or no unbanned seat) while on preview it is the expected state. Nothing here
+   *  reports a status change, because the job never makes one (§7.3). */
+  | {
+      job: 'entitlement-expiry';
+      due: number;
+      suppressed: number;
+      malformed: number;
+      capped: number;
+      warned: number;
+      batchFailures: number;
+      vendor: { sent: number; failed: number; skipped: number };
+      admin: { sent: number; failed: number; skipped: number };
     };
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
@@ -457,7 +490,7 @@ export async function finishJobRun(
  *
  * 1. the entry row is AWAITED before `run()` is invoked, so a run the isolate
  *    never returns from leaves an unfinished row;
- * 2. `run()`'s own report decides `ok` / `failed` / `skipped`. The nine cron
+ * 2. `run()`'s own report decides `ok` / `failed` / `skipped`. The cron
  *    impls swallow their operational errors and return normally, so a naive
  *    try/catch here would record `ok` for a run that failed;
  * 3. a THROWN handler is recorded `failed` and **rethrown** — `runReconcileJob`
@@ -465,7 +498,7 @@ export async function finishJobRun(
  *    `retry()`s, and bookkeeping must not swallow that. Note the converse, which
  *    is load-bearing: a *reported* `outcome: 'failed'` does NOT throw and so does
  *    NOT trigger a retry. Instrumenting must not widen the retry surface from the
- *    one job that has it today to all ten;
+ *    one job that has it today to all twelve;
  * 4. every bookkeeping write is failure-isolated, so nothing here can abort,
  *    delay past its own await, or alter the job it records. The throw path uses a
  *    plain `catch` rather than `finally` precisely so nothing can `return` out

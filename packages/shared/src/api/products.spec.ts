@@ -18,6 +18,7 @@ const validVendorLink = {
   name: 'Procore',
   slug: 'procore',
   logo_url: 'https://cdn.example.com/procore.png',
+  verified: true,
 };
 
 const validPrimaryCategory = {
@@ -275,6 +276,11 @@ describe('ProductSortSchema', () => {
     expect(ProductSortSchema.parse('updated')).toBe('updated');
     expect(ProductSortSchema.parse('rating')).toBe('rating');
     expect(ProductSortSchema.parse('reviews')).toBe('reviews');
+    expect(ProductSortSchema.parse('integrations')).toBe('integrations');
+  });
+
+  it('rejects an unknown key rather than silently defaulting', () => {
+    expect(() => ProductSortSchema.parse('integration')).toThrow();
   });
 });
 

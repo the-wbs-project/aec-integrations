@@ -48,13 +48,14 @@ import {
   type AdminTaxonomyTermUsage,
   type LinkRef,
 } from '@aeci/shared';
-import { asc, count, countDistinct, eq, getTableName, isNull, sql, type SQL } from 'drizzle-orm';
+import { asc, count, countDistinct, eq, getTableName, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnySQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productAudiences,
   productCategories,
@@ -69,6 +70,7 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
+import { liveAttestationsWhere } from './drizzle-helpers';
 
 // ─── Correlated-subquery identifiers ─────────────────────────────────────────
 
@@ -445,10 +447,14 @@ export async function taxonomyUsage(db: Db): Promise<AdminTaxonomyFacetUsage[]> 
  * looking at are the zeros: integrations carrying no claim, and claims carrying
  * no **active** attestation.
  *
- * "Active" is `deprecated_at IS NULL`, matching the partial `attestations_active_idx`
- * and the §8 read — a deprecated attestation is history, not coverage. Nothing
- * writes `deprecated_at` in Stage 1.5 (it is reserved for the Stage 2 timeline),
- * so today the predicate is a no-op that stops being one for free.
+ * "Active" is `retracted_at IS NULL` — the shared {@link liveAttestationsWhere},
+ * which is also what the partial `attestations_active_idx` is predicated on since
+ * AECI-603. It is deliberately NOT `deprecated_at`: that column is a **version
+ * stamp** ("this flow existed until v6", `STAGE_1_5_SPEC.md` §3.3), not retirement,
+ * and gating coverage on it would drop a vendor's live assertion from the count the
+ * moment they recorded which release deprecated the flow. Retraction is the only
+ * thing that ends an attestation. Until AECI-608 this read used `deprecated_at` —
+ * inert while every attestation was `source='aeci'`, wrong the day one wasn't.
  *
  * `integrations_without_claims` is derived by subtraction rather than a second
  * `NOT EXISTS` count: `claims.integration_id` is a cascading FK, so every claim
@@ -461,6 +467,11 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
   // Explicitly qualified for the same reason as `col()`: `claims` has its own
   // `id`, so an unqualified `"id"` here would bind to the wrong table and report
   // EVERY integration as claimless.
+  // Scoped to `integrations` deliberately. The SAMPLE is a "go fix these" list for a
+  // curator, and an evidenced pair is not curated the same way — its claims arrive
+  // with the connector catalogue. The COUNTS above span both tables, so the sample
+  // being narrower than `integrations_without_claims` is expected, which is exactly
+  // what `integrations_without_claims_sample_truncated` already tells the client.
   const noClaims = sql`not exists (select 1 from ${tbl(claims)} where ${col(claims.integrationId)} = ${col(integrations.id)})`;
 
   const [
@@ -469,16 +480,22 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
     [claimsRow],
     [attestedRow],
     [attestationsRow],
+    [evidencedRow],
     sampleRows,
   ] = await Promise.all([
     db.select({ value: count() }).from(integrations),
-    db.select({ value: countDistinct(claims.integrationId) }).from(claims),
+    // The generated anchor, not `integration_id` (AECI-721). After the migration 85
+    // production claims are anchored on `connector_evidenced_pairs`, and counting
+    // only the `integrations` side would report them as claimless — a coverage
+    // REGRESSION of 19 mechanisms that never happened.
+    db.select({ value: countDistinct(claims.anchorId) }).from(claims),
     db.select({ value: count() }).from(claims),
     db
       .select({ value: countDistinct(attestations.claimId) })
       .from(attestations)
-      .where(isNull(attestations.deprecatedAt)),
+      .where(liveAttestationsWhere),
     db.select({ value: count() }).from(attestations),
+    db.select({ value: count() }).from(connectorEvidencedPairs),
     sampleLimit > 0
       ? db
           .select({
@@ -500,7 +517,11 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
       : Promise.resolve([]),
   ]);
 
-  const integrationsTotal = integrationsRow?.value ?? 0;
+  // Both tables (AECI-721 / §13.5 site 9). The operator console's denominator must
+  // not fall by 19 on migration day, or the panel reports a shrinking catalogue and
+  // a claim-coverage RATIO that improved for no reason. The numerator moved to the
+  // generated anchor for the same reason — see the `countDistinct` above.
+  const integrationsTotal = (integrationsRow?.value ?? 0) + (evidencedRow?.value ?? 0);
   const integrationsWithClaims = withClaimsRow?.value ?? 0;
   const claimsTotal = claimsRow?.value ?? 0;
   const claimsAttested = attestedRow?.value ?? 0;
@@ -530,7 +551,12 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
 
 /** The five headline counts. `products` is re-counted here rather than reused
  *  from {@link productGapCounts} so the two call sites stay independent — they
- *  are one `count(*)` apiece and the coupling would not pay for itself. */
+ *  are one `count(*)` apiece and the coupling would not pay for itself.
+ *
+ *  `integrations` spans BOTH delivered-tier tables (AECI-721 / §13.5). This site
+ *  is unnamed in §13.5's own enumeration — it is keyed `integrations` rather than
+ *  `integrations_total`, which is how the ten-item list missed it — but it is the
+ *  operator console's headline integrations figure and moves with every other. */
 export async function catalogTotals(db: Db): Promise<{
   products: number;
   integrations: number;
@@ -538,16 +564,17 @@ export async function catalogTotals(db: Db): Promise<{
   claims: number;
   attestations: number;
 }> {
-  const [[p], [i], [v], [c], [a]] = await Promise.all([
+  const [[p], [i], [v], [c], [a], [ep]] = await Promise.all([
     db.select({ value: count() }).from(products),
     db.select({ value: count() }).from(integrations),
     db.select({ value: count() }).from(vendors),
     db.select({ value: count() }).from(claims),
     db.select({ value: count() }).from(attestations),
+    db.select({ value: count() }).from(connectorEvidencedPairs),
   ]);
   return {
     products: p?.value ?? 0,
-    integrations: i?.value ?? 0,
+    integrations: (i?.value ?? 0) + (ep?.value ?? 0),
     vendors: v?.value ?? 0,
     claims: c?.value ?? 0,
     attestations: a?.value ?? 0,

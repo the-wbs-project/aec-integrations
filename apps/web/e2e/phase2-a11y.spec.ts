@@ -51,6 +51,8 @@ const FIXTURE = {
   productSlug: 'fixture-procore',
   vendorSlug: 'fixture-procore-technologies',
   integrationId: '00000000-0000-4000-8000-000000000065',
+  /** The fixture integration's target endpoint — the other half of the pair. */
+  otherProductSlug: 'fixture-acme-connector',
   categorySlug: 'project-management',
   audienceSlug: 'general-contracting',
   phaseSlug: 'construction',
@@ -72,6 +74,17 @@ const PAGES: readonly Phase2Page[] = [
   {
     name: 'integration detail',
     path: `/integrations/${FIXTURE.integrationId}`,
+    needsFixture: true,
+  },
+  // AECI-303: the product-PAIR page was absent from this sweep entirely, which is
+  // how the design checklist's axe step went unenforced in CI for the surface that
+  // owns the claim lanes — and is now gaining its first combobox (the §9 version
+  // selectors). Added here rather than only in `products-pair.spec.ts` so the whole
+  // page, header and footer included, is held to zero AA violations like every other
+  // route in this list.
+  {
+    name: 'product pair',
+    path: `/products/${FIXTURE.productSlug}/integrations/${FIXTURE.otherProductSlug}`,
     needsFixture: true,
   },
   { name: 'category browse', path: `/categories/${FIXTURE.categorySlug}`, needsFixture: false },
@@ -134,19 +147,21 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
   // per-page closed-state scans above never reach. Defensive: skips if the
   // desktop flyout trigger isn't rendered (e.g. a future layout change).
   //
-  // Open via the KEYBOARD path (focus + Enter), not click: the host opens on
-  // hover (`mouseenter`), so a pointer click would move the mouse over the host
-  // first (opening it) and then the click would toggle it back closed. Keyboard
-  // toggling has no such race and also exercises the documented a11y path.
+  // Open via the KEYBOARD path (focus + ArrowDown), not click: the trigger is the
+  // facet's index LINK, so a click navigates, and a pointer click would first move
+  // the mouse over the host (opening it) anyway. ArrowDown has no such race and is
+  // the documented a11y path (`nav-flyout-trigger.ts`).
   test('open taxonomy flyout nav has zero AA violations', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const trigger = page.locator('button[aria-haspopup="true"][aria-expanded]').first();
+    const trigger = page
+      .locator('aec-nav-flyout-trigger a[aria-haspopup="true"][aria-expanded]')
+      .first();
     test.skip((await trigger.count()) === 0, 'desktop flyout trigger not present at this viewport');
 
     await trigger.focus();
-    await trigger.press('Enter');
+    await trigger.press('ArrowDown');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
     const violations = await aaViolations(page);

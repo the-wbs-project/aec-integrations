@@ -28,6 +28,7 @@ const RESULT: PromoteResponse = {
   integrations: [],
   taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
   skipped: [],
+  preserved: [],
 };
 
 type InstanceState = {

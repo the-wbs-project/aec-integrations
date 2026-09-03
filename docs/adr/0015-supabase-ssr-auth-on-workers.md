@@ -44,8 +44,11 @@ Two runtime risks made this a spike rather than a straight build:
   project for preview/staging, prod project for production).
   `SUPABASE_ANON_KEY` is a CI-pushed secret on the **web Worker only** (secret
   only to keep values out of git; same convention as `ALGOLIA_SEARCH_KEY`). The
-  **service-role key is never set on any Worker** (`AUTH_AND_RLS.md` §3). The
-  API Worker carries neither key — it verifies with public JWKS material alone.
+  **service-role key is never set on the web Worker** (`AUTH_AND_RLS.md` §3.1). The
+  API Worker carries no key for auth — it verifies with public JWKS material alone.
+  (Later, per ADR 0016 §6, the API Worker gained the service-role key as a runtime
+  secret for the Admin-API split-identity seams — CI-pushed since AECI-530; unrelated
+  to this token-verification path.)
 - **No new public ingress.** The API Worker stays service-binding-only; the
   spike's `GET /api/auth/whoami` is reached only over the binding, like every
   other route.

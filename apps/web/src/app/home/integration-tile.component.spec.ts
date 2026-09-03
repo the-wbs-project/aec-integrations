@@ -15,6 +15,7 @@ const baseIntegration: IntegrationListItem = {
   direction: 'bidirectional',
   source: { id: 's1', slug: 'revit', name: 'Revit', logo_url: null },
   target: { id: 't1', slug: 'navisworks', name: 'Navisworks', logo_url: null },
+  via: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };

@@ -173,6 +173,13 @@ function placeholders(n: number): string {
   return new Array(n).fill('?').join(',');
 }
 
+/** Drop the generated columns from a `SELECT *` row so the rollback INSERT is legal. */
+function writableColumns(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  const generated = GENERATED_COLUMNS[table];
+  if (!generated?.length) return row;
+  return Object.fromEntries(Object.entries(row).filter(([col]) => !generated.includes(col)));
+}
+
 /** SQLite literal for a rollback INSERT. Blobs are out of scope (none on these tables). */
 function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
@@ -200,9 +207,26 @@ async function selectAll(
 }
 
 /**
+ * Columns SQLite computes and refuses to be given (`cannot INSERT into generated
+ * column`). `claims.anchor_id` is `coalesce(integration_id,
+ * connector_evidenced_pair_id) STORED` (AECI-721) and arrives through `SELECT *`
+ * like any other column — a rollback that echoed it back would be rejected at the
+ * exact moment an operator needed it to work.
+ *
+ * A denylist rather than a schema read on purpose: it is one name, it fails loudly
+ * in `prune-integrations.spec.ts` the moment another generated column appears, and
+ * the alternative — introspecting `PRAGMA table_info` for `hidden = 2/3` — puts a
+ * second D1 round trip and a SQLite version dependency into a recovery path.
+ */
+const GENERATED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  claims: ['anchor_id'],
+};
+
+/**
  * Read the full rows this prune would remove and render them as parent → child
  * INSERTs (`integrations` → `claims` → `attestations`) so the FKs hold on replay.
- * `SELECT *` on purpose: the rollback then can't drift when a column is added.
+ * `SELECT *` on purpose: the rollback then can't drift when a column is added —
+ * except for generated columns, which are stripped by {@link GENERATED_COLUMNS}.
  */
 async function buildRollbackSql(db: D1Database, ids: string[]): Promise<string> {
   const ph = placeholders(ids.length);
@@ -225,9 +249,9 @@ async function buildRollbackSql(db: D1Database, ids: string[]): Promise<string> 
     '-- Rollback for datatool prune-integrations.',
     '-- Replay order is parent -> child so the FKs hold; INSERT OR IGNORE makes re-runs safe.',
     `-- integrations: ${integrations.length}, claims: ${claims.length}, attestations: ${attestations.length}`,
-    ...integrations.map((r) => toInsert('integrations', r)),
-    ...claims.map((r) => toInsert('claims', r)),
-    ...attestations.map((r) => toInsert('attestations', r)),
+    ...integrations.map((r) => toInsert('integrations', writableColumns('integrations', r))),
+    ...claims.map((r) => toInsert('claims', writableColumns('claims', r))),
+    ...attestations.map((r) => toInsert('attestations', writableColumns('attestations', r))),
     '',
   ].join('\n');
 }
@@ -344,8 +368,16 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
  * column is denormalized: the moment the rows are gone every affected product
  * card overstates its integration count, and leaving that to a separate CLI run
  * is how drift ships to production. Same rule as
- * `apps/api/src/lib/recompute-counts.ts` — count integrations where the product
- * is source OR target.
+ * `apps/api/src/lib/recompute-counts.ts` — count DELIVERED edges regardless of
+ * which table holds them (`STAGE_1_5_SPEC.md` §13.5): `integrations` where the
+ * product is source OR target, plus `connector_evidenced_pairs` where it is an
+ * endpoint in either canonical slot OR the connector itself.
+ *
+ * The prune only ever deletes from `integrations`, so the evidenced subquery is
+ * a constant for any given product here — which is exactly why it must be
+ * present. Omitting it would make this repair path write the pre-AECI-721 answer
+ * back over a correct count, turning a routine prune into silent count drift on
+ * every connector-adjacent product it touches.
  *
  * Caller must pass `affectedProductIds` from the plan: they have to be captured
  * BEFORE the delete, since afterwards the join that finds them is gone.
@@ -396,10 +428,12 @@ export async function pruneExecute(
         db
           .prepare(
             `UPDATE products SET integration_count =
-               (SELECT COUNT(*) FROM integrations WHERE source_product_id = ? OR target_product_id = ?)
+               ((SELECT COUNT(*) FROM integrations WHERE source_product_id = ? OR target_product_id = ?)
+                + (SELECT COUNT(*) FROM connector_evidenced_pairs
+                     WHERE product_a_id = ? OR product_b_id = ? OR connector_product_id = ?))
              WHERE id = ?`,
           )
-          .bind(pid, pid, pid),
+          .bind(pid, pid, pid, pid, pid, pid),
       ),
     );
     const after = await selectAll(

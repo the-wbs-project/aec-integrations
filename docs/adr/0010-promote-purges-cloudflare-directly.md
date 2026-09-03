@@ -1,6 +1,8 @@
 # ADR 0010: Promote purges Cloudflare directly (remove the web↔api binding)
 
-**Status:** Accepted
+> **⚠️ Reversed (mechanism) by [ADR 0020](0020-workers-cache-and-queue-purge.md) (2026-07-12, AECI-314).** Under native Workers Cache, `ctx.cache.purge()` is **entrypoint-scoped** and the zone HTTP purge (`callCloudflarePurge`) is **inert** against a Worker's cache — so the API Worker can no longer purge the SSR Worker's cache directly. Cross-Worker invalidation moves to a **Cloudflare Queue** consumed by the SSR Worker (this ADR's own deferred **"Option C"**). `POST /api/promote` becomes a queue **producer**; `CF_PURGE_API_TOKEN` on the API Worker is retired in WC-10 (`CF_ZONE_ID` is kept — the AECI-262 WAF poll still uses it). See ADR 0020.
+
+**Status:** Accepted (mechanism reversed by ADR 0020 — see banner above)
 **Date:** 2026-06-05
 **Context owner:** chrisw@thewbsproject.com
 **Supersedes (mechanism only):** the AECI-105 api→web `WEB` service-binding purge path

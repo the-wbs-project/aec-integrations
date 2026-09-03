@@ -41,7 +41,7 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 
 ## 3. Brand colors — dark theme
 
-> **Not shipped in Stage 1.** The dark theme was deferred to Stage 2 in **AECI-226** (the launch site is light-only — see `STAGE_1_SPEC.md` §2a.1). These variants stay documented here as approved brand assets so dark is ready to re-introduce with the Stage 2 vendor portal — they are brand policy, not an active Stage 1 surface.
+> **Not shipped.** The dark theme was removed in **AECI-226** (the launch site is light-only — see `STAGE_1_SPEC.md` §2a.1), and the Stage 2 reintroduction was later **dropped** (epic AECI-517 canceled; `STAGE_2_SPEC.md` §9) — dark is **not roadmapped**. These variants stay documented here as approved brand assets should a later stage ever revisit dark — they are brand policy, not an active surface.
 
 The dark theme uses lighter variants of Forest and Clay because the originals lack contrast against near-black surfaces. These are **approved brand variants**, not ad-hoc lightening — use these exact hexes.
 
@@ -76,7 +76,7 @@ Clay is the rarest color in the system. Use it sparingly — the connector mark,
 - This is stricter than the previous "large text allowed" wording, which was mathematically false and was struck in **AECI-230**: Clay on white measures ~2.3:1, below WCAG 2.1 AA for body text (4.5:1) *and* below the 3:1 floor for large text and non-text UI components (WCAG 1.4.11).
 - Permitted Clay `#E89668` uses: decorative graphics (the connector mark, accent strokes) and fills that carry near-black `text-primary` on top (8.48:1). White text on Clay (2.33:1) is forbidden.
 - Anything clay-colored that carries meaning — text, icons — uses **Clay deep `#A14D22`** (5.83:1 on white, 5.21:1 on Bone), added in AECI-230. (Star ratings are not clay — see §5.1.)
-- In **dark theme** (Stage 2), Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction there is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
+- In a **dark theme** (not currently roadmapped — see §3), Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction there is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
 
 See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
 

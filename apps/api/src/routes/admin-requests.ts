@@ -29,6 +29,14 @@
  * over `status='open'` build the lookup, so there's no per-row N+1. Informational
  * only — never auto-rejects.
  *
+ * `has_auth_account` (AECI-527 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §2) is likewise
+ * computed at read time, on the LIST path only: the batched GoTrue seam
+ * (`fetchAuthAccountsByEmail`, injectable) answers "does an auth user already
+ * exist for this claim's `submitter_email`?", so the reviewer knows whether
+ * approving will LINK an existing account or PROVISION one. Claim rows only; a
+ * tri-state, where `null` means unknown (absent Supabase creds, a failed lookup,
+ * or a correction row) — never a decision gate.
+ *
  * No cache invalidation: `vendor_requests` are admin-only and render on no
  * cacheable SSR page, so there's no `Cache-Tag` to purge.
  */
@@ -59,7 +67,7 @@ import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -78,6 +86,7 @@ import {
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import type { LinearResolutionInput } from '../lib/linear';
+import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -108,12 +117,12 @@ const noopSyncToLinear: SyncRequestToLinear = async () => {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/admin-reviews.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -124,12 +133,12 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
+ *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -153,8 +162,8 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
 
 /** Emit the `aeci.request.moderation.action` count — one per moderation attempt:
  *  `outcome:ok` on a committed resolve/reject, `outcome:invalid_state` when the
- *  target isn't open/in-review (the preload guard, 422). Fire-and-forget; no-op
- *  without `DD_API_KEY`. */
+ *  target isn't open/in-review (the preload guard, 422). Fire-and-forget;
+ *  each vendor leg no-ops without its own key. */
 function emitRequestModeration(
   c: AdminContext,
   action: 'resolve' | 'reject',
@@ -178,6 +187,9 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 /** `GET /api/admin/requests` — the requests queue. */
 export function createAdminRequestsListHandler(
   dbFor: DbFactory = getDb,
+  /** Reviewer signal seam (#4a batched, AECI-527). Default hits the GoTrue Admin
+   *  API; degrades to an empty map → `has_auth_account: null`. */
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const query = ListVendorRequestsQuerySchema.parse(
@@ -250,11 +262,25 @@ export function createAdminRequestsListHandler(
 
     // Hydrate the polymorphic target → `LinkRef` (AECI-217) in one batched lookup
     // per target table over the page's rows; a missing target row → `null`.
-    const targets = await resolveRequestTargets(db, rows);
+    // Alongside it, the AECI-527 reviewer signal: "does an auth user already exist
+    // for this submitter?", so the reviewer knows whether approving will LINK an
+    // account or PROVISION one. Claim rows only — a `?kind=correction` queue makes
+    // zero GoTrue requests — and run in parallel so the fan-out adds no serial
+    // latency. Keep the claim gate in step with `toAdminVendorRequest`.
+    const claimEmails = rows.filter((r) => r.kind === 'claim').map((r) => r.submitterEmail);
+    const [targets, authAccountByEmail] = await Promise.all([
+      resolveRequestTargets(db, rows),
+      fetchAuthAccounts(c.env, claimEmails),
+    ]);
 
     const body: ListVendorRequestsResponse = {
       data: rows.map((row) =>
-        toAdminVendorRequest(row, isDuplicate(row), targets.get(row.targetId) ?? null),
+        toAdminVendorRequest(
+          row,
+          isDuplicate(row),
+          targets.get(row.targetId) ?? null,
+          authAccountByEmail,
+        ),
       ),
       page: query.page,
       perPage: query.perPage,
@@ -402,7 +428,7 @@ export function createModerateRequestHandler(
         actorLabel: null,
       }).catch((error) => {
         try {
-          logToDatadog(c.executionCtx, c.env, c.req.raw, {
+          logToPosthog(c.executionCtx, c.env, c.req.raw, {
             level: 'warn',
             message: `request→Linear sync failed for ${id}`,
             error: error instanceof Error ? error.message : String(error),

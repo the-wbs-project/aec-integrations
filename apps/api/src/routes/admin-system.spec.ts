@@ -100,10 +100,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all eleven crons as `unknown` on an empty database', async () => {
+  it('returns all thirteen crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(11);
+    expect(body.crons).toHaveLength(13);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'asn-registry',
@@ -114,6 +114,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'home-stats',
       'algolia-sync',
       'algolia-drift',
+      'attestation-notify',
+      'entitlement-expiry',
       'request-reconcile',
       'waf-poll',
     ]);
@@ -150,10 +152,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 11, total: 11 });
+    expect(note?.params).toEqual({ unknown: 13, total: 13 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other nine unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other eleven unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -190,12 +192,14 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'analytics-digest',
       'moderation-snapshot',
       'algolia-drift',
+      'attestation-notify',
+      'entitlement-expiry',
       'request-reconcile',
       'waf-poll',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 9,
-      total: 11,
+      unknown: 11,
+      total: 13,
     });
   });
 
@@ -253,7 +257,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     expect(await t.db.select().from(jobRuns)).toHaveLength(0);
   });
 
-  it('runs all ten data-quality checks when asked', async () => {
+  it('runs all eleven data-quality checks when asked', async () => {
     const body = await system('?recompute=1');
 
     expect(body.recomputed).toBe(true);
@@ -269,6 +273,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'duplicate_products',
       'logo_404',
       'algolia_index_drift',
+      'entitlement_mirror_drift',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');
   });
@@ -530,7 +535,7 @@ describe('GET /api/admin/system — data quality served from the last stored run
 
     const body = await system('?recompute=1');
     expect(body.data_quality?.source).toBe('live');
-    expect(body.data_quality?.checks).toHaveLength(10);
+    expect(body.data_quality?.checks).toHaveLength(11);
   });
 
   it.each([

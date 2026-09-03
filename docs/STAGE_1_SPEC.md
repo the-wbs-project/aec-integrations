@@ -69,7 +69,7 @@ When a section of this spec references one of these documents, the companion doc
 | AI development | Claude Code (manual, against Linear issues) |
 | Vendor request routing | Linear via n8n native Linear node |
 | Product analytics | PostHog |
-| Performance, errors, logs | Datadog (RUM + APM + Logs) |
+| Performance, errors, logs | **Migrating Datadog → PostHog** (ADR 0024, dual-run). Datadog RUM + Logs is what alerts on production **today**; PostHog (OTLP logs + metrics, error tracking, web vitals) ships beside it and the Datadog leg is deleted at AECI-651 |
 | Monorepo structure | `apps/web/`, `apps/api/`, `packages/shared/` |
 
 ---
@@ -78,13 +78,13 @@ When a section of this spec references one of these documents, the companion doc
 
 ### 2a.1 Theming model
 
-Stage 1 ships a single, **light-only** presentation — no theme toggle and no system-preference detection (AECI-226; this supersedes the earlier light/dark/system model). The dark theme is deferred to the Stage 2 vendor portal, where the semantic-token architecture (below) makes re-introduction a token-block + toggle change. The `profiles.theme_preference` column stays in the schema but is dormant in Stage 1 — its persistence was already scoped to Stage 2+.
+Stage 1 ships a single, **light-only** presentation — no theme toggle and no system-preference detection (AECI-226; this supersedes the earlier light/dark/system model). The dark theme reintroduction was **dropped** (2026-08-14 — the Stage 2 epic AECI-517 was canceled; `STAGE_2_SPEC.md` §9); light-only is the standing presentation direction and there is no roadmapped dark theme. The semantic-token architecture (below) stays in place so a later stage *could* revisit it, and the `profiles.theme_preference` column remains in the schema but is dormant/unused.
 
 **Principle: brand colors are accents, not surfaces.** Surfaces are neutral (white/near-black). Brand colors (Forest, Clay, Bone) layer on top as accents, badges, callouts, and highlights. This matches the modern product design pattern used by many leading product companies, while preserving brand identity through accent placement.
 
 ### 2a.2 Token system
 
-All colors expressed as CSS custom properties on `:root`. Tailwind config reads from these tokens. (Stage 1 is light-only — see §2a.1; the semantic token names below are theme-agnostic, so a dark set can layer back on at Stage 2 without touching consumers.)
+All colors expressed as CSS custom properties on `:root`. Tailwind config reads from these tokens. (AECi is light-only — see §2a.1; the semantic token names below are theme-agnostic, so a dark set *could* layer back on without touching consumers, though dark is not roadmapped — the Stage 2 reintroduction was dropped, §2a.1.)
 
 **Light theme:**
 
@@ -108,11 +108,11 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 
-> The Stage 1 dark token set was removed in AECI-226 (preserved in git history). It returns with the dark theme at Stage 2; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3.
+> The Stage 1 dark token set was removed in AECI-226 (preserved in git history). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9), so it is not roadmapped; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3 as reference should a later stage revisit dark.
 
 ### 2a.3 Brand identity preserved
 
-Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
+Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped**; the dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9) and dark is not roadmapped.
 
 Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero / marketing bands — anywhere warmth and identity are desired. It is no longer the default page background.
 
@@ -126,7 +126,7 @@ Bone is reclassified from "the background" to "a warm-tinted accent surface." It
 
 ### 2a.5 Theme handling for vendor-supplied content
 
-> Forward-looking (Stage 2+): vendor uploads ship with the vendor portal, by which point the dark theme has returned (§2a.1). The "both themes" requirements below apply from that point — they do not affect the light-only Stage 1 surface.
+> Note: the vendor portal shipped in Stage 2, but **light-only** — the dark theme reintroduction was **dropped** (§2a.1; `STAGE_2_SPEC.md` §9). The "both themes" requirements below are therefore **not active**; they are retained only as reference should a later stage revisit dark. The current surface is light-only.
 
 Vendor-uploaded content (logos, screenshots, embedded videos, custom brand presence) needs explicit theme strategy because user-uploaded content cannot be assumed to work in both themes.
 
@@ -204,7 +204,7 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
 | `/updates` | Mailing-list signup page (AECI-536) — focused first-party subscribe destination for external links | 24 hr edge |
-| `/roadmap` | Public roadmap — **coming-soon placeholder**: hero + the shared mailing-list band. `robots: noindex` and deliberately **absent from `sitemap.xml`** (thin placeholder content); cacheable all the same, since indexability and cacheability are independent. Reached from the header "More" menu | 24 hr edge |
+| `/roadmap` | Public roadmap — **coming-soon placeholder**: hero + the shared mailing-list band. `robots: noindex` and deliberately **absent from `sitemap.xml`** (thin placeholder content); cacheable all the same, since indexability and cacheability are independent. Reached from the **footer** (Company column) — it was behind the header "More" menu until that was retired | 24 hr edge |
 | `/contact` | Contact form | No cache |
 | `/legal/terms` | Terms of Service | 24 hr edge |
 | `/legal/privacy` | Privacy Policy | 24 hr edge |
@@ -277,7 +277,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 **Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).
 
 1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/audiences
-2. **Integrations** (`/products/:slug/integrations`) — table of integrations grouped by source/target with mechanism badges
+2. **Integrations** (`/products/:slug/integrations`) — table of integrations with mechanism badges. **"Grouped by source/target" is superseded** (`STAGE_1_5_SPEC.md` §7.1): the two buckets interleave into one list ordered alphabetically by partner name, because the source/target split is invisible in the rendered row.
 3. **Reviews** (`/products/:slug/reviews`) — individual reviews from review 1, aggregate score shown only at ≥5 reviews
 4. **Details** (`/products/:slug/details`) — vendor info, API docs link, marketplace link, founded year, headquarters
 
@@ -342,13 +342,15 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 - Built by (vendor) and Powered by (product) if applicable
 - "Report an error" link
 
-### 4.5 Category/Audience/Phase pages
+### 4.5 Category/Audience/Phase/Trade pages
 
-Same layout pattern for all three:
+Same layout pattern for all four (trades became the fourth facet in AECI-544 — see §5.5a):
 - Header: name + description
 - Filter sidebar: cross-filter by other taxonomies
 - Product grid with sort options (alphabetical, most integrations, most reviewed)
 - Pagination
+
+**As built (AECI-657).** The grid slot leads with `aec-listing-toolbar` — the same sort `<select>` + cards/table toggle `/products` carries — and defaults to the `ProductCardGrid` card view, with the table available at `?view=table`. All six product sort keys are offered, including the three named above; `integrations` ("Most integrations") was added by the same issue, having existed nowhere before it. AECI-190's redesign was scoped to `/products` and gave these pages only its upgraded table row, so between AECI-190 and AECI-657 they shipped a table with no sort control at all — `?sort=` worked by hand-typed URL the whole time, since `createPaginatedIndex` reads it off the URL, but nothing surfaced it.
 
 ### 4.6 Search results (`/search`)
 
@@ -643,6 +645,10 @@ Three indexes, each denormalized for zero-join search:
 }
 ```
 
+> Stage 2 adds a display-only `verified` boolean to this record for the search-card
+> verified-vendor badge (AECI-529) — not a searchable/facet/ranking field. See
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.2 and `SEARCH_RANKING.md` §3.2/§6.
+
 **`integrations` index** — record shape:
 ```json
 {
@@ -770,7 +776,7 @@ Angular's per-locale build emits a single `server.mjs` Worker entry that dispatc
 
 ### 7a.6 Analytics and search
 
-- Every PostHog event and Datadog log includes a `locale` dimension
+- Every PostHog event and every forwarded Worker log includes a `locale` dimension (`locale` is part of the shared tag vocabulary on all pipes)
 - Algolia per-locale indexes (Section 7.6)
 
 ---
@@ -805,37 +811,9 @@ Schema already supports `vendor_admin` role and `vendor_id` foreign key. Stage 2
 
 ### 9.1 SSR output caching at Cloudflare edge
 
-Implemented in the SSR Worker. Two non-obvious rules apply (see §9.1a and §9.1b below):
+**Superseded (implementation) by `docs/CACHE_STRATEGY.md`.** The original hand-rolled pipeline this section described — the SSR Worker doing an explicit `caches.default.match()` / `.put()` against a hand-normalized `Request` key — was retired by the AECI-314 **Workers Cache migration** (ADR 0020). The SSR Worker now sits behind **native Cloudflare Workers Cache**: the platform stores and serves each response from its `Cache-Control` (a HIT skips the Worker), key normalization runs in a two-entrypoint gateway (`cacheKeyFor()` → `cf.cacheKey` on the cached `Renderer` entrypoint), and there is no `caches.default` match/put. See `CACHE_STRATEGY.md` §4a (key normalization) and §5 (invalidation) for the current model, and `apps/web/src/server-runtime.ts` for the gateway/`Renderer` split.
 
-```typescript
-async function handleRequest(request: Request, env: Env, ctx: ExecutionContext) {
-  const url = new URL(request.url);
-
-  // Skip cache for authenticated, user-specific, or write routes
-  if (isUserSpecific(url) || isWriteRequest(request)) {
-    return renderAngular(request, env);
-  }
-
-  const cache = caches.default;
-  const cacheKey = new Request(url.toString(), request);
-  let response = await cache.match(cacheKey);
-
-  if (!response) {
-    // Strip visitor-state cookies (theme, etc.) before SSR — see §9.1a
-    const sanitized = stripVisitorStateCookies(request);
-    response = await renderAngular(sanitized, env);
-    response.headers.set('Cache-Control', cacheControlForRoute(url));
-    // Only cache 2xx — see §9.1b
-    if (response.status >= 200 && response.status < 300) {
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    }
-  }
-
-  return response;
-}
-```
-
-Reference implementation: `apps/web/src/server-runtime.ts` — `stripVisitorStateCookies` (131-153), route classification (`cacheControlForRoute` + `ROUTE_CACHE_PATTERNS`, 187-245), and the cache-write pipeline (`withCacheHeaders` 300-328, `handleSsr` 406-504).
+The two non-obvious rules below — **§9.1a** (visitor-state-neutral HTML) and **§9.1b** (the pinned-404 trap) — **remain authoritative** and carry over unchanged to native Workers Cache.
 
 ### 9.1a Cached SSR routes must render visitor-state-neutral HTML
 
@@ -863,9 +841,7 @@ The stack-test probe returned 200 for KV-miss with a 5-minute TTL — a gap it d
 
 For tag vocabulary, TTLs, composition rules, the purge endpoint shape, and the SEO header set (which now permits `Vary: Accept-Language` because URL-prefix locale dispatch already segments the cache), see `docs/CACHE_STRATEGY.md`. The implementation lands in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10). The visitor-state-neutral rule (§9.1a) and the pinned-404 trap (§9.1b) above remain authoritative.
 
-**Cloudflare API token scoping:**
-
-The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: the live purge handler `apps/web/src/server/routes/admin-purge.ts:15-18` (`CF_PURGE_API_TOKEN` scoped to `Zone.Cache Purge`; `CF_ZONE_ID` identifies the zone).
+**Cloudflare API token scoping.** **Superseded — see `docs/CACHE_STRATEGY.md` §5.** The purge endpoint no longer presents any Cloudflare API token: `POST /admin/purge` invalidates in-process via native `ctx.cache.purge()` (WC-6 / AECI-320), and cross-Worker purge (promote / moderation / datatool) goes through the `aeci-cache-purge-{env}` Cloudflare Queue (WC-5/7). The old `Zone.Cache Purge` token `CF_PURGE_API_TOKEN` was retired in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)); `CF_ZONE_ID` is kept solely for the AECI-262 WAF firewall-event poll. Should a narrow-scoped Cloudflare token ever be reintroduced, reviewers should reject any change that broadens it beyond the minimal scope it needs.
 
 ### 9.4 API response caching
 
@@ -986,26 +962,48 @@ Initial drafts produced from templates and reviewed by counsel before launch.
 
 ## 14. Analytics & Monitoring
 
-Three layers, each with a specific job. They overlap intentionally where redundancy is useful (audit data also flows to Datadog) but otherwise serve distinct purposes.
+Three layers, each with a specific job. They overlap intentionally where redundancy is useful (audit data also flows to the log plane, §26.5) but otherwise serve distinct purposes.
 
-### 14.1 PostHog (client-side product analytics)
+> **Vendor state (ADR 0024, in flight).** The observability layer is migrating from **Datadog**
+> to **PostHog** as a **dual-run**: PostHog is where this is going, **Datadog is what is alerting
+> on production today**, and the Datadog half is deleted only by **AECI-651**. During an incident,
+> the console that pages you is still Datadog. Contract: `docs/POSTHOG_MIGRATION_SPEC.md`.
+>
+> Two companion docs now own the detail this section sketches pre-launch:
+> **`docs/ANALYTICS.md`** is the source of truth for the product event catalogue, naming rules,
+> the never-in-a-property list, the activation funnel and the identity model;
+> **`docs/OBSERVABILITY.md`** owns logs, metrics, alerts and the metric catalogue. Where either
+> disagrees with the sketch below, they win.
+
+### 14.1 PostHog (browser analytics — **two-mode**)
 
 Tracks what authenticated and anonymous users do on the site from the browser. Best at funnels, cohorts, feature adoption, retention.
 
+**The client runs in two modes** (`POSTHOG_MIGRATION_SPEC.md` §3.3 / ADR 0024 D2). This is the single most important thing to know before reading any number here:
+
+| Tier | Runs for | Carries | Persistence |
+|---|---|---|---|
+| **2 — operational** | **every visitor, including DNT/GPC browsers** | exception capture, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie |
+| **3 — product analytics** | consented visitors only; the banner **and** DNT/GPC are a hard deny | `$pageview` + the custom event catalogue, `identify`, vendor groups | localStorage |
+
+Tier 2 preserves the exact posture Datadog RUM has today (consent-independent, replay off) rather than narrowing error coverage to the consenting minority. Because it writes no identifier, each page load is a fresh anonymous id — error counts are **occurrence** counts, not affected-visitor counts. On consent grant the same client upgrades in place to Tier 3.
+
+**Session replay is off** (ADR 0024 D6/D5) — enabling it is a separate privacy review, not a config toggle. There is therefore no "RUM session" concept on this side.
+
 Client-side initialization in Angular app:
-- Pageview tracking automatic
-- Custom events:
-  - `search_performed` — query, results count, filters applied
+- Pageview tracking automatic — **Tier 3 only**
+- Custom events (**the live catalogue is `docs/ANALYTICS.md` §4**; this list is the pre-launch sketch):
+  - `search_performed` — query, results count, filters applied, plus `status` / `duration_ms` / `results_bucket`, which absorbed the retiring `aeci.search.query` Datadog RUM action (§3.9). **Accepted narrowing:** search latency becomes a consented-slice number where the RUM action saw every search
   - `product_viewed` — product_id, source (search / browse / direct)
   - `integration_viewed` — integration_id
   - `review_submitted` — product_id
-  - `claim_requested` — vendor_id
-  - `correction_requested` — product_id or vendor_id
+  - `claim_requested` — vendor_id *(as shipped: `target_type`, `slug`, `request_id` — the request form never holds the UUID; the documented deviation is in `ANALYTICS.md` §4)*
+  - `correction_requested` — product_id or vendor_id *(same deviation)*
   - `external_link_clicked` — destination, source
   - `mailing_list_signup` — source (home closing CTA; fired on a genuine new subscribe only — consented funnel, see OBSERVABILITY.md)
 - All events include `locale` and `theme` dimensions
 
-**PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context. The `page_views` table fills this gap (Section 14.2).
+**PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context, **and Tier 3 sees only consented visitors**. The `page_views` table fills both gaps (Section 14.2) and is the consent-independent, authoritative count. Rule of thumb: when someone asks "how many", answer from `page_views`; when they ask "how many **converted**", answer from PostHog.
 
 ### 14.2 Server-side page_views (Supabase)
 
@@ -1024,50 +1022,58 @@ A lean server-side log captured by the SSR Worker on every cacheable page reques
 
 **Write path:**
 - SSR Worker writes page_views row asynchronously via `ctx.waitUntil()` — never blocks the response
-- Failures don't affect the user (logged to Datadog)
+- Failures don't affect the user (recorded on the observability plane, §14.3 — never surfaced)
 - Bot Score < 30 (likely automated) entries can be sampled rather than fully captured to control table growth — decision deferred until launch traffic patterns are visible
 - **Two capture paths, one table (Phase 4 reconciliation, 2026-06-10).** The **client** `POST /api/page-views` (fired post-hydration on every view — including edge-cache hits and client-side navigations) is the **canonical per-view signal**, and the source for `home.trending_products`. The SSR Worker's server-side `waitUntil()` write only runs on cache **misses** (edge-cache hits bypass the Worker, §9.1), so it **undercounts** and is treated as supplementary CF/bot-context enrichment, not the counter.
 
-### 14.3 Datadog (performance, errors, logs, audit)
+### 14.3 The observability layer (performance, errors, logs, audit)
 
-Single platform for performance, error tracking, logs, and audit log forwarding. Unified observability.
+Single platform for performance, error tracking, logs, and audit-log forwarding.
 
-**Frontend (Datadog Browser RUM SDK):**
-- Initialized in Angular app root
-- Captures page load performance, user sessions, frontend errors, Core Web Vitals
-- Configured to redact sensitive data (emails, tokens) from session replays
+> **Two vendors, one plane, for now.** **Datadog is live and operating production** — ~50 custom
+> metrics, 26 applied monitors, 5 dashboards, and the runbooks on top (`docs/RUNBOOKS.md`,
+> `docs/POST_LAUNCH_MONITORING.md`). **PostHog is what it is migrating to** under ADR 0024, shipping
+> beside it (fan-out inside the per-Worker adapters) and deleting the Datadog leg only at
+> **AECI-651**. `docs/OBSERVABILITY.md` is canonical for the live plane while the migration is in
+> flight.
 
-**Backend (Datadog Worker SDK in both SSR Worker and API Worker):**
-- APM traces across the full request lifecycle
-- Distributed tracing: SSR Worker → API Worker → Supabase → Algolia → Resend
-- Logs structured as JSON with trace correlation IDs
-- Error tracking with grouping and alerting
+**Frontend:** the **two-mode PostHog client** of §14.1 — exception capture (via an Angular
+`ErrorHandler`, because Angular swallows app errors before `window.onerror`), Core Web Vitals, and
+`app_started`, all on the anonymous Tier 2 slice. **Datadog Browser RUM stays live alongside it**
+until AECI-651. Session replay is off on both.
+
+**Backend (both SSR Worker and API Worker):** a shared transport with thin per-Worker adapters
+pinning service identity. Structured JSON logs plus a curated `aeci.*` metric catalogue. Every
+dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
+
+> **No APM / distributed tracing.** The pre-launch sketch here promised it; none was ever in use,
+> and PostHog offers no equivalent — so nothing is lost in the migration. Local `wrangler dev` OTel
+> tracing is a *different, unaffected* thing (`docs/local-tracing.md`).
 
 **Audit log forwarding (Section 26.5):**
-- All `audit_log` and `workflow_transitions` writes also emit Datadog log events
-- Tagged with `ddsource: audit_log` for filtering
-- Enables alerting on patterns (e.g. >5 rejected reviews from one user in an hour)
+- All `audit_log` and `workflow_transitions` writes also emit a structured log event, post-commit
+- Filtered by attribute — `source: audit_log`. **Not** `ddsource` on the PostHog side: OTLP resource attributes replace the `ddsource`/`ddtags`/`@field` query syntax
+- Enables alerting on patterns (e.g. >5 rejected reviews from one user in an hour), at **hourly** cadence on PostHog
 
 **Dashboards:**
 - Requests per minute, error rate, p50/p95/p99 latency
-- Cache hit rate at the edge
+- Cache hit rate at the edge — *measured from `Cf-Cache-Status` on the Cloudflare dashboard, not from render metrics: since WC-8 a HIT skips the SSR Worker entirely, so it is unmeasurable from inside*
 - Algolia query latency and error rate
-- Supabase query latency per endpoint
-- Active users (RUM)
+- D1 query latency per endpoint
 - Audit event volume by action type
 
-**Alerts to Slack:**
+**Alerts:**
+- **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is the table in `docs/RUNBOOKS.md`
 - First occurrence of new error class
-- Error rate > 1% over 5 minutes
-- p95 latency > 2s over 5 minutes
-- Cache hit rate < 60% over 15 minutes (signals invalidation problem)
-- Audit anomalies (configurable thresholds)
+- Error rate > 1% over 5 minutes *(Datadog cadence today; **hourly** once ported to a PostHog alert — a real, accepted loss, ADR 0024)*
+- p95 latency > 2s
+- **Absence** ("the cron never ran") is a separate mechanism, not a threshold alert: PostHog has **no `notify_no_data` equivalent at any tier**, so the 8 no-data monitors are replaced by **one external scheduled-CI liveness sweep** (AECI-647) that runs outside the Worker — which is precisely what lets it report on a Worker that never started, and which adds a dependency on GitHub Actions availability that `notify_no_data` did not have
 
 ### 14.4 Cloudflare Workers Analytics
 
 - Built-in observability for request volume, latency, errors at the platform level
 - No additional configuration needed
-- Complements Datadog rather than duplicates — Cloudflare sees what hits the edge; Datadog sees what happens inside the Worker
+- Complements the observability layer rather than duplicating it — Cloudflare sees what hits the edge; §14.3 sees what happens inside the Worker (and after WC-8, edge cache hit rate is only visible on the Cloudflare side)
 
 ### 14.5 How the three layers fit together
 
@@ -1075,13 +1081,15 @@ Each tool has a job. Use the right tool for each question.
 
 | Question | Tool |
 |---|---|
-| "Are users succeeding at submitting reviews?" | PostHog (funnels) |
-| "Is the site working fast and without errors?" | Datadog (RUM + APM) |
+| "Are users succeeding at submitting reviews?" | PostHog funnels — **consented slice only**, so it is a funnel, not a census (`ANALYTICS.md` §6) |
+| "Is the site working fast and without errors?" | The observability layer (§14.3): **PostHog** |
 | "How many page views per country last week?" | page_views (SQL) |
 | "Which colocation served the most traffic?" | page_views (SQL) |
-| "What was the audit history of this product?" | audit_log (SQL) or Datadog (logs) |
-| "Is there a suspicious pattern of rejected reviews?" | Datadog (alerts on forwarded audit logs) |
-| "What is our cache hit rate by route?" | Datadog |
+| "What was the audit history of this product?" | audit_log (SQL) — or the forwarded logs (§26.5) |
+| "Is there a suspicious pattern of rejected reviews?" | An alert on the forwarded audit logs — PostHog, hourly |
+| "What is our cache hit rate by route?" | The **Cloudflare** dashboard (`Cf-Cache-Status`), not the render metrics — WC-8 |
+| "How many people actually visited?" | page_views (SQL). **Never** PostHog — it sees only consented visitors |
+| "Which deploy introduced this error?" | The PostHog `deployment` event / annotation (AECI-640) joined against the error |
 | "Which products are being viewed by users with admin role?" | page_views joined with profiles (SQL) |
 
 Don't try to make any one tool answer all questions.
@@ -1120,8 +1128,9 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 >   scope.)
 >
 > The acceptance criteria's "configured as code (Terraform / CF API)" clause was
-> intentionally relaxed for launch (dashboard + runbook instead). Datadog visibility
-> of WAF events shipped in AECI-262 — the API Worker's hourly cron polls the zone's
+> intentionally relaxed for launch (dashboard + runbook instead). Telemetry visibility
+> of WAF events shipped in AECI-262 (to Datadog then; the metric itself is
+> vendor-independent and rides the same transport swap) — the API Worker's hourly cron polls the zone's
 > `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits
 > `aeci.waf.ratelimit.blocked` (the free Pro-plan alternative to Enterprise Logpush);
 > CF Security Events remains the per-IP triage surface. See `waf-rate-limits.md` §5
@@ -1165,19 +1174,19 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Linear ↔ GitHub integration enabled and validated (branch linking, PR auto-close)
 - [ ] n8n configured with native Linear node and API token
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
-- [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as Stage 2 brand assets; not shipped in Stage 1 — AECI-226)
+- [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as reference brand assets; not shipped — AECI-226; dark reintroduction dropped, §2a.1)
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
 - [ ] Hydration providers wired: `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130) — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
-- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (Stage 1 is light-only — AECI-226; dark tokens return at Stage 2); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
-- [ ] Light-only presentation — no theme switcher or system-preference detection in Stage 1 (AECI-226). The dark theme + toggle return with the Stage 2 vendor portal; the semantic tokens make that a token-block + toggle re-introduction
+- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (light-only — AECI-226; dark reintroduction dropped, not roadmapped — §2a.1); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
+- [ ] Light-only presentation — no theme switcher or system-preference detection (AECI-226). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9) — dark is not roadmapped; the semantic tokens remain, so a later stage *could* revisit it as a token-block + toggle change, but nothing is planned
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
 - [ ] Cloudflare D1 access via Drizzle in `apps/api/` using the per-request `getDb(env)` client over the native `DB` binding (`apps/api/src/db/client.ts`; no Prisma, no Accelerate, no `DATABASE_URL`/`DIRECT_URL` — ADR 0016). See `DATABASE_SCHEMA.md` §1a.
 - [ ] App-table authorization is **app-layer only** — D1 has no PostgREST/GRANT/RLS; the Worker request guard (`apps/api/src/lib/authz.ts`) is the only authorization layer, gated by the no-leakage authz-matrix specs (see `AUTH_AND_RLS.md` Layer 1)
 - [ ] Service binding between SSR Worker and API Worker
-- [ ] Datadog Browser RUM and Worker SDK installed and reporting
+- [ ] Browser + Worker telemetry installed and reporting *(shipped as Datadog RUM + Worker SDK, AECI-31; migrating to PostHog under ADR 0024)*
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)
 - [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror the frozen probe `spikes/stack-test`)
 - [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/web/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
@@ -1185,7 +1194,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 
 ### Phase 2: Core data display (Week 3–4)
 - [ ] Data model additions (profiles, reviews, stats_cache, page_views with CF enrichment, vendor_requests, translations, audit_log, workflow_instances, workflow_transitions)
-- [ ] `appendAuditLog()` helper with Datadog forwarding (Section 26.5)
+- [ ] `appendAuditLog()` helper with post-commit log forwarding (Section 26.5)
 - [ ] Slug generation for products and vendors (backfill existing, append vendor name on collision)
 - [ ] Pre-launch slug collision audit and resolution
 - [ ] Product detail page with tab routing (`/products/:slug`, `/products/:slug/integrations`, `/products/:slug/reviews`, `/products/:slug/details`)
@@ -1255,7 +1264,7 @@ Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.1
 Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec — straight to issues**). Much of §16's original Phase 7 list **already shipped in Phases 2–4** (verified on `main` 2026-06-10) and is struck below; Phase 7 is the genuine launch-readiness remainder.
 
 **Already shipped:** ~~XML sitemap~~ (AECI-63) · ~~OG/Twitter meta~~ + ~~product/vendor JSON-LD~~ (AECI-51) + ~~home JSON-LD~~ (AECI-186) · ~~canonical tags~~ (AECI-147) · ~~404 page~~ (AECI-62) · ~~robots.txt~~ (AECI-63) · ~~axe-core in e2e~~ + ~~Lighthouse a11y ≥95 in CI~~ (AECI-65) · ~~CSP/security headers~~ (AECI-89) · ~~color-contrast validation~~ (AECI-148/150/166/230) · ~~Datadog dashboards~~ (per-phase: AECI-66/141/180/206) — **no Slack** (Phase 6 decision).
-**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs; now tracked as AECI-560, see §20.1).
+**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2 — ✅ **shipped there 2026-08-20 as AECI-518**, on the pair page that superseded `/integrations/:id`: `WebPage` + `about` + `BreadcrumbList`, contract in `STAGE_2_SPEC.md` §8.7); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs; now tracked as AECI-560 under the AECI-518 epic, still **not warranted** — see §20.1).
 
 **Phase 7.1–7.13 (the remainder):**
 - [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)
@@ -1324,11 +1333,11 @@ Design decisions in Stage 1 that enable Stage 2 without rework:
 - ⚠️ **Not RLS (ADR 0016):** §18 predates the D1/Drizzle migration. Vendor-scoped authorization is the **3-layer Worker model** (`docs/AUTH_AND_RLS.md`), not Postgres RLS — there is no RLS on app tables. See `STAGE_2_SPEC.md` §4.1.
 
 **Stage 1.5 integration spine (claims/attestations) is Stage-2-ready** (`STAGE_1_5_SPEC.md`, ADR 0018):
-- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested.
-- Attestation `source` already enumerates `vendor_a` / `vendor_b` (dormant in 1.5); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline.
-- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth).
+- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested. ⚠️ **Scoped narrower than it reads (AECI-514, 2026-08):** this holds for the *engine* and for the `vendor_a`/`vendor_b` sources, and both shipped exactly as promised. It does **not** hold for the epic around them — vendor-*created* claims and a real per-product version entity each needed schema, and the maintenance marker a third. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2). Do not plan against the blanket promise.
+- Attestation `source` already enumerates `vendor_a` / `vendor_b` (~~dormant in 1.5~~ — **live since AECI-603**); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline. ⚠️ The timeline was ultimately built over the `product_versions` FKs migration 2 added, not these date stamps, which cannot express "source-version × target-version" (`STAGE_2_ATTESTATIONS_SPEC.md` §8.1). They remain the coarse fallback, and they are **version stamps, never attestation retirement** — retraction is `retracted_at`, a separate column.
+- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth). The first three **shipped** under the AECI-514 epic (2026-08-17/18); AECI-304 stays under Paid Tiers (AECI-515) — AECI-514 shipped the entitlement seam, not the gate.
 
-No schema migrations required for Stage 2 vendor portal — only new endpoints and new UI.
+No schema migrations required for the Stage 2 **vendor portal** — only new endpoints and new UI. (That verified claim is AECI-513's and still holds; it never covered the attestations epic above.)
 
 ---
 
@@ -1345,8 +1354,8 @@ No schema migrations required for Stage 2 vendor portal — only new endpoints a
 | InstantSearch | Algolia's frontend search library |
 | Spartan UI | Angular component library, shadcn/ui-inspired |
 | n8n | Workflow automation tool, used for Linear integration |
-| RUM | Real User Monitoring (Datadog frontend tracking) |
-| APM | Application Performance Monitoring (Datadog backend tracing) |
+| RUM | Real User Monitoring (Datadog's frontend tracking product; live until AECI-651, then replaced by PostHog's Tier 2 browser slice — errors + web vitals with **no session concept**, since replay is off and no identifier is written) |
+| APM | Application Performance Monitoring (Datadog backend tracing). **Never used here** and PostHog has no equivalent — nothing is lost at cutover |
 | BCP 47 | Locale tag standard (e.g. `en-US`, `es-ES`) |
 
 ---
@@ -1375,7 +1384,7 @@ On any write to products, vendors, or integrations, a Cloudflare Worker submits 
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
-> **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged to Datadog, never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged.
+> **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged (PostHog beside Datadog through the AECI-639 dual-run), never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged.
 
 > **Trade URLs are publication-gated (AECI-546).** `/trades/:slug` joins the submit set only when the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — pinging an indexing service for a page that serves `noindex` is the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule prevents. Because `affectedUrlsForPromote` is pure over the promote response (which carries no `product_count`), the handler resolves the floor with one grouped count **after** the batch commits (`apps/api/src/routes/promote-trade-publication.ts`) and hands the single result to both pings. The `/trades` **index** is submitted whenever any trade is touched at all, published or not: it renders live per-term counts and gains or loses a tile on a floor crossing, and trades are find-only so the "a term was created" trigger that covers the sibling index pages can never fire for them. This supersedes AECI-542's blanket exclusion, which deferred the decision here.
 
@@ -1437,7 +1446,7 @@ Every page emits a `<link rel="canonical">` tag. Pages reachable through query p
 
 ### 20.7 404 page
 
-Useful 404 — search box, top categories, "you might be looking for these" links derived from the requested path. Logged to Datadog with the source URL so broken inbound links can be redirected.
+Useful 404 — search box, top categories, "you might be looking for these" links derived from the requested path. Logged with the source URL so broken inbound links can be redirected.
 
 ### 20.8 Robots.txt
 
@@ -1559,7 +1568,7 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > trailing the 08:00 UTC incremental sync by one hour so it reads a settled index. (Decoupled
 > from the 04:00 UTC slot of the broader §23.1 data-quality job, which remains unbuilt.) It compares
 > promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
-> gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
+> gauge. Under ADR 0024 there is **no threshold alert**: the value half is a digest/dashboard read and the no-data half is the AECI-647 liveness sweep,
 > not the email summary (the full §23.1 email + the other nine checks remain to be built). A
 > report-only (dry-run) post-deploy check also runs in `deploy-staging` (CICD §3.2).
 >
@@ -1645,7 +1654,7 @@ Stage 1 uses Claude Code manually against Linear issues. No parallel agent orche
    - The Figma frame URL if applicable
 4. Agent works against the issue, opens a PR
 5. PR includes Linear issue ID in description for auto-close on merge
-6. CI runs: type checks, axe-core a11y, Lighthouse budgets, Datadog smoke tests
+6. CI runs: type checks, axe-core a11y, Lighthouse budgets, deploy smoke tests
 7. Human review and merge
 8. Linear issue auto-closes via GitHub integration
 
@@ -1689,7 +1698,7 @@ This prevents drift between human decisions and AI-generated code.
 Three files, all under the AEC Integrations team in Figma:
 
 - **`AEC Integrations — Design System`** — single source of truth for visual design
-  - Color styles (light theme tokens from Section 2a.2; dark tokens deferred to Stage 2 — AECI-226)
+  - Color styles (light theme tokens from Section 2a.2; dark tokens not shipped — AECI-226; reintroduction dropped, §2a.1)
   - Text styles (heading sizes, body sizes, weights)
   - Spacing tokens (matching Tailwind's spacing scale)
   - Component library (buttons, cards, forms, badges, inputs — mirrors Spartan UI primitives)
@@ -1741,7 +1750,7 @@ Figma color styles, text styles, and spacing tokens mirror Tailwind config exact
 
 ## 26. Audit Trail & Workflows
 
-Comprehensive logging of state-changing events and multi-step approval flows. All audit data is also forwarded to Datadog for unified observability and ad-hoc querying.
+Comprehensive logging of state-changing events and multi-step approval flows. All audit data is also forwarded to the log plane for unified observability and ad-hoc querying — PostHog Logs under ADR 0024 (§26.5).
 
 ### 26.1 Audit log table
 
@@ -1788,7 +1797,9 @@ create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_
 - `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark) and the denormalized product counters (`lib/recompute-counts.ts`), which have never emitted audit rows.
 - `metrics_daily` and `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1, §7.2) — **shipped 2026-08-13** with AECI-581 and AECI-583.
 
-These are observable through `job_runs` and Datadog instead, not through the audit log. Note the exemption test is **entity class, not actor class**: a system or cron actor writing domain state still audits — `actor_type` already permits `'system'`, and `POST /api/promote` uses it throughout.
+These are observable through `job_runs` and the emitted metrics instead, not through the audit log. Note the exemption test is **entity class, not actor class**: a system or cron actor writing domain state still audits — `actor_type` already permits `'system'`, and `POST /api/promote` uses it throughout.
+
+**Granularity — a bulk ingest of external facts audits ONCE PER RUN (AECI-714).** Where a single write path mirrors thousands of externally-sourced rows in one commit, the invariant is satisfied by **one summary `audit_log` row per run, in the same batch**, rather than one row per mirrored row. The connector-catalogue sync (`POST /api/promote/connector-catalog`) is the case this was written for: a full mirror is ~3,573 rows today and ~15k once Zapier lands, and per-row auditing would deposit tens of thousands of entries per sync into a table nothing prunes (§26.6), while answering no question the summary does not. `action='connector_catalog.synced'`, `entity_type='connector_catalog'`, `entity_id` = the catalogue, `metadata` = the per-table created/updated/unchanged/deleted/skipped counts plus the page cursor. **A run that changes nothing writes no row at all** — the same rule as `retention.pruned`, and the reason a re-sent page is a true no-op. This is a granularity carve-out, not an exemption: these rows are domain state and they are still audited, inside the same batch, and a *decision-bearing* write on the same tables (flipping a catalogue's `managed_by`) audits per row like any other.
 
 **Exception — scheduled deletion is never exempt.** Any *scheduled* `DELETE` emits exactly one **summary** `audit_log` row per run, in the same batch as the delete: `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. Deletion is the one write whose fact cannot be recovered from the data afterwards. (Precedent: the single `catalog.integrations_reset` row standing for the 2026-07-25 bulk removal.)
 
@@ -1856,27 +1867,43 @@ When a workflow has a `linear_issue_id`, state changes flow both ways:
 
 This ensures the audit trail is complete regardless of where the action originated.
 
-### 26.5 Datadog forwarding
+### 26.5 Audit-log forwarding
 
-Every `audit_log` and `workflow_transitions` entry is also forwarded to Datadog as a structured log event. This enables:
+> **Vendor (ADR 0024).** This forward targets **PostHog Logs**. It ran as a dual-run beside
+> Datadog until **AECI-651** deleted the Datadog leg (2026-08-28, on the `stage-2` line — `main`
+> still carries the Datadog-only code until the branches merge). The build contract is
+> `docs/POSTHOG_MIGRATION_SPEC.md` §3.7.
 
-- Unified observability — audit data sits alongside performance and error data in Datadog
-- Ad-hoc querying — Datadog's log search and metric tools work across the full event stream
-- Alerting — Datadog alerts can fire on suspicious patterns (e.g. >5 rejected reviews from one user in an hour)
-- Long-term retention — Datadog retains logs separately from Supabase, so even if the table is later archived, queryable history persists
+Every `audit_log` and `workflow_transitions` entry is **also** forwarded to the observability plane as a structured log event. This enables:
 
-**Implementation:** the `appendAuditLog()` helper writes to Supabase AND emits a Datadog log event with the same payload in one call. Failures to forward to Datadog are logged but do not fail the audit write — Supabase is the source of truth.
+- Unified observability — audit data sits alongside performance and error data in one console
+- Ad-hoc querying — log search and metric tools work across the full event stream
+- Alerting — an alert can fire on suspicious patterns (e.g. >5 rejected reviews from one user in an hour). Note the cadence change ADR 0024 accepts: PostHog alerts evaluate **hourly**, where four Datadog monitors evaluated every 5–15 minutes
+- Long-term retention — the log plane retains separately from D1, so even if the table is later archived, queryable history persists
 
-**Batch the forwards when a single write produces many entries (AECI-666).** A promote commits one `audit_log` row per created/updated entity, and the post-commit tail used to issue one Datadog request *per row*, all dispatched simultaneously. A Worker invocation may hold only a bounded number of open connections, so a fat bundle exhausted that budget; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
+**What does NOT change: the §26.1 invariant.** The `audit_log` row is written in the **same `db.batch([...])`** as the mutation, and that is untouched by the vendor swap. Forwarding is strictly **post-commit**, dispatched via `ctx.waitUntil(...)`, and a forwarding failure must `console.warn` and swallow — never throw, never block the response, never roll back the batch. D1 is the source of truth; the forwarded log is a copy.
 
-Use `logBatchToDatadog` (`@aeci/shared/datadog`) for any caller with N related entries: the v2 logs intake accepts an array, so N entries cost **one** request. Never loop `logToDatadog` over a collection. Every transport must also release its response body — see the `CLAUDE.md` constraint and `packages/shared/src/response-drain.ts`.
+**Batch the forwards when a single write produces many entries (AECI-666).** A promote commits one `audit_log` row per created/updated entity, and the post-commit tail used to issue one observability request *per row*, all dispatched simultaneously. A Worker invocation may hold only a bounded number of open connections, so a fat bundle exhausted that budget; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
+
+Use `logBatchToPosthog` (`@aeci/shared/posthog`) for any caller with N related entries: the logs intake accepts an array, so N entries cost **one** request. Never loop `logToPosthog` over a collection. Every transport must also release its response body — see the `CLAUDE.md` constraint and `packages/shared/src/response-drain.ts`.
 
 **Log structure:**
 
-```json
+**Implementation.** `forwardAuditLog()` / `forwardWorkflowTransition()` (`packages/shared/src/audit-log.ts`) take an **injected forwarder**, so they were already transport-agnostic before this migration — re-targeting them is a wiring change at the injection site, not a rewrite of the audit path. That injected seam is the only thing AECI-642 touches here.
+
+**Batch the forwards when a single write produces many entries (AECI-666).** One forward is one request is one **open connection**, and during the dual-run it is *two* — one per vendor. A Worker invocation may hold only a bounded number of connections waiting for response headers, so a promote (one `audit_log` row per created/updated entity, forwarded in a loop) exhausted that budget on a fat bundle; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
+
+Use **`logBatchToPosthog`** (`apps/api/src/posthog.ts`, which fans out to `logBatchToDatadog` for the dual-run window) for any caller with N related entries: OTLP's `logRecords` and Datadog's v2 logs intake both accept an array, so N entries cost **one** request per vendor. Never loop the single-event helper over a collection — the three callers that did (`routes/promote.ts`, `lib/attestation-notify.ts`, `routes/vendor-shared.ts`) are the whole population, and each is now batched. Every transport must also release its response body; see the `CLAUDE.md` constraint, `packages/shared/src/response-drain.ts`, and ADR 0021's 2026-08-27 amendment.
+
+**Log structure.** The payload fields are unchanged; what changes is the envelope. PostHog ingests over **OTLP/HTTP JSON** to `{host}/i/v1/logs`, where the shared tag vocabulary (`env` · `app:aeci` · `service` · `worker` · `version` · `locale` · `host`) rides as **resource attributes** — in particular `service.name`, because the Logs explorer's service filter reads only that. Severity is an OTLP number (`debug:5` / `info:9` / `warn:13` / `error:17`), and timestamps are nanoseconds as a **string**. There is no `ddsource` / `ddtags` / `@field` syntax on this side; a saved query filters on attribute names.
+
+```jsonc
+// The forwarded entry (vendor-neutral shape).
+// PostHog: resource attributes carry service.name/env/version; severity_number 9 = INFO.
+// Datadog (dual-run, until AECI-651): the same body with `service` + `ddsource: "audit_log"`.
 {
   "service": "aeci-api",
-  "ddsource": "audit_log",
+  "source": "audit_log",
   "level": "info",
   "audit": {
     "id": "uuid",
@@ -1890,13 +1917,15 @@ Use `logBatchToDatadog` (`@aeci/shared/datadog`) for any caller with N related e
 }
 ```
 
+**Verifying it locally** — the `ctx.waitUntil` forward shows up in `wrangler dev` tracing as an outbound `fetch` span to `us.i.posthog.com` (and, during the dual-run, to the Datadog intake hosts). That is the cheapest proof the forward actually fired; see `docs/local-tracing.md` §7.
+
 ### 26.6 Retention policy
 
 **Scope.** This section governs the **audit and workflow tables only** — `audit_log`, `workflow_instances`, `workflow_transitions`. Retention for `page_views`, `metrics_daily`, and `job_runs` is governed by `ADMIN_PANEL_SPEC.md` §7.4, and its pruning cron is explicitly forbidden from touching the three tables named here.
 
 **Stage 1: indefinite retention in D1.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
 
-When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Datadog retention is governed by Datadog's plan separately. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
+When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Log-plane retention is governed by the vendor's plan separately (PostHog) — it is not a substitute for the D1 table. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
 
 This decision is intentionally deferred — easier to introduce retention later than to recover data deleted prematurely.
 

@@ -48,7 +48,14 @@ function app() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: USER, email: USER_EMAIL, role: 'reviewer' });
+    c.set('auth', {
+      userId: USER,
+      email: USER_EMAIL,
+      role: 'reviewer',
+      vendorId: null,
+      entitlementTier: 'unclaimed',
+      entitlement: null,
+    });
     await next();
   });
   // score injected as a fixed null (fail-open path); no external call.

@@ -27,9 +27,10 @@
  *   # against the local seeded D1 (no token; for testing the query):
  *   pnpm --filter @aeci/api db:reconcile-counts -- --local
  *
- * Emits the Datadog gauge `aeci.product_counts.drift` (count of drifted products;
- * 0 on a clean run) when DD_API_KEY is set, mirroring the Worker `submitGauge`
- * payload (packages/shared/src/datadog.ts) since that helper is ctx/Request-bound.
+ * Emits the PostHog gauge `aeci.product_counts.drift` (count of drifted products;
+ * 0 on a clean run) when POSTHOG_PROJECT_KEY is set, mirroring the Worker
+ * `submitGauge` OTLP payload (packages/shared/src/posthog.ts) since that helper
+ * is ctx/Request-bound.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -41,6 +42,26 @@ import {
   type StoredProductCounts,
 } from '../src/lib/recompute-counts';
 
+// ─── The delivered-edge count, as raw SQL ────────────────────────────────────
+// `integration_count` counts DELIVERED edges regardless of which table holds them
+// (`STAGE_1_5_SPEC.md` §13.5), so both expressions below sum two subqueries:
+// `integrations` where the product is an endpoint, plus `connector_evidenced_pairs`
+// where it is an endpoint in either canonical slot OR the connector (§12.5 option B).
+//
+// These two are sites 2 and 3 of the fourteen-site lockstep, and they are the pair
+// with the sharpest failure mode. `reconcile-counts.yml` runs this script daily: miss
+// them and it reports 100% drift every morning, and `--fix` SILENTLY REVERTS the new
+// rule across the whole catalogue — the recompute writing the old answer back over
+// the right one. Kept as raw SQL (not Drizzle) because the script runs against a
+// remote D1 through wrangler, so any change here has to be made twice on purpose;
+// `computeExpected` in `../src/lib/recompute-counts.ts` is the definition being
+// mirrored, and its header carries the reasoning.
+const EVIDENCED_COUNT_SQL = (productIdExpr: string) => `(SELECT COUNT(*)
+     FROM "connector_evidenced_pairs" cep
+     WHERE cep."product_a_id" = ${productIdExpr}
+        OR cep."product_b_id" = ${productIdExpr}
+        OR cep."connector_product_id" = ${productIdExpr})`;
+
 // ─── Drift query ─────────────────────────────────────────────────────────────
 // Per-product: the STORED aggregates alongside the EXPECTED values recomputed
 // from source rows. The comparison (counts exact; averages 2dp/0.005 tolerance,
@@ -49,8 +70,9 @@ import {
 const DRIFT_QUERY = `SELECT
   p."id" AS product_id,
   p."integration_count" AS stored_integration_count,
-  (SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = p."id" OR i."target_product_id" = p."id") AS expected_integration_count,
+  ((SELECT COUNT(*) FROM "integrations" i
+     WHERE i."source_product_id" = p."id" OR i."target_product_id" = p."id")
+   + ${EVIDENCED_COUNT_SQL('p."id"')}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
@@ -66,8 +88,9 @@ FROM "products" p;`;
 // Same aggregation as DRIFT_QUERY's expected columns + the seed-reviews
 // RECOMPUTE_PRODUCTS block. `__IDS__` is replaced with a quoted id list.
 const RECOMPUTE_SQL = `UPDATE "products" SET
-  "integration_count" = (SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id"),
+  "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
+     WHERE i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
+   + ${EVIDENCED_COUNT_SQL('"products"."id"')}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
   "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r
@@ -112,7 +135,7 @@ export function evaluateDrift(rows: RawDriftRow[]): ProductCountDrift[] {
 // ─── Target resolution ───────────────────────────────────────────────────────
 
 interface Target {
-  /** Datadog `env:` tag + display label. */
+  /** Telemetry `env` dimension + display label. */
   label: string;
   /** D1 database name (`wrangler.jsonc` `d1_databases[].database_name`). */
   db: string;
@@ -124,7 +147,7 @@ interface Target {
 function resolveTarget(argv: string[]): Target {
   if (argv.includes('--local')) {
     return {
-      label: process.env.DD_ENV ?? 'preview',
+      label: process.env.TELEMETRY_ENV ?? 'preview',
       db: 'aeci-app-preview',
       flags: ['--local'],
       remote: false,
@@ -201,42 +224,74 @@ function applyFix(target: Target, productIds: string[]): void {
   if (res.status !== 0) throw new Error(`--fix recompute failed (wrangler exit ${res.status}).`);
 }
 
-// ─── Datadog ─────────────────────────────────────────────────────────────────
+// ─── PostHog ─────────────────────────────────────────────────────────────────
 
-/** POST the `aeci.product_counts.drift` gauge (count of drifted products). The
- * shared `submitGauge` (packages/shared/src/datadog.ts) needs a Worker
- * ctx/Request, so the CLI posts directly with the same v2-series payload shape.
- * Best-effort: observability never fails the reconcile. */
+/**
+ * POST the `aeci.product_counts.drift` gauge (count of drifted products) to the
+ * PostHog OTLP metrics intake.
+ *
+ * The shared `submitGauge` (`packages/shared/src/posthog.ts`) is bound to a
+ * Worker `ctx`/`Request`, so the CLI posts directly with the same OTLP envelope:
+ * a `gauge` (no `aggregationTemporality` — OTLP gauges are temporality-free),
+ * `asDouble` on the data point, `stringValue` on the attributes, and the same
+ * resource dimensions the Worker sends so the series lines up in PostHog.
+ *
+ * Auth is the publishable `phc_` project token (`POSTHOG_PROJECT_KEY`), the same
+ * key that authenticates all three intakes — there is no secret to provision.
+ * Best-effort: observability never fails the reconcile.
+ */
 async function emitDriftGauge(value: number, env: string): Promise<void> {
-  const apiKey = process.env.DD_API_KEY;
-  if (!apiKey) return;
-  const site = process.env.DD_SITE || 'us5.datadoghq.com';
+  const projectKey = process.env.POSTHOG_PROJECT_KEY;
+  if (!projectKey) return;
+  const host = (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/+$/, '');
+  const timeUnixNano = `${Date.now() * 1_000_000}`;
+  const attr = (key: string, stringValue: string) => ({ key, value: { stringValue } });
   const payload = {
-    series: [
+    resourceMetrics: [
       {
-        metric: 'aeci.product_counts.drift',
-        type: 3, // gauge — DD_METRIC_TYPE_GAUGE in packages/shared/src/datadog.ts
-        points: [{ timestamp: Math.floor(Date.now() / 1000), value }],
-        tags: [
-          'app:aeci',
-          'service:aeci-api',
-          'worker:aeci-api',
-          'locale:en-US',
-          `env:${env}`,
-          'source:reconcile',
+        resource: {
+          attributes: [
+            attr('service.name', 'aeci-api'),
+            attr('env', env),
+            attr('app', 'aeci'),
+            attr('service', 'aeci-api'),
+            attr('worker', 'aeci-api'),
+            attr('source', 'worker'),
+            attr('locale', 'en-US'),
+          ],
+        },
+        scopeMetrics: [
+          {
+            scope: { name: 'aeci-worker' },
+            metrics: [
+              {
+                name: 'aeci.product_counts.drift',
+                gauge: {
+                  dataPoints: [
+                    {
+                      startTimeUnixNano: timeUnixNano,
+                      timeUnixNano,
+                      asDouble: value,
+                      attributes: [attr('source', 'reconcile')],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
         ],
       },
     ],
   };
   try {
-    const res = await fetch(`https://api.${site}/api/v2/series`, {
+    const res = await fetch(`${host}/i/v1/metrics`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'dd-api-key': apiKey },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${projectKey}` },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) console.warn(`Datadog gauge POST returned ${res.status}.`);
+    if (!res.ok) console.warn(`PostHog gauge POST returned ${res.status}.`);
   } catch (err) {
-    console.warn(`Datadog gauge POST failed: ${(err as Error).message}`);
+    console.warn(`PostHog gauge POST failed: ${(err as Error).message}`);
   }
 }
 

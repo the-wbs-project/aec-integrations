@@ -98,6 +98,7 @@ describe('AdminStatus', () => {
 
     http.expectOne('/api/account').flush(ADMIN);
     await settle();
+    fixture.detectChanges(); // the badge seed rides an effect, so flush it
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
     expect(store.pendingReviews()).toBe(3);
@@ -162,6 +163,7 @@ describe('AdminStatus', () => {
     const { pending_reviews: _omitted, ...legacy } = ADMIN;
     http.expectOne('/api/account').flush(legacy);
     await settle();
+    fixture.detectChanges(); // the badge seed rides an effect, so flush it
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
     expect(store.pendingReviews()).toBeNull();

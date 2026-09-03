@@ -16,10 +16,11 @@ import {
   type JWK,
   type JWTVerifyGetKey,
 } from 'jose';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { logToPosthog } from '../posthog';
 import { createAuthWhoamiHandler } from '../routes/auth-whoami';
 import { requireUserAuth, type UserAuthVariables } from './user-auth';
 
@@ -150,5 +151,81 @@ describe('requireUserAuth', () => {
     expect(status).toBe(200);
     expect(body.userId).toBe('user-def');
     expect(body.email).toBeUndefined();
+  });
+});
+/**
+ * AECI-644 / §AW3 — `requireUserAuth()` is the second (and only other) place in
+ * this Worker where a genuine Supabase user id exists, so it registers the id
+ * for `posthogDistinctId` exactly like `lib/authz.ts` does. Real transport,
+ * stubbed fetch: the point is that the attribute reaches the wire.
+ */
+describe('requireUserAuth — posthogDistinctId threading', () => {
+  const TELEMETRY_ENV = {
+    SUPABASE_URL,
+    POSTHOG_PROJECT_KEY: 'phc_test_token',
+    POSTHOG_HOST: 'https://us.i.posthog.com',
+    ENV: 'preview',
+  } as Env;
+
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  let waited: Promise<unknown>[];
+
+  beforeEach(() => {
+    waited = [];
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function execCtx(): ExecutionContext {
+    return {
+      waitUntil: (p: Promise<unknown>) => {
+        waited.push(p);
+      },
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+  }
+
+  async function logAttributes(): Promise<Record<string, unknown>> {
+    await Promise.all(waited);
+    const call = fetchSpy.mock.calls.find((c) => c[0] === 'https://us.i.posthog.com/i/v1/logs') as [
+      string,
+      { body: string },
+    ];
+    const body = JSON.parse(call[1].body) as {
+      resourceLogs: {
+        scopeLogs: {
+          logRecords: { attributes: { key: string; value: { stringValue?: string } }[] }[];
+        }[];
+      }[];
+    };
+    return Object.fromEntries(
+      body.resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!.attributes.map((a) => [
+        a.key,
+        a.value.stringValue,
+      ]),
+    );
+  }
+
+  it('stamps the verified token sub on a log emitted behind the guard', async () => {
+    const app = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
+    app.onError(errorHandler());
+    app.post('/api/auth/profile/ensure', requireUserAuth({ getKey }), (c) => {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, { message: 'profile ensured' });
+      return c.json({ created: true });
+    });
+
+    const token = await mintToken({ sub: 'user-xyz' });
+    const res = await app.request(
+      '/api/auth/profile/ensure',
+      { method: 'POST', headers: bearer(token) },
+      TELEMETRY_ENV,
+      execCtx(),
+    );
+    expect(res.status).toBe(200);
+    expect(await logAttributes()).toHaveProperty('posthogDistinctId', 'user-xyz');
   });
 });

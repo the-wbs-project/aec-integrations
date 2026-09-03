@@ -99,9 +99,10 @@ Tables grouped by domain:
 - `taxonomy_trades` — closed vocabulary: the work a company sells (e.g. "Electrical", "Paving & Asphalt") — AECI-538
 - `taxonomy_data_objects` — closed vocabulary: data objects that flow through integrations (e.g. "RFIs", "Models") — Stage 1.5
 
-**Claims & attestations** (Stage 1.5 — the integration claim spine):
-- `claims` — a data object flowing in a direction through one integration (mechanism) row
-- `attestations` — who affirms a claim (AECi-seeded in 1.5; vendor sources dormant)
+**Claims & attestations** (Stage 1.5 spine + Stage 2 provenance/authority):
+- `claims` — a data object flowing in a direction through one integration (mechanism) row, with its `origin` (AECi curation vs. vendor-created)
+- `attestations` — who affirms a claim: the AECi seed plus the two vendor slots, one live row per slot
+- `product_versions` — a product's vendor-declared releases, ordered by `sort_key`; the entity the version-diff timeline selects on — Stage 2
 
 **Join tables**:
 - `product_categories` — product ↔ category many-to-many
@@ -121,6 +122,16 @@ Tables grouped by domain:
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
+- `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
+- `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
+
+**Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
+- `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
+- `connector_catalog_surfaces` — one row per index URL the review-side ingest crawls, with its `last_ingested_at` "as of" stamp
+- `connector_stubs` — every listing in a catalogue, mapped or not (the misses are the point)
+- `connector_stub_mappings` — many-to-many stub ↔ product assertions, with confidence, evidence and provenance
+- `connector_pairs` — the pairs a vendor publishes a page for, classified `curated` / `generated` / `unknown`
+- `connector_evidenced_pairs` — the **delivered** tier; created empty here, filled by AECI-721
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -166,7 +177,7 @@ create table vendors (
   logo_url text,
 
   -- Operational
-  verified boolean not null default false, -- true after vendor claims (Stage 2+)
+  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -177,6 +188,12 @@ create table vendors (
   vqs_total numeric(4,2),
   vqs_computed_at timestamptz,
 
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -186,6 +203,23 @@ create index vendors_company_name_idx on vendors(company_name);
 create index vendors_promotion_status_idx on vendors(promotion_status);
 create index vendors_verified_idx on vendors(verified);
 ```
+
+**`verified` is a mirror, not the model (AECI-609).** Until the Paid Tiers epic it *was* the
+entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§8.6), with the
+invariant **`vendors.verified = true` iff the vendor has an entitlement row with
+`status = 'active'`**. The demotion is deliberately invisible to readers: the public
+`GET /api/vendors?verified=` filter, `VendorLinkSchema.verified`, `VendorDetail` /
+`VendorListItem`, the Algolia vendor record and `aec-verified-badge` all still read this
+column and none of them changed. **No public or read path may query `vendor_entitlements`** —
+"fixing" the filter to join the entitlement table would defeat the entire denormalization, and
+a test asserts no read config in `lib/drizzle-helpers.ts` references it.
+
+Two consequences worth knowing before touching this column. **`updated_at` moves iff `verified`
+moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`, never left to
+`$onUpdate` — because the nightly Algolia sync selects by `updated_at`: a renewal that does not
+flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps a Verified
+badge in search indefinitely. And **`vendors_verified_idx` is now an index over a cache**; the
+authoritative predicate is on the entitlement row's `status`.
 
 ### 4.2 `products`
 
@@ -243,6 +277,12 @@ create table products (
   -- Operational
   admin_notes text,
 
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -260,6 +300,14 @@ create index products_updated_at_idx on products(updated_at desc);
 
 It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
 
+`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `Maintained by AEC Integrations. Reviewed <date>.` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, and `integrations` alike. Three rules, all load-bearing:
+
+1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly two paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), and a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked.
+2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
+3. **`maintained_by` is not accepted by promote.** It flips to `'vendor'` only via a live vendor attestation and back to `'aeci'` when the last one is retracted (`apps/api/src/routes/vendor-attestations.ts`). Accepting it on the promote payload would let a routine Airtable push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520.
+
+Neither column is indexed: both are read with the row and never filtered or sorted on.
+
 `usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. The column is written by promote (`REVIEW_APP_PROMOTE_API.md` §3.3), which resolves each group to an existing taxonomy term and stores the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-promoted labels stale until the product is re-promoted. Not indexed: it is read with the row, never filtered on.
 
 ### 4.3 `integrations`
@@ -276,7 +324,12 @@ create table integrations (
   constraint source_target_differ check (source_product_id <> target_product_id),
 
   -- Mechanism
-  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner')),
+  -- Closed set, and settled (AECI-735). `iPaaS` is retained PERMANENTLY -- three shipped
+  -- predicates key off it (isConnectorPoweredEdge, routeIntegrationLane clause (c),
+  -- MECHANISM_ORDER) over a population that structurally cannot drain. `partner` is the one
+  -- pending retirement, gated on AECI-712's upstream re-key. Changing this list is a
+  -- DESTRUCTIVE table recreate on D1 -- see docs/migrations.md 3.3a.
+  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')),
   mechanism_name text,
   direction text check (direction in ('one-way', 'bidirectional')),
 
@@ -293,6 +346,12 @@ create table integrations (
   pricing_model text,
   maturity text,
   notes text,
+
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -420,30 +479,47 @@ create index taxonomy_data_objects_slug_idx on taxonomy_data_objects(slug);
 
 ---
 
-## 5a. Claims & attestations (Stage 1.5)
+## 5a. Claims & attestations (Stage 1.5 + Stage 2 migration 1)
 
 The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *claim* asserts that a `data_object` flows in a `direction` through one integration (mechanism) row — the integration row is the anchor (ADR 0018), so the same product pair connected by two mechanisms yields two claims. An *attestation* records who affirms a claim. **No `integrations`-table change** — consolidation onto the pair page is a query-time grouping (§7), not a stored entity.
+
+**Stage 2 migration 1** (AECI-603, `STAGE_2_ATTESTATIONS_SPEC.md` §2) added claim provenance (`claims.origin`, `claims.created_by_vendor_id`), attestation authorship (`attestations.attested_by_vendor_id`) and supersession (`attestations.retracted_at` + the `attestations_slot_key` partial unique index). All of it is additive; the second migration of that epic (`product_versions`, AECI-607) is separate.
 
 ### 5a.1 `claims`
 
 ```sql
 create table claims (
   id uuid primary key default gen_random_uuid(),
-  integration_id uuid not null references integrations(id) on delete cascade,
+  -- The anchor is POLYMORPHIC since AECI-721: exactly one of these two is set.
+  integration_id uuid references integrations(id) on delete cascade,
+  connector_evidenced_pair_id uuid references connector_evidenced_pairs(id) on delete cascade,
   data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
   direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
+  origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
+  created_by_vendor_id uuid references vendors(id) on delete set null,
+  anchor_id uuid generated always as
+    (coalesce(integration_id, connector_evidenced_pair_id)) stored,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint claims_anchor_check
+    check ((integration_id is not null) <> (connector_evidenced_pair_id is not null))
 );
 
 -- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
 -- lookups ride the leftmost prefix of this unique index, so no separate index is needed.
-create unique index claims_identity_key on claims(integration_id, data_object_id, direction);
+create unique index claims_identity_key on claims(anchor_id, data_object_id, direction);
 create index claims_data_object_idx on claims(data_object_id);
 ```
 
-- **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page.
-- **Cascade/restrict.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted.
+- **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other.
+- **`direction` is part of claim identity**, so one integration can carry `rfis a_to_b`, `rfis b_to_a` and `rfis both` as three separate claims. Claims also anchor to the **mechanism row**, not the product pair (§3.1, ADR 0018) — two mechanisms moving the same `data_object` between the same two products are two independent claims, by design.
+- **The anchor is polymorphic (AECI-721), and `anchor_id` is why the identity still works.** "The mechanism row" now means a row of *either* delivered-tier table: `integrations` for an accountable-party edge, `connector_evidenced_pairs` for one an iPaaS delivers (`STAGE_1_5_SPEC.md` §13.1). Three properties make that safe:
+  - **A STORED generated column carries the identity index, not a nullable FK.** Put a nullable `integration_id` straight into `claims_identity_key` and it stops working for the moved rows: SQLite treats NULLs as **distinct**, so two claims differing only in a NULL anchor would both be accepted and an identity ADR 0018 calls immutable would silently stop being unique. Coalescing into one non-null column before indexing preserves it. It also means `claims` can only ever be **recreated** into this shape — SQLite refuses to `ALTER TABLE ADD COLUMN` a STORED generated column.
+  - **`claims_anchor_check` is a real DB CHECK**, unlike the `origin` / `created_by_vendor_id` biconditional next door and unlike `connector_stub_mappings`' two-column rule. Those are application-enforced because an `ON DELETE SET NULL` would re-evaluate them and make deleting an unrelated row fail. Here **both** anchors cascade, so a claim disappears with its anchor rather than being re-evaluated against it — nothing can make this CHECK fail a delete.
+  - **The migration preserved ids**, so re-homing changed no stored value. `0022` inserts each moved edge into `connector_evidenced_pairs` with its `integrations.id` verbatim, so all 85 production claims kept the same `anchor_id` — no unique violations, and every existing `audit_log` row, PostHog log line and attestation still resolves.
+- **`origin` is write arbitration, not a trust badge.** It exists so promote can replace AECi curation without touching vendor-created rows (`STAGE_2_ATTESTATIONS_SPEC.md` §3) and so AECi ops can see where a claim came from. A vendor-created claim renders through exactly the same computed agreement states as an AECi-seeded one — nothing reader-facing keys off `origin`. Every row that predates migration 1 backfilled to `'aeci'` via the column default, which is correct: they all came from promote.
+- **`origin = 'vendor'` ⟺ `created_by_vendor_id is not null`** is a two-column invariant enforced in **application code**, not by a DB CHECK — deliberately, so the rule lives in one place: `claimProvenance()` / `assertClaimProvenance()` in `apps/api/src/lib/attestation-authority.ts` (§2.2).
+- **Cascade/restrict/set-null.** Deleting an integration **or a connector-evidenced pair** removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
 
 ### 5a.2 `attestations`
 
@@ -453,21 +529,69 @@ create table attestations (
   claim_id uuid not null references claims(id) on delete cascade,
   source text not null check (source in ('aeci', 'vendor_a', 'vendor_b')),
   asserted boolean not null default true,
-  introduced_at timestamptz,   -- dormant version stamp (Stage 2 timeline, AECI-303)
-  deprecated_at timestamptz,   -- dormant version stamp
+  introduced_at timestamptz,   -- coarse version stamp (§3.3) — NOT retirement
+  deprecated_at timestamptz,   -- coarse version stamp (§3.3) — NOT retirement
+  introduced_version_id uuid references product_versions(id) on delete set null,
+  deprecated_version_id uuid references product_versions(id) on delete set null,
+  retracted_at timestamptz,    -- supersession: the vendor withdrew or replaced this
+  attested_by_vendor_id uuid references vendors(id) on delete set null,
   note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- Active attestations for a claim; partial on the dormant version stamp so Stage 2 can
--- retire an attestation without deleting its history.
-create index attestations_active_idx on attestations(claim_id) where deprecated_at is null;
+-- One LIVE attestation per (claim, slot). Partial, so retract-then-insert works: any
+-- number of retracted rows may share a slot, exactly one non-retracted row may.
+create unique index attestations_slot_key on attestations(claim_id, source) where retracted_at is null;
+
+-- Live attestations for a claim. Predicated on `retracted_at`, NOT on the `deprecated_at`
+-- version stamp — a vendor recording that a flow was deprecated in v6 must not make the
+-- attestation vanish from the read path (AECI-303's timeline reads it, and its own read
+-- config is the ONE in the system that omits the predicate entirely).
+create index attestations_active_idx on attestations(claim_id) where retracted_at is null;
 ```
 
-- **Stage 1.5 reality.** Only `source: 'aeci'` (`asserted: true`) is ever written. `vendor_a` / `vendor_b` and the `introduced_at` / `deprecated_at` version stamps are **additive-and-dormant** — present in the schema/contract, written by no 1.5 code path (reserved for the Stage 2 vendor portal + timeline).
-- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`). With only an AECi attestation present, every claim resolves to **"Unverified"** in 1.5.
-- **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant).
+- **Two lifecycle columns that must not be conflated.** `introduced_at` / `deprecated_at` are **version stamps** ("this flow existed from v4 until v6", §3.3); `retracted_at` is **supersession** (the vendor withdrew or replaced its assertion). Only `retracted_at` may gate a read. Migration 1 moved `attestations_active_idx` off `deprecated_at` for exactly this reason — the original predicate and its comment were wrong (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
+- **Supersession is retract-then-insert, never `update`** — both statements in the same `db.batch` as the audit row, so history stays append-only for the version-diff timeline (§9). The retract statement must come **first** in the batch: SQLite evaluates `attestations_slot_key` per statement, so an insert placed ahead of it collides with the very row it is superseding and fails the whole batch.
+- **Two reads, and they differ by exactly this predicate** (AECI-303 shipped the second). `integrationPairConfig` applies `liveAttestationsWhere` and feeds the pair page's agreement + presence; `integrationTimelineConfig` **omits it** and feeds `GET …/integrations/:otherSlug/timeline`, where the retracted rows *are* the history. Both live in `apps/api/src/lib/drizzle-helpers.ts`. Never call `computeAgreement` on the timeline config's output — routing history through the vote engine is how a withdrawn assertion finds its way back into a tally.
+- **The only writers.** `POST /api/promote` writes `source = 'aeci'` rows; `apps/api/src/routes/vendor-attestations.ts` (AECI-301) is the sole writer of `vendor_a` / `vendor_b`, `attested_by_vendor_id` and `retracted_at`. A write fills **every slot the caller owns**, so a vendor holding both endpoints of one integration writes two rows — which still tallies as one voter (next bullet).
+- **`vendor_a` / `vendor_b` are no longer dormant** (Stage 2, AECI-514). Which slot a caller may write derives from product ownership in `product_vendors` — `vendor_a` = the `source_product_id` owner, `vendor_b` = the `target_product_id` owner — and never from the request. `apps/api/src/lib/attestation-authority.ts` is the single implementation; a vendor owning neither endpoint gets a **404, not a 403**.
+- **Ownership is not the whole gate: the EDGE must also be attestable** (AECI-705, `STAGE_2_ATTESTATIONS_SPEC.md` §14). A **connector-powered** integration — `integrations.powered_by_product_id IS NOT NULL` **or** `integrations.mechanism_kind = 'iPaaS'` — refuses `POST`/`PUT` with a **403**, because neither endpoint vendor built the plumbing and the connector holds no attestation seat. **No schema change**: the predicate reads two columns that have existed since `0000_init`, and nothing queries on it (every caller already has the row), so `integrations_powered_by_idx` and `integrations_mechanism_kind_idx` are untouched. `DELETE` is deliberately exempt, since promote can set `powered_by_product_id` *after* a vendor has attested. Note the two columns sit on different axes and nothing cross-validates them — `mechanism_kind` describes the edge, `products.product_role` the product — which is why the predicate is a union rather than either column alone.
+- **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
+- **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction column) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
+- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
+- **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
+- **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
+
+### 5a.3 `product_versions`
+
+A release of one product, as its vendor names it (Stage 2 migration 2, AECI-607; `STAGE_2_ATTESTATIONS_SPEC.md` §8). AECI-303's "source-version × target-version" diff selects on these rows; the dormant ISO date stamps could not stand in, because dates cannot answer *"what flowed between Procore 2026.1 and BIM 360 v5"*.
+
+AECI-303 now reads them through the shared `VERSION_ORDER` (`apps/api/src/lib/drizzle-helpers.ts`), which is the SQL mirror of `compareProductVersions` and the only `order by` either reader uses — the vendor authoring list and the pair read. `sort_key` is packed **per product** from that product's own labels, so comparing it *across* two products is meaningless arithmetic that looks like it works; the §9 diff steps each side's selector independently for exactly that reason.
+
+```sql
+create table product_versions (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references products(id) on delete cascade,
+  label text not null,          -- vendor-authored free text: '2026.1', 'v5.2', 'R2024 SP1'
+  released_at date,             -- nullable, and therefore never an ordering input
+  sunset_at date,
+  sort_key integer not null,    -- THE ordering; see below
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Label identity within a product. Two products may both ship a 'v5.2'.
+create unique index product_versions_label_key on product_versions(product_id, label);
+-- The ordered read.
+create index product_versions_order_idx on product_versions(product_id, sort_key);
+```
+
+- **`sort_key` is not optional, and it is the only ordering.** Version labels do not sort lexically — `'2026.10' < '2026.9'` as strings, and `'v10' < 'v9'`. Every ordering, every before/after comparison in the version diff, and the "latest" default key off this integer, never off `label` and never off the nullable `released_at`. **The API must not expose an ordering derived from the label** (`STAGE_2_ATTESTATIONS_SPEC.md` §8.2).
+- **It is derived, not supplied.** `deriveVersionSortKey` (`@aeci/shared/version-sort`) packs the first three numeric runs of the label into one base-100000 integer — `2026.9` → `20_260_000_900_000`, `2026.10` → `20_260_001_000_000` — capped well under `Number.MAX_SAFE_INTEGER`. The write API derives on create and accepts an **explicit override**, because a digit-free label (`'LTS'`, `'Fall release'`) derives 0 and only the vendor knows where those belong.
+- **Ties are legal, so the read order is total.** The unique index is on `(product_id, label)`, not on `sort_key`, and overrides/clamping can collide. `ORDER BY sort_key, created_at, id` — the tiebreak deliberately never falls back to `label`, which would reintroduce exactly the lexical ordering the column exists to avoid. `compareProductVersions` mirrors it in TypeScript; the two must change together.
+- **Vendor-authored only at launch.** `/api/vendor/products/:id/versions` (CRUD) is the sole writer, gated on product ownership (miss → **404**) plus `vendors.verified` on the writes (`API_CONTRACTS.md` §6.14). **Promote does not ingest versions** — a deliberate deferral (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11), not an oversight.
+- **Cascade/set-null.** Deleting a product removes its versions; deleting a version nulls the attestation stamps pointing at it (see §5a.2) rather than deleting the attestation.
 
 ---
 
@@ -569,6 +693,15 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 
 ### 7.1 `profiles`
 
+> **Stale on lifecycle — read this first.** Under [ADR 0016](./adr/0016-d1-over-supabase-postgres.md)
+> the authoritative `profiles` row lives in **D1**, so the triggers described below are
+> **vestigial** (`AUTH_AND_RLS.md` §8.1): they maintain the Supabase Postgres
+> `public.profiles` mirror, which the app never reads. The **primary** creator is
+> `POST /api/auth/profile/ensure` (split-identity seam #1, `AUTH_AND_RLS.md` §3.1), and
+> erasure deletes the D1 row in the Worker plus the `auth.users` row via the Admin API
+> (seam #3). The DDL below is Postgres notation; the source of truth is
+> `apps/api/src/db/schema.ts`.
+
 Extends `auth.users`. Lifecycle is kept in sync by two triggers on
 `auth.users` (not a cross-schema FK — see `docs/AUTH_AND_RLS.md` §8.1
 for the rationale): `on_auth_user_created` inserts a profile on signup,
@@ -580,9 +713,31 @@ create table profiles (
   -- No cross-schema FK — see docs/AUTH_AND_RLS.md §8.1.
   id uuid primary key,
   display_name text,
+  -- 'vendor_admin' has exactly TWO writers, both lib/ batch builders: vendor-grant.ts
+  -- (the AECI-519 claim grant, the AECI-652 revoke, and the AECI-740 standalone
+  -- provision) and vendor-seat-invites.ts (the AECI-664 invite redeem). No route
+  -- handler writes it directly, so no seat write can skip its audit row. Asserted at
+  -- source level by apps/api/src/routes/vendor-admin-role-writers.spec.ts, which also
+  -- pins the AECI-740 fence: nothing may compose provisionSeatStatements with
+  -- activateEntitlementStatements. 'admin' has no writer at all — granting it is the
+  -- per-environment SQL runbook (environments.md §10.7).
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
+  -- Set true by the AECI-664 invite redeem when the redeemed address is on the
+  -- vendor's own registrable domain (computeDomainMatch, evaluated at REDEEM time
+  -- since the invite-time domain gate was removed — STAGE_2_VENDOR_PORTAL_SPEC
+  -- §11a.3). An off-domain redeem leaves it alone; it is never cleared. Read by a
+  -- human on the admin claim queue as "does this person really work there?", so it
+  -- must track the address, not the mere fact of a redeem. Nothing else writes it.
   work_email_verified boolean not null default false,
+  -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
+  -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
+  -- remove seats. Set by the admin claim grant and by the AECI-740 admin provision
+  -- (an AECi-reviewed seat IS the owner event), cleared by revoke; a seat created
+  -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
+  -- Migration 0020 backfills every pre-existing vendor_admin to true.
+  seat_owner boolean not null default false,
+  -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
   trust_tier text not null default 'standard' check (trust_tier in ('standard', 'verified', 'trusted')),
 
   -- Theme preference (defaults to system preference)
@@ -600,6 +755,18 @@ create index profiles_role_idx on profiles(role);
 create index profiles_vendor_idx on profiles(vendor_id) where vendor_id is not null;
 create index profiles_banned_idx on profiles(banned_at) where banned_at is not null;
 ```
+
+> **`profiles.trust_tier` is NOT an entitlement tier.** Its CHECK vocabulary literally
+> contains `'verified'`, one table away from `vendors.verified` and two from
+> `vendor_entitlements.tier` — and the three mean entirely different things.
+> `trust_tier` is a **reviewer**-side anti-abuse signal about a *person* (`standard` /
+> `verified` / `trusted`, Stage 3 trust scoring). `vendor_entitlements.tier` is a
+> **paid** capability rung held by a *company* (§8.6), whose launch vocabulary happens
+> to be `unclaimed` / `verified`. Nothing reads one for the other, and nothing should:
+> the session field is named **`entitlementTier`, never `tier`**, there is no `TrustTier`
+> type, and `grantSeatStatements`' no-clobber list names `trust_tier` explicitly so a
+> vendor-seat grant can never reset a reviewer's standing. See
+> `STAGE_2_PAID_TIERS_SPEC.md` §10 R4.
 
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
@@ -702,6 +869,10 @@ create table vendor_requests (
   body       text not null,
   source_url text,
 
+  -- AECI-739: the free-text OPERATOR note (STAGE_2_VENDOR_PORTAL_SPEC.md §5.2
+  -- step 6) — why a claim is parked and what was said out of band. Nullable.
+  admin_notes text,
+
   -- Status
   status text not null default 'open'
     check (status in ('open', 'in_review', 'resolved', 'rejected')),
@@ -729,6 +900,28 @@ create index vendor_requests_status_idx     on vendor_requests(status);
 create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
 create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
 ```
+
+**`admin_notes` is an ANNOTATION, not a decision (AECI-739).** Four things about
+it that the column alone does not say:
+
+- **It is admin-authored and admin-only.** It is never shown to the claimant and
+  never emailed — unlike `ModerateClaimSchema.reason`, which is also internal but
+  is tied to a status transition. And it is **not** `AdminNote` /
+  `aec-admin-notes`, which is a closed-enum, server-derived measurement caveat on
+  analytics responses, not an annotation surface. The two names are unrelated.
+- **The `audit_log` IS its history.** The column holds only the current text;
+  every write emits a `vendor_claim.note_updated` row carrying the full old and
+  new note in `before_state` / `after_state`, **in the same `db.batch` as the
+  UPDATE** (§26.1). That is the same arrangement `vendor_entitlements.notes` uses
+  (AECI-612), and it is why an unchanged re-save deliberately writes nothing: a
+  trail of identical states is not a history.
+- **Writable at every status.** A note is not a transition, so it is accepted on
+  `resolved` and `rejected` rows too — which is exactly where "why we parked it,
+  and what happened next" is worth having.
+- **The column is on `vendor_requests`, but the API surface is claim-only.**
+  `PATCH /api/admin/claims/:id/notes` is the sole writer and `toAdminClaim` the
+  sole reader; a correction physically has the column and no route touches it.
+  Extending it to corrections is a decision, not a migration.
 
 ### 8.2 `workflow_instances`
 
@@ -786,8 +979,8 @@ create table audit_log (
   actor_id text references profiles(id),
   actor_type text not null check (actor_type in ('user', 'admin', 'system', 'workflow')),
 
-  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'
-  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction' | 'retention'
+  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'; the AECI-514 additions are listed below
+  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'product_version' | 'correction' | 'retention'
   entity_id text,
 
   before_state text, -- JSON (Drizzle `{ mode: 'json' }`)
@@ -811,6 +1004,17 @@ create index audit_log_created_at_idx on audit_log(created_at);
 > document still carry the Postgres-baseline notation** — a pre-existing residue of the ADR 0016
 > migration, tracked separately; `apps/api/src/db/schema.ts` and `apps/api/migrations/` remain the
 > executable truth for every table.
+
+**Actions the AECI-514 attestations epic added** (`STAGE_2_ATTESTATIONS_SPEC.md`). Listed together
+because `action` carries no CHECK — this comment block is the only enumeration, so an omission here
+is invisible rather than a constraint violation:
+
+| Action | `entity_type` | Written by | Notes |
+|---|---|---|---|
+| `attestation.retracted` | `attestation` | AECI-301 — `routes/vendor-attestations.ts` | Supersession, one row per retracted attestation. Pairs with the existing `attestation.created`, which a PUT re-emits for each owned slot. `metadata.source = 'vendor-portal'`. |
+| `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
+| `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
+| `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written only after a *successful* send, so a failed or skipped one is retried by the next sweep. |
 
 ---
 
@@ -862,6 +1066,153 @@ Notes:
   a pathological bundle sheds `auditEntries` then `affectedProducts` and records what it
   dropped in `truncated`, so an oversized payload costs observability rather than blocking
   a valid promote. A typical row is ~10 KB.
+
+---
+
+### 8.6 `vendor_entitlements`
+
+The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
+(AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
+(§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
+
+```sql
+create table vendor_entitlements (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid not null references vendors(id) on delete cascade,
+
+  -- Capability-registry tier id (@aeci/shared/entitlements). DELIBERATELY UNCONSTRAINED
+  -- at the DB layer: adding a rung must be data-only. An unknown tier resolves to zero
+  -- capabilities (fail-closed), which is safer than a write-time CHECK failure.
+  tier text not null default 'verified',
+  -- Unlike tier, this IS constrained: adding a status is a state-machine change,
+  -- and therefore a code change anyway. Only 'active' mirrors onto vendors.verified.
+  status text not null default 'active'
+    check (status in ('pending', 'active', 'expired', 'revoked')),
+
+  -- ISO-8601. period_start null = open-ended; period_end null = PERPETUAL (what the
+  -- backfill writes), which the partial expiry index below ignores entirely.
+  period_start timestamptz,
+  period_end timestamptz,
+
+  -- The offline arrangement — a superset of ClaimEntitlementSchema. `amount` is TEXT,
+  -- not numeric: free-form and currency-agnostic ("USD 5,000 / yr"), which keeps the
+  -- model payer-agnostic.
+  payer text,
+  amount text,
+  terms text,
+  arranged_by text,
+  invoice_ref text,
+  notes text,
+
+  granted_by uuid references profiles(id) on delete set null, -- one of the 8 inbound FKs to profiles (AUTH_AND_RLS.md §8)
+  granted_at timestamptz not null default now(),
+  ended_at timestamptz,             -- stamped when status leaves 'active'
+  expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence
+
+  source_request_id uuid references vendor_requests(id), -- the claim this came from, if any
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- The STRUCTURAL half of the mirror invariant: one row per vendor is what makes
+-- `status = 'active'` a legal single-row WHERE.
+create unique index vendor_entitlements_vendor_key on vendor_entitlements(vendor_id);
+create index vendor_entitlements_status_idx on vendor_entitlements(status);
+-- The expiry cron's ONLY scan. PARTIAL, so perpetual/backfilled rows and every
+-- non-active row are invisible to it.
+create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
+  where period_end is not null and status = 'active';
+```
+
+### `vendor_seat_invites` (Stage 2 — AECI-664)
+
+A pending self-serve seat invite. A row is an **INTENT, never an account**: this
+table is why the vendor portal can add a colleague without the vendor ever
+triggering a Supabase account create, and therefore why the whole invite path
+needs no `SUPABASE_SERVICE_ROLE_KEY` and works in local dev and on PR previews.
+
+**The row grants nothing.** Redeeming requires the caller's verified JWT email to
+equal `email`, so a forwarded or prefetched `token` is inert. The token is an
+opaque lookup handle, not a bearer credential — which is what makes it safe in a
+URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
+`crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
+(`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+
+**No FK on the invitee.** `email` is deliberately not a `profiles` reference: at
+insert time the invitee usually has no account at all. Who actually redeemed it
+is on the `audit_log` row (`vendor_seat.invite_accepted`, `actor_id` = redeemer).
+`invited_by_id` is the **ninth** inbound FK to `profiles.id` — `ON DELETE SET
+NULL` **and** nulled explicitly in the `DELETE /api/account` erasure batch
+(`AUTH_AND_RLS.md` §8); miss either and account deletion FK-fails for anyone who
+ever sent an invite. The invite itself survives its sender's erasure, on purpose:
+it belongs to the invitee.
+
+```sql
+create table vendor_seat_invites (
+  id uuid primary key,
+  vendor_id uuid not null references vendors(id) on delete cascade,
+  email text not null,                 -- normalized lowercase at the handler
+  token text not null,                 -- opaque crypto.randomUUID()
+  invited_by_id uuid references profiles(id) on delete set null,
+  expires_at timestamptz not null,     -- 14 days; TS policy, not a CHECK (a CHECK
+                                       -- change on SQLite is a full table rebuild)
+  accepted_at timestamptz,             -- both null = pending; either set = spent
+  revoked_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index vendor_seat_invites_token_key on vendor_seat_invites(token);
+-- The roster read AND the per-vendor daily rate-limit count.
+create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, created_at);
+-- The duplicate probe. PARTIAL, so spent rows never widen it.
+create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
+  where accepted_at is null and revoked_at is null;
+```
+
+**Why one row per vendor and not a period-history table.** The mirror invariant has to be
+expressible as a **guarded single-row `UPDATE`**, because D1 has no interactive transactions
+and a read-then-write is a race with no available fix. With one row the predicate is
+`status = 'active'`, which is a legal `WHERE`. With history rows it becomes `MAX(period_end)`
+or `is_current` over N rows — not a predicate you can put in a `WHERE` — and the mirror flip
+degrades into exactly that unfixable race. Three supporting reasons: **`audit_log` already is
+the history ledger** (`audit_log_entity_idx` is `(entity_type, entity_id, created_at)`, so
+`entity_type='vendor_entitlement', entity_id=<vendor_id>` yields the full grant/renew/lapse
+trail with no new index and no new read path); **the invoice is not the system of record**
+(offline PO means accounting holds the money ledger — this table records the *arrangement*);
+and **read cost** (the authz guard reads this row on every `/api/vendor/*` request, and a
+history table would put an aggregate on that hot path). If finance later wants a queryable
+term history, an append-only `vendor_entitlement_periods` child table is purely additive and
+changes no reader.
+
+Notes:
+
+- **One writer, both sides.** `apps/api/src/lib/vendor-entitlement.ts` emits every statement
+  that can move either side of the *iff*, and never one without the other. An ESLint
+  `no-restricted-syntax` rule rejects a `.set({ verified })` / `.values({ verified })` on
+  `vendors` in any other file (exempt list: exactly that one module), and the daily
+  `entitlement_mirror_drift` data-quality check counts `verified = 1` XOR an active row as
+  the run-time backstop. Callers are `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
+  paid-tiers spec) and the claim grant, which composes the same builder into its batch.
+- **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a **closed** CHECK
+  and opening it on SQLite is a full table rebuild; `audit_log.entity_type` is deliberately
+  unconstrained, so `'vendor_entitlement'` costs nothing. Entitlement writes audit and do not
+  transition a workflow.
+- **`pending` earns its place.** Offline invoicing genuinely has an "arrangement recorded, PO
+  issued, not yet effective" limbo; without it an admin must either not record the arrangement
+  or verify an unpaid vendor. `expired` = term lapsed amicably, `revoked` = pulled for cause.
+- **Nothing expires itself.** The daily 11:00 UTC sweep **warns** and stamps
+  `expiry_notice_sent_at`; it never writes `status` and never touches `vendors`. An active term
+  past its end date stays active until an admin clears it.
+- **Backfill is a script, not a migration** (`apps/api/scripts/backfill-entitlements.ts`, run
+  per environment). Rows already `verified = 1` from the Airtable/claim era get
+  `{ tier: 'verified', status: 'active', period_end: null }` — perpetual and termless, so the
+  partial expiry index ignores them. `migrations.md` keeps migrations declarative; the drift
+  check is the proof the backfill actually landed on every tier.
+- **No public or read path may query this table** (§4.1). It is written by the sole-writer
+  module, read by the authz guard and the two admin/vendor surfaces, and by nothing else.
 
 ---
 
@@ -1210,11 +1561,11 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
 | `catalog.integrations_created` | flow | `audit_log` `integration.created` | **reconstructed** |
 | `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
-| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** |
+| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** — and **inflated before 2026-08-18**: promote re-created the claim spine on every push, so pre-AECI-604 counts are re-assertions, not additions. From that date `claim.created` fires only on a genuinely new identity triple, and `claim.deleted` / `claim.converted` (AECI-604) make net movement derivable. |
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
-| `catalog.integrations_total` | stock | `integrations` | not backfilled |
+| `catalog.integrations_total` | stock | `integrations` **+ `connector_evidenced_pairs`** (AECI-721 — see below) | not backfilled, and **no backfill needed** |
 | `catalog.claims_total` | stock | `claims` | not backfilled |
 | `catalog.reviews_approved` | stock | `reviews` where `status='approved'` | not backfilled |
 | `accounts.profiles_total` | stock | `profiles` | not backfilled |
@@ -1223,6 +1574,19 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `audience.feedback_total` | stock | `feedback` | not backfilled |
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+
+**`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
+AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as
+the one lockstep site whose damage "cannot be repaired after the fact": it is written once a day
+by cron, so an unadjusted migration would stamp a permanent, unexplained step-change into recorded
+history.
+
+It was resolved by making the expression `count(integrations) + count(connector_evidenced_pairs)`
+rather than by editing the series. The migration **moves** rows between two tables that are already
+summed and creates none, so the series is continuous across it — there is no step to annotate and
+no history to rewrite. That is the honest half of §13.5's "backfill or annotate deliberately": a
+retroactive edit to `metrics_daily` would have made the numbers look right by changing what we
+recorded, which is the opposite of what this table is for.
 
 Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
@@ -1244,12 +1608,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the eleven `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the thirteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, and the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the eleven AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the thirteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1264,7 +1628,7 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (an eleventh, `asn-registry`, landed with AECI-624 at no migration cost — which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
@@ -1306,6 +1670,369 @@ create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
 **Written by** the weekly `0 2 * * 2` cron (Mondays; Cloudflare's day-of-week is 1=Sunday, AECI-661) (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
 
 **Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
+
+---
+
+## 9a. Connector lane (Stage 1.5 Addendum C — AECI-714)
+
+Six tables added by migration `apps/api/migrations/0026_overconfident_selene.sql`. Five are a
+**projection** of the review app's connector-lane model (`aec-integrations-review`, AECI-719):
+same column names, same semantics, so review → AECi is a copy rather than a transformation. The
+sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
+
+Rows arrive only through `POST /api/promote/connector-catalog`
+(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them — with one deliberate exception
+that writes no catalogue *content*: `PATCH /api/admin/connector-catalogs/:id` (AECI-720) moves
+`connector_catalogs.managed_by`, and nothing else.
+
+**The first reader is `/admin/connectors` (AECI-722**, `ADMIN_PANEL_SPEC.md` §5.9). It also added
+the six tables' `relations()` entries plus the inverses on `productsRelations`, discharging the
+deferral recorded in `apps/api/src/db/schema.ts`. Note what its existence does *not* change: these
+tables still have no `Cache-Tag` vocabulary, because `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4). The tag set belongs to the first **public** reader, AECI-715 / 716.
+
+**Mapping decisions are not writable from AECi, and the reason is in this table's own upsert.**
+The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`, `evidence_url`, `decided_by`,
+`decided_at`, `checked_at` and `notes` from the page, and skips only rows it computes as
+*unchanged* — so an AECi-authored decision is exactly the row the next page overwrites. Authoring
+therefore waits for AECI-724 and is gated on `managed_by = 'vendor'`, the one state in which the
+sync is frozen out of a catalogue.
+
+**Two tiers, and conflating them is the failure this lane exists to prevent** (`STAGE_1_5_SPEC.md`
+§13.1):
+
+- **Delivered** — `connector_evidenced_pairs`. A working integration exists today.
+- **Reachable** — *not a table*. Derived at read time from `connector_stubs` +
+  `connector_stub_mappings`, and gated for publication by `connector_pairs.surface`. Never stored
+  as delivered, and **never counted** — not in a heading, not in `integration_count`, not in a
+  facet, not in the home stats (§13.5).
+
+**Primary keys are the review app's own record ids**, not `uuid ... default gen_random_uuid()`,
+on all five projected tables. The decisive reason is `connector_stub_mappings`: its natural key
+`(stub_id, product_id)` has a nullable `product_id`, and SQLite treats NULLs as distinct, so
+`ON CONFLICT (stub_id, product_id)` can never match a stub-level decision row — a re-sent page
+would insert a second one and the partial index would roll the whole page back. Keying on the
+review id makes every statement in the sync `ON CONFLICT (id) DO UPDATE`. `promote_jobs.job_id`
+is the standing precedent for a caller-supplied text key in this schema.
+
+**CHECK discipline.** A CHECK change on D1 is a destructive table recreate (`docs/migrations.md`
+§0), so the rule is: *every column the DB CHECKs, the Zod contract enums; every column the Zod
+contract leaves a loose string, the DB leaves unconstrained.* `surface_role`, `index_kind` and
+`direction_role` are therefore unconstrained on both sides — that vocabulary has already moved
+once (the review app added `all` only after the 2026-08-27 Aquifer/Kroo survey).
+
+### 9a.1 `connector_catalogs`
+
+One row per iPaaS — the catalogue as a whole, never one of its index pages. That is what gives
+`managed_by` somewhere to live: a vendor takes over a **catalogue**, not an index URL (AECI-720).
+
+```sql
+create table connector_catalogs (
+  id text primary key,                       -- the review app's record id
+  connector_product_id uuid not null references products(id) on delete cascade,
+  connector_authorship text check (connector_authorship in ('platform', 'partner', 'mixed')),
+  managed_by text not null default 'review' check (managed_by in ('review', 'vendor')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalogs_product_idx on connector_catalogs(connector_product_id);
+```
+
+- `connector_product_id` is **NOT NULL**. A catalogue whose connector platform is not promoted is
+  reported in the sync's `skipped[]` rather than stored half-formed — the live case, since Zapier
+  and Workato are `promotion_status: on_hold` review-side (AECI-700). **AECI-721 answered the
+  open question as NO** — an evidenced pair may not name an unpromoted connector either (§9a.6
+  "As built"), so those edges stay in `integrations` and keep `mechanism_kind = 'iPaaS'`.
+- `connector_authorship` matters because Zapier inverts what the rest of the lane assumes: its app
+  vendors write the connectors, not Zapier. A reader defaulting to `platform` would attribute nine
+  thousand connectors to the wrong party.
+- `managed_by` is **held and enforced on this side** deliberately — the review app is the component
+  being decommissioned, so the surviving system owns who-controls-what. AECI-714 landed the column;
+  **AECI-720 landed the enforcement.** It has exactly **two writers**, and no third is permitted:
+  the column `DEFAULT 'review'` on create, and `PATCH /api/admin/connector-catalogs/:id`
+  (`API_CONTRACTS.md` §6.10, behind `requireAdmin()`). It is correspondingly **not on the promote
+  wire** — accepting it there is what let any re-sync silently flip a vendor-managed catalogue back
+  to `review`, which is the exact inversion of the sentence above.
+- **What enforcement means.** While `managed_by = 'vendor'`, `planConnectorCatalogPage` refuses
+  every `POST /api/promote/connector-catalog` page for that catalogue with
+  `CATALOG_VENDOR_MANAGED`, thrown before a single statement is built — so a refused page writes
+  nothing at all, including no `audit_log` row. The check runs *before* the unpromoted-connector
+  skip, so a policy refusal never disguises itself as a re-sendable "could not resolve yet".
+  Refusing the page is complete cover: every child row binds the page's own catalogue id.
+- **The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
+  review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
+  flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
+  that answers *"is the feed still arriving?"* for a connector seat carrying no
+  `vendor_entitlements` row and therefore no expiry cron, which is only actionable if a lane can be
+  reclaimed. Both directions audit per row in the same batch as the flip
+  (`connector_catalog.managed_by_vendor` / `.managed_by_review`) — ADR 0022 and
+  `STAGE_1_SPEC.md` §26.1 name this write explicitly, distinguishing it from the run-granularity
+  carve-out that governs the sync on these same tables.
+- **The flip grants no seat.** The endpoint's optional `vendorId` is validated against `vendors`
+  and recorded in the audit metadata; that record is the *only* one, because `STAGE_2_SPEC.md`
+  §8.9(2) keeps the connector seat out of `vendor_entitlements` entirely and §8.9(3) leaves
+  provisioning to AECI-722 / AECI-724. Nothing here writes `profiles.role = 'vendor_admin'`.
+
+### 9a.2 `connector_catalog_surfaces`
+
+One row per index URL the review-side ingest crawls. Vendors publish more than one — Aquifer and
+Kroo facet by industry, MindCloud and Agave publish an app index and a pair index — so
+`surface_role` is part of the row identity.
+
+```sql
+create table connector_catalog_surfaces (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  surface_role text not null,                -- apps | pairs | sources | destinations | all
+  index_kind text,                           -- sitemap | toc | json_api | html
+  index_url text,
+  last_ingested_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalog_surfaces_role_idx
+  on connector_catalog_surfaces(catalog_id, surface_role);
+```
+
+- **No count columns, deliberately.** A count here is maintained state that goes stale on the first
+  truncated fetch and that nobody can date.
+- `last_ingested_at` is the "as of" date §13.1 requires every reachable-tier claim to render with,
+  and the catalogue-freshness signal `STAGE_2_SPEC.md` §8.9(4) makes the connector-vendor seat
+  answerable for. It is per surface — one row — so the coverage surfaces should source provenance
+  from here rather than from thousands of per-stub `last_seen_at` values.
+
+### 9a.3 `connector_stubs`
+
+Every listing in a catalogue, **not only the ones that match a product**. The question this lane
+answers is *"is this new listing one of ours?"*, and that needs the misses present: ~3,342 of
+today's 3,573 stubs map to nothing. Holding the full mirror is also what makes AECI-720's cutoff a
+lane freeze rather than a data migration, and what gives AECI-722's triage queue its rows.
+
+```sql
+create table connector_stubs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  slug text not null,
+  label text,
+  url text,
+  direction_role text,                       -- source | destination | both, or null
+  action_count integer,
+  actions jsonb,                             -- NULL = never fetched, NOT "no actions"
+  actions_hash text,
+  actions_fetched_at timestamptz,
+  previous_labels jsonb,                     -- string array
+  meta jsonb,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,                    -- tombstone
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stubs_catalog_slug_idx on connector_stubs(catalog_id, slug);
+create index connector_stubs_label_idx on connector_stubs(label);
+```
+
+- The stub is a **fact** — the iPaaS publishes this listing — which is why it carries no decision
+  columns at all. Everything anybody *concludes* about it lives in `connector_stub_mappings`.
+- `actions` **NULL means never fetched, not "no actions"**. The per-listing inventory is ~73k
+  actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely. A
+  reader treating null as "none" would publish *"this connector does nothing"* about most of the
+  catalogue.
+- `first_seen_at` / `last_seen_at` are **NOT NULL with no default**, unlike the review side, which
+  defaults them because rows are born there from a crawl. Here every row arrives from a sync that
+  already knows both, so a default would only mask a sender bug as a plausible timestamp.
+- `removed_at` is computed review-side off a `complete` ingest run — a truncated sitemap fetch is
+  indistinguishable from a vendor deleting half their catalogue. AECi copies the outcome and never
+  re-derives it, which is why the review app's ingest-run log is deliberately **not** mirrored.
+
+### 9a.4 `connector_stub_mappings`
+
+What somebody concluded about a stub — **many-to-many**. One listing may be several of our products
+(MindCloud's single `adp` listing is ADP Workforce Now and any edition built within it) and one
+product may appear as several listings in one catalogue.
+
+```sql
+create table connector_stub_mappings (
+  id text primary key,
+  stub_id text not null references connector_stubs(id) on delete cascade,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  product_id uuid references products(id) on delete set null,
+  status text not null
+    check (status in ('mapped', 'ruled_out', 'out_of_scope', 'no_record', 'ambiguous_parked')),
+  confidence text check (confidence in ('low', 'medium', 'high')),
+  evidence_url text,
+  decided_by text,
+  decided_at timestamptz,
+  checked_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stub_mappings_pair_idx on connector_stub_mappings(stub_id, product_id);
+create unique index connector_stub_mappings_decision_idx on connector_stub_mappings(stub_id)
+  where status in ('out_of_scope', 'no_record', 'ambiguous_parked');
+create index connector_stub_mappings_product_idx on connector_stub_mappings(product_id);
+create index connector_stub_mappings_status_idx on connector_stub_mappings(catalog_id, status);
+```
+
+- **There is no `pending` status — the absence of a row is pending.** A row per unreviewed stub
+  would be ~3,300 rows of nothing before anybody had decided anything.
+- Five statuses in **two families**: `mapped` / `ruled_out` name a product and several may sit on
+  one stub; `out_of_scope` / `no_record` / `ambiguous_parked` assert there is none to name, and at
+  most one may sit on a stub. `ruled_out` exists so the review app's auto pass does not re-propose
+  the same wrong product every run.
+- **The two-column invariant is enforced in application code and in the wire schema, never as a DB
+  CHECK** — the same shape as `claims`' `origin` / `created_by_vendor_id` biconditional, and for a
+  sharper reason: `product_id` goes NULL under `on delete set null`, so a CHECK would be
+  re-evaluated by that update and would make **deleting a mapped product fail**.
+- The partial unique index is keyed on **status**, not on `product_id is null`, for the same
+  reason. A stub whose two mapped products were both deleted would otherwise collide on a
+  null-keyed index. A `mapped` row left holding NULL is meant to be visible, not tidied away.
+- `catalog_id` is a denormalised copy of the stub's, derived server-side and never accepted on the
+  wire. It exists for `connector_stub_mappings_status_idx`: the triage counts are "how many of this
+  catalogue's stubs sit in each state", and without it that GROUP BY joins every mapping back to
+  its stub.
+- **The publication gate is provenance, not confidence**: `status = 'mapped' AND product_id IS NOT
+  NULL AND decided_by IS NOT NULL AND decided_by <> 'auto-name-match'`. Gating on `confidence`
+  would publish hundreds of machine guesses at `medium`.
+
+### 9a.5 `connector_pairs`
+
+The pairs a vendor publishes a page for, filtered review-side to pairs where both stubs map to one
+of our products — the difference between ~2,000 rows and MindCloud's 104,186.
+
+```sql
+create table connector_pairs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  stub_a_id text not null references connector_stubs(id) on delete cascade,
+  stub_b_id text not null references connector_stubs(id) on delete cascade,
+  url_a_to_b text,
+  url_b_to_a text,
+  surface text not null default 'unknown' check (surface in ('curated', 'generated', 'unknown')),
+  classified_at timestamptz,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_pairs_canonical_order check (stub_a_id < stub_b_id)
+);
+
+create unique index connector_pairs_pair_idx on connector_pairs(catalog_id, stub_a_id, stub_b_id);
+create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
+```
+
+- **This is not the reachable tier and asserts no delivery.** It exists for one thing the mapping
+  graph cannot supply: `surface`. Reachability is derivable from stubs + mappings alone (§13.1),
+  but *publication* is not — §13.7 publishes the **curated** set, and curated-vs-generated is a
+  classification on the vendor's own published pair row. Without this table the only derivable
+  thing is the auto-generated cross-product that §13.7 and AECI-716 explicitly refuse.
+- The canonical ordering is a CHECK rather than a convention because vendors publish both
+  directions as separate pages: without it every pair arrives twice and the unique index cannot see
+  the collision. Keeping both URLs means the ordering costs no information.
+- `surface` defaults to `unknown` on purpose — appearing in an index says a page exists, not that
+  anyone read it.
+
+### 9a.6 `connector_evidenced_pairs`
+
+The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
+review-side counterpart, and the destination AECI-721 migrates the connector-powered
+`integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
+(migration `0027_powerful_killraven.sql`) and made `POST /api/promote` route new
+connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
+never emits a statement against it — reachability and delivery stay separate lanes.
+
+**Read surfaces (AECI-713, 2026-09-02).** The ENDPOINT product-detail read
+(`productDetailConfig`) loads `evidencedPairsAsA` / `evidencedPairsAsB` and unions them into
+`ProductDetail.integrations_as_source` / `_as_target`, filing each row by its **oriented** source
+rather than by which column matched — the canonical order is a storage detail and carries no
+orientation meaning. AECI-721 had unioned this table into every read surface except that one, so
+between the two issues the migrated edges counted toward `integration_count` while rendering on
+neither endpoint's page. `claimsRelations.connectorEvidencedPair` was added at the same time: the
+`many(claims)` side here had no inverse, so Drizzle could not resolve a claims join on this table
+until something asked for one.
+
+**As built (AECI-721, 2026-08-31).** 19 production edges moved, not the ~326 this section
+originally anticipated: that figure is review-catalogue-side, and the prod gap is promotion
+coverage (AECI-730 reconciles it as 79 promoted + 62 connector-unpromoted + 184 never promoted).
+Three rules decided which rows moved:
+
+- **The routing key is the FK, not the kind**: `powered_by_product_id IS NOT NULL AND <> source
+  AND <> target`, regardless of `mechanism_kind`. §13.2 left the ~20-row `marketplace-app`-with-
+  `powered_by` residue open and AECI-721 settled it *into* this table — which is what
+  `built_by_vendor_id` was put here on day one to allow. 17 of the 19 are that residue.
+- **Convention-A self-references stayed** in `integrations` (60 prod rows — Aquifer 31, Kroo 29),
+  as `connector_evidenced_pairs_distinct_connector` requires.
+- **An edge whose connector is unpromoted stayed too** — `connector_product_id` is NOT NULL, and
+  AECI-700 parks Zapier and Workato permanently. 53 prod `iPaaS` rows are in that state. This is
+  the answer to the open question §9a.1 records: **no, an evidenced pair may not name an
+  unpromoted connector**, and the consequence is that those edges keep `mechanism_kind = 'iPaaS'`
+  — which is why `iPaaS` did NOT leave the `integrations` CHECK.
+
+```sql
+create table connector_evidenced_pairs (
+  id uuid primary key default gen_random_uuid(),
+  connector_product_id uuid not null references products(id) on delete cascade,
+  product_a_id uuid not null references products(id) on delete cascade,
+  product_b_id uuid not null references products(id) on delete cascade,
+  name text,
+  built_by_vendor_id uuid references vendors(id),
+  mechanism_name text,
+  direction text check (direction in ('a_to_b', 'b_to_a', 'both')),
+  description text,
+  website text,
+  listing_url text,
+  docs_url text,
+  mechanism_url text,
+  pricing_model text,
+  maturity text,
+  notes text,
+  last_reviewed_at timestamptz,
+  maintained_by text not null default 'aeci' check (maintained_by in ('aeci', 'vendor')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
+  constraint connector_evidenced_pairs_distinct_connector
+    check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
+);
+
+create unique index connector_evidenced_pairs_pair_idx
+  on connector_evidenced_pairs(connector_product_id, product_a_id, product_b_id);
+create index connector_evidenced_pairs_product_a_idx on connector_evidenced_pairs(product_a_id);
+create index connector_evidenced_pairs_product_b_idx on connector_evidenced_pairs(product_b_id);
+create index connector_evidenced_pairs_connector_idx on connector_evidenced_pairs(connector_product_id);
+create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs(built_by_vendor_id)
+  where built_by_vendor_id is not null;
+```
+
+- **The shape exists to not foreclose the claims re-home.** A production check on 2026-08-31 found
+  **94 of 1,697 claims anchored on powered edges**, and `claims.integration_id` is a single-column
+  NOT NULL FK inside `claims_identity_key` — so re-homing them recreates `claims`. Two properties
+  keep that to *one* recreate rather than two: a **single-column** surrogate key (a composite PK
+  would force a three-column FK from `claims`), and a default that an explicit value overrides — so
+  AECI-721 can supply the migrated `integrations.id` verbatim as the new row's `id`, leaving the 94
+  claims' stored anchor **value** unchanged and only moving which table it points at.
+- `built_by_vendor_id` is here on day one because §13.2 records an open residue: ~326 edges carry
+  `powered_by` against 308 marked `iPaaS`, and the ~20-row difference is accountable (AnyWare Apps'
+  two Ramp↔Sage edges are `marketplace-app` **with** a `powered_by`, built by Cherry Bekaert). A
+  table that could not hold a builder would silently pre-decide that residue, and an FK added later
+  loses its `ON DELETE` clause under `ADD COLUMN`.
+- `connector_evidenced_pairs_distinct_connector` enforces §13.2(a) structurally. Review-side
+  Convention A stores *"product X ships a connector on platform C"* as one edge whose `powered_by`
+  **is** one of its own endpoints — ~152 of the 308 `iPaaS` rows. Those stay in the direct list;
+  letting one in here would render "Via Aquifer → Aquifer".
+- `direction` uses `claims`' `a_to_b | b_to_a | both` vocabulary rather than `integrations`'
+  `one-way | bidirectional`, because once the pair is canonicalised `one-way` no longer says which
+  way. AECI-721's migration is therefore a lossless CASE, not a straight copy:
+  `one-way` with source = A → `a_to_b`; `one-way` with source = B → `b_to_a`; `bidirectional` →
+  `both`; NULL → NULL.
 
 ---
 
@@ -1359,7 +2086,7 @@ create trigger products_updated_at before update on products
 
 `products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/recompute-counts.ts`) right after the mutating `db.batch` commits. Because D1 has no interactive transactions the recompute is a **separate, non-atomic write** that may lag briefly (ADR 0016). `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
 
-**Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the Datadog gauge `aeci.product_counts.drift`. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
+**Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the `aeci.product_counts.drift` gauge. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
 
 Database triggers on the source tables are **reserved for Phase 2** if write performance becomes an issue; Stage 1 deliberately keeps this at the application layer. (The `invalidateForEntity()` helper referenced by earlier drafts was never built and is superseded — cache invalidation now goes through the Cache-Tag strategy, a separate concern from count maintenance; see CLAUDE.md "Cache invalidation".)
 
@@ -1369,15 +2096,24 @@ Slugs are generated at insert time by application code, not at the database leve
 
 ---
 
-## 12. RLS policies
+## 12. Authorization (no RLS on app tables)
 
-Row-level security is enabled on every table. Policy definitions live in **`AUTH_AND_RLS.md`** — that document is the source of truth for who can read and write what.
+> **Updated for ADR 0016 (D1).** The application database is **Cloudflare D1 (SQLite)**, which
+> has **no row-level security and no PostgREST**. Authorization is enforced **in the API
+> Worker** — the 3-layer model collapsed to **Layer 1 only** for app tables: verify the
+> Supabase JWT → re-fetch `role` / `vendor_id` / `banned_at` from D1 → **scope every Drizzle
+> query** with its own ownership/visibility filter (vendor-portal reads/writes are
+> `WHERE vendor_id = :sessionVendorId`). There is **no DB backstop** if a handler forgets a
+> filter. **`AUTH_AND_RLS.md` is the source of truth** for who can read and write what (it also
+> retains the historical Supabase-Postgres GRANT/RLS design for context). The earlier "RLS is
+> enabled on every table" wording described that retired Postgres surface, not D1.
 
-High-level intent:
+High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Public read on directory tables (products, vendors, integrations, taxonomy, approved reviews)
 - Authenticated insert on reviews
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests
+- Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 
 ---
 
@@ -1455,6 +2191,15 @@ The local seed (`apps/api/seed/*.sql`, applied to the local D1 via `pnpm db:seed
 
 This seed data is fixed and known — E2E tests assume it exists.
 
+The chain's **final step is not SQL**: `db:grant-admin:local` runs
+`apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'`
+`profiles` row for the `LOCAL_ADMIN_USER_ID` set in `apps/api/.dev.vars` — your
+own Supabase user id, so `/admin/*` renders in a local browser instead of 404
+(AECI-765). It is deliberately outside the committed `seed/*.sql` because the id
+is per-human; the two ids in `seed/auth-fixtures.sql` are the shared e2e personas
+and are load-bearing in CI. Unset → the step no-ops, and it always exits 0 so it
+can never fail a seed run. See `docs/AUTH_AND_RLS.md` §3.3.
+
 ### 14.2 Staging
 
 Staging gets a larger subset of real production data, refreshed weekly via a curator-approved snapshot. Personal data (emails, real names) is anonymized.
@@ -1509,9 +2254,11 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 ## 18. Transactional writes with audit log
 
-Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
+Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
 **Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+
+**The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 
@@ -1523,15 +2270,16 @@ await db.batch([
 ]);
 ```
 
-Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort Datadog forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`.
+Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
 
-**Cache invalidation runs after commit.** `invalidateForEntity()` must run *after* `db.batch()` resolves, never inside it. Wrap the call in `ctx.waitUntil()` so the response is not blocked on the purge:
+**Cache invalidation runs after commit.** A state-changing write that affects cached SSR pages purges by **`Cache-Tag`** *after* `db.batch()` resolves, never inside it. On the API Worker (and datatool) that means **enqueuing** a typed `CachePurgeMessage` onto the `aeci-cache-purge-{env}` Cloudflare Queue; the SSR consumer issues the native `ctx.cache.purge()` (the SSR Worker's own `/admin/purge` purges in-process instead). Wrap the enqueue in `ctx.waitUntil()` so the response is not blocked on it:
 
 ```ts
-ctx.waitUntil(invalidateForEntity(env, "product", id));
+// after db.batch() commits — tags derived from the mutated entity (see promote-cache-tags.ts)
+ctx.waitUntil(env.CACHE_PURGE_QUEUE?.send({ tags: [`product:${slug}`], source: "moderation" }));
 return json({ row: updated });
 ```
 
-A failed purge must not roll back the write. Log it; surface it via Datadog.
+The enqueue is best-effort: a failed or absent purge must never roll back the write — the queue binding is unset on local dev / PR previews, where `?.send` is a graceful no-op. Log failures; surface via the `aeci.cache.purge` metric. The URL-map `invalidateForEntity()` helper this section once showed was **never built and is superseded** — see `docs/CACHE_STRATEGY.md` §5 for the full native-Workers-Cache invalidation model (ADR 0020).
 
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.

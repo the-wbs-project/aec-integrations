@@ -1,34 +1,172 @@
 # Runbooks
 
-Operational response guides for AECi Datadog alerts.
+Operational response guides for AECi's alerts.
 
 > **Status: stubs (AECI-66).** Each runbook below has enough to triage during Phase 2.
 > Full incident procedures (severity matrix, comms, post-mortem template) land in
-> Phase 6. Linked from the Datadog monitor messages — keep the heading anchors stable.
+> Phase 6. **Linked from the alert messages on both planes — keep the heading anchors
+> stable.**
 
-Dashboard for all three: **AECi Phase 2 — Traffic** (URL in `docs/OBSERVABILITY.md`).
+## Which console just paged you
+
+**PostHog.** It is the only observability plane: AECI-651 deleted the 26 Datadog
+monitors, the five dashboards, and both Worker transport legs. The alert set is
+committed as `observability/posthog/alerts.json` and applied to the **production**
+project (`aec-integrations`, 354071); alerts are deliberately production-only, so a
+preview deploy failing a cron does not page anyone.
+
+Two properties of the current model matter mid-incident and are different from what
+the Datadog monitors did:
+
+- **Alerts evaluate hourly.** Not every 5 minutes. If you are looking at a graph that
+  is clearly bad and no alert has fired, that is expected within the hour — do not
+  assume the alert is broken.
+- **Nothing in PostHog detects absence.** "The 08:00 cron never ran" is caught by the
+  **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`, every 3 h),
+  which fails red in GitHub Actions and emails. If a cron is silent, check that job's
+  run history, not PostHog.
+
+### Reading logs
+
+Every `service:<worker> source:<subsystem>` filter used in the runbooks below maps
+onto PostHog Logs as follows:
+
+| | PostHog Logs |
+|---|---|
+| Which service | filter the OTLP **resource** attribute `service.name` (the explorer's service filter reads only the dotted key — `service` alone will not find it) |
+| Which subsystem | the `source` attribute — same values the runbooks quote |
+| Severity | `severity_number >= 17` for error (`warn` is 13) |
+| Which tier | **the project is the tier** — `aec-integrations` (354071) is production; every other tier shares `aec-integrations-dev` (525793) |
+| Which person | `posthogDistinctId`, on genuinely-authed requests only (AECI-644) |
+
+Two log-shaped things are worth knowing about mid-incident: **`posthogDistinctId`**
+(an unhandled 500 is one click from the person it happened to) and the **`deployment`
+event** (`deploy_kind` ∈ `deploy` / `promote` / `preview` / `auto_rollback`), which is
+how you answer "did a deploy cause this" with a join rather than a guess.
+
+## Alert → runbook
+
+Every one of the 26 retired Datadog monitors, where it landed, and
+which runbook below covers it. **The old Datadog threshold is recorded for every
+monitor that landed anywhere other than a PostHog alert**, so re-promoting one is a
+config change and not archaeology — this table and
+`observability/posthog/README.md` are now the **only** places those thresholds
+survive, `observability/datadog/` having been deleted.
+
+| # | Retired Datadog monitor | Old threshold | Where it landed | Runbook |
+|---|---|---|---|---|
+| 1 | Worker error rate > 1% (5m) | `5xx / total * 100 > 1` over `last_5m` | **PostHog alert** — "Worker error rate > 1% (**1 h**)" | [High Worker error rate](#high-worker-error-rate) |
+| 2 | Algolia sync failed (daily cron) | `sum:aeci.algolia.sync{outcome:failed} > 0` over `last_1d` | **Combined alert** — "Cron job failed (any daily/hourly job)" | [Algolia sync failed](#algolia-sync-failed) |
+| 3 | Home stats compute failed | `sum:aeci.stats.compute.key{outcome:failed} + sum:aeci.stats.compute{outcome:failed,trigger:cron} > 0` over `last_1d` | **Combined alert** | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
+| 4 | Data quality job failed | `sum:aeci.data_quality.job{outcome:failed} > 0` over `last_1d` | **Combined alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 5 | Data quality check — **ERROR** severity | `max:aeci.data_quality.check{severity:error} by {check} > 0` over `last_1d` | **PostHog alert — kept separate.** Also *improved*: the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's `max(...) > 0` could not see a thrown check — a real hole, closed in the port | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 6 | Retention prune failed | `sum:aeci.retention.prune{outcome:failed} > 0` over `last_1d` | **Combined alert** | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert — kept separate** (a user-visible vendor request is stuck; the sweep itself is healthy) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
+| 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert — kept separate, threshold unchanged** (a *successful* run with the wrong effect) | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert — kept separate** (success-with-a-caveat; folding it into "job failed" would make that alert mushy) | [Algolia index drift](#algolia-index-drift) |
+| 10 | Detail render slow (p95 > 1.5 s, MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — p95 reconstructed from OTLP histogram buckets. ⚠️ **unverified until data flows** | [High p95 detail render](#high-p95-detail-render) |
+| 11 | Auth sign-in error rate | `failed/total * 100 > 30` over `last_15m` | **PostHog alert (hourly)**, threshold 30% unchanged, **≥5-attempt floor added** | [Auth sign-in error-rate spike](#auth-sign-in-error-rate-spike) |
+| 12 | Toxicity scoring outage | `failed/total * 100 > 50` over `last_15m` | **PostHog alert (hourly)**, threshold 50% unchanged, **≥5-call floor added** | [Toxicity scoring outage](#toxicity-scoring-outage) |
+| 13 | page_views write errors | `failed/total * 100 > 10` over `last_10m` | **PostHog alert (hourly)**, threshold 10% unchanged, **≥20-write floor added** | [Page-view writes failing](#page-view-writes-failing) |
+| 14 | Linear pipeline failure | `failed/(non-skipped) * 100 > 50` over `last_1h` | **PostHog alert (hourly)**, window + threshold unchanged, **≥3-attempt floor added** | [Linear pipeline failure](#linear-pipeline-failure-issue-creation--sync) |
+| 15 | Linear webhook HMAC failures | `sum:aeci.webhooks.linear.hmac_failure > 3` over `last_1h` | **PostHog alert (hourly)**, unchanged in every respect except cadence (security signal, not a job signal) | [Linear webhook HMAC failures](#linear-webhook-hmac-failures) |
+| 16 | WAF rate-limit spike | `sum:aeci.waf.ratelimit.blocked > 500` over `last_15m` | **PostHog alert (hourly)**, **threshold rescaled 500/15 m → 2,000/1 h** | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
+| 17 | Retention prune skipped *(non-paging)* | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest + dashboard** — "Cron health & retention" → *Retention — rows deleted, skipped and truncated runs*. **No alert.** The daily data-quality digest already carries it | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 18 | Data quality **WARN** severity *(non-paging)* | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest + dashboard** — *Data quality — findings by check and severity*. **No alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 19 | Algolia sync not running *(no-data)* | `sum:aeci.algolia.sync{outcome:ok,trigger:cron} < 1` over `last_2d`; `notify_no_data` @ 2880 min | **Liveness sweep** — `algolia-sync`, window **tightened 48 h → 26 h** | [Algolia sync failed](#algolia-sync-failed) |
+| 20 | Home stats not running *(no-data)* | `sum:aeci.stats.compute{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `home-stats`, 26 h | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
+| 21 | Data quality not running *(no-data)* | `sum:aeci.data_quality.job{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `data-quality`, 26 h | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 22 | Reconcile sweep not running *(no-data)* | `min:aeci.linear.reconcile.stuck < 0` over `last_1h`; no-data @ 60 min | **Liveness sweep** — `request-reconcile`, window **relaxed 60 → 90 min** (the extra 30 is margin for the *sweep's* lateness, not the job's) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
+| 23 | WAF poll not running *(no-data)* | `sum:aeci.waf.poll{outcome:ok,trigger:cron} < 1` over `last_3h`; no-data @ 180 min | **Liveness sweep** — `waf-poll`, 180 min unchanged | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
+| 24 | Retention prune not running *(no-data)* | `sum:aeci.retention.prune{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `retention-prune`, 26 h | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Algolia index drift and orphan sweep per index* · **Liveness sweep** (`algolia-drift`, 26 h). **The value half stops alerting** — it is report-only and self-heals | [Algolia index drift](#algolia-index-drift) |
+| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Auth / Reviews / Moderation" → *Moderation queue depth and oldest pending age* · **Liveness sweep** (`moderation-snapshot`, 26 h). **The backlog half stops alerting** — read it on the dashboard | [Moderation queue backlog](#moderation-queue-backlog) |
+
+**Totals: 13 PostHog alerts covering 16 monitors · 8 → the liveness sweep · 2 → the
+digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
+
+**Six crons gain failure coverage they never had** (metrics-snapshot,
+analytics-digest, attestation-notify, entitlement-expiry, waf-poll, and the per-key
+half of home-stats — several shipped after the Datadog monitors were written), and
+the liveness sweep watches **thirteen** crons where Datadog watched six.
+
+### The combined cron-failure alert — where the detail is
+
+Rows 2, 3, 4 and 6 above are **one** PostHog alert:
+`AECi — Cron job failed (any daily/hourly job)`.
+
+Combining is normally a loss — you learn *something* broke but not *what*. It is not
+one here, because PostHog's `HogQLAlertConfig` has a **`label_column`** and the query
+returns the **failing metric names** in it. **The breach email tells you which jobs
+failed.** Read the label column first, then open the matching runbook below.
+
+If the email is truncated or you want history, the breakdown is on the PostHog
+dashboard **"AECi — Cron health & retention" → *Crons — failed runs by job (last 7
+days)***. `/admin/system` carries the same record in-product (`job_runs`, 90-day
+window, with the data-quality job's full result set), and it does not require a
+telemetry login at all.
+
+One deliberate widening rides along: **the `trigger:cron` predicate is dropped.**
+`aeci.algolia.sync` and `aeci.stats.compute` also fire on `trigger:promote`, and a
+promote-path failure is a real failure. Datadog's Algolia monitor was already
+trigger-agnostic; its stats monitor was not, and that asymmetry was a gap rather
+than a decision.
+
+### Two dependencies the old alert model did not have
+
+State these before an incident, not during one.
+
+1. **Alert cadence is hourly, uniformly.** PostHog's `every_15_minutes` needs the
+   Boost add-on and `real_time` needs Scale/Enterprise. Four Datadog monitors
+   evaluated at 5–15 minutes; **the Worker error-rate alert moves 5 min → 1 h**,
+   which is the single largest degradation in the migration. Plan detection time
+   accordingly: a 5xx spike can now run for an hour before anything pages. The
+   escape hatch, if it bites, is PostHog's *log*-alert type — 5/10/15/30/60-minute
+   windows, no add-on, max 20 per project (`observability/posthog/README.md`,
+   manual step 4).
+2. **Absence detection depends on GitHub Actions being up.** No PostHog tier has
+   `notify_no_data`, so all eight no-data monitors are replaced by
+   `.github/workflows/posthog-liveness-sweep.yml`, which runs every 3 hours
+   **outside** the Worker — the property that made "Datadog owns absence" true, and
+   one a Worker-hosted check cannot have. If GitHub Actions is degraded, cron
+   liveness is **unchecked**, and the sweep says so rather than passing: **exit 0** =
+   all thirteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
+   `::error::` annotation naming the cron and its allowance), **exit 2** = the sweep
+   could not run (PostHog 5xx, or no `POSTHOG_CLI_API_KEY`). **Exit 2 is red, not
+   green — "the sweep could not run" is not "the crons are fine."** Never add
+   `continue-on-error` to that workflow. The independent second record, when the
+   sweep is dark, is `/admin/system` + the two daily digest emails.
+
+Dashboard for the render / error-rate runbooks below: **AECi — Traffic (SSR + API)**
+in PostHog (URLs in `docs/OBSERVABILITY.md`). Edge cache HIT-rate is in **neither** — it lives on the
+Cloudflare Workers observability dashboard (WC-8; see below).
 
 ---
 
 ## Low cache hit rate
 
-**Alert:** `AECi — cache hit rate < 70% (15m)`
-**Metric:** `aeci.page.render.duration_ms` — `count{cache_status:hit} / count{*}`.
+> **Retired as an alert (WC-8 / AECI-322).** There is no longer a `cache hit rate < 70%`
+> monitor. Under native Workers Cache (WC-3) a HIT is served from the edge **without running the
+> SSR Worker**, so no in-Worker telemetry can observe HITs — the
+> `aeci.page.render.duration_ms{cache_status:hit}` numerator this alert used is permanently ~0. This section is kept for link stability and
+> re-points you at the current HIT surface.
 
-**What it means:** Too many SSR requests are missing the edge cache and re-rendering.
-At scale this raises render latency and API/Supabase load.
+**Where HIT-rate lives now:** the **Cloudflare Workers observability dashboard** (Workers & Pages →
+`aeci-web` → Observability) and the **`Cf-Cache-Status`** response header
+(`HIT`/`MISS`/`EXPIRED`/`BYPASS`). Read edge HIT-rate there — **neither** telemetry plane has it.
 
-**First checks**
+**If HIT-rate looks low on the Cloudflare dashboard**
 
-1. Did someone just run `POST /admin/purge`? Check the "purge events by source" widget
-   and the `aeci.cache.purge` metric. A broad/accidental purge causes a temporary, self-
-   healing dip — confirm it recovers within a TTL window.
-2. Recent deploy? A new deploy invalidates the edge cache; expect a short dip as it
-   refills. Correlate with `GET /api/version`.
-3. Is the dip isolated to one `route_class`? Pivot the hit-rate widget. A single class
-   suggests a TTL or cache-key regression for those routes (see `docs/CACHE_STRATEGY.md`).
-4. Cache-key poisoning: verify cacheable responses are visitor-state-neutral (no
-   `Vary: Cookie`, theme cookie stripped) per `docs/CACHE_STRATEGY.md` §6.
+1. Did someone just run `POST /admin/purge` (or trigger a `POST /api/promote` purge cascade)? A
+   broad/accidental purge causes a temporary, self-healing dip — check the "purge events by source"
+   widget / `aeci.cache.purge`; confirm it recovers within a TTL window.
+2. Recent deploy? Workers Cache is per-version (`cross_version_cache` off), so every deploy
+   cold-starts the cache — expect a short dip as it refills. Correlate with `GET /api/version`.
+3. Isolated to one `route_class`? A single class suggests a TTL or cache-key regression for those
+   routes (see `docs/CACHE_STRATEGY.md` §4 / §4a).
+4. Cache-key poisoning / `BYPASS`: verify cacheable responses are visitor-state-neutral (no
+   `Set-Cookie`, no `Vary: Cookie`, theme cookie stripped) per `docs/CACHE_STRATEGY.md` §6 — a
+   `Set-Cookie` on a cacheable route forces the native cache to `BYPASS`.
 
 **Escalation:** If not explained by a purge/deploy and not recovering, treat as a
 caching regression — page the on-call engineer (Phase 6 rotation TBD).
@@ -37,17 +175,38 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 
 ## High p95 detail render
 
-**Alert:** `AECi — p95 detail page render > 1.5s (10m)`
+**Alert:** `AECi — Detail page render p95, cache MISS (1 h)`, same 1,500 ms threshold, hourly.
 **Metric:** `aeci.page.render.duration_ms{route_class:detail,cache_status:miss}` p95.
 
+> **⚠️ The PostHog successor reconstructs p95 from OTLP histogram buckets, and that
+> arithmetic has never seen real data.** It sums the bucket-count arrays element-wise,
+> finds the bucket the 95th observation falls in, and reports that bucket's **upper
+> bound** — a conservative over-estimate by at most one bucket width, which is the right
+> direction for an alert. Two guards make it correct: an `+Inf` overflow sentinel (without
+> it a p95 above 10 s indexes past the array, returns 0, and **the worst case silently
+> fails to fire**) and a 20-observation floor (under WC-8 this series is MISS-only and can
+> be very sparse; a p95 from three samples is noise).
+>
+> **This was never validated against the Datadog original before that plane was
+> deleted (AECI-651), so treat the first firing as unproven.** Sanity checks if it
+> looks wrong: the value should land within one bucket width above the true p95
+> (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms). If it
+> reads implausibly low, or 0 while the dashboard shows traffic, check the
+> `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform
+> across points. For everyday reading prefer the dashboard widget *Traffic — SSR
+> render latency distribution (histogram buckets)*, which is a straight read of the
+> bucket counts with no reconstruction at all.
+
 **What it means:** Server render of detail pages on a cache MISS is slow. Scoped to
-MISS because HITs are edge-served and don't reflect render cost.
+MISS because HITs are edge-served and don't reflect render cost. Under native Workers Cache a MISS
+is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Worker migration
+(WC-3/WC-8) — it keeps measuring real render cost.
 
 **First checks**
 
 1. Is the API slow? Check `p95:aeci.api.query.duration_ms by {endpoint}` for the detail
    endpoints (`/api/products/:slug`, `/api/vendors/:slug`, `/api/integrations/:id`).
-2. Supabase health: connection/latency via Datadog logs (`service:aeci-api`) and the
+2. Supabase health: connection/latency via the logs (`service:aeci-api`) and the
    Supabase dashboard.
 3. Recent deploy to `apps/web`? An Angular SSR regression (heavy resolver, blocking
    work) can inflate render time — correlate with `GET /api/version`.
@@ -60,8 +219,20 @@ API → investigate the SSR render path. Page on-call if user-facing.
 
 ## High Worker error rate
 
-**Alert:** `AECi — Worker error rate > 1% (5m)`
+**Alert:** `AECi — Worker error rate > 1% (1 h)`, same 1% threshold, **hourly**.
 **Metric:** combined SSR + API 5xx count / total across both Workers.
+
+> **The cadence change is the one to internalise: 5 min → 1 h is the largest single
+> detection-time regression in the migration**, on the highest-severity alert in the set.
+> A 5xx spike can now run for up to an hour before anything pages, so
+> the Cloudflare Workers dashboard and `wrangler tail` matter more, not less. If that
+> proves unacceptable, PostHog's log-alert type supports 5-minute windows without the
+> Boost add-on — the upgrade is written up as manual step 4 in
+> `observability/posthog/README.md`. One further consideration recorded there: the alert
+> keeps the original numerator (`aeci.page.render.duration_ms`, cacheable-render branch
+> only); `aeci.ssr.render` fires on **every** branch and would give strictly better
+> coverage. It was left alone deliberately — a port should not quietly change what a
+> number means — and is worth revisiting once the dual-run confirms parity.
 
 **What it means:** Users are hitting server errors. Highest-severity of the three.
 
@@ -69,7 +240,7 @@ API → investigate the SSR render path. Page on-call if user-facing.
 
 1. Recent deploy? `GET /api/version` on both Workers; if a deploy lines up with the
    spike, consider rolling back (`promote-to-prod` / AECI-71).
-2. Read the errors: Datadog logs `service:(aeci-api OR aeci-web) status:error` — the API
+2. Read the errors: the logs, `service:(aeci-api OR aeci-web) status:error` — the API
    error handler logs `trace_id` + stack.
 3. Which side? Split the error-rate widget by `service`. API-dominant → D1/Drizzle
    or a handler bug. SSR-dominant → render crash or a bad upstream response.
@@ -82,7 +253,13 @@ mitigating so the post-mortem can reconstruct the failure.
 
 ## Algolia index drift
 
-**Alert:** `AECi — Algolia index drift (D1 ≠ Algolia)`
+**Alert:** none. The old `AECi — Algolia index drift (D1 ≠ Algolia)` monitor (value > 0
+daily, plus `notify_no_data` @ 48 h) **does not alert any more**. The value half is a
+**dashboard** read (PostHog "AECi — Search" → *Algolia index drift and orphan sweep per index*)
+because it is report-only and negative drift self-heals; the liveness half becomes the
+**CI liveness sweep** (`algolia-drift`, window tightened 48 h → 26 h). The companion
+`AECi — Algolia orphan sweep capped` **does** stay a PostHog alert, on merit — it is a
+success-with-a-caveat and has its own action (below).
 **Metric:** `aeci.algolia.index_drift` — signed `D1 − algolia` count per `entity`/`index`
 (AECI-140, §23.1 daily data-quality check). Companion sweep signals:
 `aeci.algolia.orphans_removed` / `aeci.algolia.orphans_skipped_cap` (AECI-266; see below).
@@ -105,7 +282,7 @@ it is fixed by the 08:00 incremental sync.
 3. Did the sweep heal it? For negative drift, check **`/admin/system` → Search index → Orphan
    sweep**, which since AECI-583 renders the last 09:00 run's per-index result — orphans found,
    objects removed, and whether the safety cap refused a purge (the `--force` trigger below).
-   Before that the sweep reported only to Datadog: `aeci.algolia.orphans_removed` and the
+   Before that the sweep reported only as telemetry: `aeci.algolia.orphans_removed` and the
    `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run, both
    still emitted. The next day's `index_drift` should read 0.
 4. No-data variant: if the alert is "no data for 48h", the daily cron
@@ -148,8 +325,13 @@ misconfigured promoted-id read (wrong env/DB) or a churning source; capture the
 
 ## Algolia sync failed
 
-**Alerts:** `AECi — Algolia sync failed (daily cron)` (a failed push) and
+**Alerts (PostHog, hourly):** `AECi — Algolia sync failed (daily cron)` (a failed push) and
 `AECi — Algolia sync not running (no successful cron push)` (the cron stopped firing).
+**After AECI-651:** the failure half folds into the **combined** `AECi — Cron job failed (any
+daily/hourly job)` alert — read the `label_column` in the breach email to see it was this job —
+and it becomes **trigger-agnostic**, so a failed `trigger:promote` sync now alerts too (it did
+not in Datadog, which was a gap rather than a decision). The liveness half moves to the **CI
+liveness sweep** (`algolia-sync`), whose window is **tightened 48 h → 26 h**.
 **Metric:** `aeci.algolia.sync{outcome:failed}` — count of failed entity pushes; the
 liveness alert watches `aeci.algolia.sync{outcome:ok,trigger:cron}` instead
 (AECI-139 sync; AECI-141 monitors). Companion signals: `aeci.algolia.sync.records`
@@ -166,7 +348,7 @@ is held so the next cron retries it.
 1. Which entity / trigger? Pivot the "AECi Phase 3 — Search" dashboard (or the metric) by
    `entity` (products/vendors/integrations) and `trigger`. A `trigger:promote` failure is a
    single promote; a `trigger:cron` failure affects the whole daily window.
-2. Read the failure: Datadog logs `service:aeci-api` — `aeci.algolia.sync` (per-entity, with
+2. Read the failure: the logs, `service:aeci-api` — `aeci.algolia.sync` (per-entity, with
    `reason` when failed), `aeci.algolia.sync.crashed` (the run threw before/around the push),
    or `aeci.api.promote.algolia_sync_failed` (promote hook). The `reason` field carries the
    Algolia error.
@@ -195,8 +377,11 @@ on-call and capture a failing `reason` from the logs for the post-mortem.
 
 ## Home stats stale or compute failed
 
-**Alerts:** `AECi — Home stats compute failed (daily cron)` (one or more `home.*` keys failed) and
-`AECi — Home stats not running (no daily compute)` (the cron stopped firing — the freshness alert).
+**Alerts (PostHog, hourly):** `AECi — Home stats compute failed (daily cron)` (one or more `home.*`
+keys failed) and `AECi — Home stats not running (no daily compute)` (the cron stopped firing — the
+freshness alert). **After AECI-651:** the failure half folds into the **combined** cron-failure
+alert (the `label_column` names it), and gains the per-key half that Datadog's stats monitor did
+not watch; the freshness half moves to the **CI liveness sweep** (`home-stats`, 26 h).
 **Metric:** `aeci.stats.compute.key{outcome:failed}` (failed per-key computes) **+** the job-level
 `aeci.stats.compute{outcome:failed}` count — the job-level term covers a pre-compute crash that
 emits no per-key points. The freshness/liveness alert watches the `aeci.stats.compute{trigger:cron}`
@@ -223,7 +408,7 @@ alert means no completed run reported in ~26h — a **missed daily run**, so `co
    never reached even the crash path), in which case there's no failure metric and "Compute failed"
    stays silent.
 2. Which key? `aeci.stats.compute.key{outcome:failed}` is per key — pivot the "AECi Phase 4 — Home /
-   Stats" dashboard by `key`, and read Datadog logs `service:aeci-api source:stats-cron`
+   Stats" dashboard by `key`, and read the logs, `service:aeci-api source:stats-cron`
    (`aeci.stats.compute <key> status=failed`, with `reason`; `aeci.stats.compute.crashed` is a
    pre-compute throw before any key ran).
 3. DB health: the job reads/writes Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
@@ -252,7 +437,10 @@ alert with a healthy Worker is a cron/queue wiring problem (see check 5).
 
 ## Page-view writes failing
 
-**Alert:** `AECi — page_views write error rate > 10% (10m)`.
+**Alert:** `AECi — page_views write error rate > 10% (1 h)` — PostHog, hourly. Same 10%
+threshold as the retired 10-minute Datadog monitor, plus a **≥20-write minimum-denominator floor**
+(`if(total >= 20, ratio, 0.0)`), so a quiet hour reads 0 instead of paging on one failure out of
+three.
 **Metric:** `aeci.pageviews.write{outcome:failed}` / `aeci.pageviews.write` (all) — the failed-insert
 ratio over 10m (AECI-177 write; AECI-180 monitor). Companion signal: the `aeci.api.page_view.capture_failed`
 log carries the `reason`.
@@ -274,7 +462,7 @@ home's appearance, is the alerting signal. Corollary when triaging: a short or e
 
 **First checks**
 
-1. Read the failure: Datadog logs `service:aeci-api source:page-views` —
+1. Read the failure: the logs, `service:aeci-api source:page-views` —
    `aeci.api.page_view.capture_failed` carries the `reason` (the D1/Drizzle error).
 2. DB health: the insert goes to Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
    missing/misconfigured `DB` binding surfaces as a broad failure spike — check the Cloudflare D1
@@ -356,7 +544,10 @@ a manual/restore load that bypassed it) before forcing the constraint.
 
 ## Auth sign-in error-rate spike
 
-**Alert:** `AECi — Auth sign-in error rate > 30% (15m)`.
+**Alert:** `AECi — Auth sign-in error rate > 30% (1 h)` — PostHog, hourly. Same 30%
+threshold as the retired 15-minute Datadog monitor, plus a **≥5-attempt floor**. The floor is
+new and deliberate: at current volume one failed sign-in out of two is 50% and would have
+paged. Datadog's shorter window had the same exposure and simply got lucky.
 **Metric:** `aeci.auth.signin{outcome:failed}` / `aeci.auth.signin` (all) — the failed-completion ratio
 over 15m, `service:aeci-web` (AECI-206). `attempts = sum over outcomes`; failure `reason` ∈
 `link_invalid` / `missing_code` / `auth_not_configured`.
@@ -372,7 +563,7 @@ so a user who never returns to the callback isn't counted here.)
 1. Which method / reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard sign-in widgets by `method`
    (`google` / `magic_link`) and `reason`. A `google`-only spike points at OAuth (provider / client-id /
    redirect-URI); a both-methods spike points at the callback handler or Supabase project itself.
-2. Read the failures: Datadog logs `service:aeci-web` around `/auth/callback`.
+2. Read the failures: the logs, `service:aeci-web` around `/auth/callback`.
    - `reason:auth_not_configured` → the env has no Supabase config (`window.__AECI_SUPABASE__` / the
      server client). Check the SSR Worker's Supabase vars/secrets for that env.
    - `reason:link_invalid` → expired/reused magic link, user-denied OAuth, or a failed PKCE
@@ -392,7 +583,8 @@ single failure can dominate the ratio. Retune once production traffic is known.)
 
 ## Toxicity scoring outage
 
-**Alert:** `AECi — Toxicity scoring outage (>50% errors, 15m)`.
+**Alert:** `AECi — Toxicity scoring outage (> 50% errors, 1 h)` — PostHog, hourly. Same 50%
+threshold as the retired 15-minute Datadog monitor, plus a **≥5-call floor**.
 **Metric:** `aeci.toxicity.api{outcome:failed}` / `aeci.toxicity.api` (all) over 15m; failure
 `reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.toxicity.api.duration_ms`
 (latency) and the `service:aeci-api source:toxicity` warn logs.
@@ -410,7 +602,7 @@ of `/admin/reviews`).
    `reason`. `timeout`-dominated → the model is slow (the client caps at 4s); `http_error` → non-2xx
    (rate-limit/`429`, auth/`401`/`403`); `network` → connectivity or a body that won't parse; `malformed` →
    a 200 whose reply had no parseable integer (a prompt/response-shape change).
-2. Read the failures: Datadog logs `service:aeci-api source:toxicity` carry the message + status.
+2. Read the failures: the logs, `service:aeci-api source:toxicity`, carry the message + status.
 3. Credentials/quota? A **missing** `ANTHROPIC_API_KEY` is a silent no-op that emits **no** metric (so it
    can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `401`/`403`/`429`. Check
    the key and the Anthropic Console usage limits.
@@ -430,8 +622,15 @@ is a launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
 
 ## Moderation queue backlog
 
-**Alert:** `AECi — Moderation queue backlog (oldest pending > 48h)` (the threshold), which **also**
-fires `notify_no_data` if the daily snapshot stops (the cron-liveness check).
+**Alert:** none. The old `AECi — Moderation queue backlog (oldest pending > 48h)` monitor
+(threshold plus a `notify_no_data` cron-liveness check) was retired with the Datadog plane.
+
+> **The backlog does not alert.** It is a **dashboard** read
+> (PostHog "AECi — Auth / Reviews / Moderation" → *Moderation queue depth and oldest pending
+> age*), and the liveness half moves to the **CI liveness sweep** (`moderation-snapshot`, 26 h).
+> That is a deliberate call — a chronic backlog is a staffing/process issue, not an incident —
+> but it means **nobody is paged about it**, so it has to be *looked at*. It is a row in the
+> daily pass in `POST_LAUNCH_MONITORING.md` §1 for exactly that reason.
 **Metric:** `aeci.moderation.queue_oldest_age_hours` (gauge) — age of the oldest `status='pending'`
 review; companion `aeci.moderation.queue_depth`. Snapshotted daily by the API Worker cron at 06:00 UTC
 (= 01:00 EST), `lib/moderation-metrics.ts` (AECI-206). 0 for an empty queue.
@@ -469,7 +668,9 @@ cron to hourly if a tighter SLA is needed.)
 
 ## Linear pipeline failure (issue creation / sync)
 
-**Alert:** `AECi — Linear pipeline failure rate > 50% (1h)` (AECI-219 / Phase 6.12). Traffic-driven, so
+**Alert:** `AECi — Linear pipeline failure rate > 50% (1 h)` (AECI-219 / Phase 6.12) —
+PostHog, hourly. Window and 50% threshold **unchanged** from the Datadog original (it already
+used 1 h, so only the evaluation cadence moved), plus a **≥3-attempt floor**. Traffic-driven, so
 deliberately **no** `notify_no_data` — no submits/resolves (and the absent-key no-op) emit nothing, so
 zero is the healthy pre-launch state.
 **Metric:** the combined failure **rate** of the two outbound Linear write paths over **terminal**
@@ -516,8 +717,11 @@ The 50% threshold + 1h window are launch-tunable starting points (`docs/OBSERVAB
 
 ## Linear webhook HMAC failures
 
-**Alert:** `AECi — Linear webhook HMAC failures > 3 (1h)` (AECI-219 / Phase 6.12). Deliberately **no**
-`notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
+**Alert:** `AECi — Linear webhook HMAC failures > 3 (1 h)` (AECI-219 / Phase 6.12) —
+PostHog, hourly. **Unchanged from the Datadog original in every respect except evaluation
+cadence.** It stays
+its own alert rather than folding into the combined cron-failure one, because it is a **security**
+signal, not a job signal. Deliberately **no** `notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
 **Metric:** `aeci.webhooks.linear.hmac_failure` (count) — emitted by `POST /api/webhooks/linear`
 (`routes/webhooks.ts`, AECI-212 / Phase 6.5) when the `Linear-Signature` header is missing or doesn't
 match `LINEAR_WEBHOOK_SIGNING_SECRET`. The request is rejected **401 before any write** (fail-closed).
@@ -556,11 +760,19 @@ point (`docs/OBSERVABILITY.md`).
 
 ## Linear reconciliation — stuck requests
 
-**Alert:** two monitors share this runbook — `AECi — Linear reconciliation: persistent stuck requests`
+**Alert:** `AECi — Linear reconciliation: persistent stuck requests` (PostHog, hourly). Two
+Datadog monitors used to share this runbook — that one
 (the persistent-failure signal; deliberately **no** `notify_no_data` — the count is emitted only when the
 failure condition holds, so zero points is healthy) and its liveness companion `AECi — Linear
 reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` check on the always-emitted
 `aeci.linear.reconcile.stuck` gauge — no point for ~1h ≈ 4 missed sweeps means the cron itself stalled).
+
+> **After AECI-651** the persistent-failure half stays its **own** PostHog alert rather than folding
+> into the combined cron-failure one — the sweep is healthy; a **user-visible vendor request** is
+> stuck, and the operator action is to open that request, not to restart a job. The liveness half
+> moves to the **CI liveness sweep** (`request-reconcile`), whose window is **relaxed 60 → 90 min**.
+> The extra 30 minutes is margin for the *sweep's own* lateness, not the job's — the sweep runs every
+> 3 hours, so a 60-minute allowance would false-positive on the checker rather than the checked.
 **Metric:** `aeci.linear.reconcile.persistent_failure` (count) — requests stuck past the persistent
 threshold (~60m) AND still failing after a retry; companion `aeci.linear.reconcile.stuck` (backlog
 gauge) and `aeci.linear.reconcile.attempt` (`outcome:cleared|still_failing`). Emitted by the
@@ -602,7 +814,7 @@ resolve it manually in `/admin/requests`.
 
 **Escalation:** the admin email seam (`lib/admin-alert.ts`) now sends via Resend (AECI-240 / Phase 7.5)
 to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped}`), but it is fail-open:
-when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this Datadog alert +
+when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this alert +
 the `/admin/requests` queue remain the guaranteed notification** (§6.2). Make sure on-call routes a
 persistent failure to whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
 see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
@@ -611,11 +823,22 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 
 ## Data quality job failed or not running
 
-**Alerts:**
+**Alerts (PostHog, hourly):**
 - `AECi — Data quality check found ERROR-severity issues (by check)` — an integrity check (`broken_integration_refs`, `reviews_missing_anonymized_at`) found defects. **Pages.**
 - `AECi — Data quality check found WARN-severity issues (by check)` — a hygiene check found issues. **Informational / non-paging** (AECI-279 severity split; the digest carries the rows).
 - `AECi — Data quality job failed (daily cron)` — a check threw or a pre-run crash.
 - `AECi — Data quality job not running (no daily run)` — the cron stopped firing.
+
+**After AECI-651** the four split four ways, and the split is worth knowing before you triage:
+
+- **ERROR severity stays its own PostHog alert** — the job **succeeded**; the DATA is wrong.
+  Different runbook entirely (triage the finding, don't restart the job). It also gets *better*:
+  the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's
+  `max(...) > 0` could not see a thrown check — a real hole, closed in the port.
+- **WARN severity stops alerting** — dashboard ("AECi — Cron health & retention" → *Data quality —
+  findings by check and severity*) plus the daily digest, which already carries the rows.
+- **"Job failed" folds into the combined** cron-failure alert; the `label_column` names it.
+- **"Not running" moves to the CI liveness sweep** (`data-quality`, 26 h).
 
 **Metrics:**
 - `aeci.data_quality.check{check:<id>}` — per-check issue count (0 = clean; **-1** = the check threw).
@@ -680,9 +903,10 @@ telling apart, and the screen distinguishes them on purpose:
 
 **First checks**
 
-1. **Unknown, and the job should have run by now?** Check the Datadog heartbeat *first* — it is the
-   only thing that can distinguish "the cron never fired" from "the cron fired and the bookkeeping
-   write failed". If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
+1. **Unknown, and the job should have run by now?** Check the **heartbeat metric** *first* — it is
+   the only thing that can distinguish "the cron never fired" from "the cron fired and the
+   bookkeeping write failed". That means the CI liveness sweep's last run (and the same
+   series on the PostHog "Cron health & retention" dashboard). If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
    `source:job-runs` error log `aeci.job_runs.write_failed`.
 2. **In flight, and the stamp is older than the job's cadence?** (Quarter-hourly reconcile: >30 min.
    A daily job: >6h.) The run was interrupted. Confirm against the job's own `*.crashed` log and the
@@ -699,17 +923,26 @@ telling apart, and the screen distinguishes them on purpose:
 **Repair:** nothing here is repaired by hand. A genuinely-not-firing cron is a Worker scheduling
 issue — escalate to whoever owns the API Worker's crons, exactly as for the individual cron runbooks
 above. A failing *recorder* (`aeci.job_runs.write{outcome:failed}`) degrades the panel only: the
-bookkeeping is failure-isolated by design, so the jobs keep running and Datadog keeps alerting. Treat
+bookkeeping is failure-isolated by design, so the jobs keep running and the alerts keep firing. Treat
 it as a defect to file, not an incident to page on.
 
 ## Metrics snapshot missing or incomplete
 
-**Alerts:** **none yet — this cron has no dedicated monitor.** That is a known gap
-(`PHASE_8_COMPLETION.md` §F5), and the worst one to have: the job is **queue-less**, so a failed run
-is never retried, and a missed day's *stock* metrics are **unrecoverable**. Today you find out from
-`/admin/system` (the `metrics-snapshot` row), from a hole in an admin chart, or — worst case —
-from the 03:00 retention prune skipping because of the gap. Until the monitor exists, the
-`aeci.metrics_snapshot.run` count is the liveness signal to build a no-data check on.
+**Alerts:** **none — this cron never got a dedicated monitor** (`PHASE_8_COMPLETION.md` §F5).
+It is watched by the CI liveness sweep (`metrics-snapshot`), but has no threshold alert, and it
+was the worst gap to have: the job is **queue-less**, so a failed run is never retried, and a
+missed day's *stock* metrics are **unrecoverable**. Today you find out from `/admin/system` (the
+`metrics-snapshot` row), from a hole in an admin chart, or — worst case — from the 03:00 retention
+prune skipping because of the gap.
+
+> **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
+> is one of the six previously-unwatched crons picked up by the combined
+> `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the thirteen crons
+> in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
+> So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
+> `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the
+> sweep is **already running**, so its red is worth reading even during the dual-run.
 
 **Metrics:**
 - `aeci.metrics_snapshot.run{outcome:ok|partial|failed}` — one per completed run; the always-emitted
@@ -778,11 +1011,19 @@ genuinely measured.
 
 ## Retention prune skipped, failed, or not running
 
-**Alerts:**
+**Alerts (PostHog, hourly):**
 - `AECi — Retention prune skipped (metrics_daily gap)` — a day inside the `page_views` cut window has no snapshot, so **nothing was deleted from either table**. **Informational / non-paging** — the failure direction is safe — but do not sit on it.
 - `AECi — Retention prune deleted an unexpected number of rows` — >5,000 rows in a day for one table. **Pages.**
 - `AECi — Retention prune failed (daily cron)` — the job threw; the batch is atomic, so nothing was deleted.
 - `AECi — Retention prune not running (no daily run)` — the cron stopped firing.
+
+**After AECI-651**, also four ways: **runaway stays its own PostHog alert, threshold unchanged at
+5,000 rows/table/day** (a *successful* run with the wrong effect — its runbook is "find out what was
+deleted before it ages out", which shares nothing with "the job failed"); **failed folds into the
+combined** cron-failure alert; **not-running moves to the CI liveness sweep** (`retention-prune`,
+26 h); and **skipped stops alerting**, becoming a dashboard read ("AECi — Cron health & retention" →
+*Retention — rows deleted, skipped and truncated runs*) alongside the digest that already carries
+it.
 
 **Metrics:**
 - `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. `reason:metrics_daily_gap` on a skip.
@@ -871,9 +1112,16 @@ If step 2 returns any rows, the prune will skip — backfill those days first (F
 
 ## WAF rate-limit / challenge spike
 
-**Alerts:**
+**Alerts (PostHog, hourly):**
 - `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m on `env:production`.
 - `AECi — WAF poll not running` — no successful hourly `aeci.waf.poll{outcome:ok}` for ~3h (cron liveness; AECI-279).
+
+**After AECI-651:** the spike alert is the **one threshold in the whole set that had to move** —
+**500/15 min → 2,000/1 h**. The sensitivity is unchanged and so is the underlying data: the source
+is an **hourly** cron (`0 * * * *`) that reads the *previous clock hour* from Cloudflare's GraphQL
+API in one shot, so a 15-minute Datadog window over an hourly-emitted series was always coarser than
+it looked — it just saw the whole hour's count land inside one 15-minute bucket. `500 × 4 = 2,000`.
+The poll-liveness half moves to the **CI liveness sweep** (`waf-poll`, 180 min unchanged).
 
 **Metrics:**
 - `aeci.waf.ratelimit.blocked{rule,action,host,source}` — Cloudflare WAF mitigations (blocks + challenges),
@@ -892,7 +1140,7 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
 1. **What fired?** Pivot `aeci.waf.ratelimit.blocked` by `action` (block vs managed_challenge), `rule`, `host`,
    and `source` (ratelimit vs firewallcustom) to localize. Cross-reference Cloudflare → **Security → Events**
    (filter by the same rule/action/host) for the offending IPs / paths / user agents — CF carries the per-IP
-   detail Datadog does not.
+   detail neither telemetry plane carries.
 2. **Real attack or false positive?** If the offending UA/IPs are obviously a scraper/flood, no action is
    needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
    **legitimate** user or integration is being blocked/challenged, re-tune the rule in
@@ -912,8 +1160,10 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
 
 **Repair:** the WAF itself is already mitigating — this alert is **awareness**, not an outage. Escalate only
 if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
-a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
-`observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.
+a manual Cloudflare block. The threshold is a launch placeholder; re-tune it in
+`observability/posthog/alerts.json` (2,000/1 h) once baseline volume is known. That figure is
+the retired Datadog monitor's 500/15 m rescaled 4× for the hourly window — keep the rescale in
+mind when re-tuning, or the alert will mean something different from what the runbooks assume.
 
 ---
 
@@ -921,8 +1171,10 @@ a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tun
 
 **Signal:** `aeci.api.promote.job{outcome:errored}` (with a `code` tag), the
 `aeci.api.promote.job_failed` error log, or `aeci.api.promote.job.duration_ms` running long.
-There is **no monitor on this yet** — promote volume is a handful per day, so today the
-trigger is usually a curator reporting "the promote never finished". (AECI-563 / ADR 0021.)
+There is **no alert on this on either plane** — promote volume is a handful per day, so the trigger
+is usually a curator reporting "the promote never finished". It is not among the 26 dispositioned
+monitors and it is not in `observability/posthog/alerts.json`, so the cutover changes nothing here.
+(AECI-563 / ADR 0021.)
 
 **What it means:** since AECI-563 `POST /api/promote` only *starts* the ingest. The commit runs
 in the `PROMOTE_WORKFLOW` Cloudflare Workflow, one instance per promote, whose **instance id is
@@ -1015,7 +1267,9 @@ job id would duplicate them.
 ## Promote strand audit is red
 
 **Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
-exits non-zero. There is no Datadog monitor — the workflow's own red is the alert. (AECI-568 / AECI-593.)
+exits non-zero. There is no monitor on either plane — the workflow's own red **is** the alert, the
+same pattern the AECI-647 cron liveness sweep now uses for absence detection, and for the same
+reason: the check has to live outside the system it is checking. (AECI-568 / AECI-593.)
 
 **What it means:** production D1 and the Airtable curation base disagree about which rows exist.
 The only link between them is the `supabase_*_id` column Airtable holds — D1 stores no

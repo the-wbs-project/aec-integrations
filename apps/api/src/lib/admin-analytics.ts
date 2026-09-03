@@ -91,6 +91,7 @@ import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
 import { loadAsnAnnotations } from './asn-registry';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
+import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
 
@@ -844,18 +845,6 @@ export async function breakdown(
  */
 const VISITOR_HASH_CHARS = 8;
 
-/**
- * Escape the SQL `LIKE` metacharacters so operator input matches literally.
- *
- * Without this, a `path_contains` of `%` matches every row and `_` matches any
- * character — the filter would silently behave as a pattern language nobody
- * documented. Paired with an explicit `ESCAPE '\'` clause at the call site, since
- * Drizzle's `like()` helper emits no `ESCAPE`.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
-
 /** The feed's user-facing column filters, straight off the parsed query. */
 export interface PageViewFilterInput {
   source?: string;
@@ -891,9 +880,7 @@ export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined
         : eq(pageViews.cfCountry, f.country);
 
   const path =
-    f.path_contains === undefined
-      ? undefined
-      : sql`${pageViews.path} like ${`%${escapeLike(f.path_contains)}%`} escape '\\'`;
+    f.path_contains === undefined ? undefined : likeContains(pageViews.path, f.path_contains);
 
   return and(source, country, path);
 }
@@ -1085,6 +1072,24 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // figures correctly, which is the `warn` test.
   utm_attribution_incomplete: 'info',
   audience_history_is_current_state: 'info',
+  // AECI-722 — the connector admin surface. Three `warn` and one `info`, on the
+  // same test the rest of this map uses: does a reader who MISSES the note draw a
+  // wrong conclusion?
+  //
+  // `connector_evidenced_pairs_empty` — yes. An empty delivered lane looks like
+  // "this connector delivers nothing", when it actually means AECI-721 has not run.
+  // `reachable_never_counted` — yes, and this is the lane's founding distinction
+  // (§13.1): reading a pair-page count as delivered integrations is exactly the
+  // capability-sold-as-delivery conflation the whole connector lane exists to
+  // refuse.
+  // `publication_gate_inputs_only` — yes. A row rendered here is NOT thereby
+  // publishable; two of §13.7's four clauses are not evaluated on this screen.
+  // `stub_actions_never_fetched` — no. It narrows what a null `action_count`
+  // means without making any figure on the page wrong, which is the `info` case.
+  connector_evidenced_pairs_empty: 'warn',
+  reachable_never_counted: 'warn',
+  publication_gate_inputs_only: 'warn',
+  stub_actions_never_fetched: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

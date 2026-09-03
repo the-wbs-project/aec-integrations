@@ -8,9 +8,10 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
  * AECI-185 (Phase 4.10) — the home "Recently added integrations" tile. The home
- * lists the last 10 integrations as a 2-up grid of these; the existing
- * `IntegrationCard` is a `<tr>` table row (scoped to `IndexLayout`'s body slot),
- * so the home needs a card-shaped tile, not a row.
+ * lists the last 10 integrations as a 2-up grid of these. It was introduced
+ * alongside `IntegrationCard`, the `<tr>` table row of the since-removed
+ * `/integrations` index (deleted with that page's last consumer), because the
+ * home needs a card-shaped tile rather than a row.
  *
  * The whole tile is one `<a>` to the product-PAIR page
  * `/products/:contextSlug/integrations/:otherSlug` (AECI-294; the standalone
@@ -20,13 +21,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * inherent context product. The `mechanism_kind` chip + direction label render
  * as non-link spans to avoid nested anchors (same rule `ProductCardGrid`
  * follows). Labels come from the shared `mechanism-labels` `$localize` set
- * (AECI-142) so the ids can't drift from `/search` and `/integrations`; they
+ * (AECI-142) so the ids can't drift from `/search`; they
  * return `''` when absent, and the tile simply hides the chip/label then (a tile
  * has no column to align, so it omits rather than rendering the table's en-dash).
  *
  * The `→` glyph is decorative (`aria-hidden`, RTL-mirrored). Per AECI-185 it is
- * `--text-secondary`, NOT `IntegrationCard`'s `--text-tertiary` (which fails AA
- * for visible meta glyphs). Both themes via tokens. No explicit OnPush — it's the
+ * `--text-secondary`, NOT the `--text-tertiary` the retired `IntegrationCard`
+ * row used (which fails AA for visible meta glyphs). No explicit OnPush — it's the
  * Angular v22 default (AECI-125).
  */
 @Component({
@@ -91,9 +92,10 @@ export class IntegrationTile {
     return ['/products', context, 'integrations', other];
   });
 
-  // Shared with the /search + /integrations surfaces via `mechanism-labels.ts`
-  // so the `$localize` id set can't drift; wrapped in `computed` (keyed off the
-  // input signal) for zoneless memoization, matching `IntegrationCard`.
+  // Shared with the /search surface via `mechanism-labels.ts` (the /integrations
+  // table that also used it was removed by AECI-165) so the `$localize` id set
+  // can't drift; wrapped in `computed` (keyed off the
+  // input signal) for zoneless memoization, matching `ProductCard`.
   protected readonly mechanismKindLabel = computed(() =>
     mechanismKindLabel(this.integration().mechanism_kind),
   );

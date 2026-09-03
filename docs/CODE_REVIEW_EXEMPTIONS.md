@@ -1,7 +1,7 @@
 # AEC Integrations — Code Review Exemptions
 
-**Audience:** LLMs and humans performing pre-merge code review.
-**Companion:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules).
+**Audience:** LLMs and humans performing pre-merge code review, or the pre-implementation plan check.
+**Companions:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules for a diff) and `.agents/skills/spec-anchor/SKILL.md` step 4.5 (the same job for a plan, before code exists — see §"Plan-time matching" below).
 
 This file is the list of findings the team has consciously accepted, deferred, or scheduled for later — so the review process stops re-flagging them on every PR. The reviewer reads this file **before** producing a review, and any finding that matches an active entry here is dropped silently.
 
@@ -14,6 +14,8 @@ This file is the list of findings the team has consciously accepted, deferred, o
    - **Match = same file/path (or matching glob), same category, AND the severity is covered.** Be strict: a "performance" exemption does not cover a "security" finding even on the same line.
 3. If an active exemption matches → drop the finding silently. Do not list it. Do not even mention the exemption in the review output (otherwise PRs accumulate noise).
 4. If a matching exemption is **expired** (see below) → report the finding normally, AND add a one-line note at the bottom of the review: `Note: EX-NNN has expired; the underlying finding is back in scope.` The exemption stays in the file until someone retires it.
+
+**This file does not cover mechanically-enforced items.** An `EX-NNN` entry suppresses a *review finding*; it has no effect on a lint error, which fails the build before review happens. Checklist items tagged `Lint: ✅` (see `docs/CODE_REVIEW_CHECKLIST.md` §Approach and `ANGULAR_STYLE_GUIDE.md` §24) are therefore out of scope here. To make an exception to one of those, use the mechanism's own escape hatch and say why in the comment: an `eslint-disable-next-line` with a justification for an ESLint rule, or `constraints-guard-allow-next-line` for a `check-source-constraints.mjs` rule. If you find yourself wanting a standing exemption for a lint rule, the rule is wrong — fix the rule (AECI-549).
 
 ## Active vs. expired
 
@@ -84,6 +86,19 @@ specific. Reference the spec section or the planned follow-up work.
 
 ---
 
+## Plan-time matching (the `spec-anchor` plan check)
+
+The pre-implementation reviewer — step 4.5 of `.agents/skills/spec-anchor/SKILL.md` — loads this file too, reading the same entries through the adjustments below. No schema change: a finding the team has consciously accepted at merge time is one they also don't want raised at plan time, so one list serves both reviewers.
+
+- **`files:` / `paths:`** are evaluated against the paths the **plan names**. If the plan names no paths, a path-scoped exemption does **not** match — report the finding. Fail open toward reporting here: a plan is cheap to correct, so a false positive costs a sentence, while a wrongly suppressed finding costs a build.
+- **`categories:`** may name a category from either `CODE_REVIEW_CHECKLIST.md` or the plan check's own six. Match on intent where the names differ — `Caching` covers "missing contract element — cache tag/purge"; `Spec alignment` covers "spec contradiction" and "doc invalidation".
+- **`severity:`** maps across the two vocabularies: a `BLOCKER` exemption covers a plan-time **CRITICAL**; `MAJOR` covers **MAJOR**; `any` covers **MINOR** as well.
+- **`finding_matches:`** applies unchanged and is the preferred matcher for plan-time exemptions, since plan findings are anchored to a step number rather than a file.
+
+**This is also how the plan check's false-positive rate gets measured.** There is no dashboard and no artifact directory. A finding the team decides is wrong gets written up here as an ordinary exemption with a `finding_matches:` matcher — the count and content of plan-time exemptions *is* the signal, and each one silences the recurrence for free. If they accumulate faster than they expire, the check needs recalibrating, not more categories.
+
+---
+
 ## Active exemptions
 
 ### EX-002 — Cron-written bookkeeping rows carry no `audit_log` row (ADR 0022)
@@ -122,11 +137,45 @@ added: 2026-08-12
 added_by: claude (AECI-573)
 ```
 
-**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and `metrics_daily` / `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2, **shipped 2026-08-13** with AECI-581 and AECI-583). Observability for these is `job_runs` plus Datadog.
+**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and `metrics_daily` / `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2, **shipped 2026-08-13** with AECI-581 and AECI-583). Observability for these is `job_runs` plus the emitted metrics (PostHog — ADR 0024).
 
 **This exemption is narrow, and two things fall outside it — keep flagging them.** (1) **Domain-state writes always audit, regardless of actor.** A cron or `actorType: 'system'` write that touches the catalog, users, reviews, claims, requests, or workflows is *not* exempt — the test is entity class, not actor class. The `*/15` reconciliation sweep mutating `vendor_requests` / `workflow_instances` in `apps/api/src/lib/linear.ts` is a real violation and has its own issue; do not treat this entry as covering it. (2) **Scheduled `DELETE`s always audit** — exactly one summary row per run (`action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`) in the same batch as the delete. A retention cron that deletes without one is a finding.
 
 `permanent` because it records where a spec boundary sits, not a deferral. It expires only if ADR 0022 is superseded.
+
+**The connector-catalogue sync is deliberately *not* in this entry.** `promote-connector-catalog.ts` / `promote-connector.ts` audit — they are domain state — just at run granularity, which is a different question with a different answer. They are **EX-003**, whose matchers name that carve-out rather than the audit vocabulary, precisely so a *missing* audit row in those files still surfaces (AECI-734).
+
+---
+
+### EX-003 — Connector-catalogue sync audits once per run, not per row (ADR 0022 amendment)
+
+```yaml
+id: EX-003
+scope:
+  paths:
+    - apps/api/src/lib/promote-connector-catalog.ts
+    - apps/api/src/routes/promote-connector.ts
+  categories:
+    - Audit logging
+  finding_matches:
+    - "per-row audit"
+    - "audit per row"
+    - "one audit row per page"
+    - "run granularity"
+    - "once per run"
+    - "connector_catalog.synced"
+severity: any
+expiry: permanent
+status: active
+added: 2026-09-02
+added_by: claude (AECI-734)
+```
+
+**Justification.** This is a **signpost, not an exemption** — the connector-catalogue sync mirrors domain state and it *does* audit, inside the same `db.batch` as the mutation, exactly as §26.1 requires. The only question it settles is *granularity*, and ADR 0022's **2026-08-31 amendment** plus `STAGE_1_SPEC.md` §26.1 already answered it: **one `connector_catalog.synced` summary row per page**, carrying the per-table counts and the page cursor, and **no row at all when the page changes nothing** (`apps/api/src/lib/promote-connector-catalog.ts` "Rule 4"; the row is pushed into the batch at `apps/api/src/routes/promote-connector.ts:181`). Per-row auditing would deposit tens of thousands of near-identical entries per sync into a table nothing prunes (§26.6) while answering no question the summary does not. So the finding this entry suppresses is exactly one: *"this bulk sync should emit an `audit_log` row per mirrored row."* A reviewer who lands here should read the ADR amendment rather than re-litigate it.
+
+**What it does NOT suppress — keep flagging all three.** (1) A connector-sync write path that emits **no** audit row at all, or emits one **outside** the `db.batch` — that is an ordinary §26.1 violation and this entry's matchers are written so it does not match. (2) A **decision-bearing** write on the same tables — flipping `connector_catalogs.managed_by` (AECI-720, `routes/admin-connector-catalogs.ts`) audits **per row** like every other domain-state write; ADR 0022:97 names it as the bound. (3) The AECI-571 replay-guard ordering: the `promote_jobs` ledger row stays **first** in the batch, never with `ON CONFLICT DO NOTHING`.
+
+`permanent` because it records where a spec boundary sits, not a deferral. It expires only if the ADR 0022 amendment is superseded.
 
 ---
 

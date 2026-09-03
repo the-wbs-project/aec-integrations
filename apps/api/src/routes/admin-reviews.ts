@@ -22,7 +22,7 @@ import {
   ListPendingReviewsResponseSchema,
   ModerateReviewResponseSchema,
   ModerateReviewSchema,
-  callCloudflarePurge,
+  REPEAT_OFFENDER_THRESHOLD,
   type ListPendingReviewsResponse,
   type ModerateReviewResponse,
   type RepeatOffenderPrompt,
@@ -44,7 +44,7 @@ import type { ZodType } from 'zod';
 import { getDb } from '../db/client';
 import type { Db } from '../db/client';
 import { reviews, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -63,8 +63,6 @@ import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
-const REPEAT_OFFENDER_THRESHOLD = 3;
-
 /** Injected reviewer-email seam (seam #2). Default hits the GoTrue Admin API. */
 export type FetchReviewerEmails = (
   env: Env,
@@ -77,9 +75,9 @@ type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -91,9 +89,9 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 }
 
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -125,23 +123,25 @@ function emitModeration(
   ]);
 }
 
+/**
+ * Enqueue a purge of the moderated product's `Cache-Tag` (WC-5 / ADR 0020 §3). The
+ * SSR Worker's queue consumer issues the actual `ctx.cache.purge()` and emits
+ * `aeci.cache.purge{source:moderation}` — the API Worker's own zone-HTTP purge is
+ * inert against native Workers Cache. Best-effort: no-ops without the queue binding
+ * (local/preview), and a `queue.send` rejection is logged (a `warn`) and
+ * swallowed so it never affects the committed moderation.
+ */
 async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
-  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
-  const outcome = await callCloudflarePurge(fetch, creds, [`product:${slug}`]);
+  const queue = c.env.CACHE_PURGE_QUEUE;
+  if (!queue) return;
   try {
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
-      'source:moderation',
-      `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
-    ]);
-    if (!outcome.ok) {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
-        level: 'warn',
-        message: `Cache purge failed for product:${slug}`,
-        outcome: `cf_${outcome.status}: ${outcome.message}`,
-      });
-    }
+    await queue.send({ tags: [`product:${slug}`], source: 'moderation' });
   } catch (error) {
-    console.warn('admin-reviews: purge telemetry failed', error);
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: `Cache purge enqueue failed for product:${slug}`,
+      outcome: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -305,7 +305,7 @@ export function createModerateReviewHandler(
 
     emitModeration(c, payload.action, 'ok');
 
-    if (approve && c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
+    if (approve && c.env.CACHE_PURGE_QUEUE) {
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
     c.executionCtx.waitUntil(

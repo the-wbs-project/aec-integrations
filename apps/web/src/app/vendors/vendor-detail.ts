@@ -12,6 +12,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 
 import { VendorProductRow } from './vendor-product-row';
@@ -69,6 +70,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     RequestTrigger,
     RouterLink,
     VendorProductRow,
+    VerifiedBadge,
   ],
   template: `
     @let v = vendor();
@@ -112,13 +114,17 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 >
                   Vendor
                 </p>
-                <aec-maintenance-marker />
+                <aec-maintenance-marker
+                  [maintainedBy]="v.maintenance.maintained_by"
+                  [reviewedAt]="v.maintenance.last_reviewed_at"
+                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ v.company_name }}
               </h1>
+              <aec-verified-badge [verified]="v.verified" />
             </div>
           </div>
 
@@ -257,6 +263,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [entity]="'vendor'"
                 [kind]="'claim'"
                 [slug]="v.slug"
+                [claimed]="v.verified"
                 [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
@@ -279,9 +286,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                <ng-container i18n="@@vendors.detail.metadata.claim"
-                  >Claim this listing</ng-container
-                >
+                @if (v.verified) {
+                  <ng-container i18n="@@vendors.detail.metadata.requestAccess"
+                    >Request access to this listing</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@vendors.detail.metadata.claim"
+                    >Claim this listing</ng-container
+                  >
+                }
               </a>
               <a
                 aecRequestTrigger
@@ -315,6 +328,14 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 >
               </a>
             </div>
+            @if (v.verified) {
+              <p
+                class="text-xs leading-relaxed text-(--text-secondary)"
+                i18n="@@vendors.detail.metadata.claimedNote"
+              >
+                Already managed by a verified vendor. Request access if you work there too.
+              </p>
+            }
           </section>
         </div>
 

@@ -1,9 +1,10 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, afterNextRender, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { ProductDetail, ProductIntegrationItem, ProductLink } from '@aeci/shared';
+import type { ProductDetail } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -18,9 +19,16 @@ import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-si
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
+import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
-import { groupPoweredIntegrations } from './powered-hub-grouping';
-import { ProductIntegrationRow } from './product-integration-row';
+import {
+  applyDeferCut,
+  INTEGRATIONS_ABOVE_FOLD,
+  splitIntegrationLanes,
+  type IntegrationLaneView,
+} from './connector-lane-grouping';
+import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
+import { ProductIntegrationsTable } from './product-integrations-table';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
@@ -40,12 +48,23 @@ import { RoleBadge } from './role-badge';
  *   - `product` set → render hero / metadata sidebar / description /
  *     integrations sections inside the shared `DetailLayout`.
  *
- * Integrations section: a column-aligned `<table>` (partner · direction ·
- * connection), one `ProductIntegrationRow` per integration — replacing the old
+ * Integrations section: column-aligned tables (partner · direction ·
+ * connection), one `ProductIntegrationRow` per rendered row — replacing the old
  * stack of near-identical cards, which was hard to scan and nested an `<a>`
- * (partner product) inside an `<a>` (pair page). If the combined source + target
- * list exceeds 20, everything past the first 20 ships as deferred `<tr>`s in an
- * `@defer (on viewport; hydrate on viewport)` block inside the same `<tbody>`.
+ * (partner product) inside an `<a>` (pair page).
+ *
+ * Since AECI-713 the section is SPLIT into lanes (`STAGE_1_5_SPEC.md` §13.3):
+ * the direct list first, then one "Via {connector}" group per connector, each
+ * lane its own `<table>` (a group-header row inside a shared `<tbody>` has no
+ * accessible name relationship to the rows under it). It stays ONE section with
+ * one anchor and one section-nav entry, and a page with no connector-delivered
+ * edges renders the single unheaded table it always did. `lanes()` does the
+ * routing and the pair collapse; `connector-lane-grouping.ts` holds the rules.
+ *
+ * If the section exceeds 20 rows, everything past the first 20 ships as deferred
+ * `<tr>`s in an `@defer (on viewport; hydrate on viewport)` block. The budget is
+ * spent across the FLATTENED lane order, so it lands after 20 visible rows
+ * rather than 20 rows into every lane.
  * Under v22 incremental hydration the deferred rows are SSR-rendered (crawlable,
  * no hydration layout shift); the `on viewport` trigger still defers the block on
  * client-side navigations (see AECI-130). Each row's whole surface links to the
@@ -62,6 +81,14 @@ import { RoleBadge } from './role-badge';
  * its real value sits here. Rendered as a grouped hub view
  * (`aec-product-powered-hub`), not a table.
  *
+ * Role-varied ordering (Stage 1.5 Addendum C, §13.6 / AECI-707): on
+ * `product_role === 'connector'` with a populated hub, `#powered-integrations`
+ * renders BEFORE `#integrations` and the section-nav follows. `hybrid` and
+ * `application` keep the default order. The section is declared once as an
+ * `<ng-template>` and placed by an `ngTemplateOutlet` on whichever side wins, so
+ * the swap moves real DOM order rather than visual order. Anchor ids never
+ * change, so there is no link, sitemap or cache-tag churn.
+ *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
  * integration shown, both endpoints of each powered edge), and the page-view
  * payload was queued by the resolver.
@@ -76,8 +103,9 @@ import { RoleBadge } from './role-badge';
     LogoOrInitial,
     MailingListSignup,
     MaintenanceMarker,
+    NgTemplateOutlet,
     NotFound,
-    ProductIntegrationRow,
+    ProductIntegrationsTable,
     ProductPoweredHub,
     ProductReviews,
     ProductUsefulnessSection,
@@ -89,6 +117,7 @@ import { RoleBadge } from './role-badge';
     RouterLink,
     SectionNav,
     TaxonomyBadge,
+    VerifiedBadge,
   ],
   template: `
     @let p = product();
@@ -147,13 +176,26 @@ import { RoleBadge } from './role-badge';
                   Product
                 </p>
                 <aec-role-badge [role]="p.product_role" />
-                <aec-maintenance-marker />
+                <aec-maintenance-marker
+                  [maintainedBy]="p.maintenance.maintained_by"
+                  [reviewedAt]="p.maintenance.last_reviewed_at"
+                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ p.name }}
               </h1>
+              <!-- Connector reach line (Stage 1.5 Addendum C, §13.6). Rendered
+                   whenever the product reaches at least one catalog product,
+                   with no role gate: §13.6 states only the N > 0 condition, and
+                   a mis-roled application that powers edges is described just
+                   as accurately by it. "in the AECi catalog" carries §12.7's
+                   scope framing inline, so the number never reads as the
+                   vendor's full partner set. -->
+              @if (connectsLabel(); as connects) {
+                <p class="text-sm text-(--text-secondary)">{{ connects }}</p>
+              }
             </div>
           </div>
 
@@ -242,9 +284,12 @@ import { RoleBadge } from './role-badge';
                   hover:border-(--border-strong)"
               >
                 <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
-                <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
-                  v.name
-                }}</span>
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
+                    v.name
+                  }}</span>
+                  <aec-verified-badge [verified]="v.verified" variant="compact" />
+                </span>
               </a>
             } @else {
               <p
@@ -347,6 +392,7 @@ import { RoleBadge } from './role-badge';
                 [entity]="'product'"
                 [kind]="'claim'"
                 [slug]="p.slug"
+                [claimed]="p.vendor?.verified ?? false"
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
@@ -369,9 +415,15 @@ import { RoleBadge } from './role-badge';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                <ng-container i18n="@@products.detail.metadata.claim"
-                  >Claim this listing</ng-container
-                >
+                @if (p.vendor?.verified) {
+                  <ng-container i18n="@@products.detail.metadata.requestAccess"
+                    >Request access to this listing</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@products.detail.metadata.claim"
+                    >Claim this listing</ng-container
+                  >
+                }
               </a>
               <a
                 aecRequestTrigger
@@ -405,6 +457,14 @@ import { RoleBadge } from './role-badge';
                 >
               </a>
             </div>
+            @if (p.vendor?.verified) {
+              <p
+                class="text-xs leading-relaxed text-(--text-secondary)"
+                i18n="@@products.detail.metadata.claimedNote"
+              >
+                Already managed by a verified vendor. Request access if you work there too.
+              </p>
+            }
           </section>
         </div>
 
@@ -432,149 +492,18 @@ import { RoleBadge } from './role-badge';
             <aec-product-usefulness id="how-teams-use-it" class="scroll-mt-20" [data]="u" />
           }
 
-          <section
-            id="integrations"
-            aria-labelledby="integrations-title"
-            class="scroll-mt-20 space-y-4"
-          >
-            <h2
-              id="integrations-title"
-              class="font-display text-2xl font-semibold text-(--text-primary)"
-            >
-              {{ integrationsHeading() }}
-            </h2>
-
-            @if (integrations().length === 0) {
-              <p
-                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-                  bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-                i18n="@@products.detail.body.integrations.empty"
-              >
-                No integrations recorded yet. Vendor data is curated; if you know of one,
-                <a
-                  aecRequestTrigger
-                  [entity]="'product'"
-                  [kind]="'correction'"
-                  [slug]="p.slug"
-                  [href]="'/products/' + p.slug + '/correction'"
-                  class="text-(--accent-primary) underline underline-offset-2"
-                  >suggest a correction</a
-                >.
-              </p>
-            } @else {
-              <!-- Real table (replaces the former card stack) so the partner,
-                   flow direction, and connection mechanism align into scannable
-                   columns. Horizontal scroll below the min width; Direction +
-                   Connection collapse at md (matching ProductCard / the browse
-                   tables), with the mechanism folding into the partner cell. -->
-              <div class="overflow-x-auto">
-                <table
-                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                  i18n-aria-label="@@products.detail.body.integrations.table.aria"
-                  aria-label="Integrations"
-                >
-                  <thead
-                    class="border-b border-(--border-default) text-start text-xs
-                      font-medium tracking-wide text-(--text-secondary)"
-                  >
-                    <tr>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 text-start font-medium"
-                        i18n="@@products.detail.body.integrations.col.direction"
-                      >
-                        Direction
-                      </th>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 text-start font-medium"
-                        i18n="@@products.detail.body.integrations.col.product"
-                      >
-                        Integrates with
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
-                        i18n="@@products.detail.body.integrations.col.connection"
-                      >
-                        Connection
-                      </th>
-                      <th scope="col" class="px-4 py-3">
-                        <span class="sr-only" i18n="@@products.detail.body.integrations.col.details"
-                          >Details</span
-                        >
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-(--border-default)">
-                    @for (item of integrationsAbove(); track item.integration.id) {
-                      <tr
-                        aec-product-integration-row
-                        [integration]="item.integration"
-                        [other]="item.other"
-                        [contextSlug]="p.slug"
-                      ></tr>
-                    }
-                    @if (integrationsDeferred().length > 0) {
-                      @defer (on viewport; hydrate on viewport) {
-                        @for (item of integrationsDeferred(); track item.integration.id) {
-                          <tr
-                            aec-product-integration-row
-                            [integration]="item.integration"
-                            [other]="item.other"
-                            [contextSlug]="p.slug"
-                          ></tr>
-                        }
-                      } @placeholder (minimum 100ms) {
-                        <tr aria-hidden="true">
-                          <td colspan="4" class="px-4 py-3">
-                            <div
-                              class="h-16 animate-pulse rounded-(--radius-lg)
-                                border border-(--border-default) bg-(--surface-sunken)"
-                            ></div>
-                          </td>
-                        </tr>
-                      }
-                    }
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Catalog-scope note. An integration row only exists once BOTH
-                   endpoints are promoted products, so this table is bounded by
-                   the directory, not by the vendor's real partner list: a
-                   product with hundreds of marketplace partners can render a
-                   dozen. The empty state already hedges ("Vendor data is
-                   curated"); without this line the POPULATED state makes a bare
-                   confident count, which is the one people screenshot. Scope,
-                   not apology: it states the boundary and offers the fix. -->
-              <p
-                class="text-xs text-(--text-secondary)"
-                i18n="@@products.detail.body.integrations.scope"
-              >
-                Only partners listed on AECi appear here. If one is missing,
-                <a
-                  aecRequestTrigger
-                  [entity]="'product'"
-                  [kind]="'correction'"
-                  [slug]="p.slug"
-                  [href]="'/products/' + p.slug + '/correction'"
-                  class="text-(--accent-primary) underline underline-offset-2"
-                  >suggest a correction</a
-                >.
-              </p>
-            }
-          </section>
-
           <!-- Powered ("this product IS the connector") integrations, per Stage
-               1.5 Addendum B. Distinct from the endpoint table above: these edges
-               name this product in powered_by_product_id, so it appears in
-               neither endpoint bucket and the table above is legitimately empty
-               for a pure connector. Always rendered for connector / hybrid roles
-               (empty state included, so the page never reads as "integrates with
-               nothing"); for an application only when data exists, a safety net
-               for a mis-roled product that still powers edges. -->
-          @if (showPowered()) {
+               1.5 Addendum B. Distinct from the endpoint table: these edges name
+               this product in powered_by_product_id, so it is neither endpoint and
+               the endpoint table is legitimately empty for a pure connector.
+
+               Declared as a template and rendered through an outlet on either side
+               of #integrations, because §13.6 swaps the two sections on a connector
+               page. The swap has to move real DOM order: CSS order would leave
+               screen readers and crawlers on the old sequence (WCAG 1.3.2).
+               <ng-container> emits no element, so the body's space-y-12 still lands
+               on the sections themselves. -->
+          <ng-template #poweredSection>
             <section
               id="powered-integrations"
               aria-labelledby="powered-integrations-title"
@@ -587,7 +516,7 @@ import { RoleBadge } from './role-badge';
                 {{ poweredHeading() }}
               </h2>
 
-              @if (p.integrations_as_connector.length === 0) {
+              @if (poweredView().pairCount === 0) {
                 <p
                   class="rounded-(--radius-lg) border border-dashed border-(--border-default)
                     bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
@@ -634,6 +563,146 @@ import { RoleBadge } from './role-badge';
                 </p>
               }
             </section>
+          </ng-template>
+
+          @if (leadWithPowered()) {
+            <ng-container [ngTemplateOutlet]="poweredSection" />
+          }
+
+          <section
+            id="integrations"
+            aria-labelledby="integrations-title"
+            class="scroll-mt-20 space-y-4"
+          >
+            <h2
+              id="integrations-title"
+              class="font-display text-2xl font-semibold text-(--text-primary)"
+            >
+              {{ integrationsHeading() }}
+            </h2>
+
+            @if (lanes().rowCount === 0) {
+              <p
+                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                  bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+                i18n="@@products.detail.body.integrations.empty"
+              >
+                No integrations recorded yet. Vendor data is curated; if you know of one,
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="p.slug"
+                  [href]="'/products/' + p.slug + '/correction'"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >suggest a correction</a
+                >.
+              </p>
+            } @else {
+              <!-- ONE <table> PER LANE (§13.3). The direct lane leads, because
+                   an accountable-party integration is a stronger answer to "does
+                   A integrate with B" than a configurable one: someone is on the
+                   hook for it. Then one group per connector. A single <tbody>
+                   with interleaved group-header rows was rejected, since a
+                   header row inside a table body has no accessible name
+                   relationship to the rows beneath it.
+                   A page with no connector edges renders exactly what it always
+                   did: one unheaded table named by the section heading. -->
+              @if (lanes().via.length === 0) {
+                <aec-product-integrations-table
+                  [above]="laneCut().direct.above"
+                  [deferred]="laneCut().direct.deferred"
+                  [contextSlug]="p.slug"
+                  i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+                  ariaLabel="Integrations"
+                />
+              } @else {
+                @if (lanes().direct.length > 0) {
+                  <h3
+                    id="integrations-direct"
+                    class="font-display text-lg font-semibold text-(--text-primary)"
+                  >
+                    <span i18n="@@products.detail.body.integrations.lane.direct"
+                      >Direct integrations</span
+                    >
+                    <span class="ms-2 font-normal text-(--text-secondary)"
+                      >({{ lanes().direct.length }})</span
+                    >
+                  </h3>
+                  <aec-product-integrations-table
+                    [above]="laneCut().direct.above"
+                    [deferred]="laneCut().direct.deferred"
+                    [contextSlug]="p.slug"
+                    ariaLabelledby="integrations-direct"
+                  />
+                }
+                @for (lane of laneCut().via; track lane.lane.key) {
+                  <h3
+                    [id]="'integrations-via-' + lane.lane.key"
+                    class="font-display mt-8 text-lg font-semibold text-(--text-primary)"
+                  >
+                    <!-- The connector name links its product page: the return
+                         path into the Addendum B hub, mirroring §12.3's linked
+                         hub heading in the opposite direction. -->
+                    @if (lane.lane.connector; as connector) {
+                      <span i18n="@@products.detail.body.integrations.lane.via"
+                        >Via
+                        <a
+                          [routerLink]="['/products', connector.slug]"
+                          class="rounded-sm underline underline-offset-4 transition-colors
+                            hover:text-(--accent-primary) focus-visible:outline-2
+                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          >{{ connector.name }}</a
+                        ></span
+                      >
+                    } @else {
+                      <!-- §13.2(c): connector-delivered, but its connector has
+                           no product record to name. NEVER invent one. -->
+                      <span i18n="@@products.detail.body.integrations.lane.via.unnamed"
+                        >Via a connector</span
+                      >
+                    }
+                    <span class="ms-2 font-normal text-(--text-secondary)"
+                      >({{ lane.lane.rows.length }})</span
+                    >
+                  </h3>
+                  <aec-product-integrations-table
+                    [above]="lane.above"
+                    [deferred]="lane.deferred"
+                    [contextSlug]="p.slug"
+                    [ariaLabelledby]="'integrations-via-' + lane.lane.key"
+                  />
+                }
+              }
+
+              <!-- Catalog-scope note. An integration row only exists once BOTH
+                   endpoints are promoted products, so this table is bounded by
+                   the directory, not by the vendor's real partner list: a
+                   product with hundreds of marketplace partners can render a
+                   dozen. The empty state already hedges ("Vendor data is
+                   curated"); without this line the POPULATED state makes a bare
+                   confident count, which is the one people screenshot. Scope,
+                   not apology: it states the boundary and offers the fix. -->
+              <p
+                class="text-xs text-(--text-secondary)"
+                i18n="@@products.detail.body.integrations.scope"
+              >
+                Only partners listed on AECi appear here. If one is missing,
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="p.slug"
+                  [href]="'/products/' + p.slug + '/correction'"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >suggest a correction</a
+                >.
+              </p>
+            }
+          </section>
+
+          @if (showPowered() && !leadWithPowered()) {
+            <ng-container [ngTemplateOutlet]="poweredSection" />
           }
 
           <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
@@ -699,71 +768,146 @@ export class ProductDetailPage {
   }
 
   /**
-   * Normalized integration list. Each entry pairs the integration with the
-   * *other* product (the one that isn't this page's product), so the
-   * template can render both endpoints with the other product's link.
-   * Source and target buckets are concatenated; the spec doesn't require a
-   * particular ordering.
+   * The Integrations section split into its two lanes — the direct list, then
+   * one group per connector (Stage 1.5 §13.2 / §13.3).
+   *
+   * **The split is a sourcing question, not a rendering one.** Both payload
+   * buckets already span both delivered-tier tables (`integrations` and
+   * `connector_evidenced_pairs`), and which table a row came from reaches this
+   * component only as `via`. That is why §13.3 is written source-agnostically and
+   * why the AECI-721 migration moved rows without touching this file's contract.
+   *
+   * The source/target buckets survive only as *which endpoint is the partner*.
+   * The direction shown per row is the server-precomputed, context-relative
+   * `context_direction` (claims-aware, §3.2), never the bucket — so the two
+   * interleave rather than concatenate inside each lane, and a reader never sees
+   * an unexplained break in the alphabet.
+   *
+   * Sorting and grouping have to happen here rather than in SQL. The relations
+   * can only `ORDER BY` columns of their own table — the partner name lives on
+   * the joined product — and the lane a row belongs to is a three-clause rule
+   * over two nullable FKs. Client-side is also where the full list exists before
+   * the `@defer` cut, so the cut lands on the alphabet.
    */
-  protected readonly integrations = computed<
-    ReadonlyArray<{
-      integration: ProductIntegrationItem;
-      other: ProductLink;
-    }>
-  >(() => {
+  protected readonly lanes = computed(() => {
     const p = this.product();
-    if (!p) return [];
-    const items: {
-      integration: ProductIntegrationItem;
-      other: ProductLink;
-    }[] = [];
-    // The direction shown per row is the server-precomputed, context-relative
-    // `context_direction` (claims-aware, §3.2) — the source/target buckets only
-    // pick which endpoint is the "other" product to link.
-    for (const integration of p.integrations_as_source) {
-      items.push({ integration, other: integration.target });
-    }
-    for (const integration of p.integrations_as_target) {
-      items.push({ integration, other: integration.source });
-    }
-    return items;
+    if (!p) return { direct: [], via: [], rowCount: 0 } satisfies IntegrationLaneView;
+    return splitIntegrationLanes(p.integrations_as_source, p.integrations_as_target);
   });
 
-  /** First 20 integrations — rendered in the initial response. */
-  protected readonly integrationsAbove = computed(() => this.integrations().slice(0, 20));
-
-  /** Anything past 20 is deferred via `@defer (on viewport)`. */
-  protected readonly integrationsDeferred = computed(() => this.integrations().slice(20));
+  /**
+   * The same view with the `@defer (on viewport)` boundary applied.
+   *
+   * The cut is over the FLATTENED render order (§13.3), so it still lands after
+   * 20 visible rows rather than 20 rows into every lane — a section of six
+   * three-row groups would otherwise defer nothing at all.
+   */
+  protected readonly laneCut = computed(() => applyDeferCut(this.lanes(), INTEGRATIONS_ABOVE_FOLD));
 
   /** Section heading with the count inline — "Integrations (10)" — so the total
-   *  reads next to the title instead of drifting to the far right where it's missed. */
+   *  reads next to the title instead of drifting to the far right where it's missed.
+   *
+   *  Counts the rows ACTUALLY RENDERED across both lanes, which after the Via
+   *  lane's pair collapse is not the number of edges: §13.3's rule is that a
+   *  reader counting rows must never find fewer than the heading promised. The
+   *  per-group sub-counts sum to this by construction (`rowCount`). */
   protected readonly integrationsHeading = computed(() => {
-    const count = this.integrations().length;
+    const count = this.lanes().rowCount;
     return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
   });
 
   /**
-   * Whether the "Integrations it powers" section renders (Stage 1.5
-   * Addendum B). Connector / hybrid products always show it — their whole value
-   * proposition is the edges they power, so an empty state there is information
-   * ("none recorded yet"), not clutter. Applications show it only when they
-   * actually power edges, which is a data-driven safety net for a product whose
-   * `product_role` hasn't caught up with its data.
+   * Whether the "Integrations it powers" section renders. Three branches, in
+   * order (Stage 1.5 §12.3 as amended by §13.4(2) / AECI-707):
+   *
+   * 1. **Populated → show.** Anything the section can actually render, whatever
+   *    the role — an application that powers edges is a data-driven safety net
+   *    for a product whose `product_role` hasn't caught up with its data.
+   * 2. **Emptied by self-exclusion → hide.** The product has powered edges but
+   *    every one of them names the product itself as an endpoint (the review
+   *    app's Convention A, §13.2a), so `groupPoweredIntegrations` filtered them
+   *    all out and they are rendering in `#integrations` instead. §12.3's
+   *    always-render rule exists so a connector page never reads as "integrates
+   *    with nothing"; on a page whose endpoint table carries every one of those
+   *    edges that purpose is already met, and the empty state would contradict
+   *    the hero line directly above it ("Connects 43 products" over "powers 0,
+   *    none recorded yet, suggest a correction" — soliciting data already on
+   *    the page). This is live on half the promoted connector surface: all of
+   *    Aquifer's 43 and Kroo's 44 powered edges are Convention A.
+   * 3. **Genuinely none → §12.3's empty state**, for connector / hybrid only.
+   *    "We have no record of this connector powering anything" is a different
+   *    claim from branch 2, and it is worth inviting a correction for.
    */
   protected readonly showPowered = computed(() => {
     const p = this.product();
     if (!p) return false;
-    return p.product_role !== 'application' || p.integrations_as_connector.length > 0;
+    if (this.poweredView().pairCount > 0) return true;
+    if (p.integrations_as_connector.length > 0) return false;
+    return p.product_role !== 'application';
+  });
+
+  /**
+   * Whether `#powered-integrations` renders BEFORE `#integrations` (§13.6).
+   *
+   * On a pure connector the endpoint table is legitimately sparse and the
+   * powered set is the page's entire subject, so it leads. **`hybrid` and
+   * `application` keep today's order**: there are exactly two hybrids
+   * catalog-wide and swapping them would demote a surface that is half of
+   * AnyWare Apps' real content.
+   *
+   * Guarded on the section having content, which §13.6 did not anticipate: it
+   * rejected a *comparative* "swap when powered exceeds endpoint" rule, on the
+   * grounds that page order would shift under readers as data moves. This is
+   * the degenerate empty/non-empty case instead, and without it the swap leads
+   * with an empty section on four of the eight promoted connector pages (the
+   * two Convention-A connectors above, plus two with no powered edges at all).
+   */
+  protected readonly leadWithPowered = computed(() => {
+    const p = this.product();
+    if (!p) return false;
+    return p.product_role === 'connector' && this.poweredView().pairCount > 0;
   });
 
   /**
    * The Addendum B hub view, computed HERE rather than inside
    * `ProductPoweredHub` so the heading count and the rendered rows are
-   * provably the same set (see `poweredHeading`).
+   * provably the same set (see `poweredHeading`). The page slug is the
+   * §13.4(2) self-exclusion — see `groupPoweredIntegrations`.
    */
-  protected readonly poweredView = computed(() =>
-    groupPoweredIntegrations(this.product()?.integrations_as_connector ?? []),
-  );
+  protected readonly poweredView = computed(() => {
+    const p = this.product();
+    if (!p) return groupPoweredIntegrations([], '');
+    return groupPoweredIntegrations(p.integrations_as_connector, p.slug);
+  });
+
+  /**
+   * Hero line — "Connects N products in the AECi catalog" (§13.6).
+   *
+   * `null` when N is 0, which is the section's own render gate turned into a
+   * copy gate: a connector with nothing to count says nothing rather than
+   * saying zero. Deliberately NOT gated on `product_role`: §13.6 states only
+   * the `N > 0` condition, and a mis-roled application that powers edges is
+   * described just as accurately by the line as a connector is — the same
+   * data-driven reading `showPowered` takes.
+   *
+   * "in the AECi catalog" carries §12.7's catalog-scope framing inline, so this
+   * line needs no separate scope note: an `integrations` row only exists once
+   * BOTH endpoints are promoted products, and the count must not read as the
+   * vendor's full partner set.
+   *
+   * Pluralized in the component rather than a template ICU, matching
+   * `reviewCountLabel` above and `IntegrationStat`.
+   */
+  protected readonly connectsLabel = computed<string | null>(() => {
+    const p = this.product();
+    if (!p) return null;
+    const count = connectedProductCount(p.integrations_as_connector, p.slug);
+    if (count === 0) return null;
+    if (count === 1) {
+      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AECi catalog`;
+    }
+    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AECi catalog`;
+  });
 
   /**
    * "Integrations it powers (N)".
@@ -825,20 +969,29 @@ export class ProductDetailPage {
         label: $localize`:@@products.detail.nav.usefulness:How teams use it`,
       });
     }
-    items.push({
+    const integrations: SectionNavItem = {
       id: 'integrations',
       label: $localize`:@@products.detail.nav.integrations:Integrations`,
-    });
+    };
     // Gated on the same condition as the section itself, or the nav would link
     // to an anchor that isn't on the page. Label matches the section heading
     // verbatim (minus the count) so the two never read as different sections —
-    // it sits directly under "Integrations", which is exactly the pair the
-    // pronoun is there to separate.
-    if (this.showPowered()) {
-      items.push({
-        id: 'powered-integrations',
-        label: $localize`:@@products.detail.nav.powers:Integrations it powers`,
-      });
+    // they sit next to each other, which is exactly the pair the pronoun is
+    // there to separate.
+    const powered: SectionNavItem | null = this.showPowered()
+      ? {
+          id: 'powered-integrations',
+          label: $localize`:@@products.detail.nav.powers:Integrations it powers`,
+        }
+      : null;
+    // §13.6: "section-nav follows render order", so the connector swap moves
+    // these two together. No anchor id changes, so there is no link, sitemap or
+    // cache-tag churn to manage.
+    if (powered && this.leadWithPowered()) {
+      items.push(powered, integrations);
+    } else {
+      items.push(integrations);
+      if (powered) items.push(powered);
     }
     // Reviews always renders (its empty state still does), so it is always in
     // the nav — same rule as Integrations above.

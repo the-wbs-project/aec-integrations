@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   LinkRefSchema,
+  MaintenanceSchema,
   paginatedResponseSchema,
   PageQuerySchema,
   uuidList,
@@ -28,9 +29,15 @@ export type ProductRole = z.infer<typeof ProductRoleSchema>;
  * hidden by the §5.5 gate (`review_count < 5`) sort **last** so the order
  * matches what the card actually displays — the gate lives in
  * `resolveProductOrderBy` (`apps/api/src/lib/sort.ts`).
+ *
+ * `integrations` ("Most integrations") is `DESC` on the denormalized
+ * `products.integration_count` (maintained by `lib/recompute-counts.ts`, so the
+ * sort needs no join and no migration). It is the third sort STAGE_1_SPEC.md
+ * §4.5 named for the taxonomy browse pages — "alphabetical, most integrations,
+ * most reviewed" — and was the one that existed nowhere until AECI-657.
  */
 export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
+  .enum(['created', 'name', 'updated', 'rating', 'reviews', 'integrations'])
   .default('created');
 
 export type ProductSort = z.infer<typeof ProductSortSchema>;
@@ -130,6 +137,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // (§5.5) nulls `rating_overall_avg` / `rating_onboarding_avg` (inherited) when
   // `review_count < 5` — a single-review average is statistically misleading.
   reviews: z.array(PublicReviewSchema),
+  // The maintenance marker's inputs (AECI-616). Detail-only — the marker renders in
+  // the page header, never on a card, so `ProductListItem` deliberately doesn't carry
+  // them. `last_reviewed_at` is `null` for almost every product; that renders bare
+  // attribution, which is correct rather than missing.
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

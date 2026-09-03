@@ -456,7 +456,7 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     });
   });
 
-  it('?recompute=1 runs the ten checks and the drift count, sharing ONE drift call', async () => {
+  it('?recompute=1 runs the eleven checks and the drift count, sharing ONE drift call', async () => {
     await seedDay();
     const runDrift = vi.fn(async () => [
       {
@@ -478,7 +478,7 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     });
 
     expect(body.recomputed).toBe(true);
-    expect(body.status.data_quality?.checks).toHaveLength(10);
+    expect(body.status.data_quality?.checks).toHaveLength(11);
     expect(body.status.algolia_drift).toEqual({
       drifted: 1,
       indexes: [

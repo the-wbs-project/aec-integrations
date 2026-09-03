@@ -339,3 +339,61 @@ describe('runOrphanPurge', () => {
     expect(result.rows.every((r) => r.presentAfter)).toBe(true);
   });
 });
+
+// ─── AECI-666: connection hygiene ────────────────────────────────────────────
+
+/**
+ * A `Response` whose stream reports cancellation — the observable for "the
+ * connection was released". An unread body keeps holding its connection, and a
+ * Worker invocation that parks too many gets its stalled responses cancelled
+ * into `fetch` promises that never settle. Distinct from `jsonResponse` above,
+ * which is a plain object with no real body and so cannot show a drain.
+ */
+function trackedResponse(status: number, body = '{}'): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+describe('createOrphanPurgeClient — response bodies are always released (AECI-666)', () => {
+  it('releases the body on the getObject found path', async () => {
+    const { res, drained } = trackedResponse(200, JSON.stringify({ objectID: 'x' }));
+    const client = createOrphanPurgeClient(CREDS, vi.fn<typeof fetch>().mockResolvedValue(res));
+
+    expect(await client.getObject('staging_products', 'x')).toEqual({ found: true });
+    await settle();
+    expect(drained()).toBe(true);
+  });
+
+  it('releases the body on the getObject 404 path', async () => {
+    const { res, drained } = trackedResponse(404, JSON.stringify({ message: 'nope' }));
+    const client = createOrphanPurgeClient(CREDS, vi.fn<typeof fetch>().mockResolvedValue(res));
+
+    expect(await client.getObject('staging_products', 'y')).toEqual({ found: false });
+    await settle();
+    expect(drained()).toBe(true);
+  });
+
+  it('releases the body on every non-ok waitTask poll', async () => {
+    // The worst of the three: this loop runs up to 20 times, so an erroring task
+    // used to park 20 held connections in a single invocation.
+    const tracked = Array.from({ length: 3 }, () => trackedResponse(500, 'upstream boom'));
+    const fetchImpl = vi.fn<typeof fetch>();
+    tracked.forEach((t) => fetchImpl.mockResolvedValueOnce(t.res));
+    fetchImpl.mockResolvedValue(jsonResponse(200, { status: 'published' }));
+    const client = createOrphanPurgeClient(CREDS, fetchImpl);
+
+    await client.waitTask('staging_products', 42);
+    await settle();
+    expect(tracked.map((t) => t.drained())).toEqual([true, true, true]);
+  });
+});

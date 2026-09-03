@@ -99,8 +99,12 @@ Access** at the network edge — not by Supabase project separation.
    — every deploy/promote/preview workflow pushes that one secret (the former per-env
    `SUPABASE_ANON_KEY_{STAGING,PRODUCTION}` secrets are retired; leaving the URL flipped to
    the new project while a workflow still pushed an old per-project key is what produced the
-   `Invalid API key` sign-in failure). Set the un-suffixed `SUPABASE_SERVICE_ROLE_KEY` for
-   operator shell use (no workflow or Worker consumes it — see `docs/environments.md` §Secrets).
+   `Invalid API key` sign-in failure). Set the un-suffixed `SUPABASE_SERVICE_ROLE_KEY` on the
+   same footing — one value for every env; CI pushes it to the **API Worker** on
+   staging/demo/production for the `AUTH_AND_RLS.md` §3.1 split-identity seams (AECI-530,
+   per ADR 0016 §6), never to a web Worker and never to a per-PR preview. Because one project
+   backs every environment, rotating it invalidates all three tiers at once — see
+   `docs/CICD_PLAN.md` §7.4 and `docs/environments.md` §Secrets.
 4. Add `demo.aecintegrations.com` to a Cloudflare Access app; allow the `aeci-gh-actions`
    service token; plumb `CF_ACCESS_CLIENT_*` into the prod smoke in `promote-to-prod.yml`.
 5. Seed test users into the new project; establish admin in all three D1s against the single

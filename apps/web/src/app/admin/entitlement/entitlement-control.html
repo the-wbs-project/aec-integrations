@@ -1,0 +1,218 @@
+<!--
+  The set / renew / clear entitlement control (AECI-532 §5, extracted by AECI-652
+  §5.6). Renders NO heading and NO live region — the host owns both; see the
+  component docblock for why. Every string keeps the `@@admin.claims.ent.*` id it
+  had inline in `claim-queue.html`: the id is the translation key, so moving the
+  markup between files is a no-op on the wire, and renaming would silently drop
+  the strings from the extraction set.
+-->
+<div
+  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  [attr.aria-labelledby]="labelledBy()"
+>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <p class="text-sm font-medium text-(--text-primary)">{{ statusLabel() }}</p>
+      <p class="mt-1 text-xs text-(--text-secondary)">
+        <span i18n="@@admin.claims.ent.vendor">Vendor</span>: {{ vendor().name }}
+      </p>
+      @if (entitlement(); as e) {
+      <p class="mt-1 text-xs text-(--text-secondary)">{{ termLabel() }}</p>
+      @if (e.invoice_ref) {
+      <p class="mt-1 text-xs text-(--text-secondary)">
+        <span i18n="@@admin.claims.ent.invoice">Invoice / PO</span>: {{ e.invoice_ref }}
+      </p>
+      } }
+    </div>
+
+    <div class="flex shrink-0 flex-wrap gap-2">
+      @if (entitled()) {
+      <button
+        type="button"
+        (click)="openForm('renew')"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.claims.ent.renew"
+      >
+        Renew term
+      </button>
+      <button
+        type="button"
+        (click)="openForm('clear')"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.claims.ent.clear"
+      >
+        Clear entitlement
+      </button>
+      } @else {
+      <button
+        type="button"
+        (click)="openForm('set')"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.claims.ent.set"
+      >
+        Grant entitlement
+      </button>
+      }
+    </div>
+  </div>
+
+  <!-- Set / renew: term + paperwork. The money detail is admin-side only. -->
+  @if (formMode() && formMode() !== 'clear') {
+  <form
+    novalidate
+    (submit)="$event.preventDefault(); submit()"
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+  >
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div>
+        <label
+          [attr.for]="'ent-end-' + idPrefix()"
+          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.claims.ent.form.periodEnd"
+        >
+          Term end date (optional)
+        </label>
+        <input
+          [id]="'ent-end-' + idPrefix()"
+          type="date"
+          [value]="periodEnd()"
+          (input)="onPeriodEndInput($event)"
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+      </div>
+      <div>
+        <label
+          [attr.for]="'ent-invoice-' + idPrefix()"
+          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.claims.ent.form.invoice"
+        >
+          Invoice / PO reference (optional)
+        </label>
+        <input
+          [id]="'ent-invoice-' + idPrefix()"
+          type="text"
+          [value]="invoiceRef()"
+          (input)="onInvoiceRefInput($event)"
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+      </div>
+    </div>
+    <div>
+      <label
+        [attr.for]="'ent-note-' + idPrefix()"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.claims.ent.form.notes"
+      >
+        Arrangement notes (optional)
+      </label>
+      <textarea
+        [id]="'ent-note-' + idPrefix()"
+        rows="2"
+        [value]="note()"
+        (input)="onNoteInput($event)"
+        class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      ></textarea>
+    </div>
+    <!-- Verification is an account status, and search is nightly (§5.3 / R2). -->
+    <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.form.setHelp">
+      Granting an entitlement shows the Verified badge and unlocks the vendor's portal editing. It
+      is an account status, never an endorsement, and it never affects search ranking or placement.
+      Search results catch up within a day.
+    </p>
+    <div class="flex flex-wrap gap-3 pt-1">
+      <button
+        type="submit"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.claims.ent.working">Working…</span>
+        } @else if (formMode() === 'renew') {
+        <span i18n="@@admin.claims.ent.confirmRenew">Confirm renewal</span>
+        } @else {
+        <span i18n="@@admin.claims.ent.confirmSet">Confirm grant</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="closeForm()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.claims.ent.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  }
+
+  <!--
+    Clear: the copy carries §5.2 (this is not a seat revoke and not a ban) and the
+    §5.4 lockout escape hatch, because an admin who assumes otherwise creates an
+    incident, not a typo.
+  -->
+  @if (formMode() === 'clear') {
+  <form
+    novalidate
+    (submit)="$event.preventDefault(); submit()"
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+  >
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.claims.ent.clear.keepsAccess">
+      Clearing removes the Verified badge and blocks portal editing. It does not remove anyone's
+      seat: the vendor's team keeps their logins and their portal, read-only. To ban one person
+      instead, use Banned reviewers.
+    </p>
+    <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.clear.lockout">
+      While an entitlement is cleared, a vendor whose team still holds seats can't be edited by
+      anyone — the portal blocks them and catalog promotion skips claimed vendors. To make a change,
+      grant the entitlement again, edit, then clear it.
+    </p>
+    <div>
+      <label
+        [attr.for]="'ent-reason-' + idPrefix()"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.claims.ent.clear.reasonLabel"
+      >
+        Internal reason (optional)
+      </label>
+      <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.clear.reasonHelp">
+        Recorded in the audit log. The vendor is not emailed about this.
+      </p>
+      <textarea
+        [id]="'ent-reason-' + idPrefix()"
+        rows="2"
+        [value]="note()"
+        (input)="onNoteInput($event)"
+        class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      ></textarea>
+    </div>
+    <div class="flex flex-wrap gap-3 pt-1">
+      <button
+        type="submit"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.claims.ent.working2">Working…</span>
+        } @else {
+        <span i18n="@@admin.claims.ent.confirmClear">Confirm clear</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="closeForm()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.claims.ent.cancel2"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } @if (failedMessage()) {
+  <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  }
+</div>

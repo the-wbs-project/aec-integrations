@@ -5,12 +5,13 @@
  * integration/join/audit rows + the post-batch count recompute.
  *
  * The post-commit Algolia upsert is injected as a seam (its transport is
- * `algolia-sync.spec`'s job); the cache purge + `cacheTagsForPromote` are
- * unchanged (DB-independent). The 409/500 unique-violation paths inject a
+ * `algolia-sync.spec`'s job); the cache-purge enqueue (WC-5: onto a mock
+ * `CACHE_PURGE_QUEUE`) + `cacheTagsForPromote` are DB-independent. The 409/500
+ * unique-violation paths inject a
  * `db.batch` that throws the SQLite error the DB would raise.
  */
 
-import { PromotePayloadSchema, type PromoteResponse } from '@aeci/shared';
+import { PromotePayloadSchema, type CachePurgeMessage, type PromoteResponse } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,11 +20,13 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productCategories,
   products,
   productTrades,
   productVendors,
+  profiles,
   promoteJobs,
   statsCache,
   taxonomyAudiences,
@@ -37,6 +40,12 @@ import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
 import { json } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
+import {
+  PRESERVED_CONVERTED_CLAIM,
+  PRESERVED_UNCONVERTED_CLAIM,
+  PRESERVED_VENDOR_ATTESTATIONS,
+  PRESERVED_VENDOR_CLAIM,
+} from '../lib/promote-claims';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
@@ -67,10 +76,6 @@ const noopAlgolia: PromoteAlgoliaSync = async () => {};
 /** A no-op IndexNow seam — default for all tests so the real default (which calls
  *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
 const noopIndexNow: PromoteIndexNowNotify = async () => {};
-
-/** A no-op Google Indexing seam — default for all tests so the real default
- *  (which signs a JWT + calls the global `fetch`) is never hit; the wiring tests
- *  inject a spy instead. */
 
 /** A no-op home-stats refresh seam — default for all tests so the real default
  *  (which opens a fresh `getDb` on `env.DB` + recomputes/purges) is never hit; the
@@ -375,6 +380,142 @@ describe('runPromoteIngest', () => {
     expect(
       (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
     ).toBeTruthy();
+  });
+
+  // ── last_reviewed_at (AECI-616 / STAGE_2_ATTESTATIONS_SPEC.md §13) ──────────
+  // The whole feature rests on ABSENCE meaning "untouched". If a plain re-promote
+  // could advance this, the marker would re-advertise the entire catalog as freshly
+  // reviewed on every bulk push — the exact fake freshness it exists to expose, and
+  // the reason the date was withheld in Stage 1 rather than wired to `updated_at`.
+
+  it('leaves last_reviewed_at untouched on a re-promote that carries no review signal', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    const intgX = uuid(4);
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit', { lastReviewedAt: reviewed });
+    const otherX = uuid(5);
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+    await t.db
+      .update(integrations)
+      .set({ lastReviewedAt: reviewed })
+      .where(eq(integrations.id, intgX));
+    await t.db.update(vendors).set({ lastReviewedAt: reviewed }).where(eq(vendors.id, vendX));
+
+    // Mutate every entity twice without sending the signal — the update branch that
+    // would otherwise overwrite the stamp, exercised the way a real bulk push does.
+    for (const name of ['Revit 2025', 'Revit 2026']) {
+      const res = await promote({
+        vendors: [{ ref: 'v1', supabaseId: vendX, companyName: 'Autodesk Inc.' }],
+        product: { ref: 'p1', supabaseId: prodX, name },
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: intgX,
+            name,
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: otherX },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
+    const vend = await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) });
+    const intg = await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) });
+
+    // The rows genuinely changed…
+    expect(prod?.name).toBe('Revit 2026');
+    expect(intg?.name).toBe('Revit 2026');
+    // …and `updated_at` moved with them, which is precisely why it cannot be the
+    // marker's source. `last_reviewed_at` did not move.
+    expect(String(prod?.updatedAt) > reviewed).toBe(true);
+    expect(prod?.lastReviewedAt).toBe(reviewed);
+    expect(vend?.lastReviewedAt).toBe(reviewed);
+    expect(intg?.lastReviewedAt).toBe(reviewed);
+  });
+
+  it('advances last_reviewed_at on every entity when the review signal is present', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    const otherX = uuid(5);
+    const intgX = uuid(4);
+    const stale = '2026-03-04T00:00:00.000Z';
+    const rechecked = '2026-08-18T10:00:00.000Z';
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit', { lastReviewedAt: stale });
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: vendX, companyName: 'Autodesk', lastReviewedAt: rechecked },
+      ],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', lastReviewedAt: rechecked },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgX,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: otherX },
+          lastReviewedAt: rechecked,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.lastReviewedAt,
+    ).toBe(rechecked);
+    expect(
+      (await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) }))?.lastReviewedAt,
+    ).toBe(rechecked);
+    expect(
+      (await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) }))
+        ?.lastReviewedAt,
+    ).toBe(rechecked);
+  });
+
+  it('never writes maintained_by, so a re-promote cannot un-vendor a record', async () => {
+    const prodX = uuid(3);
+    const otherX = uuid(5);
+    const intgX = uuid(4);
+    await seedProduct(prodX, 'revit', 'Revit');
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+    // A vendor has taken the integration over (what AECI-301's write path does).
+    await t.db
+      .update(integrations)
+      .set({ maintainedBy: 'vendor' })
+      .where(eq(integrations.id, intgX));
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2026' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgX,
+          name: 'Revit ↔ Procore',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: otherX },
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const intg = await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) });
+    expect(intg?.name).toBe('Revit ↔ Procore'); // the push DID land…
+    expect(intg?.maintainedBy).toBe('vendor'); // …and left the vendor's ownership alone
   });
 
   // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
@@ -1396,6 +1537,42 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     );
   });
 
+  it('collapses a repeated attestation source within one claim rather than failing the batch', async () => {
+    // `attestations_slot_key` (AECI-603) is unique on (claim_id, source) among
+    // non-retracted rows, so without the in-payload dedupe a bundle that repeated a
+    // source would take down the WHOLE promote, not just the duplicate row. First
+    // occurrence wins, matching the claim-identity dedupe.
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs', []);
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [
+                { source: 'aeci', asserted: true, note: 'first' },
+                { source: 'aeci', asserted: false, note: 'duplicate' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const attRows = await t.db.select().from(attestations);
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]).toMatchObject({ source: 'aeci', asserted: true, note: 'first' });
+  });
+
   it('returns poweredBySlug for an integration powered by a connector product (Addendum B)', async () => {
     const target = uuid(1);
     const connector = uuid(2);
@@ -1417,14 +1594,256 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
 
     expect(res.status).toBe(200);
     const b = (await res.json()) as {
-      integrations: { ref: string; poweredBySlug?: string }[];
+      integrations: { ref: string; id: string; poweredBySlug?: string }[];
     };
     // The connector's slug rides back so the cache-tag deriver can purge its own
     // product page — it is neither endpoint, so no other tag reaches it.
     expect(b.integrations[0]).toMatchObject({ poweredBySlug: 'agave-erp-sync' });
 
+    // AECI-721: the edge is ROUTED, not written to `integrations`. Without this the
+    // migration undoes itself — the next promote of either endpoint would put every
+    // migrated edge straight back, and both tables are summed, so it would then be
+    // counted twice.
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({
+      id: b.integrations[0]!.id,
+      connectorProductId: connector,
+      // `mechanism_kind` has nowhere to go — the table has no such column, because
+      // the lane answers "which mechanism".
+      mechanismName: null,
+    });
+  });
+
+  it('routes a connector-powered edge to the evidenced tier, canonicalised (AECI-721)', async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          mechanismKind: 'marketplace-app',
+          mechanismName: 'Agave ERP Sync',
+          direction: 'one-way',
+          listingUrl: 'https://useagave.com/x',
+          claims: [],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const [pair] = await t.db.select().from(connectorEvidencedPairs);
+    // Canonical order is a CHECK, so the planner sorts the endpoints and moves the
+    // orientation into `direction` — using claims' vocabulary, because once the pair
+    // is ordered `one-way` no longer says which way.
+    const sourceId = (await t.db.select().from(products).where(eq(products.slug, 'revit')))[0]!.id;
+    const [a, b2] = [sourceId, target].sort();
+    expect(pair).toMatchObject({
+      productAId: a,
+      productBId: b2,
+      direction: sourceId < target ? 'a_to_b' : 'b_to_a',
+      listingUrl: 'https://useagave.com/x',
+      mechanismName: 'Agave ERP Sync',
+    });
+  });
+
+  it('keeps a Convention-A self-referential edge in `integrations` (§13.2a)', async () => {
+    // `powered_by` equal to one of its own endpoints — ~60 production rows (Aquifer,
+    // Kroo). Routing it would render "Via Aquifer → Aquifer", and the destination's
+    // distinct-connector CHECK refuses it outright.
+    const connector = uuid(2);
+    await seedProduct(connector, 'aquifer', 'Aquifer', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'ADP Workforce Now' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: connector },
+          poweredByProduct: { supabaseId: connector },
+          mechanismKind: 'iPaaS',
+          claims: [],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
     const rows = await t.db.select().from(integrations);
-    expect(rows[0]).toMatchObject({ poweredByProductId: connector });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ poweredByProductId: connector, mechanismKind: 'iPaaS' });
+  });
+
+  it("anchors a routed edge's claims on the evidenced pair, not on `integrations`", async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [{ dataObject: 'rfis', direction: 'a_to_b', attestations: [] }],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const [pair] = await t.db.select().from(connectorEvidencedPairs);
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    // "Nothing silently dropped" — the claim rides the edge into the other table
+    // rather than being orphaned or skipped, and `anchor_id` is what carries its
+    // identity across.
+    expect(claimRows[0]).toMatchObject({
+      integrationId: null,
+      connectorEvidencedPairId: pair!.id,
+      anchorId: pair!.id,
+    });
+  });
+
+  it('re-promotes an already-routed evidenced pair as an UPDATE, not a duplicate (AECI-721)', async () => {
+    // The migration preserves an edge's id when it moves it to the evidenced tier,
+    // so the review app keeps re-sending that id as the integration's `supabaseId`.
+    // A pre-read that consulted only `integrations` would find nothing, route the
+    // edge to a fresh-id INSERT, and collide on `connector_evidenced_pairs_pair_idx`
+    // — turning a routine re-promote of any of the 19 migrated production edges into
+    // a failed batch (an outage), which is exactly what the routing comment warns of.
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const intg = {
+      ref: 'i1',
+      sourceProduct: { ref: 'p1' },
+      targetProduct: { supabaseId: target },
+      poweredByProduct: { supabaseId: connector },
+      mechanismName: 'Agave ERP Sync',
+      claims: [],
+    };
+
+    const first = await promote({ product: { ref: 'p1', name: 'Revit' }, integrations: [intg] });
+    expect(first.status).toBe(200);
+    const pairId = ((await first.json()) as { integrations: { id: string }[] }).integrations[0]!.id;
+
+    // Second push: the review app hands back the id the migration preserved.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [{ ...intg, supabaseId: pairId, mechanismName: 'Agave ERP Sync v2' }],
+    });
+    expect(second.status).toBe(200);
+    expect(
+      ((await second.json()) as { integrations: { id: string; operation: string }[] })
+        .integrations[0],
+    ).toMatchObject({ id: pairId, operation: 'updated' });
+
+    // One row, updated in place — no duplicate, no collision.
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ id: pairId, mechanismName: 'Agave ERP Sync v2' });
+    expect(await t.db.select().from(integrations)).toEqual([]);
+  });
+
+  it('moves an existing `integrations` edge into the evidenced tier, preserving its claims and vendor attestations (AECI-721)', async () => {
+    // A curator adds a third-party connector to an edge that was already promoted as
+    // an accountable-party integration. The edge must MOVE tables with its id intact,
+    // and its claims (and their vendor attestations) must ride along — a naive
+    // "UPDATE the evidenced row then DELETE the integrations row" writes nothing while
+    // the `ON DELETE CASCADE` takes the claim and its attestations with it.
+    const target = uuid(1);
+    const connector = uuid(2);
+    const vendor = uuid(4);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedVendor(vendor, 'acme', 'Acme');
+    await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+    // First push: a plain integration (no connector) carrying one claim.
+    const claim = {
+      dataObject: 'rfis',
+      direction: 'a_to_b' as const,
+      attestations: [{ source: 'aeci' as const, asserted: true }],
+    };
+    const first = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(first.status).toBe(200);
+    const [intgRow] = await t.db.select().from(integrations);
+    const [claimRow] = await t.db.select().from(claims);
+    expect(intgRow?.poweredByProductId).toBeNull();
+
+    // A vendor has independently attested to that claim — promote can never write
+    // this, so seed it directly; it is the row a cascade would silently destroy.
+    await t.db.insert(attestations).values({
+      id: uuid(5),
+      claimId: claimRow!.id,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: vendor,
+    });
+
+    // Second push: the same edge, now powered by the connector → routes to evidenced.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgRow!.id,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(second.status).toBe(200);
+
+    // The edge left `integrations` and landed in the evidenced tier with its id kept.
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.id).toBe(intgRow!.id);
+
+    // The claim rode along: same row id, re-anchored, not cascade-deleted.
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: claimRow!.id,
+      integrationId: null,
+      connectorEvidencedPairId: intgRow!.id,
+    });
+
+    // The vendor attestation survived the move — the whole point of re-homing before
+    // the delete rather than after.
+    const vendorAtts = (await t.db.select().from(attestations)).filter(
+      (a) => a.source === 'vendor_a',
+    );
+    expect(vendorAtts).toHaveLength(1);
+    expect(vendorAtts[0]).toMatchObject({ claimId: claimRow!.id, attestedByVendorId: vendor });
   });
 
   it('omits poweredBySlug when the integration names no powered-by product', async () => {
@@ -1778,7 +2197,7 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
           supabaseId: intgId,
           sourceProduct: { supabaseId: srcId },
           targetProduct: { supabaseId: tgtId },
-          // no claims → replace-by-integration clears the prior set
+          // no claims → replace-by-origin retires AECi's prior curation
         },
       ],
     });
@@ -1788,38 +2207,343 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
   });
 });
 
-describe('cache purge after promote (AECI-105)', () => {
-  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
-  const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
+describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', () => {
+  const SRC = uuid(3);
+  const TGT = uuid(1);
+  const INTG = uuid(2);
+  const VENDOR = uuid(50);
+  const RFIS = uuid(20);
+  const MODELS = uuid(21);
 
-  async function promoteWithPurge(body: unknown, fetchMock: ReturnType<typeof vi.fn>) {
-    vi.stubGlobal('fetch', fetchMock);
-    const execCtx = fakeExecutionContext();
-    const res = await buildApp().request('/api/promote', post(body), purgeEnv, execCtx);
-    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-    return { res, execCtx };
+  /** Source + target products, one integration, two vocabulary terms, one vendor. */
+  async function seedPair() {
+    await seedProduct(SRC, 'revit', 'Revit');
+    await seedProduct(TGT, 'navisworks', 'Navisworks');
+    await seedDataObject(RFIS, 'rfis', 'RFIs');
+    await seedDataObject(MODELS, 'models', 'Models');
+    await seedVendor(VENDOR, 'autodesk', 'Autodesk');
+    await t.db
+      .insert(integrations)
+      .values({ id: INTG, sourceProductId: SRC, targetProductId: TGT });
   }
 
-  it('purges the expected tag set for a representative create', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    const { res, execCtx } = await promoteWithPurge(
+  /** A claim already on the integration, with the given provenance. */
+  const seedClaim = (
+    id: string,
+    dataObjectId: string,
+    direction: string,
+    origin: 'aeci' | 'vendor' = 'aeci',
+    createdByVendorId: string | null = null,
+  ) =>
+    t.db
+      .insert(claims)
+      .values({ id, integrationId: INTG, dataObjectId, direction, origin, createdByVendorId });
+
+  const seedAttestation = (
+    id: string,
+    claimId: string,
+    source: 'aeci' | 'vendor_a' | 'vendor_b',
+    attestedByVendorId: string | null = null,
+  ) =>
+    t.db.insert(attestations).values({ id, claimId, source, asserted: true, attestedByVendorId });
+
+  /** The payload shape these tests re-push, parameterised by which claims it asserts. */
+  const bundle = (claimList: unknown[]) => ({
+    integrations: [
       {
-        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
-        product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
+        ref: 'i1',
+        supabaseId: INTG,
+        sourceProduct: { supabaseId: SRC },
+        targetProduct: { supabaseId: TGT },
+        claims: claimList,
       },
-      fetchMock,
+    ],
+  });
+
+  const aeciClaim = (dataObject: string, direction: string) => ({
+    dataObject,
+    direction,
+    attestations: [{ source: 'aeci', asserted: true }],
+  });
+
+  type PreservedBody = {
+    preserved: { ref: string; kind: string; reason: string; count: number }[];
+  };
+
+  it('keeps every claim id stable across a re-promote of an unchanged payload', async () => {
+    // The headline regression. The old ingest deleted and re-inserted with fresh
+    // UUIDs, so every claim id churned on every promote even when nothing about the
+    // claim moved — taking its attestations with it.
+    await seedPair();
+    const body = bundle([aeciClaim('rfis', 'a_to_b'), aeciClaim('models', 'both')]);
+
+    expect((await promote(body)).status).toBe(200);
+    const before = (await t.db.select().from(claims)).map((c) => c.id).sort();
+    expect(before).toHaveLength(2);
+
+    expect((await promote(body)).status).toBe(200);
+    const after = (await t.db.select().from(claims)).map((c) => c.id).sort();
+
+    expect(after).toEqual(before);
+  });
+
+  it('converts a dropped AECi claim that a vendor still attests, instead of deleting it', async () => {
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    // The payload drops rfis entirely and curates models instead.
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    // The claim survives, with its id, now owned by the vendor.
+    const rfiClaim = (await t.db.select().from(claims)).find((c) => c.id === uuid(30));
+    expect(rfiClaim).toMatchObject({ origin: 'vendor', createdByVendorId: VENDOR });
+
+    // The vendor's assertion survives; AECi's is gone.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]).toMatchObject({ id: uuid(41), source: 'vendor_a' });
+
+    expect(await auditActions()).toEqual(expect.arrayContaining(['claim.converted']));
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ref: 'i1', kind: 'claim', reason: PRESERVED_CONVERTED_CLAIM }),
+        expect.objectContaining({ ref: 'i1', kind: 'attestation', count: 1 }),
+      ]),
+    );
+  });
+
+  it('deletes a dropped AECi claim nobody else attests, and audits the delete', async () => {
+    // The other half of the rule: coexistence must not become "promote can never
+    // retire anything". With no vendor voice on the claim, AECi still owns it.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const remaining = await t.db.select().from(claims);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.dataObjectId).toBe(MODELS);
+    // The wholesale delete this replaced emitted no audit row at all (§26.1 gap).
+    expect(await auditActions()).toEqual(expect.arrayContaining(['claim.deleted']));
+  });
+
+  it('never deletes a vendor-origin claim, even when the payload sends no claims at all', async () => {
+    await seedPair();
+    await seedClaim(uuid(31), MODELS, 'both', 'vendor', VENDOR);
+    await seedAttestation(uuid(42), uuid(31), 'vendor_b', VENDOR);
+    // An AECi claim alongside it, to prove the empty payload still retires AECi's own.
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+
+    const res = await promote(bundle([]));
+    expect(res.status).toBe(200);
+
+    const remaining = await t.db.select().from(claims);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ id: uuid(31), origin: 'vendor' });
+    expect(await t.db.select().from(attestations)).toHaveLength(1);
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim', reason: PRESERVED_VENDOR_CLAIM, count: 1 }),
+      ]),
+    );
+  });
+
+  it('replaces only the AECi attestation on a claim the payload re-asserts', async () => {
+    // The claim stays, so its vendor attestation must too — only AECi's own row is
+    // rewritten. This is the case the ON DELETE CASCADE used to destroy.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    const res = await promote(bundle([aeciClaim('rfis', 'a_to_b')]));
+    expect(res.status).toBe(200);
+
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({ id: uuid(30), origin: 'aeci' });
+
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    // The vendor row is untouched; the aeci row was replaced (new id, same slot).
+    const vendorRow = attRows.find((a) => a.source === 'vendor_a');
+    const aeciRow = attRows.find((a) => a.source === 'aeci');
+    expect(vendorRow).toMatchObject({ id: uuid(41), attestedByVendorId: VENDOR });
+    expect(aeciRow).toBeDefined();
+    expect(aeciRow!.id).not.toBe(uuid(40));
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'attestation', reason: PRESERVED_VENDOR_ATTESTATIONS }),
+      ]),
+    );
+  });
+
+  it('skips a vendor-owned attestation source in the payload rather than failing the batch', async () => {
+    // `PromoteAttestationSchema` permits vendor_a/vendor_b, and a live vendor row
+    // already occupies that slot — inserting would trip `attestations_slot_key` and
+    // roll back the WHOLE promote. Reported like an unresolved dataObject instead.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    const res = await promote(
+      bundle([
+        {
+          dataObject: 'rfis',
+          direction: 'a_to_b',
+          attestations: [
+            { source: 'vendor_a', asserted: false },
+            { source: 'aeci', asserted: true },
+          ],
+        },
+      ]),
     );
 
     expect(res.status).toBe(200);
-    // Two post-commit tasks on a write: the cache purge + the AECI-305 home-stats
-    // refresh (a no-op seam here). Only the purge fetches, so `fetchMock` sees one call.
+    const b = (await res.json()) as { skipped: { ref: string; kind: string; reason: string }[] };
+    expect(b.skipped).toEqual([
+      expect.objectContaining({
+        ref: 'i1',
+        kind: 'claim',
+        reason: expect.stringContaining('vendor-owned'),
+      }),
+    ]);
+
+    // The vendor's own row is intact and was NOT overwritten by the payload's.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows.filter((a) => a.source === 'vendor_a')).toEqual([
+      expect.objectContaining({ id: uuid(41), asserted: true }),
+    ]);
+    expect(attRows.filter((a) => a.source === 'aeci')).toHaveLength(1);
+  });
+
+  it('degrades rather than 500s when the attesting vendor of a dropped claim is unknown', async () => {
+    // `attested_by_vendor_id` is ON DELETE SET NULL, so it can be null. Converting
+    // then would write origin='vendor' with a null vendor — the §2.2 biconditional
+    // `assertClaimProvenance` raises a 500 on. Keep the row instead and retry later.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', null);
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const rfiClaim = (await t.db.select().from(claims)).find((c) => c.id === uuid(30));
+    // Not converted — provenance invariant intact — but not destroyed either.
+    expect(rfiClaim).toMatchObject({ origin: 'aeci', createdByVendorId: null });
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows).toEqual([expect.objectContaining({ id: uuid(41), source: 'vendor_a' })]);
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim', reason: PRESERVED_UNCONVERTED_CLAIM }),
+      ]),
+    );
+  });
+
+  it('curates onto an existing vendor-origin claim without seizing its provenance', async () => {
+    // AECi asserting the same identity a vendor created reuses the row — provenance
+    // records who CREATED it, and that is still the vendor. Seizing it would also
+    // strip the rule-2 protection on the next promote.
+    await seedPair();
+    await seedClaim(uuid(31), MODELS, 'both', 'vendor', VENDOR);
+    await seedAttestation(uuid(42), uuid(31), 'vendor_b', VENDOR);
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: uuid(31),
+      origin: 'vendor',
+      createdByVendorId: VENDOR,
+    });
+
+    // Both voices now sit on the one claim.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(31)));
+    expect(attRows.map((a) => a.source).sort()).toEqual(['aeci', 'vendor_b']);
+  });
+
+  it('reports nothing in preserved[] for an ordinary promote of an unclaimed product', async () => {
+    // The common case must stay quiet — `preserved[]` is a signal, not a log.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+
+    const res = await promote(bundle([aeciClaim('rfis', 'a_to_b')]));
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual([]);
+  });
+});
+
+describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
+  /** Run a promote with a mock `CACHE_PURGE_QUEUE` producer binding; drain the
+   *  post-commit `waitUntil` tasks so the enqueue is observable. Returns the
+   *  `sendBatch` spy — since AECI-666 the producer enqueues every batch in ONE
+   *  `sendBatch()` call rather than a concurrent `send()` per batch, because a
+   *  Queue producer call counts against the same per-invocation connection budget
+   *  as `fetch`. */
+  async function promoteWithPurge(body: unknown, sendBatch = vi.fn().mockResolvedValue(undefined)) {
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: {
+        send: vi.fn().mockResolvedValue(undefined),
+        sendBatch,
+      } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp().request('/api/promote', post(body), env, execCtx);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    return { res, execCtx, sendBatch };
+  }
+
+  /** The first enqueued `CachePurgeMessage` out of a `sendBatch()` call. */
+  function firstMessage(sendBatch: ReturnType<typeof vi.fn>): CachePurgeMessage {
+    return (sendBatch.mock.calls[0][0] as { body: CachePurgeMessage }[])[0].body;
+  }
+  it('enqueues the expected tag set (source:promote) for a representative create', async () => {
+    const { res, execCtx, sendBatch } = await promoteWithPurge({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
+    });
+
+    expect(res.status).toBe(200);
+    // Two post-commit tasks on a write: the purge enqueue + the AECI-305 home-stats
+    // refresh (a no-op seam here). Only the purge enqueues, and it does so in a
+    // single `sendBatch` call (AECI-666).
     expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(CF_PURGE_URL);
-    expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
-    const sent = JSON.parse(init.body as string) as { tags: string[] };
-    expect(new Set(sent.tags)).toEqual(
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    const msg = firstMessage(sendBatch);
+    expect(msg.source).toBe('promote');
+    expect(new Set(msg.tags)).toEqual(
       new Set([
         'product:revit',
         'index:products',
@@ -1830,46 +2554,73 @@ describe('cache purge after promote (AECI-105)', () => {
         'sitemap',
       ]),
     );
-    expect(sent.tags.some((tag) => tag.startsWith('route:'))).toBe(false);
+    expect(msg.tags?.some((tag) => tag.startsWith('route:'))).toBe(false);
   });
 
-  it('purges the pair tag for an integration carrying claims (AECI-297)', async () => {
+  it('purges the pair page AND the connector for a ROUTED edge (AECI-721)', async () => {
+    // `deriveCacheTags` iterates `response.integrations` to emit `pair:{a}__{b}` and
+    // `product:{connectorSlug}`. A routed edge leaves the `integrations` table, so if
+    // the routing branch failed to push its result into that array the tags would
+    // vanish with it — and the pair page plus the connector's own hub would stay
+    // stale until TTL, invisibly. §13.4(4)'s "no promote-deriver change is needed"
+    // holds only because this stays true.
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const { res, sendBatch } = await promoteWithPurge({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const tags = new Set(firstMessage(sendBatch).tags);
+    // The pair page for the two endpoints…
+    expect(tags.has('pair:navisworks__revit')).toBe(true);
+    // …and the connector's own page, which renders the edge in its "Integrations it
+    // powers" hub and is reached by no other tag (it is neither endpoint).
+    expect(tags.has('product:agave-erp-sync')).toBe(true);
+  });
+
+  it('enqueues the pair tag for an integration carrying claims (AECI-297)', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
     await seedDataObject(uuid(20), 'rfis', 'RFIs');
 
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    const { res } = await promoteWithPurge(
-      {
-        product: { ref: 'p1', name: 'Revit' },
-        integrations: [
-          {
-            ref: 'i1',
-            sourceProduct: { ref: 'p1' },
-            targetProduct: { supabaseId: target },
-            claims: [
-              {
-                dataObject: 'rfis',
-                direction: 'a_to_b',
-                attestations: [{ source: 'aeci', asserted: true }],
-              },
-            ],
-          },
-        ],
-      },
-      fetchMock,
-    );
+    const { res, sendBatch } = await promoteWithPurge({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [{ source: 'aeci', asserted: true }],
+            },
+          ],
+        },
+      ],
+    });
 
     expect(res.status).toBe(200);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const sent = JSON.parse(init.body as string) as { tags: string[] };
+    const msg = firstMessage(sendBatch);
     // Alphabetically-first slug is the pair context: navisworks < revit.
-    expect(sent.tags).toContain('pair:navisworks__revit');
+    expect(msg.tags).toContain('pair:navisworks__revit');
   });
 
-  it('does not purge when CF credentials are absent (graceful no-op)', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+  it('does not enqueue when the queue binding is absent (graceful no-op)', async () => {
     const execCtx = fakeExecutionContext();
     const res = await buildApp().request(
       '/api/promote',
@@ -1879,25 +2630,40 @@ describe('cache purge after promote (AECI-105)', () => {
     );
     expect(res.status).toBe(200);
     // The AECI-305 home-stats refresh still schedules its waitUntil on a write, but
-    // with no CF creds the cache purge is skipped — so no fetch fires.
+    // with no queue binding the purge is skipped — only the one waitUntil fires.
     expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('still returns 200 when the purge call fails (never fails the promote)', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response('{"errors":[{"message":"x"}]}', { status: 502 }));
-    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, fetchMock);
+  it('still returns 200 when the enqueue rejects (never fails the promote)', async () => {
+    const sendBatch = vi.fn().mockRejectedValue(new Error('queue unavailable'));
+    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, sendBatch);
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sendBatch).toHaveBeenCalledTimes(1);
   });
 
-  it('still returns 200 when the purge fetch throws', async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error('cf unreachable'));
-    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, fetchMock);
+  it('enqueues every batch in ONE sendBatch call, never a send() per batch (AECI-666)', async () => {
+    // A Queue producer call counts against the same per-invocation connection
+    // budget as `fetch`, and the promote's post-commit tail is already close to
+    // it. Latent today (`CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote is one
+    // batch) — this locks the shape so it stays fixed if that cap ever moves.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: { send, sendBatch } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp().request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
   });
 });
 
@@ -2011,9 +2777,11 @@ describe('IndexNow submission after promote (AECI-236)', () => {
   });
 });
 
-describe('home-stats refresh after promote (AECI-305)', () => {
-  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
-  const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
+describe('home-stats refresh after promote (AECI-305 → WC-5 / AECI-319)', () => {
+  /** An env carrying a mock `CACHE_PURGE_QUEUE` producer binding + its `send` spy. */
+  function purgeEnvWith(send: ReturnType<typeof vi.fn>): Env {
+    return { ...baseEnv, CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] };
+  }
 
   // ── Seam wiring: scheduled iff the promote actually wrote rows ──────────────
   async function promoteWithSeam(body: unknown, refreshHomeStats: PromoteHomeStatsRefresh) {
@@ -2079,12 +2847,16 @@ describe('home-stats refresh after promote (AECI-305)', () => {
     } as unknown as Parameters<typeof refreshHomeStatsAfterPromote>[0];
   }
 
-  it('recomputes the home.* stats_cache keys and purges index:home when CF creds are present', async () => {
+  it('recomputes the home.* stats_cache keys, THEN enqueues the index:home purge', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit', { integrationCount: 2 });
-    const fetchSpy = vi.fn().mockResolvedValue(new Response('{"success":true}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchSpy);
+    // Capture the stats_cache row count at enqueue time to prove the load-bearing
+    // ordering: the recompute must have already landed when the purge is enqueued.
+    let statsRowsAtEnqueue = -1;
+    const send = vi.fn(async (_msg: CachePurgeMessage) => {
+      statsRowsAtEnqueue = (await t.db.select().from(statsCache)).length;
+    });
 
-    await refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db);
+    await refreshHomeStatsAfterPromote(fakeContext(purgeEnvWith(send)), t.db);
 
     const cached = await t.db.select().from(statsCache);
     const byKey = new Map(cached.map((r) => [r.key, r.value]));
@@ -2093,37 +2865,30 @@ describe('home-stats refresh after promote (AECI-305)', () => {
     expect(byKey.has('home.total_integrations')).toBe(true);
 
     // …and only then is the home page purged, by exactly the tag the SSR route emits.
-    const purgeCalls = fetchSpy.mock.calls.filter(([url]) => url === CF_PURGE_URL);
-    expect(purgeCalls).toHaveLength(1);
-    const body = JSON.parse((purgeCalls[0]![1] as RequestInit).body as string) as {
-      tags: string[];
-    };
-    expect(body.tags).toEqual(['index:home']);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(statsRowsAtEnqueue).toBeGreaterThan(0);
+    expect(send.mock.calls[0][0]).toEqual({ tags: ['index:home'], source: 'promote' });
   });
 
-  it('recomputes the stats_cache but skips the purge when CF creds are absent', async () => {
+  it('recomputes the stats_cache but skips the enqueue when the queue is absent', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit');
-    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchSpy);
 
     await refreshHomeStatsAfterPromote(fakeContext(baseEnv), t.db);
 
     expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('recomputes the stats_cache and never throws when the purge fetch rejects', async () => {
+  it('recomputes the stats_cache and never throws when the enqueue rejects', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit');
-    const fetchSpy = vi.fn().mockRejectedValue(new Error('cf unreachable'));
-    vi.stubGlobal('fetch', fetchSpy);
+    const send = vi.fn().mockRejectedValue(new Error('queue unavailable'));
 
     // Must resolve (never reject) so the post-commit waitUntil can't turn into an
     // unhandled rejection — the recompute still lands.
     await expect(
-      refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db),
+      refreshHomeStatsAfterPromote(fakeContext(purgeEnvWith(send)), t.db),
     ).resolves.toBeUndefined();
     expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2153,6 +2918,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         trades: [],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set([
@@ -2174,6 +2940,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim']),
@@ -2187,6 +2954,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response).sort()).toEqual(['vendor:autodesk']);
   });
@@ -2198,6 +2966,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(new Set(['vendor:autodesk', 'sitemap']));
   });
@@ -2209,6 +2978,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products', 'phase:design', 'taxonomy']),
@@ -2222,6 +2992,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response)).toEqual([]);
   });
@@ -2242,6 +3013,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['pair:navisworks__revit', 'product:agave-erp-sync']),
@@ -2263,6 +3035,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response)).toEqual(['pair:navisworks__revit']);
   });
@@ -2274,6 +3047,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response).some((tag) => tag.startsWith('route:'))).toBe(false);
   });
@@ -2293,6 +3067,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         trades: [tax('electrical', 'reused')],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set([
@@ -2313,6 +3088,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response, { removedTradeSlugs: ['roofing'] }))).toEqual(
       new Set([
@@ -2333,6 +3109,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products']),
@@ -2358,6 +3135,7 @@ describe('touchedTradeSlugs', () => {
       trades: trades.map((slug) => ({ id: `id-${slug}`, slug, operation: 'reused' as const })),
     },
     skipped: [],
+    preserved: [],
   });
 
   it('unions the SET trades with the REMOVED ones', () => {
@@ -2383,5 +3161,307 @@ describe('touchedTradeSlugs', () => {
     for (const slug of touchedTradeSlugs(response, removed)) {
       expect(tags).toContain(`trade:${slug}`);
     }
+  });
+});
+
+// ─── Claimed-vendor guard (AECI-520) ──────────────────────────────────────────
+
+/**
+ * Once AECi grants a vendor-portal seat, that vendor's row and every product it
+ * owns become vendor-owned — the vendor edits them through `/api/vendor/*`, and
+ * this endpoint writes the very same columns. So a promote must not overwrite
+ * them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ *
+ * The failure modes are asymmetric, so both directions are pinned: under-blocking
+ * silently reverts a vendor's edits (they'd report "AECi keeps undoing our
+ * changes"), and over-blocking freezes a vendor out of AECi curation entirely.
+ */
+describe('createPromoteHandler — claimed-vendor block', () => {
+  const V_CLAIMED = uuid(50);
+  const V_FREE = uuid(51);
+  const P_OWNED = uuid(60); // owned by the claimed vendor
+  const P_FREE = uuid(61); // owned by nobody in particular
+  const P_OTHER = uuid(62); // an unrelated integration endpoint
+
+  /** Grant a seat — the ONLY thing that marks a vendor as claimed. */
+  const seedSeat = (id: string, vendorId: string | null, role = 'vendor_admin') =>
+    t.db.insert(profiles).values({ id, role, vendorId });
+  const seedOwnership = (productId: string, vendorId: string) =>
+    t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
+
+  const skippedKinds = (body: PromoteResponse) => body.skipped.map((s) => s.kind);
+
+  beforeEach(async () => {
+    await seedVendor(V_CLAIMED, 'autodesk', 'Autodesk');
+    await seedVendor(V_FREE, 'bentley', 'Bentley');
+    await seedProduct(P_OWNED, 'revit', 'Revit', { description: 'Vendor-owned copy' });
+    await seedProduct(P_FREE, 'microstation', 'MicroStation');
+    await seedProduct(P_OTHER, 'navisworks', 'Navisworks');
+    await seedOwnership(P_OWNED, V_CLAIMED);
+    await seedSeat(uuid(70), V_CLAIMED);
+  });
+
+  it('skips the claimed vendor while a sibling vendor still promotes', async () => {
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk', website: 'https://new' },
+        { ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley', website: 'https://bentley.new' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    // Blocked entities are OMITTED from the results, not marked — that is what
+    // keeps them out of the purge / IndexNow / Algolia derivers for free.
+    expect(body.vendors.map((v) => v.ref)).toEqual(['v2']);
+    expect(body.skipped).toContainEqual(expect.objectContaining({ ref: 'v1', kind: 'vendor' }));
+
+    const [claimed] = await t.db.select().from(vendors).where(eq(vendors.id, V_CLAIMED));
+    const [free] = await t.db.select().from(vendors).where(eq(vendors.id, V_FREE));
+    expect(claimed?.website).toBeNull(); // untouched
+    expect(free?.website).toBe('https://bentley.new');
+
+    const actions = await auditActions();
+    expect(actions).toContain('promote.blocked');
+    expect(actions.filter((a) => a === 'vendor.updated')).toHaveLength(1);
+  });
+
+  it('blocks an existing product owned by a claimed vendor, wholesale', async () => {
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        supabaseId: P_OWNED,
+        name: 'Revit 2027',
+        description: 'review-app copy',
+        categories: ['Brand New Category'],
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.product).toBeNull();
+    expect(skippedKinds(body)).toEqual(['product']);
+
+    const [row] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
+    expect(row?.name).toBe('Revit');
+    expect(row?.description).toBe('Vendor-owned copy');
+    expect(row?.promotionStatus).toBe('promoted'); // seeded value, not re-set
+
+    // Taxonomy resolution is gated too: no orphan term is minted for a product
+    // that was never written, and the response reports no taxonomy work.
+    expect(await t.db.select().from(taxonomyCategories)).toHaveLength(0);
+    expect(body.taxonomy.categories).toEqual([]);
+    expect(await auditActions()).not.toContain('product.updated');
+  });
+
+  it('never wipes the ownership join rows of a blocked product', async () => {
+    // The delete+reinsert of `product_vendors` is the destructive statement: a
+    // payload that omits the claimed vendor would otherwise orphan the claim.
+    await promote({
+      vendors: [{ ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley' }],
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+    });
+    const rows = await t.db
+      .select()
+      .from(productVendors)
+      .where(eq(productVendors.productId, P_OWNED));
+    expect(rows.map((r) => r.vendorId)).toEqual([V_CLAIMED]);
+  });
+
+  it('blocks a product this payload would hand to a claimed vendor', async () => {
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: P_FREE, name: 'MicroStation Renamed' },
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product).toBeNull();
+    expect(skippedKinds(body).sort()).toEqual(['product', 'vendor']);
+
+    const [row] = await t.db.select().from(products).where(eq(products.id, P_FREE));
+    expect(row?.name).toBe('MicroStation');
+  });
+
+  it('never blocks a CREATE, and the vendor slug suffix still resolves', async () => {
+    // Creation is always allowed: nothing vendor-owned exists yet. This also
+    // pins that the blocked-vendor branch still contributes `firstVendorSlug`,
+    // which `generateSlug` uses to disambiguate a colliding product slug.
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product?.operation).toBe('created');
+    expect(body.product?.slug).toBe('revit-autodesk');
+
+    const joins = await t.db
+      .select()
+      .from(productVendors)
+      .where(eq(productVendors.vendorId, V_CLAIMED));
+    // The new product is still joined to the claimed vendor.
+    expect(joins.map((r) => r.productId)).toContain(body.product?.id);
+  });
+
+  it('cascades to integrations referencing the blocked product by ref AND by id', async () => {
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      integrations: [
+        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: P_OTHER } },
+        // The superRefine only constrains `ref` endpoints, so this id-form
+        // reference to the same blocked product must be caught explicitly.
+        {
+          ref: 'i2',
+          sourceProduct: { supabaseId: P_OWNED },
+          targetProduct: { supabaseId: P_OTHER },
+        },
+        // Unrelated: neither endpoint is the blocked product, so it promotes.
+        {
+          ref: 'i3',
+          sourceProduct: { supabaseId: P_FREE },
+          targetProduct: { supabaseId: P_OTHER },
+        },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.integrations.map((i) => i.ref)).toEqual(['i3']);
+    const blocked = body.skipped.filter((s) => s.kind === 'integration');
+    expect(blocked.map((s) => s.ref).sort()).toEqual(['i1', 'i2']);
+    // The reason must name the real cause, not the misleading "not promoted yet".
+    for (const entry of blocked) expect(entry.reason).toMatch(/claimed vendor/i);
+
+    // The blocked product's own integration count is left alone.
+    const [owned] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
+    expect(owned?.integrationCount).toBe(0);
+    const [free] = await t.db.select().from(products).where(eq(products.id, P_FREE));
+    expect(free?.integrationCount).toBe(1);
+  });
+
+  it('skips an integration whose poweredByProduct is the blocked product', async () => {
+    // Without this the integration writes, `resolveProduct` degrades the unknown
+    // ref to null, and `powered_by_product_id` is CLEARED on a promote whose
+    // whole purpose was to leave the blocked product alone — silently, with
+    // nothing in skipped[] to show for it.
+    await t.db.insert(integrations).values({
+      id: uuid(90),
+      sourceProductId: P_FREE,
+      targetProductId: P_OTHER,
+      poweredByProductId: P_OWNED,
+    });
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: uuid(90),
+          sourceProduct: { supabaseId: P_FREE },
+          targetProduct: { supabaseId: P_OTHER },
+          poweredByProduct: { ref: 'p1' },
+        },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.integrations).toEqual([]);
+    expect(body.skipped).toContainEqual(
+      expect.objectContaining({ ref: 'i1', kind: 'integration' }),
+    );
+
+    const [row] = await t.db
+      .select()
+      .from(integrations)
+      .where(eq(integrations.id, uuid(90)));
+    expect(row?.poweredByProductId).toBe(P_OWNED); // link intact
+  });
+
+  it('treats only role=vendor_admin WITH a vendor_id as a claim', async () => {
+    // A reviewer pointed at the vendor, and a vendor_admin with no vendor_id:
+    // neither claims anything. Over-blocking would freeze curation.
+    await seedSeat(uuid(71), V_FREE, 'reviewer');
+    await seedSeat(uuid(72), null, 'vendor_admin');
+
+    const res = await promote({
+      vendors: [
+        { ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley', website: 'https://b.new' },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.vendors.map((v) => v.ref)).toEqual(['v2']);
+    expect(body.skipped).toEqual([]);
+
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, V_FREE));
+    expect(row?.website).toBe('https://b.new');
+  });
+
+  it('does not schedule the home-stats refresh for a fully blocked promote', async () => {
+    // A blocked promote writes only `promote.blocked` audit rows. The refresh
+    // gate must count catalog writes, not statement count, or it fires for a
+    // promote that changed nothing.
+    const refreshHomeStats = vi.fn<PromoteHomeStatsRefresh>(async () => {});
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ refreshHomeStats }).request(
+      '/api/promote',
+      post({
+        vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      }),
+      baseEnv,
+      execCtx,
+    );
+    expect(res.status).toBe(200);
+    expect(refreshHomeStats).not.toHaveBeenCalled();
+    expect(await auditActions()).toEqual(['promote.blocked', 'promote.blocked']);
+  });
+
+  it('enqueues no cache purge for a fully blocked promote', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    await buildApp().request(
+      '/api/promote',
+      post({ product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' } }),
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+// ─── `verified` is grant-only (AECI-520) ──────────────────────────────────────
+
+describe('createPromoteHandler — verified is not review-app writable', () => {
+  it('ignores `verified` on an update instead of flipping the entitlement bit', async () => {
+    // The regression this guards: a routine Airtable push carrying
+    // `verified: false` used to silently un-verify a paying vendor.
+    await t.db
+      .insert(vendors)
+      .values({ id: uuid(80), slug: 'autodesk', companyName: 'Autodesk', verified: true });
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: uuid(80), companyName: 'Autodesk', verified: false }],
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await t.db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.id, uuid(80)));
+    expect(row?.verified).toBe(true);
+  });
+
+  it('ignores `verified` on a create — the grant flow is the only way in', async () => {
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Newco', verified: true }],
+    });
+    const body = (await res.json()) as PromoteResponse;
+    const [row] = await t.db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.id, body.vendors[0]?.id as string));
+    expect(row?.verified).toBe(false);
   });
 });

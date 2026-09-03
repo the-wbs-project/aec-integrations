@@ -59,6 +59,7 @@ import { eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   claims,
+  connectorEvidencedPairs,
   feedback,
   integrations,
   mailingList,
@@ -178,7 +179,19 @@ const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   'catalog.products_promoted': (db) =>
     countAll(db, products, eq(products.promotionStatus, PROMOTED)),
   'catalog.vendors_promoted': (db) => countAll(db, vendors, eq(vendors.promotionStatus, PROMOTED)),
-  'catalog.integrations_total': (db) => countAll(db, integrations),
+  // BOTH delivered-tier tables (AECI-721 / §13.5 site 10). This is the one
+  // lockstep site that writes a TIME SERIES — `metrics_daily`, once a day, by cron
+  // (AECI-581) — and therefore the only one where getting it wrong cannot be
+  // repaired after the fact: a bare `count(integrations)` would write a permanent,
+  // unexplained step down of 19 into recorded history on the day the migration ran.
+  //
+  // Summing both tables is also what makes a BACKFILL unnecessary. The migration
+  // moves rows between the two tables and creates none, so under this expression
+  // the series is continuous across it — there is no step to annotate and no
+  // history to rewrite, which is the honest way to satisfy §13.5's "backfill or
+  // annotate the series deliberately".
+  'catalog.integrations_total': async (db) =>
+    (await countAll(db, integrations)) + (await countAll(db, connectorEvidencedPairs)),
   'catalog.claims_total': (db) => countAll(db, claims),
   'catalog.reviews_approved': (db) => countAll(db, reviews, APPROVED_REVIEWS),
   'accounts.profiles_total': (db) => countAll(db, profiles),
@@ -288,7 +301,7 @@ export async function runMetricsSnapshot(
 // Observability (docs/OBSERVABILITY.md)
 // ---------------------------------------------------------------------------
 
-/** Datadog transport, narrowed to what this module emits. The caller binds
+/** Telemetry transport, narrowed to what this module emits. The caller binds
  *  `(ctx, env, request)` — same shape as `StatsMetricSink`. */
 export type SnapshotMetricSink = {
   count(metric: string, value: number, tags: string[]): void;

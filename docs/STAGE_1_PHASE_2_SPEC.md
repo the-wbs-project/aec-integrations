@@ -114,7 +114,7 @@ All entity detail pages are **single pages with sections**. Section navigation i
 - `profiles`, `reviews`, `stats_cache`, `page_views` tables (Phases 4–5)
 - View-count badges on detail pages (Phase 4)
 - Compare tool, comments, Q&A (Stage 2)
-- Integration JSON-LD (Stage 2, contingent on MCP exposure direction)
+- Integration JSON-LD (Stage 2, contingent on MCP exposure direction) — ✅ **shipped in Stage 2 as AECI-518**, on the pair page that superseded `/integrations/:id`; the MCP contingency resolved as "no MCP surface" (§9.2 above, `STAGE_2_SPEC.md` §8.7)
 - Sub-route pattern (`/vendors/:slug/details`, etc.) — considered and rejected; single page with sections is the pattern
 
 ---
@@ -306,7 +306,9 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 - `/products`, `/vendors`: **`created DESC`** ("newest first") — gives a sense of liveliness, surfaces fresh content
 - `/integrations`: **`name ASC`** — since names are `"Source → Target"`, alphabetical groups by source product, which is useful for browsing
 
-**Review-driven product sorts** (`/products` only): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
+**Review-driven product sorts** (every product listing — the `/products` index and the four taxonomy browse pages, which share one option set since AECI-657): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
+
+**Catalog-driven product sort** (AECI-657): `integrations` ("Most integrations"), **DESC** on the denormalized `products.integration_count`. `STAGE_1_SPEC.md` §4.5 named it alongside alphabetical and most-reviewed for the browse pages, and it was the one of the three with no implementation anywhere. No visibility gate applies — unlike `rating`, the count is shown on every card (zero included, as "Not yet connected"), so the ranking always matches what the reader sees.
 
 **Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
 
@@ -357,6 +359,8 @@ Per AECI-43, API responses themselves remain `private, no-store`. Only SSR HTML 
 
 ### 8.4 Invalidation mechanism
 
+> **Superseded — see `docs/CACHE_STRATEGY.md` §5 / [ADR 0020](adr/0020-workers-cache-and-queue-purge.md).** This describes Phase 2's original transport: `POST /admin/purge` calling Cloudflare's zone **purge-by-tag API**. The AECI-314 Workers Cache migration replaced that transport — `/admin/purge` now purges **in-process** via native `ctx.cache.purge()`, and cross-Worker producers (promote / moderation / datatool) enqueue onto the `aeci-cache-purge-{env}` Cloudflare Queue whose SSR consumer purges. The zone HTTP purge is inert against native Workers Cache. The `Cache-Tag` vocabulary and the endpoint's auth (`ADMIN_PURGE_TOKEN`) carry over unchanged. The rest of this section is kept as the historical Phase 2 record.
+
 A `POST /admin/purge` endpoint on the SSR Worker:
 
 - Authenticates via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`)
@@ -394,7 +398,13 @@ In addition to caching headers, every cacheable response carries:
 Every page sets:
 
 - `<title>` — page-specific, formatted as `"{entity name} — AEC Integrations"` for details, `"{Taxonomy term} tools — AEC Integrations"` for browse
-- `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars
+- `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars.
+  **One exception since AECI-707 (2026-08-31):** a product whose `product_role` is `connector` and
+  which reaches at least one catalog product gets a computed, reach-shaped variant instead, so the
+  page targets *"«connector» for construction"*-class queries its vendor-written description does
+  not. Everything else — every other role, and a connector with nothing to count — keeps the rule
+  above. The JSON-LD `description` is **not** varied with it. Governing contract:
+  `docs/STAGE_1_5_SPEC.md` §13.6.
 - `<link rel="canonical">` — the canonical URL for this entity (no query params). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
@@ -406,8 +416,10 @@ Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from
 - **Product detail**: `schema.org/SoftwareApplication` with `name`, `description`, `url`, `applicationCategory`, `applicationSubCategory`, `offers` (link to vendor site), `operatingSystem` if known
   - **`offers` is deferred to AECI-68.** Not emitted in the current implementation — it needs a vendor-site URL that `VendorLink` does not yet carry. `buildProductJsonLd` (`apps/web/src/app/core/meta.helpers.ts`) omits it until `VendorLink.website` lands (AECI-68), which will populate `offers.url`.
   - **`operatingSystem` is out of scope for Phase 2.** No product field carries OS data, so the `if known` condition is never satisfied and the field is not emitted. No tracking issue.
+  - **`@id` added in AECI-518.** `buildProductJsonLd(product, canonical)` takes the page's canonical as a second argument purely to compose the node's `@id` via `productLdId(origin, slug)`. That URI is what the product-PAIR page's `about[]` entries reference, so the two blocks describe **one** entity — both sides must compose it through that helper, since a hand-built string would silently yield two unrelated nodes instead of failing.
 - **Vendor detail**: `schema.org/Organization` with `name`, `url`, `logo`, `foundingDate`, `address` (if HQ known)
 - **Integration detail**: **No JSON-LD in Phase 2.** No clean schema.org type exists; revisit in Stage 2 once MCP exposure direction is clearer.
+  - ✅ **Resolved in Stage 2 — AECI-518 (2026-08-20).** The "revisit once MCP exposure direction is clearer" precondition resolved the *other* way: `STAGE_2_SPEC.md` §9 keeps a public/partner write-API product out of Stage 2, so there is no MCP surface to model against and the type was decided on SEO merit alone. The observation above was right — schema.org has no *integration* type, and the page is not itself a `SoftwareApplication` — so the shipped shape is a **`schema.org/WebPage` whose `about` names both endpoint products** (each a nested `SoftwareApplication` whose `@id` is the one the product detail page publishes, so the two describe one entity) plus a sibling **`BreadcrumbList`** mirroring the visible trail. Emitted only when the page is indexable. Note the surface moved: the Stage 1.5 **product-PAIR page** (`/products/:contextSlug/integrations/:otherSlug`) superseded `/integrations/:id`, which now 301s. `ItemList`, `FAQPage`, and `SoftwareApplication`-as-main-entity were considered and rejected — the reasoning and the full contract are **`STAGE_2_SPEC.md` §8.7**; the code is `buildPairJsonLd` / `buildPairBreadcrumbLd` in `apps/web/src/app/core/meta.helpers.ts`.
 
 ### 9.3 sitemap.xml
 
@@ -455,15 +467,17 @@ Three reusable Angular layout components (per `DESIGN.md` patterns):
 
 - `DetailLayout` — left column hero (name, vendor, key facts) + right column metadata + body sections below
 - `BrowseLayout` — header strip + filter sidebar (Phase 3 placeholder) + grid of cards
-- `IndexLayout` — table-style listing with sort headers + pagination
+- ~~`IndexLayout` — table-style listing with sort headers + pagination~~ **(deleted, AECI-657)**
+
+> **`IndexLayout` no longer ships.** Its consumers were the `/vendors` and `/integrations` index pages, both removed by AECI-165, plus `/products`, which AECI-190 rebuilt on `BrowseLayout` (it needs a facet rail, and `IndexLayout` has no slot for one). The shell survived only behind its dev preview route until AECI-657 deleted it. Two layout shells ship. Listing pages compose `BrowseLayout` with their own `<table>` or `ProductCardGrid`.
 
 Each detail page (product, vendor, integration) is a different *body content* projected into `DetailLayout`. Same for browses and indexes. Sections within a detail page use Angular's `@defer` for heavy content (e.g. a product with 50+ integrations).
 
 ### 11.2 New primitives
 
-- `ProductCard`, `VendorCard`, `IntegrationCard` — used by index and browse pages
+- `ProductCard` — the listing table row, used by `/products` (table view) and the taxonomy browse pages. ~~`VendorCard`, `IntegrationCard`~~ **(deleted, AECI-657 — their index pages went away with AECI-165)**. The card-grid counterpart the "card" name anticipated shipped separately as `ProductCardGrid` (AECI-190).
 - `TaxonomyBadge` — pill component for category / audience / phase chips, color-coded per token (forest variants per DESIGN.md)
-- `EntityTable` — generic sortable / paginated table for index pages
+- ~~`EntityTable` — generic sortable / paginated table for index pages~~ **(never shipped)** — its responsibility was folded into `IndexLayout`, which is itself now deleted; see §11.1.
 
 Each new component goes through `/impeccable craft` and is added to DESIGN.md's component definitions before merging.
 
@@ -473,7 +487,9 @@ Every visible string i18n-wrapped from day one (per AECI-23). English-only at la
 
 ### 11.4 Theme
 
-Every component renders correctly in light and dark per AECI-25 / AECI-41 tokens. No hard-coded color literals. Lint rule (Phase 1) catches violations.
+Every component uses the AECI-25 / AECI-41 semantic tokens. No hard-coded color literals.
+
+> **Corrected 2026-08-14 (AECI-549).** This section previously read "renders correctly in light and dark" and "Lint rule (Phase 1) catches violations." Both were wrong. Dark was removed for Stage 1 (AECI-226 — light only), and **no color lint rule has ever existed**; `docs/PHASE_2_COMPLETION.md` §3.F4 flagged the discrepancy at the time. Color literals are enforced by `npx impeccable detect` and code review; a real lint rule is tracked as **AECI-597**. What *is* mechanically enforced as of AECI-549 is the light-only constraint itself — `dark:` variants, `.theme-dark`, `@custom-variant dark`, `prefers-color-scheme: dark`, and `[data-theme=…]` all fail `pnpm lint`.
 
 ---
 
@@ -567,7 +583,7 @@ Issue breakdown follows in a sibling document. Rough wave structure:
 - Cache-tag vocabulary (this section §8 lifted into `docs/CACHE_STRATEGY.md`)
 - API contract Zod schemas for product / vendor / integration / taxonomy
 - `MetaService` + JSON-LD helper in `apps/web/`
-- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons
+- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons *(`IndexLayout` since deleted — §11.1)*
 
 **Wave 2 — Backend complete**
 
@@ -601,7 +617,7 @@ The seven open questions from the spec draft are resolved:
 
 1. **`vendor_requests` FK shape**: loose `(target_type, target_id)` with CHECK constraint
 2. **Slug immutability**: immutable by default, admin tool (Phase 6) has explicit rename + 301 action
-3. **Integration JSON-LD**: deferred to Stage 2
+3. **Integration JSON-LD**: deferred to Stage 2 — ✅ **resolved there** (AECI-518, 2026-08-20): `WebPage` + `about` + `BreadcrumbList` on the pair page. See §9.2 and `STAGE_2_SPEC.md` §8.7
 4. **`/categories` flat page**: ships in Phase 2
 5. **`/admin/purge` auth**: Wrangler secret in Phase 2, migrate to Cloudflare Access in Phase 6
 6. **`page_views` table**: deferred to Phase 4, but `POST /api/page-views` capture hook ships in Phase 2 (no-op write)

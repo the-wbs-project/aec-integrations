@@ -30,7 +30,7 @@
  * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
  * a day inside the cut window with no `metrics_daily` row aborts the whole run.
  * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
- * Phase 7.6): ten read-only integrity checks (orphan products/vendors, stale
+ * Phase 7.6): eleven read-only integrity checks (orphan products/vendors, stale
  * `ready` products, broken integration refs, anonymized-review integrity, stale
  * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, and the
  * reused AECI-140 Algolia drift) → an email digest to Chris + Bill via Resend
@@ -58,6 +58,26 @@
  * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
  * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
  * daily batch.
+ * 10:00 UTC (= 05:00 EST) — daily §7 attestation detector sweep
+ * (`./lib/attestation-detectors` + `./lib/attestation-notify`, AECI-302 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
+ * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
+ * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
+ * `ADMIN_ALERT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
+ * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
+ * the state the site is actually serving. Unlike the read-only gauges this one
+ * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
+ * ran is a nudge nobody is ever told about.
+ * 11:00 UTC — daily Stage 2 §7 entitlement term-expiry sweep
+ * (`./lib/entitlement-expiry`, AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one
+ * indexed read over `vendor_entitlements_expiry_idx` for terms within 30 days →
+ * a renewal prompt to the vendor's seats and an operator copy to
+ * `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a term earns ONE
+ * notice rather than one per night. Queue-less (a small read plus a handful of
+ * fail-open emails). **It warns and never lapses** — it writes
+ * `expiry_notice_sent_at` and an audit row, never `status` and never
+ * `vendors.verified` (§7.3). Perpetual entitlements are invisible to it by
+ * construction: the index is partial on `period_end IS NOT NULL`.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -68,8 +88,8 @@
  *
  * Best-effort + observable: the work is **awaited** in the consumer (so a failure
  * is logged and the run isn't torn down mid-batch), while metric/log emission
- * rides `ctx.waitUntil` via the shared Datadog client. The job has no incoming
- * `Request`, so a synthetic one is passed to the Datadog helpers (used only to
+ * rides `ctx.waitUntil` via the shared telemetry client. The job has no incoming
+ * `Request`, so a synthetic one is passed to the telemetry helpers (used only to
  * derive the `host` tag, which falls back to the worker slug).
  */
 
@@ -79,7 +99,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { getDb } from './db/client';
 import type { Db } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
-import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
+import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
@@ -97,6 +117,12 @@ import {
   type EntityOrphanResult,
   type PromotedIdProvider,
 } from './lib/algolia-orphans';
+import { runAttestationNotifySweep } from './lib/attestation-notify';
+import {
+  NOTIFY_DURATION_METRIC,
+  NOTIFY_JOB_METRIC,
+  type AttestationNotifyMetricSink,
+} from './lib/attestation-notify-metrics';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
@@ -112,7 +138,9 @@ import {
   ALGOLIA_SYNC_CRON,
   ANALYTICS_CRON,
   ASN_REGISTRY_CRON,
+  ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
+  ENTITLEMENT_EXPIRY_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
   RETENTION_CRON,
@@ -120,9 +148,20 @@ import {
   STATS_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
+import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  EXPIRY_DURATION_METRIC,
+  EXPIRY_JOB_METRIC,
+  type EntitlementExpiryMetricSink,
+} from './lib/entitlement-expiry-metrics';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
-import { parseRecipients, sendEmail } from './lib/email';
+import {
+  parseRecipients,
+  sendEmail,
+  sendEntitlementExpiringAdminEmail,
+  sendEntitlementExpiringEmail,
+} from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
@@ -201,7 +240,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
       `outcome:${event.outcome}`,
     ]);
     if (event.outcome === 'failed') {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: 'error',
         message: 'aeci.job_runs.write_failed',
         source: 'job-runs',
@@ -213,13 +252,15 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The ten cron expressions now live in `./lib/cron-schedules` — hoisted there
-// by AECI-580 (the snapshot cron joined them in AECI-581) so `GET /api/admin/system`'s
-// liveness rows read the SAME literals this dispatcher `switch`es on rather than a
-// second copy that could drift. Each one MUST still stay byte-equal to its
-// `triggers.crons` entry in `wrangler.jsonc`, or `controller.cron` won't match the
-// `switch` below; see that file for the per-job scheduling rationale (including why
-// `SNAPSHOT_CRON` runs at 00:15, the first slot of the day).
+// The thirteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
+// AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
+// `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
+// `switch`es on rather than a second copy that could drift. Each one MUST still
+// stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
+// `controller.cron` won't match the `switch` below; see that file for the per-job
+// scheduling rationale (including why `SNAPSHOT_CRON` runs at 00:15, the first
+// slot of the day, and why `ENTITLEMENT_EXPIRY_CRON` runs last at 11:00).
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -263,7 +304,7 @@ const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
  *  the RECORDER, not the job — see docs/OBSERVABILITY.md. */
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
-/** Synthetic request so the Datadog helpers can derive a `host` tag (the cron
+/** Synthetic request so the telemetry helpers can derive a `host` tag (the cron
  *  has no incoming Request; `hostnameFromRequest` uses the URL host or falls
  *  back to the worker slug). */
 function cronRequest(path: string): Request {
@@ -316,17 +357,22 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
- *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
- *  / `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` stay free of
- *  `ctx`/`env`/`Request` plumbing. The count + distribution + gauge shape
- *  satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
- *  `RetentionMetricSink` (count + distribution) and `ModerationMetricSink`
- *  (gauge) alike. */
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics` /
+ *  `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` / `emitDetectorMetrics`
+ *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
+ *  shape satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
+ *  `RetentionMetricSink` (count + distribution), `ModerationMetricSink` (gauge) and
+ *  `AttestationNotifyMetricSink` (count + gauge) alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink & SnapshotMetricSink & RetentionMetricSink {
+): SyncMetricSink &
+  ModerationMetricSink &
+  SnapshotMetricSink &
+  RetentionMetricSink &
+  AttestationNotifyMetricSink &
+  EntitlementExpiryMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -346,7 +392,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       'entity:all',
       'outcome:skipped_no_creds',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.algolia.sync.skipped_no_creds',
       source: 'algolia-sync-cron',
@@ -371,7 +417,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       'entity:all',
       'outcome:failed',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.sync.crashed',
       source: 'algolia-sync-cron',
@@ -393,7 +439,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
   emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, durationMs);
 
   for (const entity of result.entities) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: entity.ok ? 'info' : 'error',
       message: `aeci.algolia.sync ${entity.entity} saved=${entity.saved} deleted=${entity.deleted}`,
       source: 'algolia-sync-cron',
@@ -426,7 +472,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // Defensive no-op: production deploys are gated on these secrets
   // (verify-worker-secrets.sh), but local/preview may legitimately lack them.
   if (!env.ALGOLIA_APP_ID || !env.ALGOLIA_ADMIN_KEY) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.algolia.index_drift.skipped_no_creds',
       source: 'algolia-drift-cron',
@@ -461,7 +507,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
           ]);
         },
         onDrift: (drifted: AlgoliaIndexDrift[]) =>
-          logToDatadog(ctx, env, req, {
+          logToPosthog(ctx, env, req, {
             level: 'error',
             message: `aeci.algolia.index_drift on ${ddEnv}: ${drifted
               .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
@@ -479,7 +525,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
     // The Algolia count (fetch) or the D1 counts can throw; log loudly,
     // never rethrow (a thrown cron just shows as a failed invocation with no
     // detail).
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.index_drift.crashed',
       source: 'algolia-drift-cron',
@@ -525,7 +571,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
     const capped = swept.entities.filter((e) => e.skippedBySafetyCap);
     const failed = swept.entities.filter((e) => !e.ok);
     if (swept.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
         message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${swept.totalDeleted} orphan object(s)${
           capped.length > 0
@@ -548,7 +594,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
       entities: swept.entities.map(toOrphanSweepEntity),
     };
   } catch (error) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.orphans_sweep.crashed',
       source: 'algolia-drift-cron',
@@ -582,7 +628,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
     // Log loudly + count an outright failure; never rethrow (a thrown cron is an
     // opaque failed invocation with no detail).
     submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.stats.compute.crashed',
       source: 'stats-cron',
@@ -599,7 +645,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   const skipped = result.keys.filter((k) => k.status === 'skipped').length;
 
   for (const k of result.keys) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: k.status === 'failed' ? 'error' : 'info',
       message: `aeci.stats.compute ${k.key} status=${k.status}`,
       source: 'stats-cron',
@@ -614,7 +660,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // the run `outcome` from the per-key statuses so it can't drift from the log.
   const durationMs = Date.now() - started;
   emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, durationMs);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: failed > 0 ? 'warn' : 'info',
     message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
     source: 'stats-cron',
@@ -653,7 +699,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
     result = await runMetricsSnapshot(db, day, new Date());
   } catch (error) {
     submitCount(ctx, env, req, 'aeci.metrics_snapshot.run', 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.metrics_snapshot.crashed',
       source: 'metrics-snapshot-cron',
@@ -673,7 +719,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   const failed = result.metrics.filter((m) => m.status === 'failed');
 
   for (const m of failed) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
       source: 'metrics-snapshot-cron',
@@ -685,7 +731,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
 
   const durationMs = Date.now() - started;
   emitMetricsSnapshotMetrics(metricSink(ctx, env, req), result, durationMs);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: failed.length > 0 ? 'warn' : 'info',
     message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
     source: 'metrics-snapshot-cron',
@@ -737,7 +783,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   const windows = resolveRetentionWindows(env, (table, reason) => {
     // An override we refused. Loud, because the operator who set it believes a
     // different window is in force than the one about to run.
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.retention.invalid_window_override',
       source: 'retention-prune-cron',
@@ -753,7 +799,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.retention.crashed',
       source: 'retention-prune-cron',
@@ -766,7 +812,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   emitRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs);
 
   if (result.status === 'skipped') {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: `aeci.retention.skipped reason=${result.reason} missing_days=${result.missingCount}`,
       source: 'retention-prune-cron',
@@ -789,7 +835,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   }
 
   const truncated = result.tables.filter((t) => t.truncated);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: truncated.length > 0 ? 'warn' : 'info',
     message: `aeci.retention.pruned rows_deleted=${result.rowsDeleted}`,
     source: 'retention-prune-cron',
@@ -801,7 +847,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   if (result.auditEntry) {
     const entry = result.auditEntry;
     const forward: AuditLogForwarder = (e) => {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: 'info',
         message: `audit ${e.action}`,
         source: 'audit_log',
@@ -850,7 +896,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
       pendingCount,
       oldestPendingAgeHours: ageHours,
     });
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'info',
       message: `aeci.moderation.queue depth=${pendingCount} oldest_age_hours=${ageHours.toFixed(2)}`,
       source: 'moderation-cron',
@@ -866,7 +912,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
   } catch (error) {
     // Mirror the drift/stats crash path: log loudly, never throw (a failed cron
     // must not tear down the invocation).
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.moderation.queue.crashed',
       source: 'moderation-cron',
@@ -897,7 +943,7 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   return { outcome: 'ok', detail: { job: 'request-reconcile', ...result } };
 }
 
-/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): ten read-only
+/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): eleven read-only
  *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
  *  Bill. Report-only — no auto-remediation. The Algolia-drift check (#10) reuses
  *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
@@ -922,7 +968,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a
     // missing DB binding). Count the failure heartbeat + log; never rethrow.
     submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.data_quality.crashed',
       source: 'data-quality-cron',
@@ -944,7 +990,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
       `check:${r.id}`,
       `severity:${r.severity}`,
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: r.error ? 'error' : r.count > 0 ? 'warn' : 'info',
       message: `aeci.data_quality.check ${r.id} count=${r.count}${r.skipped ? ' (skipped)' : ''}`,
       source: 'data-quality-cron',
@@ -974,7 +1020,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     html: digest.html,
   });
   submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: emailOutcome === 'failed' ? 'error' : 'info',
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
     source: 'data-quality-cron',
@@ -983,7 +1029,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   // The whole result set, stored verbatim (§7.2). `DataQualityCheckResult` is
   // field-for-field `AdminDataQualityCheckSchema`, so §5.6 renders exactly what
   // the digest above reported — the round-trip is a parse, not an adapter. This
-  // is what turns the ten checks from a daily email into a queryable history.
+  // is what turns the eleven checks from a daily email into a queryable history.
   // `outcome` reuses the same `hasErrors` expression as DQ_JOB_METRIC above.
   return {
     outcome: outcome === 'failed' ? 'failed' : 'ok',
@@ -1068,7 +1114,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       html: digest.html,
     });
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: outcome === 'failed' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
       source: 'analytics-digest-cron',
@@ -1147,7 +1193,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     };
   } catch (error) {
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, ['outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.analytics_digest.crashed',
       source: 'analytics-digest-cron',
@@ -1163,12 +1209,148 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
   }
 }
 
+/** Run the daily §7 attestation detector sweep (AECI-302): four detectors over the
+ *  claim/attestation spine → vendor nudges + AECi ops alerts via Resend → an
+ *  `audit_log` suppression ledger. The sweep owns its own fail-open behaviour (a
+ *  Resend outage is an `outcome:failed` count, never a throw) and emits the
+ *  per-detector gauge through the injected sink — including the zero case, which
+ *  is this job's cron-liveness signal while no vendor has attested yet. Only an
+ *  unexpected read failure reaches the catch here; the queue then retries, which
+ *  is safe because the ledger makes an already-delivered nudge idempotent. */
+async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/attestation-notify');
+  const started = Date.now();
+  const { db } = cronDb(env);
+
+  try {
+    const result = await runAttestationNotifySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+      },
+    );
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:success']);
+    submitDistribution(ctx, env, req, NOTIFY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: result.failed > 0 ? 'warn' : 'info',
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      source: 'attestation-notify-cron',
+    });
+    // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
+    // AECI-619 reconciliation, so it records a `job_runs` row like the other ten.
+    // A run with per-send failures is `ok` with the counts in `detail`, not
+    // `failed` — the sweep is fail-open by design and a Resend hiccup on one nudge
+    // is not a failed sweep. Only the catch below is a failure.
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'attestation-notify',
+        found: result.found,
+        sent: result.sent,
+        suppressed: result.suppressed,
+        failed: result.failed,
+        skipped: result.skipped,
+        capped: result.capped,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.attestation.notify.crashed',
+      source: 'attestation-notify-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries: unlike the read-only gauges, a sweep
+    // that never ran means nudges nobody will ever be told about.
+    throw error;
+  }
+}
+
+/**
+ * Run the daily §7 entitlement term-expiry sweep (AECI-613): scan
+ * `vendor_entitlements` for active terms inside the 30-day horizon, warn the
+ * vendor's seats and the operator, and stamp `expiry_notice_sent_at`.
+ *
+ * The two email senders are injected here — the §1.3 route-seam pattern — so the
+ * sweep module never reaches the Resend transport and its specs need no email
+ * stubbing beyond these two parameters.
+ *
+ * Fail-safe like the read-only gauges rather than rethrowing like the attestation
+ * sweep: this job WARNS, and a warning delayed by one night costs a day of lead
+ * time on an offline renewal that a human performs anyway. Retrying it would also
+ * re-send every notice whose fence write is what failed. So an unexpected error is
+ * an `outcome:failed` heartbeat and a `failed` `job_runs` row, never a throw.
+ */
+async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/entitlement-expiry');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runEntitlementExpirySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+        sendVendorEmail: sendEntitlementExpiringEmail,
+        sendAdminEmail: sendEntitlementExpiringAdminEmail,
+      },
+    );
+    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: result.batchFailures > 0 ? 'error' : 'info',
+      message: `aeci.entitlement.expiry due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      source: 'entitlement-expiry-cron',
+    });
+    // A run with per-notice send failures is `ok` with the counts in `detail`, not
+    // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
+    // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
+    // fence is retried tomorrow. Only the catch below is a failure.
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'entitlement-expiry',
+        due: result.due,
+        suppressed: result.suppressed,
+        malformed: result.malformed,
+        capped: result.capped,
+        warned: result.warned,
+        batchFailures: result.batchFailures,
+        vendor: result.vendor,
+        admin: result.admin,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.entitlement.expiry.crashed',
+      source: 'entitlement-expiry-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'entitlement-expiry',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 /**
  * Refresh `asn_registry` from PeeringDB (AECI-624 / §7.6) — the weekly job, and
  * the only one here whose output is *annotation* rather than measurement.
  *
  * Everything load-bearing is in `./lib/asn-registry`; this is the shell that
- * supplies the clock, `fetch`, and the Datadog sink. Two things are specific to
+ * supplies the clock, `fetch`, and the PostHog sink. Two things are specific to
  * an annotation feed:
  *
  *   - **It never throws and never deletes.** An upstream outage returns
@@ -1191,7 +1373,7 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.asn_registry.crashed',
       source: 'asn-registry-cron',
@@ -1207,7 +1389,7 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
 
   if (result.status === 'failed') {
     submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: `aeci.asn_registry.failed reason=${result.reason ?? 'unknown'}`,
       source: 'asn-registry-cron',
@@ -1236,7 +1418,7 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     'trigger:cron',
     `outcome:${result.failedChunks > 0 ? 'partial' : 'ok'}`,
   ]);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: result.failedChunks > 0 ? 'warn' : 'info',
     message: `aeci.asn_registry.refreshed fetched=${result.fetched} seen=${result.seen} matched=${result.matched} written=${result.written}`,
     source: 'asn-registry-cron',
@@ -1293,7 +1475,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   // and local/preview legitimately lack it — mirror the Algolia/email fail-safe.
   if (!creds.apiToken || !creds.zoneId || !host) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:skipped_no_creds']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.waf.poll.skipped_no_creds',
       source: 'waf-metrics-cron',
@@ -1305,7 +1487,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   const outcome = await fetchWafFirewallEvents(fetch, creds, window);
   if (!outcome.ok) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.waf.poll.failed',
       source: 'waf-metrics-cron',
@@ -1323,7 +1505,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:ok']);
 
   const events = outcome.groups.reduce((sum, g) => sum + g.count, 0);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: outcome.truncated ? 'warn' : 'info',
     message: `aeci.waf.poll host=${host} groups=${outcome.groups.length} events=${events}${
       outcome.truncated ? ' (truncated at the group limit — raise WAF_EVENTS_GROUP_LIMIT)' : ''
@@ -1365,6 +1547,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.RECONCILE_QUEUE;
     case 'data_quality':
       return env.DATA_QUALITY_QUEUE;
+    case 'attestation_notify':
+      return env.ATTESTATION_NOTIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -1386,6 +1570,16 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // re-attempted tomorrow by the cron, from a re-probed cutoff — never
       // replayed against state it may already have changed. No `RETENTION_QUEUE`
       // binding exists.
+      return undefined;
+    case 'entitlement_expiry':
+      // Queue-less like `moderation`/`waf`/`analytics` (AECI-613 / §7.1): one
+      // indexed read over `vendor_entitlements_expiry_idx` plus a handful of
+      // fail-open emails does not justify a new `aeci-entitlement-expiry-{env}`
+      // queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues
+      // create` step in `deploy.yml` / `promote-to-prod.yml`. A missed night is
+      // re-attempted tomorrow, and the `expiry_notice_sent_at` fence makes that
+      // re-run pick up exactly what this one missed. No `ENTITLEMENT_EXPIRY_QUEUE`
+      // binding exists, so it always runs inline.
       return undefined;
     case 'snapshot':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
@@ -1442,6 +1636,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'waf-metrics-cron',
     };
   }
+  if (job === 'attestation_notify') {
+    return {
+      path: '/cron/attestation-notify',
+      message: 'aeci.attestation.notify.enqueue_failed',
+      source: 'attestation-notify-cron',
+    };
+  }
   if (job === 'analytics') {
     // Unreachable in practice (analytics is queue-less, so `queue.send` is never
     // called) — kept so the mapping is total over `ScheduledJob`.
@@ -1449,6 +1650,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/analytics-digest',
       message: 'aeci.analytics_digest.enqueue_failed',
       source: 'analytics-digest-cron',
+    };
+  }
+  if (job === 'entitlement_expiry') {
+    // Unreachable in practice (entitlement_expiry is queue-less, so `queue.send`
+    // is never called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/entitlement-expiry',
+      message: 'aeci.entitlement.expiry.enqueue_failed',
+      source: 'entitlement-expiry-cron',
     };
   }
   if (job === 'snapshot') {
@@ -1507,7 +1717,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
       // with no detail — log loudly (as the job impls do) and fall through to
       // an inline run so the scheduled tick is never silently dropped.
       const log = enqueueFailureLog(job);
-      logToDatadog(ctx, env, cronRequest(log.path), {
+      logToPosthog(ctx, env, cronRequest(log.path), {
         level: 'error',
         message: log.message,
         source: log.source,
@@ -1524,7 +1734,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all ten, which is what makes "each of the ten
+ *  enumerate every exit path in all thirteen, which is what makes "each of the thirteen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -1546,12 +1756,16 @@ async function dispatchScheduledJob(
       return runDataQualityJob(env, ctx);
     case 'waf':
       return runWafMetricsJob(env, ctx);
+    case 'attestation_notify':
+      return runAttestationNotifyJob(env, ctx);
     case 'analytics':
       return runAnalyticsDigestJob(env, ctx);
     case 'snapshot':
       return runMetricsSnapshotJob(env, ctx);
     case 'retention':
       return runRetentionPruneJob(env, ctx);
+    case 'entitlement_expiry':
+      return runEntitlementExpiryJob(env, ctx);
     case 'asn_registry':
       return runAsnRegistryJob(env, ctx);
   }
@@ -1619,8 +1833,14 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
     case WAF_CRON:
       await enqueueOrRun(env, ctx, 'waf');
       return;
+    case ATTESTATION_NOTIFY_CRON:
+      await enqueueOrRun(env, ctx, 'attestation_notify');
+      return;
     case ANALYTICS_CRON:
       await enqueueOrRun(env, ctx, 'analytics');
+      return;
+    case ENTITLEMENT_EXPIRY_CRON:
+      await enqueueOrRun(env, ctx, 'entitlement_expiry');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare
@@ -1633,7 +1853,7 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       // a deployed `triggers.crons` entry and `lib/cron-schedules.ts` lands here.
       // Forward it to the observability pipeline as an error so it can alert.
       console.warn(`scheduled: no handler for cron "${controller.cron}"`);
-      logToDatadog(ctx, env, cronRequest('/cron/unmatched'), {
+      logToPosthog(ctx, env, cronRequest('/cron/unmatched'), {
         level: 'error',
         message: 'aeci.cron.no_handler',
         source: 'cron-dispatch',

@@ -3,7 +3,7 @@
  *
  * The `ENV` var (declared per wrangler env block — `preview`/`staging`/`demo`/
  * `production`; unset → `development`) labels a deployment. Most code keys off the
- * *exact* label (Algolia index prefix, Datadog `env` tag, `/api/version`). A few
+ * *exact* label (Algolia index prefix, observability `env` tag, `/api/version`). A few
  * gates instead care about a coarser question: "is this an audience-facing,
  * real-build site?" — true for BOTH `production` (`prod.aecintegrations.com`,
  * the eventual home page) AND `demo` (`demo.aecintegrations.com`, the public
@@ -15,7 +15,7 @@
  *
  * Use `isPublicSite()` for behavior that must be identical on every audience-facing
  * deployment, not just the one literally named `production`: blocking `/preview/*`
- * routes, bounding per-render Datadog log volume, and stripping per-request
+ * routes, bounding per-render log volume, and stripping per-request
  * response validation.
  */
 

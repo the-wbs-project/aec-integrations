@@ -1,3 +1,5 @@
+import type { CachePurgeMessage } from '@aeci/shared';
+
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
 /**
@@ -16,6 +18,11 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
+ * read) and always runs inline. `attestation_notify` is the daily 10:00 UTC §7
+ * attestation detector sweep (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7):
+ * four detectors over the claim/attestation spine, vendor nudge + AECi ops email
+ * via Resend, and an `audit_log` suppression ledger. Queue-backed, unlike the
+ * read-only gauges — it sends mail and writes D1, so it wants native retries.
  * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
  * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
  * read-only aggregation + one email) and always runs inline. `snapshot` is the
@@ -28,8 +35,15 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
  * if the 00:15 snapshot has not captured every day inside its cut window. Also
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
- * retry of a destructive job is the last thing worth automating. `asn_registry`
- * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (cron `0 2 * * 2` —
+ * retry of a destructive job is the last thing worth automating.
+ * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
+ * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
+ * `vendor_entitlements_expiry_idx` → a renewal prompt to the vendor's seats and
+ * an operator copy to `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a
+ * term earns one notice rather than one per night. Queue-less like
+ * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
+ * `status` and never writes `vendors.verified` (§7.3).
+ * `asn_registry` is the WEEKLY 02:00 UTC Monday refresh (cron `0 2 * * 2` —
  * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
  * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
  * `PEERINGDB_API_KEY` is set, AECI-661), intersected
@@ -46,9 +60,11 @@ export type ScheduledJob =
   | 'reconcile'
   | 'data_quality'
   | 'waf'
+  | 'attestation_notify'
   | 'analytics'
   | 'snapshot'
   | 'retention'
+  | 'entitlement_expiry'
   | 'asn_registry';
 
 /**
@@ -95,21 +111,39 @@ export type Env = {
    */
   DB?: D1Database;
   /**
-   * Supabase service-role key (auth project only), used by the split-identity
-   * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
-   * erasure of the `auth.users` row (seam #3) via the Supabase Admin API. Set as
-   * a Wrangler secret per env. Optional + fail-safe: absent → email reads degrade
-   * to `null` and erasure logs a warning for manual cleanup.
+   * Supabase service-role key (auth project only), used by every split-identity
+   * seam via the Supabase Admin API — the register is `docs/AUTH_AND_RLS.md` §3.1
+   * (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2), GDPR erasure of
+   * the `auth.users` row (seam #3), and vendor-claimant identity resolution —
+   * email→user lookup (#4a) + account provisioning (#4b), AECI-527.
+   *
+   * Read in exactly ONE module, `lib/supabase-admin.ts` (the single-module
+   * invariant, §3.1) — a project-wide auth key with no scoped alternative, so keep
+   * it to one door.
+   *
+   * Provisioning (AECI-530, per ADR 0016 §6): a SINGLE shared, un-suffixed GH
+   * secret — one Supabase auth project backs every env (ADR 0017) — that CI pushes
+   * to THIS Worker on staging (`deploy.yml`), demo, and production
+   * (`promote-to-{demo,prod}.yml`), each a graceful warn-and-skip step. Never on
+   * the web Worker, and deliberately never on per-PR previews (see the note in
+   * `pr-preview.yml`), so local dev and previews run keyless by design.
+   *
+   * Optional + fail-safe: absent → email reads degrade to `null`, claim resolution
+   * reports `unavailable`, and the erasure `auth.users` delete is SKIPPED (the D1
+   * erasure still commits, but the auth row survives; the skip is currently
+   * unlogged — see the §8 note in `AUTH_AND_RLS.md`, tracked as AECI-531).
    */
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) both `/api/version` and Datadog tags report `development` — one
+   * tests) both `/api/version` and the telemetry tags report `development` — one
    * convention for the unset state (AECI-119). `demo` + `production` are the two
-   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
+   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`). `stage2` is
+   * the TEMPORARY Stage 2 test tier (AECI-637) — Access-gated, so deliberately
+   * NOT a public site; remove it from this union at teardown.
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and
@@ -124,12 +158,26 @@ export type Env = {
    */
   DEPLOYED_AT?: string;
   /**
-   * Datadog Logs HTTP intake credentials (AECI-31). `DD_API_KEY` is required
-   * for `logToDatadog()` to forward; absent → helper is a no-op so dev boots
-   * cleanly without a Datadog account. `DD_SITE` defaults to `datadoghq.com`.
+   * PostHog transport config (AECI-642 / `docs/POSTHOG_MIGRATION_SPEC.md` §AW1).
+   *
+   * `POSTHOG_PROJECT_KEY` is the PUBLISHABLE `phc_` project token — not a
+   * secret, so it is a committed per-env **var** in `wrangler.jsonc` rather than
+   * a `wrangler secret` (spec §3.2: keeping it a CI-pushed secret is what
+   * produced the weeks-dark prod analytics of AECI-326). It authenticates all
+   * three pipes (OTLP logs, OTLP metrics, `posthog-node` events), which takes
+   * Worker telemetry secrets from 4 to 0. Absent → the whole transport is a
+   * total no-op, so a keyless local Worker boots cleanly.
+   *
+   * `POSTHOG_HOST` is the **ingest** origin (`https://us.i.posthog.com`), NOT
+   * the management API (`us.posthog.com`); swapping them 404s. Defaults to the
+   * US ingest host when unset.
+   *
+   * Topology (spec §3.6 / D4): preview/staging/demo/stage2 carry the
+   * `aec-integrations-dev` (525793) token; ONLY production carries
+   * `aec-integrations` (354071).
    */
-  DD_API_KEY?: string;
-  DD_SITE?: string;
+  POSTHOG_PROJECT_KEY?: string;
+  POSTHOG_HOST?: string;
   /**
    * Bearer token gating `POST /api/promote` (the review-app push endpoint).
    * Set as a Wrangler secret per environment; absent → every promote request is
@@ -178,22 +226,13 @@ export type Env = {
    */
   TAXONOMY_KV?: KVNamespace;
   /**
-   * Cloudflare API token used by `POST /api/promote` to purge the edge-cache
-   * tags a promote invalidated (AECI-105). The promote handler calls
-   * Cloudflare's purge-by-tag API **directly** over HTTPS — there is no longer a
-   * `WEB` service binding back to the SSR Worker (that web↔api cycle was removed
-   * in Option B; see `docs/adr/0010-promote-purges-cloudflare-directly.md`).
-   * Must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only
-   * (`docs/CACHE_STRATEGY.md` §5) — the same scope the web Worker's token uses.
-   * Set as a Wrangler secret per environment. Optional: absent (with `CF_ZONE_ID`)
-   * → cache purge is a graceful no-op (e.g. local `pnpm dev:bound`, PR previews).
-   */
-  CF_PURGE_API_TOKEN?: string;
-  /**
-   * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
-   * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
-   * purge is a graceful no-op. Also reused (as the GraphQL `zoneTag`) by the
-   * AECI-262 WAF firewall-event poll.
+   * Cloudflare zone ID for `aecintegrations.com`. Public value, set per
+   * environment as a Wrangler secret. Consumed (as the GraphQL `zoneTag`) by the
+   * hourly AECI-262 WAF firewall-event poll (`scheduled.ts` `runWafMetricsJob`,
+   * paired with `CF_ANALYTICS_API_TOKEN`). Optional: absent → the poll logs
+   * `outcome:skipped_no_creds` and no-ops. (The promote's cache purge no longer
+   * reads this — it enqueues onto the `aeci-cache-purge-{env}` Queue since WC-5;
+   * the old zone HTTP purge + `CF_PURGE_API_TOKEN` were retired in WC-10.)
    */
   CF_ZONE_ID?: string;
   /**
@@ -201,8 +240,8 @@ export type Env = {
    * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
    * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
    * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
-   * `aecintegrations.com` — a DIFFERENT scope than `CF_PURGE_API_TOKEN`
-   * (`Zone.Cache Purge`), so it is its own secret. One un-suffixed GH secret
+   * `aecintegrations.com` — a narrow, read-only scope (distinct from the retired
+   * `Zone.Cache Purge` purge token), so it is its own secret. One un-suffixed GH secret
    * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
    * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
    * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
@@ -315,15 +354,38 @@ export type Env = {
    */
   DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
   /**
+   * Queue carrying the daily §7 attestation detector sweep (AECI-302 /
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §7.4). Queue-backed rather than inline like the
+   * read-only gauges because the job sends email and writes `audit_log`, so it
+   * benefits from the consumer's native retries. Same producer/consumer split as
+   * the others; absent on local/preview → the cron runs the job inline
+   * (`enqueueOrRun`).
+   */
+  ATTESTATION_NOTIFY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Cloudflare Queue **producer** binding for cross-Worker cache-purge (WC-5 /
+   * AECI-319 / ADR 0020 §3). The post-promote purge (`purgeAfterPromote`, the ordered
+   * home-stats flow) and review moderation (`admin-reviews.ts`) enqueue a
+   * {@link CachePurgeMessage} here; the **SSR Worker** consumes `aeci-cache-purge-{env}`
+   * and issues `ctx.cache.purge()` from its own cache (the API Worker's zone-HTTP purge
+   * is inert against native Workers Cache). Bound on staging + demo + production only
+   * (the consumer binding lives in `apps/web/wrangler.jsonc`). Absent on local
+   * `wrangler dev` / preview → the producers no-op gracefully (no edge cache there).
+   */
+  CACHE_PURGE_QUEUE?: Queue<CachePurgeMessage>;
+  /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
    * env. Used ONLY to derive the JWKS endpoint
    * (`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`) and the expected `iss`
    * claim for user-JWT verification in `lib/user-auth.ts` — no DB round-trip,
    * no Supabase client on this Worker. Absent → `requireUserAuth()` rejects
-   * every request 401 (fail-closed). The anon key and service-role key are
-   * deliberately NOT bound here: the API Worker verifies tokens with public
-   * JWKS material only (AUTH_AND_RLS.md §4).
+   * every request 401 (fail-closed). The **anon key** is deliberately not bound
+   * here: the API Worker verifies tokens with public JWKS material only
+   * (AUTH_AND_RLS.md §4). The **service-role key** IS bound, separately, as
+   * `SUPABASE_SERVICE_ROLE_KEY` — but only for the Admin-API split-identity seams
+   * (AUTH_AND_RLS.md §3.1), never for token verification. This value is also the
+   * Admin-API base URL those seams build on.
    */
   SUPABASE_URL?: string;
   /**
@@ -419,11 +481,24 @@ export type Env = {
    * Recipient for the persistent-failure admin alert raised by the reconciliation
    * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
    * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
-   * `sendAdminAlert()` seam returns `'skipped'` and the **Datadog alert**
+   * `sendAdminAlert()` seam returns `'skipped'` and the **PostHog alert**
    * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
    * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
    */
   ADMIN_ALERT_EMAIL?: string;
+  /**
+   * Recipient for the operator "new vendor claim" alert — sent post-commit from
+   * `POST /api/requests/claim` (`routes/requests.ts`). A SINGLE address, like
+   * `ADMIN_ALERT_EMAIL` (the transactional transport passes `to` through to Resend
+   * verbatim; only the `_TO` digest vars take a parsed list). Separate from
+   * `ADMIN_ALERT_EMAIL` on purpose: claim intake
+   * goes to the support inbox (`support@aecintegrations.com`), while
+   * `ADMIN_ALERT_EMAIL` remains the individual operator address the sweep alerts and
+   * lead-capture notifications use. Plain wrangler var per env. Absent → the alert is
+   * a `skipped` no-op and the submit still returns `201` — the Linear issue
+   * (§6.4) stays the durable record either way.
+   */
+  CLAIM_ALERT_EMAIL?: string;
   /**
    * Resend API key — the single transactional-email secret for the API Worker.
    * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review

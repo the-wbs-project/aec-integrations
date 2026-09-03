@@ -18,7 +18,7 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import { classifyTraffic } from '../lib/bot-classification';
 import { classifyClientSignals } from '../lib/client-signals';
 import { classifyReferrer } from '../lib/referrer-classification';
@@ -277,7 +277,7 @@ async function findDuplicate(
 }
 
 /** Deferred capture. Never throws: failures emit `aeci.pageviews.write{outcome:failed}`
- *  + a Datadog warn and are swallowed so the returned 204 stands. */
+ *  + an observability warn and are swallowed so the returned 204 stands. */
 async function capturePageView(
   c: Context<{ Bindings: Env }>,
   payload: PageViewPayload,
@@ -400,7 +400,7 @@ async function capturePageView(
     ]);
   } catch (error) {
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:failed']);
-    logToDatadog(c.executionCtx, c.env, req, {
+    logToPosthog(c.executionCtx, c.env, req, {
       level: 'warn',
       message: 'aeci.api.page_view.capture_failed',
       source: 'page-views',

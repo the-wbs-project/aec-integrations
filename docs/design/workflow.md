@@ -83,7 +83,7 @@ Don't ask v0 to design these. They're either tied to our infra or are Phase 2+ c
 - Routes beyond the single preview entry — no app shell, no breadcrumbs unless they're part of the visual brief.
 - Auth flows, sign-in screens, profile menus.
 - i18n machinery — strings will be wrapped in the port.
-- Datadog / PostHog instrumentation.
+- Analytics / observability instrumentation (PostHog; Datadog until AECI-651).
 - Error states, loading states, empty states (unless the screen brief explicitly calls them out).
 
 ---

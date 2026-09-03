@@ -21,6 +21,7 @@
  */
 
 import {
+  attestorForContext,
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
@@ -31,14 +32,20 @@ import {
 } from '@aeci/shared';
 import type {
   AccountReview,
+  AdminClaim,
   AdminReview,
   AdminVendorRequest,
+  AdminVendorSeat,
   ClaimDirection,
+  ClaimTimeline,
+  ClaimTimelineEntry,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
   LinkRef,
+  Maintenance,
   PairClaimAttestation,
+  PairVersionDiff,
   ProductDetail,
   ProductIntegrationItem,
   ProductLink,
@@ -49,31 +56,72 @@ import type {
   ProductRole,
   ProductUsefulness,
   PublicReview,
+  RelatedRequestRef,
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
+  VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
+  VendorProductRoles,
 } from '@aeci/shared';
-import { and, eq, inArray, like, sql, type SQL } from 'drizzle-orm';
+import {
+  claimVersionStatus,
+  isClaimPresentAt,
+  type ClaimVersionWindow,
+  type VersionPairSelection,
+} from '@aeci/shared/version-diff';
+import { and, asc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
+  attestations,
   productAudiences,
   productCategories,
   productPhases,
   products,
   productTrades,
   productVendors,
+  productVersions,
   vendors,
 } from '../db/schema';
+
+// ---------------------------------------------------------------------------
+// Shared read orderings
+// ---------------------------------------------------------------------------
+
+/**
+ * The ordered `product_versions` read (§8.2). `sort_key` first; `created_at` then
+ * `id` break a tie, which is possible because the unique index is on
+ * `(product_id, label)`, not on `sort_key`, and every digit-free label derives 0.
+ * The tiebreak deliberately does NOT fall back to `label` — that would
+ * reintroduce exactly the lexical ordering the column exists to avoid.
+ *
+ * Mirrors `compareProductVersions` (`@aeci/shared/version-sort`) — **change both
+ * together.** Lives here rather than beside either reader because there are now
+ * two: `routes/vendor-product-versions.ts` (the authoring list, AECI-607) and the
+ * product-PAIR read (the §9 selectors, AECI-303). One `ORDER BY`, one comment.
+ */
+export const VERSION_ORDER = [
+  asc(productVersions.sortKey),
+  asc(productVersions.createdAt),
+  asc(productVersions.id),
+];
 
 // ---------------------------------------------------------------------------
 // Leaf column sets (reused by several parents)
 // ---------------------------------------------------------------------------
 
-const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
-const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
+const vendorLinkColumns = {
+  id: true,
+  companyName: true,
+  slug: true,
+  logoUrl: true,
+  verified: true,
+} as const;
+/** Exported for `routes/vendor-attestations.ts` (AECI-301), whose hydration
+ *  embeds the same `ProductLink` shape. One column list, one mapper. */
+export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 
@@ -99,19 +147,276 @@ export const integrationListConfig = {
 } as const;
 
 /**
+ * The predicate both claim-loading read configs apply to their `attestations`
+ * sub-query, and the load-bearing half of the §4 read path: `retracted_at IS
+ * NULL` is what keeps a withdrawn assertion from voting
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §2.5 handed this to §4 / AECI-605).
+ *
+ * It filters on `retracted_at` **only**. Gating on the `deprecated_at` version
+ * stamp (`STAGE_1_5_SPEC.md` §3.3) would make an attestation vanish the moment
+ * a vendor recorded that a flow was deprecated in some version — the opposite
+ * of what AECI-303's timeline needs. The two columns are easy to conflate;
+ * `schema.ts` spells out the distinction at the table.
+ *
+ * `computeAgreement` re-checks `retractedAt` itself, so the shared engine is
+ * safe for callers that assemble attestations another way. This is the
+ * belt — that is the braces.
+ *
+ * Exported for the §7 detector sweep (AECI-302), which builds its own read
+ * config rather than paying for the pair page's render payload but must apply
+ * the identical predicate — one definition, not a second `isNull(...)` literal
+ * that could drift from this comment.
+ */
+export const liveAttestationsWhere = isNull(attestations.retractedAt);
+
+/**
  * Product-detail embed of an integration (`ProductDetail.integrations_as_*`).
- * Like the list config but also loads each mechanism's claim **directions** so
- * `toProductIntegrationItem` can derive the claims-aware `context_direction`
+ * Like the list config but also loads each mechanism's claims — their
+ * **directions** and the attestations that decide whether each still counts —
+ * so `toProductIntegrationItem` can derive the claims-aware `context_direction`
  * (Stage 1.5 §3.2) the table renders. Kept separate from `integrationListConfig`
  * so `/api/integrations` and the home rail don't pay for the extra join.
+ *
+ * The attestation hydration is the §4 refuted-claim rule: a flow every voting
+ * vendor denies must stop steering the table's arrow. Its column list is
+ * deliberately narrower than the pair page's (no `note`/version stamps) —
+ * nothing here is serialised, and this join already costs roughly
+ * integrations × claims × attestations rows on a product-detail read.
  */
 export const productDetailIntegrationConfig = {
   columns: integrationListConfig.columns,
   with: {
     ...integrationListConfig.with,
-    claims: { columns: { direction: true } },
+    // Stage 1.5 §13.4(1) — the endpoint lane router needs the connector to apply
+    // §13.2(a)/(b) to a row still living in `integrations`. Detail-only: the bare
+    // list config stays without it (see `ProductIntegrationItem.powered_by_product`).
+    poweredByProduct: { columns: productLinkColumns },
+    claims: {
+      columns: { direction: true },
+      with: {
+        attestations: {
+          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          where: liveAttestationsWhere,
+        },
+      },
+    },
   },
 } as const;
+
+// ---------------------------------------------------------------------------
+// Connector-evidenced pairs (AECI-721) — the SECOND storage table behind one
+// wire shape.
+//
+// `STAGE_1_5_SPEC.md` §13.1 splits the DELIVERED tier across two tables:
+// `integrations` holds accountable-party edges, `connector_evidenced_pairs` holds
+// edges an iPaaS delivers. Both render as `IntegrationListItem`, distinguished by
+// `via`, because §13.3 is written source-agnostically on purpose — the split is a
+// sourcing question, never a rendering one.
+//
+// Three shape differences the mappers below have to reconcile, none of them
+// accidental (`DATABASE_SCHEMA.md` §9a.6):
+//
+//   1. **Canonical pair, not source/target.** The row stores `product_a_id <
+//      product_b_id` (a CHECK), so orientation lives in `direction` alone. A
+//      vendor publishing both directions as separate pages would otherwise arrive
+//      twice and the unique index could not see the collision.
+//   2. **`direction` uses the CLAIM vocabulary** (`a_to_b | b_to_a | both`), not
+//      `integrations`' `one-way | bidirectional`: once the pair is canonicalised,
+//      `one-way` no longer says which way. Mapping back out is the inverse of the
+//      migration's CASE and is lossless in both directions.
+//   3. **No `mechanism_kind` column at all.** The lane answers "which mechanism",
+//      so these rows serialise `mechanism_kind: null` and carry `via` instead.
+//      Do not synthesise a kind to fill the gap.
+// ---------------------------------------------------------------------------
+
+/** `IntegrationListItem` hydration for an evidenced pair — both endpoints and the
+ *  connector as `ProductLink`. */
+export const connectorEvidencedPairListConfig = {
+  columns: {
+    id: true,
+    name: true,
+    mechanismName: true,
+    direction: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+  with: {
+    productA: { columns: productLinkColumns },
+    productB: { columns: productLinkColumns },
+    connectorProduct: { columns: productLinkColumns },
+  },
+} as const;
+
+/** Product-detail (ENDPOINT) hydration for an evidenced pair — the list config plus
+ *  the same claims/attestations join `productDetailIntegrationConfig` carries, so a
+ *  connector-delivered row's Direction column is derived from exactly the signal an
+ *  accountable-party row's is (§3.2 / §4.3). The claims relation is the polymorphic
+ *  anchor AECI-721 PR-B added; before it this join would have returned `[]` forever. */
+export const connectorEvidencedPairDetailConfig = {
+  columns: connectorEvidencedPairListConfig.columns,
+  with: {
+    ...connectorEvidencedPairListConfig.with,
+    claims: {
+      columns: { direction: true },
+      with: {
+        attestations: {
+          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          where: liveAttestationsWhere,
+        },
+      },
+    },
+  },
+} as const;
+
+/** Pair-page hydration for an evidenced pair — the list config plus the mechanism
+ *  card's body and the maintenance marker, mirroring `integrationPairConfig`.
+ *  `claims` joins in AECI-721 PR-B, once the anchor column exists. */
+export const connectorEvidencedPairPairConfig = {
+  columns: {
+    ...connectorEvidencedPairListConfig.columns,
+    description: true,
+    listingUrl: true,
+    docsUrl: true,
+    lastReviewedAt: true,
+    maintainedBy: true,
+  },
+  with: {
+    ...connectorEvidencedPairListConfig.with,
+    builtByVendor: { columns: vendorLinkColumns },
+  },
+} as const;
+
+export interface RawConnectorEvidencedPairRow {
+  id: string;
+  name: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  createdAt: string;
+  updatedAt: string;
+  productA: RawProductLink;
+  productB: RawProductLink;
+  connectorProduct: RawProductLink;
+}
+
+/** Evidenced-pair row + its claims, for the ENDPOINT product-detail embed. Sibling
+ *  of `RawProductIntegrationRow`; the two feed the same `ProductIntegrationItem`. */
+export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
+  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
+}
+
+export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
+  description: string | null;
+  listingUrl: string | null;
+  docsUrl: string | null;
+  lastReviewedAt: string | null;
+  maintainedBy: string;
+  builtByVendor: RawVendorLink | null;
+}
+
+/**
+ * Resolve a canonical evidenced pair back into the oriented `source`/`target`
+ * frame every read surface speaks, plus the `integrations` direction vocabulary.
+ *
+ * The exact inverse of the AECI-721 migration's CASE, and lossless: `b_to_a` is
+ * the only value that swaps the endpoints, which is precisely the information
+ * canonicalisation would otherwise discard. `both` and `null` both present A as
+ * source — for `both` the orientation carries no meaning, and for `null` we have
+ * no orientation to assert, so the stable canonical order is the honest choice.
+ */
+export function orientEvidencedPair(raw: RawConnectorEvidencedPairRow): {
+  source: RawProductLink;
+  target: RawProductLink;
+  direction: 'one-way' | 'bidirectional' | null;
+} {
+  switch (raw.direction) {
+    case 'a_to_b':
+      return { source: raw.productA, target: raw.productB, direction: 'one-way' };
+    case 'b_to_a':
+      return { source: raw.productB, target: raw.productA, direction: 'one-way' };
+    case 'both':
+      return { source: raw.productA, target: raw.productB, direction: 'bidirectional' };
+    default:
+      // NULL is legal — the CHECK constrains only non-null values, and the
+      // migration maps a null `integrations.direction` straight through.
+      return { source: raw.productA, target: raw.productB, direction: null };
+  }
+}
+
+/** An evidenced pair as an `IntegrationListItem`. `mechanism_kind` is null by
+ *  construction (the table has no such column) and `via` names the connector. */
+export function toIntegrationListItemFromEvidencedPair(
+  raw: RawConnectorEvidencedPairRow,
+): IntegrationListItem {
+  const { source, target, direction } = orientEvidencedPair(raw);
+  return {
+    id: raw.id,
+    name: synthesizeIntegrationName(raw.name, source, target),
+    mechanism_kind: null,
+    mechanism_name: raw.mechanismName,
+    direction,
+    source: toProductLink(source),
+    target: toProductLink(target),
+    via: toProductLink(raw.connectorProduct),
+    created_at: raw.createdAt,
+    updated_at: raw.updatedAt,
+  };
+}
+
+/**
+ * An evidenced pair as a `ProductIntegrationItem` — the ENDPOINT product-detail
+ * embed (AECI-713 / §13.3). The twin of `toProductIntegrationItem`, and the reason
+ * §13.3 could be written source-agnostically: both tables arrive at the same wire
+ * shape, discriminated by `via`.
+ *
+ * **The frame is the whole difference, and getting it wrong renders arrows
+ * backwards.** `integrations` stores source/target, so "context is source" answers
+ * both halves of `effectiveContextDirection`. An evidenced pair stores a
+ * CANONICAL pair (`product_a_id < product_b_id`, a CHECK) with the orientation
+ * living in `direction` alone, and its claims are anchored in that same A/B frame.
+ * So the two halves need different flags:
+ *
+ *   - the STORED half is framed against the ORIENTED source (`orientEvidencedPair`),
+ *     which is B whenever `direction = 'b_to_a'`;
+ *   - the CLAIM half is framed against A, always.
+ *
+ * Rather than plumb two flags through `effectiveContextDirection`, the claims are
+ * flipped into the oriented frame first — one transformation on the smaller,
+ * simpler value. `b_to_a` is the only orientation that swaps, exactly as
+ * `orientEvidencedPair` documents.
+ */
+export function toProductIntegrationItemFromEvidencedPair(
+  raw: RawProductEvidencedPairRow,
+  contextProductId: string,
+): ProductIntegrationItem {
+  const item = toIntegrationListItemFromEvidencedPair(raw);
+  const contextIsSource = item.source.id === contextProductId;
+  const swapped = raw.direction === 'b_to_a';
+  return {
+    ...item,
+    context_direction: effectiveContextDirection(
+      item.direction,
+      raw.claims.map((claim) => {
+        const direction = coerceClaimDirection(claim.direction, raw.id);
+        return {
+          direction: swapped ? flipClaimDirection(direction) : direction,
+          attestations: claim.attestations,
+        };
+      }),
+      contextIsSource,
+    ),
+    // Never both: a row in `connector_evidenced_pairs` has no
+    // `powered_by_product_id` to carry (§13.4(1)).
+    powered_by_product: null,
+  };
+}
+
+/** Mirror a claim direction when the pair's canonical A/B frame is the reverse of
+ *  the frame the row renders in. `both` is its own mirror. */
+function flipClaimDirection(direction: ClaimDirection): ClaimDirection {
+  if (direction === 'a_to_b') return 'b_to_a';
+  if (direction === 'b_to_a') return 'a_to_b';
+  return 'both';
+}
 
 /** Detail adds the heavier hydration per API_CONTRACTS §3.4. */
 export const integrationDetailConfig = {
@@ -148,6 +453,10 @@ export const integrationPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
+    // Feed the page header's maintenance marker (AECI-616). Not surfaced per
+    // mechanism — `computePairMaintenance` folds them into one header value.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -155,8 +464,22 @@ export const integrationPairConfig = {
     builtByVendor: { columns: vendorLinkColumns },
     poweredByProduct: { columns: productLinkColumns },
     // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
-    // with its stored direction + AECi-seeded attestations, mapped to a
+    // with its stored direction + live attestations, mapped to a
     // context-relative claim with computed agreement in `toProductPairClaim`.
+    //
+    // `liveAttestationsWhere` discharges the AECI-603 handoff
+    // (STAGE_2_ATTESTATIONS_SPEC.md §2.5): a retracted attestation must neither
+    // vote nor render. `attestedByVendorId` feeds the §4.2 distinct-identity
+    // dedupe and is dropped by the mapper; `note` + the version stamps are the
+    // provenance popover's payload.
+    //
+    // The two `*VersionId` FKs are AECI-303's presence input (§9.1). Only the ids
+    // are selected — NOT the related `product_versions` rows: the pair handler
+    // already loads both endpoints' full version lists for the selectors, so
+    // `resolveVersionSelection` resolves each id against that map. Hydrating the
+    // relations here would mean two more joins on the heaviest read in the system
+    // (and both would need their disambiguated `relationName`, since two FKs point
+    // at one table) for data already in hand.
     claims: {
       columns: { id: true, direction: true },
       with: {
@@ -165,12 +488,85 @@ export const integrationPairConfig = {
           columns: {
             source: true,
             asserted: true,
+            attestedByVendorId: true,
+            retractedAt: true,
             note: true,
             introducedAt: true,
             deprecatedAt: true,
+            introducedVersionId: true,
+            deprecatedVersionId: true,
+          },
+          where: liveAttestationsWhere,
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Per-claim **history** hydration for the pair timeline read
+ * (`GET …/integrations/:otherSlug/timeline`, AECI-303 / §9.1).
+ *
+ * ⚠️ **This is the ONE read in the system that deliberately omits
+ * `liveAttestationsWhere`.** Retracted rows are the point: §2.1's supersession is
+ * retract-then-insert, so the append-only history *is* the retracted rows plus the
+ * live one. Consequences, both load-bearing:
+ *
+ *   - **Never call `computeAgreement` (or `isClaimRefuted`, or `computeSyncHeadline`)
+ *     on this config's output.** Those engines re-check `retractedAt` themselves, so
+ *     they would not be *wrong* — but routing history through them is how a
+ *     withdrawn assertion finds its way back into a vote, which is the exact hazard
+ *     §2.5 handed to §4. Agreement comes from `integrationPairConfig`; this config
+ *     feeds the timeline mapper and nothing else.
+ *   - It carries no products, vendors, or mechanism columns — only what one history
+ *     row renders. The payload is unbounded in principle (the log grows forever),
+ *     so it stays as narrow as possible.
+ */
+export const integrationTimelineConfig = {
+  columns: { id: true },
+  with: {
+    sourceProduct: { columns: { id: true } },
+    claims: {
+      columns: { id: true },
+      with: {
+        attestations: {
+          columns: {
+            id: true,
+            source: true,
+            asserted: true,
+            note: true,
+            retractedAt: true,
+            createdAt: true,
+            introducedVersionId: true,
+            deprecatedVersionId: true,
           },
         },
       },
+    },
+  },
+} as const;
+
+/**
+ * The narrowest product read that still answers §9.3's version-diff gate: the id,
+ * plus the vendor links `pickPrimaryVendor` needs to expose the `verified` MIRROR
+ * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
+ *
+ * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
+ * pair read itself already carries this via `productListConfig`. It reuses
+ * `vendorLinkColumns` and `pickPrimaryVendor` rather than a bespoke
+ * "is-this-vendor-verified" selection so the two reads and the web resolver cannot
+ * disagree about *which* vendor of a multi-vendor product the gate reads.
+ *
+ * `verified` is the denormalized mirror of an `active` entitlement row. **Nothing
+ * here may join the entitlement table** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids
+ * it on a read path, and `drizzle-helpers.read-path.spec.ts` asserts it (which is
+ * why this comment names the mirror rather than the table).
+ */
+export const productVersionDiffGateConfig = {
+  columns: { id: true },
+  with: {
+    productVendors: {
+      with: { vendor: { columns: vendorLinkColumns } },
     },
   },
 } as const;
@@ -215,6 +611,9 @@ export const productDetailConfig = {
     apiDocsUrl: true,
     hasApiDocs: true,
     usefulness: true,
+    // Maintenance marker (AECI-616) — detail only; the marker never renders on a card.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   with: {
     productVendors: {
@@ -229,13 +628,32 @@ export const productDetailConfig = {
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
     // Sparse by design (§5.5a) — most products resolve to `[]` here.
     productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
+    // Deliberately unordered. The detail page interleaves these two buckets
+    // into ONE list sorted alphabetically by partner name (`product-detail.ts`,
+    // `STAGE_1_5_SPEC.md` §7.1) — an order SQL can't express from here: a
+    // relation `orderBy` only reaches columns of `integrations`, and the partner
+    // name is on the joined product. Sorting each bucket wouldn't interleave
+    // them either. Adding an `orderBy` here buys nothing the client reads.
     sourceIntegrations: productDetailIntegrationConfig,
     targetIntegrations: productDetailIntegrationConfig,
+    // The endpoint buckets' SECOND source (AECI-713 / §13.1's delivered tier).
+    // A canonical pair puts this product on one side or the other, so both
+    // relations load and `toProductDetail` files each row into the source or
+    // target bucket by its ORIENTED endpoints, not by which column matched.
+    // Without these two the AECI-721 migration silently removed every moved edge
+    // from both endpoints' pages while `integration_count` kept counting it —
+    // the §13.5 invariant reads "regardless of which table holds them".
+    evidencedPairsAsA: connectorEvidencedPairDetailConfig,
+    evidencedPairsAsB: connectorEvidencedPairDetailConfig,
     // Edges this product powers as the connector/mechanism (Stage 1.5
     // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
     // the page product is neither endpoint, so there is no context_direction
     // and no claims join to pay for.
     poweredIntegrations: integrationListConfig,
+    // The same bucket's SECOND source after AECI-721: edges this product powers
+    // that have moved out of `integrations` into the connector lane's delivered
+    // tier. `toProductDetail` unions the two into `integrations_as_connector`.
+    evidencedPairsAsConnector: connectorEvidencedPairListConfig,
   },
 } as const;
 
@@ -325,7 +743,16 @@ export const vendorListConfig = {
         'product_count',
       ),
     integrationCount:
-      sql<number>`(SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")`.as(
+      // AECI-721 / §13.5 item 6: a DIFFERENT rule from the product count — a
+      // correlated subquery on `built_by_vendor_id`, not a read of the
+      // denormalized `products.integration_count` column. It is therefore NOT
+      // downstream of `recompute-counts.ts` and drops every migrated edge on its
+      // own unless the evidenced table is summed here too. The ~20-row accountable
+      // residue §13.2 records is exactly this population: Agave built 11 of the 19
+      // edges that move, so without the second subquery Agave's vendor record
+      // reports 0 integrations the day the migration lands.
+      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")
+        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
         'integration_count',
       ),
   },
@@ -343,6 +770,9 @@ export const vendorDetailConfig = {
     instagramUrl: true,
     youtubeUrl: true,
     githubOrg: true,
+    // Maintenance marker (AECI-616) — detail only.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   extras: vendorListConfig.extras,
   with: {
@@ -447,6 +877,7 @@ interface RawVendorLink {
   companyName: string;
   slug: string;
   logoUrl: string | null;
+  verified: boolean;
 }
 interface RawProductLink {
   id: string;
@@ -474,10 +905,15 @@ export interface RawIntegrationListRow {
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
 }
-/** List row + each mechanism's claim directions, for the product-detail embed
- *  (`productDetailIntegrationConfig`). Directions feed `effectiveContextDirection`. */
+/** List row + each mechanism's claims, for the product-detail embed
+ *  (`productDetailIntegrationConfig`). Both halves feed
+ *  `effectiveContextDirection`: the direction is what the table renders, the
+ *  attestations decide whether a claim still gets a say (§4.3 — a flow every
+ *  voting vendor denies must stop steering the arrow). */
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
-  claims: Array<{ direction: string }>;
+  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
+  /** §13.4(1) — nullable because the partial index is on the non-null rows only. */
+  poweredByProduct: RawProductLink | null;
 }
 
 export interface RawIntegrationDetailRow extends RawIntegrationListRow {
@@ -491,12 +927,73 @@ export interface RawIntegrationDetailRow extends RawIntegrationListRow {
   poweredByProduct: RawProductLink | null;
 }
 
-export interface RawClaimAttestationRow {
+/** The minimum an attestation must carry to be counted by `computeAgreement`
+ *  (§4.2): who voted, under which vendor identity, and whether the assertion
+ *  still stands. Structurally an `AgreementAttestation` with Drizzle's camelCase
+ *  column names — the read configs already filter `retractedAt IS NULL`, but the
+ *  column is carried so the shared engine's own re-check has something to read. */
+export interface RawAgreementVoteRow {
   source: string;
   asserted: boolean;
+  attestedByVendorId: string | null;
+  retractedAt: string | null;
+}
+
+/** A pair-page attestation: the vote plus the provenance payload the popover
+ *  renders. */
+export interface RawClaimAttestationRow extends RawAgreementVoteRow {
   note: string | null;
   introducedAt: string | null;
   deprecatedAt: string | null;
+  // AECI-303 (§9.1): the PRECISE version stamps. Resolved against the pair's
+  // loaded `product_versions` map, not via a relation — see `integrationPairConfig`.
+  introducedVersionId: string | null;
+  deprecatedVersionId: string | null;
+}
+
+/** One append-only history row for the timeline read (`integrationTimelineConfig`). */
+export interface RawTimelineAttestationRow {
+  id: string;
+  source: string;
+  asserted: boolean;
+  note: string | null;
+  retractedAt: string | null;
+  createdAt: string;
+  introducedVersionId: string | null;
+  deprecatedVersionId: string | null;
+}
+
+export interface RawTimelineIntegrationRow {
+  id: string;
+  sourceProduct: { id: string };
+  claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
+}
+
+/**
+ * What the §9 mappers need to resolve one pair read's version diff.
+ *
+ * Implemented by `resolveVersionSelection` (`./pair-version-diff`), which owns the
+ * label lookup, the stamp-id → side resolution, and the **single**
+ * `canViewVersionDiff` consult on the API. Declared here because the mappers are
+ * the consumer and this is their contract; the dependency runs
+ * `pair-version-diff → drizzle-helpers`, never back.
+ *
+ * Passing `undefined` to the mappers is not a degraded mode — it is the ordinary
+ * path for every pair whose diff does not apply, and it must produce output
+ * identical to the pre-AECI-303 shape.
+ */
+export interface PairVersionResolver {
+  /** The wire payload for `ProductPairResponse.version_diff`. */
+  readonly diff: PairVersionDiff;
+  readonly selected: VersionPairSelection;
+  readonly previous: VersionPairSelection | null;
+  /** The 0, 1, or 2 windows one attestation's stamps contribute. */
+  claimWindows(attestation: {
+    introducedVersionId: string | null;
+    deprecatedVersionId: string | null;
+  }): ClaimVersionWindow[];
+  /** A stamped version's label, or `undefined` when unstamped or unresolvable. */
+  versionLabel(versionId: string | null): string | undefined;
 }
 
 export interface RawPairClaimRow {
@@ -520,6 +1017,16 @@ export interface RawIntegrationPairRow {
   builtByVendor: RawVendorLink | null;
   poweredByProduct: RawProductLink | null;
   claims: RawPairClaimRow[];
+  // Folded into the page header by `computePairMaintenance`, not surfaced per
+  // mechanism (AECI-616).
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+}
+
+/** The maintenance-marker columns every detail read selects (AECI-616). */
+export interface RawMaintenanceColumns {
+  maintainedBy: string;
+  lastReviewedAt: string | null;
 }
 
 export interface RawProductListRow {
@@ -537,7 +1044,7 @@ export interface RawProductListRow {
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
 }
-export interface RawProductDetailRow extends RawProductListRow {
+export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
   description: string | null;
   website: string | null;
   toolIntegrationsUrl: string | null;
@@ -549,7 +1056,10 @@ export interface RawProductDetailRow extends RawProductListRow {
   productTrades: Array<{ trade: RawTaxonomyLink }>;
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
+  evidencedPairsAsA: RawProductEvidencedPairRow[];
+  evidencedPairsAsB: RawProductEvidencedPairRow[];
   poweredIntegrations: RawIntegrationListRow[];
+  evidencedPairsAsConnector: RawConnectorEvidencedPairRow[];
 }
 
 export interface RawPublicReviewRow {
@@ -610,7 +1120,7 @@ export interface RawVendorListRow {
   productCount: number;
   integrationCount: number;
 }
-export interface RawVendorDetailRow extends RawVendorListRow {
+export interface RawVendorDetailRow extends RawVendorListRow, RawMaintenanceColumns {
   description: string | null;
   website: string | null;
   linkedinUrl: string | null;
@@ -652,6 +1162,7 @@ const VALID_MECHANISM_KINDS = new Set<IntegrationMechanismKind>([
   'api',
   'webhook',
   'partner',
+  'integrator',
 ]);
 
 export function toMechanismKind(
@@ -682,11 +1193,17 @@ function toProductRole(raw: string, productId: string): ProductRole {
   throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
 }
 
-function toProductLink(raw: RawProductLink): ProductLink {
+export function toProductLink(raw: RawProductLink): ProductLink {
   return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {
-  return { id: raw.id, name: raw.companyName, slug: raw.slug, logo_url: raw.logoUrl };
+  return {
+    id: raw.id,
+    name: raw.companyName,
+    slug: raw.slug,
+    logo_url: raw.logoUrl,
+    verified: raw.verified,
+  };
 }
 function synthesizeIntegrationName(
   rawName: string | null,
@@ -716,6 +1233,13 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
     direction: coerceDirection(raw.direction),
     source: toProductLink(raw.sourceProduct),
     target: toProductLink(raw.targetProduct),
+    // A row of `integrations` is by definition NOT delivered by a named connector
+    // in the AECI-721 sense: the connector-delivered edges live in
+    // `connector_evidenced_pairs` and come through
+    // `toIntegrationListItemFromEvidencedPair`. A self-referential Convention-A
+    // edge keeps its `powered_by_product` on the DETAIL shape and still reads
+    // `via: null` here — the two are deliberately not interchangeable.
+    via: null,
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
   };
@@ -726,9 +1250,10 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
  * `context_direction` (Stage 1.5 §3.2). The effective direction prefers the
  * mechanism's `data_object` claim directions (the richer signal the pair page
  * surfaces) and falls back to the stored row `direction`, both framed to this
- * page's product. `contextIsSource` is whether this product is the integration's
- * `source` (its endpoint A). Precomputed here so the table can't drift from the
- * pair page.
+ * page's product. Claims every voting vendor denies are dropped by
+ * `effectiveContextDirection` (§4.3). `contextIsSource` is whether this product
+ * is the integration's `source` (its endpoint A). Precomputed here so the table
+ * can't drift from the pair page.
  */
 export function toProductIntegrationItem(
   raw: RawProductIntegrationRow,
@@ -738,9 +1263,16 @@ export function toProductIntegrationItem(
     ...toIntegrationListItem(raw),
     context_direction: effectiveContextDirection(
       coerceDirection(raw.direction),
-      raw.claims.map((claim) => coerceClaimDirection(claim.direction, raw.id)),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
       contextIsSource,
     ),
+    // §13.4(1). Non-null on a Convention-A self-reference (which §13.2(a) keeps in
+    // the DIRECT lane) and, in an un-migrated database, on a routable connector
+    // edge the AECI-721 migration has not moved yet.
+    powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
   };
 }
 
@@ -758,30 +1290,77 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
-function toPairClaimAttestation(raw: RawClaimAttestationRow): PairClaimAttestation {
+/** Surface one attestation for the provenance popover, with its slot translated
+ *  into the page's context frame (§4.3). `attested_by_vendor_id` stays server-
+ *  side: the reader has no use for a vendor UUID, and `attestor` is enough to
+ *  name the party from the response's two hydrated vendor links. */
+function toPairClaimAttestation(
+  raw: RawClaimAttestationRow,
+  contextIsSource: boolean,
+  versions?: PairVersionResolver,
+): PairClaimAttestation {
+  const source = raw.source as PairClaimAttestation['source'];
+  // Version LABELS, and only when they resolve. `versions` undefined (the diff
+  // does not apply to this pair) or an unresolvable id both leave the keys ABSENT
+  // rather than `null` — the one spelling of "no stamp", which is what keeps an
+  // unstamped attestation serialising byte-for-byte as it did before AECI-303.
+  const introducedVersion = versions?.versionLabel(raw.introducedVersionId);
+  const deprecatedVersion = versions?.versionLabel(raw.deprecatedVersionId);
   return {
-    source: raw.source as PairClaimAttestation['source'],
+    source,
+    attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
     note: raw.note,
     introduced_at: raw.introducedAt,
     deprecated_at: raw.deprecatedAt,
+    ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
+    ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
   };
 }
 
-/** One `data_object` claim on a mechanism (§8), with its stored direction
- *  translated to the context product's frame (§3.2) and its agreement computed
- *  from the attestation set (§3.4 — never stored, ADR 0018). `contextIsSource`
- *  is whether the page's context product is the integration's endpoint A. */
-function toProductPairClaim(raw: RawPairClaimRow, contextIsSource: boolean): ProductPairClaim {
-  return {
+/**
+ * One `data_object` claim on a mechanism (§8), with its stored direction
+ * translated to the context product's frame (§3.2) and its agreement computed
+ * from the attestation set (§3.4 / §4.2 — never stored, ADR 0018).
+ * `contextIsSource` is whether the page's context product is the integration's
+ * endpoint A.
+ *
+ * Returns **`null` when the claim must be dropped** from the response: it is
+ * present at neither the selected version pair nor the previous one, so it belongs
+ * to an earlier era (AECI-303 / §9.1). Without that drop, a pair with a long
+ * release history would render every flow it ever had. With `versions` undefined
+ * nothing is ever dropped — the pre-AECI-303 behaviour.
+ */
+function toProductPairClaim(
+  raw: RawPairClaimRow,
+  contextIsSource: boolean,
+  versions?: PairVersionResolver,
+): ProductPairClaim | null {
+  const base = {
+    id: raw.id,
     data_object_slug: raw.dataObject.slug,
     data_object_name: raw.dataObject.name,
     direction: claimDirectionForContext(
       coerceClaimDirection(raw.direction, raw.id),
       contextIsSource,
     ),
+    // Agreement is computed from the LIVE attestations only and is deliberately
+    // independent of the version selection: §8.1(4) makes the latest conflict /
+    // single-source state free and full-fidelity, and a claim that renders at all
+    // renders its real agreement.
     agreement: computeAgreement(raw.attestations),
-    attestations: raw.attestations.map(toPairClaimAttestation),
+    attestations: raw.attestations.map((a) => toPairClaimAttestation(a, contextIsSource, versions)),
+  };
+  if (!versions) return base;
+
+  const windows = raw.attestations.flatMap((a) => versions.claimWindows(a));
+  const presentNow = isClaimPresentAt(windows, versions.selected);
+  const presentBefore = versions.previous !== null && isClaimPresentAt(windows, versions.previous);
+  if (!presentNow && !presentBefore) return null;
+
+  return {
+    ...base,
+    version_status: claimVersionStatus(windows, versions.selected, versions.previous),
   };
 }
 
@@ -802,6 +1381,7 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
+  versions?: PairVersionResolver,
 ): ProductPairMechanism {
   const contextIsSource = raw.sourceProduct.id === contextProductId;
   return {
@@ -814,31 +1394,201 @@ function toProductPairMechanism(
     docs_url: raw.docsUrl,
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    // Always null on an `integrations` row — the evidenced-pair arm of the pair
+    // read sets it (`toProductPairMechanismFromEvidencedPair`).
+    via: null,
+    // Sort FIRST, then drop: ordering stays this mapper's job and is independent
+    // of the version selection, so walking the selectors never reshuffles the lanes.
     claims: [...raw.claims]
       .sort(compareClaims)
-      .map((claim) => toProductPairClaim(claim, contextIsSource)),
+      .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
+      .filter((claim): claim is ProductPairClaim => claim !== null),
   };
 }
+
+/**
+ * One mechanism row on the pair page sourced from `connector_evidenced_pairs`
+ * (AECI-721). The evidenced-pair twin of `toProductPairMechanism`.
+ *
+ * Without this arm the pair page queries `integrations` alone and renders "no
+ * integrations" for the 19 production pairs that exist ONLY as evidenced pairs
+ * after the migration — a pair that plainly has a delivered integration reading
+ * as though it has none, purely because of an internal storage move.
+ *
+ * `claims` is `[]` until PR-B adds `claims.connector_evidenced_pair_id`; the
+ * migration preserves each edge's id verbatim as the pair's id, so the 85
+ * production claims re-anchor without their stored value changing.
+ */
+function toProductPairMechanismFromEvidencedPair(
+  raw: RawConnectorEvidencedPairDetailRow,
+  contextProductId: string,
+): ProductPairMechanism {
+  const { source, direction } = orientEvidencedPair(raw);
+  const contextIsSource = source.id === contextProductId;
+  return {
+    id: raw.id,
+    // Null by construction — see the section header. The connector is in `via`.
+    mechanism_kind: null,
+    mechanism_name: raw.name ?? raw.mechanismName,
+    direction: integrationDirectionForContext(direction, contextIsSource),
+    description: raw.description,
+    listing_url: raw.listingUrl,
+    docs_url: raw.docsUrl,
+    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    // `powered_by_product` stays null: on an evidenced pair the connector is
+    // structural, and the byline reads it from `via`. Setting both would let a
+    // renderer print the connector twice.
+    powered_by_product: null,
+    via: toProductLink(raw.connectorProduct),
+    claims: [],
+  };
+}
+
+export { toProductPairMechanismFromEvidencedPair };
 
 /**
  * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
  * `ProductListItem` (vendor + review recap) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every claim on the pair via
- * `computeSyncHeadline` (§3.5) — `confirmed` is `0` in Stage 1.5 (no vendor
- * attestations), `total` is the distinct claim count across all mechanisms.
+ * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct claim count
+ * across all mechanisms; `confirmed` and `single_source` are both `0` until the
+ * Stage 2 portal writes vendor attestations, and stay separate counts so a
+ * one-sided assertion is never folded into the bilateral figure.
  */
 export function toProductPairResponse(
   contextProduct: RawProductListRow,
   otherProduct: RawProductListRow,
   integrations: RawIntegrationPairRow[],
+  /**
+   * Connector-evidenced pairs between the same two products (AECI-721).
+   * **Required, not optional** — after the migration 19 production pairs exist
+   * only here, and a defaulted parameter is precisely how a future read surface
+   * would silently render "no integrations" for a pair that has one. Callers with
+   * nothing to pass write `[]` and thereby say so.
+   */
+  evidencedPairs: RawConnectorEvidencedPairDetailRow[],
+  versions?: PairVersionResolver,
 ): ProductPairResponse {
-  const mechanisms = integrations.map((row) => toProductPairMechanism(row, contextProduct.id));
+  const mechanisms = [
+    ...integrations.map((row) => toProductPairMechanism(row, contextProduct.id, versions)),
+    ...evidencedPairs.map((row) => toProductPairMechanismFromEvidencedPair(row, contextProduct.id)),
+  ];
+  const claims = mechanisms.flatMap((m) => m.claims);
   return {
     context_product: toProductListItem(contextProduct),
     other_product: toProductListItem(otherProduct),
     mechanisms,
-    sync_headline: computeSyncHeadline(mechanisms.flatMap((m) => m.claims)),
+    // `removed` claims still render (struck through) but must not be counted:
+    // "N data objects sync" may not include a flow that has stopped
+    // (AECI-303 / §9.1). Filtered HERE, at the single call site, rather than inside
+    // `computeSyncHeadline` — the shared engine stays a pure function of
+    // `{ agreement }` and owes the diff contract nothing.
+    sync_headline: computeSyncHeadline(claims.filter((c) => c.version_status !== 'removed')),
+    // Both tables carry the maintenance marker pair, and the header shows ONE
+    // value for the pair — so an evidenced pair that a vendor maintains must be
+    // able to speak for it, exactly as an `integrations` row can.
+    maintenance: computePairMaintenance([...integrations, ...evidencedPairs]),
+    version_diff: versions ? { ...versions.diff, counts: countVersionStatuses(claims) } : null,
+  };
+}
+
+/** The data-flow band's "2 added · 1 removed" line. */
+function countVersionStatuses(claims: readonly ProductPairClaim[]): PairVersionDiff['counts'] {
+  let added = 0;
+  let removed = 0;
+  for (const claim of claims) {
+    if (claim.version_status === 'added') added += 1;
+    else if (claim.version_status === 'removed') removed += 1;
+  }
+  return { added, removed };
+}
+
+/**
+ * Assemble the per-claim histories for the pair timeline read (AECI-303 / §9.1).
+ *
+ * Reads `integrationTimelineConfig`'s output, which — uniquely — includes
+ * **retracted** rows. Entries are ordered oldest-first by `created_at` then `id`,
+ * a total order so the render is stable regardless of D1 row order. Claims with no
+ * attestations at all are omitted: an empty history is nothing to show, and the
+ * browser's "does this claim have a history affordance?" test is the absence of an
+ * entry for its id.
+ *
+ * `contextProductId` frames each row's slot context-relatively via
+ * `attestorForContext`, exactly as the live pair read does, so the two surfaces
+ * cannot disagree about which party is "context".
+ */
+export function toPairTimelines(
+  integrations: readonly RawTimelineIntegrationRow[],
+  contextProductId: string,
+  versions: Pick<PairVersionResolver, 'versionLabel'>,
+): ClaimTimeline[] {
+  const timelines: ClaimTimeline[] = [];
+  for (const integration of integrations) {
+    const contextIsSource = integration.sourceProduct.id === contextProductId;
+    for (const claim of integration.claims) {
+      if (claim.attestations.length === 0) continue;
+      const entries = [...claim.attestations]
+        .sort((a, b) => {
+          if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        })
+        .map((row) => toClaimTimelineEntry(row, contextIsSource, versions));
+      timelines.push({ claim_id: claim.id, entries });
+    }
+  }
+  return timelines;
+}
+
+function toClaimTimelineEntry(
+  raw: RawTimelineAttestationRow,
+  contextIsSource: boolean,
+  versions: Pick<PairVersionResolver, 'versionLabel'>,
+): ClaimTimelineEntry {
+  const source = raw.source as PairClaimAttestation['source'];
+  const introducedVersion = versions.versionLabel(raw.introducedVersionId);
+  const deprecatedVersion = versions.versionLabel(raw.deprecatedVersionId);
+  return {
+    attestor: attestorForContext(source, contextIsSource),
+    asserted: raw.asserted,
+    note: raw.note,
+    ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
+    ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
+    created_at: raw.createdAt,
+    retracted_at: raw.retractedAt,
+  };
+}
+
+/**
+ * Fold N mechanisms into the ONE maintenance marker the pair-page header renders
+ * (AECI-616 / §13).
+ *
+ * `maintained_by` is `'vendor'` when ANY mechanism is vendor-maintained: a page that
+ * carries even one vendor-authored mechanism is not purely AECi's word any more, and
+ * claiming otherwise understates who is on the hook.
+ *
+ * The date is then taken **only over the mechanisms in the winning branch**, which is
+ * the part that is easy to get wrong. A global `max()` would let an AECi mechanism
+ * reviewed last week supply the date for a header that reads `Vendor-maintained.
+ * Updated <date>.` — attributing AECi's review to the vendor. Scoping the max to the
+ * branch keeps the two halves of the sentence about the same records.
+ *
+ * An empty pair (or one where nothing has been reviewed) yields `null`, which renders
+ * bare attribution — correct, not missing.
+ */
+export function computePairMaintenance(
+  rows: readonly { maintainedBy: string; lastReviewedAt: string | null }[],
+): Maintenance {
+  const maintainedBy = rows.some((r) => r.maintainedBy === 'vendor') ? 'vendor' : 'aeci';
+  const dates = rows
+    .filter((r) => (r.maintainedBy === 'vendor' ? 'vendor' : 'aeci') === maintainedBy)
+    .map((r) => r.lastReviewedAt)
+    .filter((at): at is string => at !== null);
+  // ISO-8601 UTC strings sort lexicographically, which is why the column stores them
+  // that way; no Date parsing needed to find the newest.
+  return {
+    maintained_by: maintainedBy,
+    last_reviewed_at: dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null,
   };
 }
 
@@ -988,6 +1738,15 @@ export const adminVendorRequestConfig = {
     sourceUrl: true,
     linearIssueId: true,
     linearIssueUrl: true,
+    // AECI-521: the Phase-6 duplicate chain, surfaced only by the claims LIST
+    // (`toAdminClaim`); harmless to the requests path, which never reads it.
+    duplicateOfRequestId: true,
+    // AECI-739: the operator note. Same arrangement as `duplicateOfRequestId` —
+    // selected here, surfaced only by `toAdminClaim`, so `/admin/requests` is
+    // unchanged. Adding it here WITHOUT adding it to `RawAdminVendorRequestRow`
+    // below would make it invisible with no type error: callers reach these rows
+    // through an unchecked `as RawAdminVendorRequestRow` cast. The two move together.
+    adminNotes: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -1008,6 +1767,10 @@ export interface RawAdminVendorRequestRow {
   sourceUrl: string | null;
   linearIssueId: string | null;
   linearIssueUrl: string | null;
+  duplicateOfRequestId: string | null;
+  /** AECI-739 operator note. Read for every vendor request but mapped into a
+   *  response only by `toAdminClaim` — the endpoint surface is claim-only. */
+  adminNotes: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -1073,6 +1836,11 @@ export function toAdminVendorRequest(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
   target: LinkRef | null = null,
+  /** AECI-527 reviewer signal, keyed by `submitter_email` VERBATIM (see
+   *  `fetchAuthAccountsByEmail`) so there is no normalization here. Defaulted to
+   *  empty so the single-row PATCH confirmation — which does not fan out to
+   *  GoTrue — reports `null` without needing to pass anything. */
+  authAccountByEmail: ReadonlyMap<string, boolean> = new Map(),
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -1088,12 +1856,83 @@ export function toAdminVendorRequest(
     body: raw.body,
     source_url: raw.sourceUrl,
     is_duplicate: isDuplicate,
+    // Claim-only: a correction never links an account, so it must not inherit the
+    // signal from a claim row that happens to share a submitter email on the same
+    // page. Keep this gate in step with the fetch-side gate in `admin-requests.ts`.
+    has_auth_account:
+      raw.kind === 'claim' ? (authAccountByEmail.get(raw.submitterEmail) ?? null) : null,
     linear_issue_id: raw.linearIssueId,
     linear_issue_url: raw.linearIssueUrl,
     created_at: raw.createdAt,
     resolved_at: raw.resolvedAt,
     resolved_by: raw.resolvedById,
   };
+}
+
+/** Map a raw `vendor_requests` claim row → `AdminClaim` (AECI-521): the shared
+ *  `AdminVendorRequest` (delegated to `toAdminVendorRequest`, so the two never
+ *  drift) plus the claim-only reviewer signals. `existingSeats` /
+ *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
+ *  `null` = signal unavailable (degraded), `[]` = computed-and-empty.
+ *
+ *  `entitlementVendor` / `entitlement` (AECI-532 / §5) are the same shape: the
+ *  RESOLVED target vendor (a product claim → its primary vendor) and its current
+ *  entitlement, so the queue can render the entitlement column and address the
+ *  `PATCH /api/admin/vendors/:id/entitlement` control. Both null when there is no
+ *  vendor to act on or the enrichment degraded.
+ *
+ *  `productRoles` / `isPureConnectorVendor` (AECI-738 / §5.2) are the payer test
+ *  for that same resolved vendor. Same null convention — but note the ASYMMETRY
+ *  with the two arrays above: a vendor that owns NO products yields a zeroed
+ *  breakdown and `false`, never `null`, because "no products on record" is a
+ *  reviewable answer (unknown, not exempt) and must not read as "we could not
+ *  look".
+ *
+ *  `admin_notes` (AECI-739 / §5.2 step 6) comes straight off the row — it is the
+ *  CURRENT note, not its history; the history is the `vendor_claim.note_updated`
+ *  audit rows. Surfaced on the LIST as well as the detail because a parked claim
+ *  has to be legible from the queue, which is where the operator looks. */
+export function toAdminClaim(
+  raw: RawAdminVendorRequestRow,
+  isDuplicate: boolean,
+  target: LinkRef | null,
+  authAccountByEmail: ReadonlyMap<string, boolean>,
+  existingSeats: AdminVendorSeat[] | null,
+  relatedRequests: RelatedRequestRef[] | null,
+  entitlementVendor: LinkRef | null = null,
+  entitlement: VendorEntitlementResponse | null = null,
+  productRoles: VendorProductRoles | null = null,
+  isPureConnectorVendor: boolean | null = null,
+): AdminClaim {
+  return {
+    ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
+    duplicate_of_request_id: raw.duplicateOfRequestId,
+    admin_notes: raw.adminNotes,
+    existing_seats: existingSeats,
+    related_requests: relatedRequests,
+    entitlement_vendor: entitlementVendor,
+    entitlement,
+    product_roles: productRoles,
+    is_pure_connector_vendor: isPureConnectorVendor,
+  };
+}
+
+/**
+ * The evidenced pairs that belong in ONE of the two endpoint buckets, mapped to
+ * the product-detail wire shape. `wantSource` selects the bucket; a pair lands in
+ * exactly one of them, so calling this twice partitions the same rows.
+ *
+ * Both relations are read because the canonical order (`product_a_id <
+ * product_b_id`) is a storage detail with no orientation meaning — this product
+ * can be A on one row and B on the next.
+ */
+function evidencedPairsForEndpoint(
+  raw: RawProductDetailRow,
+  wantSource: boolean,
+): ProductIntegrationItem[] {
+  return [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]
+    .map((r) => toProductIntegrationItemFromEvidencedPair(r, raw.id))
+    .filter((item) => (item.source.id === raw.id) === wantSource);
 }
 
 export function toProductDetail(
@@ -1122,13 +1961,67 @@ export function toProductDetail(
     usefulness: toUsefulness(raw.usefulness),
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
-    integrations_as_source: raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
-    integrations_as_target: raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+    // Endpoint buckets: TWO sources, unioned (AECI-713 / §13.1's delivered tier),
+    // the mirror of what `integrations_as_connector` already does below. Bucketing
+    // an evidenced pair goes by its ORIENTED source rather than by which of
+    // `evidencedPairsAsA`/`AsB` matched: the row stores a canonical pair
+    // (`product_a_id < product_b_id`) and puts the orientation in `direction`, so
+    // the A column carries no source/target meaning to bucket on.
+    //
+    // The union is deliberately invisible on the wire — `via` discriminates, and
+    // §13.3's split is a sourcing question, never a rendering one.
+    integrations_as_source: [
+      ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
+      ...evidencedPairsForEndpoint(raw, true),
+    ],
+    integrations_as_target: [
+      ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+      ...evidencedPairsForEndpoint(raw, false),
+    ],
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
-    integrations_as_connector: raw.poweredIntegrations.map(toIntegrationListItem),
+    //
+    // TWO sources, unioned (AECI-721 / §13.1): edges still in `integrations`
+    // carrying `powered_by_product_id`, and edges that have moved to the
+    // connector lane's delivered tier. The union is what makes the migration
+    // invisible here — the rendered set is the same before and after.
+    //
+    // SELF-EXCLUSION (§13.4(2)): `poweredIntegrations` is a bare `many(...)` with
+    // no `where`, so it selects on `powered_by_product_id` alone. Review-side
+    // Convention A stores "product X ships a connector on platform C" as ONE edge
+    // whose `powered_by` IS one of its own endpoints — 60 production rows
+    // (Aquifer 31, Kroo 29). On C's own page such an edge lands in
+    // `sourceIntegrations`/`targetIntegrations` AND here, rendering twice.
+    // AECI-706's backfill switched that on; the filter below is what turns it off.
+    // The evidenced-pair arm needs no equivalent — its
+    // `connector_evidenced_pairs_distinct_connector` CHECK makes the case
+    // unrepresentable.
+    integrations_as_connector: [
+      ...raw.poweredIntegrations
+        .filter((r) => r.sourceProduct.id !== raw.id && r.targetProduct.id !== raw.id)
+        .map(toIntegrationListItem),
+      ...raw.evidencedPairsAsConnector.map(toIntegrationListItemFromEvidencedPair),
+    ],
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
+    maintenance: toMaintenance(raw),
+  };
+}
+
+/**
+ * The maintenance marker's payload for one record (AECI-616 / §13).
+ *
+ * `maintained_by` is narrowed rather than cast: the DB CHECK constrains it, but the
+ * column is TEXT, and a row that somehow escaped the constraint should render AECi
+ * attribution — the conservative reading — instead of failing the response parse.
+ */
+export function toMaintenance(raw: {
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+}): Maintenance {
+  return {
+    maintained_by: raw.maintainedBy === 'vendor' ? 'vendor' : 'aeci',
+    last_reviewed_at: raw.lastReviewedAt,
   };
 }
 
@@ -1160,6 +2053,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     instagram_url: raw.instagramUrl,
     youtube_url: raw.youtubeUrl,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
+    maintenance: toMaintenance(raw),
   };
 }
 

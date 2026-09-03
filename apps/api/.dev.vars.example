@@ -28,8 +28,17 @@
 # backs every environment, including production — ADR 0017). Keep
 # SUPABASE_SERVICE_ROLE_KEY empty here so they self-skip; supply it only in a
 # local-stack override. Tests `describe.skipIf` themselves when vars are unset.
-SUPABASE_URL=
-# Publishable/anon key for the project SUPABASE_URL points at.
+SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co
+# Publishable/anon key for the project SUPABASE_URL points at. Copy the SAME value
+# into apps/web/.dev.vars, where the browser sign-in client actually needs it — a
+# key belonging to a different project than SUPABASE_URL is what surfaces as
+# `Invalid API key` at sign-in. Either key format works; nothing in the repo
+# inspects it (see apps/web/.dev.vars.example).
+#
+# AECI-765: this file used to ship SUPABASE_URL pointing at dmbygwupskttzsvfzluq —
+# a DELETED project (NXDOMAIN). `.dev.vars` OVERRIDES the wrangler vars block
+# locally, so the dead URL won and all four GoTrue Admin seams degraded silently.
+# If a GoTrue-backed signal reads null/unknown locally, check this line FIRST.
 SUPABASE_ANON_KEY=
 # Access token for a non-admin authenticated user. Mint a fresh one (1h
 # expiry) with the kept dev tool:
@@ -38,13 +47,48 @@ SUPABASE_ANON_KEY=
 # (src/integration/user-auth.jwks.spec.ts), which skips itself when unset or
 # expired.
 SUPABASE_TEST_USER_JWT=
-# Service-role key. Used by the integration CI lane's mint step
+# Service-role key (GoTrue Admin API). The WORKER DOES read this at runtime — it
+# backs the split-identity seams in lib/supabase-admin.ts (the register is
+# docs/AUTH_AND_RLS.md §3.1): auth.users email reads for the moderation queue,
+# the GDPR erasure of the auth.users row, and vendor-claimant lookup +
+# provisioning. In DEPLOYED envs CI pushes it to the API Worker from the single
+# shared (un-suffixed) SUPABASE_SERVICE_ROLE_KEY GH secret — deploy.yml (staging),
+# promote-to-demo.yml, promote-to-prod.yml, all graceful warn-and-skip (AECI-530,
+# per ADR 0016 §6). NEVER on the web Worker, and deliberately NOT on per-PR
+# previews. Also used by the integration CI lane's mint step
 # (.github/workflows/integration-db-tests.yml) to create a throwaway confirmed
-# user via the Supabase admin API, whose freshly-issued access token feeds the
-# JWKS spec. Local Supabase exposes this as the "Secret" key
-# (`pnpm exec supabase status`). Never commit a real value — the Worker has no
-# use for the service role at runtime and shouldn't see it.
+# user via the admin API, whose freshly-issued access token feeds the JWKS spec —
+# but that lane mints its own from a local `supabase start` stack, not this file.
+#
+# LEAVE IT EMPTY HERE. SUPABASE_URL points at the SHARED auth project that backs
+# production (ADR 0017), so a real value locally would let `pnpm dev` enumerate,
+# create, and DELETE production auth identities — and would un-skip the
+# service-role trigger specs warned about above. Absent → every seam degrades
+# gracefully (emails null, the auth.users delete skipped, claim resolution
+# `unavailable`); nothing throws. Local Supabase exposes its own throwaway
+# equivalent as the "Secret" key (`pnpm exec supabase status`) — supply that only
+# in a per-invocation local-stack override. Never commit a real value.
 SUPABASE_SERVICE_ROLE_KEY=
+
+# ─── Local admin grant (AECI-765) ──────────────────────────────────────────
+# Your OWN Supabase auth.users id (the JWT `sub`). NOT a Worker binding — it is
+# read only by scripts/grant-local-admin.mjs, the last step of `db:seed:local`,
+# which upserts a role='admin' profiles row for it into the LOCAL D1. That row is
+# what makes /admin/* render instead of 404 after you sign in for real: the gate
+# is `requireAdmin()` re-reading profiles.role from D1, and seed/auth-fixtures.sql
+# only seeds the shared e2e personas, whose ids will never match your login.
+#
+# Empty → the step prints one line and no-ops. It ALWAYS exits 0 (a malformed id
+# or a wrangler failure warns and moves on), because a non-zero exit here would
+# take `pnpm dev` down over a local-convenience grant.
+#
+# To find your id: sign in locally, then
+#   pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-preview --local \
+#     --command "SELECT id, display_name, role FROM profiles"
+# One id works in every workspace and every environment (single shared auth
+# project, ADR 0017). Full walkthrough: docs/environments.md → "Local dev:
+# Supabase auth (Phase 5)" step 2.
+LOCAL_ADMIN_USER_ID=
 
 # ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────
 # Used by the Airtable gateway lib (apps/api/scripts/lib/airtable.ts) for the
@@ -79,39 +123,39 @@ REVIEW_APP_TOKEN=
 #   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
 LINEAR_WEBHOOK_SIGNING_SECRET=
 
-# ─── Cache-tag purge after promote (AECI-105 / ADR 0010) ───────────────────
-# The promote handler purges the affected edge cache tags by calling Cloudflare's
-# purge-by-tag API DIRECTLY (no web↔api service binding — see ADR 0010). The
-# WORKER reads both at runtime, so set them as Wrangler secrets/vars in deployed
-# envs (staging + production):
-#   wrangler secret put CF_PURGE_API_TOKEN --env staging|production
-#   wrangler secret put CF_ZONE_ID         --env staging|production   # or a wrangler var
-# CF_PURGE_API_TOKEN MUST be scoped to `Zone.Cache Purge` on aecintegrations.com
-# only (docs/CACHE_STRATEGY.md §5) — same minimal scope as the web Worker's token.
-# Absent (local `pnpm dev:bound`, PR previews) → promote skips the purge as a
-# graceful no-op; pages fall back to the TTL (≤15 min).
-CF_PURGE_API_TOKEN=
+# ─── Cloudflare zone id (AECI-262 WAF poll) ────────────────────────────────
+# CF_ZONE_ID is the zone id for aecintegrations.com. Public value — set as a
+# Wrangler secret/var in deployed envs (staging + production):
+#   wrangler secret put CF_ZONE_ID --env staging|production   # or a wrangler var
+# Consumed by the hourly WAF firewall-event poll below (as the GraphQL zoneTag),
+# paired with CF_ANALYTICS_API_TOKEN. Absent → the poll no-ops.
+# (Cache-tag purge no longer reads a CF token: promote enqueues onto the
+# aeci-cache-purge-{env} Queue since WC-5, and the old CF_PURGE_API_TOKEN HTTP
+# purge was retired in WC-10.)
 CF_ZONE_ID=
 
-# ─── WAF firewall-event poll → Datadog (AECI-262 / §15.1) ──────────────────
+# ─── WAF firewall-event poll → PostHog (AECI-262 / §15.1) ──────────────────
 # The hourly WAF poll reads the zone's firewallEventsAdaptiveGroups over the
 # Cloudflare GraphQL Analytics API and emits aeci.waf.ratelimit.blocked (the free
 # Pro-plan alternative to Enterprise Logpush). Reuses CF_ZONE_ID above as the
-# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (a DIFFERENT scope
-# than CF_PURGE_API_TOKEN's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
+# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (read-only — a
+# narrower scope than the retired purge token's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
 # single shared `CF_ANALYTICS_API_TOKEN` GH secret (deploy.yml / promote-to-demo.yml /
 # promote-to-prod.yml — graceful warn-skip); set it locally only if you want to
 # exercise the poll against the real zone. Absent → the poll logs
 # outcome:skipped_no_creds and no-ops. See docs/waf-rate-limits.md §5.
 CF_ANALYTICS_API_TOKEN=
 
-# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
-# DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
-# HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
-DD_API_KEY=
-# Optional. Datadog region host. Defaults to datadoghq.com when unset.
-# Examples: datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com
-DD_SITE=datadoghq.com
+# ─── Observability: PostHog ─────────────────────────────────────────────────
+# PostHog needs NO secret here. All three intakes (OTLP logs, OTLP metrics,
+# events) authenticate with the publishable `phc_` project token, which is a
+# committed per-env `vars.POSTHOG_PROJECT_KEY` in wrangler.jsonc — so on a
+# deployed tier there is nothing to provision. Locally, `--env preview` supplies
+# it, and a bare `wrangler dev` has none, which makes the transport a total
+# no-op. That is the intended local default (AECI-642).
+#
+# There is nothing else to set: the Datadog leg (DD_API_KEY / DD_SITE) was
+# deleted in AECI-651. If you have those in a local `.dev.vars`, drop them.
 
 # ─── Algolia (AECI-134) ────────────────────────────────────────────────────
 # Optional until the sync pipeline lands (3.5/3.6) — the Worker reads neither at
@@ -155,6 +199,12 @@ RESEND_API_KEY=
 EMAIL_FROM=
 # Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
 ADMIN_ALERT_EMAIL=
+# Optional. Recipient of the operator "new vendor claim" alert, sent post-commit
+# from POST /api/requests/claim. Deployed tiers set this to support@aecintegrations.com;
+# it is deliberately NOT ADMIN_ALERT_EMAIL (claim intake goes to the support inbox).
+# A single address. Absent → the alert is a fail-open 'skipped' and the submit still
+# returns 201. Corrections never alert — claims only.
+CLAIM_ALERT_EMAIL=
 # Optional. Recipient(s) for the daily operator analytics digest (AECI-526) — the
 # 05:00 UTC (noon Jakarta) cron's page-views / top-product / sign-in summary. Comma-separated;
 # sender is the shared EMAIL_FROM above. Absent → the digest send is a 'skipped'
@@ -181,19 +231,9 @@ INDEXNOW_KEY=
 # email links are omitted and IndexNow no-ops.
 PUBLIC_SITE_URL=http://localhost:8788
 
-# ─── Google Indexing API ping after promote (AECI-263 / §20.2) ─────────────
-# On promote, the WORKER also pings Google's Indexing API for the SAME affected
-# URLs (best-effort, additive to IndexNow). It signs an RS256 JWT with the service
-# account, exchanges it for an OAuth token, then publishes each URL. Two secrets,
-# both read at runtime (the third value, PUBLIC_SITE_URL, is the var above):
-#   wrangler secret put GOOGLE_INDEXING_SA_EMAIL --env production
-#   wrangler secret put GOOGLE_INDEXING_SA_PRIVATE_KEY --env production
-# Values are the `client_email` + `private_key` fields of a Google Cloud service-
-# account JSON (the SA added as an owner of the Search Console property). The
-# private key is a PKCS#8 PEM; `\n`-escaped single-line values are normalized.
-# FAIL-OPEN: either absent (local dev, PR previews, pre-launch) → the ping is a
-# graceful no-op. PROVISION ONLY AT LAUNCH, alongside INDEXNOW_KEY and the web
-# Worker's ALLOW_INDEXING="true" — pinging Google for a noindex'd site is a
-# correctness bug, so the creds' absence is the enforcement.
-GOOGLE_INDEXING_SA_EMAIL=
-GOOGLE_INDEXING_SA_PRIVATE_KEY=
+# ─── Google Indexing API ping — REMOVED (AECI-747) ────────────────────────
+# There is nothing to set. The post-promote Google Indexing ping is gone: the API
+# only ever accepted `JobPosting` / `BroadcastEvent` URLs, so it did nothing for
+# our pages. `GOOGLE_INDEXING_SA_EMAIL` / `_PRIVATE_KEY` are read by no code on
+# any tier — delete them from GitHub Actions secrets and from every API Worker
+# env (`wrangler secret delete`). IndexNow (above) is the only ping that remains.

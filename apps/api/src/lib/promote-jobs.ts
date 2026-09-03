@@ -9,7 +9,12 @@
  * exactly like "the job vanished".
  */
 
-import { ApiErrorCode, type PromoteJobStatus, type PromotePayload } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  type PromoteConnectorPagePayload,
+  type PromoteJobStatus,
+  type PromotePayload,
+} from '@aeci/shared';
 
 /**
  * What the kick-off puts on the Workflow event. Declared here — a leaf module with no
@@ -19,17 +24,47 @@ import { ApiErrorCode, type PromoteJobStatus, type PromotePayload } from '@aeci/
  * `payload` is inlined for the overwhelming majority of bundles; oversize ones are staged
  * in KV and flagged with `payloadRef: 'kv'` (event params cap at 1 MiB).
  */
-export type PromoteWorkflowParams = {
+type PromoteWorkflowParamsBase = {
   jobId: string;
   /**
-   * The kick-off request's URL, replayed into a synthetic `Request` purely so the Datadog
+   * The kick-off request's URL, replayed into a synthetic `Request` purely so the telemetry
    * `hostname` dimension of workflow-originated promote logs matches the request-originated
    * ones operators already query. Nothing reads a body or headers off it.
    */
   sourceUrl: string;
-  payload?: PromotePayload;
   payloadRef?: 'kv';
 };
+
+/**
+ * A product bundle — the original promote.
+ *
+ * `kind` is OPTIONAL and its ABSENCE means product. That is load-bearing rather than
+ * lax: an instance created before AECI-714 and still inside its 30-day retention
+ * window carries no `kind` at all, and the Workflow must keep treating it as a
+ * product promote when it replays. Never make this field required.
+ */
+export type PromoteProductWorkflowParams = PromoteWorkflowParamsBase & {
+  kind?: 'product';
+  payload?: PromotePayload;
+};
+
+/** One page of one connector catalogue (AECI-714). */
+export type PromoteConnectorWorkflowParams = PromoteWorkflowParamsBase & {
+  kind: 'connector';
+  payload?: PromoteConnectorPagePayload;
+};
+
+/**
+ * Deliberately ONE union over ONE Workflow class rather than a second Workflow.
+ *
+ * A second binding would need a `wrangler.jsonc` entry in every env block, a second
+ * class export, a second KV decision, a second poll route, and a second copy of the
+ * AECI-571 ledger reasoning — and would buy nothing, because both arms share the
+ * job-id-is-instance-id idempotency, the non-retried commit step, the `promote_jobs`
+ * ledger, the KV spill path, the result mirror and the poll endpoint. Which is to
+ * say: everything ADR 0021 actually is.
+ */
+export type PromoteWorkflowParams = PromoteProductWorkflowParams | PromoteConnectorWorkflowParams;
 
 /**
  * Where the kick-off stages a bundle too large to ride the Workflow event params,

@@ -176,7 +176,7 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // became recorded. `warn`: a reader who misses this may read an unrecorded cron
   // as a healthy one.
   cron_liveness_unavailable: (p) =>
-    $localize`:@@admin.notes.cronLivenessUnavailable:${num(p, 'unknown')}:UNKNOWN: of ${num(p, 'total')}:TOTAL: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. Datadog remains the place to check whether a job stopped firing altogether.`,
+    $localize`:@@admin.notes.cronLivenessUnavailable:${num(p, 'unknown')}:UNKNOWN: of ${num(p, 'total')}:TOTAL: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. The scheduled liveness sweep is what detects a job that stopped firing altogether.`,
 
   // AECI-583. `warn`: a stored observability record that cannot be parsed is a
   // defect in the recorder, not a caveat about the data.
@@ -187,7 +187,7 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // Kept because the map is total over `AdminNoteCode` and removing a code is a
   // breaking change; an older cached response still renders localized prose.
   orphan_sweep_not_persisted: () =>
-    $localize`:@@admin.notes.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`,
+    $localize`:@@admin.notes.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to PostHog. Its result is not stored, so it cannot be shown here.`,
 
   // AECI-586 / P5.1 — audience. Both `info`: neither makes a number wrong.
   utm_attribution_incomplete: (p) =>
@@ -195,4 +195,16 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
 
   audience_history_is_current_state: () =>
     $localize`:@@admin.notes.audienceHistoryIsCurrentState:Churn is computed from the opt-out timestamp on each subscriber, so it is exact rather than estimated. The one thing it cannot see is a return: resubscribing clears that timestamp, so anyone who opted out and came back reads as never having left.`,
+
+  // ── AECI-722 — the connector surface ──────────────────────────────────────
+  // Each of these describes something the connector lane deliberately does not
+  // model, so unlike the windowed notes above none of them retires on its own.
+  connector_evidenced_pairs_empty: () =>
+    $localize`:@@admin.notes.connectorEvidencedPairsEmpty:The delivered lane is empty because the powered integrations have not been migrated into it yet, not because this connector delivers nothing. Read it as "not measured", not as zero.`,
+  reachable_never_counted: () =>
+    $localize`:@@admin.notes.connectorReachableNeverCounted:Pair counts describe how many pair pages this connector publishes. They are never counted as integrations anywhere on the site: a connector being able to reach two products is not the same claim as an integration existing between them.`,
+  publication_gate_inputs_only: () =>
+    $localize`:@@admin.notes.connectorPublicationGateInputsOnly:These rows show what the publication rule looks at, not what it decides. Whether both sides are in our catalogue and whether a person made the mapping are shown here; whether the pair is already delivered, and whether it clears the thin-content bar, are decided elsewhere. A row appearing here is not a row we would publish.`,
+  stub_actions_never_fetched: (p) =>
+    $localize`:@@admin.notes.connectorStubActionsNeverFetched:${num(p, 'never_fetched')}:NEVER_FETCHED: of ${num(p, 'total')}:TOTAL: listings on this page have never had their action inventory fetched. That is not the same as having no actions: the inventory is fetched on demand, so most listings never carry one.`,
 };

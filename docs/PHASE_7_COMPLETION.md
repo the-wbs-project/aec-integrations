@@ -20,7 +20,7 @@ This is the "Phase 7 is Done" gate — and, because Phase 7 is the last build ph
 | Gate | Result |
 |------|--------|
 | `pnpm typecheck` (shared, api, datatool — web excluded by design, no web code changed) | ✅ exit 0 |
-| `pnpm lint` (ESLint ×N packages + `check-logical-properties` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" |
+| `pnpm lint` (ESLint ×N packages + `check-source-constraints` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" |
 | `pnpm test` (unit + integration) | ✅ exit 0 · unit + integration suites green (shared / api / datatool / web); web integration: no files |
 | `ng extract-i18n` (verification only — **not** committed) | ✅ exit 0 · **826 messages** · committed `src/locale/messages.xlf` untouched (stray default-path artifact removed) · ⚠️ 4 **pre-existing** duplicate-id warnings (`admin.shell.eyebrow`, `admin.shell.nav.reviewers`, `listing.filters.title`, `app.header.account`) — the same 4 the Phase 6 gate flagged (`PHASE_6_COMPLETION.md` §F3); no Phase 7 templates touched here |
 | light-only check — `dark:` variants / theme toggle in `apps/web/src` | ✅ none (AECI-226); analytics dimension hard-codes `theme:'light'` |
@@ -122,7 +122,7 @@ The non-blocking lane (AECI-154) is wired but **inert until the personal-subscri
 
 ### Not a defect — deferred items are spec'd, not missed
 
-Per §16 Phase 7: integration-page JSON-LD (→ Stage 2) and the sitemap index/sub-sitemap split (only needed beyond 50k URLs) are **explicitly deferred**. The Google Indexing API ping shipped separately as AECI-263. WAF config-as-code (Terraform) is a deliberate post-launch upgrade (`docs/waf-rate-limits.md`). **The DNS cutover itself is 7.13 (AECI-247)** — out of scope for this gate.
+Per §16 Phase 7: integration-page JSON-LD (→ Stage 2 — ✅ **shipped there 2026-08-20 as AECI-518**; contract in `STAGE_2_SPEC.md` §8.7) and the sitemap index/sub-sitemap split (only needed beyond 50k URLs; tracked as AECI-560, still not warranted) are **explicitly deferred**. The Google Indexing API ping shipped separately as AECI-263. WAF config-as-code (Terraform) is a deliberate post-launch upgrade (`docs/waf-rate-limits.md`). **The DNS cutover itself is 7.13 (AECI-247)** — out of scope for this gate.
 
 ---
 

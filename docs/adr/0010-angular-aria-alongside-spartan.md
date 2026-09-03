@@ -97,17 +97,20 @@ reactively.**
 | Combobox / Select / Multiselect | Yes (popup uses CDK Overlay) | none | **Aria** (binds to Signal Forms) |
 | Listbox | Yes | none | **Aria** |
 | Radio group | Yes | none | **Aria** |
-| Menu / Menubar | Yes | none | **Aria** |
+| Menu / Menubar (application commands) | Yes | none | **Aria** |
+| Menu-shaped NAVIGATION (a row of router links) | n/a | `layout/nav-flyout-trigger.ts`, `admin/admin-nav-dropdown.ts` | **Disclosure, not `role="menu"`** — see the note below |
 | Toolbar | Yes | none | **Aria** |
 | Tree | Yes | none | **Aria** |
 | Grid (keyboard data grid) | Yes | none | **Aria** |
 
+> **Amendment (2026-08-28, AECI-694): the `Menu / Menubar` row means APPLICATION menus.** A navigation row of router links is not one. `role="menu"` is the wrong semantic for site or portal navigation, the WAI-ARIA practices advise against it, and this codebase had already reached that conclusion twice before the row existed — `layout/user-menu.ts` ("no `role=\"menu\"`/roving tabindex") and `vendor/vendor-products-menu.ts`, which is a combobox precisely because `role="menu"` may not own a textbox. Such rows extend `layout/nav-disclosure.ts`, the shared hover/toggle/Escape/focusout contract that `DESIGN.md` §Navigation requires every dropdown in a nav row to share. The admin console's category row (`admin/admin-nav-dropdown.ts`) is the first implementor outside the public header. This narrows the row above; it does not reopen the ADR.
+
 **Design-system implications.** Angular Aria is styled exactly like Spartan brain: Tailwind `aria-*:`
 variant utilities targeting the attributes the directives toggle (`aria-selected:`, `aria-expanded:`,
 `aria-checked:`, …) — plus the `data-[active=true]:` variant Aria sets on the active option — bound to the
-OKLCH tokens, borders-not-shadows, rendered correctly in the active theme. (Stage 1 ships **light-only**
-per AECI-226; the semantic token model keeps dark a token-block + toggle re-introduction at the Stage 2
-vendor portal, so the historical "both themes" validations recorded below predate that scope cut.) Running
+OKLCH tokens, borders-not-shadows, rendered correctly in the active theme. (AECi ships **light-only**
+per AECI-226; the dark reintroduction was later dropped and is not roadmapped (`STAGE_2_SPEC.md` §9) — the
+semantic token model would keep it a token-block + toggle change if ever revisited, so the historical "both themes" validations recorded below predate that scope cut.) Running
 **two headless behavior providers is not a "mashup"** under the Anchor-Site Rule — that
 rule governs **visual** composition (which Mobbin site anchors a surface's hierarchy, density, atmosphere),
 which is owned by tokens and layout, not by which library supplies keyboard/ARIA behavior. Editorial

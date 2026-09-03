@@ -13,7 +13,7 @@
  * `vendor_requests` insert + the `workflow_instance` (`vendor_claim` |
  * `correction_request`, `current_state:'open'`) + its genesis `workflow_transitions`
  * row (`null → open`) + the `vendor_request.created` audit. Ids are generated up
- * front so nothing depends on batch return values. The best-effort Datadog forwards
+ * front so nothing depends on batch return values. The best-effort §26.5 forwards
  * (§26.5) and the §6.4 Linear issue creation run AFTER commit via `waitUntil`.
  *
  * AECI-215 (Phase 6.8) computes two **informational** signals at submit time (never
@@ -47,7 +47,7 @@ import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -59,16 +59,17 @@ import {
 } from '../lib/audit';
 import { computeDomainMatch } from '../lib/domain-match';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Tagged
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
  *  `source: request-form`. */
 function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -79,14 +80,14 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
+ *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
 function makeWorkflowForwarder(
   c: Context<{ Bindings: Env }>,
 ): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -311,6 +312,28 @@ async function createRequest(
       duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
     }),
   );
+
+  // Operator alert on claim INTAKE — the support inbox learns a claim landed without
+  // waiting for someone to read Linear. CLAIMS ONLY: a correction is a low-stakes data
+  // fix, a claim asserts control of a listing. Fire-and-forget after the commit and
+  // fail-open (absent `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can
+  // never delay or fail the 201. The claimant still gets no submit-time mail by
+  // design; their only mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  if (kind === 'claim') {
+    c.executionCtx.waitUntil(
+      sendClaimSubmittedNotification(c, {
+        requestId,
+        targetName,
+        targetType: insert.targetType,
+        slug,
+        submitterEmail: insert.submitterEmail,
+        submitterName: insert.submitterName,
+        submitterRole: insert.submitterRole,
+        domainMatch,
+        duplicateOfRequestId: duplicate?.id ?? null,
+      }),
+    );
+  }
 
   const body: RequestSubmitResponse = {
     request_id: requestId,

@@ -90,12 +90,19 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 ## 2. Endpoints
 
 ```
-POST {API_BASE}/api/promote                 → 202 { jobId, status: "queued" }
-GET  {API_BASE}/api/promote/jobs/{jobId}    → 200 { jobId, status, result?, error? }
+POST {API_BASE}/api/promote                    → 202 { jobId, status: "queued" }
+POST {API_BASE}/api/promote/connector-catalog  → 202 { jobId, status: "queued" }
+GET  {API_BASE}/api/promote/jobs/{jobId}       → 200 { jobId, status, result?, error? }
 
-Authorization: Bearer {REVIEW_APP_TOKEN}    (both)
-Content-Type: application/json              (POST)
+Authorization: Bearer {REVIEW_APP_TOKEN}       (all three)
+Content-Type: application/json                 (POST)
 ```
+
+**Two kinds of push, one job protocol.** `POST /api/promote` sends a **product bundle**
+(§3); `POST /api/promote/connector-catalog` sends one **page of one connector catalogue**
+(§3a, AECI-714). They share the kick-off shape, the `jobId` idempotency, the poll endpoint
+and the error model — the poll result is told apart by a `kind` field, which only the
+connector arm carries. Everything from §2.1 to §2.2 applies to both.
 
 | Environment | `{API_BASE}` |
 |---|---|
@@ -247,7 +254,8 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
-| `verified` | boolean | — | Defaults to `false`. |
+| `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
 ### 3.3 `product` (optional, singular)
 
@@ -265,6 +273,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
@@ -326,12 +335,35 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
-| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| null | — | |
+| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
 Direction is meaningful: `sourceProduct → targetProduct`.
+
+**`integrator` (AECI-698 / AECI-721) — one sequencing rule, and it matters.** `integrator` replaces
+`partner`: an SI or consultancy built and maintains the edge, neither endpoint vendor did. Two
+things follow for the sender:
+
+- **`partner` is still accepted**, and stays accepted until the review app has re-keyed its rows and
+  re-promoted them. Removing it from the wire enum first would make the very push that carries the
+  re-key fail validation.
+- **Do not send `integrator` to an environment that has not applied migration
+  `0027_powerful_killraven.sql`.** The wire schema accepts it from AECI-721 PR-A, and the app-DB
+  `integrations_mechanism_kind_check` accepts it from PR-B's migration — which is on the `stage-2`
+  line, so **production does not have it until `stage-2` merges**. Against an environment without
+  it, an `integrator` payload passes Zod and then fails the CHECK **inside the promote Workflow's
+  non-retried commit step** — a job failure rather than a clean `400`. `GET /api/version` reporting
+  a commit at or after that migration is the signal that it is safe. This is a deployment caveat,
+  not a code gap: both halves of the vocabulary landed together.
+
+`iPaaS` also remains accepted, and **AECI-735 settled that it is retained permanently**, not
+narrowing toward removal — see §3.4a. Three shipped predicates key off it (the AECI-705 attestation
+gate, the Via lane, the powered hub) over a population that structurally cannot drain, so senders
+should keep classifying edges as `iPaaS` under the existing rubric. `partner` is the only pending
+retirement, and it follows AECI-712's re-key.
 
 **`claims` shape & resolution (Stage 1.5).** A **claim** asserts that a particular
 `dataObject` (e.g. RFIs, Models, Budgets) flows in a particular `direction` through
@@ -349,7 +381,7 @@ Each `Attestation`:
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **In Stage 1.5, send only `"aeci"`** — `vendor_a` / `vendor_b` are accepted by the contract but produced by no current path (they're reserved for the Stage 2 vendor portal). |
+| `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **Send only `"aeci"`.** The enum still carries `vendor_a` / `vendor_b` because the column does, but those slots are now live and are derived from product ownership in the vendor portal — they are not settable from a payload. Since AECI-604 a non-`aeci` source is **dropped and reported in `skipped[]`** (`kind: "claim"`) rather than written. |
 | `asserted` | boolean | ✅ | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
 | `introducedAt`, `deprecatedAt` | ISO date string \| null | — | **Dormant in Stage 1.5** — version stamps accepted for forward-compatibility but unused. |
 | `note` | string \| null | — | Optional provenance / source note. |
@@ -364,6 +396,49 @@ term is not auto-created** — the claim is dropped and reported in `skipped[]` 
 send a claim only on an integration you are actually promoting (both endpoints resolve).
 If you omit an integration because its far endpoint isn't promoted yet, omit its claims
 too — they migrate when that integration does.
+
+**`claims[]` replaces AECi curation only, not the whole claim set** — vendors author
+claims and attestations of their own, and those survive a re-push. Read §5.2 before
+relying on omission to remove a claim.
+
+### 3.4a Connector-delivered edges leave `integrations` (AECI-721)
+
+**Nothing in the payload changes. Where the row lands does.**
+
+An integration whose `poweredByProduct` resolves to a product that is **neither of its own
+endpoints** is a *connector-delivered* edge, and after AECI-721's migration it is stored in
+`connector_evidenced_pairs` — the delivered tier's second table (`STAGE_1_5_SPEC.md` §13.1) — rather
+than in `integrations`. Keep sending it exactly as you do today; the app routes it.
+
+Four consequences worth knowing:
+
+- **A `poweredByProduct` equal to one of the edge's own endpoints stays in `integrations`.**
+  Review-side Convention A stores *"product X ships a connector on platform C"* as one edge whose
+  `powered_by` **is** C, and that self-reference is deliberate, not dirt (~152 catalogue rows;
+  60 promoted). Routing it would render "Via Aquifer → Aquifer", and the destination table's
+  `connector_evidenced_pairs_distinct_connector` CHECK refuses it outright.
+- **The connector must be a promoted product.** `connector_evidenced_pairs.connector_product_id` is
+  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Zapier and Workato are
+  `on_hold` (AECI-700) and stay that way, so those edges remain in `integrations` with a NULL
+  `powered_by` — the population AECI-730 makes observable. **They keep `mechanismKind: "iPaaS"`,
+  permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
+  absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
+  re-key them to `native` or unset because the connector lane now has its own tables.
+- **`direction` is re-encoded, losslessly.** The destination canonicalises the pair
+  (`product_a_id < product_b_id`) and stores orientation as `a_to_b | b_to_a | both`, because once
+  the pair is ordered `one-way` no longer says which way. You keep sending
+  `one-way | bidirectional`.
+- **Claims still ride with their integration**, unchanged. The migration preserves each edge's id
+  verbatim as the evidenced pair's id, so a claim's stored anchor value never moves — only which
+  table it points at.
+- **Re-sending a routed edge is an in-place UPDATE, and gaining a connector moves the row for you.**
+  Because the id is preserved, you keep sending a migrated edge's `supabaseId` exactly as before:
+  promote resolves it against **both** tables, so a re-promote of an already-routed edge updates the
+  evidenced row in place (it does not mint a duplicate and collide on the `(connector, a, b)` unique
+  index). And an edge you promoted earlier as an accountable-party integration that now names a
+  third-party `poweredByProduct` is **moved** by that push — inserted into `connector_evidenced_pairs`
+  under its existing id, its claims and their vendor attestations re-homed with it, and the old
+  `integrations` row dropped. No payload change and no separate call is needed for either.
 
 ### 3.5 Vendor-only (or integration-only) push
 
@@ -394,7 +469,220 @@ integration-only push (send only `integrations[]`) — but note that without a
 > the usual flow is: vendors are created the first time their product is promoted,
 > and this vendor-only form is for **editing** an already-promoted vendor.
 
+### 3.6 `lastReviewedAt` — the review signal (AECI-616)
+
+Accepted on `vendors[]`, `product`, and `integrations[]`. It is the only way the
+public **maintenance marker** gets a date:
+
+> Maintained by AEC Integrations. **Reviewed March 4, 2026.**
+
+**The contract is that absence means "untouched."** Omit the field and the stored
+`last_reviewed_at` keeps whatever it had; send an ISO-8601 timestamp and it advances;
+send `null` and it clears. Nothing else in the promote path writes it.
+
+**Why it isn't derived server-side.** The obvious implementation — stamp `now()` on
+every promote — is exactly what this design refuses. AECi's own `updated_at` already
+does that, and it is useless as a freshness signal precisely because of it: promote
+re-asserts `promotion_status='promoted'` on every re-push, so production has 60
+products sharing one `updated_at` day and 40 sharing another. A date that refreshes
+itself without anyone re-checking the record is worse than no date, because readers
+believe it.
+
+**So this field carries an obligation.** Send it when a curator genuinely re-verified
+the record — not on every sync, and not as a default in your push builder. If it ends
+up stamped on every push it becomes `updated_at` with extra steps, and the marker goes
+back to lying. There is no server-side check that can catch that; the discipline lives
+on your side.
+
+Nothing is backfilled: every record promoted before this field existed reads
+`last_reviewed_at: null` and renders bare attribution with no date, until a real review
+supplies one.
+
+**`maintainedBy` is not accepted.** The `'vendor'` value is set only by a vendor's own
+attestation in the vendor portal, and cleared when they retract it. If the payload
+carried it, a routine push would silently take a record back off a vendor's name — the
+same failure `verified` had before AECI-520 (§4a).
+
 ---
+
+## 3a. Connector-catalogue pages (`POST /api/promote/connector-catalog`, AECI-714)
+
+A separate body shape on a separate path, sharing everything else. It mirrors the review
+app's connector-lane model into AECi — catalogues, their crawled listings ("stubs"),
+stub↔product mappings, and the pairs a vendor publishes a page for.
+
+**AECi holds the FULL mirror, including the misses.** Send every stub, not just the mapped
+ones: the question the lane answers is *"is this new listing one of ours?"*, and the ~3,342
+undecided stubs are the triage queue the AECi connector admin screen works from. It is also
+what makes the eventual per-iPaaS management handover a lane freeze rather than a data
+migration.
+
+### One page = one complete job
+
+A catalogue is far too large for one request, so it arrives paged, and **each page is an
+independent promote job**: its own `jobId`, its own `202`, its own poll, its own atomic
+commit. There is deliberately **no atomicity across pages** — one job ledger protects one
+commit. What makes that safe is that every write is an upsert keyed on *your* record id, so:
+
+- re-sending a page is harmless, and a page re-sent with nothing changed writes **nothing**;
+- a half-finished catalogue sync is always safe to simply re-run from page one;
+- **order does not matter**, though sending stub pages before pair/mapping pages avoids skips.
+
+Ceiling: **500 rows per page**, counted across `surfaces` + `stubs` + `mappings` + `pairs` +
+`deleted`. Over that is a `400`.
+
+### Body
+
+```jsonc
+{
+  "jobId": "mindcloud-page-3-1754963400",
+  "catalog": { /* the catalogue header — send it on EVERY page */ },
+  "page":    { "index": 3, "of": 8 },
+  "surfaces":[ /* 0+ */ ], "stubs": [ /* 0+ */ ],
+  "mappings":[ /* 0+ */ ], "pairs": [ /* 0+ */ ],
+  "deleted": { "surfaces": [], "mappings": [] }   // optional; explicit hard deletes
+}
+```
+
+**Ids are yours.** Every `id` below is *your* record id, and it becomes the AECi primary key
+verbatim. That is why this arm returns no ID map: you already know every id you sent, and
+there is nothing to persist or to strand.
+
+#### `catalog` (required, on every page)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Your catalogue record id. |
+| `connectorProductId` | uuid | no | The connector platform's **AECi product id**. Omit it if the platform isn't promoted — the whole page is then reported in `skipped[]` as `kind: "connector-catalog"`, which is **not an error**. |
+| `connectorAuthorship` | enum | no | `platform` \| `partner` \| `mixed` — who actually *builds* the connectors. |
+| `notes` | string | no | |
+
+`managedBy` is **not accepted** (AECI-720). Who authors a catalogue is held *and* enforced
+AECi-side — the review app is the component being decommissioned, so the surviving system owns
+who-controls-what. A catalogue starts `review` by column default, and only an AECi operator moves
+it. Sending the field is harmless (unknown keys are stripped) but it will not do anything, and
+you cannot use it to un-freeze a catalogue that has been handed over. See §3a's rejection below.
+
+#### `surfaces[]` — one per index URL you crawl
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `surfaceRole` | string | yes | Free-form; `apps` / `pairs` / `sources` / `destinations` / `all` today. Unique per catalogue. |
+| `indexKind` | string | no | Free-form; `sitemap` / `toc` / `json_api` / `html` today. |
+| `indexUrl` | string | no | |
+| `lastIngestedAt` | ISO-8601 | no | The **"as of" date** AECi renders beside every reachability claim. Keep it current — it is the freshness signal the connector lane is judged on. |
+| `notes` | string | no | |
+
+#### `stubs[]` — every listing, mapped or not
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `slug` | string | yes | Unique per catalogue. |
+| `label`, `url`, `directionRole` | string | no | `directionRole` is free-form. |
+| `actionCount` | integer | no | |
+| `actions` | json | no | **Omit it when you have never fetched the inventory.** Null means *never fetched*, not *no actions*; AECi will not publish "this connector does nothing" from an absence. |
+| `actionsHash`, `actionsFetchedAt` | string | no | |
+| `previousLabels` | string[] | no | |
+| `meta` | json | no | |
+| `firstSeenAt`, `lastSeenAt` | ISO-8601 | **yes** | No defaults on this side, deliberately — a default would mask a sender bug as a plausible timestamp. |
+| `removedAt` | ISO-8601 | no | The tombstone. Stamp it only off a **complete** ingest run; a truncated fetch is indistinguishable from a vendor deleting half their catalogue. |
+
+#### `mappings[]` — the stub↔product assertions
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `stubId` | string | yes | Yours. If the stub is neither on this page nor already stored, the mapping is skipped as `kind: "connector-stub"` — re-send it after the stub page. |
+| `productId` | uuid | conditional | The **AECi product id**. Required for `mapped` / `ruled_out`; **forbidden** for the other three. If you hold no AECi id yet, omit it: the row is skipped as `kind: "connector-mapping"`, not rejected. |
+| `status` | enum | yes | `mapped` \| `ruled_out` \| `out_of_scope` \| `no_record` \| `ambiguous_parked`. There is **no `pending`** — absence of a row is pending. |
+| `confidence` | enum | no | `low` \| `medium` \| `high`. |
+| `evidenceUrl` | string | no | Per row, not per stub. |
+| `decidedBy` | string | no | **The publication gate.** A row decided by your automatic pass (`auto-name-match`) computes but never publishes; only a named human's decision reaches a public surface. |
+| `decidedAt`, `checkedAt` | ISO-8601 | no | |
+| `notes` | string | no | |
+
+`catalogId` is **not accepted** — AECi derives it from the page's own catalogue, so a
+malformed payload cannot break the invariant the triage counts depend on.
+
+Two families, and they may not cross: `mapped` / `ruled_out` name a product and several may
+sit on one stub; the other three assert there is none to name and **at most one** may sit on
+a stub. Both rules are enforced at the kick-off, so a violation is a fast `400` rather than a
+rolled-back page.
+
+#### `pairs[]` — the pairs the vendor publishes a page for
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `stubAId`, `stubBId` | string | yes | **Canonically ordered: `stubAId < stubBId`.** Vendors publish both directions as separate pages; without the ordering every pair arrives twice. A reversed pair is a `400`. |
+| `urlAToB`, `urlBToA` | string | no | Either may be absent. |
+| `surface` | enum | no | `curated` \| `generated` \| `unknown` (default). **This is the field that decides publication** — AECi publishes the curated set and refuses to publish an auto-generated cross-product. |
+| `classifiedAt` | ISO-8601 | no | |
+| `firstSeenAt`, `lastSeenAt` | ISO-8601 | **yes** | |
+| `removedAt` | ISO-8601 | no | |
+
+#### `deleted` (optional) — the only hard deletes
+
+`{ "surfaces": [id, …], "mappings": [id, …] }`. Necessary because in a paged mirror **absence
+cannot mean deletion** — a row missing from this page is a row on another page. Only these
+two entities are hard-deleted; stubs and pairs retire via the `removedAt` tombstone.
+
+### Response
+
+The poll returns a result carrying `kind: "connector"` — the discriminant that tells it from a
+product bundle's ID map:
+
+```jsonc
+{
+  "kind": "connector",
+  "catalogId": "rec76C362381D6CDF",
+  "page": { "index": 3, "of": 8 },
+  "counts": {
+    "catalogs": { "created": 0, "updated": 0, "unchanged": 1, "deleted": 0, "skipped": 0 },
+    "surfaces": { "created": 0, "updated": 0, "unchanged": 2, "deleted": 0, "skipped": 0 },
+    "stubs":    { "created": 412, "updated": 6, "unchanged": 82, "deleted": 0, "skipped": 0 },
+    "mappings": { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 3 },
+    "pairs":    { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 0 }
+  },
+  "skipped": [
+    { "ref": "recMapAdp0000001", "kind": "connector-mapping",
+      "reason": "the mapped product is not promoted yet (send the mapping again once it is)" }
+  ]
+}
+```
+
+`unchanged` is the number worth watching: a steady-state re-sync should report it for
+everything, and that is the proof the page was a true no-op.
+
+**Always inspect `skipped[]`.** On a full-mirror sync a `complete` job that dropped 200
+mappings looks identical to one that dropped none. The four connector kinds are
+`connector-catalog`, `connector-stub`, `connector-mapping` and `connector-pair`; all four mean
+*"this could not be resolved yet"*, never *"policy said no"*, and all four are re-sendable.
+
+### One refusal that is NOT a skip: a vendor-managed catalogue (AECI-720)
+
+Per iPaaS, a catalogue can be handed over to its vendor. When an AECi operator flips
+`managed_by` to `vendor`, **the review lane freezes for that catalogue and no other**: every page
+you send for it fails the job with `CATALOG_VENDOR_MANAGED` (a `409`-class code) and writes
+nothing at all — no rows, no ledger row, no audit row.
+
+That is deliberately an **error and not a `skipped[]` entry**, because the four skip kinds above
+all promise *"could not be resolved yet"* and *"re-sendable"*, and this is neither. **Re-sending
+will not help, ever.** If a catalogue genuinely needs to return to review authorship, an AECi
+operator flips it back — ask, don't retry.
+
+Three properties worth knowing:
+
+- **It is checked before the unpromoted-connector skip.** A vendor-managed catalogue whose
+  platform is also unpromoted still rejects rather than reporting a re-sendable skip. A policy
+  refusal must not look like a resolution problem.
+- **The rejection is per job, and every page behaves identically.** One job is one page is one
+  catalogue, and the check does not depend on page contents.
+- **A mid-sync flip does not roll anything back.** Pages committed before the flip stay
+  committed; pages after it reject. AECi's copy is current either way — that is the whole reason
+  handover is a lane freeze rather than a data migration.
 
 ## 4. Response
 
@@ -413,6 +701,7 @@ what `GET /api/promote/jobs/{jobId}` returns in `result` once `status` is
     "integrations": [ /* … */ ],
     "taxonomy": { /* … */ },
     "skipped": [ /* … */ ],
+    "preserved": [ /* … */ ],
     "unresolvedLinks": [ /* … */ ]
   }
 }
@@ -438,6 +727,9 @@ The `result` object in full:
   "skipped": [
     { "ref": "i7", "kind": "integration", "reason": "source or target product is not promoted yet" }
   ],
+  "preserved": [
+    { "ref": "i1", "kind": "claim", "reason": "vendor-origin claim left untouched (not AECi-curated)", "count": 2 }
+  ],
   // The integration DID land — only this one link didn't. See the bullet below.
   "unresolvedLinks": [
     {
@@ -452,7 +744,10 @@ The `result` object in full:
 ```
 
 - `product` is `null` when you didn't send one (a vendor-only / integration-only
-  push); otherwise it carries the product's `id`, `slug`, and `operation`.
+  push) **or when the product was blocked** because a claimed vendor owns it
+  (§4a); otherwise it carries the product's `id`, `slug`, and `operation`. Tell
+  the two apart by looking for a `skipped[]` entry with `kind: "product"` and
+  your product's `ref`.
 - Map each returned `id` back to your record by its `ref` (or, for taxonomy, by
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
@@ -474,6 +769,58 @@ The `result` object in full:
   `trade` vocabulary (`kind: "trade"`, `ref` = the product's `ref`). It is not an
   error: re-push after promoting the other product, after the referenced taxonomy
   term exists, or with a recognized `dataObject` / trade value.
+- Two `skipped[]` kinds mean something different from all the others — see §4a.
+- **`preserved[]` is the opposite signal and needs no action from you.** It lists
+  claims and attestations that were **not** in your payload and survived anyway,
+  because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
+  coexistence worked. Entries are `{ ref, kind: "claim" | "attestation", reason,
+  count }`, aggregated per reason, with `ref` set to the enclosing integration's
+  `ref`. For the ordinary promote of an unclaimed product it is always `[]`.
+  Log it if you want operator visibility; never treat it as an error.
+
+---
+
+## 4a. Claimed vendors are not writable from the review app (AECI-520)
+
+Stage 2 gives vendors their own portal. Once AECi grants a vendor a portal seat,
+that vendor is **claimed**, and from then on it edits its own content directly —
+description, links, logo, taxonomy. Those are the same columns a promote writes,
+so if the review app kept pushing them it would silently revert the vendor's
+work every time. AECi therefore refuses those specific writes.
+
+What that looks like in a response:
+
+| Situation | Result |
+|---|---|
+| You update a **claimed vendor** | The vendor is **absent** from `vendors[]`; `skipped[]` gains `{ ref, kind: "vendor", reason: "vendor is claimed by a vendor admin; …" }`. Its columns are unchanged. |
+| You update an **existing product a claimed vendor owns** — or a product this payload would attach to one | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: "product belongs to a claimed vendor; …" }`. Nothing about the product changes, including its vendor/taxonomy/extension links. |
+| An integration in that same payload has an endpoint on the blocked product | Skipped with `kind: "integration"` and a reason mentioning the claimed vendor. |
+| You **create** a new vendor or product | Never blocked — nothing vendor-owned exists yet. |
+| Anything else in the same payload | Promotes normally. |
+
+This is **not an error** — the response is still `200`, and re-pushing will not
+help. If the content genuinely needs to change, the change belongs with the
+vendor (through their portal) or with an AECi admin, not with a re-push.
+
+The taxonomy facets on a blocked product are not resolved at all, so
+`taxonomy` comes back empty for that push and no new term is created.
+
+**Two scope notes, so the behaviour isn't surprising:**
+
+- The block is **wholesale**, not column-by-column. A claimed vendor's row and
+  its products are skipped entirely, so AECi's own curation fields on those rows
+  (`name`, `promotionStatus`, `researchStatus`, `priorityTier`, `adminNotes`, …)
+  also stop updating through promote. That is the cost of the simple rule; raise
+  it with AECi if a claimed vendor's product needs a curation change.
+- The integration cascade covers **the product in this payload**. An integration
+  whose *far* endpoint happens to be a claimed vendor's product still writes,
+  because integrations are AECi-curated and are not vendor-editable — no
+  vendor-owned content is at stake there.
+
+A vendor is **claimed** only while it has at least one **active** portal seat. If
+AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
+write to it again — that is deliberate, so moderation hands control back to AECi
+rather than freezing the record.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -499,6 +846,7 @@ create duplicates:
 |---|---|---|
 | `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off — or an internal engine replay — can't start a second job or commit twice, **ever**, for that id. |
 | `supabaseId` (§3.1) | one *row*, forever | Whether a push creates a new row or updates the existing one. |
+| the record `id` (§3a) | one connector-lane *row*, forever | On the connector arm only: your own record id **is** the AECi primary key, so every write is an upsert and re-sending a page is a no-op. This is why the connector arm needs no ID map and returns none. |
 
 The `jobId` guarantee does not expire with the job's 30-day retention: AECi keeps a
 ledger row per committed job id, so re-pushing an old id returns its original IDs
@@ -522,6 +870,8 @@ the same product twice as two different attempts.
 - **Re-pushing is safe** (same `supabaseId` → same row). The one hazard is a
   **lost ID mapping**: without `supabaseId`, AECi has no way to know the row
   already exists and will create a duplicate. Persist the IDs durably.
+- **`claims[]` is the one exception to "replaced to exactly match what you send"** —
+  it replaces **AECi curation only**. See §5.2.
 
 ### 5.1 Promote has NO delete semantics — deleting in Airtable does not retract
 
@@ -529,8 +879,10 @@ This is the sharpest edge in the whole contract, and it is not a bug you can ret
 past. **A promote can create and update rows. It can never delete one.**
 
 The only exception is *within* an entity you push: a product's join sets (categories,
-trades, …) and an integration's `claims[]` are replaced wholesale to match your
-payload. Entities themselves — products, vendors, integrations — are never removed.
+trades, …) are replaced wholesale to match your payload, and an integration's
+`claims[]` replaces **AECi's own curation** on it (§5.2 — vendor-authored claims and
+attestations survive). Entities themselves — products, vendors, integrations — are
+never removed.
 
 So if a curator **deletes an `Integrations` record from the base**, or simply stops
 sending it, the live D1 row does not go anywhere. It stays on the public pair page and
@@ -559,6 +911,42 @@ production D1 against the base daily and fails on any stray. AECI-593 is the wor
 example: two Polycam edges were editorially retracted on 2026-08-09 and sat live on
 production until the audit found them. Repair recipes:
 `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+
+### 5.2 `claims[]` replaces AECi curation only (AECI-604)
+
+**Since Stage 2, a claim absent from your payload is no longer a guaranteed delete.**
+This is the one place where "join sets are replaced to exactly match what you send"
+stops being the whole truth, and it is deliberate.
+
+Vendors can now author their own claims and attest to existing ones through the vendor
+portal. The review app has never had any way to see those rows — it only ever emits
+`source: "aeci"` attestations — so a replace-everything ingest would silently delete a
+vendor's assertions on every re-push of a claimed product. Instead, promote merges **by
+origin**:
+
+| What you send | What AECi does |
+|---|---|
+| A claim whose `(dataObject, direction)` already exists on that integration | **Reuses the existing row**, keeping its id and every vendor attestation on it. Only the `aeci` attestation is rewritten. |
+| A new `(dataObject, direction)` | Creates it, `origin = "aeci"`. |
+| You omit a claim AECi created and nobody else attests | Deleted, as before. |
+| You omit a claim a **vendor has attested** | **Converted, not deleted** — it becomes `origin = "vendor"` and keeps the vendor's attestation. AECi has withdrawn its curation; the vendor's assertion stands on its own and renders as one-sided on the pair page. |
+| A claim a **vendor created** (you never sent it, and never will) | Never touched, under any payload — including an empty `claims[]`. |
+
+Three consequences for the review app:
+
+- **You are no longer the sole author of an integration's claim set.** Re-curation is
+  still safe and still does what you mean; it just cannot assume it owns every row. If
+  the pair page shows a claim your base has no record of, that is expected — a vendor
+  put it there.
+- **Only `source: "aeci"` is yours to write.** Sending `vendor_a` / `vendor_b` in an
+  `attestations[]` is rejected per-claim into `skipped[]` (`kind: "claim"`) rather than
+  written; those slots are derived from product ownership and are not settable from a
+  payload.
+- **Claim ids are now stable.** A claim whose identity triple doesn't change keeps its
+  id across re-promotes, so anything you store keyed on a claim id stays valid.
+
+Whatever survived is reported in `preserved[]` (§4), so a re-promote of a claimed
+product shows explicitly which rows were kept rather than leaving you to infer it.
 
 ---
 
@@ -601,6 +989,7 @@ Synchronous rejections use the standard AECi envelope:
 |---|---|---|
 | `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Retry with a **new `jobId`**; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
+| `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is
@@ -614,16 +1003,23 @@ pending marker and get a `404`, the safe move is to re-push with a new `jobId` �
 check first that the product isn't already live, because a `404` cannot distinguish
 "never ran" from "ran, and aged out".
 
-### 6.3 Every rejection is logged in Datadog
+### 6.3 Every rejection is logged
 
 You don't have to keep the HTTP response body to diagnose a failed push. **Every
-rejected promote — synchronous or on the job — emits a detailed Datadog log** under
-`source:review-app-promote`, so the AECi operator can find and triage it from
-Datadog alone:
+rejected promote — synchronous or on the job — emits a detailed structured log** under
+`source:review-app-promote`, so the AECi operator can find and triage it from the
+log console alone:
+
+> **Which console.** **PostHog Logs** (ADR 0024; the Datadog leg was deleted at AECI-651).
+> The **contract below was unchanged by the swap** — the same
+> attributes, the same `source`, the same `trace_id` correlation. Only the query syntax differs:
+> a Datadog `service:aeci-api source:review-app-promote` search becomes an attribute filter on
+> the OTLP resource attribute `service.name` plus the `source` attribute. Nothing the review app
+> sends or the curator does changes.
 
 - **Where:** service `aeci-api`, filter `source:review-app-promote`.
-- **Synchronous rejections** carry the HTTP status (as `http_status` — Datadog
-  reserves the `status` attribute for the log level), the error `code`, the `field`
+- **Synchronous rejections** carry the HTTP status (as `http_status` — the bare `status`
+  attribute is reserved for the log level on both vendors), the error `code`, the `field`
   (when set), the full `details` (for a `VALIDATION_FAILED`, the entire Zod
   `issues[]`), the request `path`/`method`, and the **same `trace_id`** returned in
   the response envelope — so a curator-reported `trace_id` pivots straight to its
@@ -637,20 +1033,21 @@ Datadog alone:
   too (see `docs/OBSERVABILITY.md`).
 
 This is promote-specific — the public read endpoints stay silent on 4xx to avoid
-log noise. So "look in Datadog" is the authoritative way to see why a promote was
+log noise. So "look in the logs" is the authoritative way to see why a promote was
 rejected; you don't need to plumb the response body anywhere else.
 
 > **This invariant did not hold before AECI-666.** The post-commit tail issued one
-> Datadog request per `audit_log` row, all at once, which exhausted the
-> invocation's connection budget. The runtime cancelled the stalled responses into
-> `fetch` promises that never settle, so forwards were dropped with no error and no
-> warning anywhere — the failure mode this section's promise is specifically meant
-> to rule out. The audit forwards are now a single batched request, every transport
-> releases its response body, and a hook that stays unsettled for 20s is abandoned
-> with a `console.warn` visible in Cloudflare Workers Observability rather than
-> hanging the invocation. If you are diagnosing a promote from before that fix
-> landed, treat "no Datadog record" as inconclusive, not as "it didn't happen" —
-> the `promote_jobs` ledger in D1 is the authoritative record of what committed.
+> request per `audit_log` row, all at once,
+> which exhausted the invocation's connection budget. The runtime cancelled the
+> stalled responses into `fetch` promises that never settle, so forwards were
+> dropped with no error and no warning anywhere: the failure mode this section's
+> promise is specifically meant to rule out. The audit forwards are now a single
+> batched request per vendor, every transport releases its response body, and a
+> hook that stays unsettled for 20s is abandoned with a `console.warn` visible in
+> Cloudflare Workers Observability rather than hanging the invocation. If you are
+> diagnosing a promote from before that fix landed, treat "no log record" as
+> inconclusive, not as "it didn't happen" — the `promote_jobs` ledger in D1 is the
+> authoritative record of what committed.
 
 ### 6.4 Partial promotes (`skipped[]`) are logged too
 
@@ -658,14 +1055,14 @@ A `complete` job with a non-empty `result.skipped[]` (§4) is a **partial** prom
 some entities couldn't be linked (an integration/extension whose far endpoint isn't
 promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
 resolve). Those never fail the promote, so they're easy to miss. They are surfaced
-in Datadog as:
+in the logs as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
   detailing every `{ ref, kind, reason }` plus per-kind counts, and
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
-  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for a monitor.
+  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for an alert to watch.
 
-So a curator's silently-dropped push is visible in Datadog even though the job
+So a curator's silently-dropped push is visible even though the job
 completed successfully. (You should still inspect `result.skipped[]` and re-push once
 the blocking condition clears — the log is the operator's backstop, not a substitute
 for handling `skipped[]`.)
@@ -695,14 +1092,19 @@ round-trip rather than waiting out the cache TTL.
 
 **Failure semantics (deliberate):** the purge is **best-effort and runs after the
 write commits**. It is fired asynchronously and **never affects the job outcome** —
-a promote still reports `complete` even if the subsequent purge call fails. It is also
-dispatched *after* the job completes, so it never delays your poll.
-On the AECi side, every purge is observable in Datadog as
-`aeci.cache.purge{source:promote,outcome:ok|cf_failed}`, plus a `warn` log if the
-Cloudflare purge-by-tag call fails. If a purge does fail, the only consequence is that
-the affected pages fall back to their normal edge TTL (≤15 min on detail pages) —
-the same staleness window that existed before this behavior was added, so there is
-no correctness regression. No retry or action is required from the review app.
+a promote still reports `complete` even if the subsequent purge fails. It is also
+dispatched *after* the job completes, so it never delays your poll. Under the hood
+the API Worker **enqueues** a tag-purge message onto the AECi cache-purge queue
+(`aeci-cache-purge-{env}`); the SSR Worker's consumer does the actual eviction via
+native Cloudflare Workers Cache (`ctx.cache.purge()`). The old direct HTTP
+purge-by-tag API call was retired in the Workers Cache migration. On the AECi side
+every purge is observable as
+`aeci.cache.purge{source:promote,outcome:ok|purge_failed|no_cache}`, plus a `warn`
+log if the eviction fails (the queue consumer retries it). If a purge ultimately
+fails, the only consequence is that the affected pages fall back to their normal
+edge TTL (≤15 min on detail pages) — the same staleness window that existed before
+this behavior was added, so there is no correctness regression. No retry or action
+is required from the review app.
 
 **Known bounded gaps (tracked, out of scope here):**
 
@@ -956,5 +1358,12 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
 - [ ] Promote a connector **before** any edge naming it as `poweredByProduct`, and inspect `result.unresolvedLinks[]` — an entry there means the edge landed with no connector link (§4). Treat `field: "powered_by"` on a Zapier/Workato edge as expected and permanent, not as a retry signal. To *remove* a connector send `poweredByProduct: null`; omitting the key leaves the stored value untouched.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
-- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
+- [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
+- [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
+- [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
+- [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.
+- [ ] **On the connector arm, inspect `skipped[]` even on a clean `complete`.** A full-mirror sync that dropped 200 mappings because their products are not promoted looks identical to one that dropped none.
+- [ ] **Never let absence mean deletion on the connector arm.** A row missing from a page is a row on another page. Retire a stub or pair with a `removedAt` tombstone; hard-delete a mapping or surface through the explicit `deleted` object.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

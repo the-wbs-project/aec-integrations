@@ -210,7 +210,7 @@ exposes `promote_product` and the `create_*`/`update_*` family.
 
 - **The root cause is fixed — [AECI-730](https://linear.app/aec-integrations/issue/AECI-730)
   (2026-09-01).** `promote.ts` no longer drops an unresolvable `poweredByProduct`
-  silently: it reports it on the response as `unresolvedLinks[]` and in Datadog as
+  silently: it reports it on the response as `unresolvedLinks[]` and in PostHog as
   `aeci.api.promote.unresolved_link{field:powered_by}` (`info`, not `warn` — see below),
   and it no longer _clears_ a stored FK on update, because the column is now omitted
   from the write instead of being resolved to `null`. `builtByVendor` got the same

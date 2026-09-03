@@ -11,6 +11,7 @@ const baseRecord: AlgoliaVendorRecord = {
   objectID: '00000000-0000-4000-8000-000000010001',
   company_name: 'Procore Technologies',
   slug: 'procore-technologies',
+  verified: false,
   description: 'Construction software vendor.',
   headquarters: 'Carpinteria, CA',
   founded_year: 2002,
@@ -57,5 +58,24 @@ describe('SearchVendorCard', () => {
   it('omits the founded year when null', () => {
     const el = setup({ ...baseRecord, founded_year: null });
     expect(el.textContent).not.toContain('2002');
+  });
+
+  it('renders the verified badge when the vendor is verified (AECI-529)', () => {
+    const el = setup({ ...baseRecord, verified: true });
+    expect(el.querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el.textContent).toContain('Verified vendor');
+  });
+
+  it('hides the verified badge when the vendor is not verified', () => {
+    const el = setup({ ...baseRecord, verified: false });
+    expect(el.querySelector('aec-verified-badge')).toBeNull();
+    expect(el.textContent).not.toContain('Verified vendor');
+  });
+
+  it('hides the verified badge for a stale record missing the field', () => {
+    // Records indexed before AECI-529 carry no `verified` field, so it reads as
+    // `undefined` at runtime — the `@if` guard must treat that as unverified.
+    const el = setup({ ...baseRecord, verified: undefined as unknown as boolean });
+    expect(el.querySelector('aec-verified-badge')).toBeNull();
   });
 });

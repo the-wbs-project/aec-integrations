@@ -3,28 +3,23 @@
  *
  * Cloudflare injects `env` per request. Service bindings (`ASSETS`, `API`) are
  * fetcher RPC handles configured in `wrangler.jsonc`. `ENV` is a public `vars`
- * value. Datadog credentials are set with `wrangler secret put`:
+ * value.
  *
- *   - DD_APPLICATION_ID, DD_CLIENT_TOKEN — explicitly client-exposed per
- *     AECI-31 acceptance criteria. They are rendered into the SSR HTML by
- *     `injectDatadogBootstrap` so `@datadog/browser-rum` can pick them up at
- *     hydration. We still store them as secrets (not `vars`) so the values do
- *     not live in git.
- *   - DD_API_KEY — server-only. Used by `logToDatadog()` (see
- *     `./server-datadog.ts`) to POST logs to the Datadog HTTP intake. Never
- *     rendered into HTML.
- *   - DD_SITE — public, the Datadog site host (`datadoghq.com`,
- *     `datadoghq.eu`, etc.). Defaults to `datadoghq.com` when absent.
+ * Observability holds NO Worker secret: the Worker reaches PostHog through
+ * `logToPosthog()` in `server-posthog.ts`, and the publishable `phc_`
+ * `POSTHOG_PROJECT_KEY` — a committed per-env wrangler var, not a secret
+ * (AECI-640) — authenticates all three intakes. The four `DD_*` Datadog
+ * credentials this file used to carry were removed with the Datadog leg in
+ * AECI-651.
  *
  * Cache-tag purge surface (AECI-56 / Phase 2.10):
  *
  *   - ADMIN_PURGE_TOKEN — caller-facing bearer for `POST /admin/purge`.
  *     Wrangler secret. Phase 6 replaces this with Cloudflare Access.
- *   - CF_PURGE_API_TOKEN — Cloudflare API token used by the purge handler to
- *     call CF's purge-by-tag API. Must be scoped to `Zone.Cache Purge` on
- *     `aecintegrations.com` only (`docs/CACHE_STRATEGY.md` §5 line 109).
- *   - CF_ZONE_ID — public `vars` entry; the Cloudflare zone ID the purge call
- *     targets.
+ *     `/admin/purge` invalidates in-process via native `ctx.cache.purge()`
+ *     (WC-6 / AECI-320) — it reads no Cloudflare API token (the old
+ *     `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` purge secrets were retired in
+ *     WC-10 / AECI-324).
  *
  * Algolia search surface (AECI-134 / Phase 3.1):
  *
@@ -35,23 +30,16 @@
  *     (not `vars`) only to keep values out of git.
  *   - The Algolia ADMIN/management key is **never** part of `WebEnv` — it must
  *     never reach the browser (review gate). It lives on the API Worker only
- *     (`apps/api/src/env.ts`). Mirrors the DD `DD_API_KEY` server-only rule.
+ *     (`apps/api/src/env.ts`) — a server-only key never reaches the browser.
  *
- * All Datadog, purge, and Algolia fields are optional so the Worker boots
- * cleanly in local dev before secrets have been provisioned — the RUM provider
- * and `logToDatadog` helper no-op when missing; the purge endpoint returns
- * `cf_credentials_missing` in its `failed[]` payload; the Algolia bootstrap
- * injects nothing (no `window.__AECI_ALGOLIA__`).
+ * The purge and Algolia fields are optional so the Worker boots cleanly in
+ * local dev before secrets have been provisioned — the purge endpoint reports a
+ * `skipped: 'cache_disabled'` no-op when native Workers Cache is off on the
+ * entrypoint (local / miniflare); the Algolia bootstrap injects nothing (no
+ * `window.__AECI_ALGOLIA__`).
  */
 
 import type { AlgoliaIndexNames } from '@aeci/shared/algolia';
-
-export type DatadogPublicConfig = {
-  applicationId: string;
-  clientToken: string;
-  site: string;
-  env: string;
-};
 
 /**
  * Public Algolia config rendered into the SSR HTML for the browser
@@ -82,8 +70,8 @@ export type SupabasePublicConfig = {
  * Public PostHog config rendered into the SSR HTML for the browser
  * (`window.__AECI_POSTHOG__`, AECI-239 / §14.1). Carries the project API key
  * and the ingestion host — both client-exposed by design (the project API key
- * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY` /
- * `DD_CLIENT_TOKEN`). Consumed at hydration by `app/analytics/posthog-config.ts`
+ * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY`).
+ * Consumed at hydration by `app/analytics/posthog-config.ts`
  * → the `Analytics` service. Absent → the bootstrap injects nothing and the
  * browser analytics layer no-ops (fail-open).
  */
@@ -98,12 +86,14 @@ export type WebEnv = {
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) Datadog logs/metrics and the RUM bootstrap report `development` —
+   * tests) the logs/metrics tags and the browser bootstrap report `development` —
    * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
    * `production` are the two public, non-Access-gated tiers (see
-   * `@aeci/shared/deploy-env`).
+   * `@aeci/shared/deploy-env`). `stage2` is the TEMPORARY Stage 2 test tier
+   * (AECI-637) — Access-gated, so deliberately NOT a public site; remove it from
+   * this union at teardown.
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.
@@ -125,13 +115,7 @@ export type WebEnv = {
    */
   COMMIT_SHA?: string;
   DEPLOYED_AT?: string;
-  DD_APPLICATION_ID?: string;
-  DD_CLIENT_TOKEN?: string;
-  DD_API_KEY?: string;
-  DD_SITE?: string;
   ADMIN_PURGE_TOKEN?: string;
-  CF_PURGE_API_TOKEN?: string;
-  CF_ZONE_ID?: string;
   /**
    * IndexNow verification key (AECI-236 / §20.2). The plaintext key served as the
    * body of the `{INDEXNOW_KEY}.txt` file at the site root
@@ -162,23 +146,42 @@ export type WebEnv = {
    *   secret to keep values out of git — same convention as
    *   `ALGOLIA_SEARCH_KEY`. Absent → `createSupabaseServerClient` returns
    *   `null` and auth surfaces degrade gracefully (no throw at boot).
-   * - The service-role key is NEVER part of `WebEnv` (or any Worker env) —
-   *   AUTH_AND_RLS.md §3. Mirrors the Algolia admin-key rule above.
+   * - The service-role key is NEVER part of `WebEnv` (nor any web-Worker env) —
+   *   AUTH_AND_RLS.md §3.1. Mirrors the Algolia admin-key rule above. (Since
+   *   AECI-530 it IS a runtime secret on the API Worker for the Admin-API seams,
+   *   read only in `apps/api/src/lib/supabase-admin.ts` — never here.)
    */
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   /**
-   * Public PostHog analytics surface (AECI-239 / Phase 7.4, §14.1).
+   * Public PostHog surface (AECI-239 / Phase 7.4, §14.1; renamed AECI-640).
    *
-   * - POSTHOG_KEY — the project API key (publishable; safe to render into HTML,
-   *   same security class as `ALGOLIA_SEARCH_KEY`). Stored as a CI-pushed secret
-   *   to keep values out of git. Absent → `injectPostHogBootstrap` is a no-op
-   *   (no `window.__AECI_POSTHOG__`) and the browser analytics layer never loads
-   *   PostHog (fail-open).
-   * - POSTHOG_HOST — the ingestion host. Defaults to `https://us.i.posthog.com`
-   *   (US Cloud) when unset; the static CSP `connect-src` is pinned to the US
-   *   hosts, so changing region requires a CSP update (`server/seo-headers.ts`).
+   * - POSTHOG_PROJECT_KEY — the project API key (`phc_…`). Publishable by
+   *   design: it is rendered into the served HTML on every page, so it is not
+   *   and cannot be a secret. Since AECI-640 it is a **committed per-env
+   *   `vars` entry** in `wrangler.jsonc`, not a CI-pushed secret. AECI-239
+   *   kept it out of git for tidiness only, and that choice is what produced
+   *   the weeks-dark production analytics of AECI-326: the push step existed,
+   *   the secret did not, and the warn-and-skip path was silent. A committed
+   *   var has no provisioning step to forget, and PR previews get analytics
+   *   automatically. Absent → `injectPostHogBootstrap` is a no-op (no
+   *   `window.__AECI_POSTHOG__`) and the browser layer never loads PostHog
+   *   (fail-open) — which is the intended state for bare `wrangler dev`.
+   *   Since AECI-642 the SSR Worker's own server-side telemetry authenticates
+   *   with this same token (PostHog's log/metric/event intakes all accept the
+   *   publishable project key), which is why the Worker holds **no** PostHog
+   *   secret at all.
+   * - POSTHOG_HOST — the **ingest** host, `https://us.i.posthog.com` (US
+   *   Cloud). Note `us.posthog.com` (no `.i`) is the *management* API — mixing
+   *   them up yields a confusing 404. The static CSP `connect-src` is pinned to
+   *   the US ingest + assets hosts, so changing region requires a CSP update
+   *   (`server/seo-headers.ts`).
+   *
+   * Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): production points
+   * at `aec-integrations` (354071); preview/staging/demo/stage2 all point at
+   * `aec-integrations-dev` (525793). Demo previously received the *production*
+   * key and polluted the prod project with synthetic traffic — AECI-640.
    */
-  POSTHOG_KEY?: string;
+  POSTHOG_PROJECT_KEY?: string;
   POSTHOG_HOST?: string;
 };

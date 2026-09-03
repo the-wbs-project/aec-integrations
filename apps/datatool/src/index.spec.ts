@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import app from './index';
 import { makeShimDb, type ShimHandle } from './test/d1';
@@ -189,6 +189,76 @@ describe('datatool routes', () => {
     const json = (await res.json()) as { ok: boolean; reindex: { skipped: boolean } };
     expect(json.ok).toBe(true);
     expect(json.reindex.skipped).toBe(true);
+  });
+
+  // ── WC-7 (AECI-321): post-write cache purge via the per-tier queue producer ──────
+
+  /** A mock cache-purge Queue producer capturing every `send()`. */
+  function queueSpy() {
+    return { send: vi.fn().mockResolvedValue(undefined) };
+  }
+
+  it('standalone reindex enqueues a purgeEverything message to the target tier queue', async () => {
+    seedCatalog(staging.raw);
+    const stagingQueue = queueSpy();
+    env.CACHE_PURGE_QUEUE_STAGING = stagingQueue;
+
+    const res = await call('/api/reindex', { target: 'staging' }, TOKEN);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { purge: { ok: boolean; enqueued: boolean } };
+    expect(json.purge.enqueued).toBe(true);
+    expect(stagingQueue.send).toHaveBeenCalledTimes(1);
+    expect(stagingQueue.send).toHaveBeenCalledWith({ purgeEverything: true, source: 'datatool' });
+  });
+
+  it('routes the purge to only the target tier queue', async () => {
+    seedCatalog(staging.raw);
+    const stagingQueue = queueSpy();
+    const demoQueue = queueSpy();
+    env.CACHE_PURGE_QUEUE_STAGING = stagingQueue;
+    env.CACHE_PURGE_QUEUE_DEMO = demoQueue;
+
+    const res = await call('/api/reindex', { target: 'staging' }, TOKEN);
+    expect(res.status).toBe(200);
+    expect(stagingQueue.send).toHaveBeenCalledTimes(1);
+    expect(demoQueue.send).not.toHaveBeenCalled();
+  });
+
+  it('gracefully skips the purge when the target tier has no queue producer', async () => {
+    seedCatalog(preview.raw);
+    // preview has no `aeci-cache-purge-preview` queue → no producer bound.
+    const res = await call('/api/reindex', { target: 'preview' }, TOKEN);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { purge: { ok: boolean; enqueued: boolean } };
+    expect(json.purge.ok).toBe(false);
+    expect(json.purge.enqueued).toBe(false);
+  });
+
+  it('skips the purge enqueue when reindex requests purge:false', async () => {
+    seedCatalog(staging.raw);
+    const stagingQueue = queueSpy();
+    env.CACHE_PURGE_QUEUE_STAGING = stagingQueue;
+
+    const res = await call('/api/reindex', { target: 'staging', purge: false }, TOKEN);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { purge: unknown }).purge).toBeNull();
+    expect(stagingQueue.send).not.toHaveBeenCalled();
+  });
+
+  it('a confirmed copy enqueues the destination tier purge', async () => {
+    seedCatalog(preview.raw);
+    const stagingQueue = queueSpy();
+    env.CACHE_PURGE_QUEUE_STAGING = stagingQueue;
+
+    const res = await call(
+      '/api/copy',
+      { source: 'preview', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { refresh: { purge: { enqueued: boolean } } };
+    expect(json.refresh.purge.enqueued).toBe(true);
+    expect(stagingQueue.send).toHaveBeenCalledWith({ purgeEverything: true, source: 'datatool' });
   });
 
   // ── Prune orphaned integrations ────────────────────────────────────────────

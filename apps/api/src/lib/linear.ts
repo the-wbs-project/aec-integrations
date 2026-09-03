@@ -13,7 +13,8 @@
  *
  *   - **Never throws.** Every failure mode (absent key, timeout, non-2xx, a
  *     200-with-`errors[]` body, `success:false`, a DB write error) is caught,
- *     logged to Datadog, and metered — the row simply stays `open` with
+ *     logged (PostHog beside Datadog for the AECI-639 dual-run), and
+ *     metered — the row simply stays `open` with
  *     `linear_issue_id=null` for the §6.7 reconciliation sweep to retry (§6.2).
  *   - **Absent key → silent no-op, no metric.** No `LINEAR_API_KEY` is the
  *     expected state in local `dev:bound` / PR previews (staging/prod only), so it
@@ -43,7 +44,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
 
@@ -606,7 +607,7 @@ function buildDuplicateNote(input: LinearIssueInput): string {
 // ─── Telemetry ───────────────────────────────────────────────────────────────
 
 /** Emit the `aeci.linear.issue` outcome count (+ duration distribution on a
- *  terminal create attempt). Wrapped so a missing `DD_API_KEY` / ExecutionContext
+ *  terminal create attempt). Wrapped so a missing `POSTHOG_PROJECT_KEY` / ExecutionContext
  *  can never turn a graceful path into a throw (mirrors `toxicity.ts`). */
 function emit(
   c: LinearContext,
@@ -664,13 +665,13 @@ function emitSync(
   }
 }
 
-/** Datadog forwarder for the sync transition write; no-op without `DD_API_KEY`.
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the sync transition write; each vendor leg no-ops without its own key.
  *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
  *  `source: site-linear-sync`. */
 function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -692,7 +693,7 @@ function error(c: LinearContext, message: string): void {
 }
 function log(c: LinearContext, level: 'info' | 'warn' | 'error', message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
   } catch {
     const sink = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
     console[sink](`linear: ${message}`);
