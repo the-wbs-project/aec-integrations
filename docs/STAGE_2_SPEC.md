@@ -173,7 +173,7 @@ Work already opened against the `stage-2` branch and living in the "Stage 2 Plan
 
 - **Workers Cache Migration** (AECI-314 epic, WC-1…11 / AECI-315…325; ADR 0020). Moves the SSR edge cache from hand-rolled `caches.default` match/put + HTTP purge to **native Workers Cache** with cross-Worker purge via a Cloudflare Queue. This is the concrete realization of drift point §4.2 and is a prerequisite Stage 2 platform change, independent of the vendor portal.
 
-Stage 2 feature work branches from and merges to `stage-2` (post-launch branch model, ADR 0019 / `docs/CICD_PLAN.md` §10); production hotfixes still branch from `main`.
+*(Historical: Stage 2 feature work branched from and merged to `stage-2` under the post-launch branch model, ADR 0019 / `docs/CICD_PLAN.md` §10. **`stage-2` merged into `main` and was retired on 2026-09-03** — the Stage 2 dark launch — so all follow-on work branches from `main`.)*
 
 ---
 

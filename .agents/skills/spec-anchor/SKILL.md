@@ -57,7 +57,7 @@ From the returned `description`, extract the first line matching:
 git show origin/main:docs/<DOC>.md | head -5
 ```
 
-`docs/ADMIN_PANEL_SPEC.md` is the live example — it exists on `origin/main` and not on `stage-2`, and a large share of recent issues anchor to it. Read it from the branch that has it and **say which branch you read it from**, because it may not match the code in this worktree.
+This mattered most while `stage-2` was a separate line; `stage-2` merged into `main` and was retired on 2026-09-03, so `main` now carries every spec doc (`docs/ADMIN_PANEL_SPEC.md` included — it was the standing example of a doc visible from only one branch). The check is still worth keeping for `admin-panel` and for epic branches: read the doc from the branch that has it and **say which branch you read it from**, because it may not match the code in this worktree.
 
 Also capture from the issue:
 

@@ -352,8 +352,9 @@ things follow for the sender:
   re-key fail validation.
 - **Do not send `integrator` to an environment that has not applied migration
   `0027_powerful_killraven.sql`.** The wire schema accepts it from AECI-721 PR-A, and the app-DB
-  `integrations_mechanism_kind_check` accepts it from PR-B's migration — which is on the `stage-2`
-  line, so **production does not have it until `stage-2` merges**. Against an environment without
+  `integrations_mechanism_kind_check` accepts it from PR-B's migration — which merged to `main` on
+  2026-09-03, so **production does not have it until a prod promote carries that commit** (the
+  merge puts it on staging; `promote-to-prod` is what applies it to prod D1). Against an environment without
   it, an `integrator` payload passes Zod and then fails the CHECK **inside the promote Workflow's
   non-retried commit step** — a job failure rather than a clean `400`. `GET /api/version` reporting
   a commit at or after that migration is the signal that it is safe. This is a deployment caveat,

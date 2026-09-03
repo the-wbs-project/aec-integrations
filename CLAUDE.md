@@ -6,7 +6,7 @@ This file tells Claude Code how to work in this repo. Read this before starting 
 
 **AEC Integrations (AECi)** is a directory and review platform for software integrations in the Architecture, Engineering, and Construction industry. The product is built around dual-vendor-verified integration reviews, AEC-native taxonomy, trust-first positioning (no pay-for-placement), and dual reviews separating product quality from onboarding experience.
 
-The site is **live in production** (apex cutover 2026-07, AECI-247/277; canonical host `www.aecintegrations.com`). The app database is Cloudflare D1; Supabase is Auth-only. Catalog data is curated upstream in the review app and pushed into D1 via the async promote protocol (`docs/REVIEW_APP_PROMOTE_API.md`). `main` is the production line; Stage 2 development happens on the `stage-2` branch (see "Git workflow").
+The site is **live in production** (apex cutover 2026-07, AECI-247/277; canonical host `www.aecintegrations.com`). The app database is Cloudflare D1; Supabase is Auth-only. Catalog data is curated upstream in the review app and pushed into D1 via the async promote protocol (`docs/REVIEW_APP_PROMOTE_API.md`). `main` is the production line and, since the 2026-09-03 Stage 2 merge, the only line (see "Git workflow").
 
 ## Sibling repos — check you're in the right one
 
@@ -72,7 +72,7 @@ generally cannot commit across repos from a single workspace.
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, dashboards + alerts — canonical for the live plane, which is **PostHog only** since AECI-651 | `docs/OBSERVABILITY.md` |
-| Observability migration Datadog → PostHog (the AECI-639 epic: the dual-run transport fan-out, two-mode consent-aware browser init, the alert/liveness-sweep model, project topology, decommission gates; the build contract each AECI-639 sub-issue [640…651] anchored to). **Complete — AECI-651 removed the Datadog leg on the `stage-2` line**, so the spec is now a build record rather than an in-flight contract; `docs/OBSERVABILITY.md` is canonical for the live plane | `docs/POSTHOG_MIGRATION_SPEC.md` (rationale: `docs/adr/0024-observability-migrates-to-posthog.md`) |
+| Observability migration Datadog → PostHog (the AECI-639 epic: the dual-run transport fan-out, two-mode consent-aware browser init, the alert/liveness-sweep model, project topology, decommission gates; the build contract each AECI-639 sub-issue [640…651] anchored to). **Complete — AECI-651 removed the Datadog leg, and the 2026-09-03 Stage 2 merge carried it onto `main`**, so the spec is now a build record rather than an in-flight contract; `docs/OBSERVABILITY.md` is canonical for the live plane | `docs/POSTHOG_MIGRATION_SPEC.md` (rationale: `docs/adr/0024-observability-migrates-to-posthog.md`) |
 | Analytics/marketing measurement baseline (AECI-326): PostHog + Datadog-RUM instrumentation status, starting-numbers snapshot, weekly read procedure. **Its "prod is dark, gated on secrets" state is stale** — corrected by the dated AECI-648 addendum inside the file (verified live 2026-08-24); the historical snapshot is deliberately left intact | `docs/ANALYTICS_BASELINE.md` |
 | **Product** analytics — the event catalogue, naming + never-in-a-property rules, the consent-tier caveat on every number, the `search_performed → product_viewed → external_link_clicked` activation funnel, and the identify/vendor-group identity model (AECI-649; the product companion to `OBSERVABILITY.md`, which keeps the is-it-healthy half) | `docs/ANALYTICS.md` |
 | Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
@@ -104,7 +104,7 @@ If your work touches a topic governed by one of these documents, that document i
 - **Database:** Cloudflare D1 (SQLite) via Drizzle ORM (`drizzle-orm/d1`) over the API Worker's `DB` binding — no external proxy, no `nodejs_compat` for the DB path (ADR 0016). Supabase is retained for **Auth only**. Lead capture (`feedback`/`mailing_list`) lives in D1 (AECI-257), written by `POST /api/feedback` + `/api/subscribe`; the caller is the shared mailing-list signup band in `apps/web` via the SSR Worker's `/api/*` passthrough (the pre-launch `apps/landing` Worker was retired at the apex cutover, AECI-247/277). Signups fire fail-open operator-alert + subscriber-welcome sends (AECI-327); unsubscribe (AECI-537) is a tokenized **soft-delete** via `POST /api/unsubscribe` + RFC 8058 one-click header — the `/unsubscribe` page confirms-then-POSTs (a GET never mutates) and is noindex + non-cacheable. Details: `docs/email.md`.
 - **Search:** Algolia + InstantSearch Angular
 - **Auth:** Supabase Auth (magic link + Google OAuth)
-- **Observability:** **PostHog only** (ADR 0024 / epic AECI-639). Logs, metrics, error tracking, web vitals and product analytics all land there. The AECI-639 dual-run ran PostHog beside Datadog to verify the swap against live traffic; **AECI-651 then deleted the Datadog leg** — both Worker adapters, `@datadog/browser-rum`, `observability/datadog/`, every `DD_*` var, and the CSP grants to the `browser-intake-*` hosts. **This landed on the `stage-2` line only; `main` (production) still runs the Datadog-only code** until the two are merged. Three facts worth knowing before touching observability: the Workers hold **no observability secret at all** (the publishable `phc_` `POSTHOG_PROJECT_KEY` is a committed per-env wrangler var, AECI-640); PostHog has **no `notify_no_data` equivalent**, so cron-absence detection is an external scheduled-CI liveness sweep (AECI-647); and **alerts evaluate hourly**, not every 5 minutes — the largest accepted degradation in the swap
+- **Observability:** **PostHog only** (ADR 0024 / epic AECI-639). Logs, metrics, error tracking, web vitals and product analytics all land there. The AECI-639 dual-run ran PostHog beside Datadog to verify the swap against live traffic; **AECI-651 then deleted the Datadog leg** — both Worker adapters, `@datadog/browser-rum`, `observability/datadog/`, every `DD_*` var, and the CSP grants to the `browser-intake-*` hosts. **Since the 2026-09-03 `stage-2 → main` merge this is the code on `main` too** — so the Datadog leg is gone from the production line, and it reaches live production at the next `promote-to-demo` → `promote-to-prod` (a prod promote is what actually flips prod's observability plane, not the merge). Three facts worth knowing before touching observability: the Workers hold **no observability secret at all** (the publishable `phc_` `POSTHOG_PROJECT_KEY` is a committed per-env wrangler var, AECI-640); PostHog has **no `notify_no_data` equivalent**, so cron-absence detection is an external scheduled-CI liveness sweep (AECI-647); and **alerts evaluate hourly**, not every 5 minutes — the largest accepted degradation in the swap
 - **Issue tracker:** Linear
 - **i18n:** `@angular/localize` (en-US only at launch; architecture supports more)
 - **Email:** Resend (transactional — `apps/api/src/lib/email.ts`, AECI-240) + Microsoft 365 (mailboxes). Supabase Auth magic links send over Resend custom SMTP. `docs/email.md` is the source of truth *(external provider state — re-verify there, not here)*.
@@ -261,38 +261,44 @@ Commit any changes under `.agents/skills/`.
 
 ## Git workflow
 
-> **Post-launch branch model (2026-07-05, ADR 0019 / `docs/CICD_PLAN.md` §10).** Production is
-> **live**, so `main` is the **production/stable line** and Stage 2 development happens on a
-> **long-lived `stage-2` integration branch**. **Pick your base branch by the nature of the
-> work:** production-destined work (**hotfixes** + prod-safe additive changes) branches from and
-> merges to `main`; **Stage 2 work branches from and merges to `stage-2`**. `main` HEAD must stay
-> always-promotable — staging auto-tracks it and it is the only source for a prod promote. Merge
-> `main → stage-2` regularly (after every hotfix) to keep drift small; when Stage 2 ships, merge
-> `stage-2 → main`. Applying a fix to live prod is the ordinary flow below, then promote by SHA
-> (`promote-to-demo` → `promote-to-prod`; see `docs/environments.md`).
+> **Branch model (2026-09-03 — `stage-2` merged and RETIRED; ADR 0019 / `docs/CICD_PLAN.md` §10).**
+> `main` is **the single line again.** The long-lived `stage-2` integration branch merged into
+> `main` at the Stage 2 dark launch and was retired; **branch everything from `main` and merge
+> back to `main`.** There is no longer a "which line does this belong to?" question at the branch
+> level — only a scope question (see "Scope" below). `main` HEAD must stay always-promotable —
+> staging auto-tracks it and it is the only source for a prod promote. Applying a fix to live prod
+> is the ordinary flow below, then promote by SHA (`promote-to-demo` → `promote-to-prod`; see
+> `docs/environments.md`).
+>
+> **Do not resurrect `stage-2`.** It was merged as a true merge commit (a one-time
+> `required_linear_history` toggle on `main`, restored immediately after), so all of its history is
+> in `main`. Historical note for reading old docs and issues: between 2026-07-05 and 2026-09-03,
+> Stage 2 work branched from and merged to `stage-2`, which is why so many merged PRs have a
+> non-`main` base.
 
-- Branch from `main` for production-destined work / hotfixes; branch from `stage-2` for Stage 2 work
+- Branch from `main` — for everything. (`stage-2` is retired; `admin-panel` is the one surviving long-lived branch, and it is Phase 8.3 admin-panel work only.)
 - Branch naming: `aeci-{issue-number}-short-description` (use Linear's "Copy git branch name" action)
 - Commit messages: descriptive; reference issue ID if helpful
-- PR description includes `Closes AECI-{N}` for the primary issue; set the PR **base branch** to `main` or `stage-2` to match the work
-- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse. **The PR suite is base-branch-agnostic** — it runs identically whether you target `main`, `stage-2`, or an epic branch (`deploy.yml` / `integration-db-tests.yml` carry no `branches:` filter on `pull_request`; Lighthouse stays push-to-`main`-only by design). `main` and `stage-2` are branch-protected on `Lint & typecheck` / `Unit tests` / `Build SSR Worker`, so a red one of those blocks the merge; E2E/a11y/Lighthouse still don't. **`admin-panel` has neither** — its PRs run no tests at all until the trigger fix is merged into that branch (`CICD_PLAN.md` §3.1/§8/§10).
-- Squash merge to the base branch (`main` or `stage-2`)
+- PR description includes `Closes AECI-{N}` for the primary issue; the PR **base branch** is `main` unless you are deliberately targeting `admin-panel`
+- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse. **The PR suite is base-branch-agnostic** — it runs identically whether you target `main` or an epic branch (`deploy.yml` / `integration-db-tests.yml` carry no `branches:` filter on `pull_request`; Lighthouse stays push-to-`main`-only by design). `main` is branch-protected on `Lint & typecheck` / `Unit tests` / `Build SSR Worker` (plus `strict: true` and required linear history), so a red one of those blocks the merge; E2E/a11y/Lighthouse still don't. **`admin-panel` has neither** — its PRs run no tests at all until the trigger fix is merged into that branch (`CICD_PLAN.md` §3.1/§8/§10).
+- Squash merge to `main`. **`main` requires linear history**, so merge commits are rejected — squash or rebase only. (The `stage-2 → main` merge commit was a one-off that needed the protection temporarily relaxed; don't plan on repeating it.)
 - Linear auto-closes the issue on merge
 
 ## Scope: which line does this work belong to?
 
-Stage 1 shipped — production is live. Phase 8 (post-launch operate-and-tune, `docs/POST_LAUNCH_MONITORING.md`) is the one Stage 1 phase still open; the historical phase breakdown lives in `docs/STAGE_1_SPEC.md` §16. Stage 2 (vendor portal / self-serve claiming, paid tiers [no pay-for-placement], attestations, real-time) is actively built on the `stage-2` branch against `docs/STAGE_2_SPEC.md`.
+Stage 1 shipped — production is live. Phase 8 (post-launch operate-and-tune, `docs/POST_LAUNCH_MONITORING.md`) is the one Stage 1 phase still open; the historical phase breakdown lives in `docs/STAGE_1_SPEC.md` §16. **Stage 2 shipped to `main` on 2026-09-03 as a dark launch** — the vendor portal, attestations, paid tiers, real-time revalidation and the connector lane are all on the production line, with the vendor surface inert behind its three locks (session → admin-approved seat → admin-set entitlements) until seats are granted. The current interlude is **Stage 2.1** (`docs/STAGE_2_1_SPEC.md`): dress-rehearse and refine the already-built vendor-management surface, then seat the first real vendors.
 
-Route work by its nature, per the Git workflow above:
+Everything branches from and merges to `main` now. Route work by **scope**, not by branch:
 
-- Production fixes + prod-safe additive changes → `main`
-- Stage 2 features → `stage-2`
+- Production fixes + prod-safe additive changes → ordinary `main` work
+- Vendor-activation refinement / hardening / verification → Stage 2.1 (`STAGE_2_1_SPEC.md` §1 admission test)
+- Everything else finishable before Stage 3 → Stage 2.5 (`STAGE_2_5_SPEC.md`)
 - Out of scope everywhere for now: rich media profiles (Stage 4), trust scoring beyond basic anti-abuse (Stage 3)
 - **"Real-time" is not out of scope, but it is not sockets.** Stage 2's answer is **scoped client
   revalidation** in the vendor portal — a polled freshness cursor. ADR 0023 declined Durable-Object
   WebSockets and SSE; see `docs/STAGE_2_REALTIME_SPEC.md`.
 
-If an issue's stage assignment is unclear, check its project/epic in Linear rather than assuming. Building a Stage 2 feature against `main`, and flagging assigned Stage 2 work as "out of scope", are both failure modes that have to be unwound later.
+If an issue's stage assignment is unclear, check its project/epic in Linear rather than assuming. The failure mode that survives the branch merge is the scope one: pulling Stage 2.5 feature work into the Stage 2.1 window (the `STAGE_2_1_SPEC.md` §1 admission test exists precisely to stop that), or flagging assigned Stage 2.1 work as "out of scope" because Stage 2 already shipped.
 
 ## When the spec is wrong
 

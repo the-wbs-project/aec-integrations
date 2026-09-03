@@ -810,16 +810,19 @@ If the smoke check fails, the deployment is marked failed and:
 > `promote-to-prod` applies **forward-only** D1 migrations, so any Stage 2 commit or migration
 > on `main` would ship to prod on the next promote — feature flags hide UI, not migrations).
 
-- **`main` = production line.** Only production-destined work lands here: **hotfixes**, and
-  Stage 2 work that is genuinely additive *and* safe to ship to prod now. `main` HEAD must stay
-  **always-promotable** — staging auto-tracks `main` (§2.2 / `deploy.yml`), so `main` HEAD is
-  always a valid prod candidate. Production-destined feature branches branch off `main` and
-  squash-merge back.
-- **`stage-2` = long-lived integration branch.** All Stage 2 feature branches (and Conductor
-  workspaces doing Stage 2 work) target `stage-2` and squash-merge into it. Merge
-  **`main → stage-2` regularly** (after every hotfix, at least weekly) to absorb fixes and keep
-  drift small. When Stage 2 is ready, merge **`stage-2 → main`** via PR, promote through the
-  tiers, then reset/retire the branch.
+- **`main` = the line.** Since `stage-2` merged and was retired (2026-09-03) every feature branch
+  branches off `main` and squash-merges back. `main` HEAD must stay **always-promotable** —
+  staging auto-tracks `main` (§2.2 / `deploy.yml`), so `main` HEAD is always a valid prod
+  candidate. That constraint is *stricter* now, not looser: work that used to be parked on
+  `stage-2` now lands on the promotable line, so anything not prod-safe ships dark (behind a lock
+  or an entitlement), the way the Stage 2 vendor surface does.
+- **`stage-2` = RETIRED (2026-09-03).** It merged into `main` as a **true merge commit** — which
+  required temporarily clearing `required_linear_history` on `main`, restored immediately after —
+  so `main` contains its full history and the two branches finally share an ancestor. The merge
+  carried stage-2's tree byte-for-byte (constructed as `git merge --no-commit --no-ff` →
+  `git read-tree -u --reset stage-2` → commit, because the 2026-07-12 merge base made git replay
+  147 phantom conflicts). **Do not recreate the branch.** Kept here because merged PRs from
+  2026-07-05 to 2026-09-03 have a non-`main` base and that will otherwise look wrong.
 - **`admin-panel` = a second, narrower epic integration branch** (2026-08-12, AECI-572 /
   `ADMIN_PANEL_SPEC.md` §13 D1). The admin panel is **Phase 8.3 post-launch work on the `main`
   line**, not Stage 2 — but its 14 sub-issues carry schema migrations (`metrics_daily`,
@@ -872,9 +875,12 @@ If the smoke check fails, the deployment is marked failed and:
   they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
-  all base-branch-agnostic (§3.1). `main`, `stage-2` and `admin-panel` additionally get a
-  post-merge `push` run (§3.2); only `main` deploys. `main` and `stage-2` are branch-protected on
-  the same three required contexts (§8); `admin-panel` is not. **Opening a new long-lived
+  all base-branch-agnostic (§3.1). `main` and `admin-panel` additionally get a
+  post-merge `push` run (§3.2); only `main` deploys. `main` is branch-protected on
+  three required contexts (§8) plus `strict: true` and required linear history — so merge commits
+  are rejected there and PRs land by squash; `admin-panel` is not protected. (`deploy.yml`'s
+  `push.branches` still lists `stage-2`; that entry is inert now the branch is retired and can be
+  dropped on the next touch of the file.) **Opening a new long-lived
   integration branch is a two-line change:** add it to `deploy.yml`'s `push.branches`, and remove
   it when the branch merges up. Nothing needs touching for a short-lived feature or epic branch.
   *(Historical note: until 2026-08-14 `deploy.yml` and `integration-db-tests.yml` pinned
@@ -886,14 +892,16 @@ If the smoke check fails, the deployment is marked failed and:
   GitHub evaluates the workflow from the PR's **merge ref** (head merged into base), so the fix
   above protects `stage-2` as soon as it lands there. But `push`-triggered runs use the *pushed
   branch's own* copy — and `admin-panel` is **not** descended from current `main`. The 2026-08-14
-  fix landed on `stage-2` only, so **`admin-panel` PRs still run no tests**, and the
-  `admin-panel` entry in `deploy.yml`'s `push.branches` stays inert, until the fix is merged into
-  that branch. Do that when `admin-panel` next absorbs `main`/`stage-2`.
+  fix landed on `stage-2`, and `stage-2` merged to `main` on 2026-09-03, so the fix is on `main`
+  now — but **`admin-panel` PRs still run no tests**, and the `admin-panel` entry in
+  `deploy.yml`'s `push.branches` stays inert, until `main` is merged into that branch. Do that
+  when `admin-panel` next absorbs `main`.
 - **The same "only the branches that contain it" rule applies to the PostHog docs sweep.**
-  The AECI-639 observability migration lands on `stage-2`, so `admin-panel` still carries the
-  pre-migration Datadog wording (including `ADMIN_PANEL_SPEC.md` §7.2's "Datadog owns absence").
-  **Re-apply the AECI-648 sweep to `admin-panel` when it merges** — a conflict-free merge will
-  not catch prose that is merely stale.
+  The AECI-639 observability migration reached `main` via the 2026-09-03 Stage 2 merge, but
+  `admin-panel` still carries the pre-migration Datadog wording (including
+  `ADMIN_PANEL_SPEC.md` §7.2's "Datadog owns absence"). **Re-apply the AECI-648 sweep to
+  `admin-panel` when it merges** — a conflict-free merge will not catch prose that is merely
+  stale.
 - Release tags (`v1.0.0`, `v1.1.0`) cut from `main` after a production deploy is validated —
   they double as break-glass branch points.
 

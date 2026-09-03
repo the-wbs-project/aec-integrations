@@ -322,9 +322,10 @@ Re-verification, 2026-09-03 (same curl method, `www`):
 ```
 
 No "Attention Required" 403 page on any of them. A skip rule was evidently added, or
-the managed rule retuned, after the original finding. (`/vendor` itself 404s on `www`
-rather than rendering because the portal code has not merged to `main` yet — that is
-the dark launch, not the WAF.)
+the managed rule retuned, after the original finding. (At the time of that check `/vendor`
+itself 404'd on `www` because the portal code had not merged to `main`. **The Stage 2 merge
+landed 2026-09-03**, so once a prod promote carries it, `/vendor` resolves — a 403 there is
+the WAF again, and a 404 is a real routing bug rather than the dark launch.)
 
 **If it recurs, everything below is the original finding — treat it as the runbook.**
 

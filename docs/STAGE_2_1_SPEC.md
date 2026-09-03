@@ -20,7 +20,24 @@ An issue is admitted to Stage 2.1 only if it **refines, hardens, or verifies alr
 
 ## 2. Entry preconditions — the Stage 2 ship gate
 
-These are Stage 2 close-out work, not Stage 2.1 scope — recorded here because Stage 2.1 is their consumer and no other doc yet holds the merged list (from the 2026-08-31 merge-readiness analysis):
+These are Stage 2 close-out work, not Stage 2.1 scope — recorded here because Stage 2.1 is their consumer and no other doc yet holds the merged list (from the 2026-08-31 merge-readiness analysis).
+
+> **Status 2026-09-03 — the gate is discharged and `stage-2` merged into `main`.** Disposition of
+> each item below, so nothing is re-derived as a blocker:
+>
+> | # | Disposition |
+> |---|---|
+> | 1 Reverse reconcile | ✅ AECI-750 (#609) then AECI-774 (#620). Verified at merge time by tree diff: the only files `main` had that `stage-2` lacked were the **61 intentional deletions** (Datadog transports + `observability/datadog/*`, `nav-more-*`, `admin/reviewers/*`, `check-logical-properties.mjs`, `cache-purge.spec.ts`, the superseded card/layout files). No accidental reverts. |
+> | 2 Migration renumbering | ✅ `main`'s `0000`–`0020` are **byte-identical** on both branches; `stage-2` adds `0021`–`0028` only. Note this is a bigger set than the five this spec predicted, and **`0027_powerful_killraven` is a destructive recreate**, not additive — it is safe only because it carries `claims` + `attestations` through `__carry_*` tables (`src/test/migration-0027.spec.ts` is the guard). §2(2)'s "no destructive recreates — low-risk" line was written before AECI-721 PR-B existed and is superseded. |
+> | 3 Observability decision | ✅ Resolved to **PostHog-only** — the operator knowingly waived both the `stage-2 → main` precondition and the 2–4 week prod soak (see `POSTHOG_MIGRATION_SPEC.md`). The merge flips **staging**; prod's plane flips at the next `promote-to-prod`, not at the merge. |
+> | 4 WAF before the claim endpoint | ✅ AECI-659 (#619), applied to the production host set 2026-09-03. |
+> | 5 Entitlement backfill | ✅ **No-op** — production and demo have **zero** `verified = 1` vendors (`STAGE_2_DEMO_TEST_PLAN.md` §8). Re-check before granting the first seat, not before the merge. |
+> | 6 Claim-CTA posture | ✅ Default taken: leave `/vendors/:slug/claim` open and let claims **park** in the admin queue. |
+>
+> The merge landed as a **true merge commit** carrying `stage-2`'s tree byte-for-byte, which
+> required temporarily clearing `required_linear_history` on `main` (restored immediately after).
+> `stage-2` is retired — see `docs/CICD_PLAN.md` §10.
+
 
 1. **Reverse reconcile first.** `main → stage-2` before `stage-2 → main`: ~44 main commits are true content drift (the August traffic/analytics work — AECI-658/660/661/683/686/668/706 — is absent from `stage-2`, verified by tree diff). The prior reconcile (AECI-619) surfaced six defects a clean merge hid; budget accordingly.
 2. **Migration renumbering.** `main` and `stage-2` each minted their own `0016–0019`; production D1 has main's set applied. Stage-2's five migrations (claims/attestation columns, `product_versions`, `last_reviewed_at`/`maintained_by`, `vendor_entitlements`, `vendor_seat_invites`) renumber to `0020–0024` with regenerated snapshots + journal on the merged tree. All five are additive — no destructive recreates — so prod application is low-risk once renumbered.

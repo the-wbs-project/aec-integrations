@@ -64,10 +64,12 @@ reproduction, and it is why the defect survived for months.
 > the ~13k-line AECI-513 epic merged into `stage-2` having run none of it. Two rows carry their
 > own caveats regardless of base: **Performance** (Lighthouse) is push-to-`main`-only by design
 > (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
-> `CICD_PLAN.md` §3.1 has the full rationale. `main` and `stage-2` are branch-protected on the
-> same three required contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker`
-> blocks the merge on both (§8). **`admin-panel` is the exception on every count** — the trigger
-> fix landed on `stage-2` only, so its PRs still run none of this, and it has no protection.
+> `CICD_PLAN.md` §3.1 has the full rationale. `main` is branch-protected on three required
+> contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker` blocks the merge (§8).
+> **`admin-panel` is the exception on every count** — the 2026-08-14 trigger fix landed on
+> `stage-2`, and although `stage-2` merged to `main` on 2026-09-03, `admin-panel` is still not
+> descended from `main`, so its PRs run none of this and it has no protection. Merging `main` into
+> `admin-panel` is what fixes it.
 
 ---
 
