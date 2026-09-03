@@ -57,9 +57,9 @@ export class NavFlyoutList {
   readonly viewAllLabel = input.required<string>();
 
   /**
-   * Emits when any link (a value or "View all") is activated. The mobile overlay
-   * (`nav-menu.ts`) wires this to close the popover after navigation; the desktop
-   * flyout ignores it (its disclosure closes on the post-navigation focusout).
+   * Emits when any link (a value or "View all") is activated. Both the mobile overlay
+   * (`nav-menu.ts`) and the desktop flyout (`nav-flyout-trigger.ts`) wire this to
+   * close the disclosure after navigation.
    */
   readonly navigate = output<void>();
 

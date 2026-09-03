@@ -22,7 +22,11 @@ class Host {
   items: TaxonomyTermWithCount[] = [term('bim', 'BIM Authoring'), term('est', 'Estimating')];
 }
 
-function render(kind: TaxonomyKind): { root: HTMLElement; detect: () => void } {
+function render(kind: TaxonomyKind): {
+  root: HTMLElement;
+  detect: () => void;
+  whenStable: () => Promise<void>;
+} {
   TestBed.configureTestingModule({ providers: [provideRouter([])] });
   const fixture = TestBed.createComponent(Host);
   fixture.componentInstance.kind = kind;
@@ -30,36 +34,40 @@ function render(kind: TaxonomyKind): { root: HTMLElement; detect: () => void } {
   return {
     root: fixture.nativeElement as HTMLElement,
     detect: () => fixture.detectChanges(),
+    whenStable: async () => {
+      await fixture.whenStable();
+    },
   };
 }
 
 describe('NavFlyoutTrigger', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders the index link and a collapsed disclosure button', () => {
+  it('renders the index link as a collapsed disclosure trigger without an arrow button', () => {
     const { root } = render('category');
 
-    const link = root.querySelector('a[routerlink], a[href="/categories"]');
-    expect(root.querySelector('a[href="/categories"]')?.textContent?.trim()).toBe('Categories');
+    const link = root.querySelector('a[href="/categories"]') as HTMLAnchorElement;
+    expect(link?.textContent?.trim()).toBe('Categories');
+    expect(link.getAttribute('aria-expanded')).toBe('false');
+    expect(link.getAttribute('aria-controls')).toBe('nav-flyout-category');
+    expect(link.getAttribute('aria-haspopup')).toBe('true');
 
-    const button = root.querySelector('button[aria-haspopup]')!;
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(button.getAttribute('aria-controls')).toBe('nav-flyout-category');
-    expect(button.getAttribute('aria-label')).toBe('Categories menu');
+    // Yahoo Finance pattern: no separate arrow button
+    expect(root.querySelector('button')).toBeNull();
 
     const panel = root.querySelector('#nav-flyout-category') as HTMLElement;
     expect(panel.hidden).toBe(true);
-    expect(link).not.toBeNull();
   });
 
-  it('toggles the flyout open on the disclosure button and reveals the value links', () => {
+  it('opens on host hover (pointer enhancement) and reveals the value links', () => {
     const { root, detect } = render('category');
-    const button = root.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
+    const host = root.querySelector('aec-nav-flyout-trigger')!;
+    const link = root.querySelector('a[href="/categories"]')!;
 
-    button.click();
+    host.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
     detect();
 
-    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(link.getAttribute('aria-expanded')).toBe('true');
     const panel = root.querySelector('#nav-flyout-category') as HTMLElement;
     expect(panel.hidden).toBe(false);
     expect(panel.querySelector('a[href="/categories/bim"]')?.textContent?.trim()).toBe(
@@ -69,37 +77,50 @@ describe('NavFlyoutTrigger', () => {
     expect(panel.querySelector('a[href="/categories"]')?.textContent).toContain('View all');
   });
 
-  it('Escape closes an open flyout', () => {
-    const { root, detect } = render('category');
-    const button = root.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
-    button.click();
-    detect();
-    expect(button.getAttribute('aria-expanded')).toBe('true');
+  it('opens on ArrowDown keydown and focuses the first value link', async () => {
+    const { root, detect, whenStable } = render('category');
+    const link = root.querySelector<HTMLAnchorElement>('a[href="/categories"]')!;
 
-    const host = root.querySelector('aec-nav-flyout-trigger')!;
-    host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    link.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
     detect();
 
-    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(link.getAttribute('aria-expanded')).toBe('true');
+    const panel = root.querySelector('#nav-flyout-category') as HTMLElement;
+    expect(panel.hidden).toBe(false);
+
+    // The focus move waits for the render that clears `[hidden]` (afterNextRender),
+    // so it lands only once the panel is actually displayed.
+    await whenStable();
+    const firstLink = panel.querySelector<HTMLAnchorElement>('a[href="/categories/bim"]')!;
+    expect(document.activeElement).toBe(firstLink);
   });
 
-  it('opens on host hover (pointer enhancement)', () => {
-    const { root, detect } = render('audience');
+  it('Escape closes an open flyout and returns focus to the trigger link', () => {
+    const { root, detect } = render('category');
     const host = root.querySelector('aec-nav-flyout-trigger')!;
-    const button = root.querySelector<HTMLButtonElement>('button[aria-haspopup]')!;
+    const link = root.querySelector<HTMLAnchorElement>('a[href="/categories"]')!;
 
     host.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
     detect();
+    expect(link.getAttribute('aria-expanded')).toBe('true');
 
-    expect(button.getAttribute('aria-expanded')).toBe('true');
+    host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    detect();
+
+    expect(link.getAttribute('aria-expanded')).toBe('false');
+    const panel = root.querySelector('#nav-flyout-category') as HTMLElement;
+    expect(panel.hidden).toBe(true);
+    expect(document.activeElement).toBe(link);
   });
 
   it.each([
-    ['audience', '/audiences', 'Audiences', 'Audiences menu'],
-    ['phase', '/phases', 'Phases', 'Phases menu'],
-  ] as const)('maps kind %s to its index link and labels', (kind, href, label, aria) => {
+    ['audience', '/audiences', 'Audiences'],
+    ['phase', '/phases', 'Phases'],
+    ['trade', '/trades', 'Trades'],
+  ] as const)('maps kind %s to its index link and label', (kind, href, label) => {
     const { root } = render(kind);
     expect(root.querySelector(`a[href="${href}"]`)?.textContent?.trim()).toBe(label);
-    expect(root.querySelector('button[aria-haspopup]')?.getAttribute('aria-label')).toBe(aria);
   });
 });
