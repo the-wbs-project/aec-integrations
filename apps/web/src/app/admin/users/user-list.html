@@ -190,7 +190,7 @@
             i18n-label="@@admin.users.col.created"
             label="Profile created"
             [activeSort]="sort()"
-            direction="descending"
+            [direction]="directionFor('created')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
           ></th>
@@ -201,7 +201,7 @@
             i18n-label="@@admin.users.col.updated"
             label="Updated"
             [activeSort]="sort()"
-            direction="descending"
+            [direction]="directionFor('updated')"
             (sortChange)="onSortChange($event)"
             class="py-2 text-start"
           ></th>

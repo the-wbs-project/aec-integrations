@@ -120,8 +120,10 @@ describe('integration_count lockstep — the fourteen sites (AECI-721 / §13.5)'
     expect(algoliaRow?.integrationCount).toBe(1);
 
     // …and the same expression again in `drizzle-helpers.vendorListConfig`, which
-    // feeds the public vendor list and the admin list. §13.5 names only the two
-    // Algolia copies; there are five.
+    // feeds the public vendor list. §13.5 names only the two Algolia copies;
+    // there are five. (The ADMIN vendor list no longer selects this extra — its
+    // Integrations column was dropped — which is exactly why the lockstep is
+    // asserted on the config rather than on any one of its readers.)
     const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
     expect(listRow?.integrationCount).toBe(1);
     t.dispose();

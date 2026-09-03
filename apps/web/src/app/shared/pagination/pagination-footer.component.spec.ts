@@ -120,6 +120,21 @@ describe('PaginationFooter', () => {
     expect(link?.textContent).toContain('Loading');
   });
 
+  it('renders a real <button> when there is no nextHref, not a hrefless anchor', () => {
+    // The admin screens fetch client-side behind `requireAdmin()`, so there is no
+    // SSR'd `?page=2` to point at. An `<a>` with no `href` is not focusable, which
+    // would silently leave scroll auto-load as the only way to page.
+    const { fixture, el } = create({ loadedCount: 25, total: 200, hasMore: true, pending: false });
+    expect(loadMoreLink(el)).toBeNull();
+    const button = el.querySelector('button');
+    expect(button?.textContent).toContain('Load more');
+
+    let emitted = 0;
+    fixture.componentInstance.loadMore.subscribe(() => (emitted += 1));
+    button?.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+    expect(emitted).toBe(1);
+  });
+
   it('renders the terminal "reached the end" state instead of a link when nothing remains', () => {
     const { el } = create({ loadedCount: 50, total: 50, hasMore: false, pending: false });
     expect(loadMoreLink(el)).toBeNull();

@@ -1672,8 +1672,16 @@ Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 `apps/api/src/routes/admin-vendors.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.6.
 
 ```typescript
+// Admin-only, NOT the public `VendorSortSchema` (`created | name | updated`).
+// One key per column the operator's table renders; `created` is absent because
+// `created_at` is not on the row, so no header could state its direction.
+export const AdminVendorSortSchema = z
+  .enum(['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated'])
+  .default('name');
+
 export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
-  sort: VendorSortSchema,
+  sort: AdminVendorSortSchema,
+  order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
   // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the public
   // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
@@ -1689,13 +1697,59 @@ export const AdminVendorRowSchema = z.object({
   status: EntitlementStatusSchema.nullable(),     // …not the same as a cleared one
   period_end: z.string().nullable(),
   product_count: z.number().int().min(0),
-  integration_count: z.number().int().min(0),
   updated_at: z.string(),
 });
 
 export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendorRowSchema);
 // { data: AdminVendorRow[], page, perPage, total }
 ```
+
+**There is no `integration_count` on the row.** The list rendered that column until
+the vendor-list revision and it earned nothing — an operator on this screen is
+triaging entitlements and seats, and the number they act on is the one on
+`GET /api/admin/vendors/:id` (the §13.5 union of direct + connector-evidenced
+edges). Dropping it also dropped a correlated subquery per row.
+`vendorListConfig.extras.integrationCount` is untouched: the public vendor list
+and the Algolia record still ship it, and `count-lockstep.spec.ts` still pins the
+union rule on the config itself.
+
+**Every column sorts, each key has a natural direction, and `order` reverses it.**
+`?order=asc|desc` is **optional, and absent means the key's natural direction** — so
+every link and bookmark written before the parameter existed orders exactly as it did.
+`resolveAdminVendorOrderBy` (`apps/api/src/lib/sort.ts`) reads those defaults from
+`ADMIN_VENDOR_SORT_DEFAULT_ORDER` in `packages/shared`, which the table also reads to
+draw its arrows — **one copy, because two would drift silently**: a header would render
+↑ while the server sorted descending and nothing would fail. Naturally: `name`/`slug`
+ASC, `verified` DESC (verified first), `products` DESC, `updated` DESC, `entitlement`
+and `term` ASC.
+
+**Only the PRIMARY term flips.** The `id ASC` tiebreaker and the intermediate
+`company_name` term never move — they are what make the order total and the page stable
+(AECI-99), and reversing a tiebreaker is how a paginated list starts duplicating and
+skipping rows. `term` additionally pins its NULL guard ascending: only the date
+reverses, so `order=desc` reads "who lapses last" with the perpetual and no-row vendors
+still at the bottom.
+
+*(This replaces the original no-`order` rule, which held that the arrow states how a
+column sorts rather than toggling it. That was defensible when the endpoint could order
+by two keys; with seven it became a defect — an arrow on a clickable header reads as a
+toggle, and a control that silently no-ops on the second click is a worse lie than the
+one the rule was avoiding.)*
+
+Two keys are not a bare column:
+
+- **`entitlement`** ranks the status operationally — `active < pending < expired <
+  revoked < no row at all` — because sorting the raw text would interleave
+  "expired" between "active" and "pending" and mean nothing.
+- **`term`** puts the soonest expiry first ("who lapses next") and NULL — perpetual,
+  or no entitlement row — LAST. SQLite orders NULLs first under ASC, which would
+  bury every real renewal date under the vendors that have no row.
+
+`products` orders by the `product_count` SELECT alias rather than repeating the
+correlated subquery in the ORDER BY. Sorting by an entitlement column is safe under
+the "`total` must describe `data`" rule below: ORDER BY changes the order of `data`,
+never its membership. **A key the enum does not know is a `400 VALIDATION_FAILED`,
+not a silent fall back to the default** — including the public `created`.
 
 **`verified` and the entitlement are both reported, and neither is derived from the
 other.** `verified` is a denormalized mirror of "an active entitlement row exists"
@@ -1779,6 +1833,57 @@ sum. Counts are scoped to the vendor **and the products it owns** — a product 
 `target_id` is a product id, so a naive `target_type='vendor'` test misses it.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
+#### `GET /api/admin/vendors/:id/products` (Stage 2)
+
+The vendor's product roster — the Products tab on `/admin/vendors/:id`
+(`ADMIN_PANEL_SPEC.md` §5.7). Paginated, ordered by name, read-only, **no `audit_log`
+row of its own**. Behind `requireAdmin()`.
+
+```typescript
+export const AdminVendorProductsQuerySchema = PageQuerySchema;   // page / perPage only
+
+export const AdminVendorProductRowSchema = z.object({
+  id, slug, name,
+  product_role: ProductRoleSchema,        // closed enum — the §5.2 payer test reads it
+  is_primary: z.boolean(),                // is this vendor the product's primary owner?
+  promotion_status: z.string(),           // no CHECK on the column, so a plain string
+  integration_count: z.number().int().min(0),
+  review_count: z.number().int().min(0),
+  rating_overall_avg: z.number().nullable(),   // withheld below the §5.5 review floor
+  updated_at: z.string(),
+});
+
+export const AdminVendorProductsResponseSchema =
+  paginatedResponseSchema(AdminVendorProductRowSchema);
+```
+
+**Ownership is every `product_vendors` row, not just the primary one** — the same rule
+`product_roles` counts by, because §8.8(1) asks what the vendor *owns*, not what it owns
+first. `is_primary` rides on the row so a co-owned product is still distinguishable from
+one this vendor leads. The join cannot multiply rows: `product_vendors` is UNIQUE on
+(`product_id`, `vendor_id`).
+
+**A separate endpoint rather than a field on the detail payload.** The detail response
+is already a 404 gate plus a seven-statement batch; inlining an unbounded roster would
+make every read of that page — including the ones that only want the entitlement — carry
+the whole catalogue. The tab fetches once, lazily, on first open.
+
+**`integration_count` is the denormalized `products.integration_count`**, the number the
+public product card shows — deliberately NOT the `built_by_vendor_id` rule the
+vendor-level count uses. They answer different questions ("how many pairs does this
+product appear in" vs "how many did this vendor build"), and matching the public column
+is what lets an operator compare this table against the product page.
+
+**`rating_overall_avg` obeys the §5.5 five-review floor**, exactly as `toProductListItem`
+does publicly: the console is not the one place a sub-5 average becomes readable.
+`review_count` is always truthful.
+
+Ordering is `name ASC, id ASC`. The tiebreaker is load-bearing — product names are not
+unique in this catalogue, and an unstable sort makes a row appear on two pages or none.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id (never an empty successful page, which
+would read as "this vendor has no products"), plus the shared 401/403.
 
 #### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
 
@@ -2214,6 +2319,7 @@ seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
 AdminUsersListQuerySchema = PageQuerySchema.extend({
   perPage: …default 24, max 50,           // NOT the shared 100 — see below
   sort:    z.enum(['created', 'updated']), // D1 columns ONLY
+  order:   z.enum(['asc', 'desc']).optional(), // absent = natural (both DESC)
   search:  z.string().optional(),
   role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
   banned:  z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
@@ -2241,6 +2347,12 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 - **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
   *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
   current page and call it a ranking. It is not sortable and will not become so.
+- **`order` is optional, and absent means the key's natural direction** — both keys
+  here descend (newest first). It is the same parameter, with the same semantics,
+  that `GET /api/admin/vendors` takes: the natural directions live in
+  `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which `resolveAdminUserOrderBy`
+  and the table's arrows both read, and only the PRIMARY term flips — `id ASC` stays
+  the stable tiebreaker (AECI-99).
 - **`search` matches `display_name` as an escaped substring** (`likeContains` —
   operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
   contains `@`**, also resolves it as an **exact** email through seam #4a.

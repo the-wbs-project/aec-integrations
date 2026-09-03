@@ -26,6 +26,10 @@ import { VENDOR_NAV_ITEM_CLASS } from './vendor-nav';
  * first control is a search box, filtering this vendor's own catalog. Choosing
  * a product navigates to `…/products/:productSlug`.
  *
+ * The trigger is the label alone — **no arrow icon**, matching the public nav
+ * (`layout/nav-flyout-trigger.ts`) and the admin console's category row. The
+ * disclosure lives in `aria-expanded` / `aria-controls`, not in a glyph.
+ *
  * ── WHY THE PRODUCT CHOICE LIVES IN THE NAV ─────────────────────────────────
  * It used to live inside the section, as an `<aec-select>` beside the "Your
  * products" heading — which meant a vendor had to be ON the products page to
@@ -84,19 +88,6 @@ import { VENDOR_NAV_ITEM_CLASS } from './vendor-nav';
       [class]="triggerClass"
     >
       <span>{{ label() }}</span>
-      <svg
-        class="h-4 w-4 shrink-0 transition-transform"
-        [class.rotate-180]="open()"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
     </button>
 
     <!--

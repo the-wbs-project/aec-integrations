@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  PageQuerySchema,
+  SortOrderSchema,
+  paginatedResponseSchema,
+  type SortOrder,
+} from './common';
 import { VendorSeatInviteSchema } from './vendor';
 
 /**
@@ -109,7 +114,16 @@ export type AdminUserSeat = z.infer<typeof AdminUserSeatSchema>;
  * in THIS environment — not the `auth.created_at` on the row's `auth` block.
  */
 export const AdminUsersSortSchema = z.enum(['created', 'updated']).default('created');
+/** Sort direction. Absent = the key's natural direction (both of these descend —
+ *  newest first is what an operator opening a user list wants). Shares the
+ *  vendor list's semantics because both screens render the same `SortHeader`. */
 export type AdminUsersSort = z.infer<typeof AdminUsersSortSchema>;
+
+/** Both keys are naturally newest-first. Same one-copy rule as the vendor map. */
+export const ADMIN_USER_SORT_DEFAULT_ORDER: Record<AdminUsersSort, SortOrder> = {
+  created: 'desc',
+  updated: 'desc',
+};
 
 /**
  * Page size for this surface, overriding the shared `PageQuerySchema` default.
@@ -153,6 +167,7 @@ export const AdminUsersListQuerySchema = PageQuerySchema.extend({
     .max(ADMIN_USERS_MAX_PER_PAGE)
     .default(ADMIN_USERS_DEFAULT_PER_PAGE),
   sort: AdminUsersSortSchema,
+  order: SortOrderSchema.optional(),
   search: z.string().optional(),
   role: z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
   banned: z

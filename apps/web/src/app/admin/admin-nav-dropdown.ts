@@ -10,6 +10,12 @@ import { ADMIN_NAV_TRIGGER_CLASS, type AdminNavGroup } from './admin-nav';
  * One category in the admin console's horizontal nav (AECI-694): a disclosure
  * button that reveals its group's screens.
  *
+ * The trigger is the group label (plus its pending badge) and nothing else —
+ * **no arrow icon**. The public nav dropped its arrow buttons first
+ * (`layout/nav-flyout-trigger.ts`), and a triangle here with none there would
+ * read as two different products; `aria-haspopup` / `aria-expanded` carry the
+ * disclosure to assistive tech, which is what the icon was never doing.
+ *
  * ── WHY NOT `@angular/aria/menu` ─────────────────────────────────────────────
  * ADR 0010 routes new menu / menubar patterns to Angular Aria, and that rule
  * stands for APPLICATION menus (commands that act on the page). This is a
@@ -59,20 +65,6 @@ import { ADMIN_NAV_TRIGGER_CLASS, type AdminNavGroup } from './admin-nav';
           >{{ badgeCount() }} reviews pending moderation</span
         >
       }
-
-      <svg
-        aria-hidden="true"
-        class="h-4 w-4 transition-transform"
-        [class.rotate-180]="isOpen()"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
     </button>
 
     <div

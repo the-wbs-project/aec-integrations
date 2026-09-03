@@ -4,6 +4,7 @@
  *
  *   GET    /api/admin/vendors                    — paginated list + name/slug search
  *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
+ *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
  *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat
  *
@@ -39,16 +40,21 @@ import {
   AdminVendorAuditQuerySchema,
   AdminVendorAuditResponseSchema,
   AdminVendorDetailSchema,
+  AdminVendorProductsQuerySchema,
+  AdminVendorProductsResponseSchema,
   AdminVendorsListQuerySchema,
   AdminVendorsListResponseSchema,
   ApiErrorCode,
   ProvisionVendorSeatResponseSchema,
   ProvisionVendorSeatSchema,
+  RATING_VISIBILITY_MIN_REVIEWS,
   type AdminAuditRow,
   type AdminVendorAuditResponse,
   type AdminVendorAuditScope,
   type AdminVendorClaimCounts,
   type AdminVendorDetail,
+  type AdminVendorProductRow,
+  type AdminVendorProductsResponse,
   type AdminVendorRow,
   type AdminVendorSeatRow,
   type AdminVendorsListResponse,
@@ -66,6 +72,8 @@ import {
   auditLog,
   connectorEvidencedPairs,
   integrations,
+  productVendors,
+  products,
   profiles,
   vendorEntitlements,
   vendorRequests,
@@ -79,8 +87,8 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { vendorListConfig } from '../lib/drizzle-helpers';
-import { resolveVendorOrderBy } from '../lib/sort';
+import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
+import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
 import { provisionSeatStatements, revokeSeatStatements } from '../lib/vendor-grant';
@@ -173,14 +181,27 @@ function toEntitlement(
  * the join is the only way to get tier/status alongside the vendor. It cannot
  * multiply rows — `vendor_entitlements_vendor_key` is UNIQUE on `vendor_id`.
  *
- * The per-row counts are `vendorListConfig.extras` verbatim: correlated scalar
- * subqueries that the public `/api/vendors` already ships on a 100-row page. They
- * qualify the outer column as `"vendors"."id"` precisely so a subquery's own `id`
- * cannot shadow it, which is why they drop into a plain select unchanged.
+ * The per-row product count is `vendorListConfig.extras.productCount` verbatim: a
+ * correlated scalar subquery that the public `/api/vendors` already ships on a
+ * 100-row page. It qualifies the outer column as `"vendors"."id"` precisely so a
+ * subquery's own `id` cannot shadow it, which is why it drops into a plain select
+ * unchanged. Its `integrationCount` sibling is deliberately NOT selected here —
+ * the list stopped rendering that column, and an unread correlated subquery is a
+ * per-row cost for nothing. The count still exists on `/admin/vendors/:id`, and
+ * the §13.5 union rule is still pinned on the config itself by
+ * `count-lockstep.spec.ts`.
+ *
+ * **The ORDER BY is `resolveAdminVendorOrderBy`, not the public resolver.** Every
+ * column the table renders is sortable, including the two that live on the joined
+ * `vendor_entitlements` row and the one that is a SELECT alias (`product_count`)
+ * rather than a column. The join is already there for the readout, so ordering by
+ * `status` / `period_end` costs nothing extra.
  *
  * The `count()` statement takes no join because every filter is on `vendors`.
  * Adding a tier/status filter later would have to add it there too — the two
- * predicates must stay identical or `total` stops describing `data`.
+ * predicates must stay identical or `total` stops describing `data`. (Sorting by
+ * an entitlement column is safe under that rule: ORDER BY changes the order of
+ * `data`, never its membership.)
  */
 export function createAdminVendorsListHandler(
   dbFor: DbFactory = getDb,
@@ -209,12 +230,11 @@ export function createAdminVendorsListHandler(
           status: vendorEntitlements.status,
           periodEnd: vendorEntitlements.periodEnd,
           productCount: vendorListConfig.extras.productCount,
-          integrationCount: vendorListConfig.extras.integrationCount,
         })
         .from(vendors)
         .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
         .where(where)
-        .orderBy(...resolveVendorOrderBy(query.sort))
+        .orderBy(...resolveAdminVendorOrderBy(query.sort, query.order))
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
       db.select({ value: count() }).from(vendors).where(where),
@@ -231,7 +251,6 @@ export function createAdminVendorsListHandler(
           status: (row.status as AdminVendorRow['status']) ?? null,
           period_end: row.periodEnd ?? null,
           product_count: Number(row.productCount ?? 0),
-          integration_count: Number(row.integrationCount ?? 0),
           updated_at: row.updatedAt,
         }),
       ),
@@ -423,6 +442,103 @@ export function createAdminVendorDetailHandler(
 
     validateResponseInDev(c.env, () => {
       AdminVendorDetailSchema.parse(body);
+    });
+    return json(body);
+  };
+}
+
+// ─── GET /api/admin/vendors/:id/products ─────────────────────────────────────
+
+/**
+ * The vendor's product roster — the Products tab on `/admin/vendors/:id`.
+ *
+ * One join from `product_vendors` (the ownership edge) onto `products`, ordered
+ * by name. It reads EVERY ownership row, not just `is_primary`, for the reason
+ * `product_roles` does: §8.8(1) asks what the vendor owns, and a co-owned
+ * product is owned. The join cannot multiply rows — `product_vendors` is UNIQUE
+ * on (`product_id`, `vendor_id`).
+ *
+ * Paginated, and a separate endpoint rather than a field on the detail payload,
+ * so the entitlement/seat read stays the same size for Autodesk as for a vendor
+ * with one product.
+ *
+ * The 404 gate is the same one the audit viewer carries and for the same reason:
+ * an unknown id must not answer with an empty successful page, which reads as
+ * "this vendor has no products".
+ *
+ * No `audit_log` row — reads write nothing (`ADMIN_PANEL_SPEC.md` §9.3).
+ */
+export function createAdminVendorProductsHandler(
+  dbFor: DbFactory = getDb,
+): (c: AdminVendorContext) => Promise<Response> {
+  return async (c) => {
+    const vendorId = requiredParam(c, 'id');
+    const query = parseQuery(c, AdminVendorProductsQuerySchema);
+    const { db } = dbFor(c.env);
+
+    const exists = await db.query.vendors.findFirst({
+      columns: { id: true },
+      where: eq(vendors.id, vendorId),
+    });
+    if (!exists) throw notFoundError('vendor', { id: vendorId });
+
+    const where = eq(productVendors.vendorId, vendorId);
+
+    const [rows, totals] = await db.batch([
+      db
+        .select({
+          id: products.id,
+          slug: products.slug,
+          name: products.name,
+          productRole: products.productRole,
+          isPrimary: productVendors.isPrimary,
+          promotionStatus: products.promotionStatus,
+          integrationCount: products.integrationCount,
+          reviewCount: products.reviewCount,
+          ratingOverallAvg: products.ratingOverallAvg,
+          updatedAt: products.updatedAt,
+        })
+        .from(productVendors)
+        .innerJoin(products, eq(products.id, productVendors.productId))
+        // `name ASC, id ASC` — names are not unique in this catalogue (two
+        // vendors ship a "Connect"), and an unstable sort makes a row appear on
+        // two pages or neither.
+        .orderBy(asc(products.name), asc(products.id))
+        .where(where)
+        .limit(query.perPage)
+        .offset((query.page - 1) * query.perPage),
+      db.select({ value: count() }).from(productVendors).where(where),
+    ]);
+
+    const body: AdminVendorProductsResponse = {
+      data: rows.map(
+        (row): AdminVendorProductRow => ({
+          id: row.id,
+          slug: row.slug,
+          name: row.name,
+          // Fails loud on a value outside the closed enum — the same coercion
+          // the public product card uses, so a data defect surfaces identically
+          // in the console rather than rendering as if it were understood.
+          product_role: toProductRole(row.productRole, row.id),
+          is_primary: row.isPrimary,
+          promotion_status: row.promotionStatus,
+          integration_count: row.integrationCount,
+          review_count: row.reviewCount,
+          // The §5.5 floor, applied here exactly as `toProductListItem` applies
+          // it publicly: the console is not an exemption from the rule that a
+          // sub-5 average is not shown.
+          rating_overall_avg:
+            row.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS ? row.ratingOverallAvg : null,
+          updated_at: row.updatedAt,
+        }),
+      ),
+      page: query.page,
+      perPage: query.perPage,
+      total: totals[0]?.value ?? 0,
+    };
+
+    validateResponseInDev(c.env, () => {
+      AdminVendorProductsResponseSchema.parse(body);
     });
     return json(body);
   };

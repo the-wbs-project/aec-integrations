@@ -195,6 +195,12 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
   // resolved through the SSR `/api/*` passthrough with the session cookie
   // attached — including the audit read, which is the first thing in the codebase
   // ever to SELECT from `audit_log` on behalf of a request.
+  //
+  // Both reads still fire on the BARE url even though the trail's section now
+  // lives behind `?tab=audit`: the page holds the trail regardless of which tab
+  // is open, because every write on this screen refetches it. So this asserts the
+  // landing tab's own heading and then opens the Audit Trail tab, which is what
+  // keeps the audit read inside the console-clean window rather than assuming it.
   test('/admin/vendors/:id hydrates with no console errors', async ({ page }) => {
     test.skip(!vendorFixturePresent, 'Catalog fixtures absent — no seeded vendor to open.');
     const capture = attachConsoleCapture(page);
@@ -202,8 +208,12 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expect(res?.status()).toBe(200);
     await expect(page.locator('aec-admin-shell')).toBeAttached();
     await expect(page.locator('aec-vendor-detail')).toBeAttached();
-    // A heading that exists only on the loaded branch — the four sections do not
-    // render until `GET /api/admin/vendors/:id` resolves.
+    // A heading that exists only on the loaded branch — the Vendor tab's sections
+    // do not render until `GET /api/admin/vendors/:id` resolves.
+    await expect(page.getByRole('heading', { name: 'Basics' })).toBeVisible();
+
+    // The tab row is real links, so this is a router navigation, not a toggle.
+    await page.getByRole('link', { name: 'Audit Trail', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/vendors/:id');

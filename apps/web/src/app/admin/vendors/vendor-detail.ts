@@ -1,11 +1,13 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type {
   AdminAuditRow,
   AdminVendorAuditScope,
   AdminVendorDetail,
+  AdminVendorProductRow,
   AdminVendorSeatRow,
   VendorEntitlementResponse,
 } from '@aeci/shared';
@@ -14,18 +16,40 @@ import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
+import { VendorProductsTable } from './vendor-products-table';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 
 const AUDIT_PAGE_SIZE = 25;
+const PRODUCTS_PAGE_SIZE = 25;
+
+/** The three tabs, and the `?tab=` values that address them. `vendor` is the
+ *  default and is written as the ABSENT value, so `/admin/vendors/:id` and
+ *  `/admin/vendors/:id?tab=vendor` are the same page with one canonical URL. */
+export type AdminVendorTab = 'vendor' | 'products' | 'audit';
 
 /**
  * `/admin/vendors/:id` — the operator's vendor page (AECI-652 /
  * `STAGE_2_PAID_TIERS_SPEC.md` §5.6), rendered in the `AdminShell` layout outlet.
  *
- * Four sections in one component, not four child routes: an operator reads them
- * together (the entitlement state explains the seats; the audit trail explains
- * both), and a route per tab would cost three more resolvers and a URL nobody
- * bookmarks. Section headings are `h3` — the shell owns the only `h1` and this
+ * ── THREE TABS, ONE COMPONENT, ONE ROUTE ────────────────────────────────────
+ * The screen is a horizontal tab row — **Vendor** (basics, entitlement, seats),
+ * **Products**, **Audit trail** — over one panel. Basics/entitlement/seats stay
+ * on ONE tab because an operator reads them together: the entitlement state
+ * explains the seats, and a decision about either needs both on screen. Products
+ * and the trail are the two blocks that are long, separately paginated, and
+ * scanned rather than read alongside the rest.
+ *
+ * It is still one component and one route. The tab lives in `?tab=`, not in a
+ * child route: a child route per tab would cost two more lazy components and two
+ * more resolvers to move nothing but a signal, while a query param keeps the tab
+ * linkable, bookmarkable and Back-navigable — the thing an in-page `@switch`
+ * silently gives up (the vendor portal learned that the expensive way, see
+ * `vendor-dashboard-tabbed.ts`). The default tab is the ABSENT value, so the
+ * bare URL stays canonical.
+ *
+ * Each tab fetches ONCE, lazily, on first visit — a reader who never opens
+ * Products never pays for it — and the fetch is browser-only, like the rest of
+ * the page. Section headings are `h3` — the shell owns the only `h1` and this
  * screen owns the only `h2`.
  *
  * ── THE PAGE OWNS THE LIVE REGION ────────────────────────────────────────────
@@ -68,7 +92,14 @@ const AUDIT_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [RouterLink, AuditTrail, EntitlementControl, ProvisionSeatControl, DatePipe],
+  imports: [
+    RouterLink,
+    AuditTrail,
+    EntitlementControl,
+    ProvisionSeatControl,
+    VendorProductsTable,
+    DatePipe,
+  ],
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail {
@@ -76,6 +107,34 @@ export class VendorDetail {
   private readonly route = inject(ActivatedRoute);
 
   protected readonly vendorId = signal(this.route.snapshot.paramMap.get('id') ?? '');
+
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+
+  /** The live query map, not the snapshot: switching tabs re-uses this component
+   *  instance, so a snapshot read would freeze the page on whichever tab it was
+   *  entered from. */
+  private readonly queryParams = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+
+  /** An unrecognised `?tab=` falls back to `vendor` rather than rendering an
+   *  empty panel — a hand-edited or stale URL must still show the vendor. */
+  protected readonly tab = computed<AdminVendorTab>(() => {
+    const raw = this.queryParams().get('tab');
+    return raw === 'products' || raw === 'audit' ? raw : 'vendor';
+  });
+
+  protected readonly tabs: ReadonlyArray<{ key: AdminVendorTab; label: string }> = [
+    { key: 'vendor', label: $localize`:@@admin.vendors.tab.vendor:Vendor` },
+    { key: 'products', label: $localize`:@@admin.vendors.tab.products:Products` },
+    { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit Trail` },
+  ];
+
+  /** `undefined` clears the param, which is what keeps the default tab's URL
+   *  the bare one. */
+  protected tabQueryParams(tab: AdminVendorTab): { tab: string | undefined } {
+    return { tab: tab === 'vendor' ? undefined : tab };
+  }
 
   protected readonly vendor = signal<AdminVendorDetail | null>(null);
   protected readonly loading = signal(true);
@@ -89,6 +148,18 @@ export class VendorDetail {
   protected readonly revokePendingId = signal<string | null>(null);
   protected readonly revokeConfirmId = signal<string | null>(null);
   protected readonly revokeFailedMessage = signal('');
+
+  // ── Products ───────────────────────────────────────────────────────────────
+  protected readonly productRows = signal<readonly AdminVendorProductRow[]>([]);
+  protected readonly productTotal = signal(0);
+  protected readonly productPage = signal(1);
+  protected readonly productPerPage = PRODUCTS_PAGE_SIZE;
+  protected readonly productsLoading = signal(true);
+  protected readonly productsFailed = signal(false);
+  /** Whether the Products tab has ever fetched. Guards the lazy first load so a
+   *  tab switch back and forth does not refetch, and so an operator who never
+   *  opens the tab never issues the request. */
+  private productsRequested = false;
 
   // ── Audit ──────────────────────────────────────────────────────────────────
   protected readonly auditRows = signal<readonly AdminAuditRow[]>([]);
@@ -116,10 +187,26 @@ export class VendorDetail {
   /** The §5.2 payer test as one readable line — shared with `/admin/claims`. */
   protected readonly roleBreakdownLabel = productRolesLabel;
 
+  /** Flipped once the browser has rendered. Every fetch on this page is
+   *  browser-only (the shell's resolver is the SSR gate), and the tab-driven
+   *  effect below must not fire during SSR. */
+  private readonly hydrated = signal(false);
+
   constructor() {
     afterNextRender(() => {
+      this.hydrated.set(true);
       void this.load();
       void this.loadAudit();
+    });
+
+    // Lazy per-tab loads. The audit trail is fetched up front because the page
+    // reloads it after every write (an entitlement change, a seat revoke) and
+    // therefore has to hold it regardless of which tab is open; Products has no
+    // such coupling, so it waits until someone asks for it.
+    effect(() => {
+      if (this.hydrated() && this.tab() === 'products' && !this.productsRequested) {
+        void this.loadProducts();
+      }
     });
   }
 
@@ -240,6 +327,39 @@ export class VendorDetail {
     return this.vendor()?.seat_emails_available === false
       ? $localize`:@@admin.vendors.seats.emailUnavailable:Email unavailable`
       : $localize`:@@admin.vendors.seats.emailNone:No email on file`;
+  }
+
+  // ── Products ───────────────────────────────────────────────────────────────
+
+  protected goToProductPage(page: number): void {
+    this.productPage.set(page);
+    void this.loadProducts();
+  }
+
+  protected retryProducts(): void {
+    void this.loadProducts();
+  }
+
+  private async loadProducts(): Promise<void> {
+    const id = this.vendorId();
+    if (!id) return;
+    this.productsRequested = true;
+    this.productsLoading.set(true);
+    this.productsFailed.set(false);
+    try {
+      const response = await this.api.listProducts(id, {
+        page: this.productPage(),
+        perPage: this.productPerPage,
+      });
+      this.productRows.set(response.data);
+      this.productTotal.set(response.total);
+    } catch {
+      this.productsFailed.set(true);
+      this.productRows.set([]);
+      this.productTotal.set(0);
+    } finally {
+      this.productsLoading.set(false);
+    }
   }
 
   // ── Audit ──────────────────────────────────────────────────────────────────

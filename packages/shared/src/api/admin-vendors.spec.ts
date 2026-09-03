@@ -4,7 +4,9 @@ import {
   AdminAuditRowSchema,
   AdminVendorAuditQuerySchema,
   AdminVendorDetailSchema,
+  AdminVendorProductRowSchema,
   AdminVendorRowSchema,
+  AdminVendorSortSchema,
   AdminVendorsListQuerySchema,
   VendorProductRolesSchema,
 } from './admin-vendors';
@@ -27,7 +29,22 @@ describe('AdminVendorsListQuerySchema', () => {
     const parsed = AdminVendorsListQuerySchema.parse({});
     expect(parsed.page).toBe(1);
     expect(parsed.perPage).toBe(24);
-    expect(parsed.sort).toBe('created');
+    // `name`, not the public list's `created`: this is a lookup surface, and
+    // `created_at` is not even on `AdminVendorRowSchema` to sort by.
+    expect(parsed.sort).toBe('name');
+  });
+
+  it('accepts a sort key for every column the operator table renders', () => {
+    for (const key of ['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated']) {
+      expect(AdminVendorSortSchema.safeParse(key).success, key).toBe(true);
+    }
+  });
+
+  it('rejects the public sort keys it does not implement', () => {
+    // The admin enum is deliberately not `VendorSortSchema`. `created` has no
+    // column on the row, so a header could not state its direction honestly.
+    expect(AdminVendorSortSchema.safeParse('created').success).toBe(false);
+    expect(AdminVendorsListQuerySchema.safeParse({ sort: 'created' }).success).toBe(false);
   });
 
   it('rejects perPage above the shared cap', () => {
@@ -66,7 +83,6 @@ describe('AdminVendorRowSchema', () => {
     status: 'active',
     period_end: '2027-01-01',
     product_count: 3,
-    integration_count: 1,
     updated_at: '2026-08-20T00:00:00.000Z',
   };
 
@@ -334,5 +350,49 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
   it('rejects an OMITTED breakdown (R10 — required, not optional)', () => {
     const { product_roles: _p, ...without } = detail;
     expect(AdminVendorDetailSchema.safeParse(without).success).toBe(false);
+  });
+});
+
+describe('AdminVendorProductRowSchema', () => {
+  const row = {
+    id: '00000000-0000-4000-8000-000000000030',
+    slug: 'revit',
+    name: 'Revit',
+    product_role: 'application',
+    is_primary: true,
+    promotion_status: 'promoted',
+    integration_count: 12,
+    review_count: 7,
+    rating_overall_avg: 4.2,
+    updated_at: '2026-08-20T00:00:00.000Z',
+  };
+
+  it('accepts a row and keeps a withheld average as null', () => {
+    expect(AdminVendorProductRowSchema.parse(row).rating_overall_avg).toBe(4.2);
+    expect(
+      AdminVendorProductRowSchema.parse({ ...row, rating_overall_avg: null }).rating_overall_avg,
+    ).toBeNull();
+  });
+
+  it('rejects an OMITTED average (R10 — required-nullable, never optional)', () => {
+    // A missed construction site must fail `validateResponseInDev` rather than
+    // ship as `undefined` and render as "no rating".
+    const { rating_overall_avg: _r, ...without } = row;
+    expect(AdminVendorProductRowSchema.safeParse(without).success).toBe(false);
+  });
+
+  it('rejects a role outside the closed enum', () => {
+    // Unlike a seat's `role`, `products_product_role_check` is a closed list and
+    // the payer test reads it — an unrecognised value must not render as if it
+    // were understood.
+    expect(AdminVendorProductRowSchema.safeParse({ ...row, product_role: 'iPaaS' }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts an unrecognised promotion_status — the column carries no CHECK', () => {
+    expect(
+      AdminVendorProductRowSchema.safeParse({ ...row, promotion_status: 'something_new' }).success,
+    ).toBe(true);
   });
 });

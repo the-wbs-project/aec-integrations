@@ -23,6 +23,8 @@ import type {
   AdminVendorAuditQuery,
   AdminVendorAuditResponse,
   AdminVendorDetail,
+  AdminVendorProductsQuery,
+  AdminVendorProductsResponse,
   AdminVendorsListQuery,
   AdminVendorsListResponse,
 } from '@aeci/shared';
@@ -46,6 +48,23 @@ export class AdminVendorsApi {
   getVendor(id: string): Promise<AdminVendorDetail> {
     return firstValueFrom(
       this.http.get<AdminVendorDetail>(`/api/admin/vendors/${encodeURIComponent(id)}`),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/products` — the vendor's product roster, the
+   * Products tab's only read. Paginated, name-ordered, every ownership row (a
+   * co-owned product is owned).
+   */
+  listProducts(
+    id: string,
+    query: Partial<Record<keyof AdminVendorProductsQuery, string | number>> = {},
+  ): Promise<AdminVendorProductsResponse> {
+    return firstValueFrom(
+      this.http.get<AdminVendorProductsResponse>(
+        `/api/admin/vendors/${encodeURIComponent(id)}/products`,
+        { params: toParams(query) },
+      ),
     );
   }
 
