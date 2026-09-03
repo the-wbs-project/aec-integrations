@@ -1,9 +1,19 @@
 import { DatePipe, formatDate } from '@angular/common';
-import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
+import {
+  Component,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type { AdminUserDetail } from '@aeci/shared';
 
+import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminUsersApi } from './admin-users-api';
@@ -56,7 +66,16 @@ export class UserDetail {
   private readonly route = inject(ActivatedRoute);
   private readonly locale = inject(LOCALE_ID);
 
+  private readonly breadcrumbs = inject(AdminBreadcrumbStore);
+
   protected readonly userId = signal(this.route.snapshot.paramMap.get('id') ?? '');
+
+  /** The heading names WHOSE account this is once we know; until then it shows the
+   *  SAME word the shell's breadcrumb shows for this section, from the one place
+   *  it is defined. `displayName()` already carries the "Unnamed account" case. */
+  protected readonly headingLabel = computed(() =>
+    this.user() ? this.displayName() : (ADMIN_DETAIL_FALLBACK_LABELS['users'] ?? ''),
+  );
 
   protected readonly user = signal<AdminUserDetail | null>(null);
   protected readonly loading = signal(true);
@@ -78,6 +97,13 @@ export class UserDetail {
   constructor() {
     afterNextRender(() => {
       void this.load();
+    });
+
+    // AECI-777 — feed the shell's breadcrumb. An effect rather than a line inside
+    // `load()` so a refetch republishes too, and so the id travels with the label
+    // (the store keys on it to reject a label left over from the last page).
+    effect(() => {
+      if (this.user()) this.breadcrumbs.publish(this.userId(), this.displayName());
     });
   }
 

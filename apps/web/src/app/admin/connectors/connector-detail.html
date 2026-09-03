@@ -1,18 +1,9 @@
 <section aria-labelledby="admin-connector-heading">
-  <a
-    routerLink="/admin/connectors"
-    class="text-sm text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@admin.connectors.detail.back"
-  >
-    Back to connector catalogues
-  </a>
-
-  <h2
-    id="admin-connector-heading"
-    class="mt-3 text-xl font-bold text-(--text-primary)"
-    i18n="@@admin.connectors.detail.heading"
-  >
-    Connector catalogue
+  <!-- The shell's breadcrumb (AECI-777) is the way back to the list; this heading
+       names WHICH catalogue, and falls back to the same word the trail shows until
+       the fetch resolves. -->
+  <h2 id="admin-connector-heading" class="text-xl font-bold text-(--text-primary)">
+    @if (catalog(); as c) { {{ c.connector_product.name }} } @else { {{ fallbackHeading }} }
   </h2>
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>

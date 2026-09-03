@@ -1,9 +1,19 @@
 import { DatePipe } from '@angular/common';
-import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
+import {
+  Component,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type { AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
 
+import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AdminClaimsApi } from './admin-claims-api';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
@@ -54,8 +64,21 @@ export class ClaimDetail {
   private readonly route = inject(ActivatedRoute);
   private readonly locale = inject(LOCALE_ID);
 
+  private readonly breadcrumbs = inject(AdminBreadcrumbStore);
+
   protected readonly claimId = signal(this.route.snapshot.paramMap.get('id') ?? '');
   protected readonly claim = signal<AdminClaimDetail | null>(null);
+
+  /** A claim has no name of its own — what an operator recognises it by is its
+   *  TARGET, which is what the heading and the breadcrumb's last crumb both show.
+   *  `targetFallbackLabel` already carries the "target row is gone" case (the
+   *  claim outlives a retracted product), and before the fetch resolves it shows
+   *  the same word the trail does, from the one place that word is defined. */
+  protected readonly headingLabel = computed(() => {
+    const claim = this.claim();
+    if (!claim) return ADMIN_DETAIL_FALLBACK_LABELS['claims'] ?? '';
+    return claim.target?.name ?? this.targetFallbackLabel(claim.target_type);
+  });
 
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
@@ -78,6 +101,14 @@ export class ClaimDetail {
   constructor() {
     afterNextRender(() => {
       void this.load();
+    });
+
+    // AECI-777 — feed the shell's breadcrumb. An effect rather than a line inside
+    // `load()` so a refetch republishes too (the note save re-sets `claim`), and so
+    // the id travels with the label (the store keys on it to reject a label left
+    // over from the last page).
+    effect(() => {
+      if (this.claim()) this.breadcrumbs.publish(this.claimId(), this.headingLabel());
     });
   }
 

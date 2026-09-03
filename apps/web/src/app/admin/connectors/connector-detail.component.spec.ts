@@ -162,6 +162,21 @@ describe('ConnectorDetail', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
+  describe('the heading names the entity (AECI-777)', () => {
+    it('shows the connector product name once loaded', async () => {
+      const { el } = await setup(makeApiMock());
+      // Not the generic "Connector catalogue" — the breadcrumb already says which
+      // section you are in, so the heading is free to say which catalogue.
+      expect(el.querySelector('#admin-connector-heading')?.textContent?.trim()).toBe('MindCloud');
+    });
+
+    it('no longer renders a bespoke back link', async () => {
+      const { el } = await setup(makeApiMock());
+      const hrefs = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).not.toContain('/admin/connectors');
+    });
+  });
+
   it('renders all five sections', async () => {
     const { el } = await setup(makeApiMock());
     expect([...el.querySelectorAll('h3')].map((h) => h.textContent?.trim())).toEqual([

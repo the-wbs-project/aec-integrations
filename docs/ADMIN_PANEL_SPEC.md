@@ -191,6 +191,31 @@ The door is gated on `AdminStatus.isAdmin()`, which is `false` during SSR / pre-
 
 The cached role is a **UI hint, never an authorization input** — see `AUTH_AND_RLS.md` §4.5 for why the server-side role read must not be cached in KV, and why a forged or stale client-side role buys nothing.
 
+### 5.0b The detail routes carry a breadcrumb, not a back link — SHIPPED (AECI-777)
+
+The four parameterised routes each hand-rolled a **"Back to …" link** above their heading. Four links doing one job had drifted into four class strings and two wrapper shapes (`/admin/vendors/:id` and `/admin/claims/:id` a bare `<a>` at `text-xs font-medium` with a decorated underline; `/admin/connectors/:id` a bare `<a>` at `text-sm` with no hover colour; `/admin/users/:id` the same link wrapped in a `<p>`), and none of them said where you *were* — only where you could go back to. They are replaced by one breadcrumb, `<aec-admin-breadcrumb>` (`app/admin/admin-breadcrumb.ts`), rendered **once by the shell**, under the category row and above the outlet.
+
+```
+/admin/overview      →  Admin › Insights › Overview
+/admin/vendors       →  Admin › Operations › Vendors
+/admin/vendors/:id   →  Admin › Operations › Vendors › Acme Corp
+```
+
+Six mechanics, all pinned by `admin-breadcrumb.component.spec.ts` and `admin-shell.component.spec.ts`:
+
+- **The trail is DERIVED, not declared.** It is computed from the router URL against `ADMIN_NAV_GROUPS`, so the category and the label come from the array that already is this IA's single source of truth. The alternative was an `<aec-admin-breadcrumb [trail]="…">` each screen fills in — which is the right shape on the public detail pages, where the trail runs through taxonomy the route does not encode, and the wrong one here, where the route encodes everything. Declaring it per screen would be **sixteen call sites restating an IA that is written down once**, which is the duplication §5.0a retired when the header stopped mirroring the console's nav. Adding a screen to the nav gives it a trail with no edit to the breadcrumb; `ADMIN_NAV_GROUPS` now has two readers, both inside the console.
+- **A detail route resolves its parent structurally.** `/admin/<section>/<id>` looks up `/admin/<section>` in the same map — there is no detail-route table to maintain, so the next detail pair inherits its trail from its list screen's nav entry alone. This is the same "structural, not a flag" reasoning as §5.0a's single-screen-group rule, and it holds for the same reason: the next change costs nothing.
+- **The category crumb is not a link.** There is no `/admin/operations` route, and a crumb that looks clickable and is not is worse than plain text. Neither is the last crumb, which carries `aria-current="page"`.
+- **The last crumb names the entity, and cannot name the wrong one.** The name is known only to the child component and only after its `afterNextRender` fetch, so it arrives through `AdminBreadcrumbStore` (`app/admin/admin-breadcrumb.store.ts`). Nothing clears that store on navigation, so a bare label signal would show the *previous* entity's name for the length of the next page's round trip. The entry therefore carries **the id it describes**, and the crumb uses the label only when that id matches the URL's last segment. A stale entry cannot match, so it degrades to the section's fallback word rather than lying — a structural guarantee, not a lifecycle one, with no clear-on-navigate effect to forget.
+- **It emits no heading.** The §5 rule stands unchanged: the shell owns the only `h1`, each screen the only `h2`. A heading in the trail would sit between them and break axe's heading-order rule, which is the third time this document reaches that conclusion (the sidebar's `<p>` labels, §5.0a's disclosure buttons, and now this). The `<nav>` is named "Breadcrumb", distinct from the row's "Admin sections", because two unnamed navs in one landmark tree are indistinguishable in a screen reader's landmark list.
+- **It emits no JSON-LD.** `/admin` is `noindex` (§9.2), and structured data must never describe a page we tell crawlers to skip — the rule `products-pair.resolver.ts` states for the one page in the product that does emit a `BreadcrumbList`.
+
+**It sits BELOW the row.** Its first crumb is "Admin", which is the `h1` immediately above, and its second mirrors the category the row already marks current; placed above the row it would restate both before the operator had read either. Below, it reads as "and inside that section, here" — which is the only part the row cannot show, because a detail route has no nav entry to make current. The order also keeps the file's existing `querySelector('nav')` assertions pointed at the row; they were tightened to address it by `aria-label` regardless, since a positional selector is exactly what AECI-722 already broke once here.
+
+**Consequence for the detail screens.** With the trail carrying the way back, each detail `h2` stops saying the entity *type* ("Vendor", "Account", "Vendor claim", "Connector catalogue") and says *which one* — the name previously appeared only in a card further down the page. Until the fetch resolves it shows the same fallback word the trail does, from one definition (`ADMIN_DETAIL_FALLBACK_LABELS`, `app/admin/admin-nav.ts`); the per-screen `@@admin.*.detail.heading` and `@@admin.*.detail.back` message ids are retired. `/admin/claims/:id` is the one that needs a rule rather than a field: a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product.
+
+**What it deliberately does not do.** It is not a second navigation surface — every crumb is an ancestor of the current page, never a sibling, so §5.0a's "a portal owns its own navigation; the header offers one door" is untouched and the row remains the only way to change section. It also does not appear on the non-admin branch, which renders `<aec-not-found/>` and no console chrome at all.
+
 ### 5.1 Overview
 
 The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line. The human page-views tile carries its own **measurement envelope** in the caption (§13 **D15**): the raw server-side count it was subtracted from and how many views the automation filter removed (AECI-745), that the raw figure is an upper bound, the AECI-683 corroborated floor (`corroborated_views` / `corroborated_visitors`), and `operator_leak_excluded` when it is non-zero — on the tile rather than in a tile of its own, because the email prints the same three beside the same number and a caveat one card away from its figure is a caveat nobody reads.
@@ -397,6 +422,10 @@ Per §9.3 the three GETs emit no `audit_log` row; the revoke does, in the same `
 > - **"View public page" is now "View Page" and opens in a new tab** (`target="_blank" rel="noopener"`, with a visually-hidden "opens in a new tab"). An operator opens it to check something against the admin record, so navigating away from that record was the wrong outcome; that is also why it is an `href` rather than a `routerLink`.
 > - **The entitlement term is formatted through one shared helper**, because `period_end` is legally a bare `YYYY-MM-DD` and formatting a date-only value as a UTC instant shifts it by the local offset. `/admin/claims` renders the same readout and shares the helper so the two cannot drift. See `STAGE_2_PAID_TIERS_SPEC.md` §5.8.
 
+> **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to all vendors" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` now names **which vendor** (`company_name`, previously visible only inside the Basics card) rather than the entity type. Until the fetch resolves it shows the same fallback word the trail does, from one definition. No endpoint, query or response shape moved.
+
+---
+
 ### 5.8 Users — SHIPPED (AECI-692, 2026-08-28)
 
 Unlike §5.7 this section **owns its contract in full**. AECI-692 has no governing spec elsewhere — no paid-tiers section, no vendor-portal section, no Stage 1 section defines a per-user admin surface — so the contract is here, and `API_CONTRACTS.md` §6.10 carries the endpoint shapes.
@@ -446,6 +475,8 @@ Per §9.3 both GETs emit no `audit_log` row; the ban does, in the same `db.batch
 > - **Two sortable headers: Profile created (`created`) and Updated (`updated`)**, both descending, matching `AdminUsersSortSchema` and `resolveAdminUserOrderBy`. The list gained an **Updated column** so the second supported key is reachable at all — `updated_at` was already on `AdminUserRowSchema` and simply had nowhere to go. As with §5.7, clicking selects a sort rather than toggling a direction, because the endpoint takes no `order`.
 > - **Last sign-in has no control**, which is the "not sortable, and will not become so" rule above turned into a test rather than a sentence. Email is unsortable for the same reason. Both are asserted in `user-list.component.spec.ts`.
 > - Timestamps stay **absolute** `medium`/UTC here. The relative stamp introduced by AECI-694 is scoped to the audit trail, where "how long ago" is the question actually being asked; "Profile created" is not.
+
+> **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to users" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` now names **whose account** it is (`displayName()`, which already carries the "Unnamed account" case) rather than the entity type. Until the fetch resolves it shows the same fallback word the trail does, from one definition. No endpoint, query or response shape moved.
 
 ---
 
@@ -545,6 +576,10 @@ environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chai
 including a high-confidence machine proposal that must **not** read as confirmed, and a
 low-confidence human decision that must.
 
+> **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to connector catalogues" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` now names **which catalogue** (`connector_product.name`) rather than the entity type. Until the fetch resolves it shows the same fallback word the trail does, from one definition. No endpoint, query or response shape moved.
+
+---
+
 ### 5.10 Claim detail — SHIPPED (AECI-739, 2026-09-02)
 
 Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
@@ -599,6 +634,8 @@ identical states is not a history.
   unchanged.
 - **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
   available, but the API surface is claim-only. Extending it is a decision, not a migration.
+
+> **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 
 ---
 
@@ -1243,6 +1280,7 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `environments.md`, `access.md` | `ANALYTICS_INTERNAL_ASNS` per tier (§13 D10) — declared, shipped unset. **Verified DONE at closeout (AECI-587)** despite carrying no shipped marker: `environments.md` tabulates it under "Declared-but-unset knobs" with its format and the three binding constraints, and `access.md` §7 explains why it is a *production* instrument (a gated tier's page views are 100% internal) |
 | `migrations.md` | Usually no change; confirm consciously, since this epic adds the repo's first table-recreate migration (§7.3). **AECI-585 added §3.3a** — the SQLite `DROP COLUMN` restriction, the `PRAGMA defer_foreign_keys` substitution drizzle-kit's output needs for D1, keeping the PK explicit in the copy, and verifying against non-empty data |
 | `PHASE_8_COMPLETION.md` | **Append** Phase 8.3, per that file's own Note D ("intentionally re-openable"). **DONE at closeout (AECI-587)** — §2c (the epic mapped to §10, and what changed for operations), §4.7, and two new punts: **§F5** (no `metrics-snapshot` monitor) and **§F6** (the §12a at-merge obligations). The 8.1 verdict and score are untouched; where 8.3 changed a fact they assert, the fact is corrected in §2c and cross-referenced. **§F1 is no longer blocked** — both analytics globals are injected in prod (verified 2026-08-14), so the first field CWV read is a task rather than an impossibility. Its own stale self-cites ("8 crons", "7-cron table") fixed |
+| `DESIGN.md` §5 (Operator console) | **AECI-777** added the breadcrumb bullet: console detail screens carry a trail rather than a back link, it follows the public site's breadcrumb treatment per §9 item 10's anchor rule, and the detail `h2` names the entity rather than its type |
 | `docs/README.md`, root `CLAUDE.md` | Index entries (added with this document; the draft-status qualifiers were replaced with the D1 answer by AECI-573). `CLAUDE.md`'s audit rule and `DATABASE_SCHEMA.md` §18 were also rescoped to domain state under ADR 0022 — **landed with AECI-573**. **Verified at closeout**: both read "v1.0 build contract" and neither contains "draft plan" |
 
 ### 12a. At-merge obligations (`admin-panel → main`)

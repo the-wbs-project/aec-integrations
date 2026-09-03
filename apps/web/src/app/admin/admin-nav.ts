@@ -6,7 +6,11 @@
  * full Admin section, so the two lists could not drift. That menu is gone and
  * the header no longer restates this IA at all — it offers a single "Admin
  * portal" door (`layout/user-menu.ts`) and the console owns its own navigation.
- * So the array is back to ONE consumer, `admin-shell.ts`.
+ *
+ * Two consumers today, both inside the console: `admin-shell.ts` renders the row,
+ * and `admin-breadcrumb.ts` (AECI-777) derives the trail from it. That is not the
+ * drift risk the "More" menu was — a second SURFACE restating the IA — but two
+ * readings of one array, which is precisely what having the array is for.
  *
  * Groups and order mirror `docs/ADMIN_PANEL_SPEC.md` §5. Only routes that
  * **exist** are listed — nothing links to a 404, and no entry is rendered
@@ -138,3 +142,56 @@ export const ADMIN_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';
  * carries the identical arrangement one portal over.)
  */
 export const ADMIN_NAV_TRIGGER_CLASS = `${ADMIN_NAV_ITEM_CLASS} aria-[current=true]:font-bold aria-[current=true]:text-(--accent-primary)`;
+
+/**
+ * ── THE BREADCRUMB READS THIS FILE TOO (AECI-777) ────────────────────────────
+ *
+ * `AdminBreadcrumb` derives its trail from the router URL against the array
+ * above, which is why the array is data rather than markup. The consequence
+ * worth stating: the nav and the trail cannot disagree about a screen's label or
+ * which category it belongs to, because there is only one place either is
+ * written. Adding a screen is still one entry here.
+ */
+
+/** Where a path sits in the IA: its category, and its own label. */
+export interface AdminNavPosition {
+  readonly groupHeading: string;
+  readonly label: string;
+}
+
+/** Path → position, flattened once at module scope. The IA is a static array,
+ *  so rebuilding this per breadcrumb instance would buy nothing. */
+const NAV_POSITIONS = new Map<string, AdminNavPosition>(
+  ADMIN_NAV_GROUPS.flatMap((group) =>
+    group.items.map(
+      (item) => [item.path, { groupHeading: group.heading, label: item.label }] as const,
+    ),
+  ),
+);
+
+/** The IA position of a nav-able admin path, or null if it names no screen.
+ *  Null is the honest answer for `/admin/reviewers` (a redirect) and for a typo,
+ *  and the breadcrumb degrades to its root crumb rather than inventing a trail. */
+export function adminNavPosition(path: string): AdminNavPosition | null {
+  return NAV_POSITIONS.get(path) ?? null;
+}
+
+/**
+ * What a detail screen is called before its entity loads, keyed by the section
+ * segment of `/admin/<section>/<id>`.
+ *
+ * ONE definition, two consumers: the breadcrumb's last crumb and the screen's
+ * own `h2`, which both show this word until the fetch resolves and the entity's
+ * real name replaces it. They previously carried separate message ids for the
+ * same string (`@@admin.vendors.detail.heading` and friends), which is a
+ * translation that can drift between two places showing it simultaneously.
+ *
+ * A section with no entry falls back to its URL segment, which is ugly but never
+ * wrong — the map is not a gate on rendering.
+ */
+export const ADMIN_DETAIL_FALLBACK_LABELS: Readonly<Record<string, string>> = {
+  vendors: $localize`:@@admin.breadcrumb.detail.vendors:Vendor`,
+  users: $localize`:@@admin.breadcrumb.detail.users:Account`,
+  claims: $localize`:@@admin.breadcrumb.detail.claims:Vendor claim`,
+  connectors: $localize`:@@admin.breadcrumb.detail.connectors:Connector catalogue`,
+};

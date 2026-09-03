@@ -1,18 +1,9 @@
 <section aria-labelledby="admin-claim-heading">
-  <a
-    routerLink="/admin/claims"
-    class="text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@admin.claims.detail.back"
-  >
-    Back to the claim queue
-  </a>
-
-  <h2
-    id="admin-claim-heading"
-    class="mt-2 text-lg font-bold text-(--text-primary)"
-    i18n="@@admin.claims.detail.heading"
-  >
-    Vendor claim
+  <!-- The shell's breadcrumb (AECI-777) is the way back to the queue; this heading
+       names WHICH claim's target, and falls back to the same word the trail shows
+       until the fetch resolves. -->
+  <h2 id="admin-claim-heading" class="text-lg font-bold text-(--text-primary)">
+    {{ headingLabel() }}
   </h2>
 
   <!-- The page's ONE polite live region: the note save changes text already on

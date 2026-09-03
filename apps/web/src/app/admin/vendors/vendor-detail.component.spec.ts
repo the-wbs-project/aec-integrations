@@ -162,6 +162,30 @@ function diffTable(el: HTMLElement): HTMLTableElement | null {
 }
 
 describe('VendorDetail', () => {
+  describe('the heading names the entity (AECI-777)', () => {
+    it('shows the vendor name once loaded, not the word "Vendor"', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const h2 = el.querySelector('#admin-vendor-heading');
+      // The breadcrumb is now the way back to the list, so the heading is free to
+      // say WHICH vendor — the name used to be buried in the Basics card.
+      expect(h2?.textContent?.trim()).toBe('Autodesk, Inc.');
+    });
+
+    it('falls back to the section word while the fetch is in flight', async () => {
+      const api = makeApiMock(makeVendor());
+      api.getVendor = vi.fn(() => new Promise<never>(() => {}));
+      const { el } = await setup(api);
+      // The same word the breadcrumb's last crumb shows, from one definition.
+      expect(el.querySelector('#admin-vendor-heading')?.textContent?.trim()).toBe('Vendor');
+    });
+
+    it('no longer renders a bespoke back link', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const hrefs = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).not.toContain('/admin/vendors');
+    });
+  });
+
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
