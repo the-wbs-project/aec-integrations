@@ -2,7 +2,7 @@
  * Promote post-commit hook dispatch — connection hygiene (AECI-666).
  *
  * The regression these lock down: `dispatchPromoteHooks` used to loop
- * `logToDatadog` once per `audit_log` row and hand every transport straight to
+ * `logToPosthog` once per `audit_log` row and hand every transport straight to
  * `waitUntil`. A fat bundle therefore opened a dozen-plus simultaneous
  * connections from one invocation, the runtime cancelled the stalled responses
  * to break the deadlock, and a cancelled `fetch` returns a promise that NEVER
@@ -18,7 +18,7 @@
 import type { AuditLogEntry, PromoteResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { logBatchToDatadog } from '../datadog';
+import { logBatchToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { fakeExecutionContext } from '../test/helpers';
 import {
@@ -28,9 +28,9 @@ import {
   type PromoteRunCtx,
 } from './promote';
 
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
-  logBatchToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -42,6 +42,8 @@ const emptyResponse: PromoteResponse = {
   integrations: [],
   taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
   skipped: [],
+  // stage-2 only: AECI-301 added `preserved[]` to the response contract.
+  preserved: [],
 };
 
 function auditEntry(n: number): AuditLogEntry {
@@ -99,27 +101,27 @@ function makeRc(env: Env): { rc: PromoteRunCtx; settled: () => Promise<void> } {
   return { rc, settled: async () => void (await Promise.all(tasks)) };
 }
 
-beforeEach(() => vi.mocked(logBatchToDatadog).mockClear());
+beforeEach(() => vi.mocked(logBatchToPosthog).mockClear());
 afterEach(() => vi.useRealTimers());
 
 describe('dispatchPromoteHooks — audit forwards', () => {
   it('forwards N audit entries in ONE batched call, not N', () => {
-    const { rc } = makeRc({ ENV: 'preview', DD_API_KEY: 'k' });
+    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
     const auditEntries = Array.from({ length: 14 }, (_, i) => auditEntry(i));
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries }), makeDeps());
 
-    expect(logBatchToDatadog).toHaveBeenCalledTimes(1);
-    const events = vi.mocked(logBatchToDatadog).mock.calls[0][3];
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0][3];
     expect(events).toHaveLength(14);
   });
 
   it('keeps the §26.5 envelope for each entry', () => {
-    const { rc } = makeRc({ ENV: 'preview', DD_API_KEY: 'k' });
+    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries: [auditEntry(1)] }), makeDeps());
 
-    expect(vi.mocked(logBatchToDatadog).mock.calls[0][3][0]).toEqual({
+    expect(vi.mocked(logBatchToPosthog).mock.calls[0][3][0]).toEqual({
       level: 'info',
       message: 'audit product.created entity-1',
       action: 'product.created',
@@ -127,6 +129,18 @@ describe('dispatchPromoteHooks — audit forwards', () => {
       entity_id: 'entity-1',
       source: 'review-app-promote',
     });
+  });
+
+  // stage-2 only: the pre-fix code gated the whole forward on
+  // `POSTHOG_PROJECT_KEY`. Batching removed it because the transport
+  // self-gates — this locks that in, so a re-added gate
+  // (which would silently drop every forward on a key-less tier) fails here.
+  it('dispatches the batch without any vendor key configured — each leg self-gates', () => {
+    const { rc } = makeRc({ ENV: 'preview' });
+
+    dispatchPromoteHooks(rc, makeResult({ auditEntries: [auditEntry(1)] }), makeDeps());
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
   });
 });
 

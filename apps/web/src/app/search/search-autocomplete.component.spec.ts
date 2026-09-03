@@ -146,10 +146,9 @@ describe('SearchAutocomplete', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    // A controller settled to one suggestion, without the Algolia SDK or RUM.
-    const controller = new AutocompleteController(
-      () => Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 1 }),
-      () => {},
+    // A controller settled to one suggestion, without the Algolia SDK.
+    const controller = new AutocompleteController(() =>
+      Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 1 }),
     );
     controller.setQuery('rev');
     await new Promise((resolve) => setTimeout(resolve, 220)); // past the 180ms debounce

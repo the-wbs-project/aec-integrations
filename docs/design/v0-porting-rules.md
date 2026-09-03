@@ -100,7 +100,7 @@ Working reference: `apps/web/src/app/demo/spartan-demo.ts` shows BrnButton + Brn
 - **Omit explicit `changeDetection`.** OnPush is the Angular v22+ default; declaring `changeDetection: ChangeDetectionStrategy.OnPush` is redundant dead code (see `ANGULAR_STYLE_GUIDE.md` §5).
 - **i18n from day one.** Every user-facing string carries an `i18n` attribute (in templates) or wraps in `$localize` (in TS strings). Use stable IDs: `i18n="@@preview.vendor-detail.heading"`. No bare English strings. Reference: the spartan demo component's `i18n="@@demo.spartan.heading"` pattern.
 - **File layout.** Preview components live at `apps/web/src/app/preview/<screen-name>/<screen-name>.component.ts`. One file per component until size demands splitting templates/styles.
-- **Theme.** Both light and dark must render correctly. The `.theme-dark` class is toggled on `<html>` by `apps/web/src/app/theme.service.ts`. Token-driven CSS gets this for free — don't write theme-specific classes.
+- **Theme.** Light-only ships today and dark theme is not roadmapped (the Stage 2 reintroduction was dropped). Still write **token-driven CSS, never theme-specific classes** — no `dark:` variants, no `.theme-dark` block — so the tokens stay the single source of truth.
 
 ---
 
@@ -126,7 +126,7 @@ Run all four, post the results as a comment on the AECI issue:
    Both must return zero hits. (Exception: the spartan-demo file's inline `style="color: var(...)"` is grandfathered; new ports must not use inline `style`.)
 2. **No `className`.** `grep -n 'className' apps/web/src/app/preview/<screen>/` → zero matches.
 3. **Visual diff** against the v0 reference at desktop (≥1280px), tablet (~768px), and mobile (~375px) widths. Note any intentional divergences with rationale.
-4. **Theme toggle.** Add the `.theme-dark` class to `<html>` in devtools (or use the theme switcher if landed). Every region must adapt — no light-mode-only backgrounds, borders, or text. Screenshot both.
+4. **Token cleanliness.** No `dark:` variants and no `.theme-dark` block (light-only; dark theme is not roadmapped). Confirm the surface is fully token-driven — no hard-coded light-mode colors — so the tokens remain the single source of truth.
 
 If any check fails, fix before posting screenshots.
 

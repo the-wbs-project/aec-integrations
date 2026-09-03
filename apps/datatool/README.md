@@ -14,7 +14,9 @@ tier, `docs/environments.md`):
    `scripts/ops/2026-08-orphan-integration-cleanup/cleanup.sh`).
 
 After either write it runs a **clean Algolia reindex** + **edge-cache purge** of
-the destination, so search and the site reflect the new data immediately.
+the destination, so search and the site reflect the new data immediately. The purge
+is enqueued onto the destination tier's `aeci-cache-purge-{env}` queue (WC-7), which
+that tier's own SSR Worker consumes.
 
 > ⚠️ **This is a standing, browser-reachable endpoint (behind Access) that can
 > wipe-and-replace the PRODUCTION database, including auth-linked tables.** Writes
@@ -52,6 +54,15 @@ the destination, so search and the site reflect the new data immediately.
   overwrites, and `scripts/algolia-bulk-sync.ts` doesn't exist yet), so datatool
   rebuilds `{env}_products|vendors|integrations` from the fresh D1. `clear` keeps
   index settings/replicas; there's a brief empty-index window (acceptable here).
+- **Edge-cache purge = queue enqueue, `purgeEverything` (WC-7 / AECI-321).** A
+  clone/seed invalidates the whole cache, so after the reindex the tool enqueues a
+  single `{ purgeEverything: true, source: 'datatool' }` message onto the
+  **destination tier's** `aeci-cache-purge-{env}` queue (WC-5 / ADR 0020); that tier's
+  own SSR Worker consumes it and evicts its native Workers Cache. Per-Worker caches →
+  **no cross-tier bleed**. `preview` has no queue → graceful no-op; a `queue.send`
+  failure never fails the write. (The old zone HTTP purge is inert against Workers
+  Cache, hence the queue.) No CF secret is needed — the producer bindings
+  `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}` are declared in `wrangler.jsonc`.
 - **Prune takes the id list as INPUT, and does not derive it.** "Orphan" means
   *no Airtable record points at this row* — deciding that requires reading the
   AEC Integrations base, which this Worker deliberately holds no credentials for.
@@ -121,7 +132,8 @@ ungated (the edge Access gates the host).
 | `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; same confirm rules as above. |
 
 `refresh` defaults **true** (reindex + cache purge after a write); set `false` to
-skip. Each is a graceful no-op when its creds are absent.
+skip. The reindex is a graceful no-op without Algolia creds; the purge is a no-op on
+a tier with no cache-purge queue (`preview`, local).
 
 ## Deploy (manual — not in CI, like `apps/landing`)
 
@@ -142,17 +154,22 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
    allowlisted operator hitting the browser UI can run the `/api/*` routes with no
    `TOOL_TOKEN`. ✅ Done.
 2. **Secrets** (`wrangler secret put <NAME>` — all optional / graceful-skip).
-   With step 1 done, the browser path already works; these add reindex/purge and a
+   With step 1 done, the browser path already works; these add reindex and a
    curl/CI fallback:
    - `TOOL_TOKEN` — bearer fallback for curl/CI (and a belt-and-suspenders auth).
    - `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY` — reindex. **Single shared values** (one
      Algolia app; the admin key reaches every `{env}_*` index — only the index prefix
-     is per-env, derived from the target).
-   - `CF_PURGE_API_TOKEN` + `CF_ZONE_ID` — cache purge. **Single shared values**
-     (staging/demo/production are all on the one `aecintegrations.com` zone).
+     is per-env, derived from the target). Same un-suffixed values the `apps/api` /
+     `apps/web` Workers receive from the `ALGOLIA_*` GitHub secrets — provision once,
+     not per-env.
+   - The **cache purge needs no secret** since WC-7: it enqueues onto the target
+     tier's `aeci-cache-purge-{env}` queue (producer bindings in `wrangler.jsonc`).
+     `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` are no longer used (they backed the old zone
+     HTTP purge) — retired in WC-10; leave them unset.
 
-   These are the same un-suffixed values the `apps/api` / `apps/web` Workers receive
-   from the `ALGOLIA_*` / `CF_*` GitHub secrets — provision them once, not per-env.
+   **Deploy prerequisite:** the three `aeci-cache-purge-{staging,demo,production}`
+   queues must already exist (provisioned by the WC-5 SSR/API deploy workflows). If
+   they don't yet, `wrangler queues create aeci-cache-purge-<tier>` before deploying.
 3. **Access** — the `*.aec-integrations.workers.dev` host is already covered by the
    single `AECi Non-Prod` app (`docs/access.md`); **no new Access app/policy**.
    Verify: `curl -I https://aeci-datatool.aec-integrations.workers.dev` → `302` to

@@ -27,7 +27,9 @@
 #      the service binding so this implicitly validates both the SSR Worker
 #      and the per-PR API Worker are wired up. Mirrors the polling loop in
 #      refresh-staging.yml.
-#   7. Sticky PR comment with the preview URL and a copy-paste curl snippet.
+#   7. Run the request-only native-cache probe against a unique cache key and
+#      require `Cf-Cache-Status: MISS → HIT` with the baked response headers.
+#   8. Sticky PR comment with the preview URL and a copy-paste curl snippet.
 #
 # `cleanup` job (closed, merged or not):
 #   1. `wrangler delete` both per-PR Workers (API + SSR). Idempotent — the
@@ -181,6 +183,31 @@ jobs:
             | pnpm exec wrangler secret put ANTHROPIC_API_KEY --name "${API_WORKER_NAME}"
 
       # ---------------------------------------------------------------------
+      # NO SUPABASE_SERVICE_ROLE_KEY PUSH HERE — DELIBERATE (AECI-530).
+      #
+      # deploy.yml (staging), promote-to-demo.yml, and promote-to-prod.yml all push
+      # the service-role key to their API Worker so the AUTH_AND_RLS.md §3.1
+      # split-identity seams work. Per-PR previews are the one tier that does NOT
+      # get it, and that is a decision, not an oversight — do not "fix" it:
+      #
+      #   - Previews are the most numerous, shortest-lived, and least-reviewed
+      #     Workers in the fleet (one per open PR, from any branch).
+      #   - The key is the PROJECT-WIDE GoTrue auth key, and under ADR 0017 a
+      #     SINGLE Supabase project backs every environment INCLUDING PRODUCTION.
+      #     GoTrue offers no scoped admin credential (no read-only, no per-endpoint
+      #     key), so it cannot be narrowed for previews.
+      #   - The seams are not all reads: #3 is `DELETE /auth/v1/admin/users/:id`
+      #     and #4b is `POST /auth/v1/admin/users` — destroy and create, against
+      #     the same auth users that back prod.
+      #
+      # Previews therefore keep today's degraded behaviour (reviewer emails null,
+      # the account-erasure auth.users delete skipped, vendor-claim resolution
+      # 'unavailable' → claim approval 503s). That is unchanged from before
+      # AECI-530, so it is not a regression. Cover those paths with unit tests
+      # against the injected seams, not with a live key on a preview Worker.
+      # ---------------------------------------------------------------------
+
+      # ---------------------------------------------------------------------
       # Step 7: Rewrite the SSR service binding to point at the per-PR API
       #   `apps/web/wrangler.jsonc` env.preview.services binds API to the
       #   static name `aeci-api-preview`. Wrangler 4 has no `--service`
@@ -211,6 +238,34 @@ jobs:
             exit 1
           fi
           echo "Service binding rewritten to ${API_WORKER_NAME}"
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # ORDER MATTERS: this runs AFTER the build and BEFORE the deploy, because
+      # `sourcemap inject` rewrites the built JS (it appends the `//# chunkId=…`
+      # comment PostHog matches a minified frame against). Deploying the
+      # pre-inject bundle would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip: Worker
+      # assets are served verbatim, so a stray `.map` would publish the whole app
+      # source at a guessable URL.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks a deploy.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (preview)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          PH_SM_RELEASE_VERSION: ${{ github.event.pull_request.head.sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
 
       # ---------------------------------------------------------------------
       # Step 8: Deploy SSR Worker (PR-scoped name)
@@ -251,58 +306,20 @@ jobs:
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
             | pnpm exec wrangler secret put SUPABASE_ANON_KEY --name "${PREVIEW_WORKER_NAME}"
 
-      # ---------------------------------------------------------------------
-      # Step 8c: Push POSTHOG_KEY to the per-PR web Worker (AECI-239)
-      #   The preview env's `vars.POSTHOG_HOST` (US Cloud) is inherited from
-      #   wrangler.jsonc; only the project key is a secret. Previews are non-prod,
-      #   so they take the shared non-prod project key (`_NONPROD`, the same one
-      #   staging and demo use) and emit window.__AECI_POSTHOG__ so the analytics
-      #   layer can init (after consent). Web Worker only. Never `_PRODUCTION` —
-      #   preview traffic must not land in the production analytics project.
-      #   Warn-and-skip: a missing key just no-ops analytics (fail-open). Same
-      #   printf-over-stdin idempotent pattern as the SUPABASE push above.
-      # ---------------------------------------------------------------------
-      - name: Push POSTHOG_KEY to per-PR web Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_NONPROD }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_NONPROD not set — skipping push. This preview's PostHog analytics no-ops (no window.__AECI_POSTHOG__)."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --name "${PREVIEW_WORKER_NAME}"
-
-      # ---------------------------------------------------------------------
-      # Step 8d: Push the Datadog RUM credentials to the per-PR web Worker
-      #   (AECI-326). Shared un-suffixed values (single "aeci" app on us5; the
-      #   per-env `env` field separates preview from prod). `vars.DD_SITE` is
-      #   inherited from wrangler.jsonc. Emits window.__AECI_DD__ so RUM inits and
-      #   reports Core Web Vitals. Warn-and-skip: missing creds just no-op RUM
-      #   (fail-open). Same printf-over-stdin idempotent pattern as POSTHOG above.
-      # ---------------------------------------------------------------------
-      - name: Push Datadog RUM credentials to per-PR web Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DD_APPLICATION_ID_VALUE: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN_VALUE: ${{ secrets.DD_CLIENT_TOKEN }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$DD_APPLICATION_ID_VALUE" ] || [ -z "$DD_CLIENT_TOKEN_VALUE" ]; then
-            echo "::warning::DD_APPLICATION_ID / DD_CLIENT_TOKEN not set — skipping push. This preview's Datadog RUM no-ops (no window.__AECI_DD__)."
-            exit 0
-          fi
-          printf '%s' "$DD_APPLICATION_ID_VALUE" \
-            | pnpm exec wrangler secret put DD_APPLICATION_ID --name "${PREVIEW_WORKER_NAME}"
-          printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
-            | pnpm exec wrangler secret put DD_CLIENT_TOKEN --name "${PREVIEW_WORKER_NAME}"
-
+      # AECI-640: the "push POSTHOG_KEY to the per-PR web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      # PR previews now get analytics automatically from the committed
+      # `preview` var — no push step, no dark window.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
       # ---------------------------------------------------------------------
       # Step 9: Verify the preview reports the PR head SHA on BOTH Workers
       #   /api/version (proxied raw to the API Worker) AND /_version (the SSR
@@ -359,7 +376,22 @@ jobs:
           exit 1
 
       # ---------------------------------------------------------------------
-      # Step 10: Sticky PR comment with the preview URL + curl snippet
+      # Step 10: Verify native Workers Cache on the deployed PR preview
+      #   Request-only Playwright spec: no browser install/download. It uses a
+      #   unique allowlisted /products?view= key and requires exact MISS → HIT,
+      #   plus the client-visible Cache-Control/noindex headers baked into the HIT
+      #   (Cache-Tag is edge-stripped by Cloudflare, so it is not asserted here).
+      #   The full preview E2E jobs in deploy.yml remain parked.
+      # ---------------------------------------------------------------------
+      - name: Verify native Workers Cache (MISS → HIT)
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.PREVIEW_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: pnpm --filter @aeci/web exec playwright test e2e/edge-cache.spec.ts
+
+      # ---------------------------------------------------------------------
+      # Step 11: Sticky PR comment with the preview URL + curl snippet
       #   `header` keeps subsequent runs editing the same comment instead of
       #   stacking. The Access curl snippet mirrors docs/access.md :139-146.
       # ---------------------------------------------------------------------
@@ -388,8 +420,39 @@ jobs:
             Preview Worker tears down automatically when this PR is closed.
 
       # ---------------------------------------------------------------------
-      # Step 11: Run summary
+      # Step 12: Run summary
       # ---------------------------------------------------------------------
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail or block a deploy.
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog deploy marker (PR preview)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: preview
+          PH_SERVICE: both
+          PH_VERSION: ${{ github.event.pull_request.head.sha }}
+          PH_DEPLOY_KIND: preview
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          PH_NOTE: PR #${{ github.event.pull_request.number }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
+
       - name: Summary
         if: always()
         run: |

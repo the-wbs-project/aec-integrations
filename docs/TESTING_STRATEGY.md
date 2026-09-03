@@ -56,6 +56,21 @@ reproduction, and it is why the defect survived for months.
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
 | Load | k6 or similar | Staging | Slow | Pre-launch, rarely |
 
+> **"Every PR" means *every* PR — any base branch.** `deploy.yml` and `integration-db-tests.yml`
+> carry no `branches:` (base-branch) filter on their `pull_request` trigger, so a PR into
+> `stage-2`, `admin-panel`, or an epic branch runs the same lanes as a PR into `main`. This was
+> **not** true before 2026-08-14: both were pinned to `branches: [main]`, which filters by base
+> branch, so under the ADR 0019 branch model this table over-claimed for most PRs in flight —
+> the ~13k-line AECI-513 epic merged into `stage-2` having run none of it. Two rows carry their
+> own caveats regardless of base: **Performance** (Lighthouse) is push-to-`main`-only by design
+> (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
+> `CICD_PLAN.md` §3.1 has the full rationale. `main` is branch-protected on three required
+> contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker` blocks the merge (§8).
+> **`admin-panel` is the exception on every count** — the 2026-08-14 trigger fix landed on
+> `stage-2`, and although `stage-2` merged to `main` on 2026-09-03, `admin-panel` is still not
+> descended from `main`, so its PRs run none of this and it has no protection. Merging `main` into
+> `admin-panel` is what fixes it.
+
 ---
 
 ## 3. Unit testing — Vitest
@@ -73,7 +88,7 @@ reproduction, and it is why the defect survived for months.
 **Always:**
 - Pure utility functions (slug generation, URL building, date formatting)
 - Validation logic (Zod schemas — verify they accept valid input and reject invalid)
-- Helper functions (`computeCacheTags`, `invalidateForEntity`, `appendAuditLog`)
+- Helper functions (`buildCacheTags`, `cacheKeyFor`, audit-log row builders)
 - Score calculations and aggregations
 - Business rules (review duplicate detection, ban enforcement)
 - **Chart geometry** (AECI-576 / `ADMIN_PANEL_SPEC.md` §8, §11) — scales, path strings, bar
@@ -164,6 +179,22 @@ describe('SubmitReviewSchema', () => {
   });
 });
 ```
+
+### 3.6 Invariant tests — tests that encode a decision, not a behaviour
+
+A handful of tests exist to make a **written decision mechanically true** rather than to cover a code path. They look over-specified on purpose: a frozen literal list, an assertion that a builder emits *no* statement of some shape, an assertion that a set is empty. **Deleting or loosening one is a spec change, not a test cleanup** — the governing spec has to be reopened first, and each one names its spec section in a comment so a reviewer can tell the difference.
+
+Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md` §10), and they are the reference shape:
+
+| Test | Asserts | Why a test and not a comment |
+|---|---|---|
+| **Ranking disjointness** (`packages/shared/src/entitlements.spec.ts`) | The capability vocabulary and the union of every Algolia `searchableAttributes` ∪ `attributesForFaceting` ∪ `customRanking` are **disjoint sets**; no capability id matches a ranking-word regex; no entitlement concept (`verified`, `tier`, `entitlement`, `paid`, `plan`, …) appears in `INDEX_SETTINGS` at all | **No pay-for-placement** is the product's founding promise. Both tables are pure data in the same package, so the promise is *provable* — this is the one place a documented principle became an asserted property. It carries its own **non-vacuity** case (the ranking vocabulary is non-empty, and the `unordered()`/`desc()` wrappers really were stripped), because a broken strip helper would make every assertion below it pass trivially |
+| **Mirror sole-writer** (`apps/api`, over the batch builders) | `grantSeatStatements` — and every route handler — emits **no statement touching `vendors.verified`**; only `lib/vendor-entitlement.ts` does, and never one side of the *iff* without the other. Plus: `vendors.updated_at` moves **iff** `vendors.verified` moves, in **both** directions | The ESLint sole-writer rule catches the syntax; this catches the semantics the rule cannot see. The both-directions clause exists because the un-verify direction had no writer at all until AECI-532, so nothing had ever exercised it |
+| **Reads are never gated** (`apps/api`) | `GET /api/vendor/me` returns **200** for a vendor whose entitlement is `revoked`/`expired`, carrying the downgraded `entitlement` block | A one-line mistake with total blast radius on exactly the cohort being billed: `vendorMeResolver` maps 403 onto a **404 render**, so gating this read would hide the renewal notice inside a 404 dashboard |
+
+Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear`; `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`.
+
+**A caveat worth generalizing.** An invariant asserted in a file where its subject is *mocked* passes vacuously. Where a cron-level suite mocks the sweep it is testing, the real obligation belongs in the sweep's own spec, and any exemption list in the mocking file should say which entries are genuinely exempt versus merely asserted elsewhere.
 
 ---
 
@@ -286,7 +317,7 @@ Miniflare is Cloudflare's local Workers runtime emulator. It runs Worker code wi
 
 - Worker request handlers end-to-end with mocked external dependencies
 - Service binding interactions between SSR Worker and API Worker
-- Cache behavior (set, get, purge)
+- Cache-facing handler behavior (headers, gateway normalization, queue/native purge delegation)
 - Error propagation through middleware
 
 ### 6.2 Pattern
@@ -338,24 +369,24 @@ Two habits follow:
 1. **Hand-built SQL is where this bites.** ORM-generated queries stay inside ordinary shapes; a hand-rolled `sql.raw(...)` that scales with table count, column count, or row count can cross a limit the harness will never enforce. `SQLITE_MAX_VARIABLE_NUMBER` and the 100 KB statement-length cap are the same class of hazard.
 2. **Exercise a new hand-built query against a real local D1 once**, via `pnpm dev:agent` + `curl`, before calling it verified. A green suite is necessary, not sufficient. Where a limit is discovered, encode it as a shape assertion so the next person inherits the guard rather than the bug.
 
-**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
+**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the typed cache-purge message sent after commit. Queue-consumer tests separately assert delegation into the cached `Renderer` entrypoint, including ack on success/no-cache/noop and retry on purge failure. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
 
-Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise the actual Cloudflare CDN cache, real cookie/cache interactions, or real purge propagation. Some behaviors only manifest against `wrangler dev` (or a deployed preview) where multiple requests share edge-cache state.
+Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise native Workers Cache in front of the Worker. Verified for AECI-323 with Wrangler 4.111.0 / Miniflare 4.20260710.0: `wrangler dev --env preview` accepts the per-entrypoint cache config, but every localhost request executes the Worker and responses carry neither `Cf-Cache-Status` nor `Age`. Local tests therefore own the response-header contract, gateway normalization, queue consumer, native purge call shape, noindex bake, and stable cache/robots semantics across repeat requests; only a deployed Worker can prove front-cache state and HIT behavior. Do not require byte-identical local SSR documents—Angular may emit request-specific element ids on each uncached render.
 
 Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/web/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
 
 - **Cookie × cache pollution** — verify the visitor-state cookie-strip runs before SSR for cacheable routes, so a per-visitor cookie can't poison the shared edge cache. The strip list (`VISITOR_STATE_COOKIES`) is empty as of AECI-226 — `theme` was removed with the dark theme — but the mechanism is retained as infrastructure and `server.spec.ts` still exercises it.
-- **`Vary` audit** — confirm no cached SSR response emits `Vary`; one variant per URL.
+- **`Vary` audit** — confirm cached SSR responses emit only `Vary: Accept-Language`; forbidden values such as `Cookie`, `User-Agent`, and `Accept-Encoding` must be absent.
 - **404 / KV-miss path** — assert HTTP 404 with TTL ≤60s, not 200 with a long TTL (the "pinned 404" trap).
-- **MISS → HIT progression** — assert `X-*-Cache: MISS` then `HIT` for the same URL.
+- **MISS → HIT progression** — `e2e/edge-cache.spec.ts` uses a unique allowlisted `/products?view=…` key (a display-only param, so an arbitrary value forks the cache key but still renders a normal 200 grid — unlike `page=`, which 404s out of range) and requires exact `Cf-Cache-Status: MISS → HIT`, with identical `Cache-Control` and baked `X-Robots-Tag` on the HIT. It does **not** assert `Cache-Tag`: Cloudflare consumes that header for purge-by-tag and strips it before the response reaches the client, so it is unobservable at the deployed edge — the per-route tag set is verified in `server.spec.ts` and the local `run-extra-tests.sh` probe (which see the unstripped Worker response).
 - **Concurrent PUT/purge storm** — confirm rate-limit resilience.
 - **Per-locale cache isolation** — `/products/x` and `/es/products/x` cache independently; per-locale purge doesn't cascade across locales; canonical purge does cascade across all locales.
 - **Per-field translation fallback** — entity with partial overlay renders translated fields + canonical fallback for missing fields.
 - **`ng extract-i18n` discipline** — every chrome string in templates appears in the extracted XLIFF.
 
-Run this suite in CI against the preview deploy for the PR. It's slow relative to Miniflare (each test is a real HTTP round-trip) but covers gaps Miniflare cannot.
+The local HTTP checks run in `deploy.yml` against `dev:bound`; their T7 assertion pins the absence of native-cache headers. The request-only deployed cache spec runs after deployment in `pr-preview.yml` for every first-party PR, using the existing Cloudflare Access service-token headers and no browser download. The full preview-URL E2E jobs in `deploy.yml` remain parked.
 
 ### 6.5 Live-auth integration suite in CI (AECI-90; pruned AECI-265)
 
@@ -397,7 +428,11 @@ Critical user journeys:
 
 Anything that crosses multiple components or pages is a candidate for E2E.
 
-**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyUrl()` (`apps/web/src/cache-key-url.spec.ts`) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+
+`cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
+
+**The product-PAIR page's own e2e** (`apps/web/e2e/products-pair.spec.ts`, AECI-303) follows the `search.spec.ts` self-skipping shape for the same reason: the §9 selectors only render for a pair with version-stamped attestations, and no environment has one (promote does not ingest versions; the only writer is the Verified-vendor API). The default-path cases run everywhere; the interaction block probes for a non-null `version_diff` and skips when there is none. `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it run, and is deliberately **not** part of `db:seed:local` so every other pair page keeps showing the launch-reality default. The pair page also gained its first row in `phase2-a11y.spec.ts` — it had none, which is how the design checklist's axe step went unenforced in CI for the surface that owns the claim lanes.
 
 ### 7.3 What not to test in E2E
 
@@ -430,7 +465,7 @@ test('user can search and find a product', async ({ page }) => {
 
 - The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds)
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765). Unset → it no-ops; it always exits 0 so it can never fail a seed run
 
 ### 7.6 Auth in tests
 
@@ -512,6 +547,89 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
+- `/admin/vendors` — the **admin vendor list**, in `authed-console.spec.ts`
+  (AECI-652), for the same reason as `/admin/traffic`: the rows do not exist until
+  the authorized `GET /api/admin/vendors` resolves, so the spec waits for a real
+  row before analyzing. The list rather than the detail page, deliberately — the
+  list is where the new layout primitives are (a search field, an Aria combobox
+  filter, a card list and the paginator), while the detail page's most complex
+  sub-tree is `EntitlementControl`, whose heading and live-region contract is
+  asserted structurally in its own component spec.
+- `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
+  `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: it authorizes server-side via
+  `vendorMeResolver`, and its cards, claim lanes and Aria pickers do not exist
+  until `GET /api/vendor/integrations` lands. That spec mints the
+  `vendor_admin` persona and waits for the first integration card (or the empty
+  state) before analyzing. It is the most interactive vendor-facing surface, so
+  this is the run that covers the combobox/listbox wiring end to end — the unit
+  specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
+- `/preview/vendor-dashboard` — the **portal nav and its Products dropdown**, in
+  the new `preview-vendor-portal-nav.spec.ts`
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4). Two runs, **closed and open**, because a
+  new always-present nav dropdown is exactly the kind of change that invalidates a
+  prior pass, and an empty `role="listbox"` (`aria-required-children`) only exists
+  in the open state. It runs on the PREVIEW route deliberately: that surface mounts
+  the same shell and section routes with fixture data and **no session**, so unlike
+  `vendor-dashboard.spec.ts` it does not skip-green in CI — and its path contains no
+  `/vendor/` segment, so the zone WAF cannot 403 it. Open the panel with the
+  **keyboard**, not a click: a click moves the pointer over the host first, which on
+  a hover-opening neighbour toggles it back shut (`phase2-a11y.spec.ts` records the
+  same workaround).
+  - **The carve-out to "unit specs never open a CDK overlay":**
+    `vendor-products-menu.component.spec.ts` does, and can. Opening `AecSelect`
+    means going through Aria's own combobox toggle and its activedescendant commit,
+    which is jsdom-hostile; opening this one is a plain `<button>` click writing a
+    plain signal into `cdkConnectedOverlayOpen`, and under jsdom there is no Popover
+    API so CDK downgrades `usePopover` to the body-level `.cdk-overlay-container`
+    (query `document`, not the host, and sweep the container in `afterEach`). What
+    stays e2e-only is unchanged: Aria's ArrowDown → `aria-activedescendant` → Enter
+    commit, a real outside click, and real focus order out of the top layer.
+  - **The live region is no longer part of that subtree** (AECI-631 /
+    `STAGE_2_REALTIME_SPEC.md` §6.3). The portal has exactly ONE **persistent**
+    polite live region, and it now lives in the dashboard SHELL — an `sr-only`
+    `<p role="status">` fed by `VendorPortalAnnouncer`
+    (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
+    paint on every section, not just after the integrations read. It is declared
+    **once per dashboard concept**:
+    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` (Concept A, what the
+    portal renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts`
+    (Concept B, preview-only — it composes the same integrations section, which
+    announces through the channel and declares no region of its own, so without
+    it every attestation write on Concept B is silent). Only one concept ever
+    renders at a time, so they cannot race. Two consequences for this run: the
+    axe pass must be **re-run after the hoist** (a region moving is exactly the
+    kind of change that invalidates a prior pass), and any assertion about it
+    should be made on the shell rather than on the section body. Since the
+    sections became child routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2) the shell
+    is the layout route's component, so the region is the **same DOM node** across
+    a section navigation — `vendor-dashboard-tabbed.component.spec.ts` asserts
+    node identity, which is a stronger claim than "there is still exactly one".
+    The section's loading/failure paragraphs and the integration card's pivot
+    notice are deliberately **not** live regions — two regions on one page make
+    announcements race — so a second **persistent** `[role="status"]` appearing
+    under the portal is a regression, not an addition. `aria-busy` covers the
+    loading state.
+  - **Assert on `[role="status"].sr-only`, not on `[role="status"]`.** The
+    announcement channel is the only `sr-only` one; three *conditional*
+    `role="status"` paragraphs also exist in the vendor tree (the profile and
+    product "Saved" confirmations and the add-claim form's duplicate-lane
+    notice), so a bare `getByRole('status')` matches more than one element as
+    soon as any of them renders and trips Playwright's strict mode. That is not
+    hypothetical — it broke two pre-existing assertions in
+    `vendor-dashboard.spec.ts` the moment the region was hoisted, and shipped
+    green only because the spec skips without `SUPABASE_VENDOR_TEST_USER_*`.
+    Those three are **legitimate** under the corrected §6.3 rule
+    (`STAGE_2_REALTIME_SPEC.md`): a local `role="status"` is allowed for
+    immediate feedback on an action the user just took, beside the control they
+    took it with, provided it never fires for an event the channel also
+    announces. A fourth — the attestation control's divergent-slots notice — was
+    a real violation (standing state, movable by a background poll, on the tab
+    that announces) and had its role removed on 2026-08-19. **axe cannot see
+    this class at all** (multiple live regions are valid ARIA), which is why the
+    count assertion lives in the e2e spec rather than being left to the a11y
+    pass — and why the three survivors still owe a manual screen-reader pass
+    under a live revalidation (`docs/a11y-manual-testing-checklist.md`).
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
 
@@ -666,7 +784,7 @@ Verify the site handles expected launch traffic:
 Verify:
 - p95 latency stays under SLO (2 seconds)
 - Error rate stays under 1%
-- Algolia, Supabase, Datadog all stay healthy
+- Algolia, Supabase, and the telemetry intake all stay healthy
 - Cache hit rate above 60% on cacheable pages
 
 ### 12.3 Run target
@@ -786,7 +904,7 @@ Defined in `vitest.config.ts` `coverage.exclude`.
 ### 17.3 When traffic scales
 
 - Continuous load testing in staging
-- Performance regression alerts in Datadog
+- Performance regression alerts (build them on PostHog — ADR 0024)
 - Real User Monitoring SLO breach alerts
 
 Not pursued in Stage 1.

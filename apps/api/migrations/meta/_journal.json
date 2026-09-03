@@ -148,6 +148,62 @@
       "when": 1788231067084,
       "tag": "0020_wide_infant_terrible",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788231068084,
+      "tag": "0021_lyrical_leper_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1788231069084,
+      "tag": "0022_slim_iron_lad",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1788231070084,
+      "tag": "0023_chilly_joseph",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1788231071084,
+      "tag": "0024_easy_sandman",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1788231072084,
+      "tag": "0025_sad_the_professor",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1788231073084,
+      "tag": "0026_overconfident_selene",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1788231074084,
+      "tag": "0027_powerful_killraven",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1788351575706,
+      "tag": "0028_hard_the_call",
+      "breakpoints": true
     }
   ]
 }

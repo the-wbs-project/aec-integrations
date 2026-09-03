@@ -41,6 +41,7 @@ import {
   type AlgoliaBatchCredentials,
   type AlgoliaBatchOutcome,
 } from '@aeci/shared/algolia-batch';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 
 /** A specific object known (or suspected) to be orphaned in an env's index. */
 export type OrphanTarget = {
@@ -264,7 +265,12 @@ export function createOrphanPurgeClient(
         objectID,
       )}`;
       const res = await fetchImpl(url, { method: 'GET', headers });
-      if (res.status === 404) return { found: false };
+      if (res.status === 404) {
+        // Neither existence branch reads the body, and an unread body holds its
+        // connection open until GC (AECI-666).
+        discardResponseBody(res);
+        return { found: false };
+      }
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         throw new Error(
@@ -273,6 +279,7 @@ export function createOrphanPurgeClient(
           }`,
         );
       }
+      discardResponseBody(res);
       return { found: true };
     },
     async search(indexName, query) {
@@ -317,6 +324,11 @@ export function createOrphanPurgeClient(
         if (res.ok) {
           const body = (await res.json()) as { status?: string };
           if (body.status === 'published') return;
+        } else {
+          // The non-ok path never reads the body, and this loop runs up to 20
+          // times — so a task that keeps erroring parks 20 held connections in
+          // one invocation, well past the limit (AECI-666).
+          discardResponseBody(res);
         }
         await sleep(Math.min(250 * 2 ** attempt, 2000));
       }

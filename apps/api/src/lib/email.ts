@@ -5,7 +5,7 @@
  *
  *   1. **Transactional templates** (AECI-240 / Phase 7.5, §11.1) — `sendTransactionalEmail`
  *      plus the per-template helpers (review submitted/approved/rejected, account
- *      deletion, the reconcile-sweep admin alert). These ride the Datadog triple
+ *      deletion, the reconcile-sweep admin alert). These ride the telemetry triple
  *      (`EmailContext`) and emit the `aeci.email.send` metric.
  *   2. **Low-level transport** (AECI-241 / Phase 7.6) — `sendEmail` + `parseRecipients`,
  *      a dependency-free `fetch` POST with an injectable fetch/logger, used by the
@@ -30,17 +30,19 @@
  *     `waitUntil` budget (transactional layer).
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
+ * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to the observability plane
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
+import { orderedPairSlugs, type RequestTargetType } from '@aeci/shared';
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { logToDatadog, submitCount } from '../datadog';
+
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
 
 /**
- * Minimal context a send needs: env (key + sender) plus the Datadog logging triple
+ * Minimal context a send needs: env (key + sender) plus the telemetry logging triple
  * (`executionCtx`, `env`, `req.raw`). Typed structurally rather than as Hono's
  * `Context` so both a route handler's `c` and the cron-synthesised `AlertContext`
  * (`lib/admin-alert.ts`) are assignable — Hono's `Context` is invariant on its
@@ -70,7 +72,49 @@ export type EmailTemplate =
   // Operator lead-capture notifications — retire the `apps/landing` Worker's own
   // Resend send (AECI-247/277). Recipient is `ADMIN_ALERT_EMAIL`.
   | 'landing-signup'
-  | 'landing-feedback';
+  | 'landing-feedback'
+  // Stage 2 vendor-portal claim decisions (AECI-528 /
+  // `STAGE_2_VENDOR_PORTAL_SPEC.md` §9). Recipient is the claim's `submitter_email`;
+  // sent post-commit from `PATCH /api/admin/claims/:id` (approve → approved,
+  // reject → rejected).
+  | 'claim-approved'
+  | 'claim-rejected'
+  // Stage 2 vendor seat invite (AECI-664 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a).
+  // Sent by `POST /api/vendor/seats/invites` on a VENDOR's command, not AECi's —
+  // the only customer-triggered send on the surface, which is why that endpoint
+  // is the only one carrying a rate limit. Carries the redeem link; see
+  // `sendVendorSeatInviteEmail` for why the token is safe in a URL.
+  | 'vendor-seat-invite'
+  // Operator alert on claim INTAKE (not decision): a vendor submitted "claim this
+  // listing" via `POST /api/requests/claim`. Recipient is `CLAIM_ALERT_EMAIL` (the
+  // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
+  // time by design — the only claimant-facing mail is the decision pair above.
+  | 'claim-submitted-alert'
+  // Stage 2 attestation detector nudges (AECI-302 /
+  // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
+  // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
+  // `vendor_admin` seats, resolved through `fetchAuthUserEmails`.
+  | 'attestation-silent-counterparty'
+  | 'attestation-open-conflict'
+  | 'attestation-stale-version'
+  // The AECi-facing half of the same sweep: the `aeci-denied` correction signal
+  // and the ops escalation of an unresolved `open-conflict`. §7.2 named only the
+  // three vendor ids above; ops mail needs its own id because the id IS the
+  // `template:` metric tag and the `docs/email.md` catalogue key, and an ops
+  // alert is a different message to a different audience. Recipient is
+  // `ADMIN_ALERT_EMAIL`, one email per finding.
+  | 'attestation-ops-alert'
+  // Stage 2 entitlement term-expiry WARNINGS (AECI-613 /
+  // `STAGE_2_PAID_TIERS_SPEC.md` §7.2). Sent by the daily 11:00 UTC sweep
+  // (`lib/entitlement-expiry.ts`). Two ids for one event because the two
+  // recipients have different reachability: the vendor copy needs seat addresses
+  // from `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present
+  // on staging/demo/prod, ABSENT locally and on PR previews, so it degrades to
+  // `skipped` — while the operator copy only needs `ADMIN_ALERT_EMAIL` and always
+  // lands. Nothing either template describes ever changes on its own: the sweep
+  // warns and never lapses (§7.3).
+  | 'entitlement-expiring'
+  | 'entitlement-expiring-admin';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -220,6 +264,559 @@ export function sendReviewRejectedEmail(
     subject: `Your review of ${opts.productName} needs revision`,
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
+ * vendor claim was granted — their account is now a verified `vendor_admin`. For an
+ * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
+ * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
+ * first login; a `linked` claimant already has an account. Links to the `/vendor`
+ * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
+ * absent → silent skip. Copy stays account-scoped: verification is a status, not a
+ * product endorsement, and never touches ranking (no pay-for-placement).
+ */
+export function sendClaimApprovedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; vendorName: string; invited: boolean },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'this vendor';
+  const portal = portalUrl(c.env);
+
+  const signInText = opts.invited
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${portal}.`
+      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
+    : portal
+      ? `Sign in with your existing account to get started: ${portal}.`
+      : 'Sign in with your existing account to get started.';
+  const signInHtml = opts.invited
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(portal)}">your vendor portal</a>.`
+      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
+    : portal
+      ? `<a href="${escapeHtml(portal)}">Sign in with your existing account</a> to get started.`
+      : 'Sign in with your existing account to get started.';
+
+  const verification =
+    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+  const capabilities =
+    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor portal.';
+
+  const textParagraphs = [
+    `Your claim for ${name} has been approved, and your account is now verified on AEC Integrations.`,
+    capabilities,
+    signInText,
+    verification,
+  ];
+  const htmlParagraphs = [
+    `Your claim for <strong>${escapeHtml(name)}</strong> has been approved, and your account is now verified on AEC Integrations.`,
+    capabilities,
+    signInHtml,
+    verification,
+  ];
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-approved',
+    subject: `Your claim for ${name} is approved`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §11a "You've been invited to manage <vendor> on AEC Integrations" (AECI-664).
+ *
+ * The one template on this surface sent on a CUSTOMER's command rather than
+ * AECi's, which shapes three things:
+ *
+ * 1. **It names who invited them and which company.** A cold "you have been
+ *    granted access" from a directory the recipient may not know is
+ *    indistinguishable from phishing; the colleague's name and their own employer
+ *    are what make it legible.
+ * 2. **It states the address the link is bound to.** Redeeming requires signing in
+ *    as exactly that address, so saying it up front turns the most likely failure
+ *    (they are signed in as something else) into a instruction rather than a dead
+ *    end.
+ * 3. **It says the link expires.** An invite is not a standing grant.
+ *
+ * The token rides in the URL, which is safe here and nowhere else on this
+ * surface: it identifies an invite, it does not authorize one. Redeeming demands
+ * a signed-in session whose verified email matches, so a forwarded link, a
+ * shared-inbox link, or a link a scanner prefetches grants nothing. See
+ * `lib/vendor-seat-invites.ts`.
+ *
+ * Fail-open like every other send: an absent key/sender/recipient, or no
+ * `PUBLIC_SITE_URL` to build the link from, is a silent `'skipped'`.
+ */
+export function sendVendorSeatInviteEmail(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'a vendor';
+  const link = seatInviteUrl(c.env, opts.token);
+  // No link, no email. Mailing "you have been invited" with no way to act on it
+  // is worse than silence — it strands the recipient with a claim they cannot
+  // verify and no next step.
+  if (!link) return Promise.resolve('skipped');
+
+  const inviter = opts.invitedByName?.trim();
+  const opening = inviter
+    ? `${inviter} invited you to help manage ${name} on AEC Integrations.`
+    : `You have been invited to help manage ${name} on AEC Integrations.`;
+  const openingHtml = inviter
+    ? `${escapeHtml(inviter)} invited you to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`
+    : `You have been invited to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`;
+
+  const capabilities =
+    'A seat lets you edit the company profile, keep product details current, and add integration attestations.';
+  const binding = `The invite is tied to ${opts.to ?? 'this address'} — sign in with that address to accept it.`;
+  const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
+
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'vendor-seat-invite',
+    subject: `You're invited to manage ${name} on AEC Integrations`,
+    text: toText([opening, capabilities, `Accept your invite: ${link}`, binding, expiry]),
+    html: toHtml([
+      openingHtml,
+      capabilities,
+      `<a href="${escapeHtml(link)}">Accept your invite</a>`,
+      escapeHtml(binding),
+      escapeHtml(expiry),
+    ]),
+  });
+}
+
+/**
+ * Adapter for the `POST /api/vendor/seats/invites` send seam (AECI-664) — the
+ * `sendClaimDecisionEmail` shape. Drops the `EmailOutcome`: the handler fires
+ * this through `waitUntil` after the batch has already committed and never reads
+ * the result, because a send failure must not un-create a committed invite (the
+ * owner can revoke and re-send, and the roster shows it pending either way).
+ *
+ * Typed structurally so this file doesn't import the route's seam type; the
+ * assignability is enforced where it is wired (`index.ts`).
+ */
+export async function sendSeatInvite(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<void> {
+  await sendVendorSeatInviteEmail(c, opts);
+}
+
+/**
+ * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). Deliberately
+ * NEUTRAL (the §9 AC): the reviewer's decision `reason` is an INTERNAL audit note —
+ * recorded in the `audit_log` (admin-visible), never echoed to the claimant — so
+ * nothing a reviewer types can leak. The claimant is told only that the claim
+ * wasn't approved, and is invited to resubmit. Recipient is `submitter_email`;
+ * absent → skip.
+ */
+export function sendClaimRejectedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; vendorName: string },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'this vendor';
+  const resubmit =
+    "If you represent this vendor, you're welcome to submit a new claim with more detail.";
+
+  const textParagraphs = [
+    `Thank you for your claim for ${name}. After review, we weren't able to approve it.`,
+    resubmit,
+  ];
+  const htmlParagraphs = [
+    `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`,
+    resubmit,
+  ];
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-rejected',
+    subject: `Your claim for ${name} was not approved`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * Adapter for the `PATCH /api/admin/claims/:id` decision-email seam
+ * (`SendClaimDecisionEmail` in `routes/admin-claims.ts`, AECI-519/528). Routes a
+ * committed decision to the right template and drops the `EmailOutcome` (the handler
+ * fires this via `waitUntil` and never reads the result). Typed structurally so this
+ * file doesn't import the route's seam type; the assignability to that type is
+ * enforced where it's wired (`index.ts`).
+ */
+export async function sendClaimDecisionEmail(
+  c: EmailContext,
+  input: {
+    decision: 'approved' | 'rejected';
+    to: string;
+    targetName: string;
+    identityOutcome?: 'linked' | 'invited';
+  },
+): Promise<void> {
+  if (input.decision === 'approved') {
+    await sendClaimApprovedEmail(c, {
+      to: input.to,
+      vendorName: input.targetName,
+      invited: input.identityOutcome === 'invited',
+    });
+  } else {
+    // Neutral by design — the reviewer's `reason` is an internal audit note and is
+    // never passed to the claimant email (see `sendClaimRejectedEmail`).
+    await sendClaimRejectedEmail(c, {
+      to: input.to,
+      vendorName: input.targetName,
+    });
+  }
+}
+
+// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
+// One email per (finding, recipient address), sent by `lib/attestation-notify.ts`
+// after the daily sweep. Copy discipline (§6): never imply that attesting affects
+// ranking or placement, never promise how fast a change appears, and treat
+// "Verified" strictly as an account status.
+
+/** What every attestation nudge needs to describe the flow it is about. Product
+ *  names/slugs are the snapshot the detector captured, not a live read. */
+export interface AttestationEmailSubject {
+  to: string;
+  /** The `data_object` name, e.g. "RFIs". */
+  dataObject: string;
+  /** The endpoint the recipient owns. */
+  product: string;
+  /** The other endpoint. */
+  counterpart: string;
+  /** `integrations.mechanism_name`, when the row has one. */
+  mechanismName: string | null;
+  /** Both endpoint slugs, for the canonical pair link. */
+  pairSlugs: readonly [string, string];
+}
+
+/** " through Procore Connector" — or nothing when the mechanism is unnamed. */
+function viaMechanism(name: string | null): string {
+  const trimmed = name?.trim();
+  return trimmed ? ` through ${trimmed}` : '';
+}
+
+/** The two closing lines every vendor nudge shares: where to look, where to act.
+ *  Each is omitted (not faked) when `PUBLIC_SITE_URL` is unset. */
+function attestationLinks(
+  c: EmailContext,
+  pairSlugs: readonly [string, string],
+): { text: string[]; html: string[] } {
+  const pair = pairUrl(c.env, pairSlugs[0], pairSlugs[1]);
+  const portal = portalUrl(c.env);
+  const text: string[] = [];
+  const html: string[] = [];
+  if (pair) {
+    text.push(`See how it currently reads: ${pair}`);
+    html.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
+  }
+  if (portal) {
+    text.push(`Update it from your vendor portal: ${portal}`);
+    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor portal</a>.`);
+  }
+  return { text, html };
+}
+
+/**
+ * `silent-counterparty` (§7.1): the counterparty affirmed a flow and this vendor
+ * has not answered. The second paragraph is the point of the whole epic — it says
+ * plainly that silence is rendered as silence (`STAGE_2_SPEC.md` §8.1(4)), so the
+ * nudge is informative rather than coercive.
+ */
+export function sendAttestationSilentCounterpartyEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `${opts.counterpart} has confirmed that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}. We have not heard from your side yet.`;
+  const stance =
+    "Until both vendors confirm it, we show this flow as reported by one vendor only. We never present one vendor's word as agreement.";
+  const ask =
+    'If it is accurate, confirm it. If it is wrong or has changed, say so, and we will show your position alongside theirs.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-silent-counterparty',
+    subject: `Confirm how ${opts.dataObject} flows between ${opts.product} and ${opts.counterpart}`,
+    text: toText([lead, stance, ask, ...links.text]),
+    html: toHtml([
+      `<strong>${escapeHtml(opts.counterpart)}</strong> has confirmed that ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}. We have not heard from your side yet.`,
+      stance,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * `open-conflict` (§7.1): two vendors have taken opposing positions. Copy is
+ * deliberately non-accusatory and mirrors the pair page's "Vendors disagree"
+ * treatment (§4.5) — the disagreement is surfaced as a difference in description,
+ * not as a defect in either product.
+ */
+export function sendAttestationOpenConflictEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `Your account and ${opts.counterpart} have recorded different answers about whether ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}.`;
+  const stance =
+    'While the two positions differ, we show the disagreement itself rather than picking a side.';
+  const ask =
+    'If your position has changed, update it. If it has not, no action is needed and we will keep showing both.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-open-conflict',
+    subject: `You and ${opts.counterpart} describe ${opts.dataObject} differently`,
+    text: toText([lead, stance, ask, ...links.text]),
+    html: toHtml([
+      `Your account and <strong>${escapeHtml(opts.counterpart)}</strong> have recorded different answers about whether ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
+      stance,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * `stale-version` (§7.1): an assertion has aged past a year with no version data,
+ * or names a version that has since been retired. The ask is explicitly
+ * three-way — re-confirm, add versions, or withdraw — because "withdraw" is a
+ * legitimate answer and an email that only asks for confirmation biases the data.
+ */
+export function sendAttestationStaleVersionEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `Your record that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via} has not been updated in a while, or names a version that has since been retired.`;
+  const ask =
+    'Re-confirm it, add the product versions it applies to, or withdraw it if it no longer holds. Any of the three is a good answer.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-stale-version',
+    subject: `Re-confirm your ${opts.dataObject} record for ${opts.product}`,
+    text: toText([lead, ask, ...links.text]),
+    html: toHtml([
+      `Your record that ${escapeHtml(opts.dataObject)} moves between <strong>${escapeHtml(opts.product)}</strong> and ${escapeHtml(opts.counterpart)}${escapeHtml(via)} has not been updated in a while, or names a version that has since been retired.`,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * The AECi-facing half of the sweep, one email per finding. Two detectors route
+ * here and the body names which:
+ *
+ * - `aeci-denied` — a vendor denies a claim **AECi** seeded. The claim then
+ *   computes `unverified` (§4.2), which is indistinguishable from "nobody voted"
+ *   on every surface, so without this mail the correction is simply lost.
+ * - `open-conflict` — the §7.1 escalation that accompanies the two vendor nudges.
+ *
+ * Operator format (`opsText`/`opsTable`), not the vendor prose format: this is a
+ * triage record, and every value in it is escaped because product and mechanism
+ * names are vendor-supplied.
+ */
+export function sendAttestationOpsAlertEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    detector: 'aeci-denied' | 'open-conflict';
+    dataObject: string;
+    productA: string;
+    productB: string;
+    mechanismName: string | null;
+    claimId: string;
+    integrationId: string;
+    pairSlugs: readonly [string, string];
+  },
+): Promise<EmailOutcome> {
+  const denied = opts.detector === 'aeci-denied';
+  const intro = denied
+    ? 'A vendor has denied a claim AECi seeded. A denial-only claim renders as unverified, so it is invisible on the site until someone corrects the curation.'
+    : 'Two vendors have been in unresolved disagreement about a claim past the notification threshold. Both have been nudged; this is the ops copy.';
+
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Detector', opts.detector],
+    ['Data object', opts.dataObject],
+    ['Products', `${opts.productA} / ${opts.productB}`],
+    ['Mechanism', opts.mechanismName?.trim() || '(unnamed)'],
+    ['Claim', opts.claimId],
+    ['Integration', opts.integrationId],
+    ['Pair page', pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
+  ];
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-ops-alert',
+    subject: denied
+      ? `[AECi] Vendor denied a seeded claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
+      : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
+// ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
+// Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
+// copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
+// its own. Neither template may imply that verification is about to be switched
+// off automatically, because it is not — un-verify stays a deliberate admin act
+// (§5). Verification is also framed exactly as everywhere else: an account status,
+// never an endorsement and never a ranking or placement signal.
+
+/** What both expiry templates need to describe one term. `daysRemaining` is
+ *  negative once the term is past its end — the sweep still warns exactly once for
+ *  such a row, because "active, and the term ran out" is precisely the state an
+ *  operator has to be told about. */
+export interface EntitlementExpirySubject {
+  to: string;
+  vendorName: string;
+  /** `YYYY-MM-DD`, the house day-label form (`lib/admin-analytics.ts`). */
+  periodEndDay: string;
+  /** Whole days from the run's `now` to `period_end`; <= 0 = already past. */
+  daysRemaining: number;
+}
+
+/** "in 30 days" / "today" / "30 days ago" — the one phrase both bodies branch on. */
+function expiryPhrase(daysRemaining: number): string {
+  if (daysRemaining > 1) return `in ${daysRemaining} days`;
+  if (daysRemaining === 1) return 'tomorrow';
+  if (daysRemaining === 0) return 'today';
+  if (daysRemaining === -1) return 'yesterday';
+  return `${Math.abs(daysRemaining)} days ago`;
+}
+
+/**
+ * §7.2 `entitlement-expiring` — the vendor's renewal prompt, to the vendor's
+ * unbanned `vendor_admin` seats.
+ *
+ * Degrades to `'skipped'` without `SUPABASE_SERVICE_ROLE_KEY` (no resolvable seat
+ * address), which is the expected local / PR-preview state; the admin copy below
+ * always lands, so a term is never silently un-warned.
+ *
+ * The money is deliberately absent. Amount, payer, terms and PO reference are
+ * admin-side only (§8) — this email says what the status is and when the term
+ * ends, and asks the vendor to get in touch.
+ */
+export function sendEntitlementExpiringEmail(
+  c: EmailContext,
+  opts: EntitlementExpirySubject,
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'your company';
+  const portal = portalUrl(c.env);
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const past = opts.daysRemaining < 0;
+
+  const lead = past
+    ? `Your verification term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay} — ${phrase}.`
+    : `Your verification term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
+  // The reassurance is the point of the whole §7 decision. Say it plainly.
+  const noLapse =
+    "Nothing changes automatically. We don't switch verification off when a term reaches its end date — this is a heads-up so you can decide, not a countdown.";
+  const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
+  const stance =
+    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+
+  const textParagraphs = [lead, noLapse, ask];
+  const htmlParagraphs = [
+    past
+      ? `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)} — ${escapeHtml(phrase)}.`
+      : `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
+    noLapse,
+    ask,
+  ];
+  if (portal) {
+    textParagraphs.push(`Your current status is on your vendor portal: ${portal}`);
+    htmlParagraphs.push(
+      `Your current status is on <a href="${escapeHtml(portal)}">your vendor portal</a>.`,
+    );
+  }
+  textParagraphs.push(stance);
+  htmlParagraphs.push(stance);
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring',
+    subject: past
+      ? `Your verification term for ${name} has reached its end date`
+      : `Your verification term for ${name} ends ${phrase}`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §7.2 `entitlement-expiring-admin` — the operator copy, to `ADMIN_ALERT_EMAIL`.
+ *
+ * Exists because the vendor half needs the GoTrue admin seam and can therefore
+ * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
+ * that someone has to actually perform. Operator format (`opsText`/`opsTable`),
+ * and unlike the vendor copy it DOES carry the arrangement — this is the
+ * admin-side surface where payer and PO reference belong (§8).
+ */
+export function sendEntitlementExpiringAdminEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    vendorSlug: string;
+    tier: string;
+    periodEndDay: string;
+    daysRemaining: number;
+    payer: string | null;
+    invoiceRef: string | null;
+    /** Whether the vendor half of this notice reached anyone. */
+    vendorNotice: EmailOutcome;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || opts.vendorSlug;
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const intro =
+    opts.daysRemaining < 0
+      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.'
+      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.';
+
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Vendor', `${name} (${opts.vendorSlug})`],
+    ['Tier', opts.tier],
+    ['Term ends', `${opts.periodEndDay} (${phrase})`],
+    ['Payer', opts.payer?.trim() || '(none recorded)'],
+    ['Invoice ref', opts.invoiceRef?.trim() || '(none recorded)'],
+    // Named explicitly so "the vendor was told" is never assumed. `skipped` here is
+    // the normal local/preview state (no SUPABASE_SERVICE_ROLE_KEY) and a real
+    // misconfiguration on a deployed tier.
+    ['Vendor notice', opts.vendorNotice],
+  ];
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring-admin',
+    subject: `[AECi] Entitlement term ends ${phrase}: ${name}`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
   });
 }
 
@@ -408,6 +1005,65 @@ export function sendLandingSignupNotification(
   });
 }
 
+/**
+ * Operator alert: someone submitted a vendor claim (`POST /api/requests/claim`).
+ *
+ * Fired fire-and-forget via `ctx.waitUntil` AFTER the atomic commit, so a mail
+ * failure can never roll back an accepted claim or delay the `201` — same posture as
+ * every other send here. Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ *
+ * Corrections (`POST /api/requests/correction`) deliberately do NOT alert: they share
+ * `createRequest`, but a correction is a low-stakes data fix while a claim asserts
+ * control of a listing and starts the verification path. Both still create a Linear
+ * issue, which remains the durable record.
+ *
+ * Carries the two §6.8 admin signals the reviewer would otherwise have to look up —
+ * `domain_match` (submitter email domain vs the target vendor's website) and whether
+ * this duplicates an open request. Operator format, en-US, never i18n'd.
+ */
+export function sendClaimSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    requestId: string;
+    /** Display name of the claimed vendor/product. */
+    targetName: string;
+    /** `'product'` or `'vendor'` — decides the listing URL below. */
+    targetType: RequestTargetType;
+    slug: string;
+    submitterEmail: string;
+    submitterName: string | null;
+    submitterRole: string | null;
+    /** §6.8 signal: `match` | `no_match` | `pending`. */
+    domainMatch: string;
+    /** §7.2 signal: the id of an open request this appears to duplicate. */
+    duplicateOfRequestId: string | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const rows: Array<[string, string]> = [
+    ['Claimed', `${opts.targetName} (${opts.targetType})`],
+    ['Submitter', opts.submitterEmail],
+    ['Name', opts.submitterName ?? '—'],
+    ['Role', opts.submitterRole ?? '—'],
+    ['Domain match', opts.domainMatch],
+    ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
+    ['Request id', opts.requestId],
+  ];
+  if (base) {
+    rows.push(['Review queue', `${base}/admin/claims`]);
+    const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
+    rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
+  }
+  const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
+  return sendTransactionalEmail(c, {
+    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    template: 'claim-submitted-alert',
+    subject: `[AECi] New vendor claim: ${opts.targetName}`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
 /** Operator alert: a feedback submission (`POST /api/feedback`). */
 export function sendLandingFeedbackNotification(
   c: EmailContext,
@@ -501,6 +1157,11 @@ export async function sendEmail(
       );
       return 'failed';
     }
+    // Only the success path drains: the `!res.ok` branch above reads the body
+    // for the error detail, and cancelling first would throw that away. An
+    // unread body holds its connection, which is what deadlocks a cron sending
+    // a run of emails (AECI-666).
+    discardResponseBody(res);
     return 'sent';
   } catch (error) {
     logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
@@ -529,6 +1190,45 @@ function siteUrl(env: Env): string | null {
 function productUrl(env: Env, slug: string): string | null {
   const base = siteUrl(env);
   return base ? `${base}/products/${slug}` : null;
+}
+
+/** The vendor portal entry point (`/vendor`, AECI-522) or `null` when
+ *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
+function portalUrl(env: Env): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor` : null;
+}
+
+/**
+ * The seat-invite redeem page (AECI-664). `null` when `PUBLIC_SITE_URL` is unset,
+ * which makes the whole send `'skipped'` rather than mailing a bare token with
+ * nowhere to put it.
+ *
+ * A PATH segment, not a query param: the portal moved to
+ * `/vendor/:vendorSlug/<section>` (§6.2), so `/vendor/invite/<token>` sits beside
+ * it as a sibling route registered ahead of `:vendorSlug`, and the anon
+ * login-bounce carries the whole deep path through in `?return=` unchanged.
+ */
+function seatInviteUrl(env: Env, token: string): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor/invite/${encodeURIComponent(token)}` : null;
+}
+
+/**
+ * The canonical product-pair page for two endpoint slugs
+ * (`/products/{context}/integrations/{other}`, Stage 1.5 §7.1 / AECI-297), or
+ * `null` when `PUBLIC_SITE_URL` is unset.
+ *
+ * `orderedPairSlugs` is the shared alphabetical primitive the pair route, the
+ * `pair:{min}__{max}` cache tag and the IndexNow submitter all resolve through —
+ * so a notification link lands on the same URL those already canonicalised to,
+ * rather than on the orientation that happens to be stored on the row.
+ */
+function pairUrl(env: Env, slugA: string, slugB: string): string | null {
+  const base = siteUrl(env);
+  if (!base) return null;
+  const [context, other] = orderedPairSlugs(slugA, slugB);
+  return `${base}/products/${context}/integrations/${other}`;
 }
 
 function toText(paragraphs: string[]): string {
@@ -564,7 +1264,7 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `DD_API_KEY` /
+/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */
 function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): void {
   try {
@@ -577,10 +1277,10 @@ function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): 
   }
 }
 
-/** Best-effort `warn` to Datadog; wrapped like `emit`. */
+/** Best-effort `warn` to the observability plane; wrapped like `emit`. */
 function warn(c: EmailContext, message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
   } catch {
     console.warn(`email: ${message}`);
   }

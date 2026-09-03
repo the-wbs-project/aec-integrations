@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { json } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
@@ -22,8 +22,8 @@ export function createHealthHandler(
       await db.run(sql`SELECT 1`);
       const latencyMs = Math.round(performance.now() - started);
       const body: HealthResponse = { ok: true, db: 'ok', latencyMs };
-      // AECI-31 smoke test: every /api/health call emits a Datadog log entry.
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      // AECI-31 smoke test: every /api/health call emits a structured log entry.
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         message: `/api/health ok (${latencyMs}ms)`,
         route: '/api/health',
         outcome: 'ok',
@@ -36,7 +36,7 @@ export function createHealthHandler(
       const errorMessage = error instanceof Error ? error.message : 'Unexpected error';
       const body: HealthResponse = { ok: false, db: 'error', latencyMs, error: errorMessage };
       console.error(`/api/health failed after ${latencyMs}ms`, error);
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         message: `/api/health failed: ${errorMessage} (${latencyMs}ms)`,
         level: 'error',
         route: '/api/health',

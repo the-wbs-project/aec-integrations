@@ -62,12 +62,33 @@ forward-only D1 migrations.
 - **Hotfix flow is unchanged** and *is* the "apply a fix to live prod" path:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
   (SHA) → `promote-to-prod` (SHA).
-- **No CI/CD workflow changes.** Staging still auto-tracks `main` (now the prod line — exactly
-  what we want); the promote buttons already take an arbitrary SHA; `drift-check.yml` is
-  base-branch-agnostic, so Stage 2 PRs into `stage-2` still get the schema-drift gate. Stage 2
-  integration is validated via **PR previews** (per-PR `aeci-{web,api}-pr-<N>` Workers); a
-  dedicated always-on Stage 2 environment is *not* built now (revisit if PR previews prove
-  insufficient).
+- **~~No CI/CD workflow changes.~~ One CI trigger change was required — see the amendment
+  below.** Staging still auto-tracks `main` (now the prod line — exactly what we want); the
+  promote buttons already take an arbitrary SHA. Stage 2 integration is validated via **PR
+  previews** (per-PR `aeci-{web,api}-pr-<N>` Workers); a dedicated always-on Stage 2 environment
+  is *not* built now (revisit if PR previews prove insufficient).
+
+> **Amendment (2026-08-14) — this decision DID require a CI trigger change.** The original text
+> reasoned from `drift-check.yml` being base-branch-agnostic and concluded no workflow edits were
+> needed. That check was too narrow: `deploy.yml` (lint, typecheck, unit tests, build, E2E + axe)
+> and `integration-db-tests.yml` both pinned `pull_request: branches: [main]`, and `branches:` on
+> `pull_request` filters by **base** branch. Moving development onto `stage-2` therefore moved it
+> **outside the entire test suite** — silently, since a workflow that doesn't trigger reports
+> nothing rather than failing. It surfaced when PR #521 (the ~13k-line AECI-513 vendor-portal
+> epic) merged into `stage-2` having run only `pr-preview`. Both workflows' `pull_request`
+> triggers are now base-branch-agnostic, and `deploy.yml`'s `push` trigger lists
+> `[main, stage-2, admin-panel]`; `deploy-staging` remains independently gated on
+> `refs/heads/main`, so nothing new deploys. See `CICD_PLAN.md` §3.1/§3.2/§10.
+>
+> **Generalized lesson:** introducing a long-lived branch means auditing *every* workflow's
+> base-branch filter, not just the one that happens to already be agnostic.
+>
+> **Also done 2026-08-14:** `stage-2` was given branch protection mirroring `main` exactly —
+> required contexts `Lint & typecheck` / `Unit tests` / `Build SSR Worker`, `strict: true`,
+> `required_linear_history`, `required_conversation_resolution`, `enforce_admins: false` — so the
+> restored checks actually *block* a bad merge rather than merely reporting. `admin-panel`
+> remains unprotected and, because the trigger fix landed on `stage-2` only, still runs no tests
+> (see `CICD_PLAN.md` §10).
 
 ## Consequences
 
@@ -76,7 +97,9 @@ forward-only D1 migrations.
   Stage 2 code or schema entangled.
 - Prod's D1 **never sees a Stage 2 migration** until `stage-2 → main` merges and is promoted —
   the forward-only-migration hazard is eliminated by construction, not by discipline.
-- Zero workflow/infra change; the change is branch conventions + docs.
+- ~~Zero workflow/infra change; the change is branch conventions + docs.~~ **Corrected
+  2026-08-14** — one trigger change to `deploy.yml` + `integration-db-tests.yml` was required
+  (see the amendment above). The rest holds: no new environments, no promote-path change.
 
 **Negative / accepted trade-offs**
 - **Long-lived-branch drift + an eventual large merge.** Mitigated by frequent `main → stage-2`
@@ -91,6 +114,18 @@ forward-only D1 migrations.
   the base branch by the nature of the work.
 - **Staging no longer shows integrated Stage 2.** Staging is the prod candidate; Stage 2
   integration lives in PR previews (or the eventual `stage-2 → main` promote). Accepted.
+- **`admin-panel` is still both unprotected and untested.** Branch protection now covers `main`
+  and `stage-2` identically, but not `admin-panel`; and since the trigger fix landed on `stage-2`
+  only, `admin-panel` PRs continue to run no tests (a `push`-triggered run uses the pushed
+  branch's own workflow copy, and `admin-panel` is not descended from current `main`). Resolve by
+  merging the fix into `admin-panel` and protecting it, or by retiring the branch.
+- **`strict: true` on `stage-2` serializes merges.** Mirroring `main` brought "require branches to
+  be up to date before merging" along with it. On `main` — hotfix-only, low volume — that is
+  free. On `stage-2`, which exists precisely to absorb many parallel Conductor workspaces, every
+  merge invalidates every other open PR's up-to-date status, forcing an update + full CI re-run
+  before each subsequent merge. Accepted for now for consistency with `main`; relax with
+  `gh api -X PATCH .../branches/stage-2/protection/required_status_checks -f strict=false` if it
+  bites.
 
 ## Implementation
 

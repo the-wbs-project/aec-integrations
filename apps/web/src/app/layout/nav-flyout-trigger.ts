@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  Injector,
+  input,
+} from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
@@ -11,18 +20,20 @@ import { NavFlyoutList } from './nav-flyout-list';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
 /**
- * One taxonomy entry in the desktop primary nav (AECI-158): a label that links
- * to the facet index, plus an adjacent disclosure button that reveals the
- * top-N value flyout (`NavFlyoutList`). Used at `md+` in `site-header.ts`.
+ * One taxonomy entry in the desktop primary nav (AECI-158): a clean text link
+ * that navigates to the facet index and reveals the top-N value flyout
+ * (`NavFlyoutList`) on hover/keyboard interaction, styled in the clean editorial
+ * convention of Yahoo Finance navigation without separate arrow buttons that
+ * cause spacing issues. Used at `lg+` in `site-header.ts`.
  *
- * Two distinct controls by design — the link navigates, the button discloses —
- * so the semantics stay unambiguous for assistive tech (a link that also owns a
- * popup is muddy). The disclosure carries `aria-expanded` / `aria-controls` /
- * `aria-haspopup`; the panel is `[hidden]` when closed so its links are never
- * silently tabbable.
+ * The single link navigates on click and discloses on hover/keyboard. The link
+ * carries `aria-expanded` / `aria-controls` / `aria-haspopup`; the panel is
+ * `[hidden]` when closed so its links are never silently tabbable. Pressing
+ * ArrowDown opens the flyout and focuses the first value link; Escape closes
+ * and returns focus to this link.
  *
  * Open/close behaviour (hover, Escape, focusout) comes from the shared
- * `NavDisclosure` base, so this and the "More" overflow menu behave identically.
+ * `NavDisclosure` base.
  *
  * i18n lives here, keyed by `kind` via `$localize` switches (the same pattern
  * `TaxonomyBrowsePage` uses for its breadcrumb labels), so the parent passes
@@ -40,38 +51,26 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
     <a
       [routerLink]="indexPath()"
       routerLinkActive="text-(--accent-primary)"
-      class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >{{ label() }}</a
-    >
-    <button
-      type="button"
-      class="ms-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-(--radius-sm) text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class.text-(--accent-primary)]="isOpen()"
       [attr.aria-expanded]="isOpen()"
       [attr.aria-controls]="panelId()"
       aria-haspopup="true"
-      [attr.aria-label]="triggerAria()"
-      (click)="toggle()"
+      (click)="close()"
+      (keydown.arrowdown)="onArrowDown($event)"
+      class="cursor-pointer text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >{{ label() }}</a
     >
-      <svg
-        aria-hidden="true"
-        class="h-4 w-4 transition-transform"
-        [class.rotate-180]="isOpen()"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
-    </button>
 
     <div [id]="panelId()" [hidden]="!isOpen()" class="absolute top-full start-0 z-50 pt-2">
       <div
         class="w-64 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 shadow-lg"
       >
-        <aec-nav-flyout-list [items]="items()" [kind]="kind()" [viewAllLabel]="viewAllLabel()" />
+        <aec-nav-flyout-list
+          [items]="items()"
+          [kind]="kind()"
+          [viewAllLabel]="viewAllLabel()"
+          (navigate)="close()"
+        />
       </div>
     </div>
   `,
@@ -89,17 +88,27 @@ export class NavFlyoutTrigger extends NavDisclosure {
   /** "View all <facet>" footer link in the flyout. */
   protected readonly viewAllLabel = computed(() => facetViewAllLabel(this.kind()));
 
-  /** Accessible name for the disclosure button. */
-  protected readonly triggerAria = computed(() => {
-    switch (this.kind()) {
-      case 'category':
-        return $localize`:@@app.nav.flyout.categories.aria:Categories menu`;
-      case 'audience':
-        return $localize`:@@app.nav.flyout.audiences.aria:Audiences menu`;
-      case 'phase':
-        return $localize`:@@app.nav.flyout.phases.aria:Phases menu`;
-      case 'trade':
-        return $localize`:@@app.nav.flyout.trades.aria:Trades menu`;
-    }
-  });
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  /**
+   * ArrowDown opens the panel and moves focus to its first value link.
+   *
+   * The focus has to wait for the render that clears `[hidden]`: zoneless change
+   * detection is scheduled on a macrotask (`setTimeout`/`requestAnimationFrame`),
+   * so a microtask would still find a `display: none` panel and `focus()` would
+   * be a silent no-op. `afterNextRender` also notifies the scheduler, so the pass
+   * happens even when the panel was already open from hover.
+   */
+  protected onArrowDown(event: Event): void {
+    event.preventDefault();
+    this.open();
+    afterNextRender(
+      () => {
+        const panel = this.host.nativeElement.querySelector<HTMLElement>(`#${this.panelId()}`);
+        panel?.querySelector<HTMLAnchorElement>('a')?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
 }

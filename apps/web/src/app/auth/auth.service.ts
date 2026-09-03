@@ -40,10 +40,15 @@ function hasSupabaseAuthCookie(): boolean {
 export interface SessionSnapshot {
   readonly signedIn: boolean;
   readonly email: string | null;
+  /** `auth.users.id` (the JWT `sub`), or `null` with no session. This is the
+   *  value `Analytics.identify()` sends to PostHog (`docs/ANALYTICS.md` §8) and
+   *  the one the API Worker records as `posthogDistinctId`; the two only join if
+   *  they are the same value. */
+  readonly userId: string | null;
 }
 
 /** The "no session" answer — also what an unconfigured env resolves to. */
-const ANONYMOUS_SNAPSHOT: SessionSnapshot = { signedIn: false, email: null };
+const ANONYMOUS_SNAPSHOT: SessionSnapshot = { signedIn: false, email: null, userId: null };
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -97,7 +102,7 @@ export class AuthService {
       data: { session },
     } = await client.auth.getSession();
     if (!session) return ANONYMOUS_SNAPSHOT;
-    return { signedIn: true, email: session.user.email ?? null };
+    return { signedIn: true, email: session.user.email ?? null, userId: session.user.id };
   }
 
   /**
@@ -113,6 +118,26 @@ export class AuthService {
    */
   async isSignedIn(): Promise<boolean> {
     return (await this.sessionSnapshot()).signedIn;
+  }
+
+  /**
+   * The signed-in visitor's Supabase user id, or `null` when there is no
+   * session (or auth is unconfigured, or the cookie is stale). Browser-only,
+   * same rules as {@link isSignedIn}. Both read {@link sessionSnapshot}, so the
+   * session is read once and the answers can never disagree.
+   *
+   * The value is `auth.users.id`, i.e. the JWT `sub`. That identity matters
+   * beyond the UI: it is what `Analytics.identify()` sends to PostHog
+   * (`docs/ANALYTICS.md` §8) and what the API Worker records as
+   * `posthogDistinctId` on its logs, and the two only join if they are the same
+   * value. Anything else would mint a person that does not exist.
+   *
+   * Carries the same anonymous fast-path as before: with no auth cookie the
+   * ~58 kB `@supabase/ssr` SDK is never loaded (AECI-221) — the cacheable
+   * detail-page case, where `ReviewCta` probes on every load.
+   */
+  async currentUserId(): Promise<string | null> {
+    return (await this.sessionSnapshot()).userId;
   }
 
   /**

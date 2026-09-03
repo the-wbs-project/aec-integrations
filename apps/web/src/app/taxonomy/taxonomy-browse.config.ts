@@ -15,6 +15,10 @@
  */
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import {
+  PRODUCT_DEFAULT_SORT,
+  PRODUCT_VALID_SORTS,
+} from '../shared/listing-toolbar/product-sort-keys';
 import type { PaginatedIndexRequestConfig } from '../shared/paginated-index/paginated-index-request';
 
 /** Cross-filter params that ride the URL, minus the page's own locked dimension. */
@@ -26,8 +30,13 @@ export function taxonomyBrowseIndexRequest(
 ): PaginatedIndexRequestConfig {
   return {
     apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated']),
-    defaultSort: 'created',
+    // The FULL product sort set, shared with `/products` so the two catalog
+    // surfaces cannot offer different options (AECI-657). Before that, this page
+    // accepted only three keys and rendered no control, so `rating`/`reviews`
+    // were unreachable here even by hand-typed URL — and STAGE_1_SPEC.md §4.5's
+    // "sort options (alphabetical, most integrations, most reviewed)" was unmet.
+    validSorts: PRODUCT_VALID_SORTS,
+    defaultSort: PRODUCT_DEFAULT_SORT,
     baseParams: () => ({ [`${kind()}_id`]: termId() }),
     // Evaluated ONCE, matching the behaviour this replaced: `passthroughParams`
     // is a plain array in `PaginatedIndexRequestConfig`, not a function, and the

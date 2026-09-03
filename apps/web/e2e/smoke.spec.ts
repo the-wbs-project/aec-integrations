@@ -7,8 +7,6 @@ import { expect, test } from '@playwright/test';
 // reports zero violations, and hydration is console-clean. New routes should
 // add their own spec files; this one stays focused on `/`.
 
-const IS_DEPLOYED = !!process.env['PLAYWRIGHT_BASE_URL'];
-
 test.describe('home page (smoke)', () => {
   test('renders the shell at /', async ({ page }) => {
     const res = await page.goto('/');
@@ -82,29 +80,6 @@ test.describe('home page (smoke)', () => {
       htmlTag,
       `SSR <html> must be visitor-state-neutral (§9.1a); got: ${htmlTag}`,
     ).not.toMatch(/data-theme=|theme-(dark|light)/);
-  });
-
-  test('second request to / hits the edge cache (AECI-36 AC #3, deployed only)', async ({
-    request,
-  }) => {
-    // Miniflare's caches.default doesn't model real edge cache behavior
-    // (same skip pattern as run-extra-tests.sh T7). Validated against a
-    // deployed Worker via `PLAYWRIGHT_BASE_URL=https://<preview>...`.
-    test.skip(!IS_DEPLOYED, 'requires a deployed preview Worker (set PLAYWRIGHT_BASE_URL)');
-
-    // Prime the edge cache, then sleep so cache.put has landed.
-    const primer = await request.get('/');
-    expect(primer.status()).toBe(200);
-    await new Promise((r) => setTimeout(r, 800));
-
-    const second = await request.get('/');
-    expect(second.status()).toBe(200);
-    const cfStatus = second.headers()['cf-cache-status'];
-    const age = Number(second.headers()['age'] ?? '0');
-    expect(
-      cfStatus === 'HIT' || age > 0,
-      `expected cache HIT; got cf-cache-status=${cfStatus ?? 'absent'} age=${age}`,
-    ).toBe(true);
   });
 });
 

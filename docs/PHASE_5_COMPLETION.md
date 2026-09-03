@@ -42,7 +42,7 @@ and have shipped e2e + unit/integration specs.
 
 | Gate | Result |
 |------|--------|
-| `pnpm lint` (ESLint ×4 packages + `check-logical-properties` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
+| `pnpm lint` (ESLint ×4 packages + `check-source-constraints` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
 | `ng extract-i18n` (verification only — **not** committed) | ✅ exit 0 · **536 messages** · **zero duplicate-id warnings** (after the §4.2 fix) · committed `src/locale/messages.xlf` untouched |
 | Angular AOT build (run by `extract-i18n`) | ✅ exit 0 · "Application bundle generation complete" — a template-aware compile of every Phase 5 component |
 | `tsc -p apps/web/tsconfig.app.json --noEmit` | ✅ no type errors (modulo the documented `@aeci/shared` re-export / `$localize` build-config noise) |
@@ -207,8 +207,8 @@ and this report.)_
   `--text-tertiary` was re-pointed to `#71717A` (4.83:1) on 2026-06-12; Phase 5 components that use it
   for disabled/least-emphasis text now pass AA. (The standing rule — tertiary never on sunken/muted —
   still applies.)
-- **Light-only (AECI-226).** Phase 5 components ship a single light theme; dark returns with the
-  Stage 2 vendor portal. No `dark:` variants were added.
+- **Light-only (AECI-226).** Phase 5 components ship a single light theme; dark theme is not
+  roadmapped (the Stage 2 reintroduction was dropped). No `dark:` variants were added.
 - **Build noise (non-blocking).** `ng extract-i18n` prints "File not found in TypeScript compilation"
   notes for the `packages/shared/src/**` re-exports (bundled correctly, outside the web tsconfig
   program) — documented since AECI-67; build-config notes, not i18n/runtime issues. `tsc` against the

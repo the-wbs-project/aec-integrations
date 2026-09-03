@@ -1,21 +1,28 @@
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   ApplicationConfig,
+  ErrorHandler,
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideRouter, withInMemoryScrolling } from '@angular/router';
 
+import { PosthogErrorHandler } from './analytics/posthog-error-handler';
 import { providePostHog } from './analytics/posthog.provider';
 import { routes } from './app.routes';
 import { serverApiInterceptor } from './core/server-api-interceptor';
-import { provideDatadogRum } from './datadog.provider';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZonelessChangeDetection(),
+    // Routes `window.onerror` / `unhandledrejection` into the ErrorHandler
+    // below, which is what makes the PostHog handler cover global errors too
+    // (Angular otherwise swallows application errors before either fires).
     provideBrowserGlobalErrorListeners(),
+    // AECI-643 / POSTHOG_MIGRATION_SPEC §3.3 (Tier 2): report Angular
+    // application errors to PostHog, and keep logging them to the console.
+    { provide: ErrorHandler, useExisting: PosthogErrorHandler },
     // `serverApiInterceptor` fulfils relative `/api/*` GETs through the Cloudflare
     // service binding while rendering on the server, and passes everything else
     // straight through (AECI-746). Registered HERE rather than in
@@ -55,7 +62,6 @@ export const appConfig: ApplicationConfig = {
       // docs/CACHE_STRATEGY.md §6 and AECI-130.
       withHttpTransferCacheOptions({ includePostRequests: false }),
     ),
-    provideDatadogRum(),
     providePostHog(),
   ],
 };

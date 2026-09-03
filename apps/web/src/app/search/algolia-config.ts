@@ -8,7 +8,7 @@
  * injection and NO platform guard, so it is unit-testable under plain Node
  * Vitest (no `window`, no TestBed). The browser-vs-server decision lives at the
  * single call site (`SearchPage`'s `afterNextRender`, which only ever runs in
- * the browser), mirroring how `datadog.provider.ts` keeps `readBootstrap()`
+ * the browser), mirroring how `posthog-config.ts` keeps `readBootstrap()`
  * pure and guards the platform separately.
  *
  * `null` is the **graceful-degradation** signal: it means the config is absent

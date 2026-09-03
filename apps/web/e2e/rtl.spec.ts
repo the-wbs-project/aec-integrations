@@ -8,7 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
  * logical Tailwind utility must flip from its inline-start physical side to
  * inline-end. If a utility were still physical (`ml-*`, `text-right`, …) the
  * resolved margin would NOT move when `dir` flips — that's the regression this
- * guards (alongside the static `check-logical-properties.mjs` lint guard).
+ * guards (alongside the static `check-source-constraints.mjs` lint guard, whose
+ * `logical-properties` rule is the AECI-153 half of it).
  *
  * Seed-free by design (same constraint as products-detail.spec.ts: the local /
  * CI dev DB is empty, so real detail/index *rows* may be absent). We assert on

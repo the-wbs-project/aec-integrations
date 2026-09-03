@@ -1,0 +1,590 @@
+<section aria-labelledby="admin-claims-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h2
+      id="admin-claims-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.claims.heading"
+    >
+      Vendor claims
+    </h2>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <span
+        id="admin-claims-status-label"
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.claims.filter.status.label"
+        >Status</span
+      >
+      <div
+        role="group"
+        aria-labelledby="admin-claims-status-label"
+        class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
+      >
+        @for (opt of statusOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setStatus(opt.key)"
+          [attr.aria-pressed]="statusFilter() === opt.key"
+          class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+        >
+          {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- Reviewer-assisted verification — a human decides on the assembled signals. -->
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.claims.intro">
+    Review the verification signals, then approve to grant a verified vendor account or reject the
+    claim. No claim is granted automatically.
+  </p>
+
+  <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.loading">
+    Loading the claim-review queue…
+  </p>
+  } @else if (loadFailed()) {
+  <div class="mt-8 space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.claims.loadFailed"
+    >
+      We couldn't load the claim-review queue. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.claims.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (visibleClaims().length === 0) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.empty">
+    No claims match this filter.
+  </p>
+  } @else { @if (truncated()) {
+  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.claims.cappedNote">
+    Showing the first {{ loadedCount() }} of {{ total() }} claims. Moderate these to see the rest.
+  </p>
+  }
+
+  <ul role="list" class="mt-6 space-y-5">
+    @for (r of visibleClaims(); track r.id) {
+    <li>
+      <article
+        [attr.aria-labelledby]="'claim-' + r.id + '-target'"
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+      >
+        <!-- Header: status badge, duplicate flag, target (linked), age -->
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                >{{ statusLabel(r.status) }}</span
+              >
+              @if (r.is_duplicate) {
+              <span
+                class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
+                i18n="@@admin.claims.duplicate"
+                >Possible duplicate</span
+              >
+              }
+            </div>
+
+            <h3
+              [id]="'claim-' + r.id + '-target'"
+              class="mt-2 text-base font-bold text-(--text-primary)"
+            >
+              @if (targetRouterLink(r); as link) {
+              <a
+                [routerLink]="link"
+                class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ r.target?.name }}</a
+              >
+              } @else {
+              <span class="text-(--text-secondary)">{{ targetFallbackLabel(r.target_type) }}</span>
+              }
+            </h3>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-3">
+            <span class="text-xs text-(--text-secondary)">{{ age(r.created_at) }}</span>
+            <!-- AECI-739: the detail route — where the operator note is written and
+                 the duplicate chip above is explained. -->
+            <a
+              [routerLink]="['/admin/claims', r.id]"
+              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.openDetail"
+            >
+              Open claim
+            </a>
+          </div>
+        </div>
+
+        <!-- Submitter -->
+        <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.claims.meta.submitter">Submitter</dt>
+            <dd>
+              {{ r.submitter_email }}@if (r.submitter_name) {
+              <span> · {{ r.submitter_name }}</span>
+              } @if (r.submitter_role) {
+              <span> · {{ r.submitter_role }}</span>
+              }
+            </dd>
+          </div>
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.claims.meta.submitted">Submitted</dt>
+            <dd>{{ r.created_at | date: 'medium' }}</dd>
+          </div>
+        </dl>
+
+        <!-- Verification signals -->
+        <div
+          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+        >
+          <h4
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.signals.heading"
+          >
+            Verification signals
+          </h4>
+
+          <dl class="mt-3 grid gap-4 sm:grid-cols-2">
+            <!-- Email-domain match -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.domain"
+              >
+                Email domain
+              </dt>
+              <dd class="mt-1">
+                @if (r.domain_match === 'no_match') {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  >{{ domainMatchLabel(r.domain_match) }}</span
+                >
+                } @else {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  >{{ domainMatchLabel(r.domain_match) }}</span
+                >
+                }
+              </dd>
+            </div>
+
+            <!-- Auth account exists (link vs provision) -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.account"
+              >
+                Claimant account
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                {{ authAccountLabel(r.has_auth_account) }}
+              </dd>
+            </div>
+
+            <!-- Product roles: the §5.2 payer test (AECI-738) -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.roles"
+              >
+                Products by role
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                @if (r.product_roles === null) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable"
+                  >Unavailable</span
+                >
+                } @else if (r.product_roles.total === 0) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.claims.roles.none"
+                  >No products on record — role unknown</span
+                >
+                } @else if (r.is_pure_connector_vendor) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.claims.roles.pureConnector"
+                  >Pure connector vendor</span
+                >
+                <p class="mt-1 text-(--text-secondary)">
+                  {{ roleBreakdownLabel(r.product_roles) }}
+                </p>
+                } @else {
+                <p>
+                  {{ r.product_roles.total }}
+                  <span i18n="@@admin.claims.roles.total">product(s)</span>
+                </p>
+                <p class="mt-1 text-(--text-secondary)">
+                  {{ roleBreakdownLabel(r.product_roles) }}
+                </p>
+                }
+              </dd>
+            </div>
+
+            <!-- Existing seats -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.seats"
+              >
+                Existing seats
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                @if (r.existing_seats === null) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable"
+                  >Unavailable</span
+                >
+                } @else if (r.existing_seats.length === 0) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.seats.first"
+                  >First claim: no existing seats</span
+                >
+                } @else {
+                <p>
+                  {{ r.existing_seats.length }}
+                  <span i18n="@@admin.claims.seats.count">existing seat(s)</span>
+                </p>
+                <ul class="mt-1 space-y-0.5">
+                  @for (seat of r.existing_seats; track $index) {
+                  <li class="flex flex-wrap items-center gap-1.5 text-(--text-secondary)">
+                    <span>{{ seatDisplayName(seat.display_name) }}</span>
+                    @if (seat.work_email_verified) {
+                    <span
+                      class="inline-flex items-center rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium"
+                      i18n="@@admin.claims.seat.verified"
+                      >work email verified</span
+                    >
+                    }
+                  </li>
+                  }
+                </ul>
+                }
+              </dd>
+            </div>
+
+            <!-- Prior / duplicate requests -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.prior"
+              >
+                Prior requests
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                @if (r.related_requests === null) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable2"
+                  >Unavailable</span
+                >
+                } @else if (r.related_requests.length === 0) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.prior.none"
+                  >None from this email</span
+                >
+                } @else {
+                <p>
+                  {{ r.related_requests.length }}
+                  <span i18n="@@admin.claims.prior.count">prior request(s) from this email</span>
+                </p>
+                <ul class="mt-1 space-y-0.5 text-(--text-secondary)">
+                  @for (prior of r.related_requests; track prior.id) {
+                  <li>
+                    {{ prior.kind }} · {{ prior.status }} · {{ prior.created_at | date: 'mediumDate'
+                    }}
+                  </li>
+                  }
+                </ul>
+                } @if (r.duplicate_of_request_id) {
+                <p class="mt-1 text-(--text-secondary)" i18n="@@admin.claims.prior.chain">
+                  Flagged against an earlier request.
+                </p>
+                }
+              </dd>
+            </div>
+          </dl>
+
+          <!-- Person / LinkedIn search link (opened by the reviewer; a link only) -->
+          <div class="mt-3">
+            <a
+              [href]="linkedInSearchUrl(r)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.linkedin"
+              >Search LinkedIn for this person ↗</a
+            >
+          </div>
+        </div>
+
+        <!--
+          Entitlement (AECI-532 §5) — a READOUT plus a link, since AECI-652 §5.6.
+          The set/renew/clear control moved to `/admin/vendors/:id`, which is the
+          surface that can reach every vendor rather than only the ones that filed
+          a claim. Keeping a second copy here would mean two copies of the §5.2 /
+          §5.3 / §5.4 copy invariants, and those are the sentences whose drift
+          causes an incident rather than a typo.
+
+          Still deliberately OUTSIDE the `isActionable` block: renewing or clearing
+          a vendor granted months ago is the ordinary case, and those rows are
+          terminal claims. Points at the RESOLVED target vendor, so a product claim
+          links to that product's primary vendor.
+        -->
+        <div
+          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h4
+                [id]="'claim-' + r.id + '-ent'"
+                class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                i18n="@@admin.claims.ent.heading"
+              >
+                Entitlement
+              </h4>
+              <p class="mt-2 text-sm font-medium text-(--text-primary)">
+                {{ entitlementLabel(r) }}
+              </p>
+              @if (r.entitlement_vendor) {
+              <p class="mt-1 text-xs text-(--text-secondary)">
+                <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ r.entitlement_vendor.name
+                }}
+              </p>
+              } @if (r.entitlement; as e) {
+              <p class="mt-1 text-xs text-(--text-secondary)">{{ entitlementTerm(e) }}</p>
+              @if (e.invoice_ref) {
+              <p class="mt-1 text-xs text-(--text-secondary)">
+                <span i18n="@@admin.claims.ent.invoice2">Invoice / PO</span>: {{ e.invoice_ref }}
+              </p>
+              } }
+            </div>
+
+            @if (r.entitlement_vendor; as v) {
+            <a
+              [routerLink]="['/admin/vendors', v.id]"
+              class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.ent.manage"
+            >
+              Manage entitlement
+            </a>
+            }
+          </div>
+        </div>
+
+        <!-- Source link -->
+        @if (r.source_url) {
+        <div class="mt-3">
+          <a
+            [href]="r.source_url"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.claims.sourceUrl"
+            >Source link</a
+          >
+        </div>
+        }
+
+        <!--
+          Operator note (AECI-739 / §5.2 step 6). Rendered on the CARD, not only on
+          the detail page: §5.2's prescribed handling for a pure-connector vendor is
+          to leave the claim `open` and route it out of band, and a queue of open
+          claims with no visible reason why any of them is parked is the exact
+          problem the note exists to solve. Read-only here — it is written on
+          `/admin/claims/:id`, so the field has one home.
+        -->
+        @if (r.admin_notes; as note) {
+        <div
+          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        >
+          <h4
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.note.heading"
+          >
+            Operator note
+          </h4>
+          <p
+            class="mt-2 line-clamp-3 whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
+          >
+            {{ note }}
+          </p>
+          <a
+            [routerLink]="['/admin/claims', r.id]"
+            class="mt-2 inline-block text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.claims.note.openToEdit"
+            >Read or edit the full note</a
+          >
+        </div>
+        }
+
+        <!-- Body -->
+        <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
+          {{ r.body }}
+        </p>
+
+        <!-- §5.2: on a pure-connector vendor BOTH actions are wrong, so the
+             warning repeats here rather than only in the signals list above —
+             the mistake is made at these buttons and it is one-way (Grant opens a
+             verified entitlement and lights the badge; Reject sends a real
+             decline email). The buttons stay enabled deliberately: `product_role`
+             is curated upstream, so a mis-roled record must not hard-block a
+             legitimate endpoint vendor's claim. -->
+        @if (isActionable(r.status) && r.is_pure_connector_vendor) {
+        <div
+          class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
+        >
+          <p
+            class="text-sm font-bold text-(--text-primary)"
+            i18n="@@admin.claims.connectorGuard.title"
+          >
+            Pure connector vendor — do not Grant or Reject
+          </p>
+          <p
+            class="mt-1 text-xs leading-relaxed text-(--text-secondary)"
+            i18n="@@admin.claims.connectorGuard.body"
+          >
+            Every product this vendor owns is a connector, so verification is not sold to them.
+            Granting opens a verified entitlement and lights the badge; rejecting sends a real
+            decline email. Leave this claim open, keep the linked Linear issue in an unstarted
+            state, and reply directly about the partnership track.
+          </p>
+        </div>
+        }
+
+        <!-- Actions (open / in-review only) -->
+        @if (isActionable(r.status)) {
+        <div class="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            (click)="openApprove(r.id)"
+            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            i18n="@@admin.claims.approve"
+          >
+            Grant vendor account
+          </button>
+          <button
+            type="button"
+            (click)="openReject(r.id)"
+            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            i18n="@@admin.claims.reject"
+          >
+            Reject
+          </button>
+        </div>
+
+        <!-- Approve form: free-text arrangement notes (the offline PO/invoice record) -->
+        @if (formOpenId() === r.id && formMode() === 'approve') {
+        <form
+          novalidate
+          (submit)="$event.preventDefault(); confirmApprove(r.id)"
+          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
+        >
+          <label
+            [attr.for]="'claim-notes-' + r.id"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.approve.label"
+          >
+            Payment / arrangement notes (optional)
+          </label>
+          <textarea
+            [id]="'claim-notes-' + r.id"
+            rows="3"
+            [value]="formText()"
+            (input)="onFormInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          <div class="flex flex-wrap gap-3 pt-1">
+            <button
+              type="submit"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (pendingActionId() === r.id) {
+              <span i18n="@@admin.claims.approving">Granting…</span>
+              } @else {
+              <span i18n="@@admin.claims.approve.confirm">Confirm grant</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="closeForm()"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.claims.form.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+        }
+
+        <!-- Reject form: internal decision note (audit-only; the claimant email is neutral) -->
+        @if (formOpenId() === r.id && formMode() === 'reject') {
+        <form
+          novalidate
+          (submit)="$event.preventDefault(); confirmReject(r.id)"
+          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
+        >
+          <label
+            [attr.for]="'claim-reason-' + r.id"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.reject.label"
+          >
+            Internal reason (optional)
+          </label>
+          <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.reject.help">
+            Recorded in the audit log, not shared with the claimant. The rejection email is neutral.
+          </p>
+          <textarea
+            [id]="'claim-reason-' + r.id"
+            rows="3"
+            [value]="formText()"
+            (input)="onFormInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          <div class="flex flex-wrap gap-3 pt-1">
+            <button
+              type="submit"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (pendingActionId() === r.id) {
+              <span i18n="@@admin.claims.rejecting">Rejecting…</span>
+              } @else {
+              <span i18n="@@admin.claims.reject.confirm">Confirm rejection</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="closeForm()"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.claims.form.cancel2"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+        } @if (failedActionId() === r.id) {
+        <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
+          {{ failedActionMessage() }}
+        </p>
+        } }
+      </article>
+    </li>
+    }
+  </ul>
+  }
+</section>

@@ -82,6 +82,24 @@ describe('LoginPage', () => {
     );
   });
 
+  it('marks the Google logo decorative so the button keeps a single accessible name', async () => {
+    const { el } = await setup();
+    const google = [...el.querySelectorAll('button[type="button"]')].find((b) =>
+      b.textContent?.includes('Continue with Google'),
+    ) as HTMLButtonElement;
+    const logo = google.querySelector('svg');
+    expect(logo, 'the Google "G" mark must render inside the button').not.toBeNull();
+    expect(logo?.getAttribute('aria-hidden')).toBe('true');
+    // The four brand fills are fixed — recoloring the mark to `currentColor`
+    // would violate the Sign in with Google branding guidelines.
+    expect([...google.querySelectorAll('svg path')].map((p) => p.getAttribute('fill'))).toEqual([
+      '#EA4335',
+      '#4285F4',
+      '#FBBC05',
+      '#34A853',
+    ]);
+  });
+
   it('disables submit while the email is invalid and never calls the service', async () => {
     const { fixture, el, auth } = await setup();
     typeEmail(fixture, 'not-an-email');

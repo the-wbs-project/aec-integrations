@@ -69,7 +69,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
   }
 
   it('does nothing when every product has a vendor', () => {
-    const { c, waitUntil } = ctxWith({ DD_API_KEY: 'k' });
+    const { c, waitUntil } = ctxWith({ POSTHOG_PROJECT_KEY: 'phc_test_token' });
     reportMissingVendors(c, [withVendor, withVendor]);
     expect(waitUntil).not.toHaveBeenCalled();
   });
@@ -78,16 +78,16 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 202 }));
-    const { c, waitUntil } = ctxWith({ DD_API_KEY: 'k' });
+    const { c, waitUntil } = ctxWith({ POSTHOG_PROJECT_KEY: 'phc_test_token' });
 
     reportMissingVendors(c, [withVendor, noVendor]);
 
-    // 1 missing product → 1 logToDatadog dispatch + 1 submitCount dispatch.
+    // 1 missing product → 1 logToPosthog dispatch + 1 submitCount dispatch.
     expect(waitUntil).toHaveBeenCalledTimes(2);
     fetchSpy.mockRestore();
   });
 
-  it('no-ops without DD_API_KEY even when a vendor is missing (clean local dev)', () => {
+  it('no-ops without POSTHOG_PROJECT_KEY (clean local dev)', () => {
     const { c, waitUntil } = ctxWith({});
     reportMissingVendors(c, [noVendor]);
     expect(waitUntil).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
       get executionCtx(): ExecutionContext {
         throw new Error('This context has no ExecutionContext');
       },
-      env: { DD_API_KEY: 'k' } as Env,
+      env: { POSTHOG_PROJECT_KEY: 'phc_test_token' } as Env,
       req: { raw: new Request('https://api.test/api/products') },
     } as unknown as Context<{ Bindings: Env }>;
     // A legitimately vendorless product must not break the request path even

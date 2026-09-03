@@ -106,6 +106,8 @@ export class HomeSectionsPreview {
       direction,
       source: { id: `s${n}`, slug: slug(source), name: source, logo_url: null },
       target: { id: `t${n}`, slug: slug(target), name: target, logo_url: null },
+      // Preview fixtures model `integrations` rows, so no connector (AECI-721).
+      via: null,
       created_at: '2026-05-01T00:00:00.000Z',
       updated_at: '2026-06-01T00:00:00.000Z',
     };
@@ -125,7 +127,7 @@ export class HomeSectionsPreview {
       name,
       logo_url: null,
       product_role: 'application',
-      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null },
+      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null, verified: false },
       primary_category: { id: `c${n}`, slug: slug(category), name: category },
       integration_count,
       review_count: 0,

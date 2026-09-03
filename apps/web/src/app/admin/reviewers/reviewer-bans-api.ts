@@ -1,7 +1,21 @@
 /**
  * Client for the reviewer ban-management endpoints (AECI-218 / Phase 6.11),
- * consumed by the review-queue's "consider a ban" prompt and the
- * `/admin/reviewers` bans page.
+ * consumed by the review-queue's "consider a ban" prompt and by
+ * `/admin/users/:id`.
+ *
+ * **The directory name outlived its page (AECI-692).** The `/admin/reviewers`
+ * SCREEN is gone — `/admin/users?banned=true` is the same
+ * `banned_at IS NOT NULL` set with filters, search and paging, and
+ * `/admin/users/:id` is where ban and reinstate now happen. This client stayed
+ * put because the ENDPOINT did: `PATCH /api/admin/reviewers/:id` is still the
+ * sole writer of `profiles.banned_at`, and moving the client would have renamed
+ * a thing whose server-side name has not changed.
+ *
+ * `listBanned()` consequently has no UI caller today. It is kept deliberately:
+ * `GET /api/admin/reviewers` is still registered and documented, and this
+ * method plus `reviewer-bans-api.component.spec.ts` are the only thing pinning
+ * its URL and params. Deleting them would leave a live endpoint with no
+ * client-side contract test.
  *
  * Like `AdminReviewsApi`, these are browser-side reads/mutations over the SSR
  * Worker's `/api/*` passthrough (service binding). Same-origin requests carry the

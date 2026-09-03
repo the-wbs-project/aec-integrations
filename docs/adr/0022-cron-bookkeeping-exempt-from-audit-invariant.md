@@ -35,7 +35,7 @@ Three further facts constrained the answer:
 - **The exemption test is three-part and conjunctive.** A write is exempt when it is *all three* of: (a) computed entirely from data already in the database, **or** an append-only event / lead-capture log; (b) invisible on every public surface; and (c) reproducible by re-running the job that wrote it. Exempt today: `page_views`, `mailing_list`, `feedback`, `stats_cache` (home-stats + Algolia watermark), the denormalized product counters, and — once they ship — `metrics_daily` and `job_runs`.
 - **The test is entity class, not actor class.** A system or cron actor writing *domain* state still audits. `actorType: 'system'` exists for precisely that case and is already in production use.
 - **Exception: any scheduled `DELETE` emits exactly one summary `audit_log` row per run**, in the same batch as the delete — `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted.
-- **Observability for exempt writes is `job_runs` plus Datadog**, not the audit log. That is not a downgrade: `job_runs` (`ADMIN_PANEL_SPEC.md` §7.2) is a richer record for this class of write than an `audit_log` row would be, because it carries duration, outcome, and a per-job payload.
+- **Observability for exempt writes is `job_runs` plus the emitted metrics**, not the audit log. *(Vendor note, ADR 0024: those metrics forward to **Datadog** today and are migrating to **PostHog**, dual-run, Datadog deleted at AECI-651. The exemption itself is vendor-independent — this bullet's decision does not change with the transport.)* That is not a downgrade: `job_runs` (`ADMIN_PANEL_SPEC.md` §7.2) is a richer record for this class of write than an `audit_log` row would be, because it carries duration, outcome, and a per-job payload.
 
 The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out documented only in a downstream spec is a contradiction waiting to be found in review — which is exactly how the `page_views` exemption ended up stranded in `API_CONTRACTS.md`.
 
@@ -53,7 +53,7 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 
 - **A three-part test is more judgment than a blanket rule.** Mitigated by naming the exempt tables explicitly in §26.1 rather than leaving the test to be applied from scratch each time; a new exemption is a spec edit, not a reviewer's call.
 - **"Invisible on every public surface" can drift.** If a table currently exempt later feeds a public number, the exemption must be revisited. `stats_cache` is the live example — it is exempt but *does* back public home-page stats, and it qualifies only because it is fully recomputable from domain data that is itself audited. That is a fine distinction and the most likely place this ADR is misapplied.
-- **The audit log stops being a complete changelog of the database.** It never was one, but the old wording implied it. Anyone reconstructing history from `audit_log` must now consult `job_runs` and Datadog as well — which `ADMIN_PANEL_SPEC.md` §4 already establishes for other reasons (827 `integration.created` events against 496 live rows).
+- **The audit log stops being a complete changelog of the database.** It never was one, but the old wording implied it. Anyone reconstructing history from `audit_log` must now consult `job_runs` and the forwarded logs/metrics as well (Datadog today, PostHog after AECI-651 — ADR 0024) — which `ADMIN_PANEL_SPEC.md` §4 already establishes for other reasons (827 `integration.created` events against 496 live rows).
 
 **Surfaced but not fixed here**
 
@@ -66,3 +66,43 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 - **Leave §26.1 alone and document the exemption in `ADMIN_PANEL_SPEC.md`.** Cheapest edit, and precisely the mistake that produced this ADR: the `page_views` exemption has sat in `API_CONTRACTS.md` for months while three other docs assert the absolute form.
 - **Exempt on actor ("system writes don't audit").** Simpler to state, and wrong: `POST /api/promote` is a system actor writing the entire public catalog, and it must audit. Actor is the wrong axis; entity class is the one the codebase was already using.
 - **A separate `system_log` table for cron writes.** More machinery for the same outcome. `job_runs` already is that table, and it exists for independent reasons.
+
+## Amendment 2026-08-31 — audit granularity for bulk external-fact ingest (AECI-714)
+
+Nothing above is reversed. This adds a rule the original decision did not need, because at
+the time no write path mirrored thousands of rows in a single commit.
+
+**The rule.** A write path that mirrors externally-sourced rows in bulk satisfies §26.1 with
+**one summary `audit_log` row per run, in the same batch**, rather than one row per mirrored
+row. A run that changes nothing writes no row at all.
+
+**Why it is not an exemption.** These rows fail this ADR's three-part test twice over — they
+are ingested external facts rather than data computed from what is already in the database,
+and the reachable lane they feed is public — so they audit. The question this amendment
+answers is *at what granularity*, which the original decision never addressed because the
+question had not arisen.
+
+**Why per-row would be wrong rather than merely expensive.** The connector-catalogue sync
+(AECI-714) mirrors ~3,573 rows today and ~15k once Zapier lands. Per-row auditing would
+deposit tens of thousands of entries per sync into `audit_log` — a table §26.6 keeps
+indefinitely and no cron prunes — and would push the same volume through the §26.5 forward.
+It would also make the log *less* useful, not more: "3,573 rows were mirrored from the review
+app" is the fact an operator or an auditor actually needs, and 3,573 near-identical rows state
+it worse than one row carrying the counts.
+
+**The bound, so this cannot be stretched.** It applies only where all three hold: the writer
+is a **bulk mirror of an upstream system of record**, every statement is an **idempotent
+upsert** (so the log is not the only record of what happened — the upstream is), and no
+individual row carries a **decision** attributable to a person. A decision-bearing write on
+the very same tables — flipping a catalogue's `managed_by`, which is AECI-720's — audits per
+row like any other domain-state write. `retention-prune.ts` is the standing precedent for the
+shape, including the part most easily dropped: **no change, no row.**
+
+Recorded in `STAGE_1_SPEC.md` §26.1 alongside the exemption list, per this ADR's own rule that
+a new carve-out is a spec edit rather than a reviewer's call.
+
+The reviewer-facing signpost is `CODE_REVIEW_EXEMPTIONS.md` **EX-003** (added 2026-09-02, AECI-734),
+which suppresses only the granularity finding on the two connector-sync files. It deliberately does
+**not** suppress a missing audit row, a row written outside the batch, or the decision-bearing
+`managed_by` flip above — those stay reportable. EX-002 covered those files until AECI-734 split them
+out; its bare-audit-vocabulary matcher was hiding genuine findings.

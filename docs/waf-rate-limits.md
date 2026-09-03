@@ -303,6 +303,81 @@ Why it is shaped this way:
 | `/api/reviews` 3/**user**/hr | ⚠️ approximated as 5/**IP**/**min** (Rule B) | per-user is Enterprise-only on WAF *and* the window caps at 1 min; existing dedup + moderation are the real per-user controls |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
+| the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
+
+---
+
+## 3a. Managed-rule collision — every path containing `/vendor/` was 403'd
+
+**Status: RESOLVED 2026-08-26. Re-verified 2026-09-03 — does not reproduce.** It was
+never one of our rules. Kept in full as the **detection + fix recipe**, because the
+rule belongs to a Cloudflare-managed ruleset we do not version and it can re-fire on
+a ruleset update.
+
+Re-verification, 2026-09-03 (same curl method, `www`):
+
+```bash
+/vendor            → 404    /vendor/x/overview → 404    /vendors/autodesk → 200
+/api/vendor/me     → 404    /foo/vendor/bar    → 404   ← the substring control
+```
+
+No "Attention Required" 403 page on any of them. A skip rule was evidently added, or
+the managed rule retuned, after the original finding. (At the time of that check `/vendor`
+itself 404'd on `www` because the portal code had not merged to `main`. **The Stage 2 merge
+landed 2026-09-03**, so once a prod promote carries it, `/vendor` resolves — a 403 there is
+the WAF again, and a 404 is a real routing bug rather than the dark launch.)
+
+**If it recurs, everything below is the original finding — treat it as the runbook.**
+
+---
+
+Originally verified 2026-08-26 (morning) by curl: any request whose path contains the literal
+`/vendor/` gets the Cloudflare "Attention Required / Sorry, you have been blocked"
+403 page on **every** host in the zone — `www`, `staging`, `demo`, `stage2`. It is
+case-sensitive (`/api/VENDOR/seats` passes) and substring-based (`/apix/vendor/x`
+and `/foo/vendor/bar` are blocked too). `/vendor` with no trailing segment is fine,
+and `/vendors/<slug>` is fine.
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://www.aecintegrations.com/vendor           # 404 — fine
+curl -s -o /dev/null -w '%{http_code}\n' https://www.aecintegrations.com/vendor/x/overview # 403 — blocked
+curl -s -o /dev/null -w '%{http_code}\n' https://www.aecintegrations.com/vendors/autodesk  # 200 — fine
+```
+
+Almost certainly a **Cloudflare Managed Ruleset** rule (the Composer/PHPUnit
+`vendor/` directory-traversal / RCE family), not a custom rule of ours — §1 and §2
+above are host-scoped to staging/demo and target `/products` and `/vendors`. The
+read-only CF API token in this repo can read neither the managed rulesets nor
+`firewallEventsAdaptive`, so the rule ID has to come from the dashboard:
+**Security → Events**, filter `Action = Block` and path contains `/vendor/`.
+
+**Blast radius, in the order it was discovered:**
+
+1. **Every browser-side `/api/vendor/*` call.** Seats, the
+   `GET /api/vendor/updates` live-sync poll, notifications, integrations,
+   data-objects, and every profile / product / attestation write. The portal
+   *looked* alive because `/vendor` SSRs through `vendorMeResolver` →
+   the `env.API` **service binding**, which never crosses the edge. First visible
+   symptom is "Could not load the seat list"; the store's `catch` swallows the
+   status, so nothing is logged.
+2. **The portal page loads themselves**, since the AECI-522 §6.2 routing change
+   moved the surface to `/vendor/:vendorSlug/<section>`
+   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). Bare `/vendor` 302'd straight into a
+   403'd path, so the portal was unreachable on the zone — not merely degraded.
+
+**Why CI never caught it:** e2e runs against `localhost` and `workers.dev` preview
+URLs, which are outside the zone and carry no zone WAF.
+
+**Fix (dashboard access required) — if it recurs:** add a WAF **skip / exception**
+for that managed rule scoped to the portal's own paths —
+
+```
+starts_with(http.request.uri.path, "/api/vendor/")
+  or starts_with(http.request.uri.path, "/vendor/")
+```
+
+Scope the exception to that one managed rule, not to the whole ruleset. Re-verify
+with the three curls above (expect `404 / 200-or-303 / 200`).
 
 ---
 
@@ -362,9 +437,10 @@ rule change.
 
 - **CF Security Events (free on Pro):** every Block / Managed Challenge appears in
   **Security → Events**, filterable by rule, action, host, and IP. This is the
-  operator surface for live triage — the per-IP / per-request detail Datadog does
-  **not** carry.
-- **Datadog (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
+  operator surface for live triage — the per-IP / per-request detail the metrics plane does
+  **not** carry. That is true of PostHog: the
+  aggregation below is a count per mitigation group, not per request.
+- **The metrics plane (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
   surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
   and can drive an alert (Enterprise Logpush — the "push" alternative — is not on
   our Pro plan, so we poll). The API Worker's hourly cron
@@ -379,18 +455,25 @@ rule change.
   - **`aeci.waf.poll`** (count) — a per-run heartbeat, `outcome:ok|failed|skipped_no_creds`;
     the always-emitted `outcome:ok` series is the cron-liveness signal.
 
-  The monitor **AECi — WAF rate-limit / challenge spike**
-  (`observability/datadog/monitor-waf-ratelimit-spike.json`) alerts on a sustained
-  spike. See `docs/OBSERVABILITY.md` for the catalog + monitor and
+  The live alert is the PostHog alert **AECi — WAF rate-limit / challenge spike**
+  (`observability/posthog/alerts.json`, >2,000/1 h — the retired Datadog monitor's
+  500/15 m rescaled for the hourly window), which fires on a
+  sustained spike. Under ADR 0024 it ports to a PostHog alert at **hourly** cadence
+  (`POSTHOG_MIGRATION_SPEC.md` §5) — a real, accepted loss of detection speed on this
+  signal. Its liveness half is different: `aeci.waf.poll`'s no-data monitor has no PostHog
+  equivalent and moves to the AECI-647 external CI liveness sweep. **Both metrics are
+  vendor-independent** — `CF_ZONE_ID` / `CF_ANALYTICS_API_TOKEN` and the poll itself are
+  untouched by the migration. See `docs/OBSERVABILITY.md` for the catalog + alert and
   `docs/RUNBOOKS.md` for triage.
 
   **Token:** the poll needs `CF_ANALYTICS_API_TOKEN` — a Cloudflare token scoped to
-  **`Zone Analytics: Read`** on `aecintegrations.com` (a *different* scope than the
-  `Zone.Cache Purge` `CF_PURGE_API_TOKEN`, so it is its own secret). It reuses the
+  **`Zone Analytics: Read`** on `aecintegrations.com` (a narrow, read-only scope,
+  distinct from the retired `Zone.Cache Purge` purge token, so it is its own secret). It reuses the
   existing `CF_ZONE_ID` — which, until 2026-08-12, was a **manual** `wrangler secret
   put` that had never been placed on any API Worker, so the poll no-op'd even after
-  `CF_ANALYTICS_API_TOKEN` was provisioned. `CF_ZONE_ID` is now CI-pushed alongside
-  the token by all three deploy/promote workflows. Because the analytics token is zone-scoped and the zone is
+  `CF_ANALYTICS_API_TOKEN` was provisioned. `CF_ZONE_ID` is now CI-pushed by all three
+  deploy/promote workflows; since WC-10 retired `CF_PURGE_API_TOKEN`, this poll is the
+  only thing that still reads it. Because the analytics token is zone-scoped and the zone is
   shared across envs, it is a **single un-suffixed GitHub secret** (like
   `SUPABASE_ANON_KEY` / `ALGOLIA_APP_ID`): `gh secret set CF_ANALYTICS_API_TOKEN`.
   CI then pushes it to each env's Worker (`deploy.yml` → staging, `promote-to-demo.yml`

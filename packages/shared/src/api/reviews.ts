@@ -224,3 +224,19 @@ export const ModerateReviewResponseSchema = z.object({
   repeat_offender: RepeatOffenderPromptSchema.nullable(),
 });
 export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;
+
+/**
+ * Rejected-review count at which a reviewer is flagged as a repeat offender.
+ *
+ * Shared because two surfaces now render the same judgement about the same
+ * person: the moderation queue raises its ban prompt after a reject (AECI-218,
+ * `computeRepeatOffenderPrompt` in `routes/admin-reviews.ts`), and
+ * `GET /api/admin/users/:id` ships `repeat_offender` on the profile (AECI-692).
+ * A private copy in each would let them disagree — one screen calling someone a
+ * repeat offender while the other does not is the kind of drift an operator
+ * reports as a bug in whichever screen they trust less.
+ *
+ * Counts `status = 'rejected'` over all time, with no window: the signal is
+ * "this account keeps submitting rejectable reviews", not a rate.
+ */
+export const REPEAT_OFFENDER_THRESHOLD = 3;

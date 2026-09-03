@@ -11,6 +11,10 @@ import {
  * Integration mechanism enum. Mirrors the `mechanism_kind` column on the
  * `integrations` table (docs/DATABASE_SCHEMA.md §3) and stays in lockstep with
  * the directory editorial taxonomy in PRODUCT.md.
+ *
+ * `integrator` replaces `partner` (AECI-698); both are listed while the review app
+ * re-keys. A **connector-evidenced pair** carries no kind at all and serialises
+ * `mechanism_kind: null` — see `via` on `IntegrationListItemSchema`.
  */
 export const IntegrationMechanismKindSchema = z.enum([
   'native',
@@ -19,6 +23,7 @@ export const IntegrationMechanismKindSchema = z.enum([
   'api',
   'webhook',
   'partner',
+  'integrator',
 ]);
 
 export type IntegrationMechanismKind = z.infer<typeof IntegrationMechanismKindSchema>;
@@ -53,6 +58,13 @@ export type IntegrationSort = z.infer<typeof IntegrationSortSchema>;
  * `ProductDetail.integrations_as_source` / `integrations_as_target`. Source
  * and target products are hydrated as `ProductLink` (id + name + slug + logo)
  * per Phase 2 Spec §7.2.
+ *
+ * **Two storage tables, one shape (AECI-721).** A list item is either a row of
+ * `integrations` — an accountable-party edge — or a row of
+ * `connector_evidenced_pairs`, a delivered edge an iPaaS ships a listing for
+ * (`STAGE_1_5_SPEC.md` §13.1). `via` is what tells them apart, and the shape is
+ * deliberately common so the split is a sourcing question, not a rendering one
+ * (§13.3 is written source-agnostically for exactly this reason).
  */
 export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
@@ -61,11 +73,26 @@ export const IntegrationListItemSchema = z.object({
   // sibling `direction`. An absent value surfaces as `null` and the UI renders
   // an empty state, rather than silently coercing to `'native'`. An out-of-enum
   // *non-null* value is a data-integrity violation the mapper throws on.
+  //
+  // ALWAYS `null` when `via` is set: `connector_evidenced_pairs` has no
+  // `mechanism_kind` column, because the lane answers "which mechanism". Read
+  // `via` for that, never a synthesised kind.
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
   direction: IntegrationDirectionSchema.nullable(),
   source: ProductLinkSchema,
   target: ProductLinkSchema,
+  /**
+   * The connector that delivers this edge — non-null **only** on a
+   * connector-evidenced pair, and the discriminant for which table the row came
+   * from (AECI-721 / §13.1's delivered tier).
+   *
+   * Distinct from `IntegrationDetail.powered_by_product`, which is the same fact
+   * about a row still living in `integrations`: a self-referential Convention-A
+   * edge (`powered_by` = one of its own endpoints, ~152 catalog-wide) stays put
+   * and keeps `powered_by_product` with `via: null`. Both may not be set at once.
+   */
+  via: ProductLinkSchema.nullable().default(null),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
@@ -88,6 +115,27 @@ export type IntegrationListItem = z.infer<typeof IntegrationListItemSchema>;
  */
 export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   context_direction: ContextDirectionSchema.nullable(),
+  /**
+   * The connector named by this row's `integrations.powered_by_product_id`, for
+   * a row that is still in `integrations` (Stage 1.5 §13.4(1)). Added on the
+   * product-detail embed only — `/api/integrations` and the home rail have no
+   * lane to route and do not pay for the join.
+   *
+   * **Not a second `via`, and never set at the same time as one.** `via` is the
+   * connector of a `connector_evidenced_pairs` row; this is the same fact about
+   * a row that has NOT moved there. After AECI-721 that leaves two populations,
+   * and the endpoint lane router (§13.2) reads them differently:
+   *
+   *   - a **Convention-A self-reference** — `powered_by` equal to one of the
+   *     row's own endpoints — stays in the DIRECT lane per §13.2(a). It is the
+   *     larger population (60 production rows) and it is deliberate, not dirt.
+   *   - a row whose `powered_by` is neither endpoint routes to the Via lane per
+   *     §13.2(b). Post-migration that set is empty in a migrated database, and
+   *     that is exactly why this field is here: preview and staging D1 are not
+   *     migrated by CI, and without it every connector edge in an un-migrated
+   *     environment misfiles as direct — the failure AECI-706 guarded against.
+   */
+  powered_by_product: ProductLinkSchema.nullable().default(null),
 });
 
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;

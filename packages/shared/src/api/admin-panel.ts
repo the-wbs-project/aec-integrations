@@ -98,11 +98,15 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the ten crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the thirteen crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
  * | `audience_history_is_current_state` | the subscriber series reads each `mailing_list` row's CURRENT `created_at` / `unsubscribed_at`. A resubscribe **clears** `unsubscribed_at` (`POST /api/subscribe`'s reactivation path), so a subscriber who churned and returned reads as never-churned and their earlier suppressed days are reported as active. This is the one thing the soft delete cannot preserve, and it is the honest counterweight to "churn is exactly computable" |
+ * | `connector_evidenced_pairs_empty` | `connector_evidenced_pairs` is the DELIVERED tier for connector edges and AECI-714 created it **empty with nothing writing it** — AECI-721 migrates the ~326 `powered_by` edges in. So the lane renders an empty state, and that is a statement about the migration rather than a measured zero |
+ * | `reachable_never_counted` | pair counts on this screen describe how many pair PAGES a vendor publishes, split by `surface`. They are not a reachable-tier count and must never be read as one: `STAGE_1_5_SPEC.md` §13.1/§13.5 are categorical that reachable never counts — not in a heading, not in `integration_count`, not in a facet, not in the home stats |
+ * | `publication_gate_inputs_only` | the pairs view shows §13.7's INPUTS, not its verdict. Clause (a) (both sides in our catalog) and the provenance half of (d) are computed; clause (b) (the pair being undelivered) and clause (c) (Addendum A §11.4's "meaningful no" scoring) are **not**, and belong to AECI-716. A row shown here is not thereby publishable |
+ * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -137,6 +141,13 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-586 / P5.1 — audience
   'utm_attribution_incomplete',
   'audience_history_is_current_state',
+  // AECI-722 — the connector admin surface (`admin-connectors.ts`). Four caveats
+  // that are structural rather than windowed: they describe what the connector
+  // lane deliberately does NOT model, so none of them retires on its own.
+  'connector_evidenced_pairs_empty',
+  'reachable_never_counted',
+  'publication_gate_inputs_only',
+  'stub_actions_never_fetched',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -987,13 +998,21 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The eleven cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The thirteen cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
- * tenth, added with the §7.4 pruning cron (AECI-584); `asn-registry` is the
- * eleventh and the only weekly one, added with the §7.6 read-time ASN
- * classification (AECI-624).
+ * tenth, added with the §7.4 pruning cron (AECI-584); `attestation-notify` is the
+ * eleventh, the Stage 2 §7 detector sweep (AECI-302), which met this vocabulary at
+ * the AECI-619 reconciliation — it is queue-backed and writes D1, so it belongs on
+ * the System screen's liveness table like every other cron. `entitlement-expiry`
+ * is the twelfth, the Stage 2 term-expiry warning sweep (AECI-613 /
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7): it WARNS and never lapses, so its liveness row
+ * is the only evidence an operator has that renewal notices are still going out.
+ * `asn-registry` is the thirteenth and the only WEEKLY one, added with the §7.6
+ * read-time ASN classification (AECI-624); it met this vocabulary at the AECI-750
+ * reconcile. A weekly series needs a >=2-week absence window — see the liveness
+ * registry in `observability/posthog/project-config.json`.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1006,6 +1025,8 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift', // 0 9 * * *
   'request-reconcile', // */15 * * * *
   'waf-poll', // 0 * * * *
+  'attestation-notify', // 0 10 * * *
+  'entitlement-expiry', // 0 11 * * *
   'asn-registry', // 0 2 * * 2  (weekly; CF day-of-week is 1=Sunday, so 2 = Monday)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
@@ -1047,7 +1068,7 @@ export const AdminCronRunStateSchema = z.enum(['complete', 'in_flight']);
 export type AdminCronRunState = z.infer<typeof AdminCronRunStateSchema>;
 
 /**
- * One cron's liveness row. All ten are ALWAYS present — a job missing from the
+ * One cron's liveness row. All thirteen are ALWAYS present — a job missing from the
  * array would read as "not configured", which is a different and wrong claim
  * from "we have no record of its last run".
  */
@@ -1198,7 +1219,7 @@ export const AdminSystemResponseSchema = z.object({
    *  which the UI fetches alongside this and compares — see
    *  {@link AdminVersionStatusSchema}. */
   version: AdminVersionStatusSchema,
-  /** All eleven, always. */
+  /** All thirteen, always. */
   crons: z.array(AdminCronRunSchema),
   /** The last stored 04:00 run by default, or the live result under
    *  `?recompute=1` — `source` says which. Null only when nothing has been stored
@@ -1420,7 +1441,10 @@ export type AdminIntegrationRef = z.infer<typeof AdminIntegrationRefSchema>;
  * The Stage 1.5 claim/attestation spine (§5.5). 915 claims backed by 915
  * attestations in the §14.2 census — the interesting numbers are the zeros:
  * integrations carrying no claim at all, and claims carrying no ACTIVE
- * attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`).
+ * attestation (`retracted_at IS NULL`, matching `attestations_active_idx`, whose
+ * predicate moved onto that column in AECI-603). Not `deprecated_at` — that is a
+ * version stamp (`STAGE_1_5_SPEC.md` §3.3), so a vendor recording which release
+ * deprecated a flow must not drop their live assertion out of the count.
  */
 export const AdminClaimCoverageSchema = z.object({
   integrations_total: z.number().int().nonnegative(),

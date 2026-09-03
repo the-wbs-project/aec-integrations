@@ -136,6 +136,14 @@ are non-indexed by design, so SEO `noindex` findings are expected, not failures.
 
 ## Part D — Live Datadog apply (us5)
 
+> **Still valid (note added 2026-08-24, AECI-648).** ADR 0024 migrates observability to PostHog,
+> but as a **dual-run**: Datadog is live and is what alerts on production until **AECI-651**, so
+> this apply is not superseded — do it. Two things to know if you execute this later rather than
+> sooner: **AECI-647** rebuilds the equivalents as PostHog dashboards (created in *both* projects)
+> and individually-ported alerts at **hourly** cadence, and any `notify_no_data` monitor in this
+> set has no PostHog successor — its job moves to the external CI liveness sweep. If AECI-647 has
+> already landed when you run this, do the PostHog side as well, not instead.
+
 Apply the **fixed** dashboard + the three Phase 5 monitors, substituting the notification handle at
 apply time (the committed JSON keeps the `@NOTIFICATION_CHANNEL_TBD` placeholder — do **not** commit
 the resolved handle). From the repo root:

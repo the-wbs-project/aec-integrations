@@ -25,6 +25,10 @@
       "types": "./src/agreement.ts",
       "default": "./src/agreement.ts"
     },
+    "./entitlements": {
+      "types": "./src/entitlements.ts",
+      "default": "./src/entitlements.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"
@@ -73,9 +77,9 @@
       "types": "./src/algolia-batch.ts",
       "default": "./src/algolia-batch.ts"
     },
-    "./datadog": {
-      "types": "./src/datadog.ts",
-      "default": "./src/datadog.ts"
+    "./posthog": {
+      "types": "./src/posthog.ts",
+      "default": "./src/posthog.ts"
     },
     "./timing-safe-equal": {
       "types": "./src/timing-safe-equal.ts",
@@ -88,6 +92,14 @@
     "./seed-reviews": {
       "types": "./src/seed-reviews/index.ts",
       "default": "./src/seed-reviews/index.ts"
+    },
+    "./version-sort": {
+      "types": "./src/version-sort.ts",
+      "default": "./src/version-sort.ts"
+    },
+    "./version-diff": {
+      "types": "./src/version-diff.ts",
+      "default": "./src/version-diff.ts"
     }
   },
   "scripts": {
@@ -99,6 +111,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "posthog-node": "^5.50.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

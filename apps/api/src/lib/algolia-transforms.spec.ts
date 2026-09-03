@@ -22,6 +22,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  connectorEvidencedPairs,
   integrations,
   products,
   productVendors,
@@ -37,12 +38,15 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
+  algoliaEvidencedPairConfig,
   algoliaIntegrationConfig,
   algoliaProductConfig,
   algoliaVendorConfig,
+  toAlgoliaEvidencedPair,
   toAlgoliaIntegration,
   toAlgoliaProduct,
   toAlgoliaVendor,
+  type RawAlgoliaEvidencedPairRow,
   type RawAlgoliaIntegrationRow,
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
@@ -244,6 +248,7 @@ describe('toAlgoliaVendor', () => {
       headquarters: 'Carpinteria, CA',
       foundedYear: 2003,
       logoUrl: null,
+      verified: true,
     });
     // product_count: 2 product_vendors rows for this vendor.
     await t.db.insert(products).values([
@@ -266,6 +271,7 @@ describe('toAlgoliaVendor', () => {
       objectID: u(1),
       company_name: 'Procore Technologies',
       slug: 'procore-technologies',
+      verified: true,
       description: null,
       headquarters: 'Carpinteria, CA',
       founded_year: 2003,
@@ -274,6 +280,13 @@ describe('toAlgoliaVendor', () => {
       logo_url: null,
     });
     expect(() => AlgoliaVendorRecordSchema.parse(record)).not.toThrow();
+  });
+
+  it('maps the verified flag from the vendor row, defaulting to false (AECI-529)', async () => {
+    // A vendor not yet granted a verified account carries the schema default.
+    await t.db.insert(vendors).values({ id: u(1), slug: 'unclaimed', companyName: 'Unclaimed Co' });
+    const record = toAlgoliaVendor((await vendorById(u(1)))!);
+    expect(record.verified).toBe(false);
   });
 
   it('reports zero counts for a vendor with no products / integrations', async () => {
@@ -361,6 +374,47 @@ describe('toAlgoliaIntegration', () => {
     expect(await rankFor('webhook')).toBe(2);
     expect(await rankFor('partner')).toBe(1);
     expect(await rankFor(null)).toBe(0);
+  });
+
+  it('builds an evidenced pair as an integrations record, ranked 4 not 0 (AECI-721)', async () => {
+    await seedEndpoints();
+    await t.db.insert(products).values({
+      id: u(83),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(81), u(82)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(70),
+      connectorProductId: u(83),
+      productAId: a!,
+      productBId: b!,
+      direction: 'b_to_a',
+      mechanismName: 'Agave ERP Sync',
+      description: 'ERP sync via Agave.',
+    });
+
+    const [row] = (await t.db.query.connectorEvidencedPairs.findMany({
+      ...algoliaEvidencedPairConfig,
+    })) as RawAlgoliaEvidencedPairRow[];
+    const record = toAlgoliaEvidencedPair(row!);
+
+    // `b_to_a` swaps the canonical endpoints back — the one direction that carries
+    // orientation information canonicalisation would otherwise discard.
+    expect(record.source_product_slug).toBe(
+      b === u(81) ? 'procore' : 'autodesk-construction-cloud',
+    );
+    expect(record.direction).toBe('one-way');
+    expect(record.mechanism_kind).toBeNull();
+    // The point of the case: NOT `mechanismRank(null)` → 0. A null kind here is
+    // structural (the table has no such column), not unknown, so falling through to
+    // the unknown-kind weight would bury every connector-delivered edge at the
+    // bottom of the index as an artifact of where we store it.
+    expect(record.mechanism_rank).toBe(4);
+    expect(record.mechanism_rank).toBeGreaterThan(0);
+    expect(() => AlgoliaIntegrationRecordSchema.parse(record)).not.toThrow();
   });
 
   it('passes a null mechanism_kind / direction through (rank 0)', async () => {

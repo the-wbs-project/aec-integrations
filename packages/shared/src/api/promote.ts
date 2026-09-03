@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { PromoteConnectorPageResponse } from './promote-connector';
+
 /**
  * `POST /api/promote` — push-based Airtable → Supabase promotion (supersedes the
  * pull-based `scripts/airtable-to-supabase-bulk-migrate.ts`). The review
@@ -30,11 +32,52 @@ import { z } from 'zod';
  * Contract source of truth; no codegen (see `docs/API_CONTRACTS.md` §2).
  */
 
+/**
+ * The maintenance-marker review signal (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13), accepted on vendors, products, and integrations alike.
+ *
+ * **Absence is load-bearing.** Omit the field and the stored `last_reviewed_at` is
+ * left exactly as it was — that is what makes a plain re-promote (which re-asserts
+ * `promotion_status` on every push) leave the record's advertised freshness alone.
+ * Send it ONLY when a human actually re-checked the record. Send `null` to clear it.
+ *
+ * Deliberately stricter than the loose-string rule the rest of this contract follows
+ * (`introducedAt` / `deprecatedAt` / the URL-ish fields, which stay loose because
+ * over-strict validation would reject legitimate curated values). Here an unparseable
+ * value would render as *no date at all* — silently, and indistinguishably from "never
+ * reviewed" — so a 400 is strictly better than the lie.
+ */
+const ReviewSignalSchema = z
+  .string()
+  .refine((v) => Number.isFinite(Date.parse(v)), {
+    message: 'lastReviewedAt must be a parseable date (ISO-8601)',
+  })
+  .nullish();
+
 /** Enum vocabularies — kept in sync with the Postgres CHECK constraints. */
 export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+// This list must stay in lockstep with `IntegrationMechanismKindSchema`
+// (`./integrations`), `MECHANISM_RANK` (`../algolia`), `VALID_MECHANISM_KINDS`
+// (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER`
+// (`apps/web/.../powered-hub-grouping.ts`) and the D1 CHECK. Nothing derives one
+// from another, so `integrations.spec.ts` asserts the five agree (AECI-735).
+//
+// `integrator` (AECI-698) replaces `partner`: an SI or consultancy built and
+// maintains the edge, neither endpoint vendor did. `partner` stays on the wire
+// until the review app has re-keyed its 117 rows and re-promoted them (AECI-712,
+// not yet run) — dropping it here would make the very push that carries the re-key
+// fail validation. `iPaaS` stays PERMANENTLY, not pending anything: AECI-735
+// settled that it is the marker behind the attestation gate, the Via lane and the
+// powered hub, over a population AECI-700 parks indefinitely.
+//
+// One DEPLOYMENT caveat on `integrator`: it reaches
+// `integrations_mechanism_kind_check` in `0027_powerful_killraven.sql`, so a
+// payload carrying it passes Zod and then fails the CHECK in any environment that
+// migration has not been applied to — production, until `stage-2` merges. See
+// `docs/REVIEW_APP_PROMOTE_API.md` §3.4.
 export const MECHANISM_KINDS = [
   'native',
   'iPaaS',
@@ -42,6 +85,7 @@ export const MECHANISM_KINDS = [
   'api',
   'webhook',
   'partner',
+  'integrator',
 ] as const;
 export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
 
@@ -114,7 +158,23 @@ export const PromoteVendorSchema = z.object({
   phoneNumber: z.string().nullish(),
   contactEmail: z.string().nullish(),
   logoUrl: z.string().nullish(),
+  /**
+   * ACCEPTED AND IGNORED since AECI-520. `vendors.verified` is the paid
+   * entitlement bit: it is set by the claim→account grant
+   * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) and cleared only by a deliberate
+   * entitlement action, so a routine Airtable push must not be able to flip it
+   * (which previously could silently un-verify a paying vendor). Kept in the
+   * schema rather than removed so an existing review-app build keeps validating
+   * — the server simply drops it.
+   */
   verified: z.boolean().optional(),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
+  // `maintainedBy` is deliberately NOT accepted here, on any entity. It flips to
+  // `'vendor'` only via a live vendor attestation (AECI-301), and a routine
+  // Airtable push carrying `'aeci'` would silently un-vendor a record the vendor
+  // maintains — the same failure mode as `verified` above (AECI-520) and as the
+  // wholesale claim replacement AECI-604 removed.
 });
 
 export type PromoteVendor = z.infer<typeof PromoteVendorSchema>;
@@ -197,6 +257,10 @@ export const PromoteProductSchema = z.object({
   // products with trade-SPECIFIC value; horizontal platforms send none.
   trades: z.array(z.string().min(1)).default([]),
   extensionOf: z.array(EntityRefSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched — so
+   *  a re-promote that changed a description does not re-advertise the record as
+   *  freshly reviewed. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
@@ -267,6 +331,8 @@ export const PromoteIntegrationSchema = z.object({
   // the §5.1 withhold rule). Optional; defaults to []. An unresolved `dataObject`
   // lands in the response's `skipped[]` with `kind: 'claim'` (§5.1, §6.2).
   claims: z.array(PromoteClaimSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;
@@ -434,10 +500,62 @@ export interface PromoteTaxonomyResult {
   operation: PromoteTaxonomyOperation;
 }
 
+/**
+ * Something in the payload that was accepted but not written.
+ *
+ * `vendor` / `product` are the AECI-520 claimed-vendor block: once a vendor has
+ * a granted `vendor_admin` seat, its row and every product it owns are
+ * vendor-owned and the review app may not overwrite them. These are the only
+ * kinds that mean "this WOULD have been written but policy said no" — the other
+ * four mean "this could not be resolved".
+ */
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade';
+  kind:
+    | 'integration'
+    | 'extension'
+    | 'usefulness'
+    | 'claim'
+    | 'trade'
+    | 'vendor'
+    | 'product'
+    // ── Connector lane (AECI-714) ──────────────────────────────────────────
+    // All four mean "this could not be RESOLVED" — the majority meaning of this
+    // type — and never "policy said no". They exist because the connector sync is
+    // PAGED and pages are not atomic with each other, so a page can legitimately
+    // reference a row that a later page carries. Widened here rather than given
+    // their own array because `logPromoteSkips` is already generic over `kind` and
+    // the review app's §4 skip handling is one code path on both sides.
+    | 'connector-catalog'
+    | 'connector-stub'
+    | 'connector-mapping'
+    | 'connector-pair';
   reason: string;
+}
+
+/**
+ * An EXISTING row this promote deliberately left alive (AECI-604 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §3.3).
+ *
+ * Deliberately a separate array from {@link PromoteSkipped} rather than more
+ * `kind`s on it, because the two carry opposite signals. `skipped` is "something
+ * you sent was not written" — the review app is told to inspect it and act
+ * (`REVIEW_APP_PROMOTE_API.md` §4). `preserved` is "something you did NOT send
+ * survived anyway", which is never actionable for the caller and never an error:
+ * it is the operator's receipt that replace-by-origin worked. Folding them
+ * together would make every claimed product's re-promote look like it had
+ * problems.
+ *
+ * `ref` is the enclosing **integration**'s `ref`, matching how `kind: 'claim'`
+ * entries in `skipped` are addressed — claims have no `ref` of their own.
+ * Entries are aggregated per `(ref, kind, reason)` with a `count`, so a mechanism
+ * retaining nine vendor claims reports one row saying nine, not nine rows.
+ */
+export interface PromotePreserved {
+  ref: string;
+  kind: 'claim' | 'attestation';
+  reason: string;
+  count: number;
 }
 
 /**
@@ -486,14 +604,27 @@ export interface PromoteUnresolvedLink {
 
 /**
  * The ID map the review app persists. `product` is `null` for a vendor-only or
- * integration-only push (no `product` was sent); otherwise it's the single
- * promoted product. `skipped` lists integrations/extensions that couldn't be
- * linked because an endpoint wasn't resolvable (e.g. the other product isn't
- * promoted yet), usefulness groups that didn't resolve to an existing
- * audience/phase term, claims whose `dataObject` failed find-only resolution
- * against the seeded vocabulary (`kind: 'claim'`), and trades that failed
- * find-only resolution against the seeded `trade` vocabulary (`kind: 'trade'`) —
- * surfaced rather than silently dropped.
+ * integration-only push (no `product` was sent) — and, since AECI-520, also when
+ * the product was BLOCKED because a claimed vendor owns it; the two are told
+ * apart by a `{ ref: <product.ref>, kind: 'product' }` entry in `skipped`, whose
+ * `ref` only ever appears when a product was actually sent. A blocked vendor is
+ * likewise absent from `vendors[]`. Omission (rather than an `operation:
+ * 'blocked'`) is deliberate: every post-commit deriver — cache-tag purge,
+ * IndexNow, Algolia — iterates these arrays unconditionally, so
+ * omitting the entity excludes it from all of them by default rather than by
+ * remembering to guard six call sites.
+ *
+ * `skipped` also lists integrations/extensions that couldn't be linked because an
+ * endpoint wasn't resolvable (e.g. the other product isn't promoted yet),
+ * usefulness groups that didn't resolve to an existing audience/phase term,
+ * claims whose `dataObject` failed find-only resolution against the seeded
+ * vocabulary (`kind: 'claim'`), and trades that failed find-only resolution
+ * against the seeded `trade` vocabulary (`kind: 'trade'`) — surfaced rather than
+ * silently dropped.
+ *
+ * `preserved` is the mirror image, added by AECI-604: rows that were NOT in the
+ * payload and were kept anyway because a vendor owns them. See
+ * {@link PromotePreserved}.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
@@ -512,6 +643,13 @@ export interface PromoteResponse {
     trades: PromoteTaxonomyResult[];
   };
   skipped: PromoteSkipped[];
+  /**
+   * Existing claims/attestations this promote left alive because they are
+   * vendor-owned (AECI-604). Always present; empty for the ordinary promote of
+   * an unclaimed product, which is still the overwhelming majority.
+   */
+  preserved: PromotePreserved[];
+
   /**
    * Integrations that WERE written but whose `poweredByProduct` / `builtByVendor`
    * link could not be resolved, so that column was left out of the write (AECI-730).
@@ -566,6 +704,12 @@ export type PromoteJobStatus = 'queued' | 'running' | 'complete' | 'errored';
 export interface PromoteJobResponse {
   jobId: string;
   status: PromoteJobStatus;
-  result?: PromoteResponse;
+  /**
+   * `PromoteResponse` for a product bundle; `PromoteConnectorPageResponse` for a
+   * connector-catalogue page (AECI-714). Told apart by `'kind' in result` —
+   * `PromoteResponse` deliberately carries no `kind`, so absence means product and
+   * no existing producer or consumer moved.
+   */
+  result?: PromoteResponse | PromoteConnectorPageResponse;
   error?: { code: string; message: string };
 }

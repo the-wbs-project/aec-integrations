@@ -44,7 +44,33 @@ The preview gap matters in practice: `lighthouse.yml` measures `/search` against
 
 **Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
 
-**Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers (Stage 4+) affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
+### 1.1 How settings actually reach an index
+
+One command applies every index's settings for one environment:
+
+```bash
+pnpm algolia:apply-settings --env <preview|staging|demo|production>
+# → scripts/algolia/apply-settings.mjs → applyIndexSettings(client, env)
+```
+
+It is idempotent, prints no secrets, and per run issues **7 `setSettings` calls** — the three primaries plus the four sort replicas, which re-receive `searchableAttributes` / `attributesForFaceting` / `customRanking` verbatim and differ only in `ranking` (§5a). That is why a new facet needs no separate replica step: the `/search` facet rail keeps working under every sort automatically.
+
+| Environment | How settings are applied |
+|---|---|
+| `staging` | CI — `.github/workflows/deploy.yml` ("Update Algolia staging index settings") |
+| `demo` | CI — `.github/workflows/promote-to-demo.yml` |
+| `production` | CI — `.github/workflows/promote-to-prod.yml` |
+| **`preview`** | **No CI step — an operator must run the command by hand.** |
+
+The preview gap matters in practice: `lighthouse.yml` measures `/search` against the **preview** indexes, so a settings change that lands in code but not on preview is invisible there until someone runs the command. It degrades gracefully rather than erroring (Algolia returns no values for an unconfigured facet attribute, and the widget renders nothing), so it is a hygiene step, not a release blocker.
+
+> **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
+
+**Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
+
+**Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
+
+**And it is asserted, not merely documented (AECI-610).** The entitlement vocabulary (`packages/shared/src/entitlements.ts`) and the ranking vocabulary defined here are both pure data in the same package, so `packages/shared/src/entitlements.spec.ts` proves they are **disjoint sets**: no capability id appears in the union of every entity's `searchableAttributes ∪ attributesForFaceting ∪ customRanking`, and none of `verified` / `tier` / `entitlement` / `status` / `paid` / `plan` appears in it either. That test plus the per-entity `customRanking` freezes in `algolia.spec.ts` are the two halves of the firewall. Both are **invariant tests** (`STAGE_2_PAID_TIERS_SPEC.md` §10) — a ranking change that trips one is not a test to update, it is a decision to reopen.
 
 ---
 
@@ -96,6 +122,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
 - **Custom ranking:** `desc(integration_count)`, then `desc(product_count)`
   - *Rationale:* a vendor whose catalog participates in more integrations ranks first; product count breaks the tie.
+- **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior. The **record** may carry it; `INDEX_SETTINGS` may never name it, and `entitlements.spec.ts` asserts exactly that (§1).
 
 ### 3.3 `integrations`
 
@@ -126,7 +153,11 @@ shape are recorded here now (per AECI-298) to keep the decision in one place.
 - **Index name.** Follows the existing `indexNamesFor(env)` convention (`packages/shared/src/algolia.ts`):
   **`{prefix}_pairs`** (e.g. `staging_pairs`, `production_pairs`).
 - **Future record shape (Stage 2 — illustrative, not yet built).** Derived from the pair-page read model
-  `{ context_product, other_product, mechanisms[], sync_headline }` (`STAGE_1_5_SPEC.md` §7.1/§8):
+  `{ context_product, other_product, mechanisms[], sync_headline, maintenance, version_diff }`
+  (`STAGE_1_5_SPEC.md` §7.1/§8; `maintenance` added by AECI-616, `version_diff` by AECI-303). Note
+  that a per-pair record would be a **latest-version** projection: the §9 version selectors are URL
+  params on the read, and attestation state still does not reach search
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §11):
 
   | Field | Type | Purpose |
   |---|---|---|
@@ -166,9 +197,36 @@ The weight map (`MECHANISM_RANK` in `packages/shared/src/algolia.ts`):
 | `api` | 3 |
 | `webhook` | 2 |
 | `partner` | 1 |
+| `integrator` | 1 |
 | absent / unknown | 0 |
+| *(no kind — a connector-evidenced pair)* | **4**, pinned |
 
 `mechanismRank()` returns `0` for `null`, `undefined`, or any kind not in the map, so a record with a missing mechanism ranks last rather than throwing. The map is **string-keyed on purpose** so the settings module imports nothing; `IntegrationMechanismKindSchema` (`packages/shared/src/api/integrations.ts`) remains the source of truth for the *set* of valid kinds. Adding or reordering a kind means updating that enum, `MECHANISM_RANK`, and this table together.
+
+### 4.1 `integrator` ties `partner` (AECI-698 / AECI-721)
+
+`integrator` **replaces** `partner` — an SI or consultancy built and maintains the edge, neither endpoint vendor did — and the review app re-keys ~117 rows into it. That is a **classification** change, so it must not move anything: a classification-only migration silently re-ranking the catalog is exactly what `STAGE_1_5_SPEC.md` §13.5 exists to prevent. Tying at `1` also renumbers no existing weight, so no full reindex is forced for rank alone.
+
+Both values are listed while the re-key runs. `partner` leaves the app-DB CHECK only after the review app has re-keyed and re-promoted (AECI-712) — see §4.3.
+
+### 4.2 Connector-evidenced pairs rank 4, not 0 (AECI-721)
+
+Since AECI-721 the `integrations` index is fed by **two tables**: `integrations`, and `connector_evidenced_pairs` — the delivered-via-connector tier (`STAGE_1_5_SPEC.md` §13.1). Evidenced pairs carry **no `mechanism_kind` at all**; the table has no such column, because once an edge is filed under the connector that delivers it, "which mechanism" is answered by the lane.
+
+Their records therefore serialise `mechanism_kind: null` — but their rank is pinned to `CONNECTOR_EVIDENCED_MECHANISM_RANK = 4` (`packages/shared/src/algolia.ts`), **not** `mechanismRank(null) → 0`. A null kind here is *structural*, not *unknown*, and letting it fall through to the unknown-kind weight would bury every connector-delivered edge at the bottom of the index as an artifact of which table we chose to store it in.
+
+**This is a real, bounded re-rank, and it is accepted rather than incidental.** Measured against production on 2026-08-31, the 19 migrating edges are: 1 typed `iPaaS` (rank-neutral, 4 → 4) and 18 typed `marketplace-app` (1 `partner`), which **demote 5 → 4**. Seventeen records move one step down a six-step scale. Ranking stays purely algorithmic — this is a change in a signal's inputs, never in who can buy position.
+
+### 4.3 `iPaaS` stays permanently; `partner` stays for now
+
+AECI-721's original scope dropped `iPaaS`. It does not, and **AECI-735 settled that it never will** — the two values are retained for different reasons and only one of them is still a pending retirement:
+
+- **`iPaaS` is a marker, not a legacy value.** 53 production edges are `iPaaS` with a NULL `powered_by` — Zapier, Workato, Make, n8n, Boomi — because their connector is not a promoted product and AECI-700 parks Zapier and Workato permanently. They cannot migrate (`connector_evidenced_pairs.connector_product_id` is NOT NULL), so the set never drains, and three shipped predicates key off the value over it: `isConnectorPoweredEdge` (AECI-705's attestation gate — these are 53 of the 132 edges it gates), `routeIntegrationLane` clause (c) (§13.2(c), AECI-713's Via lane — the only thing keeping them off the direct, first-party lane), and `MECHANISM_ORDER`, which `freeze()` uses as a **filter** so a gap drops badges silently. Retiring the value would need a replacement marker, and there is none short of a new `integrations` column.
+- **`partner` is the dumping ground AECI-698 exists to empty.** Its 55 production rows earn `integrator` — or `native`, or `marketplace-app` — one at a time, upstream, under the rubric. Blanket-mapping them here would be the app DB inventing the classification the rubric exists to prevent.
+
+**`partner` is the only open retirement, and it is gated on AECI-712** — the row-level re-key, which has not run (117 `partner` / 0 `integrator` upstream as of 2026-09-02; AECI-698 revised the vocabulary and rubric, not the rows). `toMechanismKind` is fail-loud, so narrowing the CHECK ahead of the re-key 500s every read of a surviving row. It is its own destructive D1 recreate when it comes.
+
+**The vocabulary is spelled out in five places and nothing derives one from another** — `IntegrationMechanismKindSchema`, `MECHANISM_KINDS` (the promote wire), `MECHANISM_RANK`, `VALID_MECHANISM_KINDS` (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER` (`apps/web`) — plus the D1 CHECK. AECI-735 added the lockstep tests that hold the six together: `packages/shared/src/api/integrations.spec.ts`, `apps/api/src/test/mechanism-vocabulary.spec.ts` (which also asserts the CHECK), and `apps/web/src/app/products/powered-hub-grouping.spec.ts`. Two of the six degrade **silently** on drift, which is why the tests exist rather than a comment.
 
 ---
 
@@ -181,6 +239,10 @@ After the textual-relevance criteria (typo…exact), ties resolve by each index'
 | `products` | `integration_count` desc | `review_count` desc | index order (arbitrary) |
 | `vendors` | `integration_count` desc | `product_count` desc | index order (arbitrary) |
 | `integrations` | `mechanism_rank` desc | *(none)* | index order (arbitrary) |
+
+**`integration_count` changed meaning in AECI-721, on both indices.** It now counts delivered edges **regardless of which table holds them** — `integrations` plus `connector_evidenced_pairs` — and, per `STAGE_1_5_SPEC.md` §12.5 option B, a connector counts the edges it *powers*, not only the ones it terminates. Endpoint products' counts are unchanged by construction (a delivered-via-connector edge already counted for both endpoints); **connector products' counts rise** — in production Agave ERP Sync goes 0 → 12.
+
+That lifts connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
 
 When records tie on the full `customRanking` list, Algolia falls back to the records' internal order in the index — not stable or meaningful, so it must not be relied on for deterministic ordering.
 
@@ -222,9 +284,11 @@ Three configured signals are **inert at launch** and should not be read as "tune
 - **`review_count` / ratings are no-ops until Phase 5.** `desc(review_count)` is wired into the `products` custom ranking, but every product carries `review_count: 0` until the reviews feature (Phase 5) lands, so the signal orders nothing pre-Phase-5. Separately, `rating_overall_avg` ships on the product record (for display) but is **not** a `customRanking` signal at all today — promoting it to a ranking signal once reviews exist is a §7 tuning decision, not current behavior.
 - **The `integrations` index is sparse until [AECI-86](https://linear.app/aec-integrations/issue/AECI-86).** Integration seeding in `POST /api/promote` is currently disabled, so few integration records exist. `desc(mechanism_rank)` is correct but has little to order until AECI-86 re-enables seeding; the §5 secondary-tie-break gap is also low-impact until then.
 
-- **`trades` / `trade_aliases` ship empty (AECI-545).** The record fields and the `searchable(trades)` facet are live, but `product_trades` is unpopulated in every environment until the promote-ingest key (AECI-542) and the cross-repo catalog backfill (REVIEW: AECI-547) land. Until then every product carries `trades: []` / `trade_aliases: []` and the `/search` **Trades facet renders nothing at all** — that is the expected state, not a regression. Because the backfill re-promotes (which bumps `products.updated_at`), the nightly watermark sync carries trades onto exactly the tagged products with no manual step; the one-time full reindex afterwards is only to normalize the untouched majority onto the new field set.
+- **`trades` / `trade_aliases` ship empty (AECI-545).** The record fields and the `searchable(trades)` facet are live, but `product_trades` is unpopulated in every environment until the promote-ingest key (AECI-542) and the cross-repo catalog backfill (REVIEW: AECI-547) land. Until then every product carries `trades: []` / `trade_aliases: []` and the `/search` **Trades facet renders nothing at all** — that is the expected state, not a regression. Because the backfill re-promotes (which bumps `products.updated_at`), the nightly watermark sync carries trades onto exactly the tagged products with no manual step; the one-time full reindex afterwards is only to normalize the untouched majority onto the new field set. **Second writer since AECI-665:** a claimed vendor can now assign its own product's trades in the portal (`PATCH /api/vendor/products/:id`), which reaches this index by the same route — that handler stamps `products.updated_at` even for a taxonomy-only edit, so the next nightly window picks the change up. No immediate by-id push, so trade edits are ≤24h to search (the vendor-facing copy says so; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3).
 
 None of these caveats requires a settings change — the signals are deliberately in place ahead of the data so no re-index is needed when the data arrives.
+
+**Search freshness lags SSR by up to a nightly cycle (AECI-529).** Search/browse cards render from **Algolia records**, which are rebuilt only by the nightly watermark cron (`runDailySync`, `apps/api/src/lib/algolia-sync.ts`, 08:00 UTC) over rows whose `updated_at` moved. So a vendor content edit or a **verified-badge flip** reaches the search surfaces **≤24h** later, whereas the equivalent SSR detail page is **immediate** via the `vendor:{slug}` / `product:{slug}` Cache-Tag purge (`CACHE_STRATEGY.md` §5). This is an **accepted launch expectation** — UI copy must not promise instant search. The AECI-519 claim→grant batch stamps `vendors.updated_at` alongside the `verified` flip precisely so the next window re-indexes the vendor. An immediate by-id `indexEntity` hook (like the promote path's `syncPromoteTargets`) is a future option if faster search is wanted; it is out of scope for launch.
 
 ---
 
@@ -264,6 +328,10 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-137](https://linear.app/aec-integrations/issue/AECI-137) — index settings + record shapes as code (Phase 3.2).
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
+- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the fourteen-site `integration_count` lockstep §4.2 and §5 follow from.
+- [AECI-698](https://linear.app/aec-integrations/issue/AECI-698) — the mechanism vocabulary revision that introduces `integrator` (§4.1).
+- [AECI-721](https://linear.app/aec-integrations/issue/AECI-721) — the powered-edge migration: `integrator` in the enum, the pinned evidenced-pair rank (§4.2), and the `integration_count` semantics change (§5).
+- [AECI-735](https://linear.app/aec-integrations/issue/AECI-735) — settled that `iPaaS` is retained permanently, re-gated the `partner` retirement on [AECI-712](https://linear.app/aec-integrations/issue/AECI-712), and added the six-way vocabulary lockstep tests (§4.3).
 - [AECI-283](https://linear.app/aec-integrations/issue/AECI-283) — run this §7 tuning loop on real query data (unblocked at go-live 2026-07-03; needs accumulated launch traffic).
 - [AECI-286](https://linear.app/aec-integrations/issue/AECI-286) — `/preview/search-relevance`, the fixtures-based lab for evaluating the §7 levers before the query data exists (see §7).
 - [AECI-49](https://linear.app/aec-integrations/issue/AECI-49) — the `CACHE_STRATEGY.md` precedent for lifting a spec section into a canonical doc.

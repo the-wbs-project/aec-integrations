@@ -121,6 +121,33 @@ describe('RequestForm', () => {
     httpMock.verify();
   });
 
+  it('discloses the 20-character floor as persistent hint text, described before any error', () => {
+    const { el, httpMock } = setup('vendor', 'claim');
+
+    // The hint is present from first render (not gated on touched/invalid) and is
+    // the only thing describing the field until an error joins it.
+    const hint = el.querySelector('#claim-body-hint');
+    expect(hint?.textContent).toContain('Minimum 20 characters');
+    expect(el.querySelector('#claim-body')?.getAttribute('aria-describedby')).toBe(
+      'claim-body-hint',
+    );
+    httpMock.verify();
+  });
+
+  it('keeps the hint in aria-describedby alongside the error once the field is touched', async () => {
+    const { fixture, el, httpMock } = setup('product', 'correction');
+    const body = el.querySelector('#correction-body') as HTMLTextAreaElement;
+    body.dispatchEvent(new Event('blur'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(body.getAttribute('aria-describedby')).toBe(
+      'correction-body-hint correction-body-error',
+    );
+    expect(el.querySelector('#correction-body-hint')).not.toBeNull();
+    httpMock.verify();
+  });
+
   it('surfaces a per-field error via get() once a field is touched', async () => {
     const { fixture, el, httpMock } = setup('product', 'correction');
     // Blur the empty body field → touched + invalid → standardSchema error shows.

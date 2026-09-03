@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.0
 effective_date:
-last_updated: 2 July 2026
+last_updated: 24 August 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -20,7 +20,8 @@ We collect only what we need to run the service:
 
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
-- **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics and performance monitoring to understand how the service is used and to keep it reliable and secure.
+- **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
+- **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
 
@@ -36,6 +37,20 @@ We rely on the following lawful bases under the GDPR:
 ## Cookies and similar technologies
 
 We use a small number of strictly necessary cookies to make the service work, and, subject to your consent where required, analytics that help us measure and improve it. You can control non-essential cookies through the consent controls provided in the service and through your browser settings.
+
+## Do Not Track, Global Privacy Control, and operational telemetry
+
+We honour the **Do Not Track (DNT)** and **Global Privacy Control (GPC)** browser signals as an opt-out of **product analytics**. If your browser sends either signal, we do not show you the consent banner, we do not record pageviews or product events for you, and we do not store any analytics identifier in your browser. That decision cannot be overridden by a previously stored choice.
+
+A narrow slice of **operational telemetry** runs for every visitor, whether or not you have consented and whether or not you send DNT or GPC. It is limited to two things: **error reports**, so we learn that a page failed, and **performance measurements**, so we learn that a page was slow. We treat this as strictly necessary to operating the service securely and reliably, and it is scoped to match:
+
+- it carries **no identifiers** of any kind, and nothing that links one visit to another;
+- it writes **nothing persistent** to your browser, no cookie and no local storage entry, so it leaves no trace between page loads;
+- it is never used for advertising, profiling, or measuring you as an individual, and it tells us that an error or a slow page happened, not who it happened to.
+
+We do **not** record your screen. There is no session recording, session replay, or similar playback of your activity on the service.
+
+Because we do not sell or share personal data, the statutory scope of the GPC signal does not apply to us in any case; we honour it as an analytics opt-out regardless.
 
 ## How we share data
 

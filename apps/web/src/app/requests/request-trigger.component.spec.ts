@@ -19,6 +19,24 @@ import { RequestTrigger } from './request-trigger';
 })
 class TriggerHost {}
 
+/** The claimed-listing variant: a `claim` trigger on a vendor whose `verified`
+ *  bit is set, i.e. the detail-page CTA that reads "Request access to this
+ *  listing". Only the drawer copy differs — same kind, same endpoint. */
+@Component({
+  selector: 'aec-claimed-trigger-host',
+  imports: [RequestTrigger],
+  template: `<a
+    aecRequestTrigger
+    [entity]="'vendor'"
+    [kind]="'claim'"
+    [slug]="'acme'"
+    [claimed]="true"
+    href="/vendors/acme/claim"
+    >Request access to this listing</a
+  >`,
+})
+class ClaimedTriggerHost {}
+
 function setup(platform: 'browser' | 'server' = 'browser') {
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: platform }],
@@ -64,7 +82,32 @@ describe('RequestTrigger', () => {
     const prevented = click(anchor);
     expect(prevented).toBe(true);
     expect(drawer.isOpen()).toBe(true);
-    expect(drawer.target()).toEqual({ entity: 'product', kind: 'correction', slug: 'acme' });
+    expect(drawer.target()).toEqual({
+      entity: 'product',
+      kind: 'correction',
+      slug: 'acme',
+      claimed: false,
+    });
+  });
+
+  it('forwards `claimed` so the drawer opens with the request-access copy', () => {
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: 'browser' }],
+    });
+    const fixture = TestBed.createComponent(ClaimedTriggerHost);
+    fixture.detectChanges();
+    const anchor = (fixture.nativeElement as HTMLElement).querySelector('a') as HTMLAnchorElement;
+    const drawer = TestBed.inject(RequestDrawerService);
+
+    expect(click(anchor)).toBe(true);
+    // Same `kind:'claim'` as an unclaimed listing — `claimed` is copy-only and
+    // changes no field, no endpoint and no payload.
+    expect(drawer.target()).toEqual({
+      entity: 'vendor',
+      kind: 'claim',
+      slug: 'acme',
+      claimed: true,
+    });
   });
 
   it('leaves modified clicks (new-tab) to the browser — no preventDefault, no drawer', () => {

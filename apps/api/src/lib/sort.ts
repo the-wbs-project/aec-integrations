@@ -12,6 +12,10 @@
  *                      the §5.5 gate (`review_count < 5`) sort last (see
  *                      `resolveProductOrderBy`).
  *   - `reviews → DESC` ("Most reviewed")
+ *   - `integrations → DESC` ("Most integrations") — on the denormalized
+ *                      `products.integration_count`, so no join is needed. This
+ *                      is the third sort `STAGE_1_SPEC.md` §4.5 asked for and
+ *                      the last to be built (AECI-657).
  *
  * Each resolver returns an **array** whose last element is a unique `id` ASC
  * tiebreaker. The list handlers paginate with page-based `skip`/`take`, and a
@@ -32,10 +36,10 @@
  */
 
 import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
-import type { IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
+import type { AdminUsersSort, IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
 import { asc, desc, sql, type SQL } from 'drizzle-orm';
 
-import { integrations, products, vendors } from '../db/schema';
+import { integrations, products, profiles, vendors } from '../db/schema';
 
 type Direction = 'asc' | 'desc';
 
@@ -69,6 +73,13 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
       ];
     case 'reviews':
       return [desc(products.reviewCount), asc(products.id)];
+    case 'integrations':
+      // Denormalized counter, recomputed by `lib/recompute-counts.ts` — sorting
+      // on it avoids a correlated count over `integrations`, which on D1 would
+      // run per row. No §5.5-style visibility gate applies: unlike `rating`, the
+      // count is displayed unconditionally (`IntegrationStat` renders "Not yet
+      // connected" at zero), so the order always matches what the card shows.
+      return [desc(products.integrationCount), asc(products.id)];
     default:
       return sort satisfies never;
   }
@@ -83,6 +94,26 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
       return [asc(vendors.companyName), asc(vendors.id)];
     case 'updated':
       return [desc(vendors.updatedAt), asc(vendors.id)];
+    default:
+      return sort satisfies never;
+  }
+}
+
+/**
+ * Order for the admin user list (AECI-692).
+ *
+ * **D1 columns only, and that is a contract not an omission.** There is no
+ * `last_sign_in` case: last sign-in lives in GoTrue and is fetched per-id AFTER
+ * this ORDER BY has already chosen the page, so a "sort by last login" control
+ * would reorder 24 arbitrary rows and call it a ranking. Adding one means
+ * pulling every profile in the environment through the seam first.
+ */
+export function resolveAdminUserOrderBy(sort: AdminUsersSort): SQL[] {
+  switch (sort) {
+    case 'created':
+      return [desc(profiles.createdAt), asc(profiles.id)];
+    case 'updated':
+      return [desc(profiles.updatedAt), asc(profiles.id)];
     default:
       return sort satisfies never;
   }
@@ -120,6 +151,7 @@ export function resolveProductSort(sort: ProductSort): Array<{
   name?: Direction;
   ratingOverallAvg?: Direction;
   reviewCount?: Direction;
+  integrationCount?: Direction;
   id?: Direction;
 }> {
   switch (sort) {
@@ -133,6 +165,8 @@ export function resolveProductSort(sort: ProductSort): Array<{
       return withTiebreaker({ ratingOverallAvg: 'desc' as Direction });
     case 'reviews':
       return withTiebreaker({ reviewCount: 'desc' as Direction });
+    case 'integrations':
+      return withTiebreaker({ integrationCount: 'desc' as Direction });
     default:
       return sort satisfies never;
   }

@@ -9,11 +9,13 @@
  * builder (`apps/api/src/lib/audit.ts`), so it commits or rolls back with the
  * entity write that triggered it (the §26.1 invariant, preserved by the batch).
  *
- * Per §26.5 the event is ALSO forwarded to Datadog, but the database is the
- * source of truth: a forwarding failure is logged and swallowed, never failing
- * the DB write. Forwarding is injected (`forward`) rather than hard-wired so this
- * module stays transport-agnostic and edge-safe — identical rationale to the
- * audit-log forwarder.
+ * Per §26.5 the event is ALSO forwarded to the observability plane, but the
+ * database is the source of truth: a forwarding failure is logged and swallowed,
+ * never failing the DB write. Forwarding is injected (`forward`) rather than
+ * hard-wired so this module stays transport-agnostic and edge-safe — identical
+ * rationale to the audit-log forwarder, and identically the reason the
+ * Datadog → PostHog swap (AECI-642 / POSTHOG_MIGRATION_SPEC.md §3.7) changed no
+ * line in this file. The API Worker wires `forward` to `logToPosthog()`.
  *
  * **Stage-1 lean relaxation (§26.3, Phase 6 Spec §5):** there is **no guarded
  * state machine**. Transitions are *recorded*, not *enforced* — nothing here
@@ -43,18 +45,19 @@ export interface WorkflowTransitionEntry {
 }
 
 /**
- * Forwards a transition event to an external sink (Datadog). Implementations
+ * Forwards a transition event to an external sink (PostHog). Implementations
  * must not throw to the caller — but {@link forwardWorkflowTransition} defends
  * against it anyway. May be sync (fire-and-forget via `ctx.waitUntil`) or async.
  */
 export type WorkflowTransitionForwarder = (entry: WorkflowTransitionEntry) => void | Promise<void>;
 
 /**
- * Best-effort forward of a transition event to Datadog (§26.5), decoupled from
+ * Best-effort forward of a transition event to PostHog (§26.5), decoupled from
  * the DB write. Under D1 (ADR 0016 / AECI-249) the transition row is inserted as
  * a statement inside the caller's atomic `db.batch([...])` (see
- * `apps/api/src/lib/audit.ts` `workflowTransitionInsert`). Call AFTER the batch
- * commits. A forward failure is logged and swallowed.
+ * `apps/api/src/lib/audit.ts` `workflowTransitionInsert`), so the §26.1 invariant
+ * is unaffected by where the forward goes. Call AFTER the batch commits. A
+ * forward failure is logged and swallowed.
  */
 export async function forwardWorkflowTransition(
   entry: WorkflowTransitionEntry,
@@ -64,6 +67,6 @@ export async function forwardWorkflowTransition(
   try {
     await forward(entry);
   } catch (error) {
-    console.warn('forwardWorkflowTransition: Datadog forward failed', error);
+    console.warn('forwardWorkflowTransition: observability forward failed', error);
   }
 }

@@ -1,0 +1,402 @@
+{
+  "_readme": [
+    "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6 + §5.",
+    "The thirteen PostHog alerts that replace sixteen of the twenty-six live Datadog monitors.",
+    "The other ten go to the liveness sweep (8) and the daily digests (2) — the complete",
+    "twenty-six-row disposition, with every retired threshold, is README.md §\"Monitor",
+    "disposition\".",
+    "",
+    "Alerts are PRODUCTION ONLY (project 354071). apply.sh will refuse to create them in the",
+    "non-production project: a preview deploy failing a cron is not an incident, and the same",
+    "alert firing from two projects trains the operator to ignore it.",
+    "",
+    "The `insight` field names an entry in insights.json by NAME, not id — ids differ per",
+    "project and are resolved at apply time.",
+    "",
+    "`replaces.datadogQuery` is the retired Datadog query verbatim. It is here so that",
+    "re-promoting a threshold, or auditing whether the port changed the meaning, is a diff",
+    "rather than archaeology. Do not delete it when observability/datadog/ is removed at",
+    "AECI-651 — this becomes the only record."
+  ],
+  "managedBy": "AECI-647",
+  "appliesTo": ["prod"],
+  "alerts": [
+    {
+      "key": "worker-error-rate",
+      "name": "AECi — Worker error rate > 1% (1 h)",
+      "insight": "AECi — ALERT — Worker 5xx rate (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 1
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "error_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Worker error rate > 1% (5m)",
+        "datadogQuery": "sum(last_5m):( ( count:aeci.page.render.duration_ms{status_class:5xx,env:production} + count:aeci.api.query.duration_ms{status_class:5xx,env:production} ) / ( count:aeci.page.render.duration_ms{env:production} + count:aeci.api.query.duration_ms{env:production} ) ) * 100 > 1"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Worker error rate high'."
+    },
+    {
+      "key": "cron-job-failed",
+      "name": "AECi — Cron job failed (any daily/hourly job)",
+      "insight": "AECi — ALERT — Cron job failed (any of the thirteen, 24 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failed_runs",
+        "label_column": "failing_jobs"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Algolia sync failed / Home stats compute failed / Data quality job failed / Retention prune failed (4 monitors)",
+        "datadogQuery": "sum(last_1d):sum:aeci.algolia.sync{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.stats.compute.key{outcome:failed,env:production}.as_count() + sum:aeci.stats.compute{outcome:failed,trigger:cron,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.data_quality.job{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.retention.prune{outcome:failed,env:production}.as_count() > 0"
+      },
+      "runbook": "docs/RUNBOOKS.md — the per-job runbook named by `failing_jobs`; /admin/system shows the matching job_runs row."
+    },
+    {
+      "key": "data-quality-error",
+      "name": "AECi — Data quality check found ERROR-severity issues",
+      "insight": "AECi — ALERT — Data quality ERROR-severity findings (24 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "worst_finding",
+        "label_column": "failing_checks"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Data quality check found ERROR-severity issues (by check)",
+        "datadogQuery": "max(last_1d):max:aeci.data_quality.check{env:production,severity:error} by {check} > 0"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Data quality check'. Report-only: humans triage, nothing auto-remediates."
+    },
+    {
+      "key": "retention-runaway",
+      "name": "AECi — Retention prune runaway (> 5,000 rows/table/day)",
+      "insight": "AECi — ALERT — Retention prune deleted an unexpected number of rows (24 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 5000
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "max_rows_deleted",
+        "label_column": "tables_over_budget"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Retention prune deleted an unexpected number of rows",
+        "datadogQuery": "sum(last_1d):sum:aeci.retention.rows_deleted{env:production} by {table}.as_count() > 5000"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Retention prune'. §7.4: a runaway must be visible HERE before it is visible as missing data."
+    },
+    {
+      "key": "reconcile-persistent-stuck",
+      "name": "AECi — Linear reconciliation: persistent stuck requests",
+      "insight": "AECi — ALERT — Linear reconciliation persistent failures (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "persistent_failures",
+        "label_column": "detail"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Linear reconciliation: persistent stuck requests",
+        "datadogQuery": "sum(last_1h):sum:aeci.linear.reconcile.persistent_failure{env:production}.as_count() > 0"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Linear reconciliation'. §6.2 admin alert email is the parallel channel."
+    },
+    {
+      "key": "algolia-orphan-cap",
+      "name": "AECi — Algolia orphan sweep capped",
+      "insight": "AECi — ALERT — Algolia orphan sweep hit its safety cap (24 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "max_skipped",
+        "label_column": "capped_indexes"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Algolia orphan sweep capped",
+        "datadogQuery": "max(last_1d):max:aeci.algolia.orphans_skipped_cap{env:production} by {index} > 0"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Algolia index drift / orphan sweep'. Either raise DEFAULT_SAFETY_CAP deliberately or find out why the index diverged that far."
+    },
+    {
+      "key": "auth-error-rate",
+      "name": "AECi — Auth sign-in error rate > 30% (1 h)",
+      "insight": "AECi — ALERT — Auth sign-in failure rate (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 30
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failure_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Auth sign-in error rate > 30% (15m)",
+        "datadogQuery": "sum(last_15m):( sum:aeci.auth.signin{outcome:failed,env:production}.as_count() / sum:aeci.auth.signin{env:production}.as_count() ) * 100 > 30"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Auth sign-in error rate'. Check the `reason` breakdown on the Auth board: link_invalid / missing_code / auth_not_configured point at three different causes."
+    },
+    {
+      "key": "toxicity-outage",
+      "name": "AECi — Toxicity scoring outage (> 50% errors, 1 h)",
+      "insight": "AECi — ALERT — Toxicity scoring failure rate (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 50
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failure_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Toxicity scoring outage (>50% errors, 15m)",
+        "datadogQuery": "sum(last_15m):( sum:aeci.toxicity.api{outcome:failed,env:production}.as_count() / sum:aeci.toxicity.api{env:production}.as_count() ) * 100 > 50"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Toxicity scoring outage'. Reviews still submit; they queue for human moderation without a score."
+    },
+    {
+      "key": "pageviews-write-errors",
+      "name": "AECi — page_views write error rate > 10% (1 h)",
+      "insight": "AECi — ALERT — page_views write failure rate (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 10
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "error_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — page_views write error rate > 10% (10m)",
+        "datadogQuery": "sum(last_10m):( sum:aeci.pageviews.write{outcome:failed,env:production}.as_count() / sum:aeci.pageviews.write{env:production}.as_count() ) * 100 > 10"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'page_views write errors'. Traffic keeps serving; the admin panel's traffic screen under-reports."
+    },
+    {
+      "key": "linear-pipeline-failure",
+      "name": "AECi — Linear pipeline failure rate > 50% (1 h)",
+      "insight": "AECi — ALERT — Linear pipeline failure rate (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 50
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failure_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Linear pipeline failure rate > 50% (1h)",
+        "datadogQuery": "sum(last_1h):( sum:aeci.linear.issue{outcome:failed,env:production}.as_count() + sum:aeci.linear.sync{outcome:failed,env:production}.as_count() ) / ( sum:aeci.linear.issue{!outcome:skipped_exists,env:production}.as_count() + sum:aeci.linear.sync{!outcome:skipped_no_issue,env:production}.as_count() ) * 100 > 50"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Linear pipeline failure'. The every-15-minute reconciliation sweep is the backstop; this alert says the backstop is doing all the work."
+    },
+    {
+      "key": "webhook-hmac-failure",
+      "name": "AECi — Linear webhook HMAC failures > 3 (1 h)",
+      "insight": "AECi — ALERT — Linear webhook HMAC failures (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 3
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "hmac_failures",
+        "label_column": "detail"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — Linear webhook HMAC failures > 3 (1h)",
+        "datadogQuery": "sum(last_1h):sum:aeci.webhooks.linear.hmac_failure{env:production}.as_count() > 3"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Linear webhook HMAC failures'. Check LINEAR_WEBHOOK_SECRET first; if it is current, this is unauthenticated traffic."
+    },
+    {
+      "key": "waf-ratelimit-spike",
+      "name": "AECi — WAF rate-limit / challenge spike (> 2,000 / 1 h)",
+      "insight": "AECi — ALERT — WAF rate-limit / challenge volume (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 2000
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "blocked_events",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — WAF rate-limit / challenge spike (15m)",
+        "datadogQuery": "sum(last_15m):sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500"
+      },
+      "runbook": "docs/waf-rate-limits.md for the rule expressions; docs/RUNBOOKS.md — 'WAF rate-limit spike'."
+    },
+    {
+      "key": "detail-render-p95",
+      "name": "AECi — p95 detail page render > 1.5 s (1 h)",
+      "insight": "AECi — ALERT — Detail page render p95, cache MISS (1 h)",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 1500
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "p95_bucket_upper_ms",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": "AECi — p95 detail page render > 1.5s (10m)",
+        "datadogQuery": "avg(last_10m):p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500"
+      },
+      "runbook": "docs/RUNBOOKS.md — 'Detail page render slow'. Check the render-latency-distribution widget on the Traffic board first: it needs no reconstruction and cannot be wrong."
+    }
+  ]
+}

@@ -230,13 +230,13 @@ export class SystemStatus {
       case 'algolia_credentials_absent':
         return $localize`:@@admin.system.note.algoliaCredentialsAbsent:Algolia credentials are not configured on this environment, so index drift could not be measured.`;
       case 'cron_liveness_unavailable':
-        return $localize`:@@admin.system.note.cronLivenessUnavailable:${p['unknown'] ?? ''}:unknown: of ${p['total'] ?? ''}:total: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. Datadog remains the place to check whether a job stopped firing altogether.`;
+        return $localize`:@@admin.system.note.cronLivenessUnavailable:${p['unknown'] ?? ''}:unknown: of ${p['total'] ?? ''}:total: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. The scheduled liveness sweep is what detects a job that stopped firing altogether.`;
       case 'stored_result_unreadable':
         return $localize`:@@admin.system.note.storedResultUnreadable:A stored result from the ${p['job'] ?? ''}:job: job couldn't be read, so it's left out rather than shown in part.`;
       // No longer emitted (the sweep is stored now), but kept so an older cached
       // response still renders localized prose rather than the raw API message.
       case 'orphan_sweep_not_persisted':
-        return $localize`:@@admin.system.note.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`;
+        return $localize`:@@admin.system.note.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to PostHog. Its result is not stored, so it cannot be shown here.`;
       default:
         return note.message;
     }
@@ -278,38 +278,45 @@ export class SystemStatus {
   });
 
   /**
-   * Datadog + PostHog link-outs. The panel deliberately does not re-implement
-   * APM, RUM, or funnels (§2) — it links to them. URLs are the ones recorded in
-   * `docs/OBSERVABILITY.md`; keep the two in sync.
+   * PostHog link-outs. The panel deliberately does not re-implement APM, web
+   * vitals, or funnels (§2) — it links to them.
+   *
+   * These were six Datadog deep links until AECI-651 removed that plane. They
+   * are deliberately SECTION links rather than per-dashboard deep links: the
+   * seven boards are created BY NAME from `observability/posthog/insights.json`
+   * via `apply.sh`, so their numeric ids are assigned at apply time and differ
+   * between the prod and non-prod projects. A hardcoded board id would rot on
+   * the next re-apply; the dashboards index always resolves.
+   *
+   * `PROJECT_ID` is the production project (`aec-integrations`, 354071) from
+   * `observability/posthog/project-config.json` — non-secret, and the tier an
+   * operator opening this panel actually wants. Keep in sync with
+   * `docs/OBSERVABILITY.md`.
    */
   protected readonly externalLinks: readonly { label: string; url: string }[] = [
     {
-      label: $localize`:@@admin.system.links.traffic:Datadog: Phase 2 Traffic`,
-      url: 'https://us5.datadoghq.com/dashboard/b5b-edd-gva/aeci-phase-2--traffic',
+      label: $localize`:@@admin.system.links.dashboards:PostHog: dashboards`,
+      url: 'https://us.posthog.com/project/354071/dashboard',
     },
     {
-      label: $localize`:@@admin.system.links.search:Datadog: Phase 3 Search`,
-      url: 'https://us5.datadoghq.com/dashboard/fci-6sf-yvn/aeci-phase-3--search',
+      label: $localize`:@@admin.system.links.alerts:PostHog: alerts`,
+      url: 'https://us.posthog.com/project/354071/insights',
     },
     {
-      label: $localize`:@@admin.system.links.homeStats:Datadog: Phase 4 Home and Stats`,
-      url: 'https://us5.datadoghq.com/dashboard/3bi-9a9-6hz/aeci-phase-4--home--stats',
+      label: $localize`:@@admin.system.links.webVitals:PostHog: web vitals`,
+      url: 'https://us.posthog.com/project/354071/web-vitals',
     },
     {
-      label: $localize`:@@admin.system.links.requests:Datadog: Phase 6 Requests and Moderation`,
-      url: 'https://us5.datadoghq.com/dashboard/k86-25g-8rx/aeci-phase-6--requests--moderation',
+      label: $localize`:@@admin.system.links.errors:PostHog: error tracking`,
+      url: 'https://us.posthog.com/project/354071/error_tracking',
     },
     {
-      label: $localize`:@@admin.system.links.monitors:Datadog: Monitors (cron liveness)`,
-      url: 'https://us5.datadoghq.com/monitors/manage',
-    },
-    {
-      label: $localize`:@@admin.system.links.rum:Datadog: RUM Core Web Vitals`,
-      url: 'https://us5.datadoghq.com/rum/performance-monitoring',
+      label: $localize`:@@admin.system.links.logs:PostHog: logs`,
+      url: 'https://us.posthog.com/project/354071/logs',
     },
     {
       label: $localize`:@@admin.system.links.posthog:PostHog: product analytics`,
-      url: 'https://us.posthog.com/',
+      url: 'https://us.posthog.com/project/354071',
     },
   ];
 }

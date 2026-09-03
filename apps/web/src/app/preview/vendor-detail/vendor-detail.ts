@@ -42,6 +42,9 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   instagram_url: null,
   youtube_url: null,
   products: [],
+  // The unreviewed baseline (AECI-616): bare attribution, no date. Matches every
+  // real row today — nothing was backfilled.
+  maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
 };
 
 @Component({

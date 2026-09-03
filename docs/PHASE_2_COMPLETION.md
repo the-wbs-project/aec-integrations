@@ -104,7 +104,7 @@ full e2e stack (`dev:bound` + seeded data) to verify it passes; shipping an unve
 assertion risks a red CI. **Created:** see hand-off — "Extend console-error/warning
 capture to every Phase 2 page type (crawler)."
 
-### F4 — (Optional) Color-literal enforcement mechanism → **Recommendation, no issue**
+### F4 — (Optional) Color-literal enforcement mechanism → **RESOLVED 2026-08-14 (AECI-549)**
 
 §11.4 / the AECI-67 AC say a "lint rule (Phase 1) catches" hard-coded color literals. In
 reality **no dedicated ESLint color rule exists** (the base config enforces the inject
@@ -113,6 +113,17 @@ code review. The Phase 2 components are clean either way (0 detect findings). **
 one of:** (a) add a real ESLint/stylelint hard-coded-color rule, or (b) formally adopt
 `impeccable detect` as the enforcement of record and correct the §11.4 wording. Doc/lint
 hygiene, not a Phase 2 blocker — no issue filed pending Chris's preference.
+
+**Resolution (AECI-549).** Both halves are now closed. The false claim in
+`STAGE_1_PHASE_2_SPEC.md` §11.4 was corrected, and `docs/CODE_REVIEW_CHECKLIST.md`
+marks the item `Lint: 🟡 review-only` so no one relies on automation that isn't there.
+Option (a) is filed as **AECI-597** rather than built here: it was measured during
+AECI-549 and is feasible but not yet false-positive-free — a naive hex pattern trips on
+CSS id selectors whose name happens to be hex (`#aec-facet-panel`) and on the
+legitimately hardcoded hex in transactional email HTML, where CSS custom properties don't
+work. AECI-549 did build the machinery it would slot into (the constraint tiers in
+`eslint.config.base.mjs` and the table-driven `check-source-constraints.mjs`), so the
+follow-up is a table entry plus a spec case rather than new infrastructure.
 
 ---
 
@@ -160,6 +171,8 @@ All 8 named Phase 2 components (§11.1–11.2) are now defined in DESIGN.md.
   edge. This is a documented, accepted limitation, not a coverage gap.
 - **Note C — color enforcement.** See §3.F4: no dedicated color lint rule exists; the
   spec wording overstates the automation. Components are clean via `impeccable detect`.
+  **Resolved 2026-08-14 (AECI-549):** the spec wording was corrected and the real rule is
+  tracked as AECI-597.
 - **Latent debt — `--text-tertiary` contrast.** The card empty-state en-dash (`–`)
   placeholders use `--text-tertiary` (≈ 2.6:1 on white, below WCAG AA for normal text).
   They are short non-essential placeholders carrying `aria-label`s and the page-type axe

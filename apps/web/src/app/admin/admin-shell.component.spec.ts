@@ -8,8 +8,16 @@
  *   - `summary === null` (non-admin) → the global `<aec-not-found/>` renders so
  *     the surface is never revealed.
  * Mirrors `taxonomy-index.component.spec.ts`'s ActivatedRoute(data) render setup.
+ *
+ * AECI-694 turned the sidebar into a horizontal row of category dropdowns, so
+ * the structural assertions moved with it: group labels are disclosure BUTTONS
+ * rather than `<p>` + `aria-labelledby`, and a single-screen group (Catalog)
+ * collapses to a plain link with no button at all. What did NOT move is the
+ * thing these tests exist to pin: the eleven hrefs, in §5 order, with nothing
+ * dead and the badge on exactly one of them. Panels are `[hidden]`, not removed,
+ * so every link is still queryable from the nav landmark.
  */
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { describe, expect, it } from 'vitest';
@@ -28,7 +36,9 @@ function renderFixture(summary: AdminSummaryResponse | null): {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
-      provideRouter([]),
+      // A catch-all route so `Router.navigateByUrl` can actually resolve a URL:
+      // the category triggers derive their current state from it.
+      provideRouter([{ path: '**', children: [] }]),
       { provide: ActivatedRoute, useValue: { snapshot: { data }, data: of(data) } },
     ],
   });
@@ -46,6 +56,31 @@ function navLinks(root: HTMLElement): string[] {
   return [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].map(
     (a) => a.getAttribute('href') ?? '',
   );
+}
+
+/** The category disclosure buttons, in row order. Catalog has none: with one
+ *  screen it collapses to a plain link. */
+function categoryTriggers(root: HTMLElement): HTMLButtonElement[] {
+  return [
+    ...root.querySelectorAll<HTMLButtonElement>(
+      'nav[aria-label="Admin sections"] button[aria-haspopup]',
+    ),
+  ];
+}
+
+/**
+ * A trigger by its HEADING, not its index.
+ *
+ * The positional form broke the moment AECI-722 gave Catalog a second screen and
+ * turned it into a third dropdown, silently re-pointing two "Operations" tests at
+ * Catalog. Addressing by label means the next group added cannot do that again.
+ */
+function categoryTrigger(root: HTMLElement, heading: string): HTMLButtonElement {
+  const found = categoryTriggers(root).find(
+    (b) => b.querySelector('span')?.textContent?.trim() === heading,
+  );
+  if (!found) throw new Error(`No category trigger labelled "${heading}"`);
+  return found;
 }
 
 describe('AdminShell', () => {
@@ -74,70 +109,123 @@ describe('AdminShell', () => {
     expect(root.querySelector('nav[aria-label="Admin sections"]')?.textContent).toContain('0');
   });
 
-  describe('grouped navigation (AECI-576 / §5)', () => {
-    it('groups the routes under Insights, Catalog and Operations, Overview first', () => {
+  describe('grouped navigation (AECI-576 / §5, AECI-694 row)', () => {
+    it('renders all three groups as dropdowns now that Catalog has two screens', () => {
       const root = render({ pending_reviews: 4 });
-      const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
-      const groups = [...nav.querySelectorAll('ul[aria-labelledby]')];
-      expect(groups).toHaveLength(3);
 
-      const headings = groups.map((ul) =>
-        nav.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
-      );
-      expect(headings).toEqual(['Insights', 'Catalog', 'Operations']);
+      // THREE triggers since AECI-722. Catalog collapsed to a plain link while it
+      // had one screen; adding Connectors flipped it to a dropdown with no code
+      // change, because the rule keys off `items.length` rather than a flag. That
+      // this assertion had to move is the rule working, not a regression.
+      expect(
+        categoryTriggers(root).map((b) => b.querySelector('span')?.textContent?.trim()),
+      ).toEqual(['Insights', 'Catalog', 'Operations']);
+    });
+
+    it('keeps every §5 route reachable, in order, from inside the panels', () => {
+      const root = render({ pending_reviews: 4 });
       // Insights = Overview, Activity (AECI-577, §5.2), Traffic (AECI-578, §5.3),
-      // Audience (AECI-586, §5.4); Catalog = Coverage (AECI-579, §5.5);
-      // Operations = the three queues plus System status (AECI-580, §5.6).
+      // Audience (AECI-586, §5.4); Catalog = Coverage (AECI-579, §5.5) and
+      // Connectors (AECI-722, §5.9);
+      // Operations = the three queues, Vendor claims (AECI-521 — folded into
+      // ADMIN_NAV_GROUPS at the AECI-619 reconciliation), Vendors (AECI-652),
+      // Users (AECI-692) and System status (AECI-580, §5.6).
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
         '/admin/traffic',
         '/admin/audience',
         '/admin/catalog',
+        '/admin/connectors',
         '/admin/reviews',
         '/admin/requests',
-        '/admin/reviewers',
+        '/admin/claims',
+        '/admin/vendors',
+        '/admin/users',
         '/admin/system',
       ]);
     });
 
     it('keeps the three existing Operations queues reachable and unchanged', () => {
       const root = render({ pending_reviews: 4 });
-      const operations = root.querySelector('ul[aria-labelledby="admin-nav-operations"]')!;
+      const operations = root.querySelector('ul[aria-label="Operations"]')!;
       expect(operations.textContent).toContain('Review queue');
       expect(operations.textContent).toContain('Requests');
-      expect(operations.textContent).toContain('Reviewer bans');
+      expect(operations.textContent).toContain('Users');
+      // Stage 2's claim queue (AECI-521) joins them, from the same array.
+      expect(operations.textContent).toContain('Vendor claims');
+      // As does the AECI-652 vendor surface — placed between claims and people
+      // because claims → vendors → people is the escalation order an operator
+      // actually walks. AECI-692 took the slot "Reviewer bans" held: it listed
+      // only `banned_at IS NOT NULL`, which `/admin/users?banned=true` now does
+      // with filters, search and paging, so one entry replaced the other rather
+      // than joining it.
+      expect(operations.textContent).toContain('Vendors');
+      expect(operations.textContent).not.toContain('Reviewer bans');
     });
 
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
       // Since AECI-586 every §5 route exists, so there is nothing left to hold
-      // back — the assertion that matters now is that the nav and the §5
-      // information architecture are the same set, in the same order.
-      expect(hrefs).toEqual([
-        '/admin/overview',
-        '/admin/activity',
-        '/admin/traffic',
-        '/admin/audience',
-        '/admin/catalog',
-        '/admin/reviews',
-        '/admin/requests',
-        '/admin/reviewers',
-        '/admin/system',
-      ]);
-      // And nothing ships as a disabled/dead entry either.
+      // back — the assertion that matters now is that no entry is dead and none
+      // is duplicated by the row/panel split.
+      expect(new Set(hrefs).size).toBe(hrefs.length);
       const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
-      expect(nav.querySelectorAll('li').length).toBe(hrefs.length);
       expect(nav.querySelector('[aria-disabled="true"]')).toBeNull();
+      expect(nav.querySelector('a[href=""]')).toBeNull();
     });
 
-    it('puts the badge on the review queue only', () => {
+    it('keeps closed panels out of the tab order', () => {
+      const root = render({ pending_reviews: 4 });
+      const panels = [...root.querySelectorAll('[id$="-panel"]')];
+      // Three since AECI-722 gave Catalog a second screen and therefore a panel.
+      expect(panels).toHaveLength(3);
+      // `[hidden]`, not removed: the links stay queryable (and SSR-crawlable)
+      // but are never silently tabbable while the panel is shut.
+      for (const panel of panels) expect(panel.hasAttribute('hidden')).toBe(true);
+    });
+
+    it('opens a panel from its trigger and closes it again', () => {
+      const { fixture, el } = renderFixture({ pending_reviews: 4 });
+      const [insights] = categoryTriggers(el);
+      expect(insights?.getAttribute('aria-expanded')).toBe('false');
+
+      insights?.click();
+      fixture.detectChanges();
+      expect(insights?.getAttribute('aria-expanded')).toBe('true');
+      const panelId = insights?.getAttribute('aria-controls') ?? '';
+      expect(el.querySelector(`#${panelId}`)?.hasAttribute('hidden')).toBe(false);
+
+      insights?.click();
+      fixture.detectChanges();
+      expect(insights?.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('marks the category current when one of its screens is, query string and all', async () => {
+      const { fixture, el } = renderFixture({ pending_reviews: 4 });
+      const operations = categoryTrigger(el, 'Operations');
+      expect(operations.getAttribute('aria-current')).toBeNull();
+
+      // `/admin/reviewers` redirects here carrying a filter, so the category has
+      // to survive a query string to light up at all.
+      await TestBed.inject(Router).navigateByUrl('/admin/users?banned=true');
+      fixture.detectChanges();
+      expect(operations.getAttribute('aria-current')).toBe('true');
+    });
+
+    it('puts the badge on the review queue, and mirrors it on the closed category', () => {
       const root = render({ pending_reviews: 7 });
-      const items = [...root.querySelectorAll('nav[aria-label="Admin sections"] li')];
-      const badged = items.filter((li) => li.querySelector('[aria-hidden="true"]'));
-      expect(badged).toHaveLength(1);
-      expect(badged[0]?.querySelector('a')?.getAttribute('href')).toBe('/admin/reviews');
+      const operations = categoryTrigger(root, 'Operations');
+      // Mirrored onto the trigger because a collapsed panel would otherwise hide
+      // the console's only live signal.
+      expect(operations.textContent).toContain('7');
+
+      const badgedLinks = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter(
+        (a) => a.querySelector('[aria-hidden="true"]'),
+      );
+      expect(badgedLinks).toHaveLength(1);
+      expect(badgedLinks[0]?.getAttribute('href')).toBe('/admin/reviews');
     });
   });
 
@@ -181,29 +269,47 @@ describe('AdminShell', () => {
     it('uses a single h1 and no other heading — each screen owns the only h2', () => {
       const root = render({ pending_reviews: 3 });
       expect(root.querySelectorAll('h1')).toHaveLength(1);
-      // Nav group labels are <p>+aria-labelledby, deliberately not headings: a
+      // Category labels are disclosure buttons, deliberately not headings: a
       // heading here would sit between the shell's h1 and the screen's h2.
       expect(root.querySelector('h2, h3, h4, h5, h6')).toBeNull();
     });
 
-    it('gives the admin nav an accessible name, and each group list its own', () => {
+    it('gives the admin nav an accessible name, and each panel list its own', () => {
       const root = render({ pending_reviews: 3 });
       const nav = root.querySelector('nav')!;
       expect(nav.getAttribute('aria-label')).toBeTruthy();
-      for (const ul of nav.querySelectorAll('ul')) {
-        const labelId = ul.getAttribute('aria-labelledby');
-        expect(labelId).toBeTruthy();
-        expect(nav.querySelector(`#${labelId}`)?.textContent?.trim()).toBeTruthy();
+      // The row list is named by the landmark it sits in; each PANEL list names
+      // itself, so a screen reader entering one knows which category it opened.
+      for (const ul of nav.querySelectorAll('[id$="-panel"] ul')) {
+        expect(ul.getAttribute('aria-label')).toBeTruthy();
       }
     });
 
-    it('announces the count once: visible badge aria-hidden + an sr-only equivalent', () => {
+    it('wires each trigger to the panel it controls', () => {
       const root = render({ pending_reviews: 3 });
-      const badge = root.querySelector('[aria-hidden="true"]');
-      expect(badge?.textContent?.trim()).toBe('3');
-      const srOnly = root.querySelector('.sr-only');
-      expect(srOnly?.getAttribute('aria-hidden')).toBeNull();
-      expect(srOnly?.textContent).toContain('3 reviews pending moderation');
+      for (const trigger of categoryTriggers(root)) {
+        expect(trigger.getAttribute('aria-haspopup')).toBe('true');
+        const id = trigger.getAttribute('aria-controls');
+        expect(id).toBeTruthy();
+        expect(root.querySelector(`#${id}`)).not.toBeNull();
+      }
+    });
+
+    it('announces the count once: visible badges aria-hidden + one sr-only equivalent', () => {
+      const root = render({ pending_reviews: 3 });
+      // Two visible badges (the mirrored trigger count and the Review queue
+      // link's), both decorative, and exactly ONE spoken sentence between them.
+      const counts = [...root.querySelectorAll('[aria-hidden="true"]')].filter(
+        (el) => el.textContent?.trim() === '3',
+      );
+      expect(counts).toHaveLength(2);
+
+      const spoken = [...root.querySelectorAll('.sr-only')].filter((el) =>
+        el.textContent?.includes('reviews pending moderation'),
+      );
+      expect(spoken).toHaveLength(1);
+      expect(spoken[0]?.getAttribute('aria-hidden')).toBeNull();
+      expect(spoken[0]?.textContent).toContain('3 reviews pending moderation');
     });
   });
 });

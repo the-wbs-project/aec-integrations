@@ -40,14 +40,17 @@ import { and, eq, gt, inArray, lte, notInArray, or, type SQL } from 'drizzle-orm
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { integrations, products, statsCache, vendors } from '../db/schema';
+import { connectorEvidencedPairs, integrations, products, statsCache, vendors } from '../db/schema';
 import {
+  algoliaEvidencedPairConfig,
   algoliaIntegrationConfig,
   algoliaProductConfig,
   algoliaVendorConfig,
+  toAlgoliaEvidencedPair,
   toAlgoliaIntegration,
   toAlgoliaProduct,
   toAlgoliaVendor,
+  type RawAlgoliaEvidencedPairRow,
   type RawAlgoliaIntegrationRow,
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
@@ -148,6 +151,17 @@ async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<R
  * promoted". Two queries over the same window: eligible → upsert, ineligible →
  * delete-by-id. The both-promoted test is a subquery over the promoted product
  * ids (Drizzle `inArray`/`notInArray` against the same `SELECT id …` subquery).
+ *
+ * Since AECI-721 the `integrations` INDEX is fed by two TABLES: `integrations`
+ * and `connector_evidenced_pairs` (§13.1's delivered tier). Both arms apply the
+ * identical both-endpoints-promoted membership rule, and `drizzleDriftCounter`
+ * in `algolia-drift-deps.ts` counts the same union — those two must move
+ * together, because any disagreement between them IS the drift alarm.
+ *
+ * The connector's own promotion is deliberately NOT part of membership. It cannot
+ * be unpromoted in practice (`connector_product_id` is a NOT NULL FK and rows only
+ * arrive once it resolved), and adding a third condition would put the sync and
+ * the guard out of step with the `integrations` arm for no reachable case.
  */
 async function buildIntegrationRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
   const window = whereFor(filter, integrations.id, integrations.updatedAt);
@@ -190,6 +204,46 @@ async function buildIntegrationRequests(db: Db, filter: AlgoliaSyncFilter): Prom
   for (const row of ineligible) {
     requests.push({ action: 'deleteObject', body: { objectID: row.id } });
   }
+
+  // ── The evidenced arm ────────────────────────────────────────────────────
+  const pairWindow = whereFor(
+    filter,
+    connectorEvidencedPairs.id,
+    connectorEvidencedPairs.updatedAt,
+  );
+  const pairBothPromoted = and(
+    inArray(connectorEvidencedPairs.productAId, promotedProductIds),
+    inArray(connectorEvidencedPairs.productBId, promotedProductIds),
+  );
+  const pairEitherNotPromoted = or(
+    notInArray(connectorEvidencedPairs.productAId, promotedProductIds),
+    notInArray(connectorEvidencedPairs.productBId, promotedProductIds),
+  );
+
+  const eligiblePairs = (await db.query.connectorEvidencedPairs.findMany({
+    ...algoliaEvidencedPairConfig,
+    where: and(pairWindow, pairBothPromoted),
+  })) as RawAlgoliaEvidencedPairRow[];
+  const ineligiblePairs = await db
+    .select({ id: connectorEvidencedPairs.id })
+    .from(connectorEvidencedPairs)
+    .where(and(pairWindow, pairEitherNotPromoted));
+
+  for (const row of eligiblePairs) {
+    try {
+      requests.push({ action: 'updateObject', body: toAlgoliaEvidencedPair(row) });
+    } catch (error) {
+      transformErrors += 1;
+      console.warn(
+        `algolia-sync: evidenced pair ${row.id} transform failed — skipped`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+  for (const row of ineligiblePairs) {
+    requests.push({ action: 'deleteObject', body: { objectID: row.id } });
+  }
+
   return { requests, transformErrors };
 }
 

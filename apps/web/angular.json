@@ -74,7 +74,7 @@
             // be external. Safe: the chunk is dynamically imported only inside
             // `afterNextRender` (browser), so the SSR Worker never loads it — and
             // even if it did, `nodejs_compat` provides `util` at runtime.
-            "externalDependencies": ["cloudflare:workers", "util"],
+            "externalDependencies": ["#cloudflare-workers", "cloudflare:workers", "util"],
             // AECI-237 — inline `*.md` imports as raw strings via esbuild's
             // `text` loader, so the legal-page content registry
             // (`src/app/legal/legal-content.ts`) can `import` the Markdown
@@ -89,10 +89,20 @@
           "configurations": {
             "production": {
               "budgets": [
+                // AECI-750: raised 1MB -> 1.02MB at the main -> stage-2 reconcile.
+                // Each branch passed alone; the UNION of their eager code is 2.75 kB
+                // over. Verified this is feature growth, not a regression: the
+                // initial set carries no lazy-route component (AdminShell appears
+                // only as a `loadComponent` reference), no vendor-portal or
+                // connector code, and no `$localize` sort labels -- the listing
+                // configs import `product-sort-keys.ts` precisely so the toolbar's
+                // translated options stay out of the eager graph. Kept at 1.02MB
+                // rather than a round 1.1MB so the guard still catches a real
+                // regression; the 500kB WARNING is untouched and still fires.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1MB"
+                  "maximumError": "1.02MB"
                 },
                 {
                   "type": "anyComponentStyle",
@@ -100,7 +110,31 @@
                   "maximumError": "8kB"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              // AECI-646 — HIDDEN source maps for PostHog Error Tracking.
+              // `hidden: true` emits the `.map` files but writes NO
+              // `//# sourceMappingURL=` comment into the served JS, so a browser
+              // devtools session cannot pull our source but PostHog can still
+              // symbolicate a minified stack trace. `scripts/ci/posthog-sourcemaps.sh`
+              // then runs `posthog-cli sourcemap inject` (which appends the
+              // `//# chunkId=…` comment PostHog matches on) followed by
+              // `upload --delete-after`, BEFORE the deploy — so the maps are
+              // uploaded and then removed from `dist/` and never served.
+              // The skip path in that script deletes them too; a `.map` reaching
+              // Worker assets would publish the whole app source at a guessable
+              // URL.
+              // `styles: false` / `vendor: false` keep the upload to our own
+              // scripts — the frames we actually need to read are ours.
+              // NOTE: this repo has no `staging` build configuration. It promotes
+              // ONE build by SHA across staging → demo → prod
+              // (docs/environments.md), so `production` IS the configuration every
+              // deployed tier is built with, and setting it here covers them all.
+              "sourceMap": {
+                "scripts": true,
+                "styles": false,
+                "hidden": true,
+                "vendor": false
+              }
             },
             "development": {
               "optimization": false,

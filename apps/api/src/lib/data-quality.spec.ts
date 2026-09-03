@@ -9,6 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
   integrations,
@@ -17,6 +19,7 @@ import {
   profiles,
   reviews,
   statsCache,
+  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -26,6 +29,7 @@ import {
   checkBrokenIntegrationRefs,
   checkDuplicateProducts,
   checkDuplicateVendors,
+  checkEntitlementMirrorDrift,
   checkLogo404Sample,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
@@ -298,6 +302,54 @@ describe('checkLogo404Sample', () => {
     }) as unknown as typeof fetch;
     expect((await checkLogo404Sample(t.db, throwingFetch, 20)).lines).toEqual([]);
   });
+
+  // ── AECI-666: connection hygiene ────────────────────────────────────────────
+
+  it('probes in bounded waves, never all at once', async () => {
+    // `DEFAULT_LOGO_SAMPLE` is 20, more than three times what a Worker
+    // invocation may hold open at once. A bare `Promise.all` over the sample
+    // opened all of them; past the limit the runtime cancels the stalled
+    // responses into `fetch` promises that never settle.
+    // The sample is split evenly between products and vendors (`half`), so seed
+    // both to reach a full 20-URL candidate set.
+    for (let i = 0; i < 10; i++) {
+      await seedProduct({ id: `p${i}`, name: `P${i}`, logoUrl: `https://logo/p${i}.png` });
+      await seedVendor({ id: `v${i}`, companyName: `V${i}`, logoUrl: `https://logo/v${i}.png` });
+    }
+
+    let inFlight = 0;
+    let peak = 0;
+    const slowFetch = (async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { note } = await checkLogo404Sample(t.db, slowFetch, 20);
+    expect(note).toContain('sampled 20');
+    expect(peak).toBeLessThanOrEqual(WORKER_CONNECTION_LIMIT);
+  });
+
+  it('releases the probe response body', async () => {
+    await seedProduct({ id: 'p1', name: 'Logo', logoUrl: 'https://logo/x.png' });
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start: (c) => c.enqueue(new TextEncoder().encode('x')),
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    const bodyFetch = (async () =>
+      new Response(stream, { status: 200 })) as unknown as typeof fetch;
+
+    await checkLogo404Sample(t.db, bodyFetch, 20);
+    await new Promise((r) => setTimeout(r, 0));
+    // Only `res.status` is inspected, so nothing reads this body — an unread
+    // body keeps holding its connection (AECI-666).
+    expect(cancelled).toBe(true);
+  });
 });
 
 // ── #10 algolia drift (reuse) ──────────────────────────────────────────────────
@@ -322,6 +374,65 @@ describe('checkAlgoliaDrift', () => {
   });
 });
 
+// ── #11 entitlement_mirror_drift (AECI-609 Guard 2) ───────────────────────────
+
+describe('checkEntitlementMirrorDrift', () => {
+  /** Seed a vendor + (optionally) its entitlement row in one go. */
+  async function seedPair(
+    id: string,
+    slug: string,
+    verified: boolean,
+    status: string | null,
+  ): Promise<void> {
+    await t.db.insert(vendors).values({ id, slug, companyName: slug, verified });
+    if (status !== null) {
+      await t.db
+        .insert(vendorEntitlements)
+        .values({ vendorId: id, tier: 'verified', status, grantedAt: OLD });
+    }
+  }
+
+  it('flags a verified vendor with NO entitlement row (the backfill-did-not-run case)', async () => {
+    await seedPair('v1', 'autodesk', true, null);
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('no entitlement row');
+    expect(finding.lines[0]).toContain('verified=1');
+  });
+
+  it('flags a verified vendor whose entitlement is NOT active', async () => {
+    // This is the case that silently disappears if the `isNull(id)` disjunct is
+    // "simplified" away — `status <> 'active'` is NULL, not true, for a missing row,
+    // so the two halves of the predicate must both be present.
+    await seedPair('v1', 'bluebeam', true, 'revoked');
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain("entitlement is 'revoked'");
+  });
+
+  it('flags the reverse half — an active entitlement on an unverified vendor', async () => {
+    await seedPair('v1', 'procore', false, 'active');
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('verified=0');
+    expect(finding.lines[0]).toContain("entitlement is 'active'");
+  });
+
+  it('is clean for every in-sync shape', async () => {
+    await seedPair('v1', 'autodesk', true, 'active'); // verified + active
+    await seedPair('v2', 'procore', false, null); // unclaimed baseline
+    await seedPair('v3', 'bluebeam', false, 'revoked'); // lapsed, mirror cleared
+    await seedPair('v4', 'trimble', false, 'pending'); // PO issued, not yet effective
+    expect((await checkEntitlementMirrorDrift(t.db)).lines).toEqual([]);
+  });
+
+  it('is registered at `error` severity — this invariant pages', () => {
+    const spec = CHECKS.find((c) => c.id === 'entitlement_mirror_drift');
+    expect(spec).toBeDefined();
+    expect(spec!.severity).toBe('error');
+  });
+});
+
 // ── orchestrator ───────────────────────────────────────────────────────────────
 
 describe('runDataQualityChecks', () => {
@@ -339,7 +450,7 @@ describe('runDataQualityChecks', () => {
   });
 
   it('captures a thrown check as an error result without aborting the rest', async () => {
-    // A runDrift that throws makes the drift check error; the other nine still run.
+    // A runDrift that throws makes the drift check error; the other ten still run.
     const results = await runDataQualityChecks({
       db: t.db,
       now: NOW,

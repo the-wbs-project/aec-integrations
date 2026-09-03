@@ -1,19 +1,19 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * AECI-66 / Phase 2.20 — Datadog metric verification traffic generator.
+ * AECI-66 / Phase 2.20 — telemetry metric verification traffic generator.
  *
  * NOT a CI assertion suite. It exists to drive real traffic across the Phase 2
  * page types so the three custom metrics (`aeci.page.render.duration_ms`,
- * `aeci.api.query.duration_ms`, `aeci.cache.purge`) appear in Datadog after a
+ * `aeci.api.query.duration_ms`, `aeci.cache.purge`) appear in PostHog after a
  * deploy. Visits a representative set of static / index / browse / detail URLs
  * TWICE — pass 1 is a cache MISS, pass 2 a HIT — so both `cache_status` values
  * and all three `route_class` values are exercised.
  *
- * Gated behind `DATADOG_TRAFFIC_GEN` so it never runs in the normal E2E job.
- * Run it against a deployed env where `DD_API_KEY` is set:
+ * Gated behind `TELEMETRY_TRAFFIC_GEN` so it never runs in the normal E2E job.
+ * Run it against a deployed env where `POSTHOG_PROJECT_KEY` is set:
  *
- *   DATADOG_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
+ *   TELEMETRY_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
  *     pnpm --filter @aeci/web exec playwright test e2e/traffic-gen.spec.ts
  *
  * See docs/OBSERVABILITY.md → "Verifying metrics flow".
@@ -42,10 +42,10 @@ const DISCOVERY: { from: string; pattern: RegExp }[] = [
   { from: '/categories', pattern: /\/categories\/[a-z0-9][a-z0-9-]*/g },
 ];
 
-test.describe('Datadog traffic generator (AECI-66)', () => {
+test.describe('Telemetry traffic generator (AECI-66)', () => {
   test.skip(
-    !process.env['DATADOG_TRAFFIC_GEN'],
-    'Set DATADOG_TRAFFIC_GEN=1 (against a deployed PLAYWRIGHT_BASE_URL) to run.',
+    !process.env['TELEMETRY_TRAFFIC_GEN'],
+    'Set TELEMETRY_TRAFFIC_GEN=1 (against a deployed PLAYWRIGHT_BASE_URL) to run.',
   );
 
   // Generous: discovery + two passes over ~20+ URLs across a network hop.
@@ -83,7 +83,7 @@ test.describe('Datadog traffic generator (AECI-66)', () => {
       `[traffic-gen] ${urls.length} URLs × 2 passes against ${process.env['PLAYWRIGHT_BASE_URL'] ?? 'local'}\n` +
         `  cf-cache-status: ${JSON.stringify(cacheStatusCounts)}\n` +
         `  (discovered ${discovered.size} detail/browse slugs)\n` +
-        '  → check Datadog within ~5 min: aeci.page.render.duration_ms (cache_status hit/miss, route_class), ' +
+        '  → check PostHog within ~5 min: aeci.page.render.duration_ms (cache_status hit/miss, route_class), ' +
         'aeci.api.query.duration_ms (endpoint). Confirm dashboard widgets populate.',
     );
 

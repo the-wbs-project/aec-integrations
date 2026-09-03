@@ -67,7 +67,7 @@ on:
       - 'docs/**'
   # Manual run on any branch (AECI-221). The gate is otherwise post-merge-only,
   # so there is no pre-merge signal; `workflow_dispatch` lets a perf-affecting
-  # branch be measured against the real CI conditions (N=3 median, no Datadog,
+  # branch be measured against the real CI conditions (N=3 median, no RUM,
   # the shared dev DB at HEAD) BEFORE it lands — so a warn→error flip can be
   # validated rather than merged on faith. Reads the same repo secrets.
   workflow_dispatch:

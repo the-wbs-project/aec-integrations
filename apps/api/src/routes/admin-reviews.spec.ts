@@ -5,6 +5,7 @@
  * email lookup (injected).
  */
 
+import type { CachePurgeMessage } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,7 +68,14 @@ function listApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', {
+      userId: ADMIN,
+      email: undefined,
+      role: 'admin',
+      vendorId: null,
+      entitlementTier: 'unclaimed',
+      entitlement: null,
+    });
     await next();
   });
   a.get('/api/admin/reviews', createAdminReviewsListHandler(t.factory, emails));
@@ -77,7 +85,14 @@ function moderateApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', {
+      userId: ADMIN,
+      email: undefined,
+      role: 'admin',
+      vendorId: null,
+      entitlementTier: 'unclaimed',
+      entitlement: null,
+    });
     await next();
   });
   a.patch('/api/admin/reviews/:id', createModerateReviewHandler(t.factory, emails));
@@ -185,5 +200,60 @@ describe('PATCH /api/admin/reviews/:id', () => {
 
   it('404s an unknown review', async () => {
     expect((await patch(u(999), { action: 'approve' })).status).toBe(404);
+  });
+});
+
+describe('PATCH /api/admin/reviews/:id — cache-purge enqueue (WC-5 / AECI-319)', () => {
+  /** PATCH with a mock `CACHE_PURGE_QUEUE` producer binding; drains the post-commit
+   *  `waitUntil` tasks so the enqueue is observable. */
+  async function patchWithQueue(
+    id: string,
+    body: unknown,
+    send = vi.fn().mockResolvedValue(undefined),
+  ) {
+    const env: Env = {
+      ...TEST_ENV,
+      CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    const res = await moderateApp().request(
+      `/api/admin/reviews/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      },
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    return { res, send };
+  }
+
+  it('enqueues product:<slug> with source:moderation on approve', async () => {
+    await seedReview(u(11), 'pending');
+    const { res, send } = await patchWithQueue(u(11), { action: 'approve' });
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0] as CachePurgeMessage).toEqual({
+      tags: ['product:revit'],
+      source: 'moderation',
+    });
+  });
+
+  it('does not enqueue on reject (the product-page aggregate is unchanged)', async () => {
+    await seedReview(u(12), 'pending');
+    const { res, send } = await patchWithQueue(u(12), {
+      action: 'reject',
+      rejection_reason: 'Spam / not a genuine review.',
+    });
+    expect(res.status).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('still 200s when the queue binding is absent (graceful no-op)', async () => {
+    await seedReview(u(13), 'pending');
+    // Default TEST_ENV carries no CACHE_PURGE_QUEUE, so the purge is simply skipped.
+    expect((await patch(u(13), { action: 'approve' })).status).toBe(200);
   });
 });

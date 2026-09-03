@@ -15,18 +15,21 @@
  * doesn't fit at 1024px, so the icon is what closes the gap. See
  * `search-trigger.ts` for the width budget.
  *
- * The row is Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾ ·
- * More▾. AECI-158 re-pointed the directory at the taxonomy; Vendors /
- * Integrations were removed from the primary nav AND the footer (AECI-160, PO
- * decision) — they stay reachable via `sitemap.xml`, detail-page breadcrumbs,
- * and search. Each taxonomy entry links to its facet index AND opens a
- * `aec-nav-flyout-trigger` flyout of the top values by count.
+ * The row is Home · Products · Categories · Trades · Audiences · Phases.
+ * AECI-158 re-pointed the directory at the taxonomy; Vendors / Integrations were
+ * removed from the primary nav AND the footer (AECI-160, PO decision) — they stay
+ * reachable via `sitemap.xml`, detail-page breadcrumbs, and search. Each taxonomy
+ * entry links to its facet index AND opens a `aec-nav-flyout-trigger` flyout of
+ * the top values by count, styled in the clean Yahoo Finance editorial pattern
+ * without cluttered down-arrow buttons.
  *
- * `aec-nav-more-trigger` is the overflow menu and the last item in the row: it
- * carries every destination that isn't a primary directory surface (Updates,
- * Roadmap, About, Contact, Legal) plus the full `/admin` section for an admin.
- * Updates lived in the primary row until that menu landed; secondary
- * destinations go there from now on rather than widening this row.
+ * **The row is public-only, and closed.** The `More▾` overflow menu that used to
+ * sit last is gone: its secondary destinations (Updates, Roadmap, About, Contact)
+ * and Legal group are in the footer, and the `/admin` IA it duplicated is reached
+ * by a single "Admin portal" door in the account menu (`user-menu.ts`, which
+ * carries the reasoning). A new secondary destination goes to the **footer**, not
+ * into this row and not into a header menu; a new *primary* one needs a
+ * re-measure at 1024px, not just an insert (DESIGN.md §Navigation).
  *
  * The same link set renders in the overlay (`nav-menu.ts`) and footer, so only
  * one `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
@@ -47,7 +50,6 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
-import { NavMoreTrigger } from './nav-more-trigger';
 import { SearchTrigger } from './search-trigger';
 import { UserMenu } from './user-menu';
 
@@ -59,7 +61,6 @@ import { UserMenu } from './user-menu';
     BrandLogo,
     NavMenu,
     NavFlyoutTrigger,
-    NavMoreTrigger,
     SearchAutocomplete,
     SearchTrigger,
     UserMenu,
@@ -67,18 +68,18 @@ import { UserMenu } from './user-menu';
   template: `
     <header class="bg-(--surface-base)">
       <!--
-        The lg-band gaps (lg:gap-6 here, gap-3.5 on the nav) are load-bearing,
-        not taste. Measured at 1024px, signed out (the worst case: "Sign in" is
-        wider than the account icon):
-          before the search icon, at gap-5/gap-8: fits, nav box 598 vs content
-            597, i.e. 1px of slack
-          with the search icon, at gap-5/gap-8: scrollWidth exceeds clientWidth
-            by 29px, so the row clips
-          with the search icon, at gap-3.5/gap-6: fits, nav box 562 vs content
-            561, back to the same 1px
-        So these two gap steps are what pay for the 36px control; they buy back
-        exactly what it costs and nothing more. At xl+ the gaps go back up, where
-        there is room. Re-measure at 1024 before adding anything to this row.
+        The lg-band gaps are load-bearing, not taste. The previous pair
+        (lg:gap-6 here, gap-3.5 on the nav) was measured at 1024px, signed out
+        (the worst case, since "Sign in" is wider than the account icon), and it
+        fit with exactly 1px of slack once the 36px search icon was added.
+
+        Dropping the four separate down-arrow buttons (each ms-1 + w-6, so
+        4 x 28px = 112px) bought that budget back, and the nav gaps were widened
+        to spend part of it: gap-3.5 -> gap-6 over the row's five gaps costs 50px,
+        xl:gap-7 -> xl:gap-8 costs 5px more where there is room. Net at lg is
+        about 62px returned, so the row is no longer at the edge.
+
+        Re-measure at 1024 before adding anything to this row.
       -->
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8 lg:gap-6 xl:gap-8">
         <aec-nav-menu />
@@ -90,17 +91,16 @@ import { UserMenu } from './user-menu';
           clipped out of the viewport (already true of Phases before trades
           joined). aec-nav-menu is lg:hidden to match, and it already lists
           every facet, so nothing becomes unreachable between md and lg.
-          The row is still measured: "More" replaced the Updates link (net width
-          ~neutral), and any further top-level item needs a re-measure at 1024px,
-          not just an insert. Secondary destinations belong in More.
-          Measured item widths at gap-3.5 (1024px, en-US): Home 37 · Products 56
-          · Categories 96 · Trades 70 · Audiences 93 · Phases 73 · More 52, plus
-          6 gaps of 14 = 561, in a 561px box. There is no headroom left at lg:
-          the next item added here has to displace one, and demoting Home into
-          the wordmark (which already links to "/") is the cheapest ~51px.
+          The row is still measured. Retiring "More" gave a slot back, which may
+          make an md handover viable again, but that needs a real re-measure at
+          768px, so the breakpoint stays at lg until someone does it: AECI-669.
+          If it moves, this class and aec-nav-menu's lg:hidden must move together,
+          or the page renders two Primary nav landmarks at once (or none). Any
+          further top-level item needs the same re-measure at 1024px, not just an
+          insert. Secondary destinations belong in the footer.
         -->
         <nav
-          class="hidden flex-1 items-center justify-center gap-3.5 text-sm font-medium lg:flex xl:gap-7"
+          class="hidden flex-1 items-center justify-center gap-6 text-sm font-medium lg:flex xl:gap-8"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
@@ -125,7 +125,6 @@ import { UserMenu } from './user-menu';
           <aec-nav-flyout-trigger kind="trade" [items]="taxonomy.tradesTop10()" />
           <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
           <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />
-          <aec-nav-more-trigger />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
           <!--
