@@ -41,10 +41,13 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
+import { runDataQualityChecks } from '../lib/data-quality';
+import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
   createAdminRevokeSeatHandler,
+  createProvisionSeatHandler,
   createAdminVendorAuditHandler,
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
@@ -105,7 +108,7 @@ afterEach(() => t.dispose());
  * itself is covered end-to-end by `admin-panel.authz-matrix.spec.ts`.
  */
 function mount(
-  method: 'get' | 'delete',
+  method: 'get' | 'delete' | 'post',
   path: string,
   handler: (c: never) => Promise<Response>,
 ): Hono<{ Bindings: Env; Variables: AuthzVariables }> {
@@ -123,8 +126,17 @@ async function send(
   app: Hono<{ Bindings: Env; Variables: AuthzVariables }>,
   url: string,
   method = 'GET',
+  payload?: unknown,
 ): Promise<Response> {
-  return app.request(url, { method }, TEST_ENV, fakeExecutionContext());
+  const init: RequestInit =
+    payload === undefined
+      ? { method }
+      : {
+          method,
+          body: JSON.stringify(payload),
+          headers: { 'content-type': 'application/json' },
+        };
+  return app.request(url, init, TEST_ENV, fakeExecutionContext());
 }
 
 /** The response body, loosely typed. These specs assert on shapes the wire schema
@@ -965,5 +977,299 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     // IS that rescue, so carrying the guard over would only block the operator
     // who exists to undo it.
     expect((await revoke(VENDOR, SEAT_A)).status).toBe(204);
+  });
+});
+
+// ─── POST /api/admin/vendors/:id/seats (AECI-740) ────────────────────────────
+
+/**
+ * The provisioning action, and the one property every test here exists to pin:
+ * **it creates a `vendor_admin` seat and opens NO `vendor_entitlements` row.**
+ *
+ * `STAGE_2_SPEC.md` §8.9(1) settled that a pure connector vendor is never sold
+ * verification and gets a catalogue-maintenance seat instead; §8.9(2) showed the
+ * seat cannot be an entitlement row, because `vendors.verified` mirrors off
+ * `status = 'active'` rather than `tier` — so any active row lights the badge.
+ * Before this endpoint, every path to a seat opened one on the way, which is why
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 had to tell operators not to press Grant.
+ *
+ * The identity seam is injected, so these run with no Supabase. Its ABSENCE is
+ * covered too — 503 is the default outcome on local dev and PR previews, exactly
+ * as on the claim grant.
+ */
+describe('POST /api/admin/vendors/:id/seats', () => {
+  const CLAIMANT_EMAIL = 'ops@mindcloud.example';
+
+  /** `resolveClaimantIdentity`, stubbed. Returns whatever outcome a test needs. */
+  const identity = (
+    outcome: Awaited<ReturnType<typeof resolveClaimantIdentity>>,
+  ): typeof resolveClaimantIdentity =>
+    (async () => outcome) as unknown as typeof resolveClaimantIdentity;
+
+  const linked = (profile: Parameters<typeof identity>[0] extends never ? never : unknown = null) =>
+    identity({
+      outcome: 'linked',
+      userId: SEAT_A,
+      email: CLAIMANT_EMAIL,
+      profile: profile as never,
+    });
+
+  const provision = (
+    vendorId: string,
+    resolve: typeof resolveClaimantIdentity,
+    payload: unknown = { email: CLAIMANT_EMAIL },
+  ) =>
+    send(
+      mount('post', '/api/admin/vendors/:id/seats', createProvisionSeatHandler(t.factory, resolve)),
+      `/api/admin/vendors/${vendorId}/seats`,
+      'POST',
+      payload,
+    );
+
+  beforeEach(async () => {
+    // A pure connector vendor — the case the carve-out is about — deliberately
+    // left `verified: false` with no entitlement row.
+    await seedVendor(VENDOR, { companyName: 'MindCloud' });
+    await t.db
+      .insert(products)
+      .values({ id: PRODUCT, slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: VENDOR });
+  });
+
+  it('creates the seat as an owner and reports it, with 201', async () => {
+    const res = await provision(VENDOR, linked());
+    expect(res.status).toBe(201);
+
+    const b = await body(res);
+    expect(b.user_id).toBe(SEAT_A);
+    expect(b.identity_outcome).toBe('linked');
+    expect(b.seat_created).toBe(true);
+    expect(b.seat_owner).toBe(true);
+    expect(b.noop).toBe(false);
+    expect(b.is_pure_connector_vendor).toBe(true);
+    expect(b.product_roles).toEqual({ application: 0, connector: 1, hybrid: 0, total: 1 });
+
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+    expect(seat.role).toBe('vendor_admin');
+    expect(seat.vendorId).toBe(VENDOR);
+    // Owner, so the vendor can add its own colleagues through the shipped invite
+    // flow without a second admin action every time (AECI-664 / §11a).
+    expect(seat.seatOwner).toBe(true);
+  });
+
+  it('opens NO entitlement row and never lights the badge — the whole point', async () => {
+    // §8.9(2). This is the assertion the endpoint exists for; if it ever fails,
+    // a connector vendor has been handed the Verified badge the carve-out says
+    // they will never be sold, through a one-way door.
+    const [before] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    const res = await provision(VENDOR, linked());
+
+    expect((await body(res)).entitlement_granted).toBe(false);
+    expect((await body(await provision(VENDOR, linked()))).verified).toBe(false);
+
+    expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
+    const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    // Byte-identical, including `updated_at` — nothing must reach the nightly
+    // Algolia push as a changed vendor record (§5.2 step 2's approve-then-clear
+    // objection applies just as much to a spurious touch).
+    expect(after).toEqual(before);
+  });
+
+  it('leaves entitlement_mirror_drift clean (§8.9(4))', async () => {
+    // The drift check counts vendors where `verified = 1` XOR an active row
+    // exists. A seat with no entitlement touches NEITHER side, so it is invisible
+    // to the sweep — intended, but the issue asked that it be confirmed rather
+    // than assumed.
+    await provision(VENDOR, linked());
+
+    const drifted = await runDataQualityChecks({
+      db: t.db as never,
+      fetchImpl: (async () => new Response('{}')) as never,
+    } as never);
+    const mirror = drifted.find((check) => check.id === 'entitlement_mirror_drift');
+    expect(mirror?.count).toBe(0);
+  });
+
+  it('writes its audit row in the same batch, carrying metadata.vendor_id', async () => {
+    await provision(VENDOR, linked());
+
+    const rows = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_seat.provisioned'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].entityType).toBe('profile');
+    expect(rows[0].entityId).toBe(SEAT_A);
+    const metadata = rows[0].metadata as Record<string, unknown>;
+    // Leg 3 of `auditScopeWhere` is the only route to this row on the vendor's
+    // own audit tab — the seat DOES carry `vendor_id`, but leg 4 filters on the
+    // ban actions only.
+    expect(metadata.vendor_id).toBe(VENDOR);
+    expect(metadata.entitlement_granted).toBe(false);
+    expect(metadata.is_pure_connector_vendor).toBe(true);
+  });
+
+  it('surfaces the new row through GET /api/admin/vendors/:id/audit', async () => {
+    // The lockstep assertion for `VENDOR_METADATA_ACTIONS`. Without that entry the
+    // row is written correctly and is invisible on the only screen that reads it.
+    await provision(VENDOR, linked());
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id/audit',
+        createAdminVendorAuditHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}/audit`,
+    );
+    const b = await body(res);
+    expect(b.data.map((r: { action: string }) => r.action)).toContain('vendor_seat.provisioned');
+  });
+
+  it('is a 200 no-op when the seat already reads exactly this way', async () => {
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true });
+
+    const res = await provision(
+      VENDOR,
+      identity({
+        outcome: 'linked',
+        userId: SEAT_A,
+        email: CLAIMANT_EMAIL,
+        profile: { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, bannedAt: null },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await body(res)).noop).toBe(true);
+    // A trail of identical states is not a history (the §5.2 note-write rule).
+    expect(await t.db.select().from(auditLog)).toEqual([]);
+  });
+
+  it('DOES write when an existing non-owner seat is promoted', async () => {
+    // A colleague who joined by redeeming an invite holds `seat_owner: false`.
+    // Promoting them is a real change, so it must not be swallowed by the no-op.
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: false });
+
+    const res = await provision(
+      VENDOR,
+      identity({
+        outcome: 'linked',
+        userId: SEAT_A,
+        email: CLAIMANT_EMAIL,
+        profile: { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, bannedAt: null },
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect((await body(res)).noop).toBe(false);
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+    expect(seat.seatOwner).toBe(true);
+    expect(await t.db.select().from(auditLog)).toHaveLength(1);
+  });
+
+  it('409s on an account that is a site admin, or belongs to another vendor', async () => {
+    const conflict = (reason: 'already_admin' | 'other_vendor') =>
+      identity({
+        outcome: 'conflict',
+        reason,
+        userId: SEAT_B,
+        email: CLAIMANT_EMAIL,
+        profile: { id: SEAT_B, role: 'admin', vendorId: null, bannedAt: null },
+      });
+
+    expect((await provision(VENDOR, conflict('already_admin'))).status).toBe(409);
+    expect((await provision(VENDOR, conflict('other_vendor'))).status).toBe(409);
+    // Nothing written on either refusal.
+    expect(await t.db.select().from(auditLog)).toEqual([]);
+  });
+
+  it('503s when the identity seam is unavailable — the local-dev default', async () => {
+    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev and every
+    // PR preview, so this is the DEFAULT path there, exactly as on the grant. It
+    // must refuse rather than half-provision.
+    const res = await provision(VENDOR, identity({ outcome: 'unavailable' }));
+    expect(res.status).toBe(503);
+    expect(await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A))).toEqual([]);
+  });
+
+  it('404s for an unknown vendor, before resolving any identity', async () => {
+    // Ordering matters: resolving first would provision an `auth.users` row for a
+    // request that is about to 404, orphaning it.
+    const resolve = vi.fn(linked());
+    const res = await send(
+      mount(
+        'post',
+        '/api/admin/vendors/:id/seats',
+        createProvisionSeatHandler(t.factory, resolve as unknown as typeof resolveClaimantIdentity),
+      ),
+      `/api/admin/vendors/${u(999)}/seats`,
+      'POST',
+      { email: CLAIMANT_EMAIL },
+    );
+
+    expect(res.status).toBe(404);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('400s on a malformed email', async () => {
+    // 400, not 422: the shared `errorHandler` maps every `ZodError` to
+    // VALIDATION_FAILED / 400 (`apps/api/src/errors.ts`), and 422 on this surface
+    // is reserved for invalid STATE transitions.
+    expect((await provision(VENDOR, linked(), { email: 'not-an-address' })).status).toBe(400);
+  });
+
+  it('warns but does not gate on a vendor that owns endpoint products', async () => {
+    // §5.2 step 1 / AECI-738: `product_role` is curated upstream, so a mis-roled
+    // record must not hard-block a legitimate operator. The console warns; the
+    // API provisions and RECORDS the payer test as it stood.
+    await t.db
+      .insert(products)
+      .values({ id: u(32), slug: 'mindcloud-app', name: 'App', productRole: 'application' });
+    await t.db.insert(productVendors).values({ productId: u(32), vendorId: VENDOR });
+
+    const res = await provision(VENDOR, linked());
+    expect(res.status).toBe(201);
+    expect((await body(res)).is_pure_connector_vendor).toBe(false);
+
+    const [row] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_seat.provisioned'));
+    expect((row.metadata as Record<string, unknown>).is_pure_connector_vendor).toBe(false);
+  });
+
+  it('provisions a banned account without becoming a second banned_at writer', async () => {
+    // Ban policy is `PATCH /api/admin/reviewers/:id`'s (AECI-524), and the claim
+    // grant does not refuse a banned account either — two admin paths must not
+    // tell different stories about one account. The ban is SURFACED, not enforced,
+    // and `banned_at` is untouched (`routes/banned-at-writers.spec.ts`).
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_A, role: 'reviewer', bannedAt: '2026-01-01T00:00:00.000Z' });
+
+    const res = await provision(
+      VENDOR,
+      identity({
+        outcome: 'linked',
+        userId: SEAT_A,
+        email: CLAIMANT_EMAIL,
+        profile: {
+          id: SEAT_A,
+          role: 'reviewer',
+          vendorId: null,
+          bannedAt: '2026-01-01T00:00:00.000Z',
+        },
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect((await body(res)).banned).toBe(true);
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+    expect(seat.bannedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(seat.role).toBe('vendor_admin');
   });
 });

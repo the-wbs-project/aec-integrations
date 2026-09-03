@@ -242,6 +242,25 @@
       AECi entirely, open their user page and ban them there instead.
     </p>
 
+    <!--
+      AECI-740. Above the roster, because the operator arriving from a parked
+      connector claim is here to ADD, and the list they need to check first is
+      directly beneath. It warns on a non-connector vendor and never disables —
+      `product_role` is curated upstream, so a mis-roled record must not
+      hard-block a legitimate operator (§5.2 step 1).
+    -->
+    <div class="mt-3">
+      <aec-provision-seat-control
+        [vendorId]="v.id"
+        [isPureConnectorVendor]="v.is_pure_connector_vendor"
+        [productRoles]="v.product_roles"
+        idPrefix="detail"
+        labelledBy="admin-vendor-seats"
+        (provisioned)="onSeatProvisioned()"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+
     @if (seatsUnavailable()) {
     <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.unavailable">
       The seat roster is unavailable right now.

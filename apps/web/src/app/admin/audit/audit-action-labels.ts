@@ -83,6 +83,12 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // They surface here because `/admin/vendors/:id`'s trail is scoped partly by
   // `entity_type='vendor_request'` over the vendor's claims.
   'vendor_claim.note_updated': $localize`:@@admin.audit.action.claimNoteUpdated:Operator note updated on a claim`,
+  // AECI-740. The pair to `seat_revoked`, and the only row that records a seat
+  // being CREATED outside a claim grant. The label says "no entitlement" out loud
+  // because that is the whole distinction from `vendor_claim.granted` directly
+  // above it — the same action from the reader's point of view, minus the paid
+  // account (`STAGE_2_SPEC.md` §8.9(2)).
+  'vendor_seat.provisioned': $localize`:@@admin.audit.action.seatProvisioned:Portal seat added (no entitlement)`,
   'vendor_seat.invited': $localize`:@@admin.audit.action.seatInvited:Seat invitation sent`,
   'vendor_seat.invite_revoked': $localize`:@@admin.audit.action.seatInviteRevoked:Seat invitation revoked`,
   'vendor_seat.invite_accepted': $localize`:@@admin.audit.action.seatInviteAccepted:Seat invitation accepted`,

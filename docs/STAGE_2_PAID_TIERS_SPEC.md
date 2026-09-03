@@ -416,16 +416,17 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Four, all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Five (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
 | `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter. One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. Per-row product/integration counts reuse `vendorListConfig.extras`, the same correlated subqueries the public list already ships. |
 | `GET /api/admin/vendors/:id` | Basics, entitlement, the seat roster + pending invites, and product / integration / claim counts. Two D1 round trips: a 404 gate, then **one `db.batch` of six reads** — a batch for the round trip, not for atomicity, the same use `GET /api/vendor/updates` documents. Deliberately **not** a `UNION`: D1 caps compound selects at five, which the admin System screen already got bitten by. |
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
-| `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. **The only write this issue adds.** |
+| `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. |
+| `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
 
-**The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke composes `revokeSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and a generated-SQL assertion both prove never names `vendors` at all.
+**The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
 
 **The three GETs emit no `audit_log` row.** Reads write nothing (`ADMIN_PANEL_SPEC.md` §9.3, `API_CONTRACTS.md` §6.10 conventions). ADR 0022 scopes the §26.1 invariant, but it is a write-side document — cite those two as the direct authority.
 
@@ -435,7 +436,7 @@ The obvious filter misses more than it catches, and the gaps are silent. Entity 
 
 1. `entity_type IN ('vendor','vendor_entitlement') AND entity_id = :vendorId` → `audit_log_entity_idx`. Serves `vendor.created/.updated`, `promote.blocked`, and the whole `vendor_entitlement.*` ledger — which works only because §2.1 made the entitlement rows' `entity_id` the **vendor** id rather than the entitlement row id.
 2. `entity_type = 'vendor_request' AND entity_id IN (SELECT id FROM vendor_requests WHERE <vendorRequestsWhere>)`. **Required**, because `rejectClaimStatements` builds its metadata with `claimMetadata(p, {})`, which emits no `vendor_id` — and `RejectClaimParams` does not even carry one. Widening that writer would fix only rows written after the deploy; the subquery is retroactive, and reusing `vendorRequestsWhere` gets the vendor-arm / product-arm split right (a product claim's `target_id` is a **product** id).
-3. `action IN (<claim + seat lifecycle actions>) AND json_extract(metadata,'$.vendor_id') = :vendorId` → `audit_log_action_idx` with the JSON test as a filter. Also required: it is the **only** path that reaches `vendor_claim.seat_revoked`, which files under `entity_type='profile'` with the seat's user id — and by the time anyone reads it the revoke has nulled that profile's `vendor_id`, so the actor scope misses it too. That is precisely the row an operator asking "why did this vendor lose access?" wants.
+3. `action IN (<claim + seat lifecycle actions>) AND json_extract(metadata,'$.vendor_id') = :vendorId` → `audit_log_action_idx` with the JSON test as a filter. Also required: it is the **only** path that reaches `vendor_claim.seat_revoked` and `vendor_seat.provisioned`, which file under `entity_type='profile'` with the seat's user id — and by the time anyone reads it the revoke has nulled that profile's `vendor_id`, so the actor scope misses it too. That is precisely the row an operator asking "why did this vendor lose access?" wants.
 4. `action IN ('vendor_admin.banned','vendor_admin.unbanned') AND entity_id IN (SELECT id FROM profiles WHERE <seatsOf>)`. The ban/unban rows file under `entity_type='profile'` with the seat's user id and carry **no** `metadata.vendor_id` (`admin-reviewers.ts` writes `{ source, reason? }`), so none of legs 1–3 reach them — yet the roster shows ban state, so the audit tab has to explain it. A ban does not null `vendor_id`, so the seat is still in `seatsOf`; matching through the current roster is retroactive over rows already written, unlike stamping `vendor_id` into the writer. A seat banned and *then* revoked drops out of this leg (the revoke nulls `vendor_id`), but its `vendor_claim.seat_revoked` row stays reachable via leg 3, so "lost access" is never lost.
 
 Actor scope is one statement with a **subquery**, not a resolved id list: `inArray(auditLog.actorId, db.select(...).from(profiles).where(seatsOf(vendorId)))`. `ID_CHUNK` / `SEAT_LOOKUP_CHUNK` exist elsewhere because D1 caps **bound parameters** per query, not statements — so an id set SQL can derive belongs in SQL. As a subquery there is no cap to hit, no chunking (which would break a single `ORDER BY … LIMIT/OFFSET` anyway), and no extra round trip. Both partial indexes still apply; SQLite proves `actor_id IS NOT NULL` from the `IN`.
@@ -444,13 +445,46 @@ Ordering is `created_at DESC, id DESC`. The tiebreak is not decoration: `created
 
 **The viewer renders tolerantly.** `before_state` / `after_state` are free-form JSON written by ~34 call sites across the life of the schema, with no shared contract, in a table nothing prunes — so today's reader is parsing rows written by code that no longer exists. The wire types are `z.unknown().nullable()` (which in Zod 4 still rejects a *missing* key, satisfying R10) and `action` / `entity_type` are plain strings. An enum would turn a new writer elsewhere into a 500 on this screen.
 
-#### 5.6.3 Seats: revoke, but never ban
+#### 5.6.3 Seats: add and revoke, but never ban
+
+> **Retitled by AECI-740 (2026-09-03).** This subsection read "revoke, but never ban" because
+> revoke was the only seat verb the console had. It now has two: **`POST /api/admin/vendors/:id/seats`**
+> adds one. The ban boundary below is unchanged in every respect.
 
 The roster lists every seat via the shared `seatsOf` predicate (moved to `routes/vendor-shared.ts` so the dashboard count, the portal roster and this page can never disagree), **including banned ones** — a ban is a per-seat lock, not a removal, and hiding it leaves nobody able to see why a colleague cannot sign in.
 
 The page can **revoke** a seat and deliberately **cannot ban** a person; each row deep-links to `/admin/reviewers`, which owns that policy (AECI-524). The two have different blast radii — a revoke un-grants one vendor's access, a ban locks the human out of AECi entirely — and peer buttons would invite the wrong one.
 
 The admin revoke is a near-clone of the portal's owner-only `DELETE /api/vendor/seats/:userId` with three differences: `vendorId` comes from the path (and scopes the target read), there is no self-removal guard (an admin holds no seat), and **the last-owner guard is not carried over**. That guard's stated rationale is that a vendor cannot self-rescue from an unadministrable account and "only an AECi grant can rescue it" — the admin *is* that rescue, so keeping it would block only the operator who exists to undo it.
+
+**The page can also ADD a seat, and that is the only place in the product that can (AECI-740).**
+`POST /api/admin/vendors/:id/seats` is the **only route that writes
+`profiles.role = 'vendor_admin'` on its own** — the claim grant and the invite redeem write it too,
+but only behind a claim or an owner's invite — and it opens **no `vendor_entitlements` row** — which is the
+one property worth stating here, because §2.1's mirror makes it counter-intuitive: `vendors.verified`
+flips on `status = 'active'` and not on `tier`, so *any* entitlement row would light the badge, and
+"a seat but no badge" is not expressible through the entitlement table at all. It exists because
+`STAGE_2_SPEC.md` §8.9(1) gives a pure **connector** vendor a catalogue-maintenance seat and never
+sells it verification, while every prior path to a seat opened an entitlement on the way (`approveClaim`
+composes `grantSeatStatements` with `activateEntitlementStatements` at `GRANT_TIER = 'verified'`) —
+which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told operators to park such a claim rather than
+grant it.
+
+Three consequences for this section specifically:
+
+- **Adding a seat and setting an entitlement stay separate controls on one page, deliberately.**
+  They are the two halves the claim grant fuses, and §5.2's whole problem was that fusion. Putting
+  them behind one button would recreate it on the surface built to avoid it. The provision control
+  says so in its own copy: *"opens no entitlement, does not turn on the verified badge."*
+- **It lives here rather than on `/admin/claims/:id` or `/admin/users/:id`** for exactly the reason
+  the revoke does: this is the only screen showing the blast radius — the other seats, the
+  entitlement state, `is_pure_connector_vendor` — that makes the decision safe. `ADMIN_PANEL_SPEC.md`
+  §5.8's "this screen cannot edit the role" is unchanged and now points here.
+- **It warns and never gates** on a vendor owning endpoint products (the AECI-738 rule), and it
+  does **not** become a second writer of `banned_at`. A banned account is provisioned and flagged,
+  not refused — ban policy is `PATCH /api/admin/reviewers/:id`'s.
+
+Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.3.
 
 **Emails are a tri-state, and that is the whole point.** `seat_emails_available: false` means the GoTrue seam was unreachable, so a blank email says nothing about the account; `true` with a blank means the account genuinely has none. On 2026-08-24 the claim queue read "Account status unknown" for every row because `SUPABASE_SERVICE_ROLE_KEY` was absent and then carried a bad value, and the seam discarded both the HTTP status and the error text — so there was nothing to debug from. AECI-652 fixed that at the source: `fetchAuthUserEmailsResult` reports `{ available, emails, reason }`, `fetchAuthUserEmails` stays a byte-identical wrapper (four structural type aliases take it as an injection default), and every swallow point now `console.warn`s its reason. **Absent creds must render "unavailable", never an empty seat list.**
 
@@ -459,6 +493,8 @@ The admin revoke is a near-clone of the portal's owner-only `DELETE /api/vendor/
 - **It does not close the §5.4 lockout.** No admin vendor-edit endpoint is added, so a cleared-but-still-seated vendor is still uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
 - **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
 - **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
+- **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stays `open`, because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
+- **It still cannot ban, and adding a seat is not verifying a vendor.** Both boundaries are asserted in `vendor-detail.component.spec.ts` now that this section carries two write actions rather than one.
 
 ### 5.7 As built (AECI-652 — 2026-08-27)
 

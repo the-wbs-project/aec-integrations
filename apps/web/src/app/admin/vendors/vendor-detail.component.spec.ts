@@ -14,6 +14,7 @@
  *    ~34 writers across the life of the schema, in a table nothing prunes — so a
  *    scalar, an added key and a removed key all have to render rather than throw.
  */
+import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
@@ -28,6 +29,7 @@ import type {
 
 import { AdminEntitlementApi } from '../entitlement/admin-entitlement-api';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { SeatProvisionApi } from './seat-provision-api';
 import { VendorDetail } from './vendor-detail';
 
 const VENDOR_ID = '00000000-0000-4000-8000-000000000010';
@@ -117,7 +119,13 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(api: ApiMock) {
+/** `SeatProvisionApi`, stubbed (AECI-740). A second optional argument rather than
+ *  a field on {@link ApiMock}, because the provision endpoint has its own client
+ *  by design — the ONE writer of `role = 'vendor_admin'` gets exactly one caller,
+ *  so the blast radius is greppable. */
+type ProvisionMock = { provisionSeat: ReturnType<typeof vi.fn> };
+
+async function setup(api: ApiMock, provisionApi: ProvisionMock = { provisionSeat: vi.fn() }) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -125,6 +133,7 @@ async function setup(api: ApiMock) {
       provideRouter([]),
       { provide: AdminVendorsApi, useValue: api },
       { provide: AdminEntitlementApi, useValue: { setEntitlement: vi.fn() } },
+      { provide: SeatProvisionApi, useValue: provisionApi },
       {
         provide: ActivatedRoute,
         useValue: { snapshot: { paramMap: new Map([['id', VENDOR_ID]]) } },
@@ -136,7 +145,7 @@ async function setup(api: ApiMock) {
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, provisionApi, el: fixture.nativeElement as HTMLElement };
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement | undefined {
@@ -623,5 +632,212 @@ describe('VendorDetail — products by role', () => {
     );
     expect(el.textContent).toContain('No products on record');
     expect(el.textContent).not.toContain('pure connector');
+  });
+});
+
+// ─── AECI-740: provisioning a seat ───────────────────────────────────────────
+
+/**
+ * The provision control's two load-bearing properties.
+ *
+ * **It warns and never gates.** `product_role` is curated upstream in the review
+ * app, so a mis-roled record must not hard-block a legitimate operator — the
+ * AECI-738 rule verbatim (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1). A test
+ * rather than a comment because "add a `[disabled]`" is the obvious-looking
+ * hardening somebody will reach for, and it would break the endpoint's whole
+ * purpose on exactly the vendors most likely to be mis-roled.
+ *
+ * **The announcement names what did NOT happen.** A screen-reader user must not
+ * have to go and read the Basics table to find out whether provisioning verified
+ * the vendor.
+ */
+describe('VendorDetail — provisioning a seat (AECI-740)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => vi.restoreAllMocks());
+
+  const openForm = async (el: HTMLElement, fixture: { detectChanges(): void }) => {
+    buttonByText(el, 'Add a seat')!.click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+  };
+
+  /** Type an address. The submit button is legitimately disabled while the field
+   *  is empty — that is field validation, NOT the payer-test gate — so every
+   *  "stays enabled" assertion has to fill it first or it proves nothing. */
+  const typeEmail = (
+    el: HTMLElement,
+    fixture: { detectChanges(): void },
+    value = 'ops@mindcloud.example',
+  ) => {
+    const input = el.querySelector<HTMLInputElement>('input[type="email"]')!;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  };
+
+  it('renders the control, and says what the seat is NOT', async () => {
+    const { el } = await setup(makeApiMock(makeVendor()));
+
+    expect(el.querySelector('aec-provision-seat-control')).toBeTruthy();
+    const text = el.textContent ?? '';
+    // The distinction from Grant, stated on the page rather than assumed.
+    expect(text).toContain('opens no entitlement');
+    expect(text).toContain('does not turn on the verified badge');
+  });
+
+  it('warns on a vendor that owns endpoint products, WITHOUT disabling the action', async () => {
+    // The default fixture is the Autodesk shape — 3 application + 1 connector —
+    // i.e. an ordinary paying vendor that the carve-out must not catch.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+    typeEmail(el, fixture);
+
+    expect(el.textContent).toContain('This vendor owns endpoint products');
+    const submit = buttonByText(el, 'Add the seat');
+    expect(submit).toBeTruthy();
+    // THE assertion. The banner warns; it does not gate.
+    expect(submit!.disabled).toBe(false);
+  });
+
+  it('shows no warning for a pure connector vendor — the case it is built for', async () => {
+    const vendor = makeVendor({
+      product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
+      is_pure_connector_vendor: true,
+    });
+    const { el, fixture } = await setup(makeApiMock(vendor));
+    await openForm(el, fixture);
+
+    expect(el.textContent).not.toContain('This vendor owns endpoint products');
+    expect(el.textContent).not.toContain('role is unknown');
+  });
+
+  it('treats a vendor with NO products as unknown, not exempt', async () => {
+    // AECI-738's rule: zero products never reads as the carve-out.
+    const vendor = makeVendor({
+      product_count: 0,
+      product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+      is_pure_connector_vendor: false,
+    });
+    const { el, fixture } = await setup(makeApiMock(vendor));
+    await openForm(el, fixture);
+    typeEmail(el, fixture);
+
+    expect(el.textContent).toContain('role is unknown');
+    expect(buttonByText(el, 'Add the seat')!.disabled).toBe(false);
+  });
+
+  it('refreshes the roster and the audit trail, and announces what did not happen', async () => {
+    const api = makeApiMock(makeVendor());
+    const provision = {
+      provisionSeat: vi.fn(async () => ({
+        user_id: SEAT_ID,
+        vendor_id: VENDOR_ID,
+        email: 'ops@mindcloud.example',
+        identity_outcome: 'invited' as const,
+        seat_created: true,
+        seat_owner: true,
+        banned: false,
+        noop: false,
+        entitlement_granted: false as const,
+        verified: false,
+        is_pure_connector_vendor: true,
+        product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
+      })),
+    };
+    const { el, fixture } = await setup(api, provision);
+    await openForm(el, fixture);
+
+    typeEmail(el, fixture);
+
+    buttonByText(el, 'Add the seat')!.click();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+
+    expect(provision.provisionSeat).toHaveBeenCalledWith(VENDOR_ID, {
+      email: 'ops@mindcloud.example',
+    });
+    // A provision writes a seat row AND an audit row, so both reload.
+    expect(api.getVendor).toHaveBeenCalledTimes(2);
+    expect(api.listAudit).toHaveBeenCalledTimes(2);
+
+    const status = el.querySelector('[role="status"]');
+    expect(status?.textContent).toContain('Seat added');
+    // Load-bearing: the operator must not have to read the Basics table to learn
+    // that provisioning did not verify the vendor.
+    expect(status?.textContent).toContain('verified badge is unchanged');
+  });
+
+  it('disables submit on an empty address — field validation, not the gate', async () => {
+    // The complement to the two tests above: without this, a control that was
+    // disabled for the WRONG reason could still make them pass by being enabled
+    // once an address is typed.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+
+    expect(buttonByText(el, 'Add the seat')!.disabled).toBe(true);
+    typeEmail(el, fixture);
+    expect(buttonByText(el, 'Add the seat')!.disabled).toBe(false);
+  });
+
+  it('renders the 503 as a configuration fact, not a failure', async () => {
+    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev and every
+    // PR preview, so 503 is the DEFAULT outcome there — the same seam and the
+    // same copy discipline the claim queue already carries.
+    const provision = {
+      provisionSeat: vi.fn(async () => {
+        throw new HttpErrorResponse({ status: 503 });
+      }),
+    };
+    const { el, fixture } = await setup(makeApiMock(makeVendor()), provision);
+    await openForm(el, fixture);
+
+    typeEmail(el, fixture);
+
+    buttonByText(el, 'Add the seat')!.click();
+    await settle();
+    fixture.detectChanges();
+
+    expect(el.textContent).toContain("account service isn't configured");
+    expect(el.textContent).toContain('Nothing was changed');
+  });
+
+  it('wires every control to a label and a description, under one live region', async () => {
+    // Structural a11y, asserted here because `/admin` needs a real admin session
+    // and cannot be reached by the axe e2e lane without one. Four properties:
+    // both fields are labelled, both carry their hint via aria-describedby, the
+    // failure message is an alert, and the PAGE still owns exactly one live
+    // region — the extraction contract `EntitlementControl` established.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+
+    for (const field of ['detail-provision-email', 'detail-provision-reason']) {
+      const input = el.querySelector<HTMLElement>(`#${field}`)!;
+      expect(el.querySelector(`label[for="${field}"]`)?.textContent?.trim()).toBeTruthy();
+      expect(input.getAttribute('aria-describedby')).toBe(`${field}-hint`);
+      expect(el.querySelector(`#${field}-hint`)).toBeTruthy();
+    }
+
+    // The control is labelled by the section heading it sits under, so it is not
+    // an unnamed region to a screen reader.
+    const control = el.querySelector('aec-provision-seat-control > div')!;
+    expect(control.getAttribute('aria-labelledby')).toBe('admin-vendor-seats');
+
+    // Still exactly one. The control must not render its own.
+    expect(el.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(control.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('still cannot ban, and still cannot manage an entitlement from the control', async () => {
+    // The scope boundary, re-asserted now that this section has TWO write
+    // actions rather than one. Adding a seat is not verifying a vendor.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+
+    const control = el.querySelector('aec-provision-seat-control')!;
+    expect(buttonByText(control as HTMLElement, 'Ban')).toBeUndefined();
+    expect(buttonByText(control as HTMLElement, 'Set entitlement')).toBeUndefined();
   });
 });

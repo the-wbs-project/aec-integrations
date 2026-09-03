@@ -147,19 +147,21 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
   // per-page closed-state scans above never reach. Defensive: skips if the
   // desktop flyout trigger isn't rendered (e.g. a future layout change).
   //
-  // Open via the KEYBOARD path (focus + Enter), not click: the host opens on
-  // hover (`mouseenter`), so a pointer click would move the mouse over the host
-  // first (opening it) and then the click would toggle it back closed. Keyboard
-  // toggling has no such race and also exercises the documented a11y path.
+  // Open via the KEYBOARD path (focus + ArrowDown), not click: the trigger is the
+  // facet's index LINK, so a click navigates, and a pointer click would first move
+  // the mouse over the host (opening it) anyway. ArrowDown has no such race and is
+  // the documented a11y path (`nav-flyout-trigger.ts`).
   test('open taxonomy flyout nav has zero AA violations', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const trigger = page.locator('button[aria-haspopup="true"][aria-expanded]').first();
+    const trigger = page
+      .locator('aec-nav-flyout-trigger a[aria-haspopup="true"][aria-expanded]')
+      .first();
     test.skip((await trigger.count()) === 0, 'desktop flyout trigger not present at this viewport');
 
     await trigger.focus();
-    await trigger.press('Enter');
+    await trigger.press('ArrowDown');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
     const violations = await aaViolations(page);

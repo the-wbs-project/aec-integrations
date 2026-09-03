@@ -305,3 +305,89 @@ export const AdminVendorAuditResponseSchema = paginatedResponseSchema(AdminAudit
   actor_emails_available: z.boolean(),
 });
 export type AdminVendorAuditResponse = z.infer<typeof AdminVendorAuditResponseSchema>;
+
+// ─── POST /api/admin/vendors/:id/seats ───────────────────────────────────────
+
+/**
+ * Provision one catalogue-maintenance seat (AECI-740 / `STAGE_2_SPEC.md`
+ * §8.9(3)).
+ *
+ * **Why this endpoint exists at all.** §8.9(1) settled that a pure *connector*
+ * vendor — one whose every product is `product_role = 'connector'` — is never
+ * sold verification, and gets a **catalogue-maintenance seat** instead, carried
+ * by **no `vendor_entitlements` row**. §8.9(2) then proved every existing path to
+ * a seat was foreclosed: `approveClaim` composes `grantSeatStatements` with
+ * `activateEntitlementStatements` at `GRANT_TIER = 'verified'` in one batch, so
+ * approving such a claim *always* opens an entitlement and lights the badge; the
+ * seat-invite redeem needs an existing OWNER seat, which only a grant creates;
+ * and no admin route wrote `role = 'vendor_admin'` at all. So
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 was a nine-step operator procedure whose
+ * last step could not be performed — a connector vendor's claim could only be
+ * PARKED, indefinitely. This is §8.9(3)'s "or a small admin action".
+ *
+ * **The request body names an EMAIL, not a user id.** The account is resolved
+ * through the same `resolveClaimantIdentity` seam the claim grant uses
+ * (`apps/api/src/lib/claimant-identity.ts`), which links an existing
+ * `auth.users` row or provisions one — a connector-lane contact typically has no
+ * AECi account yet, and requiring them to sign up first would reintroduce the
+ * out-of-band round trip this action exists to remove. The cost is that the seam
+ * needs `SUPABASE_SERVICE_ROLE_KEY`, so this endpoint reports **503
+ * `DEPENDENCY_FAILURE`** on local dev and PR previews exactly as the grant does.
+ */
+export const ProvisionVendorSeatSchema = z.object({
+  email: z.string().email(),
+  /** Recorded in the audit row's metadata; never emailed, never shown to the
+   *  seat holder — the same internal-note convention as the claim reviewer's
+   *  `reason` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §9). */
+  reason: z.string().max(500).optional(),
+});
+export type ProvisionVendorSeat = z.infer<typeof ProvisionVendorSeatSchema>;
+
+/**
+ * What a provision reports back.
+ *
+ * **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** That is the
+ * §8.9(2) fence expressed as a type: a future edit that composes this path with
+ * `activateEntitlementStatements` cannot report the truth without failing to
+ * compile. It mirrors the `seat_not_granted: true` literal AECI-720 writes into
+ * its own audit metadata, from the opposite direction — that endpoint says "I
+ * granted no seat", this one says "I opened no entitlement".
+ *
+ * **`verified` is read back, never written.** No statement on this path names
+ * `vendors`, so the flag is whatever it already was; it is on the wire so the
+ * operator can see at a glance that provisioning did not light the badge.
+ *
+ * `is_pure_connector_vendor` / `product_roles` are the §8.8(1) payer test as it
+ * stood at the moment of the write (AECI-738's shared derivation). They are
+ * **recorded, never enforced** — `product_role` is curated upstream in the
+ * review app, so a mis-roled record must not hard-block a legitimate operator.
+ * The console warns; it does not gate. Same rule the claim queue's Grant/Reject
+ * buttons follow (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1).
+ */
+export const ProvisionVendorSeatResponseSchema = z.object({
+  user_id: z.string(),
+  vendor_id: z.string().uuid(),
+  email: z.string(),
+  /** `linked` = an `auth.users` row already owned this address; `invited` = one
+   *  was provisioned. Audit-and-readout only, exactly as on the claim grant. */
+  identity_outcome: z.enum(['linked', 'invited']),
+  /** Whether a brand-new `profiles` row was written (a seat granted before the
+   *  holder's first sign-in). */
+  seat_created: z.boolean(),
+  seat_owner: z.boolean(),
+  /** Surfaced so the console can warn. A banned account is **not** refused here:
+   *  ban policy is `PATCH /api/admin/reviewers/:id`'s (AECI-524), and the claim
+   *  grant does not refuse one either — diverging would make two admin paths
+   *  tell different stories about the same account. */
+  banned: z.boolean(),
+  /** `true` when nothing was written because the seat already read exactly this
+   *  way — a 200 no-op with no `audit_log` row, following the
+   *  `PATCH /api/admin/claims/:id/notes` rule that a trail of identical states is
+   *  not a history. */
+  noop: z.boolean(),
+  entitlement_granted: z.literal(false),
+  verified: z.boolean(),
+  is_pure_connector_vendor: z.boolean(),
+  product_roles: VendorProductRolesSchema,
+});
+export type ProvisionVendorSeatResponse = z.infer<typeof ProvisionVendorSeatResponseSchema>;

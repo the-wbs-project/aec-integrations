@@ -407,6 +407,143 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
 }
 
 /**
+ * The seat-provision batch (AECI-740 / `STAGE_2_SPEC.md` §8.9(3)).
+ *
+ * The exact inverse of {@link revokeSeatStatements}, and the only path that writes
+ * `profiles.role = 'vendor_admin'` with neither a claim nor an invite behind it —
+ * and, unlike the claim grant it sits beside, without opening a
+ * `vendor_entitlements` row. **TWO statements**, and — like everything else in
+ * this module — neither of them names `vendors`.
+ *
+ * ── WHY IT IS NOT `grantSeatStatements` ──────────────────────────────────────
+ * That builder emits five statements, three of which are about a CLAIM: it
+ * resolves a `vendor_requests` row and advances a `vendor_claim` workflow
+ * instance. A connector vendor's seat is handed over out of band
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2) and may have no claim row behind it at
+ * all — and where one does exist, §5.2 step 4 deliberately leaves it `open`.
+ * Reusing the grant would either need a synthetic request id or would stamp a
+ * claim `resolved`, which reads as approved in the Resolved tab with a paid
+ * account behind it. Neither is true here.
+ *
+ * ── WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────────
+ * **No entitlement statement.** §8.9(2) is a fence, not a build: `vendors.verified`
+ * mirrors off `status = 'active'`, not `tier` (`lib/vendor-entitlement.ts`), so
+ * ANY active row lights the verified badge and "a seat but no badge" is not
+ * expressible through the entitlement table. The seat is therefore not an
+ * entitlement row at all. `findVendorProfile` (`lib/authz.ts`) uses a `leftJoin`
+ * precisely so this shape authenticates: the holder passes `requireVendor()` and
+ * resolves to `unclaimed` with zero capabilities.
+ *
+ * **No `workflow_instances` / `workflow_transitions` row.** `workflow_instances_type_check`
+ * is a closed CHECK whose widening is a full SQLite table rebuild, and a seat is
+ * not a claim state change — the same reasoning `saveClaimNotesStatements` gives.
+ *
+ * **It never writes `banned_at`.** `PATCH /api/admin/reviewers/:id` is the sole
+ * writer of that column anywhere in the codebase, asserted at source level by
+ * `routes/banned-at-writers.spec.ts`. This builder writes `role`, `vendor_id` and
+ * `seat_owner`, and nothing else.
+ *
+ * ── `seatOwner: true` ────────────────────────────────────────────────────────
+ * Same rule `grantSeatStatements` follows (AECI-664 / §11a): a seat an AECi
+ * operator provisioned by hand IS the owner event — a human confirmed this person
+ * represents this vendor, which is exactly the authority an invite delegates. It
+ * is also what makes the shipped `/api/vendor/seats/invites` flow usable by the
+ * connector vendor without a second admin action every time a colleague joins.
+ *
+ * The upsert's `set` list is copied from `grantSeatStatements` verbatim, so a
+ * provision landing before the holder's first sign-in — or after — never clobbers
+ * `display_name`, `theme_preference`, `work_email_verified`, `trust_tier`, or the
+ * ban columns (§2 no-clobber contract).
+ */
+export interface ProvisionSeatParams {
+  /** Resolved auth-user id (= `profiles.id`, = JWT `sub`). */
+  userId: string;
+  vendorId: string;
+  /** The acting admin. */
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  now: string;
+  /** `linked` (auth user pre-existed) vs `invited` (provisioned) — audit only. */
+  identityOutcome: 'linked' | 'invited';
+  /** The seat profile before the write; `null` when the account has never signed
+   *  in, in which case the upsert inserts. */
+  profileBefore: ProvisionProfileBefore | null;
+  /**
+   * The §8.8(1) payer test as it stood at the moment of the write. Recorded so
+   * the trail shows what the operator was looking at — a `product_role` curated
+   * upstream can change afterwards, and the audit row must not silently re-read
+   * as a different decision. **Never a gate** (§5.2 step 1: the console warns).
+   */
+  isPureConnectorVendor: boolean;
+  reason?: string | null;
+}
+
+/** {@link ProvisionSeatParams}'s before-snapshot. Wider than
+ *  {@link SeatProfileBefore} because the no-op check and the audit before-state
+ *  both need `seat_owner`, which `ClaimantProfileSnapshot` does not carry. */
+export interface ProvisionProfileBefore {
+  role: string;
+  vendorId: string | null;
+  seatOwner: boolean;
+  bannedAt: string | null;
+}
+
+export function provisionSeatStatements(db: Db, p: ProvisionSeatParams): RevokeBatch {
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: 'vendor_seat.provisioned',
+    // Files under the SEAT, matching `vendor_claim.seat_revoked` — the two are a
+    // pair and an operator reading one wants the other beside it.
+    entityType: 'profile',
+    entityId: p.userId,
+    beforeState: {
+      role: p.profileBefore?.role ?? null,
+      vendor_id: p.profileBefore?.vendorId ?? null,
+      seat_owner: p.profileBefore?.seatOwner ?? null,
+    },
+    afterState: { role: VENDOR_ADMIN_ROLE, vendor_id: p.vendorId, seat_owner: true },
+    metadata: {
+      source: CLAIM_AUDIT_SOURCE,
+      // LOAD-BEARING, not decoration: this row files under `entity_type='profile'`,
+      // so leg 3 of `auditScopeWhere` (`routes/admin-vendors.ts`) is the only way
+      // the vendor's own audit tab reaches it — and that leg matches on
+      // `json_extract(metadata,'$.vendor_id')`. Dropping this hides the row.
+      vendor_id: p.vendorId,
+      seat_user_id: p.userId,
+      identity_outcome: p.identityOutcome,
+      seat_created: p.profileBefore === null,
+      // Said out loud, in the row itself, mirroring `seat_not_granted: true` on
+      // AECI-720's `managed_by` flip from the opposite direction. §8.9(2) is a
+      // fence somebody will eventually be tempted to step over; the trail should
+      // make it obvious that this action never opened a paid account.
+      entitlement_granted: false,
+      is_pure_connector_vendor: p.isPureConnectorVendor,
+      ...(p.profileBefore?.bannedAt ? { seat_banned: true } : {}),
+      ...(p.reason ? { reason: p.reason } : {}),
+    },
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .insert(profiles)
+      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, seatOwner: true })
+      .onConflictDoUpdate({
+        target: profiles.id,
+        set: {
+          role: VENDOR_ADMIN_ROLE,
+          vendorId: p.vendorId,
+          seatOwner: true,
+          updatedAt: p.now,
+        },
+      }),
+    auditInsert(db, auditEntry),
+  ];
+
+  return { stmts, auditEntry };
+}
+
+/**
  * The operator note write (AECI-739 / §5.2 step 6). One column, one audit row.
  */
 export interface SaveClaimNotesParams {

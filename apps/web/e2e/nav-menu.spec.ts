@@ -7,8 +7,9 @@ import { expect, test, type Page } from '@playwright/test';
 // Home + Products links, the four facets as tap-to-expand disclosure sections,
 // search, and the account block / Sign-in. At `lg+` the hamburger drops out and
 // the same set renders inline: Home + Products links plus four facet flyout
-// triggers (label links to the index, an adjacent disclosure button reveals the
-// top values). Vendors / Integrations no longer live in the nav (AECI-159).
+// triggers (one text link that navigates to the index and also discloses the top
+// values on hover / ArrowDown — there is no separate arrow button).
+// Vendors / Integrations no longer live in the nav (AECI-159).
 //
 // The "More" overflow menu is gone. The row is public-directory-only and closed,
 // so its secondary destinations (Updates, Roadmap, About, Contact) and Legal
@@ -237,10 +238,14 @@ test.describe('primary navigation menu (1280px)', () => {
     for (const name of TOP_LINKS) {
       await expect(nav.getByRole('link', { name })).toBeVisible();
     }
-    // Each facet renders an index link plus a disclosure button.
+    // Each facet is ONE control: an index link that is also the disclosure
+    // trigger (no separate arrow button), so the disclosure attributes have to
+    // sit on the link itself.
     for (const name of FACETS) {
-      await expect(nav.getByRole('link', { name, exact: true })).toBeVisible();
-      await expect(nav.getByRole('button', { name: `${name} menu` })).toBeVisible();
+      const facet = nav.getByRole('link', { name, exact: true });
+      await expect(facet).toBeVisible();
+      await expect(facet).toHaveAttribute('aria-haspopup', 'true');
+      await expect(facet).toHaveAttribute('aria-expanded', 'false');
     }
     // Six items, full stop: no overflow trigger, no secondary destination, and
     // nothing role-gated (the header is cached URL-keyed HTML, so an /admin href
@@ -288,16 +293,21 @@ test.describe('primary navigation menu (1280px)', () => {
 
   test('the flyout opens on keyboard and Escape closes it, returning focus', async ({ page }) => {
     await page.goto(ROUTE);
-    const button = primaryNav(page).getByRole('button', { name: 'Audiences menu' });
-    await button.focus();
-    await page.keyboard.press('Enter');
+    const trigger = primaryNav(page).getByRole('link', { name: 'Audiences', exact: true });
+    await trigger.focus();
+    await page.keyboard.press('ArrowDown');
 
-    await expect(button).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('#nav-flyout-audience')).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const panel = page.locator('#nav-flyout-audience');
+    await expect(panel).toBeVisible();
+    // The focus move has to survive a REAL render: the panel is `[hidden]` until
+    // change detection runs, and a focus attempt scheduled before that lands on a
+    // `display: none` element and is silently dropped.
+    await expect(panel.getByRole('link').first()).toBeFocused();
 
     await page.keyboard.press('Escape');
-    await expect(button).toHaveAttribute('aria-expanded', 'false');
-    await expect(button).toBeFocused();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
   });
 
   test('desktop header is axe-clean (closed and with a flyout open)', async ({ page }) => {
@@ -305,18 +315,13 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(primaryNav(page).getByRole('link', { name: 'Products' })).toBeVisible();
     expect(await analyzeHeader(page), 'closed').toEqual([]);
 
-    // Pointer affordance is hover-to-open (see the "hovering a facet" test
-    // above): the host opens on `mouseenter`, while the trigger button's click
-    // *toggles*. A literal `.click()` therefore lands as mouseenter(open) →
-    // click(toggle→close), netting closed — so drive the open state the way a
-    // mouse user actually does, by hovering the trigger.
-    await primaryNav(page).getByRole('button', { name: 'Categories menu' }).hover();
+    await primaryNav(page).getByRole('link', { name: 'Categories', exact: true }).hover();
     await expect(page.locator('#nav-flyout-category')).toBeVisible();
     expect(await analyzeHeader(page), 'flyout open').toEqual([]);
 
     // A second facet, since the four flyouts are the only dropdowns left in the
     // row and they share one behaviour base (`layout/nav-disclosure.ts`).
-    await primaryNav(page).getByRole('button', { name: 'Phases menu' }).hover();
+    await primaryNav(page).getByRole('link', { name: 'Phases', exact: true }).hover();
     await expect(page.locator('#nav-flyout-phase')).toBeVisible();
     expect(await analyzeHeader(page), 'second flyout open').toEqual([]);
   });
