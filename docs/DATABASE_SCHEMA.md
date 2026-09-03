@@ -713,6 +713,14 @@ create table profiles (
   -- No cross-schema FK — see docs/AUTH_AND_RLS.md §8.1.
   id uuid primary key,
   display_name text,
+  -- 'vendor_admin' has exactly TWO writers, both lib/ batch builders: vendor-grant.ts
+  -- (the AECI-519 claim grant, the AECI-652 revoke, and the AECI-740 standalone
+  -- provision) and vendor-seat-invites.ts (the AECI-664 invite redeem). No route
+  -- handler writes it directly, so no seat write can skip its audit row. Asserted at
+  -- source level by apps/api/src/routes/vendor-admin-role-writers.spec.ts, which also
+  -- pins the AECI-740 fence: nothing may compose provisionSeatStatements with
+  -- activateEntitlementStatements. 'admin' has no writer at all — granting it is the
+  -- per-environment SQL runbook (environments.md §10.7).
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
   -- Set true by the AECI-664 invite redeem when the redeemed address is on the
@@ -724,7 +732,8 @@ create table profiles (
   work_email_verified boolean not null default false,
   -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
   -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
-  -- remove seats. Set by the admin claim grant, cleared by revoke; a seat created
+  -- remove seats. Set by the admin claim grant and by the AECI-740 admin provision
+  -- (an AECi-reviewed seat IS the owner event), cleared by revoke; a seat created
   -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
   -- Migration 0020 backfills every pre-existing vendor_admin to true.
   seat_owner boolean not null default false,
