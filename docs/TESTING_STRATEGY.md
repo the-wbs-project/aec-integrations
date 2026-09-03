@@ -66,10 +66,11 @@ reproduction, and it is why the defect survived for months.
 > (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
 > `CICD_PLAN.md` §3.1 has the full rationale. `main` is branch-protected on three required
 > contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker` blocks the merge (§8).
-> **`admin-panel` is the exception on every count** — the 2026-08-14 trigger fix landed on
-> `stage-2`, and although `stage-2` merged to `main` on 2026-09-03, `admin-panel` is still not
-> descended from `main`, so its PRs run none of this and it has no protection. Merging `main` into
-> `admin-panel` is what fixes it.
+> The long-lived-branch caveat that used to sit here is **spent**: `admin-panel` was retired
+> before the Stage 2 merge and `stage-2` was retired at it, so `main` is the only branch on
+> `origin` and the only protected one. The rule it taught still applies to any epic branch you
+> create — a `push`-triggered run uses the *pushed branch's own* copy of the workflow, so a branch
+> not descended from current `main` can silently run less than you think.
 
 ---
 

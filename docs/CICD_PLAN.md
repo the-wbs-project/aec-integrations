@@ -875,12 +875,13 @@ If the smoke check fails, the deployment is marked failed and:
   they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
-  all base-branch-agnostic (§3.1). `main` and `admin-panel` additionally get a
-  post-merge `push` run (§3.2); only `main` deploys. `main` is branch-protected on
-  three required contexts (§8) plus `strict: true` and required linear history — so merge commits
-  are rejected there and PRs land by squash; `admin-panel` is not protected. (`deploy.yml`'s
-  `push.branches` still lists `stage-2`; that entry is inert now the branch is retired and can be
-  dropped on the next touch of the file.) **Opening a new long-lived
+  all base-branch-agnostic (§3.1). `main` gets a post-merge `push` run (§3.2) and is the only
+  branch that deploys. `main` is branch-protected on three required contexts (§8) plus
+  `strict: true` and required linear history — so merge commits are rejected there and PRs land by
+  squash. (`deploy.yml`'s `push.branches` still lists `stage-2` and `admin-panel`; **both entries
+  are inert** now that both branches are retired and `main` is the only branch on `origin`. They
+  can be dropped on the next touch of the file — harmless either way, since a `push` run only
+  fires for a branch that exists.) **Opening a new long-lived
   integration branch is a two-line change:** add it to `deploy.yml`'s `push.branches`, and remove
   it when the branch merges up. Nothing needs touching for a short-lived feature or epic branch.
   *(Historical note: until 2026-08-14 `deploy.yml` and `integration-db-tests.yml` pinned
