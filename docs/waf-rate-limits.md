@@ -303,16 +303,34 @@ Why it is shaped this way:
 | `/api/reviews` 3/**user**/hr | ⚠️ approximated as 5/**IP**/**min** (Rule B) | per-user is Enterprise-only on WAF *and* the window caps at 1 min; existing dedup + moderation are the real per-user controls |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
-| the vendor portal's own paths | ❌ **broken by a MANAGED rule** | §3a below — every path containing `/vendor/` 403s zone-wide, prod included |
+| the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
 
 ---
 
-## 3a. Managed-rule collision — every path containing `/vendor/` is 403'd
+## 3a. Managed-rule collision — every path containing `/vendor/` was 403'd
 
-**Status: OPEN. Not one of our rules, and it breaks the Stage 2 vendor portal on
-every deployed host.**
+**Status: RESOLVED 2026-08-26. Re-verified 2026-09-03 — does not reproduce.** It was
+never one of our rules. Kept in full as the **detection + fix recipe**, because the
+rule belongs to a Cloudflare-managed ruleset we do not version and it can re-fire on
+a ruleset update.
 
-Verified 2026-08-26 by curl: any request whose path contains the literal
+Re-verification, 2026-09-03 (same curl method, `www`):
+
+```bash
+/vendor            → 404    /vendor/x/overview → 404    /vendors/autodesk → 200
+/api/vendor/me     → 404    /foo/vendor/bar    → 404   ← the substring control
+```
+
+No "Attention Required" 403 page on any of them. A skip rule was evidently added, or
+the managed rule retuned, after the original finding. (`/vendor` itself 404s on `www`
+rather than rendering because the portal code has not merged to `main` yet — that is
+the dark launch, not the WAF.)
+
+**If it recurs, everything below is the original finding — treat it as the runbook.**
+
+---
+
+Originally verified 2026-08-26 (morning) by curl: any request whose path contains the literal
 `/vendor/` gets the Cloudflare "Attention Required / Sorry, you have been blocked"
 403 page on **every** host in the zone — `www`, `staging`, `demo`, `stage2`. It is
 case-sensitive (`/api/VENDOR/seats` passes) and substring-based (`/apix/vendor/x`
@@ -343,14 +361,14 @@ read-only CF API token in this repo can read neither the managed rulesets nor
    status, so nothing is logged.
 2. **The portal page loads themselves**, since the AECI-522 §6.2 routing change
    moved the surface to `/vendor/:vendorSlug/<section>`
-   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). Bare `/vendor` now 302s straight into a
-   403'd path, so the portal is unreachable on the zone until this is fixed.
+   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). Bare `/vendor` 302'd straight into a
+   403'd path, so the portal was unreachable on the zone — not merely degraded.
 
 **Why CI never caught it:** e2e runs against `localhost` and `workers.dev` preview
 URLs, which are outside the zone and carry no zone WAF.
 
-**Fix (dashboard access required):** add a WAF **skip / exception** for that
-managed rule scoped to the portal's own paths —
+**Fix (dashboard access required) — if it recurs:** add a WAF **skip / exception**
+for that managed rule scoped to the portal's own paths —
 
 ```
 starts_with(http.request.uri.path, "/api/vendor/")

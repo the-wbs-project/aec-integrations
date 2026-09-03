@@ -1312,8 +1312,9 @@ same way and is deleted at AECI-651; `__AECI_POSTHOG__` is not.
 
 **Dimensions on every event.** `locale` + `theme` ride everything, registered as
 super-properties in the `loaded` callback before anything is captured. `theme` is
-always `light` today (dark removed in AECI-226) but the dimension is still emitted so
-the schema is stable when dark returns.
+always `light` (dark removed in AECI-226; the Stage 2 reintroduction was dropped —
+`STAGE_2_SPEC.md` §9) but the dimension is still emitted so the schema stays stable if
+dark is ever revisited.
 
 **Region is pinned to US.** `POSTHOG_HOST` defaults to `https://us.i.posthog.com`;
 the static CSP `connect-src` allowlists `us.i.posthog.com` + `us-assets.i.posthog.com`.

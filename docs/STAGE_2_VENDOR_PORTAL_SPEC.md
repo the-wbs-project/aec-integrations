@@ -441,7 +441,7 @@ The signed-in vendor's home, backed by `/api/vendor/*` (§4). **Multi-seat, flat
 - **Verified badge management** — show verification state; the badge itself is AECi-controlled (`vendors.verified`), not vendor-toggled.
 - **Seat list** — read-only roster of the vendor's seats at launch.
 
-Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"): critique the surface, pick a Mobbin anchor, build via Impeccable, run axe locally. **Light theme only at launch** — dark returns in the separate Dark-Theme epic (`STAGE_2_SPEC.md` §2.5), not here.
+Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"): critique the surface, pick a Mobbin anchor, build via Impeccable, run axe locally. **Light theme only** — dark theme is not roadmapped (the Stage 2 reintroduction was dropped; see `STAGE_2_SPEC.md` §9).
 
 ### 6.1 As built (AECI-522 — 2026-07-25)
 
@@ -961,7 +961,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 - **Integration attestation authoring / conflict UI / version-diff** *(the version-diff half is now **shipped** — AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4)* — the Integration Attestations epic (AECI-514; activates the dormant `vendor_a`/`vendor_b` sources). Decomposed at its 2026-08-14 kickoff: **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** is the build contract (`STAGE_2_SPEC.md` §2.4 is now just the scope outline). It builds directly on the §4 authz seam and the §6 dashboard shipped here — the two-slot attestation authority rule is the extension of this doc's `vendor_id`-scoping invariant, and the attestations surface is a new tab on this doc's dashboard.
 - **The connector-vendor catalogue-maintenance seat** — the return side of the `STAGE_2_SPEC.md` §8.8 payer carve-out, settled as policy in **§8.9** (AECI-704). **The admin half SHIPPED 2026-08-31** (AECI-722 — `/admin/connectors`, `ADMIN_PANEL_SPEC.md` §5.9); the vendor seat is still **AECI-724**. ***Provisioning* the `vendor_admin` role SHIPPED as AECI-740 (2026-09-03)** — `POST /api/admin/vendors/:id/seats`, §5.3 — so the sentence this bullet used to carry, that *no admin route writes `role = 'vendor_admin'` on its own*, is no longer true: exactly one does, and it opens no entitlement row. Deliberately **not** an entitlement row and **not** a capability id: it authorizes on this doc's existing `vendor_admin` + `vendor_id` primitive, which `findVendorProfile`'s `leftJoin` already supports for a vendor with no entitlement. What remains deferred is the vendor-facing half — the catalogue-maintenance surface a seat holder signs in to, and §8.9(5)'s plan-panel suppression — both AECI-724's.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
-- **Dark theme** — the Dark-Theme Reintroduction epic; `STAGE_2_SPEC.md` §2.5.
+- **Dark theme** — dropped; not roadmapped (light-only remains the direction). `STAGE_2_SPEC.md` §9.
 - **A public/partner write API** — the "no public API surface" boundary is unchanged (`STAGE_2_SPEC.md` §9).
 
 ---

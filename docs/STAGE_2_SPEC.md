@@ -34,13 +34,12 @@ Stage 2 inherits every Stage 1 / 1.5 constraint. It leans on these existing comp
 | Claim / attestation model | `docs/STAGE_1_5_SPEC.md` §3 — Stage 2 activates the dormant `vendor_a`/`vendor_b` sources |
 | Edge caching / invalidation | `docs/CACHE_STRATEGY.md` (mid-migration to native Workers Cache — see §6) |
 | Transactional email | `docs/email.md` (Resend — see §4) |
-| Design tokens / theming | `DESIGN.md` (dark-theme reintroduction — see §2.5) |
 
 ---
 
 ## 2. Scope pillars
 
-The three §18 pillars, plus the two carried-over surfaces (integration attestations, dark theme) that only Stage 2 can complete. Each maps to a Linear epic (§7).
+The three §18 pillars, plus the one carried-over surface (integration attestations) that only Stage 2 can complete. Each maps to a Linear epic (§7). *(The former "Dark Theme Reintroduction" pillar was **dropped** 2026-08-14 — see §9.)*
 
 ### 2.1 Vendor Portal & Self-Serve Claiming — *the anchor*
 
@@ -96,13 +95,9 @@ Stage 1.5 shipped the claim spine with **dormant** `vendor_a`/`vendor_b` attesta
 
 > **Correction (2026-08-14 epic review — AECI-514): the "no migration" claim above was wrong.** It held for the *agreement engine* (computed-not-stored, ADR 0018) and for the `vendor_a`/`vendor_b` sources, and that much is unchanged. But two kickoff decisions (§8.4(1) vendor-created claims, §8.4(3) the product-version model) each require schema, so this epic ships **two additive migrations** — **three as of AECI-616**, which adds the maintenance-marker columns. They are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §1.2. Do not plan against the old promise.
 
-### 2.5 Dark Theme Reintroduction
+### 2.5 Dark Theme Reintroduction — dropped
 
-Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 vendor portal." The semantic token architecture was kept precisely so this is a token-block + toggle reintroduction, not a re-theme.
-
-- Re-introduce the `.theme-dark` token block + a theme toggle + system-preference detection.
-- The `profiles.theme_preference` column already exists (`'system' | 'light' | 'dark'`, §3) — persistence is ready.
-- Re-audit contrast (WCAG AA) and re-enable the `dark:` verification step in the design checklist (currently skipped per the "Light only (Stage 1)" constraint).
+**Dropped 2026-08-14; the AECI-517 epic is canceled — see §9.** The section number is retained so §2.6 references stay stable. The semantic-token architecture, the dormant `.theme-dark` block, and `profiles.theme_preference` stay in place, so a later stage *could* revisit — but nothing is planned.
 
 ### 2.6 Product Docs / Help Center
 
@@ -128,7 +123,7 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 | attestation `source` reserves `vendor_a` / `vendor_b` | ✅ `schema.ts` — `attestations_source_check` (`'aeci' \| 'vendor_a' \| 'vendor_b'`) |
 | attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive; **live since AECI-603**, and still *date* stamps. The insufficiency the note below records was **closed by migration 2** (AECI-607): a real `product_versions` entity plus `introduced_version_id` / `deprecated_version_id` FKs is what AECI-303 shipped over. The dates remain the coarse fallback for claims carrying no version data, which today is all of them. |
 | `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
-| `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
+| `profiles.theme_preference` (dark-theme persistence — **now unused; dark theme dropped, see §9**) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` (column retained, dormant) |
 | `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested. **Four states as of AECI-605** (`single_source` added; `confirmed` narrowed to two distinct vendor identities) |
 
 > **Two gaps found at the AECI-514 epic review (2026-08-14).** The table above is accurate about the *columns*, but readiness ≠ sufficiency:
@@ -194,7 +189,7 @@ The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed
 | Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303, +6 at kickoff. **Build spec:** `STAGE_2_ATTESTATIONS_SPEC.md` |
 | Paid Tiers & Entitlements | §2.2 | No pay-for-placement. Re-scopes AECI-532, parents AECI-304. **Build spec:** `STAGE_2_PAID_TIERS_SPEC.md` |
 | Real-Time / Live Portal | §2.3 | Scoped revalidation, **not** Durable Objects (ADR 0023 / §8.6). Decomposed into AECI-626…632 — **all seven shipped 2026-08-19**, zero migrations. **Build spec:** `STAGE_2_REALTIME_SPEC.md` (every section carries an as-built subsection) |
-| Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
+| ~~Dark Theme Reintroduction~~ | §2.5 | **Canceled** (AECI-517, 2026-08-14) — see §9 |
 | Product Docs / Help Center | §2.6 | **AECI-634**, added 2026-08-19 (not an AECI-282 seed). In-SPA `/docs`, not a separate site. Kickoff draft only — decompose after portal testing. **Scope outline:** `STAGE_2_PRODUCT_DOCS_SPEC.md` |
 | Stage-1 Deferrals & Carryover | §5 | **AECI-518**, reviewed 2026-08-20. One buildable item of three: pair-page JSON-LD **shipped** (decisions in §8.7); the sitemap split (AECI-560, re-parented here) and the RTL follow-through are **condition-gated with named triggers**. No companion build spec — §5 + §8.7 are the contract |
 | Connector Lane | §8.8 | **AECI-695**, added 2026-08-28 (not an AECI-282 seed). Connector-vendor modelling and the per-iPaaS stub-catalogue ingest; spans the review app, `main`, and `stage-2`. Its **commercial** question is settled in §8.8 (AECI-702 — who pays) and §8.9 (AECI-704 — the return side + the operator routing note). Its **presentation** half — the endpoint Integrations split, the role-varied connector template, and the delivered/reachable/buildable boundary — is `STAGE_1_5_SPEC.md` **§13 (Addendum C)**, the contract AECI-707/713/715/716 anchor to. The connector-lane *data* model (stubs, mappings, evidenced pairs) landed with **AECI-714**: six app-DB tables projecting the review app's model, plus the paged `POST /api/promote/connector-catalog` sync. Schema in `DATABASE_SCHEMA.md` **§9a**, wire contract in `REVIEW_APP_PROMOTE_API.md` **§3a**. `connector_evidenced_pairs` is created **empty** — filling it is AECI-721 |
@@ -344,6 +339,7 @@ Resolved when AECI-704 took up the two things §8.8 deliberately deferred and na
 
 ## 9. Out of scope for Stage 2
 
+- **Dark theme reintroduction — dropped (2026-08-14).** Stage 1 shipped light-only (AECI-226); the former §2.5 pillar / epic **AECI-517 is canceled** and the reintroduction is **removed from the roadmap**. Light-only is the standing presentation direction. The semantic-token architecture (`--surface-*`/`--text-*`/`--accent-*`), the dormant `.theme-dark` block, and the `profiles.theme_preference` column stay in place — so a later stage *could* revisit it — but no theme toggle or system-preference detection is planned. The light-only lint enforcement (AECI-549) stays in force.
 - Rich media profiles (Stage 4)
 - Trust scoring beyond basic anti-abuse (Stage 3)
 - A public/partner write API product ("no public API surface" boundary unchanged)

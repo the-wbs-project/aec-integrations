@@ -1,6 +1,6 @@
 ---
 name: AEC Integrations
-description: Editorial directory and review platform for AEC software integrations. Light-only (Stage 1; dark deferred to Stage 2 — AECI-226), Tailwind v4 + Spartan brain.
+description: Editorial directory and review platform for AEC software integrations. Light-only (AECI-226; dark reintroduction dropped, not roadmapped), Tailwind v4 + Spartan brain.
 colors:
   # Light theme (the only theme in Stage 1; dark token set removed in AECI-226,
   # documented in docs/BRAND_GUIDELINES.md §3, returns at Stage 2).
@@ -169,7 +169,7 @@ The system rejects the AI-startup visual cohort entirely: no purple-to-blue grad
 - Pair a refined serif (Source Serif 4) with an a11y-first sans (Atkinson Hyperlegible Next). The pairing itself is the brand statement.
 - Forest is the anchor accent. Clay is rare (≤5% per screen, decorative/fill only — Clay deep carries meaning-bearing clay). Bone is a warm-tinted accent surface, never a page background.
 - Borders separate surfaces. Shadows are reserved for modals, dropdowns, and focus rings.
-- Light only (Stage 1): a single light theme, no toggle and no system-preference detection (AECI-226). Dark is deferred to the Stage 2 vendor portal; design once, for light.
+- Light only: a single light theme, no toggle and no system-preference detection (AECI-226). The dark reintroduction was dropped — dark is not roadmapped (`STAGE_2_SPEC.md` §9); design once, for light.
 
 ## 2. Colors
 
@@ -210,9 +210,9 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 - **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons, **and the `conflict` agreement badge** (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
   - **The scope widened in AECI-605** from form/validation only. `conflict` — two vendors describing the same data flow differently — is the **one non-form state permitted to be red**, and the only red state in the agreement set (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3). It is red because it is genuinely actionable for the reader, not because anything is broken: the copy names the disagreement ("Vendors disagree") rather than faulting either product. It carries an `✕` glyph alongside the hue so it survives greyscale and colour-vision deficiency. Do not extend Error to any further state without a spec decision — `unverified` and `single_source` are deliberately neutral, and making an unconfirmed claim look like a defect is the failure mode this system is built to avoid.
 
-### Dark theme — deferred to Stage 2 (not shipped in Stage 1)
+### Dark theme — dropped from the roadmap (not shipped)
 
-The dark palette was removed from the active design system in **AECI-226**: Stage 1 ships light only (see the "Light only" rule below). The brand-approved dark Forest / Clay / Bone variants stay documented in `docs/BRAND_GUIDELINES.md` §3, and the prior OKLCH dark token set is preserved in git history. Because every component consumes the semantic tokens (`--surface-*`, `--text-*`, `--accent-*`), re-introducing dark at the Stage 2 vendor portal is a token-block + toggle change, not a per-component rework.
+The dark palette was removed from the active design system in **AECI-226**: AECi ships light only (see the "Light only" rule below). The Stage 2 dark-theme reintroduction was subsequently **dropped** (epic AECI-517 canceled; `STAGE_2_SPEC.md` §9) — dark is **not roadmapped**. The brand-approved dark Forest / Clay / Bone variants stay documented in `docs/BRAND_GUIDELINES.md` §3, and the prior OKLCH dark token set is preserved in git history, so *should* a later stage ever revisit dark it would be a token-block + toggle change — every component consumes the semantic tokens (`--surface-*`, `--text-*`, `--accent-*`), not a per-component rework — but nothing is planned.
 
 ### Named Rules
 
@@ -220,9 +220,9 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 
 **The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected.
 
-**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons — uses **Clay deep** `#A14D22` (5.83:1). (Star-rating glyphs are *not* clay: they use the dedicated **Goldenrod** `--accent-rating` — see the Rating palette above.) Clay never fills a CTA: the Forest-Anchor Rule owns every CTA. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
+**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons — uses **Clay deep** `#A14D22` (5.83:1). (Star-rating glyphs are *not* clay: they use the dedicated **Goldenrod** `--accent-rating` — see the Rating palette above.) Clay never fills a CTA: the Forest-Anchor Rule owns every CTA. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy would carry forward to Dark Clay if dark is ever revisited; dark theme is not currently roadmapped — the Stage 2 reintroduction was dropped.)
 
-**The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle governs the dark variants documented in `BRAND_GUIDELINES.md` §3 when dark returns at Stage 2.)
+**The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle would govern the dark variants documented in `BRAND_GUIDELINES.md` §3 if dark is ever revisited; it is not currently roadmapped.)
 
 **The Anchor-Site Rule.** When a surface uses a Mobbin reference site as its theme, components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — and the originating theme site remains the visual anchor for composition, hierarchy, density, and atmosphere. This protects editorial coherence: AECi reads as one publication, not a mashup of unrelated apps. Record the anchor site with the surface (Linear issue or commit message) so future iterations stay aligned. Access Mobbin via the `mcp__mobbin__*` MCP server — see `CLAUDE.md` §"MCP usage rules" for auth flow and the matching design-checklist step.
 

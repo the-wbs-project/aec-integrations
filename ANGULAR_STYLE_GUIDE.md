@@ -315,7 +315,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 ## 22. Cross-cutting constraints (don't restate — link)
 
 - **i18n from day one.** Every visible string wrapped in `i18n="@@unique.id"` (templates) or `$localize` (TS). See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §7a.
-- **Light only (Stage 1).** One light theme: no `dark:` variants, no `.theme-dark` block, no toggle, no system-preference detection (AECI-226; supersedes the former "Both themes always" rule). Dark returns with the Stage 2 vendor portal as a token-block re-introduction. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming". Lint: ✅ (AECI-549).
+- **Light only (Stage 1).** One light theme: no `dark:` variants, no `.theme-dark` block, no toggle, no system-preference detection (AECI-226; supersedes the former "Both themes always" rule). Dark theme is not roadmapped — the Stage 2 reintroduction was dropped (`docs/STAGE_2_SPEC.md` §9); light-only is the standing direction. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming". Lint: ✅ (AECI-549).
 - **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter. See `CLAUDE.md` constraints and ADR 0016. Lint: ✅ (AECI-549).
 - **Cached SSR is visitor-state-neutral.** See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §9.1a.
 - **No pay-for-placement.** Ranking is algorithmic. See `PRODUCT.md`.
