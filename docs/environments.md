@@ -968,24 +968,30 @@ A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vend
 
 Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reaches staging, so the usual "verify one tier up" gate has nothing to check.
 
-> ### ⚠️ PENDING — `d1_migrations` ledger repair (AECI-750, not yet executed)
+> ### `d1_migrations` ledger repair (AECI-750) — **done on `stage2`, still OPEN on `preview`**
 >
 > The `main → stage-2` reconcile renumbered this line's seven migrations `0016`–`0022` →
 > `0021`–`0027` (`main`'s `0016`–`0020` are applied in production and keep their numbers).
-> **`aeci-app-stage2` still records the OLD names**, so the next
-> `scripts/d1-apply-migrations.sh aeci-app-stage2 stage2` will try to re-run all seven renamed
-> files and fail on the first one. **No data is at risk** — the apply fails loudly, it does not
-> do anything destructive — but the tier cannot take a migration until the ledger is rewritten.
+> Each tier's ledger still held the OLD names, so the next
+> `scripts/d1-apply-migrations.sh` would try to re-run all seven renamed files and fail on the
+> first one. **No data is at risk** — the apply fails loudly and does nothing destructive — but
+> a tier cannot take a migration until its ledger is rewritten.
 >
-> Runnable `UPDATE`s (descending, so no intermediate name collides with one still in use) are in
-> **`docs/migrations.md` §0 → "AECI-750 — the second, larger renumber"**. Remote
-> `aeci-app-preview` (`--env preview`) needs the same treatment and should be censused first —
-> it already carries the AECI-619 rename. **staging / demo / production need nothing.**
+> - **`aeci-app-stage2` — repaired 2026-09-03.** ✅ Two gotchas worth keeping: the tier had only
+>   **5 of the 7** applied, so the first two `UPDATE`s legitimately reported `changes: 0` (read
+>   the change counts; do not assume a zero means failure). And the `UPDATE`s **must** run in
+>   descending order — `0021`/`0022` are each both an old *and* a new name, so ascending order
+>   collides mid-flight.
+> - **`aeci-app-preview` (`--env preview`) — still needs it.** Census it first; it already
+>   carries the earlier AECI-619 rename.
+> - **staging / demo / production need nothing.**
 >
-> Not done here because it needs remote D1 credentials. Clear this flag once both tiers'
+> Runnable `UPDATE`s are in **`docs/migrations.md` §0 → "AECI-750 — the second, larger
+> renumber"**. The safety check that matters before running them: a comment-stripped
+> `shasum -a256` of the old and new file must match. Clear this flag once `preview`'s
 > `SELECT name FROM d1_migrations ORDER BY id` matches `apps/api/migrations/`.
 >
-> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded (that head is now **`0024_easy_sandman`** after the AECI-750 renumber — see the PENDING block above); both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
+> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded (that same file is now named **`0024_easy_sandman`** after the AECI-750 renumber — see the ledger-repair block above; it is no longer the head, see the 2026-09-03 entry below); both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
 >
 > **Redeployed 2026-08-26 → `6553e654`.** Hand-deployed from the `stage-2` HEAD that
 > merged the AECI-639 observability dual-run (#568), so this tier now carries the **PostHog
@@ -996,6 +1002,23 @@ Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. 
 > §10.7; both Workers report `6553e654…` under `wrangler versions view`, and the Access gate
 > still `302`s with the same `kid`. The PostHog deploy marker was emitted **by hand** (§10.7
 > step 4) and the `deployment` event landed in `aec-integrations-dev` with `env: stage2`.
+>
+> **Redeployed 2026-09-03 → `14b7713b`.** A 22-commit jump from `6553e654` carrying the
+> AECI-750 `main` reconcile, the connector lane (AECI-705/707/713/714/720/721/722),
+> **AECI-651** (the Datadog leg removed — PostHog is now the only observability plane) and
+> AECI-735. This deploy is also where the `d1_migrations` **ledger repair** was executed
+> (block above). `0027_powerful_killraven` recreates `integrations` and **is safe** — it copies
+> claims/attestations into `__carry_*` tables, empties the originals so `DROP TABLE integrations`
+> cannot cascade, then restores; a before/after census over the tier was identical (claims 4,
+> attestations 5, reviews 46). That is the counter-example to the general "a recreate's DROP
+> fires `ON DELETE CASCADE`" rule: a recreate is safe **when it carries its dependents
+> explicitly**. Census before and after regardless.
+>
+> ⚠️ **The branch head is now `0028_hard_the_call`**, not `0027`. It landed after this deploy
+> (AECI-739, #615 — `ALTER TABLE vendor_requests ADD admin_notes`, purely additive, no
+> table-recreate path). **Whether it has been applied to `aeci-app-stage2` is unconfirmed** —
+> run `wrangler d1 migrations list aeci-app-stage2 --remote` before the next hand-deploy and
+> apply it if the tier is still at `0027`.
 >
 > **Access verified 2026-08-20.** A bare request to `/`, `/api/version` and `/_version` all `302` to `aecintegrations.cloudflareaccess.com/cdn-cgi/access/login/stage2.aecintegrations.com`, and the redirect's `kid` is `6d89b808…d98643` — byte-equal to the **App AUD tag** in `docs/access.md` §1, which confirms the hostname was added as a destination on the existing `AECi Non-Prod` app rather than a new one (the §"Locked decisions" requirement). `staging.aecintegrations.com` still `302`s with the same AUD, so nothing regressed on the shared app.
 >
