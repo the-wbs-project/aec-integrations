@@ -24,3 +24,9 @@ supabase/.branches/
 # drizzle-kit output — generated migrations + meta (re-dirtied on every db:generate).
 # The .sql has no Prettier parser anyway; the meta/*.json must stay in drizzle's format.
 apps/api/migrations/
+
+# WAF ruleset snapshots (AECI-659) — gitignored operator artifacts written by
+# scripts/ops/2026-09-waf-host-scope/snapshot.mjs. Prettier does not read
+# .gitignore, so without this an operator who has run the snapshot fails the
+# pre-push format gate on a file that is not in the repo.
+scripts/ops/**/snapshot-*.json

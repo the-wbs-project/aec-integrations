@@ -2,7 +2,7 @@
 
 Operator runbook for the WAF rate-limiting and scraper-blocking rules that protect
 the public write / abuse-prone surface (the Phase 5/6 endpoints), on the
-`aecintegrations.com` zone. The rules are **live** — see [Deployed state](#deployed-state-as-of-2026-06-23).
+`aecintegrations.com` zone. The rules are **live** — see [Deployed state](#deployed-state).
 This doc is the source of truth for their definitions and is where you inspect,
 re-tune, or reproduce them (in the dashboard under **Security → WAF**, or via the
 Rulesets API).
@@ -18,18 +18,28 @@ Rulesets API).
 > declarative config to the CF Rulesets API" pattern) is a clean later upgrade if
 > churn justifies it. **If you change a rule in the dashboard, update this doc in
 > the same PR.**
+>
+> **Partial follow-through (AECI-659, 2026-09):** the host-set extension shipped as a
+> checked-in operator script, [`scripts/ops/2026-09-waf-host-scope/`](../scripts/ops/2026-09-waf-host-scope/README.md)
+> — snapshot, dry-run diff, idempotent per-rule `PATCH`, and a re-runnable probe. It is
+> not a CI apply and does not make the rules config-as-code, but it does make a host-set
+> change diffable, revertible, and reproducible instead of a hand-typed dashboard edit.
 
 ---
 
-## Deployed state (as of 2026-06-23)
+## Deployed state
 
 Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
 `Zone WAF: Edit`).
 
+### Original apply (2026-06-23, AECI-242)
+
 **Rate-limiting (`http_ratelimit`, ruleset `6ba381516e4c4c37af85631a68b04ef6`) — 2 of 2 Pro slots:**
 
-- `d5ed0440ab64408d881d890bf10767a5` — **Rule A**, `/api/requests/*` POST, 5 / 60 s per IP, block 1 h.
-- **Rule B** (added AECI-242), `/api/reviews` POST, 5 / 60 s per IP, block 1 h.
+- `d5ed0440ab64408d881d890bf10767a5` — **Rule A**, "/api/requests/\* submissions (per IP)",
+  5 / 60 s per IP, block 1 h.
+- `45a1fd5d771a4b96bc204012f5965b5d` — **Rule B** (added AECI-242), "/api/reviews submissions
+  (per IP)", 5 / 60 s per IP, block 1 h.
 
 > A prior broad rule, **"API Limited"** (`/api/*`, 50 req / 10 s per IP), was removed
 > to free the second slot for the dedicated reviews rule. Consequence: there is no
@@ -40,15 +50,67 @@ Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
 
 **Custom rules (`http_request_firewall_custom`, ruleset `974122bb23af4354a215724d9c7e8436`):**
 
-- Existing, **preserved**: "Skip WAF for stack-test subdomain", "Block scanner probes", "Blocker 2".
-- **Scraper-UA Managed Challenge** (added AECI-242) on `/products`,`/vendors` + their JSON APIs (§2).
+- Existing, **preserved** (indices 0–2, evaluated before the scraper rule):
+  `a61d606e4b144118a923abb5ecdfd535` "Skip WAF for stack-test subdomain" (scoped to
+  `stack-test.aecintegrations.com` only, so it cannot short-circuit the app hosts),
+  `bc961c9f6c2e4e02ba2429d06f8f1dc2` "Block scanner probes",
+  `4781ac7e149247baa5b4119274119821` "Blocker 2".
+- `319173bafcf749fdbf9b739480d71ded` — **Scraper-UA Managed Challenge** (added AECI-242), index 3,
+  on `/products`,`/vendors` + their JSON APIs (§2).
 
 **Managed WAF (`http_request_firewall_managed`):** Cloudflare managed ruleset + OWASP
 core (paranoia L2/L3 disabled) — active, untouched.
 
-Live verification (prod `demo.`): `python-requests` UA on `/products` → **403**
+Live verification at the time (`demo.`): `python-requests` UA on `/products` → **403**
 (challenged); normal browser UA on `/products` → **200**; `python-requests` on `/` →
 **200** (scraper rule correctly scoped to `/products`,`/vendors`).
+
+### Host-set extension to production (2026-09, AECI-659)
+
+The rules above were written pre-launch and host-scoped to `staging.` + `demo.` only.
+The apex cutover (AECI-247/277) moved production to **`www.aecintegrations.com`**, which
+was in **none** of the expressions, and no cutover step extended them — so from go-live
+until this change, live production had **no rate limiting and no scraper block**. The
+`aeci.waf.ratelimit.blocked` metric read ~0 and looked like "no attacks" when it was
+really "no rules" (§5).
+
+Measured before the fix (2026-08-26, `GET /products`, `python-requests` UA vs browser UA):
+
+```
+HOST                               scraperUA  browserUA
+www.aecintegrations.com            200        200        <- live production, NO rule
+prod.aecintegrations.com           200        200        <- indexable dup, NO rule
+demo.aecintegrations.com           403        200        <- rule works here
+```
+
+**Applied 2026-09-03**, via `apply.mjs --apply` against ruleset versions 4 (rate-limiting)
+and 16 (custom); all three live expressions matched the documented pre-change form exactly,
+so nothing had drifted. `verify.mjs` immediately after:
+
+```
+HOST                               scraperUA  browserUA
+staging.aecintegrations.com        —          —          skipped (no Access service token)
+demo.aecintegrations.com           403        200        ok — challenged
+www.aecintegrations.com            403        200        ok — challenged
+prod.aecintegrations.com           403        200        ok — challenged
+```
+
+What changed: the host set on **all three** rules (§1 Rule A, §1 Rule B, §2 scraper) and
+one path broadening on Rule A only (`/api/subscribe` + `/api/feedback`, which had never
+been covered on any host). Thresholds, actions, characteristics, and block durations are
+untouched. Rule A's dashboard description was rewritten in the same `PATCH`: it read
+"matches spec §15.1 exactly", which stopped being true once the lead-capture paths were
+folded in. One knock-on: `scripts/check-ssr-listings.sh` curls `/products`, so it now
+sends a browser UA rather than being silently challenged (§2). Applied with
+[`scripts/ops/2026-09-waf-host-scope/`](../scripts/ops/2026-09-waf-host-scope/README.md).
+The Rule B and scraper rule ids recorded above were unrecorded here until `snapshot.mjs`
+resolved them (2026-09-03).
+
+> The bare apex `aecintegrations.com` is deliberately **not** in the host set: it 301s to
+> `www.` at the edge, so a request never reaches a path these rules match under the apex
+> host. `prod.aecintegrations.com` **is** covered — it still serves production content.
+> That it does so at all is a separate problem (an indexable duplicate of `www.`; it wants
+> a 301 or Cloudflare Access) tracked on its own issue.
 
 ---
 
@@ -56,16 +118,23 @@ Live verification (prod `demo.`): `python-requests` UA on `/products` → **403*
 
 | Host | On zone `aecintegrations.com`? | Covered by these rules? |
 |---|---|---|
+| `www.aecintegrations.com` (SSR Worker, **production** — the live public site) | yes | **yes** (host-scoped; added 2026-09, AECI-659) |
+| `prod.aecintegrations.com` (SSR Worker, production — internal host, an indexable duplicate of `www.`) | yes | **yes** (host-scoped; added 2026-09, AECI-659) |
+| `demo.aecintegrations.com` (SSR Worker, the public **showcase** tier — no-index, *not* production) | yes | **yes** (host-scoped) |
 | `staging.aecintegrations.com` (SSR Worker, staging) | yes | **yes** (host-scoped) |
-| `demo.aecintegrations.com` (SSR Worker, production) | yes | **yes** (host-scoped) |
-| `aecintegrations.com` + `www.` (landing site) | yes | **no** — public landing, deliberately excluded by host-scoping |
+| `aecintegrations.com` (bare apex) | yes | **no** — 301s to `www.` at the edge, so no request under this host reaches a matched path |
 | `*.aec-integrations.workers.dev` (PR previews) | no (workers.dev, not a zone) | n/a — WAF rules require a zone; previews are gated by [Cloudflare Access](./access.md) instead |
 
-**Everything is one zone.** Staging and production share `aecintegrations.com`, so
+> Until 2026-09 this table said `www.` was "the landing site, deliberately excluded" and
+> called `demo.` production. Both statements went stale at the apex cutover and together
+> they are why the gap AECI-659 found survived so long: the coverage claim read as true.
+> `demo.` is the public showcase; **`www.` is production.**
+
+**Everything is one zone.** Staging, demo, and production share `aecintegrations.com`, so
 **WAF rules are zone-wide**. Every rule below is scoped with
-`http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com"}` so it
-applies to both app environments and never to the landing site. There is no way to
-give staging its own independent WAF surface short of a separate zone.
+`http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}`
+so it applies to every app host and never to a hostname the app does not serve. There is
+no way to give staging its own independent WAF surface short of a separate zone.
 
 **The public ingress is the SSR Worker** (`apps/web`). It re-proxies `/api/*`
 same-origin to the private API Worker over a service binding (per `STAGE_1_SPEC.md`
@@ -118,11 +187,11 @@ For each rule, in the dashboard: **Create rule** → name it → paste the expre
 into the **"If incoming requests match… → Edit expression"** box → set **"with the
 same characteristics" = IP** → set the rate and action as listed.
 
-### Rule A — `/api/requests/*` submissions (per IP) — matches spec §15.1 exactly
+### Rule A — `/api/requests/*` + the two lead-capture POSTs (per IP)
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com"}) and (http.request.method eq "POST") and (starts_with(http.request.uri.path, "/api/requests/"))` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (http.request.method eq "POST") and (starts_with(http.request.uri.path, "/api/requests/") or http.request.uri.path eq "/api/subscribe" or http.request.uri.path eq "/api/feedback")` |
 | Count characteristics | **IP** |
 | Rate | **5 requests** per **1 minute** (whole number; 1 min is the longest period Pro allows) |
 | Action | **Block** |
@@ -135,11 +204,22 @@ dashboard can only count per **minute**, so this is a per-minute burst cap (5/mi
 rather than the spec's hourly cap — see §3. A human filling a form never approaches
 5/min; a script flooding the endpoint does.
 
+**Why `/api/subscribe` + `/api/feedback` ride this rule (AECI-659, 2026-09).** The two
+lead-capture endpoints had **no** rate limit anywhere — not on any host, and the API
+Worker applies no rate-limiting middleware. A fresh subscribe fires **two real Resend
+sends** (operator alert + subscriber welcome, AECI-327), so a scripted loop burns Resend
+quota *and* mails third parties from our domain. Pro caps the zone at **2** rate-limit
+rules and both slots are spent, so they are covered by widening this predicate rather
+than by a third rule. The three families share one 5-per-minute counter — acceptable,
+because nobody legitimately submits five forms in a minute, and the failure mode of the
+shared counter (a form submitter briefly blocked after four request submissions) is far
+cheaper than an uncapped mailer.
+
 ### Rule B — `/api/reviews` submissions (per IP — proxy for the spec's per-user limit)
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com"}) and (http.request.method eq "POST") and (http.request.uri.path eq "/api/reviews")` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (http.request.method eq "POST") and (http.request.uri.path eq "/api/reviews")` |
 | Count characteristics | **IP** |
 | Rate | **5 requests** per **1 minute** (whole number; 1 min is the longest period Pro allows) |
 | Action | **Block** |
@@ -181,7 +261,7 @@ Create a custom rule. **When incoming requests match** → paste the expression 
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com"}) and (not cf.client.bot) and (starts_with(http.request.uri.path, "/products") or starts_with(http.request.uri.path, "/vendors") or http.request.uri.path eq "/api/products" or http.request.uri.path eq "/api/vendors") and (lower(http.user_agent) contains "scrapy" or lower(http.user_agent) contains "python-requests" or lower(http.user_agent) contains "httpx" or lower(http.user_agent) contains "curl" or lower(http.user_agent) contains "wget" or lower(http.user_agent) contains "go-http-client" or lower(http.user_agent) contains "java/" or lower(http.user_agent) contains "okhttp" or lower(http.user_agent) contains "node-fetch" or lower(http.user_agent) contains "scraper" or http.user_agent eq "")` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (not cf.client.bot) and (starts_with(http.request.uri.path, "/products") or starts_with(http.request.uri.path, "/vendors") or http.request.uri.path eq "/api/products" or http.request.uri.path eq "/api/vendors") and (lower(http.user_agent) contains "scrapy" or lower(http.user_agent) contains "python-requests" or lower(http.user_agent) contains "httpx" or lower(http.user_agent) contains "curl" or lower(http.user_agent) contains "wget" or lower(http.user_agent) contains "go-http-client" or lower(http.user_agent) contains "java/" or lower(http.user_agent) contains "okhttp" or lower(http.user_agent) contains "node-fetch" or lower(http.user_agent) contains "scraper" or http.user_agent eq "")` |
 | Action | **Managed Challenge** |
 
 Why it is shaped this way:
@@ -204,6 +284,13 @@ Why it is shaped this way:
   CI monitoring (`scripts/smoke-test.sh`, the health/version probes — all `curl`)
   is unaffected. `/api/webhooks/linear` is likewise absent, so Linear's webhook is
   never challenged.
+- **One operator script does hit a matched path, and must send a browser UA.**
+  `scripts/check-ssr-listings.sh` (AECI-746 crawler-visibility probe) curls `/products`.
+  Under `curl`'s default UA it is challenged, falls into its own SKIP branch, and exits
+  **0** with a reassuring "PASS, with 2 page(s) skipped" — a silent false negative on the
+  exact regression it exists to catch. It now sends a browser UA for that reason
+  (AECI-659). Any future probe of `/products` or `/vendors` needs the same treatment;
+  probes of `/api/health` / `/api/version` do not.
 
 ---
 
@@ -212,6 +299,7 @@ Why it is shaped this way:
 | Spec §15.1 item | Status here | Where it actually lives |
 |---|---|---|
 | `/api/requests/*` 5/IP/**hr** | ⚠️ approximated as 5/IP/**min** (Rule A) | Pro caps the window at 1 min; a true hourly cap needs in-Worker KV/DO state (out of scope) |
+| *(not in the spec)* `/api/subscribe` + `/api/feedback` | ✅ **added** to Rule A (AECI-659) | 5/IP/min, shared with the `/api/requests/*` counter — §1 Rule A. Beyond the four §15.1 bullets: the spec predates the lead-capture endpoints moving into the API Worker (AECI-257) and their Resend sends (AECI-327). |
 | `/api/reviews` 3/**user**/hr | ⚠️ approximated as 5/**IP**/**min** (Rule B) | per-user is Enterprise-only on WAF *and* the window caps at 1 min; existing dedup + moderation are the real per-user controls |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
@@ -294,9 +382,8 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 ## 4. Verification
 
-The rules are already live on both hosts (the scraper rule was verified on prod —
-see [Deployed state](#deployed-state-as-of-2026-06-23)); re-run these checks any
-time after a change. Against **staging** (behind [Cloudflare Access](./access.md)),
+The rules are live on all four app hosts (verified 2026-09-03 — see
+[Deployed state](#deployed-state)); re-run these checks any time after a change. Against **staging** (behind [Cloudflare Access](./access.md)),
 send the service-token headers on every request:
 
 ```
@@ -322,12 +409,26 @@ Checks (confirm rule attribution in **Security → Events** after each):
    `aeci.webhooks.linear.receipt` metric). Re-run `scripts/smoke-test.sh` and the
    health/version probes against staging → all green (their paths aren't in any
    rule).
-5. **Host-scoping holds.** After editing, spot-check `demo.aecintegrations.com`
-   (prod) and the landing `aecintegrations.com` to confirm the zone-wide rules only
-   act on the two app hosts.
+5. **Host-scoping holds on every app host.** Run the scraper probe across all four
+   hosts and expect `403` (challenged) / `200` (browser) on each:
 
-Repeat the legit-flow + exclusion spot-checks on **production** (`demo.`) after the
-rules are live there.
+   ```bash
+   node scripts/ops/2026-09-waf-host-scope/verify.mjs
+   ```
+
+   This is check 3 above, automated across the host set — it is the check that found
+   AECI-659, so a before/after pair is directly comparable. It is read-only and sends
+   no email. `staging.` needs `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` or it
+   is skipped. A host reading `200 / 200` is **not covered** by the scraper rule.
+
+Repeat the legit-flow + exclusion spot-checks on **production** (`www.`) after any
+rule change.
+
+> **Never trip a rate limit against production.** Six trips block your IP from those
+> endpoints for an hour, and on production `/api/subscribe` sends real mail. Test the
+> rate limit on **staging** (check 2). If you genuinely must probe production, POST an
+> invalid body (`-d '{}'`): Zod rejects at validation before any write or send, so
+> requests 1–5 return `400` and only the 6th returns `429`.
 
 ---
 
@@ -381,11 +482,23 @@ rules are live there.
   **Per-env host scoping.** All app envs share the one `aecintegrations.com` zone,
   so each env's poll filters `firewallEventsAdaptiveGroups` to its **own** host
   (derived from `PUBLIC_SITE_URL`) to avoid counting the same zone-wide events under
-  each `env:` tag. Because the §1/§2 rules are currently host-scoped to
-  `staging.` + `demo.` only, the **production** poll (host `prod.aecintegrations.com`
-  pre-launch) sees ~0 until those rules are extended to the apex/prod host at the
-  launch cutover — at which point `PUBLIC_SITE_URL` flips to the apex and the poll
-  follows automatically.
+  each `env:` tag. The production Worker ships
+  `PUBLIC_SITE_URL=https://www.aecintegrations.com` (`apps/api/wrangler.jsonc`), so the
+  production poll queries the **`www.`** host.
+
+  **This metric cannot distinguish "no attacks" from "no rules" — and that is how
+  AECI-659 hid.** From the apex cutover until 2026-09 the §1/§2 rules were host-scoped
+  to `staging.` + `demo.` only, so `www.` generated zero mitigation events and the
+  production series read ~0 while production was in fact entirely unprotected. Since the
+  host-set extension (2026-09) the production poll reports real mitigations for `www.`.
+  If it ever returns to a flat ~0, **re-run
+  `scripts/ops/2026-09-waf-host-scope/verify.mjs` before concluding the zone is quiet** —
+  a `200 / 200` row means the rules stopped covering the host, not that the attacks
+  stopped.
+
+  `prod.aecintegrations.com` is covered by the rules but counted by **no** env's poll:
+  each env filters on its own `PUBLIC_SITE_URL` and no env points at `prod.`. Its
+  mitigations are visible in **Security → Events** only.
 
 ---
 
@@ -393,5 +506,13 @@ rules are live there.
 
 This doc is the source of truth for the rule definitions. If you add, remove, or
 re-tune a rule in the dashboard, update the matching section here in the same PR.
-Remember the 2-rule rate-limit cap and keep every expression host-scoped to the two
-app hosts.
+Remember the 2-rule rate-limit cap and keep every expression host-scoped to the **four**
+app hosts in the Scope table above.
+
+**When a new public hostname starts serving the app, it needs adding to all three
+expressions in the same change.** DNS alone does not carry these rules — that omission at
+the apex cutover is exactly what AECI-659 fixed, and it went unnoticed for months because
+the observability metric reads ~0 either way. `docs/launch-cutover-runbook.md` §3 now
+carries the action step, and
+[`scripts/ops/2026-09-waf-host-scope/`](../scripts/ops/2026-09-waf-host-scope/README.md)
+is the mechanism (edit its `NEW_HOSTS` and re-run).

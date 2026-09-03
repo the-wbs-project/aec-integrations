@@ -1137,6 +1137,19 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 > and `OBSERVABILITY.md`. `/api/page-views` (high-volume beacon) and
 > `/api/webhooks/linear` (HMAC-verified, single source) are deliberately excluded —
 > see the runbook.
+>
+> **Host scoping (AECI-659, 2026-09).** Every rule is scoped by `http.host`, because all
+> environments share the one `aecintegrations.com` zone. The authoritative host set is the
+> runbook's Scope table — **not** DNS: a hostname that starts serving the app is
+> unprotected until it is added to all three expressions. That is what the apex cutover
+> missed, leaving live production (`www.`) with no rate limiting and no scraper block until
+> 2026-09. `docs/launch-cutover-runbook.md` §3 now carries the action step.
+>
+> **Rule A covers two endpoints beyond the four bullets above:** `POST /api/subscribe` and
+> `POST /api/feedback`. They postdate this section (they moved into the API Worker in
+> AECI-257 and gained two Resend sends per submit in AECI-327) and had no rate limit on any
+> host. Pro caps the zone at 2 rate-limit rules and both slots are spent, so they share
+> Rule A's 5/IP/min counter rather than taking a third slot.
 
 ### 15.2 API privacy
 
