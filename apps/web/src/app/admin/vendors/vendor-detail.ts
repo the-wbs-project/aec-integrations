@@ -12,6 +12,8 @@ import type {
   VendorEntitlementResponse,
 } from '@aeci/shared';
 
+import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -105,6 +107,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'audit';
 export class VendorDetail {
   private readonly api = inject(AdminVendorsApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 
   protected readonly vendorId = signal(this.route.snapshot.paramMap.get('id') ?? '');
 
@@ -135,6 +138,10 @@ export class VendorDetail {
   protected tabQueryParams(tab: AdminVendorTab): { tab: string | undefined } {
     return { tab: tab === 'vendor' ? undefined : tab };
   }
+
+  /** What the heading says until the fetch resolves — the SAME word the shell's
+   *  breadcrumb shows for this section, from the one place it is defined. */
+  protected readonly fallbackHeading = ADMIN_DETAIL_FALLBACK_LABELS['vendors'] ?? '';
 
   protected readonly vendor = signal<AdminVendorDetail | null>(null);
   protected readonly loading = signal(true);
@@ -207,6 +214,14 @@ export class VendorDetail {
       if (this.hydrated() && this.tab() === 'products' && !this.productsRequested) {
         void this.loadProducts();
       }
+    });
+
+    // AECI-777 — feed the shell's breadcrumb. An effect rather than a line inside
+    // `load()` so a refetch republishes too, and so the id travels with the label
+    // (the store keys on it to reject a label left over from the last page).
+    effect(() => {
+      const v = this.vendor();
+      if (v) this.breadcrumbs.publish(this.vendorId(), v.company_name);
     });
   }
 

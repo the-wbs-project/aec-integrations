@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 
 import type {
   AdminAuditRow,
@@ -13,6 +13,8 @@ import type {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
 import { AuditTrail } from '../audit/audit-trail';
@@ -56,22 +58,19 @@ type StubState =
  */
 @Component({
   selector: 'aec-connector-detail',
-  imports: [
-    RouterLink,
-    DatePipe,
-    AecSelect,
-    AdminNotes,
-    AdminPaginator,
-    AuditTrail,
-    ManagedByControl,
-  ],
+  imports: [DatePipe, AecSelect, AdminNotes, AdminPaginator, AuditTrail, ManagedByControl],
   templateUrl: './connector-detail.html',
 })
 export class ConnectorDetail {
   private readonly api = inject(AdminConnectorsApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 
   protected readonly catalogId = signal(this.route.snapshot.paramMap.get('id') ?? '');
+
+  /** What the heading says until the fetch resolves — the SAME word the shell's
+   *  breadcrumb shows for this section, from the one place it is defined. */
+  protected readonly fallbackHeading = ADMIN_DETAIL_FALLBACK_LABELS['connectors'] ?? '';
 
   // ── Catalogue ──────────────────────────────────────────────────────────────
   protected readonly catalog = signal<AdminConnectorCatalogDetail | null>(null);
@@ -147,6 +146,14 @@ export class ConnectorDetail {
       void this.loadReachable();
       void this.loadEvidenced();
       void this.loadAudit();
+    });
+
+    // AECI-777 — feed the shell's breadcrumb. An effect rather than a line inside
+    // `load()` so a refetch republishes too, and so the id travels with the label
+    // (the store keys on it to reject a label left over from the last page).
+    effect(() => {
+      const c = this.catalog();
+      if (c) this.breadcrumbs.publish(this.catalogId(), c.connector_product.name);
     });
   }
 

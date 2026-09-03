@@ -1,18 +1,9 @@
 <section aria-labelledby="admin-vendor-heading">
-  <a
-    routerLink="/admin/vendors"
-    class="text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@admin.vendors.detail.back"
-  >
-    Back to all vendors
-  </a>
-
-  <h2
-    id="admin-vendor-heading"
-    class="mt-2 text-lg font-bold text-(--text-primary)"
-    i18n="@@admin.vendors.detail.heading"
-  >
-    Vendor
+  <!-- The shell's breadcrumb (AECI-777) is the way back to the list; this heading
+       names WHICH vendor, and falls back to the same word the trail shows until
+       the fetch resolves. -->
+  <h2 id="admin-vendor-heading" class="text-lg font-bold text-(--text-primary)">
+    @if (vendor(); as v) { {{ v.company_name }} } @else { {{ fallbackHeading }} }
   </h2>
 
   <!--

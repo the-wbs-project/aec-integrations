@@ -270,13 +270,36 @@ describe('AdminShell', () => {
       const root = render({ pending_reviews: 3 });
       expect(root.querySelectorAll('h1')).toHaveLength(1);
       // Category labels are disclosure buttons, deliberately not headings: a
-      // heading here would sit between the shell's h1 and the screen's h2.
+      // heading here would sit between the shell's h1 and the screen's h2. The
+      // breadcrumb (AECI-777) is held to the same rule and is covered by this
+      // assertion, since it renders inside this header.
       expect(root.querySelector('h2, h3, h4, h5, h6')).toBeNull();
+    });
+
+    it('renders the breadcrumb as a SECOND, separately named landmark (AECI-777)', () => {
+      const root = render({ pending_reviews: 3 });
+      const labels = [...root.querySelectorAll('nav')].map((n) => n.getAttribute('aria-label'));
+      // Two navs in one landmark tree are indistinguishable in a screen reader's
+      // landmark list unless both are named, and named differently.
+      expect(labels).toEqual(['Admin sections', 'Breadcrumb']);
+    });
+
+    it('puts the breadcrumb below the nav row, not above it', () => {
+      const root = render({ pending_reviews: 3 });
+      const row = root.querySelector('nav[aria-label="Admin sections"]')!;
+      const crumbs = root.querySelector('nav[aria-label="Breadcrumb"]')!;
+      // Order is the design decision, not an accident — see the template comment.
+      // It also keeps every `querySelector('nav')` in this file pointed at the row.
+      expect(row.compareDocumentPosition(crumbs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('gives the admin nav an accessible name, and each panel list its own', () => {
       const root = render({ pending_reviews: 3 });
-      const nav = root.querySelector('nav')!;
+      // Addressed by label, not by position. AECI-777 hangs a second <nav> (the
+      // breadcrumb) in this header, and `querySelector('nav')` would have picked
+      // whichever came first — the same positional fragility AECI-722 hit with the
+      // category triggers, and the same fix.
+      const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
       expect(nav.getAttribute('aria-label')).toBeTruthy();
       // The row list is named by the landmark it sits in; each PANEL list names
       // itself, so a screen reader entering one knows which category it opened.
