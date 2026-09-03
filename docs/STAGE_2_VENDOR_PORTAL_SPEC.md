@@ -733,7 +733,7 @@ gains a 20-product entry, because a search box over two options tells you nothin
 §6.4 made Products a menu that routes to `…/products/:productSlug`. This change makes
 a product a **place** rather than a parameter, and moves the Integrations tab into it.
 
-**The portal row is now:** Vendor Overview · Profile · Products ▾ · **Messages** · Seats.
+**The portal row is now:** Vendor Overview · Profile · Products · **Messages** · Seats. (Products is a disclosure, but it renders no arrow icon — see `DESIGN.md` §Navigation.)
 **A product gains its own row:** Profile · Taxonomy · Integrations.
 
 Both rows come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new

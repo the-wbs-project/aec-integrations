@@ -2,7 +2,13 @@ import { DatePipe, formatDate } from '@angular/common';
 import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import { ADMIN_USERS_DEFAULT_PER_PAGE, type AdminUserRow, type AdminUsersSort } from '@aeci/shared';
+import {
+  ADMIN_USERS_DEFAULT_PER_PAGE,
+  ADMIN_USER_SORT_DEFAULT_ORDER,
+  type AdminUserRow,
+  type AdminUsersSort,
+  type SortOrder,
+} from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
@@ -47,8 +53,10 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  * ── A TABLE, AND LAST SIGN-IN IS NOT SORTABLE (AECI-694) ────────────────────
  * Rows were cards; they are a table for the same reason `/admin/vendors` is.
  *
- * `AdminUsersSortSchema` is `created | updated` and there is no `order`
- * parameter, so those are the only two sortable headers. Everything else is
+ * `AdminUsersSortSchema` is `created | updated`, so those are the only two
+ * sortable headers. Both now accept a direction: clicking the active one flips
+ * it (`order` on the wire), clicking the other adopts that column's natural
+ * direction — newest-first for both. Everything else is
  * plain `<th>` text with no hover state, and **Last sign-in will never join
  * them** (`ADMIN_PANEL_SPEC.md` §5.8, and `resolveAdminUserOrderBy` says the
  * same in the API): it lives in GoTrue and is fetched per-id AFTER the ORDER BY
@@ -102,6 +110,11 @@ export class UserList {
    *  already reads its filters from the query string ONE WAY and deliberately
    *  does not write back, and a sort control is no different. */
   protected readonly sort = signal<AdminUsersSort>('created');
+
+  /** Direction for {@link sort}, starting at that key's natural direction so a
+   *  first render matches a bare `?sort=` request. See `vendor-list.ts`, which
+   *  documents the same pair. */
+  protected readonly order = signal<SortOrder>(ADMIN_USER_SORT_DEFAULT_ORDER['created']);
 
   protected readonly role = signal<RoleFilter>('any');
   protected readonly banned = signal<TriFilter>('any');
@@ -168,10 +181,16 @@ export class UserList {
     this.refilter();
   }
 
-  /** Direction is fixed per key on the server, so this selects a sort rather
-   *  than toggling one. See `shared/sort-header/sort-header.ts`. */
-  protected onSortChange(key: string): void {
-    this.sort.set(key as AdminUsersSort);
+  /** Live for the active column, natural for the other — read from the SHARED
+   *  map so the arrow cannot disagree with the server's ORDER BY. */
+  protected directionFor(key: AdminUsersSort): 'ascending' | 'descending' {
+    const order = key === this.sort() ? this.order() : ADMIN_USER_SORT_DEFAULT_ORDER[key];
+    return order === 'asc' ? 'ascending' : 'descending';
+  }
+
+  protected onSortChange(change: { key: string; order: 'asc' | 'desc' }): void {
+    this.sort.set(change.key as AdminUsersSort);
+    this.order.set(change.order);
     this.refilter();
   }
 
@@ -219,6 +238,7 @@ export class UserList {
         page: this.page(),
         perPage: this.perPage,
         sort: this.sort(),
+        order: this.order(),
         ...(search ? { search } : {}),
         ...(role === 'any' ? {} : { role }),
         ...(banned === 'any' ? {} : { banned }),

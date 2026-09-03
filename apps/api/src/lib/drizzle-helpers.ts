@@ -1188,7 +1188,11 @@ export function coerceClaimDirection(raw: string, claimId: string): ClaimDirecti
   throw new Error(`Data integrity: claim ${claimId} has unknown direction "${raw}"`);
 }
 
-function toProductRole(raw: string, productId: string): ProductRole {
+/** Narrow `products.product_role` to the closed enum. Fails loud, like the
+ *  mechanism-kind and claim-direction coercions above: an unknown role is a data
+ *  defect, and every reader — public card, product page, the admin vendor
+ *  roster — must report it rather than render it as understood. */
+export function toProductRole(raw: string, productId: string): ProductRole {
   if (raw === 'application' || raw === 'connector' || raw === 'hybrid') return raw;
   throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
 }

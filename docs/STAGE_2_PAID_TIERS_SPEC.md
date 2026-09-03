@@ -416,19 +416,27 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Five (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Six (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
-| `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter. One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. Per-row product/integration counts reuse `vendorListConfig.extras`, the same correlated subqueries the public list already ships. |
+| `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter + a **sort key per rendered column** (`AdminVendorSortSchema`, admin-only — see the revision note below). One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. The per-row product count reuses `vendorListConfig.extras.productCount`, the same correlated subquery the public list already ships; its `integrationCount` sibling is no longer selected. |
 | `GET /api/admin/vendors/:id` | Basics, entitlement, the seat roster + pending invites, and product / integration / claim counts. Two D1 round trips: a 404 gate, then **one `db.batch` of six reads** — a batch for the round trip, not for atomicity, the same use `GET /api/vendor/updates` documents. Deliberately **not** a `UNION`: D1 caps compound selects at five, which the admin System screen already got bitten by. |
+| `GET /api/admin/vendors/:id/products` | The vendor's product roster behind the detail page's Products tab (§5.9). Paginated, name-ordered, joins EVERY `product_vendors` row. Added after AECI-652; contract in `API_CONTRACTS.md` §6.10. |
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
 
 **The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
 
-**The three GETs emit no `audit_log` row.** Reads write nothing (`ADMIN_PANEL_SPEC.md` §9.3, `API_CONTRACTS.md` §6.10 conventions). ADR 0022 scopes the §26.1 invariant, but it is a write-side document — cite those two as the direct authority.
+**The four GETs emit no `audit_log` row.** Reads write nothing (`ADMIN_PANEL_SPEC.md` §9.3, `API_CONTRACTS.md` §6.10 conventions). ADR 0022 scopes the §26.1 invariant, but it is a write-side document — cite those two as the direct authority.
+
+> **List rendering revision — SHIPPED (2026-09-03).** Four changes to `/admin/vendors`, one of which is an API change:
+>
+> 1. **The Integrations column is gone**, and with it `integration_count` on `AdminVendorRowSchema` and the correlated subquery that fed it. An operator on this screen is triaging entitlements and seats; the integration count is a catalog fact they act on at `/admin/vendors/:id`, where the §13.5 union of direct + connector-evidenced edges is the number that matters. `vendorListConfig.extras.integrationCount` is untouched — the public list and the Algolia record still ship it, and `count-lockstep.spec.ts` still pins the union rule on the config rather than on any one reader.
+> 2. **The slug is its own column** rather than a second line under the company name. It is the identifier an operator carries between this screen, a URL and a support thread, so it is scannable and sortable — and lifting it out makes every row one line tall.
+> 3. **Every column is sortable**, via a new admin-only `AdminVendorSortSchema` (`name | slug | verified | entitlement | products | term | updated`, default `name`) and `resolveAdminVendorOrderBy`. The rule AECI-694 shipped two headers on is unchanged and is the reason this took an API change: a header that reorders only the rows already loaded presents a chunk as a ranking. Direction is a toggle: `order` is optional and absent means the key's natural direction (§5.10). Two keys are not a bare column: `entitlement` ranks the status operationally (`active < pending < expired < revoked < none`, because the alphabetical order is meaningless), and `term` sorts soonest-expiry first with NULL **last**, against SQLite's NULLs-first default. `products` orders by the `product_count` SELECT alias. The public `VendorSortSchema` is deliberately untouched: four of these keys address operator concerns the directory has no column for, two of them read `vendor_entitlements` (which the public list does not join), and `created` is absent here because `created_at` is not on the row for a header to point at.
+> 4. **Paging is scroll-append, not prev/next.** The screen now renders the shared `<aec-pagination-footer>` — the same `IntersectionObserver` sentinel + "Load more" floor the public listings use — instead of `<aec-admin-paginator>`. `GET /api/admin/vendors` is unchanged by this: it is still page-based, and `total` is still the `count()` over the filter, which is what the footer's "Showing X of N" reports. Two client-side invariants make it safe: a filter/search/sort change **discards the accumulation** before refetching chunk 1 (appending across a reordered set duplicates rows), and a failed append keeps the loaded rows, steps the cursor back and retries the chunk that failed. The footer renders a real `<button>` here rather than its usual anchor, because an admin screen has no SSR'd `?page=2` to link to and an `<a>` with no `href` is not focusable.
 
 #### 5.6.2 The audit query: why `entity_id = <vendor>` is not enough
 
@@ -507,7 +515,7 @@ Shipped as specified above. Decisions this section did not pre-settle:
 - **`escapeLike` was hoisted to `lib/sql-like.ts`.** It was module-private in `admin-analytics.ts` with one call site, and the escaping is only correct paired with an explicit `ESCAPE '\'` clause (Drizzle's `like()` emits none) — exactly the shape that drifts when a second caller appears. Both call sites now share `likeContains`.
 - **Claim counts report all FOUR statuses.** `vendor_requests_status_check` allows `open | in_review | resolved | rejected`; three would give an operator numbers that quietly fail to sum. Worth noting the same hole still exists on `/admin/claims`, whose `status` filter enum omits `in_review` — not fixed here, but named.
 - **The seat timestamp is labelled "Account created", not "granted".** `profiles.created_at` is when the Supabase user first got a profile row, and `updated_at` moves on any profile edit; the real grant is a `vendor_claim.granted` audit row. Labelling it "granted at" — as the issue's scope line did — would have put a confidently wrong date in front of an operator. The copy says what the value is and points at the audit trail for the rest.
-- **The detail page is one component with four sections, not four child routes.** An operator reads them together (the entitlement state explains the seats; the audit trail explains both), and a route per tab would have cost three resolvers and a URL nobody bookmarks.
+- **The detail page is one component with four sections, not four child routes.** An operator reads them together (the entitlement state explains the seats; the audit trail explains both), and a route per tab would have cost three resolvers and a URL nobody bookmarks. *(Superseded in part by §5.9: the sections are now grouped behind a three-tab menu held in `?tab=`. Still one component and one route — the tab is a query parameter, not a child route, for exactly the reason recorded here.)*
 - **The audit diff states its changes in words.** Added / removed / changed are rendered as text next to each field rather than by colour, and the diff walks the **union** of both snapshots' keys so a field present on only one side is visible rather than dropped.
 - **`seatsOf` moved from `routes/vendor.ts` to `routes/vendor-shared.ts`.** Its documented purpose is that its readers "can never disagree"; a third reader hand-rolling the predicate would have defeated it. Note it deliberately differs from `admin-claims.ts`'s `loadExistingSeats`, which excludes banned seats — that helper answers a narrower question ("does this vendor already have working admins?", the first-claim vs second-seat signal), not "who is on this account".
 
@@ -517,7 +525,7 @@ Shipped as specified above. Decisions this section did not pre-settle:
 
 - **All four sections are tables.** The list, the seat roster, the pending invites and the audit trail. Every field on this surface is short and every row has the same fields, which is the case a table is for; the card list made an operator read a paragraph per row to compare entitlement state across a page. The markup follows the console's existing pattern (`admin/system/system-status.html`): `overflow-x-auto` wrapper, `min-w-[…]` table, visually-hidden `<caption>`, `th[scope=col]` in the head and `th[scope=row]` on each row's identity cell, `text-end tabular-nums` on counts, and an en-dash with an `aria-label` for a genuinely absent value.
 - **The two-step seat revoke is a full-width `<tr colspan>` directly under its row**, so the confirm stays adjacent to the seat it acts on in both the visual and the accessibility tree. `revokeConfirmId` and the page's single live region are unchanged.
-- **Two sortable headers on the list, and only two: Vendor (`name`, ascending) and Updated (`updated`, descending).** `AdminVendorsListQuerySchema.sort` takes `created | name | updated`, there is no `order` parameter, and `created_at` is not on `AdminVendorRowSchema` so it has no column to hang off. The other five headers stay plain text with no hover state. **Clicking selects a sort; it does not toggle a direction** — direction is fixed per key in `resolveVendorOrderBy` per `STAGE_1_PHASE_2_SPEC.md` §7.4, and `aria-sort` reports that fixed direction so the promise is honest for assistive tech too. Making Products, Integrations or Term ends sortable is an API change (a new key plus, for a real toggle, an `order` parameter), not a UI one.
+- **Two sortable headers on the list, and only two: Vendor (`name`, ascending) and Updated (`updated`, descending).** `AdminVendorsListQuerySchema.sort` takes `created | name | updated`, there is no `order` parameter, and `created_at` is not on `AdminVendorRowSchema` so it has no column to hang off. The other five headers stay plain text with no hover state. **Clicking selects a sort; it does not toggle a direction** — direction is fixed per key in `resolveVendorOrderBy` per `STAGE_1_PHASE_2_SPEC.md` §7.4, and `aria-sort` reports that fixed direction so the promise is honest for assistive tech too. Making Products, Integrations or Term ends sortable is an API change (a new key plus, for a real toggle, an `order` parameter), not a UI one. *(Superseded by §5.10: both the extra keys and the `order` parameter shipped.)*
 - **The audit trail is now a shared `<aec-audit-trail>`** (`app/admin/audit/`), so the next trail the console wants is a drop-in. Fetching and the `?scope=` control stay on this page: scope here is four OR'd disjuncts over this vendor's rows, requests, metadata references and seat roster, and a user- or product-scoped trail would need a different one or none.
 - **Actions read as English** via `describeAuditAction()`, with the raw token still shown beneath for grepping, and an unmapped action humanises rather than blanking (`action` is a free `z.string()` by contract so a new writer cannot 500 this screen, and `audit_log` is excluded from the retention prune). `metadata` is not on the wire, so a description can only use `action`, `entity_type` and the two snapshots.
 - **Audit timestamps are relative** ("4h", "2d") with an info control whose accessible name is the full `medium`/UTC instant; every other timestamp on the page is absolute `medium`/UTC, including several that rendered as raw ISO strings before this change (`updated_at`, `seat.created_at`, `invite.expires_at`, and `period_end` on the list).
@@ -527,6 +535,79 @@ Shipped as specified above. Decisions this section did not pre-settle:
 `docs/ADMIN_PANEL_SPEC.md` §5.0a records the companion change to the console shell: the nav became a horizontal row of category dropdowns, which is what freed the width these tables use.
 
 ---
+
+### 5.9 The detail page becomes a three-tab menu
+
+**Presentation plus one new read endpoint. Nothing in §5.6 or §5.8 is retracted** — the
+entitlement control is still mounted only here, the seat timestamp still reads "Account
+created", the seats tri-state is preserved, and no write path changed.
+
+`/admin/vendors/:id` gains a horizontal menu — **Vendor** / **Products** / **Audit
+Trail** — over one panel:
+
+- **Vendor** keeps basics + counts, the entitlement control and the seat roster
+  together. That grouping is the point: the entitlement state explains the roster, so
+  splitting them would make the operator hold one in their head while reading the other.
+- **Products** is new, and reads `GET /api/admin/vendors/:id/products` (§5.6.1) —
+  paginated, name-ordered, every `product_vendors` row with `is_primary` on the row.
+  Read-only: there is no admin product-edit endpoint, and §5.6.4's catalog lockout is
+  unchanged by this.
+- **Audit Trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
+
+Three decisions worth recording:
+
+- **`?tab=`, not child routes.** A route per tab buys two lazy components and two
+  resolvers and carries nothing but a signal; a query parameter keeps the tab linkable,
+  bookmarkable and Back-navigable, which an in-page toggle silently gives up. The default
+  tab is the ABSENT value, so the bare URL stays canonical and an unrecognised `?tab=`
+  falls back to Vendor rather than rendering an empty panel.
+- **Links and a `nav`, not an ARIA `tablist`.** These navigate the URL rather than swap
+  panels in place, and a `tablist` would promise arrow-key semantics the router does not
+  implement. The open tab carries `aria-current="page"`.
+- **Products fetches lazily; the audit trail does not.** The trail is refetched after
+  every write on this screen (an entitlement change, a seat revoke, a seat provision), so
+  the page holds it regardless of which tab is open. Products has no such coupling, which
+  is also why it is a separate endpoint rather than a field on the detail payload — the
+  entitlement/seat read must cost the same for a vendor with sixty products as for one
+  with two.
+
+
+### 5.10 Sort direction becomes a toggle
+
+The list shipped with direction **fixed per key** and no `order` parameter: the header
+arrow was a statement of how a column sorts, and clicking the already-active header was
+a deliberate no-op (§5.8, and `sort-header.ts` argued it at length). That was a
+reasonable call over a two-key API. It stopped being one at seven keys — an arrow on a
+clickable header reads as a toggle to every operator who has used one, so a control that
+silently does nothing on the second click is a worse lie than the one the rule was
+trying to avoid.
+
+`?order=asc|desc` is now on `GET /api/admin/vendors` and `GET /api/admin/users`.
+
+- **Optional, and absent means the key's natural direction.** Not defaulted to `asc`: a
+  default erases the difference between "the caller wants ascending" and "the caller did
+  not say", and half these keys are naturally descending. Every link, bookmark and test
+  written before the parameter orders exactly as it did — asserted directly
+  (`slugsSortedBy('name')` must equal `slugsSortedBy('name', 'asc')`).
+- **The natural directions live in `packages/shared`, in one copy.**
+  `ADMIN_VENDOR_SORT_DEFAULT_ORDER` / `ADMIN_USER_SORT_DEFAULT_ORDER`: the API resolves
+  its ORDER BY from them, the table draws its arrows and its first-click direction from
+  them. Two copies is the classic silent drift — a header renders ↑ over a descending
+  list and nothing fails.
+- **Only the primary term flips.** `id ASC` and the intermediate `company_name` term
+  never move; they are what make the order total and the page stable (AECI-99), and
+  reversing a tiebreaker is how a paginated list starts duplicating and skipping rows.
+- **`term` pins its NULL guard ascending.** Only the date reverses, so `order=desc` reads
+  "who lapses last" with the perpetual and no-row vendors still at the bottom — flipping
+  the guard too would float them all to the top, the exact burial it exists to prevent.
+- **Switching columns resets** to the new column's natural direction.
+- **`aria-sort` reports the live direction**, and the button gained an sr-only hint for
+  what the next press will do: the arrow is `aria-hidden`, so without it the button's
+  accessible name is identical before and after a flip.
+
+`SortHeader` is shared with `/admin/users` (§5.8 of `ADMIN_PANEL_SPEC.md`), so both
+screens gained the toggle together — a shared header that behaved differently per table
+would be the worse outcome.
 
 ## 6. Claim-grant integration — the AECI-519 refactor (AECI-612)
 
@@ -548,6 +629,7 @@ The trick that keeps the shipped tests green: **the audit shape does not change 
 6. **The `entitlement` body blob keeps landing in audit metadata *and* now also in the row.** Not redundant: per §2.1 the audit log *is* the renewal ledger, so the metadata write is the history. `ClaimEntitlementSchema` gains optional `invoice_ref`, `period_start`, `period_end` — additive, so the `/admin/claims` approve form (which sends only `notes`) needs no change.
 7. **`ClaimGrantSummarySchema`** gains `tier` and `entitlement_created: boolean`, both **required** so `validateResponseInDev` catches a construction site that forgets one (the web `ClaimQueue` ignores unknown keys).
 8. **New regression guard:** assert `grantSeatStatements` emits no statement touching `vendors`, so the sole-writer invariant cannot silently regress.
+
 
 ### 6.1 As built (AECI-612 — 2026-08-18)
 

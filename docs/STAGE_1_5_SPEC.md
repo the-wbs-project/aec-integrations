@@ -1080,8 +1080,10 @@ mid-flight will make a local decision about a cross-cutting contract.
       must stay byte-for-byte the rule `algolia-sync.ts` applies, because any divergence between
       those two *is* the alarm.
   14. Three more copies of the **vendor `built_by_vendor_id` rule outside Algolia** —
-      `apps/api/src/lib/drizzle-helpers.ts` (`vendorListConfig`, feeding the public and admin vendor
-      lists) and `apps/api/src/routes/admin-vendors.ts` (vendor detail). Item 6 names only the two
+      `apps/api/src/lib/drizzle-helpers.ts` (`vendorListConfig`, feeding the public vendor list —
+      the ADMIN list dropped its Integrations column on 2026-09-03 and no longer selects this
+      extra, which is why the lockstep is asserted on the config rather than on a reader) and
+      `apps/api/src/routes/admin-vendors.ts` (vendor detail). Item 6 names only the two
       Algolia copies; there are five, and connector vendors' counts collapse on all five.
 
   Plus two things that are not `integration_count` but move with it: the rendered section heading

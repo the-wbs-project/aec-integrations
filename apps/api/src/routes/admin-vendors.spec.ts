@@ -23,6 +23,7 @@
  *     admin who conflates them creates an incident.
  */
 
+import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,6 +51,7 @@ import {
   createProvisionSeatHandler,
   createAdminVendorAuditHandler,
   createAdminVendorDetailHandler,
+  createAdminVendorProductsHandler,
   createAdminVendorsListHandler,
   type FetchAuthEmails,
 } from './admin-vendors';
@@ -278,7 +280,7 @@ describe('GET /api/admin/vendors', () => {
     expect(b.total).toBe(2);
   });
 
-  it('counts owned products and built integrations per row', async () => {
+  it('counts owned products per row, and ships no integration count at all', async () => {
     await t.db.insert(products).values([
       { id: PRODUCT, slug: 'acme-thing', name: 'Acme Thing' },
       { id: u(31), slug: 'beta-thing', name: 'Beta Thing' },
@@ -299,7 +301,143 @@ describe('GET /api/admin/vendors', () => {
     const b = await body(res);
     const acme = b.data.find((r: { id: string }) => r.id === VENDOR);
     expect(acme.product_count).toBe(1);
-    expect(acme.integration_count).toBe(1);
+    // The list stopped rendering an integration column, so the correlated
+    // subquery came off the SELECT with it. The count still exists on
+    // `/api/admin/vendors/:id`, where §13.5's union rule is asserted.
+    expect(acme).not.toHaveProperty('integration_count');
+  });
+
+  // ── Sorting ────────────────────────────────────────────────────────────────
+  //
+  // Every column the operator's table renders is sortable, which is only true
+  // because the API can order by all of them. These pin the three cases that are
+  // not a bare column: the SELECT alias, the status rank, and NULLs-last on the
+  // term. In this fixture `acme-corp` is verified with an ACTIVE entitlement
+  // ending 2027-01-01, and `beta-100%-tools` is unverified with NO entitlement
+  // row at all — so each key below has a defensible expected order.
+  async function slugsSortedBy(sort: string, order?: 'asc' | 'desc'): Promise<string[]> {
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      `/api/admin/vendors?sort=${sort}${order ? `&order=${order}` : ''}`,
+    );
+    expect(res.status).toBe(200);
+    return (await body(res)).data.map((r: { slug: string }) => r.slug);
+  }
+
+  it('defaults to company name ascending', async () => {
+    expect(await slugsSortedBy('name')).toEqual(['acme-corp', 'beta-100%-tools']);
+  });
+
+  it('sorts by slug', async () => {
+    expect(await slugsSortedBy('slug')).toEqual(['acme-corp', 'beta-100%-tools']);
+  });
+
+  // Each of the next three seeds a vendor that sorts FIRST alphabetically and
+  // LAST by the key under test, so the assertion cannot pass on the tiebreaker.
+  async function seedAardvark(): Promise<void> {
+    await seedVendor(u(12), {
+      slug: 'aardvark',
+      companyName: 'Aardvark',
+      verified: false,
+    });
+  }
+
+  it('sorts the verified vendors first', async () => {
+    await seedAardvark();
+    expect(await slugsSortedBy('verified')).toEqual(['acme-corp', 'aardvark', 'beta-100%-tools']);
+  });
+
+  it('ranks the entitlement by urgency, putting "no row at all" last', async () => {
+    await seedAardvark();
+    // Alphabetically `active` would sort before `revoked`, which is an accident;
+    // the CASE makes the order operational, and a vendor with NO entitlement row
+    // — the majority case — sorts behind every vendor that has one.
+    await t.db.insert(vendorEntitlements).values({
+      id: u(41),
+      vendorId: OTHER_VENDOR,
+      tier: 'verified',
+      status: 'revoked',
+    });
+    expect(await slugsSortedBy('entitlement')).toEqual([
+      'acme-corp',
+      'beta-100%-tools',
+      'aardvark',
+    ]);
+  });
+
+  it('sorts by the product-count SELECT alias, most first', async () => {
+    await t.db.insert(products).values({ id: PRODUCT, slug: 'beta-thing', name: 'Beta Thing' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: OTHER_VENDOR });
+    // Beta owns one product, Acme none — so this INVERTS the alphabetical order,
+    // which is what proves the ORDER BY resolved the alias instead of being
+    // silently dropped.
+    expect(await slugsSortedBy('products')).toEqual(['beta-100%-tools', 'acme-corp']);
+  });
+
+  it('sorts by term end soonest-first, with no-term-on-record LAST', async () => {
+    await seedAardvark();
+    // SQLite orders NULLs FIRST under ASC, which would bury every real renewal
+    // date under the vendors that have no entitlement row — so `aardvark` (no
+    // row) and `beta-100%-tools` (no row) must both trail the dated term, even
+    // though the first of them sorts ahead of everything alphabetically.
+    expect(await slugsSortedBy('term')).toEqual(['acme-corp', 'aardvark', 'beta-100%-tools']);
+  });
+
+  // ── Direction ──────────────────────────────────────────────────────────────
+  //
+  // The surface originally had no `order` parameter: direction was fixed per key
+  // and clicking an active header was a no-op. These pin the replacement.
+
+  it('reverses when order is supplied', async () => {
+    expect(await slugsSortedBy('name', 'desc')).toEqual(['beta-100%-tools', 'acme-corp']);
+  });
+
+  it('orders identically with and without an explicit natural direction', async () => {
+    // The compatibility guarantee: every link and bookmark written before
+    // `order` existed must keep ordering exactly as it did.
+    expect(await slugsSortedBy('name')).toEqual(await slugsSortedBy('name', 'asc'));
+    expect(await slugsSortedBy('updated')).toEqual(await slugsSortedBy('updated', 'desc'));
+  });
+
+  it('reverses a naturally-DESCENDING key too', async () => {
+    await seedAardvark();
+    // `verified` naturally puts verified first; ascending must genuinely invert
+    // it rather than no-op, which is what a direction-blind resolver would do.
+    expect(await slugsSortedBy('verified', 'asc')).toEqual([
+      'aardvark',
+      'beta-100%-tools',
+      'acme-corp',
+    ]);
+  });
+
+  it('keeps no-term-on-record LAST even when the term sort is reversed', async () => {
+    await seedAardvark();
+    // The one term that deliberately does NOT flip. Reversing the NULL guard too
+    // would float every perpetual/no-row vendor to the top on the second click —
+    // the exact burial that guard exists to prevent.
+    expect(await slugsSortedBy('term', 'desc')).toEqual([
+      'acme-corp',
+      'aardvark',
+      'beta-100%-tools',
+    ]);
+  });
+
+  it('rejects a direction the schema does not know', async () => {
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors?sort=name&order=sideways',
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a sort key the schema does not know rather than falling back', async () => {
+    // `created` is a PUBLIC key. Accepting it here would order by a column the
+    // row does not carry, so no header could state its direction honestly.
+    const res = await send(
+      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+      '/api/admin/vendors?sort=created',
+    );
+    expect(res.status).toBe(400);
   });
 });
 
@@ -566,6 +704,132 @@ describe('GET /api/admin/vendors/:id', () => {
     // An aged-out invite is still `accepted_at IS NULL AND revoked_at IS NULL`,
     // so the expiry filter has to be in the query, not implied.
     expect(b.pending_invites.map((i: { email: string }) => i.email)).toEqual(['live@acme.test']);
+  });
+});
+
+// ─── GET /api/admin/vendors/:id/products ─────────────────────────────────────
+
+describe('GET /api/admin/vendors/:id/products', () => {
+  beforeEach(async () => {
+    await seedVendor(VENDOR, { slug: 'acme-corp', companyName: 'Acme Corp' });
+    await seedVendor(OTHER_VENDOR, { slug: 'other-co', companyName: 'Other Co' });
+  });
+
+  it('404s on an unknown vendor id', async () => {
+    // Not an empty successful page: that reads as "this vendor has no products".
+    const res = await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${u(999)}/products`,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('returns owned products by name, including co-owned ones, and flags the primary', async () => {
+    // Ownership is EVERY `product_vendors` row (§8.8(1)) — a co-owned product is
+    // owned, and dropping it would under-report the payer test.
+    await t.db.insert(products).values([
+      { id: u(32), slug: 'acme-bridge', name: 'Bridge', productRole: 'connector' },
+      { id: PRODUCT, slug: 'acme-thing', name: 'Acme Thing', productRole: 'application' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT, vendorId: VENDOR, isPrimary: true },
+      { productId: u(32), vendorId: VENDOR, isPrimary: false },
+      { productId: u(32), vendorId: OTHER_VENDOR, isPrimary: true },
+    ]);
+
+    const res = await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${VENDOR}/products`,
+    );
+    expect(res.status).toBe(200);
+    const b = await body(res);
+
+    expect(b.total).toBe(2);
+    expect(b.data.map((row: { name: string }) => row.name)).toEqual(['Acme Thing', 'Bridge']);
+    expect(b.data[0]).toMatchObject({
+      slug: 'acme-thing',
+      product_role: 'application',
+      is_primary: true,
+    });
+    expect(b.data[1]).toMatchObject({ product_role: 'connector', is_primary: false });
+  });
+
+  it("excludes another vendor's products", async () => {
+    await t.db.insert(products).values({ id: PRODUCT, slug: 'other-thing', name: 'Other Thing' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: OTHER_VENDOR });
+
+    const res = await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${VENDOR}/products`,
+    );
+    const b = await body(res);
+    expect(b.total).toBe(0);
+    expect(b.data).toEqual([]);
+  });
+
+  it('withholds the average rating below the review floor and shows it above', async () => {
+    // The §5.5 floor applies in the console too — the operator screen must not be
+    // the one place a statistically misleading sub-5 average is readable.
+    await t.db.insert(products).values([
+      {
+        id: PRODUCT,
+        slug: 'shy',
+        name: 'Shy',
+        reviewCount: RATING_VISIBILITY_MIN_REVIEWS - 1,
+        ratingOverallAvg: 4.9,
+      },
+      {
+        id: u(32),
+        slug: 'zeta',
+        name: 'Zeta',
+        reviewCount: RATING_VISIBILITY_MIN_REVIEWS,
+        ratingOverallAvg: 4.2,
+      },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT, vendorId: VENDOR },
+      { productId: u(32), vendorId: VENDOR },
+    ]);
+
+    const res = await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${VENDOR}/products`,
+    );
+    const b = await body(res);
+    expect(b.data[0]).toMatchObject({ name: 'Shy', rating_overall_avg: null, review_count: 4 });
+    expect(b.data[1]).toMatchObject({ name: 'Zeta', rating_overall_avg: 4.2 });
+  });
+
+  it('paginates, and total counts every owned product', async () => {
+    await t.db.insert(products).values([
+      { id: PRODUCT, slug: 'a', name: 'A' },
+      { id: u(32), slug: 'b', name: 'B' },
+      { id: u(33), slug: 'c', name: 'C' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT, vendorId: VENDOR },
+      { productId: u(32), vendorId: VENDOR },
+      { productId: u(33), vendorId: VENDOR },
+    ]);
+
+    const res = await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${VENDOR}/products?page=2&perPage=2`,
+    );
+    const b = await body(res);
+    expect(b).toMatchObject({ page: 2, perPage: 2, total: 3 });
+    expect(b.data.map((row: { name: string }) => row.name)).toEqual(['C']);
+  });
+
+  it('writes no audit_log row — reads write nothing', async () => {
+    await t.db.insert(products).values({ id: PRODUCT, slug: 'a', name: 'A' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: VENDOR });
+
+    await send(
+      mount('get', '/api/admin/vendors/:id/products', createAdminVendorProductsHandler(t.factory)),
+      `/api/admin/vendors/${VENDOR}/products`,
+    );
+    expect(await t.db.select().from(auditLog)).toEqual([]);
   });
 });
 

@@ -17,15 +17,20 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   AdminAuditRow,
   AdminVendorAuditResponse,
   AdminVendorDetail,
+  AdminVendorProductRow,
+  AdminVendorProductsResponse,
   AdminVendorSeatRow,
 } from '@aeci/shared';
+import { of } from 'rxjs';
+
+import type { AdminVendorTab } from './vendor-detail';
 
 import { AdminEntitlementApi } from '../entitlement/admin-entitlement-api';
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -97,10 +102,31 @@ function makeAuditRow(over: Partial<AdminAuditRow> = {}): AdminAuditRow {
 interface ApiMock {
   getVendor: ReturnType<typeof vi.fn>;
   listAudit: ReturnType<typeof vi.fn>;
+  listProducts: ReturnType<typeof vi.fn>;
   revokeSeat: ReturnType<typeof vi.fn>;
 }
 
-function makeApiMock(vendor: AdminVendorDetail, auditRows: AdminAuditRow[] = []): ApiMock {
+function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductRow {
+  return {
+    id: '00000000-0000-4000-8000-000000000030',
+    slug: 'revit',
+    name: 'Revit',
+    product_role: 'application',
+    is_primary: true,
+    promotion_status: 'promoted',
+    integration_count: 12,
+    review_count: 7,
+    rating_overall_avg: 4.2,
+    updated_at: '2026-08-20T00:00:00.000Z',
+    ...over,
+  };
+}
+
+function makeApiMock(
+  vendor: AdminVendorDetail,
+  auditRows: AdminAuditRow[] = [],
+  productRows: AdminVendorProductRow[] = [],
+): ApiMock {
   const audit: AdminVendorAuditResponse = {
     data: auditRows,
     page: 1,
@@ -108,9 +134,16 @@ function makeApiMock(vendor: AdminVendorDetail, auditRows: AdminAuditRow[] = [])
     total: auditRows.length,
     actor_emails_available: true,
   };
+  const products: AdminVendorProductsResponse = {
+    data: productRows,
+    page: 1,
+    perPage: 25,
+    total: productRows.length,
+  };
   return {
     getVendor: vi.fn(async () => structuredClone(vendor)),
     listAudit: vi.fn(async () => structuredClone(audit)),
+    listProducts: vi.fn(async () => structuredClone(products)),
     revokeSeat: vi.fn(async () => undefined),
   };
 }
@@ -125,7 +158,18 @@ function settle(): Promise<void> {
  *  so the blast radius is greppable. */
 type ProvisionMock = { provisionSeat: ReturnType<typeof vi.fn> };
 
-async function setup(api: ApiMock, provisionApi: ProvisionMock = { provisionSeat: vi.fn() }) {
+/**
+ * Mount the page on one of its three tabs.
+ *
+ * The tab is `?tab=` state, so the stub `ActivatedRoute` has to carry a
+ * `queryParamMap` observable as well as the snapshot — the component reads the
+ * live one precisely because switching tabs re-uses the instance.
+ */
+async function setup(
+  api: ApiMock,
+  provisionApi: ProvisionMock = { provisionSeat: vi.fn() },
+  tab: AdminVendorTab = 'vendor',
+) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -136,7 +180,13 @@ async function setup(api: ApiMock, provisionApi: ProvisionMock = { provisionSeat
       { provide: SeatProvisionApi, useValue: provisionApi },
       {
         provide: ActivatedRoute,
-        useValue: { snapshot: { paramMap: new Map([['id', VENDOR_ID]]) } },
+        useValue: {
+          snapshot: {
+            paramMap: new Map([['id', VENDOR_ID]]),
+            queryParamMap: convertToParamMap(tab === 'vendor' ? {} : { tab }),
+          },
+          queryParamMap: of(convertToParamMap(tab === 'vendor' ? {} : { tab })),
+        },
       },
     ],
   });
@@ -146,6 +196,29 @@ async function setup(api: ApiMock, provisionApi: ProvisionMock = { provisionSeat
   await settle();
   fixture.detectChanges();
   return { fixture, api, provisionApi, el: fixture.nativeElement as HTMLElement };
+}
+
+/** The page on its Audit Trail tab. The trail is no longer on the landing tab,
+ *  so every spec that asserts on it has to open the one it lives on. */
+function setupAudit(api: ApiMock) {
+  return setup(api, { provisionSeat: vi.fn() }, 'audit');
+}
+
+/** The page on its Products tab. */
+function setupProducts(api: ApiMock) {
+  return setup(api, { provisionSeat: vi.fn() }, 'products');
+}
+
+/** Every table on the surface is captioned and its header cells are scoped. */
+function expectNamedTables(root: HTMLElement, atLeast: number): void {
+  const tables = [...root.querySelectorAll('table')];
+  expect(tables.length).toBeGreaterThanOrEqual(atLeast);
+  for (const table of tables) {
+    expect(table.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+    for (const th of table.querySelectorAll('thead th')) {
+      expect(th.getAttribute('scope')).toBe('col');
+    }
+  }
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement | undefined {
@@ -189,10 +262,108 @@ describe('VendorDetail', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders all four sections', async () => {
+  it('renders the Vendor tab: basics, entitlement and seats read together', async () => {
+    // These three stay on ONE tab on purpose — the entitlement state explains
+    // the seats, and a decision about either needs both on screen.
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Basics', 'Entitlement', 'Seats', 'Audit trail']);
+    expect(headings).toEqual(['Basics', 'Entitlement', 'Seats']);
+  });
+
+  describe('tabs', () => {
+    it('offers the three sections as links, with the open one marked current', async () => {
+      // Links, not buttons: the tab is `?tab=` state, so it has to be
+      // bookmarkable and reachable with Back.
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const links = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')];
+      expect(links.map((a) => a.textContent?.trim())).toEqual([
+        'Vendor',
+        'Products',
+        'Audit Trail',
+      ]);
+      const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
+      expect(current).toHaveLength(1);
+      expect(current[0].textContent?.trim()).toBe('Vendor');
+    });
+
+    it('does not fetch the products until the Products tab is opened', async () => {
+      // The lazy load is the reason Products is a separate endpoint at all: a
+      // reader who never opens the tab must never pay for it.
+      const { api } = await setup(makeApiMock(makeVendor()));
+      expect(api.listProducts).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the Vendor tab on an unrecognised ?tab=', async () => {
+      // A hand-edited or stale URL must still show the vendor, never an empty
+      // panel.
+      const { el } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'nonsense' as AdminVendorTab,
+      );
+      expect(el.textContent).toContain('Basics');
+    });
+  });
+
+  describe('products tab', () => {
+    it('renders the roster with role, promotion status and counts', async () => {
+      const { el, api } = await setupProducts(makeApiMock(makeVendor(), [], [makeProductRow()]));
+      expect(api.listProducts).toHaveBeenCalled();
+      expect(el.textContent).toContain('Revit');
+      expect(el.textContent).toContain('revit');
+      expect(el.textContent).toContain('Application');
+      expect(el.textContent).toContain('promoted');
+    });
+
+    it('marks a co-owned product rather than implying this vendor leads it', async () => {
+      // Ownership is every `product_vendors` row (§8.8(1)), so a co-owned product
+      // belongs on this list — but it is a different fact from one this vendor
+      // is primary on.
+      const { el } = await setupProducts(
+        makeApiMock(makeVendor(), [], [makeProductRow({ is_primary: false })]),
+      );
+      expect(el.textContent).toContain('Co-owned');
+    });
+
+    it('withholds an absent average rather than printing a zero', async () => {
+      const { el } = await setupProducts(
+        makeApiMock(
+          makeVendor(),
+          [],
+          [makeProductRow({ rating_overall_avg: null, review_count: 2 })],
+        ),
+      );
+      expect(el.textContent).not.toContain('0.0');
+    });
+
+    it('says where products come from when there are none', async () => {
+      // Zero products is UNKNOWN, not exempt — the empty state has to say so.
+      const { el } = await setupProducts(makeApiMock(makeVendor(), [], []));
+      expect(el.textContent).toContain('No products on record');
+      expect(el.textContent).toContain('promote');
+    });
+
+    it('renders a failed fetch as retryable, and retries on demand', async () => {
+      const api = makeApiMock(makeVendor(), [], [makeProductRow()]);
+      api.listProducts.mockRejectedValueOnce({ status: 500 });
+      const { el, fixture } = await setupProducts(api);
+      expect(el.textContent).toContain("We couldn't load this vendor's products");
+
+      buttonByText(el, 'Try again')!.click();
+      await settle();
+      fixture.detectChanges();
+      expect(el.textContent).toContain('Revit');
+    });
+
+    it('opens the public product page in a new tab, and says so', async () => {
+      const { el } = await setupProducts(makeApiMock(makeVendor(), [], [makeProductRow()]));
+      const link = [...el.querySelectorAll('a')].find(
+        (a) => a.getAttribute('href') === '/products/revit',
+      );
+      expect(link?.getAttribute('target')).toBe('_blank');
+      expect(link?.getAttribute('rel')).toBe('noopener');
+      expect(el.textContent).toContain('opens in a new tab');
+    });
   });
 
   it('renders the basics and all four claim-count buckets', async () => {
@@ -444,7 +615,7 @@ describe('VendorDetail', () => {
 
   describe('audit trail', () => {
     it('renders the action, actor and entity', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.textContent).toContain('vendor_entitlement.set');
       expect(el.textContent).toContain('Ada Lovelace');
       expect(el.textContent).toContain('vendor_entitlement');
@@ -453,7 +624,7 @@ describe('VendorDetail', () => {
     it('names a system row "System", never "unknown"', async () => {
       // A null actor is not a failed lookup — it is a cron or the promote
       // Workflow. Saying "unknown" would suggest something went wrong.
-      const { el } = await setup(
+      const { el } = await setupAudit(
         makeApiMock(makeVendor(), [
           makeAuditRow({ actor: null, actor_type: 'system', action: 'promote.blocked' }),
         ]),
@@ -463,7 +634,7 @@ describe('VendorDetail', () => {
     });
 
     it('refetches with the chosen scope and resets to page 1', async () => {
-      const { el, fixture, api } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el, fixture, api } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       fixture.componentInstance['goToAuditPage'](3);
       await settle();
       fixture.detectChanges();
@@ -480,7 +651,7 @@ describe('VendorDetail', () => {
     });
 
     it("renders an object diff over the union of both sides' keys", async () => {
-      const { el, fixture } = await setup(
+      const { el, fixture } = await setupAudit(
         makeApiMock(makeVendor(), [
           makeAuditRow({
             before_state: { status: 'active', payer: 'Acme' },
@@ -503,7 +674,7 @@ describe('VendorDetail', () => {
     });
 
     it('states the change in words, not by colour alone', async () => {
-      const { el, fixture } = await setup(
+      const { el, fixture } = await setupAudit(
         makeApiMock(makeVendor(), [
           makeAuditRow({ before_state: { a: 1 }, after_state: { a: 2 } }),
         ]),
@@ -516,7 +687,7 @@ describe('VendorDetail', () => {
     it('renders a SCALAR snapshot as a single value row instead of throwing', async () => {
       // These rows outlive the code that wrote them and nothing prunes the table,
       // so a shape this renderer has never seen has to degrade, not crash.
-      const { el, fixture } = await setup(
+      const { el, fixture } = await setupAudit(
         makeApiMock(makeVendor(), [
           makeAuditRow({ before_state: 'a bare string', after_state: 42 }),
         ]),
@@ -530,17 +701,17 @@ describe('VendorDetail', () => {
     });
 
     it('offers no diff toggle for a row with no snapshots', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(buttonByText(el, 'Show changes')).toBeUndefined();
     });
 
     it('renders the empty state for a scope with no rows', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), []));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), []));
       expect(el.textContent).toContain('Nothing recorded for this scope');
     });
 
     it('says that reading the ledger records nothing', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.textContent).toContain('opening it records nothing');
     });
 
@@ -548,7 +719,7 @@ describe('VendorDetail', () => {
       // The description is what makes the ledger readable by someone who has not
       // memorised the vocabulary; the token is what makes a row greppable against
       // a log line. Both, not either.
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.textContent).toContain('Entitlement set');
       expect(el.textContent).toContain('vendor_entitlement.set');
     });
@@ -572,22 +743,30 @@ describe('VendorDetail', () => {
           [makeAuditRow()],
         ),
       );
-      const tables = [...el.querySelectorAll('table')];
-      expect(tables.length).toBeGreaterThanOrEqual(3);
-      for (const table of tables) {
-        expect(table.querySelector('caption')?.textContent?.trim()).toBeTruthy();
-        for (const th of table.querySelectorAll('thead th')) {
-          expect(th.getAttribute('scope')).toBe('col');
-        }
-      }
+      expectNamedTables(el, 2); // seats + pending invites
+
+      const audit = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
+      expectNamedTables(audit.el, 1);
+
+      const products = await setupProducts(makeApiMock(makeVendor(), [], [makeProductRow()]));
+      expectNamedTables(products.el, 1);
     });
 
     it('nests headings without skipping levels (shell owns h1; h2 → h3 sections)', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
-      expect(el.querySelectorAll('h1')).toHaveLength(0);
-      expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3')).toHaveLength(4);
-      expect(el.querySelector('h4, h5, h6')).toBeNull();
+      // One h2 per tab, never zero and never two: the tab row switches the
+      // sections under the page's single heading, it does not restart the
+      // document outline.
+      for (const tab of ['vendor', 'products', 'audit'] as const) {
+        const { el } = await setup(
+          makeApiMock(makeVendor(), [makeAuditRow()], [makeProductRow()]),
+          { provisionSeat: vi.fn() },
+          tab,
+        );
+        expect(el.querySelectorAll('h1')).toHaveLength(0);
+        expect(el.querySelectorAll('h2')).toHaveLength(1);
+        expect(el.querySelectorAll('h3').length).toBeGreaterThanOrEqual(1);
+        expect(el.querySelector('h4, h5, h6')).toBeNull();
+      }
     });
 
     it('exposes EXACTLY ONE polite live region for the whole page', async () => {
@@ -600,7 +779,7 @@ describe('VendorDetail', () => {
     });
 
     it('gives the audit scope switch an accessible group name', async () => {
-      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       const group = el.querySelector('[role="group"]');
       const labelId = group?.getAttribute('aria-labelledby');
       expect(labelId).toBeTruthy();
@@ -608,7 +787,7 @@ describe('VendorDetail', () => {
     });
 
     it('wires the diff toggle to what it controls', async () => {
-      const { el } = await setup(
+      const { el } = await setupAudit(
         makeApiMock(makeVendor(), [makeAuditRow({ after_state: { a: 1 } })]),
       );
       const toggle = buttonByText(el, 'Show changes')!;

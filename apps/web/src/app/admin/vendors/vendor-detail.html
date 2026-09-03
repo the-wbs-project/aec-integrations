@@ -39,6 +39,45 @@
   </div>
   } @else if (vendor(); as v) {
 
+  <!--
+    The tab row (AECI: horizontal section menu). Real links, not buttons: the tab
+    is `?tab=` state, so it is bookmarkable, middle-clickable and reachable with
+    Back — and the browser gives every one of those for free once they are
+    anchors. `queryParamsHandling` is deliberately absent so a tab switch drops
+    nothing but replaces the whole query, and the default tab clears the param
+    rather than writing `?tab=vendor`.
+
+    `aria-current="page"` marks the active tab; the row is a `nav`, not an ARIA
+    `tablist`, because these navigate the URL rather than switch panels in place
+    — an ARIA tablist would promise arrow-key semantics that the router does not
+    implement here.
+
+    One row at every width, scrolled sideways rather than wrapped (the vendor
+    portal's nav rule): a wrapped tab row breaks its own underline over two lines.
+  -->
+  <nav
+    class="mt-4 border-b border-(--border-default)"
+    i18n-aria-label="@@admin.vendors.detail.tabs.aria"
+    aria-label="Vendor sections"
+  >
+    <ul class="m-0 flex list-none gap-x-6 overflow-x-auto p-0 whitespace-nowrap">
+      @for (item of tabs; track item.key) {
+      <li class="shrink-0">
+        <a
+          [routerLink]="[]"
+          [queryParams]="tabQueryParams(item.key)"
+          [attr.aria-current]="tab() === item.key ? 'page' : null"
+          class="-mb-px inline-block border-b-2 border-transparent px-1 py-3 text-sm font-bold text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-[current=page]:border-(--accent-primary) aria-[current=page]:text-(--text-primary)"
+        >
+          {{ item.label }}
+        </a>
+      </li>
+      }
+    </ul>
+  </nav>
+
+  @if (tab() === 'vendor') {
+
   <!-- ── Basics ───────────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-basics">
     <h3
@@ -513,6 +552,37 @@
     }
   </section>
 
+  } @else if (tab() === 'products') {
+
+  <!-- ── Products ─────────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-products">
+    <h3
+      id="admin-vendor-products"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.products.heading"
+    >
+      Products
+    </h3>
+
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.products.intro">
+      Every product this vendor owns, including the ones it co-owns with another vendor. Read-only:
+      catalog records reach AECi through the review app's promote step, not from this screen.
+    </p>
+
+    <aec-vendor-products-table
+      [rows]="productRows()"
+      [page]="productPage()"
+      [perPage]="productPerPage"
+      [total]="productTotal()"
+      [loading]="productsLoading()"
+      [failed]="productsFailed()"
+      (pageChange)="goToProductPage($event)"
+      (retry)="retryProducts()"
+    />
+  </section>
+
+  } @else {
+
   <!-- ── Audit trail ──────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-audit">
     <div class="flex flex-wrap items-end justify-between gap-3">
@@ -566,5 +636,6 @@
       (retry)="retryAudit()"
     />
   </section>
-  }
+
+  } }
 </section>

@@ -3,15 +3,25 @@ import { Component, computed, input, output } from '@angular/core';
 /**
  * A sortable column header for the admin tables (AECI-694).
  *
- * ── CLICKING SELECTS A SORT; IT DOES NOT TOGGLE A DIRECTION ──────────────────
- * Direction is fixed per key on the server (`apps/api/src/lib/sort.ts`, per
- * `STAGE_1_PHASE_2_SPEC.md` §7.4: `created` and `updated` descend, `name`
- * ascends), and there is no `order` parameter on any list endpoint. So the arrow
- * is a STATEMENT of how this column sorts, not a control that flips it, and
- * clicking an already-active header is a no-op rather than a reversal. Building
- * a toggle affordance over a one-way API would be a lie the first time someone
- * clicked it twice. `aria-sort` reports that same fixed direction, which is what
- * makes the promise honest for assistive tech too.
+ * ── CLICKING AN INACTIVE HEADER SELECTS IT; CLICKING THE ACTIVE ONE FLIPS ────
+ * First click on a column sorts it by that column's NATURAL direction — the one
+ * an operator wants first, and the one a bare `?sort=` has always produced
+ * (`name` ascends, `updated` descends). Clicking the column that is already
+ * active reverses it, sending `order` alongside `sort`.
+ *
+ * This control originally did NOT flip: direction was fixed per key server-side
+ * with no `order` parameter anywhere, so clicking an active header was a
+ * deliberate no-op and the arrow was a STATEMENT of how the column sorts. That
+ * held while the API could order by two keys. It stopped holding when the admin
+ * vendor list grew to seven: an arrow on a clickable header reads as a toggle to
+ * every operator who has ever used one, and a control that silently does nothing
+ * on the second click is a worse lie than the one the old rule was avoiding. The
+ * API gained `order` (`apps/api/src/lib/sort.ts`) and this control gained the
+ * flip.
+ *
+ * `aria-sort` reports the LIVE direction, so the promise stays honest for
+ * assistive tech — and because the button's accessible name now has to say what
+ * the next click will do, the sr-only hint below is not decoration.
  *
  * ── WHY AN ATTRIBUTE SELECTOR ON A REAL `<th>` ──────────────────────────────
  * The same reason `tr[aec-product-card]` is an attribute directive: a custom
@@ -47,6 +57,14 @@ import { Component, computed, input, output } from '@angular/core';
       @if (isActive()) {
         <span aria-hidden="true">{{ direction() === 'ascending' ? '↑' : '↓' }}</span>
       }
+      <!--
+        The arrow is aria-hidden, so without this a screen-reader user hears the
+        same button name before and after a flip. aria-sort on the host says what
+        the CURRENT order is; this says what pressing it will DO, which is the
+        part a sort control has to promise. (No backticks in this comment: it is
+        inside a template literal, and one would close it.)
+      -->
+      <span class="sr-only">{{ actionHint() }}</span>
     </button>
   `,
 })
@@ -61,10 +79,16 @@ export class SortHeader {
   /** The key currently in effect, from the host component's sort signal. */
   readonly activeSort = input.required<string>();
 
-  /** How the SERVER orders this key. Not a state this control owns. */
+  /**
+   * The direction currently in effect for this key — the LIVE one, including a
+   * flip the operator has applied. Still not state this control owns: the host
+   * holds it, because the host is what talks to the API.
+   */
   readonly direction = input.required<'ascending' | 'descending'>();
 
-  readonly sortChange = output<string>();
+  /** The key, and the direction to apply to it. An inactive header emits its own
+   *  natural direction; the active header emits the opposite of the current one. */
+  readonly sortChange = output<{ key: string; order: 'asc' | 'desc' }>();
 
   protected readonly isActive = computed(() => this.sortKey() === this.activeSort());
 
@@ -72,8 +96,32 @@ export class SortHeader {
     this.isActive() ? this.direction() : 'none',
   );
 
+  /** What the NEXT press does, for the accessible name. */
+  protected readonly actionHint = computed(() => {
+    if (!this.isActive()) return $localize`:@@sortHeader.hint.sort:sort by this column`;
+    return this.direction() === 'ascending'
+      ? $localize`:@@sortHeader.hint.toDescending:sorted ascending, press to sort descending`
+      : $localize`:@@sortHeader.hint.toAscending:sorted descending, press to sort ascending`;
+  });
+
+  /**
+   * An inactive header adopts its own natural direction rather than inheriting
+   * whatever the previous column was sorted by — moving from "Updated ↓" to
+   * "Vendor" must give A–Z, not Z–A. The host supplies that natural direction
+   * through `direction`, which for an inactive header is exactly what it would
+   * be if selected.
+   */
   protected select(): void {
-    if (this.isActive()) return;
-    this.sortChange.emit(this.sortKey());
+    if (!this.isActive()) {
+      this.sortChange.emit({
+        key: this.sortKey(),
+        order: this.direction() === 'ascending' ? 'asc' : 'desc',
+      });
+      return;
+    }
+    this.sortChange.emit({
+      key: this.sortKey(),
+      order: this.direction() === 'ascending' ? 'desc' : 'asc',
+    });
   }
 }

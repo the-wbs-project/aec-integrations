@@ -68,7 +68,7 @@
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.loading">
     Loading vendors…
   </p>
-  } @else if (loadFailed()) {
+  } @else if (loadFailed() && isEmpty()) {
   <div
     role="alert"
     class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
@@ -104,45 +104,65 @@
             i18n-label="@@admin.vendors.col.vendor"
             label="Vendor"
             [activeSort]="sort()"
-            direction="ascending"
+            [direction]="directionFor('name')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
           ></th>
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.col.verified"
-          >
-            Verified
-          </th>
+            aec-sort-header
+            sortKey="slug"
+            i18n-label="@@admin.vendors.col.slug"
+            label="Slug"
+            [activeSort]="sort()"
+            [direction]="directionFor('slug')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.col.entitlement"
-          >
-            Entitlement
-          </th>
+            aec-sort-header
+            sortKey="verified"
+            i18n-label="@@admin.vendors.col.verified"
+            label="Verified"
+            [activeSort]="sort()"
+            [direction]="directionFor('verified')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
-            class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.col.products"
-          >
-            Products
-          </th>
+            aec-sort-header
+            sortKey="entitlement"
+            i18n-label="@@admin.vendors.col.entitlement"
+            label="Entitlement"
+            [activeSort]="sort()"
+            [direction]="directionFor('entitlement')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
-            class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.col.integrations"
-          >
-            Integrations
-          </th>
+            aec-sort-header
+            sortKey="products"
+            i18n-label="@@admin.vendors.col.products"
+            label="Products"
+            [activeSort]="sort()"
+            [direction]="directionFor('products')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.col.termEnds"
-          >
-            Term ends
-          </th>
+            aec-sort-header
+            sortKey="term"
+            i18n-label="@@admin.vendors.col.termEnds"
+            label="Term ends"
+            [activeSort]="sort()"
+            [direction]="directionFor('term')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
             aec-sort-header
@@ -150,7 +170,7 @@
             i18n-label="@@admin.vendors.col.updated"
             label="Updated"
             [activeSort]="sort()"
-            direction="descending"
+            [direction]="directionFor('updated')"
             (sortChange)="onSortChange($event)"
             class="py-2 text-start"
           ></th>
@@ -166,8 +186,15 @@
             >
               {{ v.company_name }}
             </a>
-            <span class="block text-xs font-normal text-(--text-tertiary)">{{ v.slug }}</span>
           </th>
+
+          <!--
+            The slug is its own column rather than a second line under the name.
+            It is the identifier an operator carries between this screen, the URL
+            and a support thread, so it belongs where it can be scanned and sorted
+            — and lifting it out of the name cell makes every row one line tall.
+          -->
+          <td class="py-2.5 pe-4 font-mono text-xs text-(--text-tertiary)">{{ v.slug }}</td>
 
           <!--
             The mirror and the entitlement sit in adjacent columns and neither is
@@ -195,12 +222,7 @@
 
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ entitlementLabel(v) }}</td>
 
-          <td class="py-2.5 pe-4 text-end tabular-nums text-(--text-primary)">
-            {{ v.product_count }}
-          </td>
-          <td class="py-2.5 pe-4 text-end tabular-nums text-(--text-primary)">
-            {{ v.integration_count }}
-          </td>
+          <td class="py-2.5 pe-4 tabular-nums text-(--text-primary)">{{ v.product_count }}</td>
 
           <td class="py-2.5 pe-4 text-(--text-secondary)">
             @if (v.period_end) { {{ termEnds(v) }} } @else {
@@ -222,13 +244,41 @@
     </table>
   </div>
 
+  <!--
+    Scroll paging. `<aec-pagination-footer>` is the same component the public
+    listings use: a sentinel appends the next chunk as the operator nears the
+    bottom, and the "Load more" control under it stays present as the keyboard /
+    screen-reader floor. No `nextHref` — this screen is fetched client-side behind
+    `requireAdmin()`, so there is no SSR'd `?page=2` to link to — which is what
+    makes the footer render a real <button> rather than a hrefless anchor.
+  -->
   <div class="mt-6">
-    <aec-admin-paginator
-      [page]="page()"
-      [perPage]="perPage"
+    @if (loadFailed()) {
+    <div
+      role="alert"
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-center"
+    >
+      <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.error.more">
+        We couldn't load any more vendors.
+      </p>
+      <button
+        type="button"
+        (click)="retry()"
+        class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.vendors.retry.more"
+      >
+        Try again
+      </button>
+    </div>
+    } @else {
+    <aec-pagination-footer
+      [loadedCount]="vendors().length"
       [total]="total()"
-      (pageChange)="goToPage($event)"
+      [hasMore]="hasMore()"
+      [pending]="loadingMore()"
+      (loadMore)="loadMore()"
     />
+    }
   </div>
   }
 </section>

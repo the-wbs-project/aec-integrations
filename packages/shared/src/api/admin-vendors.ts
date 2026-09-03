@@ -5,9 +5,14 @@ import {
   EntitlementTierSchema,
   VendorEntitlementResponseSchema,
 } from './admin-entitlements';
-import { PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  PageQuerySchema,
+  SortOrderSchema,
+  paginatedResponseSchema,
+  type SortOrder,
+} from './common';
+import { ProductRoleSchema } from './products';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
-import { VendorSortSchema } from './vendors';
 
 /**
  * Admin vendor surface contracts (AECI-652 / `docs/STAGE_2_PAID_TIERS_SPEC.md`
@@ -16,6 +21,7 @@ import { VendorSortSchema } from './vendors';
  *
  *   GET    /api/admin/vendors                    — paginated list + name/slug search
  *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
+ *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
  *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat
  *
@@ -53,6 +59,59 @@ import { VendorSortSchema } from './vendors';
 // ─── GET /api/admin/vendors ──────────────────────────────────────────────────
 
 /**
+ * Sort keys for the operator's vendor list — **admin-only, and deliberately not
+ * the public `VendorSortSchema`** (`created | name | updated`).
+ *
+ * Every column this table renders is sortable (AECI-694 shipped only two, on the
+ * rule that a header which reorders 25 of 4,000 rows is worse than a plain one).
+ * That rule is unchanged; what changed is that the API can now order by all of
+ * them, so the headers are honest. The public `/api/vendors` list is untouched —
+ * `slug`, `verified`, `entitlement` and `term` describe operator concerns
+ * (mirror drift, renewal windows) that the public directory has no column for,
+ * and `created` has no column on `AdminVendorRowSchema` to hang an arrow off, so
+ * it is absent here rather than sortable-but-invisible.
+ *
+ * **Direction is a separate parameter, and the header toggles it.** Each key
+ * still has a NATURAL direction — the one an operator wants first, resolved in
+ * `resolveAdminVendorOrderBy` — and that is what an `order`-less request gets,
+ * so every pre-existing link and bookmark orders exactly as it did. Supplying
+ * `order` overrides it. This replaces the original fixed-direction rule, which
+ * was defensible while the API could order by two keys and became a defect once
+ * it could order by seven: a header that renders an arrow and no-ops on the
+ * second click is a worse lie than the one that rule was avoiding.
+ *
+ * Defaults to `name`: this is a lookup surface, and an operator arriving to find
+ * one vendor starts by scanning names.
+ */
+export const AdminVendorSortSchema = z
+  .enum(['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated'])
+  .default('name');
+export type AdminVendorSort = z.infer<typeof AdminVendorSortSchema>;
+
+/**
+ * The direction each key sorts when the caller sends no `order`.
+ *
+ * **One copy, read by both sides**, and that is the point of putting it here:
+ * the API resolves the ORDER BY from it (`apps/api/src/lib/sort.ts`) and the
+ * table renders its arrows and its first-click direction from it
+ * (`admin/vendors/vendor-list.ts`). Two copies would drift silently — a header
+ * would draw ↑ while the server sorted descending, and nothing would fail.
+ */
+export const ADMIN_VENDOR_SORT_DEFAULT_ORDER: Record<AdminVendorSort, SortOrder> = {
+  name: 'asc',
+  slug: 'asc',
+  // Verified first: the operator is auditing the badge, and the tri-state filter
+  // already covers "show me only the unverified ones".
+  verified: 'desc',
+  // `active < pending < expired < revoked < none` — urgency, not alphabet.
+  entitlement: 'asc',
+  products: 'desc',
+  // Soonest expiry first: "who lapses next".
+  term: 'asc',
+  updated: 'desc',
+};
+
+/**
  * List filter. Deliberately NOT `VendorsListQuerySchema` (`vendors.ts`), whose
  * `verified` is `z.coerce.boolean()` — and `Boolean("false") === true`, so
  * `?verified=false` there filters for VERIFIED. The public directory never sends
@@ -66,7 +125,9 @@ import { VendorSortSchema } from './vendors';
  * escaped, not honoured — see `likeContains` in `apps/api/src/lib/sql-like.ts`.
  */
 export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
-  sort: VendorSortSchema,
+  sort: AdminVendorSortSchema,
+  /** Absent = the key's natural direction. See `SortOrderSchema`. */
+  order: SortOrderSchema.optional(),
   search: z.string().optional(),
   verified: z
     .enum(['true', 'false'])
@@ -83,9 +144,17 @@ export type AdminVendorsListQuery = z.infer<typeof AdminVendorsListQuerySchema>;
  * NOT derivable from `verified`: `verified` is the denormalized mirror (§2.1),
  * and showing both side by side is how an operator spots drift.
  *
- * `product_count` / `integration_count` are the same correlated subqueries the
- * public `/api/vendors` list already ships (`vendorListConfig.extras`), so they
- * cost one statement, not a fan-out.
+ * `product_count` is the same correlated subquery the public `/api/vendors` list
+ * already ships (`vendorListConfig.extras.productCount`), so it costs one
+ * statement, not a fan-out.
+ *
+ * There is **no `integration_count`**. The list rendered one until this revision
+ * and it earned nothing: an operator on this screen is triaging entitlements and
+ * seats, and the number they act on is on `/admin/vendors/:id` (where it is the
+ * §13.5 union of direct + connector-evidenced edges). Dropping it also drops a
+ * correlated subquery per row. `vendorListConfig.extras.integrationCount` is
+ * untouched — the public vendor list and the Algolia record still ship it, and
+ * `count-lockstep.spec.ts` still pins the union rule on the config itself.
  */
 export const AdminVendorRowSchema = z.object({
   id: z.string().uuid(),
@@ -99,7 +168,6 @@ export const AdminVendorRowSchema = z.object({
   /** `null` = perpetual OR no entitlement row; `tier`/`status` disambiguate. */
   period_end: z.string().nullable(),
   product_count: z.number().int().min(0),
-  integration_count: z.number().int().min(0),
   updated_at: z.string(),
 });
 export type AdminVendorRow = z.infer<typeof AdminVendorRowSchema>;
@@ -232,6 +300,68 @@ export const AdminVendorDetailSchema = z.object({
   claim_counts: AdminVendorClaimCountsSchema,
 });
 export type AdminVendorDetail = z.infer<typeof AdminVendorDetailSchema>;
+
+// ─── GET /api/admin/vendors/:id/products ─────────────────────────────────────
+
+/**
+ * The vendor's product roster (the Products tab on `/admin/vendors/:id`).
+ *
+ * Paginated rather than folded into the detail payload: the detail response is
+ * already one 404 gate plus a seven-statement batch, and a vendor like Autodesk
+ * owns enough products that inlining them would make every read of the page —
+ * including the ones that only want the entitlement — carry the whole catalogue.
+ *
+ * **Ownership is every `product_vendors` row, not just the primary one**, the
+ * same rule `product_roles` counts by (§8.8(1) asks what the vendor *owns*, not
+ * what it owns first). `is_primary` is carried per row so an operator can see
+ * which of those are co-owned — a product this vendor merely shares is a
+ * different fact from one it leads, and the payer test turns on the former.
+ */
+export const AdminVendorProductsQuerySchema = PageQuerySchema;
+export type AdminVendorProductsQuery = z.infer<typeof AdminVendorProductsQuerySchema>;
+
+/**
+ * One product row on the operator's vendor page.
+ *
+ * `product_role` is the enum here rather than the tolerant string `role` on a
+ * seat: unlike `profiles_role_check`, `products_product_role_check` is a closed
+ * three-value list that `ProductRoleSchema` already mirrors, and the §5.2 payer
+ * test reads it — a value this contract has never seen must not render as if it
+ * were understood.
+ *
+ * `integration_count` is the DENORMALIZED `products.integration_count` column
+ * (what the public product card shows), not the `built_by_vendor_id` rule the
+ * vendor-level count uses. They answer different questions — "how many pairs
+ * does this product appear in" vs "how many did this vendor build" — and the
+ * column is what `recompute-counts.ts` maintains, so an operator comparing this
+ * table against the public product page sees the same number.
+ *
+ * `promotion_status` is a plain string for the reason `maintained_by` is: it
+ * carries no CHECK, and a value this screen has never seen must render as
+ * itself rather than 500 the tab.
+ */
+export const AdminVendorProductRowSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  product_role: ProductRoleSchema,
+  /** `true` when this vendor is the product's primary owner. */
+  is_primary: z.boolean(),
+  promotion_status: z.string(),
+  integration_count: z.number().int().min(0),
+  review_count: z.number().int().min(0),
+  /** Withheld below the §5.5 review floor, exactly as the public surfaces
+   *  withhold it — the operator console must not be the one place a
+   *  statistically misleading sub-5 average is readable. */
+  rating_overall_avg: z.number().nullable(),
+  updated_at: z.string(),
+});
+export type AdminVendorProductRow = z.infer<typeof AdminVendorProductRowSchema>;
+
+export const AdminVendorProductsResponseSchema = paginatedResponseSchema(
+  AdminVendorProductRowSchema,
+);
+export type AdminVendorProductsResponse = z.infer<typeof AdminVendorProductsResponseSchema>;
 
 // ─── GET /api/admin/vendors/:id/audit ────────────────────────────────────────
 

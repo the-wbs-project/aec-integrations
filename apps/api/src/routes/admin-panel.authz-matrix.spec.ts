@@ -54,6 +54,7 @@ import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 import {
   createAdminVendorAuditHandler,
   createAdminVendorDetailHandler,
+  createAdminVendorProductsHandler,
   createAdminVendorsListHandler,
 } from './admin-vendors';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
@@ -109,6 +110,10 @@ const ROUTES = [
   // route belongs with the rest of its write semantics.
   { name: 'GET /api/admin/vendors', url: '/api/admin/vendors' },
   { name: 'GET /api/admin/vendors/:id', url: `/api/admin/vendors/${VENDOR}` },
+  {
+    name: 'GET /api/admin/vendors/:id/products',
+    url: `/api/admin/vendors/${VENDOR}/products`,
+  },
   { name: 'GET /api/admin/vendors/:id/audit', url: `/api/admin/vendors/${VENDOR}/audit` },
   // AECI-692 — the §5.8 user surface. Two reads; ban/reinstate is not here at
   // all, it reuses `PATCH /api/admin/reviewers/:id` unchanged, so this file
@@ -223,6 +228,11 @@ function makeApp() {
     '/api/admin/vendors/:id',
     requireAdmin(guard),
     createAdminVendorDetailHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/vendors/:id/products',
+    requireAdmin(guard),
+    createAdminVendorProductsHandler(t.factory),
   );
   app.get(
     '/api/admin/vendors/:id/audit',

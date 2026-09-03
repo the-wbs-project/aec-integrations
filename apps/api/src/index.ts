@@ -42,6 +42,7 @@ import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
   createAdminVendorAuditHandler,
+  createAdminVendorProductsHandler,
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
@@ -401,6 +402,11 @@ app.route('/', authAccount);
 //     claim counts. Two D1 round trips: a 404 gate, then ONE `db.batch` of six
 //     reads (a batch for the round trip, not for atomicity — and deliberately not
 //     a `UNION`, which D1 caps at 5 compound terms).
+//   - GET    /api/admin/vendors/:id/products      (AP §5.7) — the vendor's product
+//     roster behind the detail page's Products tab. Paginated and separate from
+//     the detail payload so the entitlement/seat read costs the same for a vendor
+//     with sixty products as for one with two. Joins EVERY `product_vendors` row,
+//     not just the primary — a co-owned product is owned (§8.8(1)).
 //   - GET    /api/admin/vendors/:id/audit         (S2 §5.6, AECI-652) — the FIRST
 //     read surface `audit_log` has ever had, and the first reader of
 //     `audit_log_entity_idx`. `?scope=all|entity|actor`. Entity scope is four
@@ -539,6 +545,11 @@ authAdmin.patch(
 // the entitlement and never moves the mirror (§5.2).
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
 authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
+authAdmin.get(
+  '/api/admin/vendors/:id/products',
+  requireAdmin(),
+  createAdminVendorProductsHandler(),
+);
 authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
 authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
 authAdmin.delete(

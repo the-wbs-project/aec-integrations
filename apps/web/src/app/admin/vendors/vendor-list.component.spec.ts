@@ -13,14 +13,25 @@
  * AECI-694 turned the cards into a table with two sortable headers, so the
  * structural assertions target `tbody tr` rather than `article`, and the sort
  * cases pin the thing that could silently become a lie: the request must carry
- * the key, because a control that reordered only the 25 rows on this page would
- * present a page as a ranking.
+ * the key, because a control that reordered only the rows already loaded would
+ * present a chunk as a ranking.
+ *
+ * The vendor-list revision made **every** column sortable and swapped prev/next
+ * paging for scroll append, so two families of case carry weight here:
+ *
+ *  - every header sends its key to the API, and each one is a key the API's
+ *    `AdminVendorSortSchema` actually accepts (a header naming a key the server
+ *    rejects would 400, or worse, silently fall back to the default);
+ *  - a sort/filter/search change RESETS the accumulation. Appending across a
+ *    reordered set would splice duplicates into the table, which is the one
+ *    failure mode scroll paging adds over prev/next.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AdminVendorSortSchema } from '@aeci/shared';
 import type { AdminVendorRow, AdminVendorsListResponse } from '@aeci/shared';
 
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -38,7 +49,6 @@ function makeRow(over: Partial<AdminVendorRow> = {}): AdminVendorRow {
     status: 'active',
     period_end: '2027-09-01',
     product_count: 4,
-    integration_count: 2,
     updated_at: '2026-08-20T00:00:00.000Z',
     ...over,
   };
@@ -126,13 +136,25 @@ describe('VendorList', () => {
     expect(el.textContent).toContain('No entitlement');
   });
 
-  it('renders per-row product and integration counts', async () => {
-    const { el } = await setup(makeApiMock([makeRow({ product_count: 4, integration_count: 2 })]));
+  it('renders the per-row product count, and no integration column at all', async () => {
+    const { el } = await setup(makeApiMock([makeRow({ product_count: 4 })]));
     expect(header(el, 'Products')).toBeTruthy();
-    expect(header(el, 'Integrations')).toBeTruthy();
     const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
     expect(cells).toContain('4');
-    expect(cells).toContain('2');
+    // The count is a catalog fact acted on at `/admin/vendors/:id`; carrying it
+    // here cost a correlated subquery per row for a number nobody triaged on.
+    expect(header(el, 'Integrations')).toBeFalsy();
+  });
+
+  it('gives the slug its own column rather than a second line under the name', async () => {
+    const { el } = await setup(makeApiMock([makeRow({ slug: 'autodesk' })]));
+    expect(header(el, 'Slug')).toBeTruthy();
+    // Not inside the row header: that cell is the link, and the slug is a
+    // separately scannable (and separately sortable) identifier.
+    const rowHeader = bodyRows(el)[0]!.querySelector('th[scope="row"]')!;
+    expect(rowHeader.textContent).not.toContain('autodesk');
+    const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
+    expect(cells).toContain('autodesk');
   });
 
   it('renders a date-only term end on the day it actually ends', async () => {
@@ -183,19 +205,21 @@ describe('VendorList', () => {
     expect(lastQuery(api)['verified']).toBe('false');
   });
 
-  it('resets to page 1 on any filter change', async () => {
-    // Narrowing a filter while on page 6 would otherwise land on an empty page
-    // that reads as "no results".
-    const { fixture, api } = await setup(makeApiMock([makeRow()], 200));
-    fixture.componentInstance['goToPage'](3);
+  it('resets to chunk 1 AND discards the accumulation on any filter change', async () => {
+    // Appending a re-filtered chunk onto rows fetched under the old filter would
+    // show the operator rows that no longer match, and duplicate ids.
+    const { fixture, el, api } = await setup(makeApiMock([makeRow()], 200));
+    fixture.componentInstance['loadMore']();
     await settle();
     fixture.detectChanges();
-    expect(lastQuery(api)['page']).toBe(3);
+    expect(lastQuery(api)['page']).toBe(2);
+    expect(bodyRows(el)).toHaveLength(2);
 
     fixture.componentInstance['onVerifiedChange']('true');
     await settle();
     fixture.detectChanges();
     expect(lastQuery(api)['page']).toBe(1);
+    expect(bodyRows(el)).toHaveLength(1);
   });
 
   it('renders the empty state when nothing matches', async () => {
@@ -254,13 +278,154 @@ describe('VendorList', () => {
       expect(header(el, 'Vendor')?.getAttribute('aria-sort')).toBe('none');
     });
 
-    it('gives the unsortable columns no control at all', async () => {
-      const { el } = await setup(makeApiMock([makeRow()]));
-      // The API takes `created | name | updated` and no direction, so a control
-      // on Products or Term ends could only ever sort one page of results.
-      for (const label of ['Verified', 'Entitlement', 'Products', 'Integrations', 'Term ends']) {
-        expect(header(el, label)?.querySelector('button')).toBeFalsy();
+    it('gives EVERY column a control, and each sends a key the API accepts', async () => {
+      // The rule is unchanged — a header the server cannot honour would reorder
+      // only what is loaded and present it as a ranking. What changed is that
+      // `resolveAdminVendorOrderBy` now orders by all seven columns, so parsing
+      // each emitted key against the real schema is what keeps them honest.
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      const labels = [
+        'Vendor',
+        'Slug',
+        'Verified',
+        'Entitlement',
+        'Products',
+        'Term ends',
+        'Updated',
+      ];
+      for (const label of labels) {
+        const button = header(el, label)?.querySelector('button');
+        expect(button, label).toBeTruthy();
+        button!.click();
+        await settle();
+        fixture.detectChanges();
+        expect(AdminVendorSortSchema.parse(lastQuery(api)['sort'])).toBe(lastQuery(api)['sort']);
       }
+      expect(
+        new Set(api.listVendors.mock.calls.map((c) => (c[0] as { sort: string }).sort)).size,
+      ).toBe(labels.length);
+    });
+
+    it('sends the natural direction on a first click, not a bare key', async () => {
+      // `updated` descends naturally, so the first click must produce the same
+      // order a pre-`order` bookmark produced.
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      header(el, 'Updated')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('updated');
+      expect(lastQuery(api)['order']).toBe('desc');
+    });
+
+    it('REVERSES on a second click of the active column', async () => {
+      // The defect this replaced: clicking an active header was a deliberate
+      // no-op, so an arrow that reads as a toggle did nothing.
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      const button = () => header(el, 'Updated')?.querySelector('button');
+
+      button()?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['order']).toBe('desc');
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('descending');
+
+      button()?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('updated');
+      expect(lastQuery(api)['order']).toBe('asc');
+      // aria-sort has to follow, or the flip is invisible to assistive tech.
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('ascending');
+    });
+
+    it("resets to the new column's natural direction when switching columns", async () => {
+      // Moving from "Updated ↓" to "Vendor" must give A–Z, not Z–A: direction is
+      // a property of the key, not a mode the table stays in.
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      header(el, 'Updated')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+
+      header(el, 'Vendor')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('name');
+      expect(lastQuery(api)['order']).toBe('asc');
+      expect(header(el, 'Vendor')?.getAttribute('aria-sort')).toBe('ascending');
+    });
+
+    it('says what the next press will do, since the arrow is aria-hidden', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeRow()], 200));
+      expect(header(el, 'Vendor')?.textContent).toContain('press to sort descending');
+
+      header(el, 'Vendor')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(header(el, 'Vendor')?.textContent).toContain('press to sort ascending');
+    });
+
+    it('discards the accumulation when the sort changes', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeRow()], 200));
+      fixture.componentInstance['loadMore']();
+      await settle();
+      fixture.detectChanges();
+      expect(bodyRows(el)).toHaveLength(2);
+
+      header(el, 'Products')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      // Splicing a differently-ordered chunk onto the old one duplicates rows.
+      expect(bodyRows(el)).toHaveLength(1);
+    });
+  });
+
+  describe('scroll paging', () => {
+    it('appends the next chunk instead of replacing the page', async () => {
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      fixture.componentInstance['loadMore']();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['page']).toBe(2);
+      expect(bodyRows(el)).toHaveLength(2);
+    });
+
+    it('does not request a chunk past the end', async () => {
+      // `total` is the count over the FILTER, so it — not an empty response — is
+      // what says the accumulation is complete.
+      const { fixture, api } = await setup(makeApiMock([makeRow()], 1));
+      fixture.componentInstance['loadMore']();
+      await settle();
+      expect(api.listVendors).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the loaded and matching counts, not a page number', async () => {
+      const { el } = await setup(makeApiMock([makeRow()], 200));
+      expect(el.textContent).toContain('Showing 1 of 200');
+      expect(el.textContent).not.toContain('Page 1');
+    });
+
+    it('keeps the loaded rows when an APPEND fails, and retries that same chunk', async () => {
+      const api = makeApiMock([makeRow()], 200);
+      const { el, fixture } = await setup(api);
+      api.listVendors.mockRejectedValueOnce(new Error('boom'));
+
+      fixture.componentInstance['loadMore']();
+      await settle();
+      fixture.detectChanges();
+      // The first chunk is still on screen — a failed append is not a failed screen.
+      expect(bodyRows(el)).toHaveLength(1);
+      expect(el.querySelector('[role="alert"]')).toBeTruthy();
+
+      (
+        [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Try again') as
+          | HTMLButtonElement
+          | undefined
+      )?.click();
+      await settle();
+      fixture.detectChanges();
+      // Chunk 2 again, not chunk 3 — a skipped chunk would silently lose rows.
+      expect(lastQuery(api)['page']).toBe(2);
+      expect(bodyRows(el)).toHaveLength(2);
     });
   });
 

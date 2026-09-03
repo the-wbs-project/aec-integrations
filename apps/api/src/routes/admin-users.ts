@@ -242,7 +242,7 @@ export function createAdminUsersListHandler(
         // at most one vendor per profile (`AUTH_AND_RLS.md` §3.2 exclusivity).
         .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
         .where(where)
-        .orderBy(...resolveAdminUserOrderBy(query.sort))
+        .orderBy(...resolveAdminUserOrderBy(query.sort, query.order))
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
       db.select({ value: count() }).from(profiles).where(where),
