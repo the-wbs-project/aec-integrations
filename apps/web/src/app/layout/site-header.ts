@@ -15,12 +15,13 @@
  * doesn't fit at 1024px, so the icon is what closes the gap. See
  * `search-trigger.ts` for the width budget.
  *
- * The row is Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾.
+ * The row is Home · Products · Categories · Trades · Audiences · Phases.
  * AECI-158 re-pointed the directory at the taxonomy; Vendors / Integrations were
  * removed from the primary nav AND the footer (AECI-160, PO decision) — they stay
  * reachable via `sitemap.xml`, detail-page breadcrumbs, and search. Each taxonomy
  * entry links to its facet index AND opens a `aec-nav-flyout-trigger` flyout of
- * the top values by count.
+ * the top values by count, styled in the clean Yahoo Finance editorial pattern
+ * without cluttered down-arrow buttons.
  *
  * **The row is public-only, and closed.** The `More▾` overflow menu that used to
  * sit last is gone: its secondary destinations (Updates, Roadmap, About, Contact)
@@ -67,18 +68,18 @@ import { UserMenu } from './user-menu';
   template: `
     <header class="bg-(--surface-base)">
       <!--
-        The lg-band gaps (lg:gap-6 here, gap-3.5 on the nav) are load-bearing,
-        not taste. Measured at 1024px, signed out (the worst case: "Sign in" is
-        wider than the account icon):
-          before the search icon, at gap-5/gap-8: fits, nav box 598 vs content
-            597, i.e. 1px of slack
-          with the search icon, at gap-5/gap-8: scrollWidth exceeds clientWidth
-            by 29px, so the row clips
-          with the search icon, at gap-3.5/gap-6: fits, nav box 562 vs content
-            561, back to the same 1px
-        So these two gap steps are what pay for the 36px control; they buy back
-        exactly what it costs and nothing more. At xl+ the gaps go back up, where
-        there is room. Re-measure at 1024 before adding anything to this row.
+        The lg-band gaps are load-bearing, not taste. The previous pair
+        (lg:gap-6 here, gap-3.5 on the nav) was measured at 1024px, signed out
+        (the worst case, since "Sign in" is wider than the account icon), and it
+        fit with exactly 1px of slack once the 36px search icon was added.
+
+        Dropping the four separate down-arrow buttons (each ms-1 + w-6, so
+        4 x 28px = 112px) bought that budget back, and the nav gaps were widened
+        to spend part of it: gap-3.5 -> gap-6 over the row's five gaps costs 50px,
+        xl:gap-7 -> xl:gap-8 costs 5px more where there is room. Net at lg is
+        about 62px returned, so the row is no longer at the edge.
+
+        Re-measure at 1024 before adding anything to this row.
       -->
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8 lg:gap-6 xl:gap-8">
         <aec-nav-menu />
@@ -99,7 +100,7 @@ import { UserMenu } from './user-menu';
           insert. Secondary destinations belong in the footer.
         -->
         <nav
-          class="hidden flex-1 items-center justify-center gap-3.5 text-sm font-medium lg:flex xl:gap-7"
+          class="hidden flex-1 items-center justify-center gap-6 text-sm font-medium lg:flex xl:gap-8"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
