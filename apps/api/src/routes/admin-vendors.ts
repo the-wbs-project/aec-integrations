@@ -42,6 +42,8 @@ import {
   AdminVendorsListQuerySchema,
   AdminVendorsListResponseSchema,
   ApiErrorCode,
+  ProvisionVendorSeatResponseSchema,
+  ProvisionVendorSeatSchema,
   type AdminAuditRow,
   type AdminVendorAuditResponse,
   type AdminVendorAuditScope,
@@ -50,6 +52,7 @@ import {
   type AdminVendorRow,
   type AdminVendorSeatRow,
   type AdminVendorsListResponse,
+  type ProvisionVendorSeatResponse,
   type VendorEntitlementResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
@@ -73,13 +76,14 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
+import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
-import { revokeSeatStatements } from '../lib/vendor-grant';
+import { provisionSeatStatements, revokeSeatStatements } from '../lib/vendor-grant';
 import {
   EMPTY_PRODUCT_ROLES,
   foldProductRoleGroups,
@@ -88,7 +92,8 @@ import {
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
 import { pendingInvitesFor } from '../lib/vendor-seat-invites';
-import { logToPosthog } from '../posthog';
+import { resolveClaimantIdentity } from '../lib/claimant-identity';
+import { logToPosthog, submitCount } from '../posthog';
 import { ownedProductIds, seatsOf, vendorRequestsWhere } from './vendor-shared';
 
 type AdminVendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -444,10 +449,18 @@ const VENDOR_ENTITY_TYPES = ['vendor', 'vendor_entitlement'] as const;
  * reads it that profile no longer has `vendor_id` set — the revoke nulled it. So
  * it is reachable neither by the entity legs nor by the actor scope, and it is
  * exactly the row an operator asking "why did this vendor lose access?" wants.
+ *
+ * `vendor_seat.provisioned` (AECI-740) is its pair and is listed for the same
+ * reason, though for a subtler one: a provisioned seat DOES carry `vendor_id`, so
+ * leg 4's roster subquery would reach it — except leg 4 filters on
+ * {@link VENDOR_SEAT_PROFILE_ACTIONS}, which is ban/unban only. Without this
+ * entry the row that says "this vendor was given access" is the one thing the
+ * vendor's own audit tab cannot show, while the revoke beside it renders fine.
  */
 const VENDOR_METADATA_ACTIONS = [
   'vendor_claim.granted',
   'vendor_claim.seat_revoked',
+  'vendor_seat.provisioned',
   'vendor_seat.invited',
   'vendor_seat.invite_revoked',
   'vendor_seat.invite_accepted',
@@ -718,5 +731,214 @@ export function createAdminRevokeSeatHandler(
     c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
 
     return new Response(null, { status: 204 });
+  };
+}
+
+// ─── POST /api/admin/vendors/:id/seats ───────────────────────────────────────
+
+/**
+ * `aeci.vendor_seat.provision` — one count per attempt, tagged by outcome.
+ * Emitted on EVERY branch including the refusals, so the series answers "how
+ * often is a seat blocked by an account that already belongs elsewhere?" and
+ * "how often is the identity seam down when an operator needs it?" as well as
+ * "when was this vendor given access?".
+ */
+function emitSeatProvision(
+  c: AdminVendorContext,
+  outcome: 'ok' | 'noop' | 'conflict' | 'unavailable' | 'not_found',
+): void {
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.vendor_seat.provision', 1, [
+    `outcome:${outcome}`,
+  ]);
+}
+
+/**
+ * Provision one catalogue-maintenance seat — the first route in the codebase that
+ * writes `profiles.role = 'vendor_admin'` (AECI-740 / `STAGE_2_SPEC.md` §8.9(3)).
+ *
+ * The mirror of {@link createAdminRevokeSeatHandler} directly above, and its
+ * shape is deliberately that endpoint's rather than the claim grant's: `vendorId`
+ * comes from the path, the write is scoped to it, and the whole thing is two
+ * statements in one `db.batch`.
+ *
+ * ── THE INVARIANT THIS ENDPOINT EXISTS TO HOLD ───────────────────────────────
+ * **It opens no `vendor_entitlements` row, so the verified badge never lights.**
+ * That is not a side effect of the implementation — it is the entire point.
+ * §8.9(1) settled that a pure connector vendor is never sold verification and
+ * gets a catalogue-maintenance seat instead; §8.9(2) proved every existing path
+ * to a seat opens an entitlement on the way (`approveClaim` composes
+ * `grantSeatStatements` with `activateEntitlementStatements` at
+ * `GRANT_TIER = 'verified'`), which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
+ * had to tell operators not to press Grant. This handler therefore **must never
+ * import `activateEntitlementStatements`**, and `routes/vendor-admin-role-writers.spec.ts`
+ * asserts that at the source level — behaviour cannot test for the absence of a
+ * coupling that does not exist yet.
+ *
+ * ── IT WARNS, IT DOES NOT GATE ───────────────────────────────────────────────
+ * `is_pure_connector_vendor` is computed and recorded but never enforced. Same
+ * rule the claim queue's Grant/Reject buttons follow (§5.2 step 1, AECI-738):
+ * `product_role` is curated upstream in the review app, so a mis-roled record
+ * would hard-block a legitimate operator, and §5.2 is an operator procedure
+ * rather than an API rule. Turning it into a gate is a separate decision.
+ *
+ * ── NO EMAIL ─────────────────────────────────────────────────────────────────
+ * Unlike the claim grant, nothing is sent. AECI-528's templates are claim-shaped
+ * ("Your claim for {name} was approved"), so firing one here would assert a claim
+ * decision that did not happen — and §5.2 step 4 already has the operator in an
+ * out-of-band conversation with this person, which is where the handover belongs.
+ *
+ * **No cache purge**, matching the revoke: nothing this writes is rendered on a
+ * cacheable page. **No `workflow_instances` row** — a seat is not a claim
+ * transition, and that CHECK is closed.
+ */
+export function createProvisionSeatHandler(
+  dbFor: DbFactory = getDb,
+  resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
+): (c: AdminVendorContext) => Promise<Response> {
+  return async (c) => {
+    const vendorId = requiredParam(c, 'id');
+    const auth = c.get('auth');
+    const { db } = writeDb(c, dbFor);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+    }
+    const payload = ProvisionVendorSeatSchema.parse(raw);
+
+    const vendor = await db.query.vendors.findFirst({
+      columns: { id: true, verified: true },
+      where: eq(vendors.id, vendorId),
+    });
+    if (!vendor) {
+      emitSeatProvision(c, 'not_found');
+      throw notFoundError('vendor', { id: vendorId });
+    }
+
+    // The §8.8(1) payer test, through the SHARED derivation (AECI-738) so this
+    // screen and `/admin/claims` can never describe one vendor differently.
+    // Non-nullable here for the same reason the detail payload's copy is: it runs
+    // inline, so it either resolves or the whole request fails.
+    const productRoleGroups = await selectProductRoleGroups(db, productRolesForVendor(vendorId));
+    const productRoles = foldProductRoleGroups(productRoleGroups).get(vendorId) ?? {
+      ...EMPTY_PRODUCT_ROLES,
+    };
+    const pureConnector = isPureConnectorVendor(productRoles);
+
+    // Resolve the address to an auth-user id, provisioning one if none exists —
+    // the same seam the claim grant uses, mapped to the same status codes so two
+    // admin paths cannot tell different stories about one account.
+    const resolution = await resolveIdentity(db, c.env, {
+      email: payload.email,
+      vendorId,
+      provision: true,
+    });
+
+    switch (resolution.outcome) {
+      case 'conflict':
+        emitSeatProvision(c, 'conflict');
+        throw new ApiError(
+          409,
+          ApiErrorCode.GRANT_CONFLICT,
+          resolution.reason === 'already_admin'
+            ? 'That account is a site admin and cannot be granted a vendor seat.'
+            : 'That account is already linked to a different vendor.',
+          { details: { reason: resolution.reason } },
+        );
+      case 'unavailable':
+      case 'error':
+        emitSeatProvision(c, 'unavailable');
+        throw new ApiError(
+          503,
+          ApiErrorCode.DEPENDENCY_FAILURE,
+          'Account lookup is unavailable; the seat cannot be provisioned.',
+        );
+      case 'not_found':
+        // Unreachable: `provision: true` creates rather than reporting absence.
+        // Mapped anyway so a future change to the seam cannot fall through the
+        // switch into the write path with no user id resolved.
+        emitSeatProvision(c, 'unavailable');
+        throw new ApiError(
+          503,
+          ApiErrorCode.DEPENDENCY_FAILURE,
+          'Account lookup is unavailable; the seat cannot be provisioned.',
+        );
+    }
+
+    const { userId, email } = resolution;
+
+    // `ClaimantProfileSnapshot` carries `{ id, role, vendorId, bannedAt }` and NOT
+    // `seat_owner`, which both the idempotency check and the audit before-state
+    // need. Read it here rather than widening the shared snapshot: that type is
+    // consumed by `approveClaim`'s conflict path, which has no use for the column.
+    const before = await db.query.profiles.findFirst({
+      columns: { role: true, vendorId: true, seatOwner: true, bannedAt: true },
+      where: eq(profiles.id, userId),
+    });
+
+    const readout = (noop: boolean): ProvisionVendorSeatResponse => ({
+      user_id: userId,
+      vendor_id: vendorId,
+      email,
+      identity_outcome: resolution.outcome,
+      seat_created: !before,
+      seat_owner: true,
+      banned: Boolean(before?.bannedAt),
+      noop,
+      // Not a value this handler computes — a literal the type system pins, so a
+      // future edit that opens an entitlement here cannot report the truth and
+      // still compile (§8.9(2)).
+      entitlement_granted: false,
+      // Read back, never written. No statement on this path names `vendors`.
+      verified: vendor.verified,
+      is_pure_connector_vendor: pureConnector,
+      product_roles: productRoles,
+    });
+
+    // Idempotency. A seat that ALREADY reads exactly this way is a 200 no-op that
+    // writes nothing — the `PATCH /api/admin/claims/:id/notes` rule that a trail
+    // of identical states is not a history. `seatOwner` is part of the test on
+    // purpose: a colleague who joined by redeeming an invite holds a non-owner
+    // seat, and promoting them IS a real change, so that case falls through and
+    // writes.
+    if (
+      before?.role === VENDOR_ADMIN_ROLE &&
+      before.vendorId === vendorId &&
+      before.seatOwner === true
+    ) {
+      emitSeatProvision(c, 'noop');
+      const body = readout(true);
+      validateResponseInDev(c.env, () => ProvisionVendorSeatResponseSchema.parse(body));
+      return json(body);
+    }
+
+    const batch = provisionSeatStatements(db, {
+      userId,
+      vendorId,
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      now: new Date().toISOString(),
+      identityOutcome: resolution.outcome,
+      profileBefore: before
+        ? {
+            role: before.role,
+            vendorId: before.vendorId,
+            seatOwner: before.seatOwner,
+            bannedAt: before.bannedAt,
+          }
+        : null,
+      isPureConnectorVendor: pureConnector,
+      reason: payload.reason ?? null,
+    });
+
+    await db.batch(batch.stmts as BatchTuple);
+    emitSeatProvision(c, 'ok');
+    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+
+    const body = readout(false);
+    validateResponseInDev(c.env, () => ProvisionVendorSeatResponseSchema.parse(body));
+    return json(body, { status: 201 });
   };
 }

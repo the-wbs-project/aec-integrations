@@ -1866,6 +1866,110 @@ Errors:
 | 404 | `NOT_FOUND` | Unknown vendor id, or `:userId` is not a `vendor_admin` seat **on that vendor** — a cross-vendor id is indistinguishable from a nonexistent one |
 | 400 | `VALIDATION_FAILED` | Missing path parameter |
 
+#### `POST /api/admin/vendors/:id/seats` (Stage 2 — AECI-740)
+
+Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_admin'` +
+`profiles.vendor_id` + `seat_owner` for a named account, and **nothing else**. `201 Created`
+(or `200 OK` on an idempotent no-op). Behind `requireAdmin()`. Source of truth:
+`packages/shared/src/api/admin-vendors.ts`, `apps/api/src/routes/admin-vendors.ts`;
+model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+
+```typescript
+export const ProvisionVendorSeatSchema = z.object({
+  email: z.string().email(),
+  reason: z.string().max(500).optional(),
+});
+
+export const ProvisionVendorSeatResponseSchema = z.object({
+  user_id: z.string(),
+  vendor_id: z.string().uuid(),
+  email: z.string(),
+  identity_outcome: z.enum(['linked', 'invited']),
+  seat_created: z.boolean(),
+  seat_owner: z.boolean(),
+  banned: z.boolean(),
+  noop: z.boolean(),
+  entitlement_granted: z.literal(false),
+  verified: z.boolean(),
+  is_pure_connector_vendor: z.boolean(),
+  product_roles: VendorProductRolesSchema,
+});
+```
+
+**This is the ONLY route in the codebase that writes `role = 'vendor_admin'`, and it opens
+no `vendor_entitlements` row.** That combination is the entire point. §8.9(1) settled that a
+pure connector vendor is never sold verification and receives a catalogue-maintenance seat
+instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
+mirrors off `status = 'active'` rather than `tier` — so any active row lights the badge, and
+"a seat but no badge" is not expressible through that table. Every prior path to a seat opened
+one on the way (`approveClaim` composes `grantSeatStatements` with
+`activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
+operators not to press Grant and to park the claim instead. `POST` here is how a parked claim
+finally resolves.
+
+**`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
+type: an edit that composed this path with an entitlement writer could not report the truth
+and still compile. It is the mirror image of the `seat_not_granted: true` literal
+`PATCH /api/admin/connector-catalogs/:id` writes into its own audit metadata.
+`apps/api/src/routes/vendor-admin-role-writers.spec.ts` asserts the same property over module
+source, because behaviour cannot test for the absence of a coupling that does not exist yet.
+
+**The body names an EMAIL, not a user id.** It resolves through the same
+`resolveClaimantIdentity` seam the claim grant uses, which links an existing `auth.users` row
+or **provisions one** — a connector-lane contact typically has no AECi account, and requiring
+them to sign up first would reintroduce the round trip this action removes. The cost is that
+the seam needs `SUPABASE_SERVICE_ROLE_KEY`, so **503 is the default outcome on local dev and
+on every PR preview**, exactly as on `PATCH /api/admin/claims/:id`.
+
+**`seat_owner` is `true`.** Same rule `grantSeatStatements` follows (§11a): an AECi-reviewed
+seat IS the owner event, and it is what makes the shipped `POST /api/vendor/seats/invites`
+flow usable by the vendor without a second admin action per colleague.
+
+**It warns; it does not gate.** `is_pure_connector_vendor` / `product_roles` are computed
+from the shared AECI-738 derivation and **recorded in the audit row and returned on the wire,
+never enforced**. `product_role` is curated upstream in the review app, so a mis-roled record
+must not hard-block a legitimate operator — the same rule that keeps the claim queue's
+Grant/Reject buttons enabled behind their warning banner (§5.2 step 1).
+
+**An unchanged seat is a 200 no-op that writes nothing** (`noop: true`) — the
+`PATCH /api/admin/claims/:id/notes` rule that a trail of identical states is not a history.
+The test includes `seat_owner`: an existing NON-owner seat (a colleague who joined by
+redeeming an invite) is a real change and does write.
+
+**A banned account is provisioned, not refused.** Ban policy belongs to
+`PATCH /api/admin/reviewers/:id` (AECI-524) and the claim grant does not refuse one either;
+two admin paths must not tell different stories about one account. The ban is surfaced
+(`banned: true`, `metadata.seat_banned`) so the console can warn, and `banned_at` is never
+written here — that column keeps exactly one writer
+(`apps/api/src/routes/banned-at-writers.spec.ts`).
+
+**What it deliberately does not do.** No `vendors` statement, so `verified` and the mirror are
+untouched and `entitlement_mirror_drift` stays clean (§8.9(4)). **No email** — AECI-528's
+templates are claim-shaped, so firing one would assert a claim decision that did not happen,
+and §5.2 step 4 already has the operator in an out-of-band conversation. **No cache purge**
+(matching the revoke) and **no `workflow_instances` row** (a seat is not a claim transition,
+and that CHECK is closed).
+
+Errors:
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Unknown vendor id. Checked **before** identity resolution, so a bad id cannot orphan a provisioned `auth.users` row |
+| 409 | `GRANT_CONFLICT` | The account is a site `admin`, or is already linked to a **different** vendor. `details.reason` is `already_admin` \| `other_vendor` |
+| 503 | `DEPENDENCY_FAILURE` | `SUPABASE_SERVICE_ROLE_KEY` absent or GoTrue errored. Refuses rather than half-provisioning |
+| 400 | `VALIDATION_FAILED` | Malformed body or email (the shared `ZodError` mapping), or a missing path parameter |
+| 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
+
+Metric: `aeci.vendor_seat.provision` with `outcome:ok|noop|conflict|unavailable|not_found`,
+emitted on every branch including the refusals.
+
+Audit: `vendor_seat.provisioned`, `entity_type='profile'`, `entity_id` = the seat's user id,
+in the **same `db.batch`** as the profile write (§26.1). `metadata.vendor_id` is load-bearing
+rather than decorative: it is the only route by which `GET /api/admin/vendors/:id/audit`
+reaches the row (leg 3 of `auditScopeWhere`; leg 4's roster subquery filters on the ban
+actions only). The metadata also carries `entitlement_granted: false`,
+`is_pure_connector_vendor`, `identity_outcome` and `seat_created`.
+
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
 
 Set, renew or clear a vendor's paid entitlement. Behind `requireAdmin()`. **This is the
@@ -2018,7 +2122,10 @@ mid-sync flip stay committed.
 **It grants no seat.** `vendorId` is validated against `vendors` (404 on a miss, so a typo
 cannot park a dangling id) and recorded in the audit row — nothing more. `STAGE_2_SPEC.md`
 §8.9(2) fences the connector seat off from `vendor_entitlements` entirely, and §8.9(3) leaves
-provisioning to AECI-722 / AECI-724; no `vendor_admin` role is written here.
+provisioning to a separate action; no `vendor_admin` role is written here. **That action
+shipped as AECI-740** — `POST /api/admin/vendors/:id/seats` above — so the seat now has a
+route, and this endpoint still does not grant one. The two remain deliberately separate:
+handing a catalogue over and handing a person a login are different decisions.
 
 Errors: `404` unknown catalogue **or** unknown `vendorId`; `422 INVALID_STATE_TRANSITION` when
 the catalogue is already in the requested state (a no-op would hide an operator whose mental

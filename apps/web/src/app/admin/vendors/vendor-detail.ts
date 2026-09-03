@@ -13,6 +13,7 @@ import type {
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { ProvisionSeatControl } from './provision-seat-control';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 
 const AUDIT_PAGE_SIZE = 25;
@@ -45,6 +46,17 @@ const AUDIT_PAGE_SIZE = 25;
  * also why this page does not close the §5.4 lockout. Catalog data still flows
  * from the review app through `POST /api/promote`.
  *
+ * ── IT CAN NOW ADD A SEAT (AECI-740) ─────────────────────────────────────────
+ * `ProvisionSeatControl` sits above the roster, and it is the ONLY surface in the
+ * product that writes `profiles.role = 'vendor_admin'`. It exists because
+ * `STAGE_2_SPEC.md` §8.9 gives a pure connector vendor a catalogue-maintenance
+ * seat and NOT the Verified badge, while every other path to a seat opens an
+ * entitlement on the way — which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told
+ * operators to park such a claim rather than grant it. It belongs here rather
+ * than on `/admin/claims/:id` or `/admin/users/:id` for the reason the revoke
+ * does: this is the only screen showing the blast radius — the other seats and
+ * the entitlement state — that makes the decision safe.
+ *
  * ── THE AUDIT TRAIL LIVES IN A SHARED COMPONENT (AECI-694) ───────────────
  * `<aec-audit-trail>` owns the table, the collapsed diffs and the paginator.
  * What stays here is the fetching and the SCOPE control, because scope is
@@ -54,7 +66,7 @@ const AUDIT_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [RouterLink, AuditTrail, EntitlementControl, DatePipe],
+  imports: [RouterLink, AuditTrail, EntitlementControl, ProvisionSeatControl, DatePipe],
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail {
@@ -192,6 +204,21 @@ export class VendorDetail {
     } finally {
       this.revokePendingId.set(null);
     }
+  }
+
+  /**
+   * A seat was provisioned. Refetch the vendor rather than splicing the roster:
+   * the response reports the write, not the resulting `AdminVendorSeatRow` (which
+   * carries `display_name`, `work_email_verified` and the GoTrue-resolved email
+   * this endpoint never looks up). The audit trail reloads too, because the
+   * provision wrote a row to it.
+   *
+   * The `noop` case still refetches — cheap, and the roster on screen may be
+   * stale in some other way if the seat already existed without being visible.
+   */
+  protected async onSeatProvisioned(): Promise<void> {
+    await this.load();
+    void this.loadAudit();
   }
 
   protected seatName(seat: AdminVendorSeatRow): string {

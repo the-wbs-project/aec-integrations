@@ -1,0 +1,138 @@
+<div
+  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  [attr.aria-labelledby]="labelledBy()"
+>
+  <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.provision.intro">
+    Add a seat so someone at this vendor can sign in and maintain their own record. This is how a
+    connector vendor's parked claim is resolved — the partnership track, not the paid one.
+  </p>
+
+  <!-- Not decoration, and not the same sentence as the revoke's. An operator
+       reaching this control from a parked claim needs to know the seat carries
+       none of what Grant would have handed over; nothing else on this page
+       says so, and the assumption runs the wrong way by default. -->
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.provision.whatItIsNot">
+    A seat is portal access and nothing more. It opens no entitlement, does not turn on the verified
+    badge, and carries no attestation rights.
+  </p>
+
+  @if (!formOpen()) {
+  <button
+    type="button"
+    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    (click)="openForm()"
+    i18n="@@admin.vendors.provision.action.open"
+  >
+    Add a seat
+  </button>
+  } @else {
+  <form
+    novalidate
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    (submit)="$event.preventDefault(); submit()"
+  >
+    <!-- The payer test (§8.8(1)), surfaced immediately above the button that
+         would act on it. It WARNS and never disables: `product_role` is curated
+         upstream, so a mis-roled record must not hard-block a legitimate
+         operator (AECI-738 / §5.2 step 1). -->
+    @if (!isPureConnectorVendor()) {
+    <p
+      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+      role="note"
+    >
+      @if (noProducts()) {
+      <span i18n="@@admin.vendors.provision.warn.unknown">
+        No products on record — this vendor's role is unknown, so the connector carve-out may not
+        apply. Check before adding a seat.
+      </span>
+      } @else {
+      <span i18n="@@admin.vendors.provision.warn.endpoint">
+        This vendor owns endpoint products ({{ rolesLabel() }}), so it is an ordinary paying vendor
+        rather than a pure connector vendor. It normally takes the claim flow, where a grant also
+        opens the entitlement. Adding a seat here gives access without one.
+      </span>
+      }
+    </p>
+    }
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-provision-email'"
+        i18n="@@admin.vendors.provision.field.email"
+      >
+        Email address
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-provision-email-hint'"
+        i18n="@@admin.vendors.provision.field.emailHint"
+      >
+        If no AECi account uses this address, one is created. Nothing is emailed — tell them
+        yourself, the way you would in any partnership conversation.
+      </p>
+      <input
+        type="email"
+        autocomplete="off"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-provision-email'"
+        [attr.aria-describedby]="idPrefix() + '-provision-email-hint'"
+        [value]="email()"
+        (input)="onEmailInput($event)"
+      />
+    </div>
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-provision-reason'"
+        i18n="@@admin.vendors.provision.field.reason"
+      >
+        Reason (optional)
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-provision-reason-hint'"
+        i18n="@@admin.vendors.provision.field.reasonHint"
+      >
+        Recorded in the audit trail. Never shown to them and never emailed.
+      </p>
+      <textarea
+        rows="2"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-provision-reason'"
+        [attr.aria-describedby]="idPrefix() + '-provision-reason-hint'"
+        [value]="reason()"
+        (input)="onReasonInput($event)"
+      ></textarea>
+    </div>
+
+    @if (failedMessage()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+    }
+
+    <div class="flex gap-2">
+      <button
+        type="submit"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending() || !canSubmit()"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.provision.action.pending">Adding…</span>
+        } @else {
+        <span i18n="@@admin.vendors.provision.action.confirm">Add the seat</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="closeForm()"
+        [disabled]="pending()"
+        i18n="@@admin.vendors.provision.action.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  }
+</div>

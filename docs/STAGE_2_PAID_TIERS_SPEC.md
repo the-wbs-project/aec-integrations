@@ -444,13 +444,45 @@ Ordering is `created_at DESC, id DESC`. The tiebreak is not decoration: `created
 
 **The viewer renders tolerantly.** `before_state` / `after_state` are free-form JSON written by ~34 call sites across the life of the schema, with no shared contract, in a table nothing prunes — so today's reader is parsing rows written by code that no longer exists. The wire types are `z.unknown().nullable()` (which in Zod 4 still rejects a *missing* key, satisfying R10) and `action` / `entity_type` are plain strings. An enum would turn a new writer elsewhere into a 500 on this screen.
 
-#### 5.6.3 Seats: revoke, but never ban
+#### 5.6.3 Seats: add and revoke, but never ban
+
+> **Retitled by AECI-740 (2026-09-03).** This subsection read "revoke, but never ban" because
+> revoke was the only seat verb the console had. It now has two: **`POST /api/admin/vendors/:id/seats`**
+> adds one. The ban boundary below is unchanged in every respect.
 
 The roster lists every seat via the shared `seatsOf` predicate (moved to `routes/vendor-shared.ts` so the dashboard count, the portal roster and this page can never disagree), **including banned ones** — a ban is a per-seat lock, not a removal, and hiding it leaves nobody able to see why a colleague cannot sign in.
 
 The page can **revoke** a seat and deliberately **cannot ban** a person; each row deep-links to `/admin/reviewers`, which owns that policy (AECI-524). The two have different blast radii — a revoke un-grants one vendor's access, a ban locks the human out of AECi entirely — and peer buttons would invite the wrong one.
 
 The admin revoke is a near-clone of the portal's owner-only `DELETE /api/vendor/seats/:userId` with three differences: `vendorId` comes from the path (and scopes the target read), there is no self-removal guard (an admin holds no seat), and **the last-owner guard is not carried over**. That guard's stated rationale is that a vendor cannot self-rescue from an unadministrable account and "only an AECi grant can rescue it" — the admin *is* that rescue, so keeping it would block only the operator who exists to undo it.
+
+**The page can also ADD a seat, and that is the only place in the product that can (AECI-740).**
+`POST /api/admin/vendors/:id/seats` is the **only route in the codebase that writes
+`profiles.role = 'vendor_admin'`**, and it opens **no `vendor_entitlements` row** — which is the
+one property worth stating here, because §2.1's mirror makes it counter-intuitive: `vendors.verified`
+flips on `status = 'active'` and not on `tier`, so *any* entitlement row would light the badge, and
+"a seat but no badge" is not expressible through the entitlement table at all. It exists because
+`STAGE_2_SPEC.md` §8.9(1) gives a pure **connector** vendor a catalogue-maintenance seat and never
+sells it verification, while every prior path to a seat opened an entitlement on the way (`approveClaim`
+composes `grantSeatStatements` with `activateEntitlementStatements` at `GRANT_TIER = 'verified'`) —
+which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told operators to park such a claim rather than
+grant it.
+
+Three consequences for this section specifically:
+
+- **Adding a seat and setting an entitlement stay separate controls on one page, deliberately.**
+  They are the two halves the claim grant fuses, and §5.2's whole problem was that fusion. Putting
+  them behind one button would recreate it on the surface built to avoid it. The provision control
+  says so in its own copy: *"opens no entitlement, does not turn on the verified badge."*
+- **It lives here rather than on `/admin/claims/:id` or `/admin/users/:id`** for exactly the reason
+  the revoke does: this is the only screen showing the blast radius — the other seats, the
+  entitlement state, `is_pure_connector_vendor` — that makes the decision safe. `ADMIN_PANEL_SPEC.md`
+  §5.8's "this screen cannot edit the role" is unchanged and now points here.
+- **It warns and never gates** on a vendor owning endpoint products (the AECI-738 rule), and it
+  does **not** become a second writer of `banned_at`. A banned account is provisioned and flagged,
+  not refused — ban policy is `PATCH /api/admin/reviewers/:id`'s.
+
+Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.3.
 
 **Emails are a tri-state, and that is the whole point.** `seat_emails_available: false` means the GoTrue seam was unreachable, so a blank email says nothing about the account; `true` with a blank means the account genuinely has none. On 2026-08-24 the claim queue read "Account status unknown" for every row because `SUPABASE_SERVICE_ROLE_KEY` was absent and then carried a bad value, and the seam discarded both the HTTP status and the error text — so there was nothing to debug from. AECI-652 fixed that at the source: `fetchAuthUserEmailsResult` reports `{ available, emails, reason }`, `fetchAuthUserEmails` stays a byte-identical wrapper (four structural type aliases take it as an injection default), and every swallow point now `console.warn`s its reason. **Absent creds must render "unavailable", never an empty seat list.**
 
@@ -459,6 +491,8 @@ The admin revoke is a near-clone of the portal's owner-only `DELETE /api/vendor/
 - **It does not close the §5.4 lockout.** No admin vendor-edit endpoint is added, so a cleared-but-still-seated vendor is still uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
 - **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
 - **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
+- **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stays `open`, because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
+- **It still cannot ban, and adding a seat is not verifying a vendor.** Both boundaries are asserted in `vendor-detail.component.spec.ts` now that this section carries two write actions rather than one.
 
 ### 5.7 As built (AECI-652 — 2026-08-27)
 

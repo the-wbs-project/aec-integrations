@@ -40,6 +40,7 @@ import {
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import {
   createAdminRevokeSeatHandler,
+  createProvisionSeatHandler,
   createAdminVendorAuditHandler,
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
@@ -408,6 +409,15 @@ app.route('/', authAccount);
 //     files under the seat's `profiles.id` — which no longer points at the vendor
 //     by the time anyone reads it — and a seat ban/unban files under the seat's
 //     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
+//   - POST   /api/admin/vendors/:id/seats        (S2 §8.9(3), AECI-740) — provision
+//     one catalogue-maintenance seat. The FIRST route that writes
+//     `profiles.role = 'vendor_admin'`, and it opens NO `vendor_entitlements`
+//     row, so the verified badge never lights — which is the whole point: a pure
+//     connector vendor is never sold verification (§8.9(1)), and every prior path
+//     to a seat opened an entitlement on the way, which is why §5.2 had to tell
+//     operators not to press Grant. Two statements in one batch, neither naming
+//     `vendors`. No email, no purge, no workflow row. Warns on a non-connector
+//     vendor; never gates (§5.2 step 1).
 //   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
@@ -527,6 +537,7 @@ authAdmin.patch(
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
 authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
 authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
+authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),

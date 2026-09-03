@@ -30,10 +30,16 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, profiles, vendorRequests, vendors } from '../db/schema';
+import { auditLog, profiles, vendorEntitlements, vendorRequests, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
-import { grantSeatStatements, rejectClaimStatements, revokeSeatStatements } from './vendor-grant';
+import {
+  grantSeatStatements,
+  provisionSeatStatements,
+  rejectClaimStatements,
+  revokeSeatStatements,
+  type ProvisionProfileBefore,
+} from './vendor-grant';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const ADMIN_ID = '22222222-2222-4222-8222-222222222222';
@@ -202,5 +208,121 @@ describe('the claim audit row still records the verification outcome', () => {
     const { auditEntry } = grantSeatStatements(t.db, grantArgs(true));
     expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
     expect(auditEntry.beforeState).toMatchObject({ vendor_verified: true });
+  });
+});
+
+// ─── AECI-740: the standalone provision ──────────────────────────────────────
+
+const provisionArgs = (before: ProvisionProfileBefore | null = null) => ({
+  userId: CLAIMANT_ID,
+  vendorId: VENDOR_ID,
+  actorId: ADMIN_ID,
+  actorType: 'admin' as const,
+  now: NOW,
+  identityOutcome: 'linked' as const,
+  profileBefore: before,
+  isPureConnectorVendor: true,
+  reason: null,
+});
+
+describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => {
+  it('emits exactly two statements — the seat upsert and its audit row', () => {
+    const { stmts } = provisionSeatStatements(t.db, provisionArgs());
+
+    expect(stmts).toHaveLength(2);
+    const sql = stmts.map(sqlOf).join('\n');
+    expect(sql).toContain('"profiles"');
+    expect(sql).toContain('"audit_log"');
+  });
+
+  it('names neither `vendors` nor `vendor_entitlements`', () => {
+    // The §8.9(2) fence, structurally: `vendors.verified` mirrors off an ACTIVE
+    // entitlement row, so a statement on either table would light the verified
+    // badge this seat must never carry.
+    const { stmts } = provisionSeatStatements(t.db, provisionArgs());
+    const sql = stmts.map(sqlOf).join('\n');
+
+    expect(vendorsStatements(stmts)).toEqual([]);
+    expect(sql).not.toContain('"vendor_entitlements"');
+    // And no workflow row: a seat is not a claim state change, and
+    // `workflow_instances_type_check` is a closed CHECK besides.
+    expect(sql).not.toContain('"workflow_instances"');
+    expect(sql).not.toContain('"workflow_transitions"');
+  });
+
+  it('the upsert clobbers only role, vendor_id, seat_owner and updated_at', () => {
+    // The §2 no-clobber contract. A provision landing after the holder's first
+    // sign-in must not reset `display_name`, `work_email_verified`, `trust_tier`
+    // — or, most importantly, the ban columns, whose sole writer is
+    // `PATCH /api/admin/reviewers/:id` (`routes/banned-at-writers.spec.ts`).
+    const [upsert] = provisionSeatStatements(t.db, provisionArgs()).stmts;
+    const conflict = sqlOf(upsert!).split(/on conflict/i)[1] ?? '';
+
+    expect(conflict).toContain('"role"');
+    expect(conflict).toContain('"vendor_id"');
+    expect(conflict).toContain('"seat_owner"');
+    expect(conflict).toContain('"updated_at"');
+    for (const forbidden of [
+      '"banned_at"',
+      '"ban_reason"',
+      '"display_name"',
+      '"work_email_verified"',
+      '"trust_tier"',
+      '"theme_preference"',
+    ]) {
+      expect(conflict).not.toContain(forbidden);
+    }
+  });
+
+  it('says `entitlement_granted: false` out loud, and carries metadata.vendor_id', () => {
+    const { auditEntry } = provisionSeatStatements(t.db, provisionArgs());
+    const metadata = auditEntry.metadata as Record<string, unknown>;
+
+    expect(auditEntry.action).toBe('vendor_seat.provisioned');
+    expect(auditEntry.entityType).toBe('profile');
+    expect(auditEntry.entityId).toBe(CLAIMANT_ID);
+    expect(metadata['entitlement_granted']).toBe(false);
+    // LOAD-BEARING: leg 3 of `auditScopeWhere` matches on this JSON path, and it
+    // is the only leg that reaches a `vendor_seat.*` row on the vendor's own
+    // audit tab. Without it the row exists and is invisible.
+    expect(metadata['vendor_id']).toBe(VENDOR_ID);
+    expect(metadata['is_pure_connector_vendor']).toBe(true);
+    expect(metadata['seat_created']).toBe(true);
+    expect(auditEntry.afterState).toMatchObject({
+      role: 'vendor_admin',
+      vendor_id: VENDOR_ID,
+      seat_owner: true,
+    });
+  });
+
+  it('flags a banned holder in the trail without writing the ban columns', () => {
+    const { auditEntry, stmts } = provisionSeatStatements(
+      t.db,
+      provisionArgs({ role: 'reviewer', vendorId: null, seatOwner: false, bannedAt: OLD_TS }),
+    );
+
+    expect((auditEntry.metadata as Record<string, unknown>)['seat_banned']).toBe(true);
+    expect(auditEntry.beforeState).toMatchObject({ role: 'reviewer', seat_owner: false });
+    // Scoped to the ON CONFLICT clause, which is the branch that runs for an
+    // account that already has a `profiles` row. The INSERT column list names
+    // every defaulted column and is unreachable here by definition.
+    expect(sqlOf(stmts[0]!).split(/on conflict/i)[1]).not.toContain('"banned_at"');
+  });
+
+  it('leaves the vendor row byte-identical when run against D1', async () => {
+    // Guard 2, the observed-effect half: catches a write that evades the SQL
+    // match. The whole claim of this endpoint is "a seat, and no badge".
+    await seed(false);
+    const beforeRow = await vendorOf();
+
+    await t.db.batch(provisionSeatStatements(t.db, provisionArgs()).stmts as BatchTuple);
+
+    expect(await vendorOf()).toEqual(beforeRow);
+    const seat = (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0];
+    expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    // No entitlement was opened, so `entitlement_mirror_drift` (which counts
+    // `verified = 1` XOR an active row) sees nothing on either side — §8.9(4).
+    expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
+    expect((await t.db.select().from(auditLog))[0]?.action).toBe('vendor_seat.provisioned');
   });
 });

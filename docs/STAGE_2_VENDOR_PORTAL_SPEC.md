@@ -327,7 +327,7 @@ Shipped with **no migration**. The AECI-519 `PATCH /api/admin/claims/:id` alread
 
 **3. Do not press Reject either.** `sendClaimRejectedEmail` (`apps/api/src/lib/email.ts`) sends subject *"Your claim for {name} was not approved"* over body *"After review, we weren't able to approve it."* That is an explicit decline, not merely a neutral one, and the reviewer's `reason` is an **internal audit note that is never emailed** (§9), so nothing in-product softens it. A decline is the one-way door §8.8(2) refused for the badge — the reasoning applies harder to an email aimed at exactly the party we want a relationship with.
 
-**4. Park the claim as `open`, and route out of band.** Leave the request in `open`, reply to the claimant directly naming the partnership track, and **prefer to keep the linked Linear issue in an unstarted-category state**. `STATE_TYPE_TO_STATUS` (`apps/api/src/routes/webhooks.ts`) maps `triage` / `backlog` / `unstarted` → `open`, so the issue may sit in any of them indefinitely. Only `started` → `in_review`, and **`GET /api/admin/claims` cannot show an `in_review` claim at all** — it filters on an *exact* status and its query enum offers only `open | resolved | rejected` — so moving the issue to In Progress used to make the claim vanish from every queue view. **AECI-739 widened the query enum to all four statuses and gave the queue an In review tab**, so that is now a preference rather than a trap — an `in_review` claim is findable, and the detail page explains the state. Unstarted is still the better default: `open` is the working queue's landing tab, which is where a parked claim wants to be seen. `completed` → `resolved` is worse still: the claim then reads as approved in the Resolved tab with no seat and no grant behind it.
+**4. Park the claim as `open`, and route out of band.** Leave the request in `open`, reply to the claimant directly naming the partnership track, and **prefer to keep the linked Linear issue in an unstarted-category state**. `STATE_TYPE_TO_STATUS` (`apps/api/src/routes/webhooks.ts`) maps `triage` / `backlog` / `unstarted` → `open`, so the issue may sit in any of them indefinitely. Only `started` → `in_review`, and **`GET /api/admin/claims` cannot show an `in_review` claim at all** — it filters on an *exact* status and its query enum offers only `open | resolved | rejected` — so moving the issue to In Progress used to make the claim vanish from every queue view. **AECI-739 widened the query enum to all four statuses and gave the queue an In review tab**, so that is now a preference rather than a trap — an `in_review` claim is findable, and the detail page explains the state. Unstarted is still the better default: `open` is the working queue's landing tab, which is where a parked claim wants to be seen. `completed` → `resolved` is worse still: the claim then reads as approved in the Resolved tab with no seat and no grant behind it. **Since AECI-740 (2026-09-03) parking is a choice rather than the only move** — step 9's action can hand the vendor its seat out of band — but the claim's own status is unchanged by that: provisioning writes no `vendor_requests` row, and `resolved` would still assert a paid account that was never opened. Park it, provision the seat, and say so in the note.
 
 **5. Expect the duplicate chip to fire on later claims.** A parked-open claim stays inside the `openClaims` group-by that computes `is_duplicate` (`apps/api/src/routes/admin-claims.ts`), so **every subsequent claim on that vendor renders with the duplicate signal** — including a legitimate one from a real endpoint contact. Never dismiss a new claim on the chip alone while a parked one is open. **AECI-739 made the cause visible**: `/admin/claims/:id` carries a "Duplicate signal" section naming the open claims behind the chip, with each one's match reason and whether it carries an operator note — i.e. whether it was parked on purpose. The chip's SEMANTICS are deliberately unchanged; a claim with a note still counts. Fixing the arithmetic would mean changing a shipped signal, and the problem was never that the flag was wrong — it was that nothing said why.
 
@@ -347,7 +347,88 @@ Shipped with **no migration**. The AECI-519 `PATCH /api/admin/claims/:id` alread
 
 **8. Volume — why parking is cheap.** §8.8(4) counted **8 `promoted` + 2 `on_hold`** connector-role products in the pipeline. A queue carrying two to five parked rows is not an operational cost; a wrongly-declined partner is.
 
-**9. When the surface exists — half of it now does.** **AECI-722 SHIPPED 2026-08-31** (`ADMIN_PANEL_SPEC.md` §5.9): `/admin/connectors` renders every catalogue, its triage backlog and its feed freshness, and carries the control for AECI-720's `managed_by` flip — so flipping a catalogue to vendor-managed, which freezes the review lane for that iPaaS and no other, is now a button rather than a curl. **What that does NOT do is provision anything.** The flip records who a catalogue was handed to in its audit metadata and grants nothing (`seat_not_granted: true`, in the row itself); the seat remains `profiles.role = 'vendor_admin'` + `profiles.vendor_id` with **no entitlement row** (§8.9(2)), and **no route writes that role**. So this procedure still parks rather than grants, and it will until the provisioning action ships — now tracked as **AECI-740** rather than as part of AECI-724, because 724 lands after Stage 2 launch and this procedure is blocked before it (§8.9(3)).
+**9. When the surface exists — half of it now does.** **AECI-722 SHIPPED 2026-08-31** (`ADMIN_PANEL_SPEC.md` §5.9): `/admin/connectors` renders every catalogue, its triage backlog and its feed freshness, and carries the control for AECI-720's `managed_by` flip — so flipping a catalogue to vendor-managed, which freezes the review lane for that iPaaS and no other, is now a button rather than a curl. **What that does NOT do is provision anything.** The flip records who a catalogue was handed to in its audit metadata and grants nothing (`seat_not_granted: true`, in the row itself).
+
+> **Gap CLOSED — AECI-740, 2026-09-03.** The other half now exists: **`POST /api/admin/vendors/:id/seats`**, rendered as an "Add a seat" control in the Seats section of `/admin/vendors/:id`. It is the **only route in the codebase that writes `profiles.role = 'vendor_admin'`**, and it opens **no `vendor_entitlements` row** — which is the whole of §8.9(2) turned into a mechanism. So this procedure can finally **resolve** a parked claim rather than only park it. What shipped:
+>
+> - **Two statements, one `db.batch`** — a no-clobber `profiles` upsert (`role`, `vendor_id`, `seat_owner`, `updated_at`) and its `vendor_seat.provisioned` audit row (§26.1). **No statement names `vendors`**, so the mirror, the badge and `vendors.updated_at` are untouched and nothing reaches the nightly Algolia push as a changed vendor record. **No migration, no email, no cache purge, no workflow row.**
+> - **The fence is a type and a test, not a comment.** `entitlement_granted` is `z.literal(false)` on the wire, so an edit that opened an entitlement here could not report the truth and still compile; `apps/api/src/routes/vendor-admin-role-writers.spec.ts` asserts over module source that `vendor_admin` has exactly two writers (both `lib/` batch builders) and that **no module composes `provisionSeatStatements` with `activateEntitlementStatements`**. Behaviour cannot test for the absence of a coupling that does not exist yet; a source scan can. The tempting edit is small and looks like a bug fix — somebody comparing the two seat paths will notice this one "forgets" the entitlement — and it would hand a connector vendor the badge through a one-way door.
+> - **It is on `/admin/vendors/:id`, not `/admin/claims/:id` or `/admin/connectors/:id`.** Same reason the seat revoke is: that page is the only surface showing the blast radius — the other seats, the entitlement state, `is_pure_connector_vendor` — that makes the decision safe. It is also now the **second** write action in that section, so `STAGE_2_PAID_TIERS_SPEC.md` §5.6.3 ("Seats: revoke, but never ban") owns its contract alongside the revoke.
+> - **Identity by EMAIL, through `resolveClaimantIdentity` unchanged.** It links an existing `auth.users` row or provisions one, mapped to the same statuses the grant uses (409 `GRANT_CONFLICT` on exclusivity, 503 `DEPENDENCY_FAILURE` when the seam is absent) so two admin paths cannot tell different stories about one account. **503 is the DEFAULT outcome on local dev and every PR preview**, and the control says so rather than reading as a failure.
+> - **`seat_owner: true`**, matching `grantSeatStatements` (§11a): an AECi-reviewed seat IS the owner event, and it is what lets the vendor add its own colleagues through the shipped invite flow instead of one admin action per person. An existing NON-owner seat is therefore a real change and does write; only an exactly-identical seat is the 200 no-op.
+> - **It warns and never gates.** On a vendor owning endpoint products the control shows a warning above an **enabled** button, and zero products reads as *unknown* rather than exempt — the AECI-738 rule verbatim (step 1 above). `is_pure_connector_vendor` is recorded in the audit row so the trail shows what the operator was looking at, since `product_role` can change upstream afterwards.
+> - **A banned account is provisioned, not refused**, and `banned_at` is never written — `PATCH /api/admin/reviewers/:id` keeps its sole-writer status (`routes/banned-at-writers.spec.ts`). The ban is surfaced so the console can warn.
+>
+> `entitlement_mirror_drift` stays clean, as §8.9(4) predicted and the route spec now asserts: a seat with no entitlement touches neither side of the `verified` XOR `active` test.
+>
+> **What this does NOT change** is the rest of the procedure. Grant is still wrong (step 2), Reject is still wrong (step 3), and the claim is still not moved to `resolved` by provisioning — that status would read as approved in the Resolved tab with a paid account behind it, which is not what happened. Record the handover in the operator note (step 6). **AECI-724 is still open** and still owns the vendor-side surface plus §8.9(5)'s plan-panel consequence.
+
+---
+
+### 5.3 As built — seat provisioning (AECI-740 — 2026-09-03)
+
+Shipped with **no migration**. `POST /api/admin/vendors/:id/seats`, contract in
+`packages/shared/src/api/admin-vendors.ts` (`ProvisionVendorSeat{,Response}Schema`), handler
+`createProvisionSeatHandler` in `apps/api/src/routes/admin-vendors.ts`, batch builder
+`provisionSeatStatements` in `apps/api/src/lib/vendor-grant.ts`, surface
+`apps/web/src/app/admin/vendors/provision-seat-control.{ts,html}` behind its own
+`SeatProvisionApi` client. Full contract in `API_CONTRACTS.md` §6.10; IA in
+`ADMIN_PANEL_SPEC.md` §5.7; the section that owns the screen is
+`STAGE_2_PAID_TIERS_SPEC.md` §5.6.3. Decisions taken at build:
+
+- **A new builder, not `grantSeatStatements`.** That one emits five statements, three of
+  them about a CLAIM: it resolves a `vendor_requests` row and advances a `vendor_claim`
+  workflow instance. A connector vendor's seat is handed over out of band and may have no
+  claim row at all — and where one exists, §5.2 step 4 deliberately leaves it `open`.
+  Reusing the grant would have needed a synthetic request id or would have stamped a claim
+  `resolved`. Neither is true. `provisionSeatStatements` is two statements and is modelled on
+  `revokeSeatStatements`, its exact inverse, in the same file.
+- **The upsert's `set` list is copied from `grantSeatStatements` verbatim.** A provision
+  landing after the holder's first sign-in must not reset `display_name`,
+  `work_email_verified`, `trust_tier`, `theme_preference` — or the ban columns, which is the
+  case that matters: `banned_at` has exactly one writer anywhere in the codebase and this
+  must not become a second (`routes/banned-at-writers.spec.ts`). Asserted on the generated
+  SQL of the `ON CONFLICT` clause rather than on the whole statement, because the INSERT
+  column list legitimately names every defaulted column and is unreachable on that branch.
+- **`vendor_seat.provisioned` had to be added to `VENDOR_METADATA_ACTIONS`.** The row files
+  under `entity_type='profile'`, so `GET /api/admin/vendors/:id/audit` reaches it only
+  through leg 3's `json_extract(metadata,'$.vendor_id')` test. A provisioned seat DOES carry
+  `vendor_id`, so leg 4's roster subquery looks like it would work — but leg 4 filters on the
+  ban actions only. Without the entry the row that says *"this vendor was given access"* is
+  the one thing the vendor's own audit tab cannot show, while the revoke beside it renders
+  fine. The web-side `describeAuditAction()` map is the matching lockstep edit.
+- **The audit metadata says `entitlement_granted: false` out loud**, mirroring
+  `seat_not_granted: true` on AECI-720's `managed_by` flip from the opposite direction. §8.9(2)
+  is a fence somebody will eventually be tempted to step over; the trail should make it
+  obvious that this action never opened a paid account.
+- **The response's `entitlement_granted` is `z.literal(false)`.** The fence as a type: the
+  edit this guards against compiles fine otherwise. The source-level companion is
+  `routes/vendor-admin-role-writers.spec.ts`, which also pins `vendor_admin` to exactly two
+  writers, both `lib/` batch builders — no route hand-rolls a seat write that could skip the
+  audit row. Its scan **strips comments before matching**, because the modules it polices are
+  precisely the ones whose docblocks explain the coupling; a raw substring scan would fail on
+  the files that document the invariant best and train the next person to delete the
+  explanation rather than keep the property.
+- **The identity seam is injected, so the tests need no Supabase** — the house DI shape. Its
+  ABSENCE is covered too: 503 is the default outcome on local dev and on every PR preview,
+  and the control renders that as a configuration fact rather than a failure.
+- **Ordering is a data-safety control.** The vendor 404 is checked **before**
+  `resolveClaimantIdentity`, because resolving first would provision an `auth.users` row for
+  a request that is about to 404, orphaning it. The route spec asserts the seam was not
+  called, not merely that the status was 404.
+- **`seat_owner` is part of the idempotency test.** `ClaimantProfileSnapshot` carries
+  `{ id, role, vendorId, bannedAt }` and not `seat_owner`, so the handler reads it separately
+  rather than widening a type `approveClaim`'s conflict path also consumes. The consequence
+  is the right one: an existing non-owner seat (a colleague who redeemed an invite) is a real
+  change and writes; only an exactly-identical seat is the no-op.
+- **Design anchor.** Internal surface, so the binding anchor is the sibling directly beneath
+  it — the seat revoke on this same page — and secondarily `ManagedByControl`, whose
+  two-step-confirm shape, host-owned live region and `changed`/`announce` outputs this
+  follows. The copy states what the seat is NOT (no entitlement, no badge, no attestation)
+  for the same reason `ManagedByControl` states that a handover grants no seat: nothing else
+  on the page corrects the assumption, and here it runs the other way. The announcement names
+  what did not happen, so a screen-reader user does not have to go and read the Basics table
+  to learn that provisioning did not verify the vendor.
 
 ---
 
@@ -878,7 +959,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 - **Paid-tier ladder above the entry Verified fee, automated billing, self-serve card, offline-invoicing mechanics** (renewal/expiry/dunning) — the Paid Tiers epic (AECI-515). **Decomposed 2026-08-14** in `docs/STAGE_2_PAID_TIERS_SPEC.md`; the decisions landed in `STAGE_2_SPEC.md` **§8.5** (§8.4 is the AECI-514 attestations block, taken at its own review the same day). **Built out 2026-08-14…19**: the entitlement model, the capability registry, the gate, the admin set/renew/clear action, the expiry warnings and the vendor plan panel all shipped. Automated billing and self-serve card stay deferred there; dunning is deliberately out (expiry **warns**, never auto-lapses); the tier *ladder* is now a data-only edit but its **pricing** stays open.
 - **Real-time / live vendor edits** — the Real-Time epic (AECI-516). **Transport resolved 2026-08-19** (ADR 0023 / `STAGE_2_SPEC.md` §8.6): **scoped client revalidation** over a per-vendor freshness cursor — **not** Durable-Object WebSockets, not SSE — decomposed into AECI-626…632 in **`docs/STAGE_2_REALTIME_SPEC.md`** and **built out 2026-08-19**. "The portal ships without persistent sockets" stayed true and is now the decision rather than the interim posture. It builds directly on this doc's §4 authz seam (a new `GET /api/vendor/updates` behind `requireVendor()`, scoped by `c.get('auth').vendorId`) and makes this doc's §6 dashboard live; nothing this epic shipped changes.
 - **Integration attestation authoring / conflict UI / version-diff** *(the version-diff half is now **shipped** — AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4)* — the Integration Attestations epic (AECI-514; activates the dormant `vendor_a`/`vendor_b` sources). Decomposed at its 2026-08-14 kickoff: **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** is the build contract (`STAGE_2_SPEC.md` §2.4 is now just the scope outline). It builds directly on the §4 authz seam and the §6 dashboard shipped here — the two-slot attestation authority rule is the extension of this doc's `vendor_id`-scoping invariant, and the attestations surface is a new tab on this doc's dashboard.
-- **The connector-vendor catalogue-maintenance seat** — the return side of the `STAGE_2_SPEC.md` §8.8 payer carve-out, settled as policy in **§8.9** (AECI-704). **The admin half SHIPPED 2026-08-31** (AECI-722 — `/admin/connectors`, `ADMIN_PANEL_SPEC.md` §5.9); the vendor seat is still **AECI-724**, and *provisioning* the `vendor_admin` role is now **AECI-740** rather than either of them (§8.9(3)). Deliberately **not** an entitlement row and **not** a capability id: it authorizes on this doc's existing `vendor_admin` + `vendor_id` primitive, which `findVendorProfile`'s `leftJoin` already supports for a vendor with no entitlement. Until those ship, §5.2 is the manual operator procedure — and §8.9(3) notes the open sub-question, that **no route writes `role = 'vendor_admin'`** today.
+- **The connector-vendor catalogue-maintenance seat** — the return side of the `STAGE_2_SPEC.md` §8.8 payer carve-out, settled as policy in **§8.9** (AECI-704). **The admin half SHIPPED 2026-08-31** (AECI-722 — `/admin/connectors`, `ADMIN_PANEL_SPEC.md` §5.9); the vendor seat is still **AECI-724**. ***Provisioning* the `vendor_admin` role SHIPPED as AECI-740 (2026-09-03)** — `POST /api/admin/vendors/:id/seats`, §5.3 — so the sentence this bullet used to carry, that *no route writes `role = 'vendor_admin'`*, is no longer true: exactly one does, and it opens no entitlement row. Deliberately **not** an entitlement row and **not** a capability id: it authorizes on this doc's existing `vendor_admin` + `vendor_id` primitive, which `findVendorProfile`'s `leftJoin` already supports for a vendor with no entitlement. What remains deferred is the vendor-facing half — the catalogue-maintenance surface a seat holder signs in to, and §8.9(5)'s plan-panel suppression — both AECI-724's.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
 - **Dark theme** — the Dark-Theme Reintroduction epic; `STAGE_2_SPEC.md` §2.5.
 - **A public/partner write API** — the "no public API surface" boundary is unchanged (`STAGE_2_SPEC.md` §9).
