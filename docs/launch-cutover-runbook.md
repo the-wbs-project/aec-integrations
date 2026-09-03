@@ -45,13 +45,14 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 
 ## 3. Cutover procedure (ordered)
 
-Run top to bottom. Steps 1–3 are config on the prod Worker; step 4 is the DNS flip; step 5 is the broadcast.
+Run top to bottom. Steps 1–3 are config on the prod Worker; step 4 is the DNS flip; step 5 extends the WAF to the new host; step 6 is the broadcast.
 
 1. [ ] **Indexing is ON in config.** The production web Worker ships `ALLOW_INDEXING="true"` (AECI-247/277) — removes `x-robots-tag: noindex`, lets the SEO header set + sitemap go crawlable. Nothing to flip by hand; it takes effect on the deploy below. (Provision the launch-only `INDEXNOW_KEY` secret FIRST per §2 — pinging for a still-noindex site is the bug the secret's absence guards against. The Google Indexing secrets that used to sit here were removed in AECI-747.)
 2. [ ] **API points at `www.` in config.** The API Worker ships `PUBLIC_SITE_URL=https://www.aecintegrations.com` (canonical host is `www.` per the ADR 0011 amendment 2026-07-05) so promote-time IndexNow pings + canonical/OG absolute URLs use `www.`. Takes effect on the deploy below.
 3. [ ] **Merge the cutover PR, then run `promote-to-prod`** with the standard `COMMIT_SHA`/`DEPLOYED_AT` vars (CLAUDE.md version-reporting rule). This deploy applies steps 1–2 **and** reconciles the apex + `www` custom domains onto `aeci-web-production` — **it is the DNS flip** (see step 4). Before it, **verify on `prod.aecintegrations.com`** (the Access-gated internal host, unaffected by the apex move): home, search, a detail page, `/legal/*`, `/about`, `/contact` all render; dual version gate green; `robots`/canonical now indexable.
 4. [ ] **The apex + www move onto the app** as a side effect of step 3's deploy: `custom_domain: true` on the apex + `www` routes reassigns both hostnames off the (now retired) landing Worker onto `aeci-web-production`. The SSR Worker 301s the bare apex→`www` so the canonical host is `www.` (ADR 0011 amendment 2026-07-05). **After the flip deploys, purge the Cloudflare edge cache** so no stale `www`→apex 301 (≤24h `s-maxage`) lingers and loops against the new direction. (The `LANDING_CF_HEADERS` geo continuity was handled in AECI-275; the app home renders the closing-CTA capture + real OG card per AECI-277 parity.) If you must stage it separately from the code deploy, reassign the custom domains via the Cloudflare dashboard per `environments.md`.
-5. [ ] **Send the waitlist broadcast** (§4) — one-time Resend broadcast to the entire `mailing_list` with the `?ref=waitlist&token=…` link that lights the welcome banner (AECI-243).
+5. [ ] **Extend the WAF host set to the new production host.** The rate-limit and scraper rules on the `aecintegrations.com` zone are **host-scoped** (`docs/waf-rate-limits.md` → Scope) and **DNS does not carry them** — a hostname that starts serving the app is unprotected until its name is added to all three expressions. Run `scripts/ops/2026-09-waf-host-scope/` (snapshot → dry run → `--apply` → `verify.mjs`) and expect `403` scraper / `200` browser on every app host. **This step is the one the 2026-07 cutover omitted** (AECI-659): production ran with no rate limiting and no scraper block for months, and the §5 check below could not have caught it — `aeci.waf.ratelimit.blocked` reads ~0 for "no rules" exactly as it does for "no attacks". Do this before the broadcast, not after.
+6. [ ] **Send the waitlist broadcast** (§4) — one-time Resend broadcast to the entire `mailing_list` with the `?ref=waitlist&token=…` link that lights the welcome banner (AECI-243).
 
 ---
 
@@ -105,7 +106,7 @@ Unsubscribe: {{unsubscribe_url}}
 - [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
 - [ ] **RUM CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`).
-- [ ] **WAF** — `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.
+- [ ] **WAF** — `scripts/ops/2026-09-waf-host-scope/verify.mjs` reports `403` scraper / `200` browser on every app host (this is what §3 step 5 enables — the metric below cannot substitute for it), then within ~2 h `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.
 - [ ] **Welcome banner** — arriving via a `?ref=waitlist&token=…` link shows the dismissible banner and logs attribution to `page_views`.
 
 ---
