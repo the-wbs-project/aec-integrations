@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import type { AdminSummaryResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
+import { AdminBreadcrumb } from './admin-breadcrumb';
 import { AdminNavDropdown } from './admin-nav-dropdown';
 import {
   ADMIN_NAV_GROUPS,
@@ -68,6 +69,12 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
  * gained the same nine-screen Admin section — both surfaces render one list, so
  * they cannot drift.
  *
+ * AECI-777 hangs a `<aec-admin-breadcrumb/>` under that row. It is rendered here,
+ * once, rather than by each screen, because it derives its whole trail from the
+ * router URL and the same `ADMIN_NAV_GROUPS` array — see `admin-breadcrumb.ts` for
+ * why that beats a per-screen `[trail]` input, and for the four parameterised
+ * routes whose last crumb arrives via `AdminBreadcrumbStore`.
+ *
  * ── THE NAV IS A HORIZONTAL ROW, NOT A SIDEBAR (AECI-694) ────────────────────
  * It was a 14rem left rail until `/admin/vendors` and `/admin/users` became wide
  * sortable tables, at which point the rail was the thing standing between an
@@ -85,7 +92,14 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
  */
 @Component({
   selector: 'aec-admin-shell',
-  imports: [NotFound, RouterOutlet, RouterLink, RouterLinkActive, AdminNavDropdown],
+  imports: [
+    NotFound,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    AdminNavDropdown,
+    AdminBreadcrumb,
+  ],
   template: `
     @let s = summary();
     @if (s === null) {
@@ -124,6 +138,16 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
               }
             </ul>
           </nav>
+
+          <!--
+            AECI-777: the trail sits BELOW the row, not above it. Its first crumb
+            is "Admin", which is the h1 immediately above, and its second mirrors
+            the category the row already marks current; placed above the row it
+            would restate both before you had read either. Below, it reads as
+            "and inside that section, here", which is the only part the row cannot
+            show, because a detail route has no nav entry to make current.
+          -->
+          <aec-admin-breadcrumb />
         </header>
 
         <div class="min-w-0">

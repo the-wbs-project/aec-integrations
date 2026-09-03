@@ -153,6 +153,28 @@ async function typeNote(
 }
 
 describe('ClaimDetail', () => {
+  describe('the heading names the entity (AECI-777)', () => {
+    it('shows the claim\'s TARGET once loaded, not the words "Vendor claim"', async () => {
+      // A claim has no name of its own; what an operator recognises it by is what
+      // is being claimed.
+      const { el } = await setup(makeApiMock(makeDetail()));
+      expect(el.querySelector('#admin-claim-heading')?.textContent?.trim()).toBe('Procore');
+    });
+
+    it('falls back when the target row is gone, not to a blank heading', async () => {
+      // A claim outlives a retracted product, so `target` can be null on a row
+      // that still needs moderating.
+      const { el } = await setup(makeApiMock(makeDetail({ target: null })));
+      expect(el.querySelector('#admin-claim-heading')?.textContent?.trim()).toBe('Unknown product');
+    });
+
+    it('no longer renders a bespoke back link', async () => {
+      const { el } = await setup(makeApiMock(makeDetail()));
+      const hrefs = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).not.toContain('/admin/claims');
+    });
+  });
+
   it('loads the claim by its route param', async () => {
     const { el, api } = await setup(makeApiMock(makeDetail()));
     expect(api.getClaim).toHaveBeenCalledWith(CLAIM_ID);

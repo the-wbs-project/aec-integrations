@@ -128,6 +128,19 @@ beforeEach(() => TestBed.resetTestingModule());
 afterEach(() => vi.restoreAllMocks());
 
 describe('UserDetail', () => {
+  describe('the heading names the entity (AECI-777)', () => {
+    it('shows the display name once loaded, not the word "Account"', async () => {
+      const { el } = await setup();
+      expect(el.querySelector('#admin-user-heading')?.textContent?.trim()).toBe('Rita Reviewer');
+    });
+
+    it('no longer renders a bespoke back link', async () => {
+      const { el } = await setup();
+      const hrefs = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).not.toContain('/admin/users');
+    });
+  });
+
   it('renders the account, contributions and vendor access', async () => {
     const { el } = await setup();
     expect(el.textContent).toContain('Rita Reviewer');

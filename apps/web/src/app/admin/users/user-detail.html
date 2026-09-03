@@ -1,20 +1,9 @@
 <section aria-labelledby="admin-user-heading">
-  <p class="text-sm">
-    <a
-      routerLink="/admin/users"
-      class="text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.users.detail.back"
-    >
-      Back to users
-    </a>
-  </p>
-
-  <h2
-    id="admin-user-heading"
-    class="mt-3 text-lg font-bold text-(--text-primary)"
-    i18n="@@admin.users.detail.heading"
-  >
-    Account
+  <!-- The shell's breadcrumb (AECI-777) is the way back to the list; this heading
+       names WHOSE account, and falls back to the same word the trail shows until
+       the fetch resolves. -->
+  <h2 id="admin-user-heading" class="text-lg font-bold text-(--text-primary)">
+    {{ headingLabel() }}
   </h2>
 
   <!-- One polite live region for the whole page; every action feeds this. -->
