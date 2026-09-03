@@ -6,6 +6,12 @@ import type { ProvisionVendorSeatResponse, VendorProductRoles } from '@aeci/shar
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { SeatProvisionApi } from './seat-provision-api';
 
+/** `ProvisionVendorSeatSchema.reason`'s cap, mirrored so the textarea can stop an
+ *  over-long note before the round trip. A 400 from this endpoint covers BOTH the
+ *  email shape and this length, and the client cannot tell them apart — so the
+ *  copy names both and the field prevents the one it can. */
+const REASON_MAX_LENGTH = 500;
+
 /**
  * The seat-provisioning control (AECI-740's UI over its own endpoint).
  *
@@ -53,7 +59,6 @@ export class ProvisionSeatControl {
   private readonly api = inject(SeatProvisionApi);
 
   readonly vendorId = input.required<string>();
-  readonly vendorName = input.required<string>();
   /** The §8.8(1) payer test, from the detail payload (AECI-738). Drives the
    *  warning ONLY — never the disabled state. */
   readonly isPureConnectorVendor = input.required<boolean>();
@@ -84,7 +89,11 @@ export class ProvisionSeatControl {
    *  this is only about which sentence to show. */
   protected readonly noProducts = computed(() => this.productRoles().total === 0);
 
-  protected readonly canSubmit = computed(() => this.email().trim().length > 0);
+  protected readonly reasonMaxLength = REASON_MAX_LENGTH;
+
+  protected readonly canSubmit = computed(
+    () => this.email().trim().length > 0 && this.reason().length <= REASON_MAX_LENGTH,
+  );
 
   protected openForm(): void {
     this.failedMessage.set('');
@@ -163,7 +172,7 @@ function messageForError(err: unknown): string {
       return $localize`:@@admin.vendors.provision.error.unavailable:Seat provisioning is unavailable: the account service isn't configured on this environment. Nothing was changed.`;
     }
     if (err.status === 400) {
-      return $localize`:@@admin.vendors.provision.error.email:That doesn't look like an email address. Check it and try again.`;
+      return $localize`:@@admin.vendors.provision.error.invalid:Check the email address and keep the reason under ${REASON_MAX_LENGTH}:MAX: characters, then try again.`;
     }
     if (err.status === 403) {
       return $localize`:@@admin.vendors.provision.error.forbidden:You do not have permission to add a seat to this vendor.`;

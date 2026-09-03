@@ -409,8 +409,9 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
 /**
  * The seat-provision batch (AECI-740 / `STAGE_2_SPEC.md` §8.9(3)).
  *
- * The exact inverse of {@link revokeSeatStatements}, and the FIRST path in the
- * codebase that writes `profiles.role = 'vendor_admin'` without also opening a
+ * The exact inverse of {@link revokeSeatStatements}, and the only path that writes
+ * `profiles.role = 'vendor_admin'` with neither a claim nor an invite behind it —
+ * and, unlike the claim grant it sits beside, without opening a
  * `vendor_entitlements` row. **TWO statements**, and — like everything else in
  * this module — neither of them names `vendors`.
  *

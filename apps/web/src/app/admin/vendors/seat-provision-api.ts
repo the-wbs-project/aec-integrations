@@ -2,9 +2,9 @@
  * The ONE client for `POST /api/admin/vendors/:id/seats` (AECI-740).
  *
  * Split out of `AdminVendorsApi` for the same reason `AdminEntitlementApi` and
- * `ManagedByApi` are split out of their siblings: the single endpoint in the
- * codebase that writes `profiles.role = 'vendor_admin'` gets exactly one caller,
- * so the blast radius is greppable.
+ * `ManagedByApi` are split out of their siblings: the one endpoint that writes
+ * `profiles.role = 'vendor_admin'` standalone — with no claim and no invite behind
+ * it — gets exactly one caller, so the blast radius is greppable.
  *
  * The action's whole property — a seat with **no** `vendor_entitlements` row, so
  * the Verified badge never lights (`STAGE_2_SPEC.md` §8.9(2)) — is enforced

@@ -753,8 +753,14 @@ function emitSeatProvision(
 }
 
 /**
- * Provision one catalogue-maintenance seat — the first route in the codebase that
- * writes `profiles.role = 'vendor_admin'` (AECI-740 / `STAGE_2_SPEC.md` §8.9(3)).
+ * Provision one catalogue-maintenance seat — the only route that writes
+ * `profiles.role = 'vendor_admin'` STANDALONE, with no claim and no invite behind
+ * it (AECI-740 / `STAGE_2_SPEC.md` §8.9(3)). The role itself has two other
+ * writers, both reached through a route: `approveClaim`
+ * (`PATCH /api/admin/claims/:id`) via `grantSeatStatements`, and the invite
+ * redeem (`POST /api/seat-invites/:token/accept`) via `lib/vendor-seat-invites.ts`
+ * — which is why `routes/vendor-admin-role-writers.spec.ts` allows exactly two
+ * writer modules rather than one.
  *
  * The mirror of {@link createAdminRevokeSeatHandler} directly above, and its
  * shape is deliberately that endpoint's rather than the claim grant's: `vendorId`

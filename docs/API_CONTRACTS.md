@@ -1896,8 +1896,10 @@ export const ProvisionVendorSeatResponseSchema = z.object({
 });
 ```
 
-**This is the ONLY route in the codebase that writes `role = 'vendor_admin'`, and it opens
-no `vendor_entitlements` row.** That combination is the entire point. §8.9(1) settled that a
+**This is the only route that writes `role = 'vendor_admin'` on its own, and it opens
+no `vendor_entitlements` row.** (The role is also written by `PATCH /api/admin/claims/:id` as
+part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite redeem; both of
+those need a claim or an existing owner seat behind them, and the first opens an entitlement.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
 mirrors off `status = 'active'` rather than `tier` — so any active row lights the badge, and

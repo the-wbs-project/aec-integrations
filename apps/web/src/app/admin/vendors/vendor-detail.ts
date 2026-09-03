@@ -47,8 +47,10 @@ const AUDIT_PAGE_SIZE = 25;
  * from the review app through `POST /api/promote`.
  *
  * ── IT CAN NOW ADD A SEAT (AECI-740) ─────────────────────────────────────────
- * `ProvisionSeatControl` sits above the roster, and it is the ONLY surface in the
- * product that writes `profiles.role = 'vendor_admin'`. It exists because
+ * `ProvisionSeatControl` sits above the roster, and it is the only surface in the
+ * product that writes `profiles.role = 'vendor_admin'` STANDALONE — the claim
+ * queue's Grant writes it too, and so does redeeming an owner's seat invite, but
+ * both need a claim or an invite behind them. It exists because
  * `STAGE_2_SPEC.md` §8.9 gives a pure connector vendor a catalogue-maintenance
  * seat and NOT the Verified badge, while every other path to a seat opens an
  * entitlement on the way — which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told

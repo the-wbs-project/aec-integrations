@@ -95,12 +95,14 @@
         [attr.id]="idPrefix() + '-provision-reason-hint'"
         i18n="@@admin.vendors.provision.field.reasonHint"
       >
-        Recorded in the audit trail. Never shown to them and never emailed.
+        Recorded in the audit trail. Never shown to them and never emailed. Up to {{ reasonMaxLength
+        }} characters.
       </p>
       <textarea
         rows="2"
         class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
         [attr.id]="idPrefix() + '-provision-reason'"
+        [attr.maxlength]="reasonMaxLength"
         [attr.aria-describedby]="idPrefix() + '-provision-reason-hint'"
         [value]="reason()"
         (input)="onReasonInput($event)"

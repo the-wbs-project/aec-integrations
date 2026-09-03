@@ -38,7 +38,7 @@ const SRC = join(process.cwd(), 'src');
 
 /**
  * The modules allowed to write `profiles.role = 'vendor_admin'`, relative to
- * `src/`. All three are batch BUILDERS in `lib/`, never route handlers — the
+ * `src/`. Both are batch BUILDERS in `lib/`, never route handlers — the
  * house shape that keeps the statement list unit-testable without D1 and stops a
  * handler hand-rolling a seat write that skips the audit row (§26.1).
  *

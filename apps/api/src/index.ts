@@ -410,8 +410,11 @@ app.route('/', authAccount);
 //     by the time anyone reads it — and a seat ban/unban files under the seat's
 //     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
 //   - POST   /api/admin/vendors/:id/seats        (S2 §8.9(3), AECI-740) — provision
-//     one catalogue-maintenance seat. The FIRST route that writes
-//     `profiles.role = 'vendor_admin'`, and it opens NO `vendor_entitlements`
+//     one catalogue-maintenance seat. The only route that writes
+//     `profiles.role = 'vendor_admin'` STANDALONE — the claim grant
+//     (`PATCH /api/admin/claims/:id`) and the invite redeem
+//     (`POST /api/seat-invites/:token/accept`) write it too, but only behind a
+//     claim or an owner's invite — and it opens NO `vendor_entitlements`
 //     row, so the verified badge never lights — which is the whole point: a pure
 //     connector vendor is never sold verification (§8.9(1)), and every prior path
 //     to a seat opened an entitlement on the way, which is why §5.2 had to tell
