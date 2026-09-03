@@ -33,11 +33,21 @@
 #   does not. Verified 2026-08-31 — local passed with and without the fix, while
 #   production failed 5/5. So a green local run means "no regression", NOT "fixed".
 #   The environments that can answer the question are preview, staging, and prod.
+#
+# WHY IT SENDS A BROWSER USER AGENT
+#   The WAF scraper rule (docs/waf-rate-limits.md §2) Managed-Challenges tool UAs —
+#   including `curl` — on exactly the paths this script checks. Under curl's default
+#   UA every deployed run would 403, land in the SKIP branch, and exit 0 with a
+#   reassuring "PASS, with 2 page(s) skipped" while telling you nothing. The UA below
+#   makes the probe measure crawler visibility instead of the WAF.
 
 set -uo pipefail
 
 BASE="${1:-http://localhost:8788}"
 BASE="${BASE%/}"
+
+# Not a disguise — see "WHY IT SENDS A BROWSER USER AGENT" above.
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 # One page per shape of listing surface. `/products` is the main catalogue; the
 # rest are the taxonomy hubs, which take a different code path (their request is
@@ -61,7 +71,7 @@ failures=0
 skipped=0
 
 for page in "${PAGES[@]}"; do
-  body="$(curl -fsS --max-time 30 "${BASE}${page}" 2>/dev/null)" || body=""
+  body="$(curl -fsS --max-time 30 -A "$UA" "${BASE}${page}" 2>/dev/null)" || body=""
 
   if [ -z "$body" ]; then
     printf "  %-38s %14s   %s\n" "$page" "-" "SKIP (page did not load)"
@@ -87,8 +97,10 @@ echo
 if [ "$failures" -gt 0 ]; then
   echo "RESULT: FAIL — ${failures} listing page(s) send no products to crawlers."
   echo
-  echo "This is the AECI-746 regression. Confirm by eye:"
-  echo "  curl -s ${BASE}/products | grep -c 'Couldn.t load products'   # 1 = broken, 0 = fine"
+  echo "This is the AECI-746 regression. Confirm by eye — a count of 1 means broken, 0 means"
+  echo "fine. The browser UA is required — the WAF scraper rule challenges curl's own UA here:"
+  echo
+  echo "  curl -s -A '${UA}' ${BASE}/products | grep -c \"Couldn't load products\""
   exit 1
 fi
 
