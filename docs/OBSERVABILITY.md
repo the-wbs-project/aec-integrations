@@ -377,7 +377,9 @@ Logpush is the "push" path Cloudflare offers; we're on **Pro**, so the API Worke
 `aeci.waf.ratelimit.blocked` point per mitigation group (`rule`/`action`/`host`/`source`). **Its
 value is the event count, not 1, so query it with `sum:` / `sum:…{}.as_count()`** (gotcha 3);
 only mitigation actions (block / challenge) are counted — `allow`/`log`/`skip` are dropped. A
-quiet hour emits no blocked points (a count series is sparse — silence = no attacks), so
+quiet hour emits no blocked points (a count series is sparse — silence = no *mitigations*, which is
+not the same as no attacks: an **uncovered host** reads identically, the AECI-659 failure mode —
+see `docs/waf-rate-limits.md` §5), so
 cron-liveness rides the **separate** always-emitted `aeci.waf.poll{outcome:ok}` heartbeat
 (`outcome:failed` on a Cloudflare error, `outcome:skipped_no_creds` when `CF_ANALYTICS_API_TOKEN`
 is absent — the local/preview/pre-provisioning state, a silent no-op). Same failure + liveness

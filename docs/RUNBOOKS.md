@@ -897,8 +897,13 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
    needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
    **legitimate** user or integration is being blocked/challenged, re-tune the rule in
    `docs/waf-rate-limits.md` (update the doc in the same change — it is the source of truth) and verify per §4.
-3. **No data / heartbeat gaps?** The spike monitor has **no** `notify_no_data` (silence = no attacks). Poll
-   health is the separate `aeci.waf.poll{outcome:ok}` series, now watched by the `AECi — WAF poll not running`
+3. **No data / heartbeat gaps?** The spike monitor has **no** `notify_no_data` — but silence means "no
+   *mitigations*", which is **not** the same as "no attacks". A healthy poll over an **uncovered host**
+   reports the same flat ~0, and that is exactly how AECI-659 hid for months: the rules are host-scoped and
+   `www.` was in none of them, so live production looked quiet while it was entirely unprotected. Before
+   reading a sustained ~0 as calm, confirm coverage:
+   `node scripts/ops/2026-09-waf-host-scope/verify.mjs` — a `200 / 200` row means the rules stopped matching
+   that host. Poll health is the separate `aeci.waf.poll{outcome:ok}` series, now watched by the `AECi — WAF poll not running`
    liveness monitor (AECI-279, no-data over ~3h) — if it stopped, the cron isn't running; if it shows
    `outcome:skipped_no_creds`, `CF_ANALYTICS_API_TOKEN` is unset on that env's Worker (the metric is then
    absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
