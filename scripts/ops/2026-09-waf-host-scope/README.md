@@ -72,10 +72,10 @@ CF_ZONE_ID          the aecintegrations.com zone id (the same value CI pushes to
 CF_WAF_API_TOKEN    Zone WAF: Read for snapshot.mjs, Zone WAF: Edit for apply.mjs --apply
 ```
 
-This is **not** `CF_ANALYTICS_API_TOKEN` (`Zone Analytics: Read`, the Datadog poll) and
-not `CF_PURGE_API_TOKEN` (`Zone.Cache Purge`). Neither has WAF permission — reusing one
-gets a `403` from the Rulesets API. Mint a separate token; it is an operator token and is
-not held by CI.
+This is **not** `CF_ANALYTICS_API_TOKEN` (`Zone Analytics: Read`, the AECI-262
+firewall-event poll) and not `CF_PURGE_API_TOKEN` (`Zone.Cache Purge`). Neither has WAF
+permission — reusing one gets a `403` from the Rulesets API. Mint a separate token; it is
+an operator token and is not held by CI.
 
 ### Where to put them
 
