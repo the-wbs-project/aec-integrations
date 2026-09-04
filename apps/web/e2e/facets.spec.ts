@@ -182,51 +182,72 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstFacet = page.locator(FACET_CHECKBOX).first();
-    test.skip((await firstFacet.count()) === 0, 'no facet data seeded in this environment');
+    const first = await firstFacetGroup(page);
+    test.skip(first === null, 'no facet data seeded in this environment');
+    const { group, param } = first!;
+
+    // The term's facet count N is the same oracle AC2 uses: the facets endpoint
+    // computes each dimension's counts with every active filter EXCEPT its own,
+    // so refining by this term must produce exactly N grid matches. Read it
+    // BEFORE the click, while no refetch is in flight.
+    const checkbox = group.locator('input[type="checkbox"]').first();
+    const countText = (await group.locator('span.tabular-nums').first().textContent()) ?? '';
+    const n = Number(countText.match(/\d+/)?.[0] ?? '');
+    expect(n, `first facet count must be a positive number, got "${countText}"`).toBeGreaterThan(0);
 
     // Register the refine refetch BEFORE the click (per the discipline note
-    // above): `httpResource` retains the stale grid value while the refetch is in
-    // flight, so the original "waitFor a link → read name → click" raced — the
-    // read landed on the pre-refine first card and the refetch then swapped the
-    // grid before the click navigated (read "Fixture Procore", landed on "ADP
-    // Workforce Now"). Awaiting the response means the grid is on its FINAL data
-    // before we snapshot it. The first client `/api/products` request only fires
-    // on this click (SSR satisfies the initial load — line 36), so the first
-    // response carrying any facet dimension param is ours.
-    const refine = apiResponse(
-      page,
-      '/api/products',
-      (sp) => sp.has('category_id') || sp.has('audience_id') || sp.has('phase_id'),
-    );
-    await firstFacet.click();
-    await expect(page).toHaveURL(FACET_PARAM);
+    // above) so the response can't be missed while the action retries.
+    const refine = apiResponse(page, '/api/products', (sp) => sp.has(param));
+
+    // Retry the ACTION, not just the assertion: `app-root` being attached is
+    // satisfied by the SSR HTML alone, so a click dispatched before Angular
+    // attaches its listeners is dropped outright and the URL never changes
+    // (same failure the listing-toolbar helpers work around). Unlike those
+    // toggles this checkbox is not idempotent — a second click would REMOVE the
+    // term — so the inner window is generous enough that a landed click is not
+    // mistaken for a dropped one, and the retry converges either way because
+    // every attempt ends by asserting the refined URL.
+    await expect(async () => {
+      await checkbox.click();
+      await expect(page).toHaveURL(FACET_PARAM, { timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await refine;
 
-    // The refined term has product_count > 0, so the filtered grid has at least
-    // one product card to click. The refetch has resolved, so the grid no longer
-    // holds stale data and the first card's name and href belong to the same
-    // (final) product — closing the read-then-click race.
+    // `waitForResponse` resolves when the response ARRIVES, not when Angular has
+    // applied it — so the grid can still be showing pre-refine data here. Gate
+    // on the DOM instead: the lede and the grid are driven by the same
+    // `httpResource` value, so a lede reading N proves the rendered grid is the
+    // FINAL, refined one. Without this the snapshot below reads the stale first
+    // card and the click then navigates to the refined one (read "Fixture
+    // Procore", landed on "ConEst IntelliBid").
+    await expect(page.getByText(LEDE_TOTAL)).toContainText(`(${n} in total)`);
+
     // AECI-190: the default view is the card grid, so select the product link
     // view-agnostically within #main rather than via the table-row selector.
     const firstCard = page.locator('#main a[href^="/products/"]').first();
     await firstCard.waitFor({ timeout: 8000 }).catch(() => {});
     test.skip((await firstCard.count()) === 0, 'no product rows after refine in this environment');
 
-    // The whole card is the link, so its textContent is the full tile (name +
-    // vendor + chips + count). The product name itself is the card's display
-    // heading — the only `p.font-display` in the tile (the integration-stat
-    // figure is a <span>) — so compare the detail <h1> against that.
-    const cardName =
-      (await firstCard.locator('p.font-display').first().textContent())?.trim() ?? '';
+    // Snapshot the href and the name in ONE evaluation so they cannot describe
+    // two different products. The whole card is the link, so its textContent is
+    // the full tile (name + vendor + chips + count); the product name itself is
+    // the card's display heading — the only `p.font-display` in the tile (the
+    // integration-stat figure is a <span>).
+    const card = await firstCard.evaluate((el) => ({
+      href: el.getAttribute('href') ?? '',
+      name: el.querySelector('p.font-display')?.textContent?.trim() ?? '',
+    }));
     await firstCard.click();
     await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
+    // Landing anywhere other than the snapshotted card means the grid swapped
+    // under us — fail on the URL, which names the cause, rather than on the <h1>.
+    expect(new URL(page.url()).pathname).toBe(card.href);
 
     // Proof we landed on the CORRECT detail page: the <h1> is the product name.
     const heading = page.getByRole('heading', { level: 1 }).first();
     await expect(heading).toBeVisible();
-    if (cardName) {
-      await expect(heading).toHaveText(cardName);
+    if (card.name) {
+      await expect(heading).toHaveText(card.name);
     } else {
       await expect(heading).not.toHaveText('');
     }
