@@ -602,6 +602,15 @@ two distinct vendors.
   direction to the table, or the table and the pair page contradict each other again (the bug
   `STAGE_1_5_SPEC.md` §7.1 already had to fix once).
 
+- **The provenance disclosure renders a note only for a VENDOR-authored attestation** (AECI-779).
+  An `aeci`-sourced note is curation-internal and arrives as `null` — the API suppresses it at both
+  reader mappers, so this is a contract the surface receives rather than a rule it enforces. The
+  reason it needed saying: §4.3 specified every other string on this surface down to the CVD glyph
+  and required all copy through `$localize`, while the note was the one string that was neither
+  localized nor specified — **because it is data occupying a copy slot**, and nobody had assigned it
+  an audience (`STAGE_1_5_SPEC.md` §3.3). Note the History section (§9.1) renders the same note from
+  a **different** route, so both mappers suppress; see `readerFacingNote`.
+
 **UI-touching, so the `CLAUDE.md` design checklist applies:** critique → the pair page's existing
 Mobbin anchor site (the anchor-site rule — do not introduce a second site for badge states) →
 craft/refine → polish → `npx impeccable detect` zero P0 → **light theme only** (no `dark:`

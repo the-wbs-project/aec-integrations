@@ -1294,6 +1294,34 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
+/**
+ * The note a READER may see (AECI-779).
+ *
+ * `attestations.note` is curation-internal when the source is the AECi seed: the
+ * AECI-299 pass wrote machine-prefixed research annotations there (`ai_seed: …`,
+ * scrape URLs, notes-to-self about how `direction` was set), and no spec ever
+ * assigned that field a reader audience — `STAGE_1_5_SPEC.md` §3.3 defines it as
+ * "optional provenance/source note" and §8, the render contract this popover was
+ * built against, never mentions a note at all.
+ *
+ * A VENDOR note is the opposite: a deliberate Stage 2 authoring field
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §6) written by a named party who is on the hook
+ * for it. Those pass through untouched.
+ *
+ * `null` rather than an absent key on purpose — both `PairClaimAttestationSchema`
+ * and `ClaimTimelineEntrySchema` declare `note` as `.nullable()` (not
+ * `.optional()`), so a suppressed note serialises exactly like an attestation that
+ * simply carries none. No contract change, and nothing for a client to special-case.
+ *
+ * **Call this at EVERY mapper that puts a note on a reader payload.** There are two
+ * — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
+ * History section) — and they are reached from different routes, so a fix applied
+ * to one leaves the note live on the other.
+ */
+export function readerFacingNote(source: string, note: string | null): string | null {
+  return source === 'aeci' ? null : note;
+}
+
 /** Surface one attestation for the provenance popover, with its slot translated
  *  into the page's context frame (§4.3). `attested_by_vendor_id` stays server-
  *  side: the reader has no use for a vendor UUID, and `attestor` is enough to
@@ -1314,7 +1342,7 @@ function toPairClaimAttestation(
     source,
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: raw.note,
+    note: readerFacingNote(source, raw.note),
     introduced_at: raw.introducedAt,
     deprecated_at: raw.deprecatedAt,
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
@@ -1544,6 +1572,9 @@ export function toPairTimelines(
   return timelines;
 }
 
+/** One history row (AECI-303 / §9.1). Notes go through {@link readerFacingNote} —
+ *  the History section renders the same note the popover does, so suppressing the
+ *  AECi seed note in only one of the two leaves it published in the other. */
 function toClaimTimelineEntry(
   raw: RawTimelineAttestationRow,
   contextIsSource: boolean,
@@ -1555,7 +1586,7 @@ function toClaimTimelineEntry(
   return {
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: raw.note,
+    note: readerFacingNote(source, raw.note),
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
     ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
     created_at: raw.createdAt,

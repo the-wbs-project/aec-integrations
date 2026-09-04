@@ -385,7 +385,13 @@ Each `Attestation`:
 | `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **Send only `"aeci"`.** The enum still carries `vendor_a` / `vendor_b` because the column does, but those slots are now live and are derived from product ownership in the vendor portal — they are not settable from a payload. Since AECI-604 a non-`aeci` source is **dropped and reported in `skipped[]`** (`kind: "claim"`) rather than written. |
 | `asserted` | boolean | ✅ | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
 | `introducedAt`, `deprecatedAt` | ISO date string \| null | — | **Dormant in Stage 1.5** — version stamps accepted for forward-compatibility but unused. |
-| `note` | string \| null | — | Optional provenance / source note. |
+| `note` | string \| null | — | Optional provenance / source note. **Curation-internal — never rendered to readers** (AECI-779). Accepted and stored for curator QA, and suppressed at every reader mapper because `source` is always `aeci` here. Write for a curator, not for the public page: `ai_seed:` prefixes, scrape URLs and reasoning notes are fine and are what this field is for. |
+
+> **Why there is no marker/length validation on `note` (AECI-779).** It would be unreachable. Since
+> AECI-604 a non-`aeci` source is dropped into `skipped[]` rather than written, so promote can only
+> ever write an `aeci` note — and every `aeci` note is already suppressed at read. A regex hunting
+> for internal markers would be a gate that can never fire, over a field whose internal markers are
+> legitimate. The reader-side suppression is the whole control; do not re-propose a promote-side one.
 
 **`dataObject` resolution is find-only.** AECi matches the value against its seeded
 `data_object` slugs, directly or via a known alias (case-insensitive). **An unmatched

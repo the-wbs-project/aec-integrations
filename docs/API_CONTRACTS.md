@@ -622,12 +622,22 @@ export const AgreementStateSchema = z.enum([
   'unverified', 'single_source', 'confirmed', 'conflict',
 ]);
 
-// One LIVE attestation behind a claim (§3.3), for the annotated provenance (§8).
+// One LIVE attestation behind a claim (§3.3), for the provenance disclosure.
 // Retracted rows are filtered out by the read path, so they never appear here.
+//
+// NB: this comment used to cite "(§8)" as the authority for the annotated
+// provenance render. It is not one — §8 specifies the claim section without a
+// popover or a note, and both the citation and the render arrived in the SAME
+// commit (`2c54be78`). AECI-779 corrected the circle; see STAGE_1_5_SPEC.md §3.3.
 export const PairClaimAttestationSchema = z.object({
   source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
   attestor: z.enum(['aeci', 'context', 'other']),     // the slot, framed context-relative (§4.3)
   asserted: z.boolean(),
+  // ALWAYS `null` when `source` is `aeci` (AECI-779). The seed note is
+  // curation-internal — stored for curator QA, never reader-facing. A
+  // VENDOR-authored note is the deliberate §6 authoring field and passes through.
+  // Suppressed server-side by `readerFacingNote` (`lib/drizzle-helpers.ts`), so
+  // it is absent from the SSR TransferState blob too, not just from the popover.
   note: z.string().nullable(),
   introduced_at: z.string().nullable(),               // coarse ISO date stamps — NOT retraction
   deprecated_at: z.string().nullable(),
@@ -754,7 +764,11 @@ The pair's **per-claim attestation history** (§9.1), read off the append-only r
 export const ClaimTimelineEntrySchema = z.object({
   attestor: z.enum(['aeci', 'context', 'other']),   // framed context-relative, as on the pair read
   asserted: z.boolean(),
-  note: z.string().nullable(),
+  note: z.string().nullable(),                      // `null` when attestor is `aeci` — AECI-779, as
+                                                    // on the pair read. This is the SECOND reader
+                                                    // mapper; both must suppress or the note stays
+                                                    // published in the History section.
+
   introduced_version: z.string().optional(),        // version labels, omitted when unstamped
   deprecated_version: z.string().optional(),
   created_at: z.string(),                           // the append-only ordering key (oldest first)

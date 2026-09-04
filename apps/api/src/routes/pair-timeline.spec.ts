@@ -149,15 +149,22 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
     // Note the earlier row must be retracted: `attestations_slot_key` is
     // `unique(claim_id, source) WHERE retracted_at IS NULL`, so only ONE live row
     // may hold a slot — which is exactly the shape retract-then-insert produces.
+    // `vendor_a`, not `aeci`: AECI-779 suppresses the AECi seed note on this read,
+    // so an `aeci`-sourced fixture would make the notes null and this test would
+    // stop measuring ORDER. The slot is legal — `attestations_slot_key` is
+    // `unique(claim_id, source) WHERE retracted_at IS NULL`, and the earlier row
+    // is retracted.
     await attestation({
       id: u(41),
-      source: 'aeci',
+      source: 'vendor_a',
+      by: ACME,
       note: 'b',
       createdAt: '2026-05-01T00:00:00.000Z',
     });
     await attestation({
       id: u(40),
-      source: 'aeci',
+      source: 'vendor_a',
+      by: ACME,
       note: 'a',
       createdAt: '2026-01-01T00:00:00.000Z',
       retractedAt: '2026-05-01T00:00:00.000Z',
@@ -166,6 +173,40 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
     const res = await get('/api/products/procore/integrations/revit/timeline');
     const body = PairTimelineResponseSchema.parse(await res.json());
     expect(body.claims[0]!.entries.map((e) => e.note)).toEqual(['a', 'b']);
+  });
+
+  // AECI-779. The History section renders `e.note` exactly as the popover does, so
+  // this is the SECOND half of the lockstep — the first is
+  // `routes/product-pair.spec.ts` ("suppresses the AECi seed note"), and the rule
+  // itself is unit-tested in `lib/reader-facing-note.spec.ts`. A suppression
+  // applied to `toPairClaimAttestation` alone leaves the note published here.
+  it('SUPPRESSES the AECi seed note but keeps the vendor note, in one history', async () => {
+    await seedPair();
+    await attestation({
+      id: u(40),
+      source: 'aeci',
+      note: 'ai_seed: scraped from zapier.com — edge marked bidirectional',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await attestation({
+      id: u(41),
+      source: 'vendor_a',
+      by: ACME,
+      note: 'Only RFIs created after 2025.',
+      createdAt: '2026-02-01T00:00:00.000Z',
+    });
+
+    const res = await get('/api/products/procore/integrations/revit/timeline');
+    const body = PairTimelineResponseSchema.parse(await res.json());
+    const entries = body.claims.find((c) => c.claim_id === u(30))!.entries;
+    // Both rows still RENDER — suppression drops the note, never the attestation.
+    expect(entries.map((e) => [e.attestor, e.note])).toEqual([
+      ['aeci', null],
+      ['context', 'Only RFIs created after 2025.'],
+    ]);
+    // And the internal text is nowhere in the serialised body, not merely absent
+    // from the field we happened to assert on.
+    expect(JSON.stringify(body)).not.toContain('ai_seed');
   });
 
   it('resolves version stamps to labels', async () => {

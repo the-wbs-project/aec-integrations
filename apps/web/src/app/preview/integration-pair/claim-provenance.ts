@@ -42,6 +42,11 @@ import { COPY, type ClaimView } from './integration-pair.fixtures';
         >
           <h3 class="aec-overline text-(--text-tertiary)">{{ copy.provenanceTitle }}</h3>
           <p class="text-sm font-medium text-(--text-primary)">{{ copy.provenancePrimary }}</p>
+          <!-- Design sandbox only. The fixtures here are hand-written illustrative
+               prose on an AECi-sourced attestation; the LIVE surface no longer
+               renders an AECi note at all (AECI-779: the seed note is
+               curation-internal and is nulled server-side). Do not treat this
+               preview as evidence that the real popover shows one. -->
           @if (claim().attestation?.note; as note) {
             <p class="text-sm leading-relaxed text-(--text-secondary)">{{ note }}</p>
           }

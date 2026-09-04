@@ -170,11 +170,32 @@ An **attestation** records *who asserts a claim*. Attestations hang off a claim 
 | `asserted` | boolean | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
 | `introduced_at` | date \| null | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
 | `deprecated_at` | date \| null | **dormant in 1.5** — version stamp. |
-| `note` | string \| null | optional provenance/source note. |
+| `note` | string \| null | optional provenance/source note. **Audience: curation-internal when `source = 'aeci'`, reader-facing only when a vendor authored it** (AECI-779 — see the note below). |
 
 `vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
 
 > **Stage 2 update (AECI-603, 2026-08-14).** `vendor_a` / `vendor_b` are no longer dormant, and the table above is no longer the whole row. Migration 1 of the AECI-514 epic added **`attested_by_vendor_id`** (which vendor identity filled the slot — `confirmed` requires two *distinct* ones) and **`retracted_at`** (supersession, which is **not** what `introduced_at`/`deprecated_at` mean — those stay version stamps exactly as defined above). Which slot a caller may write derives from product ownership in `product_vendors`, never from the request. See `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2 and `docs/DATABASE_SCHEMA.md` §5a.2.
+
+> **Audience of `note` (AECI-779, 2026-09-04).** The row above assigned `note` a type but never an
+> **audience**, and that gap shipped: the AECI-300 provenance popover rendered the AECi seed note to
+> readers, publishing AECI-299's machine-prefixed research annotations (`ai_seed: …`, the URL a fact
+> was scraped from, notes-to-self about how `direction` was set) as AECi's own account of an
+> integration. **§8 — the render contract AECI-300 was built against — specifies the claim section in
+> full and never mentions a popover or a note;** both were introduced in implementation (commit
+> `2c54be78`). The apparent authorization in `API_CONTRACTS.md` ("for the annotated provenance (§8)")
+> was written by that same commit, citing a section that contains no such requirement — so do not
+> read it as one.
+>
+> The rule, now explicit: **an `aeci`-sourced note is curation-internal.** It is accepted on promote
+> and stored for curator QA (§4.4's Claims tab is a read-only curator view — that is the audience it
+> was always for), and it is suppressed at every reader mapper. A **vendor**-authored note is the
+> opposite: a deliberate authoring field (`STAGE_2_ATTESTATIONS_SPEC.md` §6), written by a named party
+> who is accountable for it, and it renders.
+>
+> Enforced in `apps/api/src/lib/drizzle-helpers.ts` by `readerFacingNote`, which **both** reader
+> mappers call — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
+> History section). They are reached from different routes, so suppressing in one leaves the note
+> published by the other; that lockstep is pinned by a test in each route spec.
 
 ### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
 
