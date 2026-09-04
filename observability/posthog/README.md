@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the thirteen-cron **liveness registry** the CI sweep reads. |
-| `insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. |
-| `alerts.json` | 13 PostHog alerts, each naming its source insight and carrying the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 13 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -43,16 +43,16 @@ threshold in this table, so re-promoting one is a config change and not archaeol
 | 14 | Linear pipeline failure | `failed/(non-skipped) * 100 > 50` over `last_1h` | **PostHog alert (hourly)**, window + threshold unchanged, **≥3-attempt floor added** | AW6 judgement, below. |
 | 15 | Linear webhook HMAC failures | `sum:aeci.webhooks.linear.hmac_failure > 3` over `last_1h` | **PostHog alert (hourly)**, unchanged | AW6 judgement, below. |
 | 16 | WAF rate-limit spike | `sum:aeci.waf.ratelimit.blocked > 500` over `last_15m` | **PostHog alert (hourly)**, **threshold rescaled 500/15m → 2,000/1h** | AW6 judgement, below. |
-| 17 | Retention prune skipped (non-paging) | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest** — dashboard "Cron health & retention" → *Retention — rows deleted, skipped and truncated runs* | Fixed by spec §5. The daily data-quality digest already carries it. |
-| 18 | Data quality WARN severity (non-paging) | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest** — dashboard "Cron health & retention" → *Data quality — findings by check and severity* | Fixed by spec §5. The daily data-quality digest already carries it. |
+| 17 | Retention prune skipped (non-paging) | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest** — dashboard "Scheduled jobs and data cleanup" → *Old-data cleanup — what was deleted, and what was not* | Fixed by spec §5. The daily data-quality digest already carries it. |
+| 18 | Data quality WARN severity (non-paging) | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest** — dashboard "Scheduled jobs and data cleanup" → *Nightly data-quality checks* | Fixed by spec §5. The daily data-quality digest already carries it. |
 | 19 | Algolia sync not running *(no-data)* | `sum:aeci.algolia.sync{outcome:ok,trigger:cron} < 1` over `last_2d`; `notify_no_data` @ 2880 min | **Liveness sweep** — `algolia-sync`, window **tightened 48 h → 26 h** | Fixed by spec §5. |
 | 20 | Home stats not running *(no-data)* | `sum:aeci.stats.compute{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `home-stats`, 26 h | Fixed by spec §5. |
 | 21 | Data quality not running *(no-data)* | `sum:aeci.data_quality.job{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `data-quality`, 26 h | Fixed by spec §5. |
 | 22 | Reconcile sweep not running *(no-data)* | `min:aeci.linear.reconcile.stuck < 0` over `last_1h`; no-data @ 60 min | **Liveness sweep** — `request-reconcile`, window **relaxed 60 → 90 min** | Fixed by spec §5. The extra 30 min is margin for the *sweep's* lateness, not the job's. |
 | 23 | WAF poll not running *(no-data)* | `sum:aeci.waf.poll{outcome:ok,trigger:cron} < 1` over `last_3h`; no-data @ 180 min | **Liveness sweep** — `waf-poll`, 180 min unchanged | Fixed by spec §5. |
 | 24 | Retention prune not running *(no-data)* | `sum:aeci.retention.prune{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `retention-prune`, 26 h | Fixed by spec §5. |
-| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Algolia index drift and orphan sweep per index* · **Liveness sweep** (`algolia-drift`, 26 h) | Fixed by spec §5. Report-only value half; drift is repaired by the next 08:00 sync or the orphan sweep. |
-| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Auth / Reviews / Moderation" → *Moderation queue depth and oldest pending age* · **Liveness sweep** (`moderation-snapshot`, 26 h) | Fixed by spec §5. |
+| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Is Algolia out of step with our database?* · **Liveness sweep** (`algolia-drift`, 26 h) | Fixed by spec §5. Report-only value half; drift is repaired by the next 08:00 sync or the orphan sweep. |
+| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Sign-ins, reviews and moderation" → *Moderation queue — how deep, and how long the oldest has waited* · **Liveness sweep** (`moderation-snapshot`, 26 h) | Fixed by spec §5. |
 
 **Totals:** 13 PostHog alerts covering 16 monitors · 8 → liveness sweep · 2 → digest ·
 2 dual monitors split across both. 26 accounted for, none dropped.
@@ -86,8 +86,8 @@ Two deliberate widenings ride along:
    real failure. Datadog's Algolia monitor was already trigger-agnostic; its stats monitor
    was not, and that asymmetry was a gap rather than a decision.
 
-Breakdown when it fires: dashboard "Cron health & retention" →
-*Crons — failed runs by job (last 7 days)*.
+Breakdown when it fires: dashboard "Scheduled jobs and data cleanup" →
+*Scheduled jobs that failed, last 7 days*.
 
 ### Five monitors stay separate, on merit
 
@@ -150,6 +150,61 @@ The underlying data did not change and neither did the sensitivity: the source i
 Cloudflare's GraphQL Analytics API in one shot. A 15-minute Datadog window over an
 hourly-emitted series was always coarser than it looked — it just saw the whole hour's
 count land inside one 15-minute bucket.
+
+---
+
+## Naming and descriptions
+
+The boards were ported straight out of Datadog, and the port carried its own paperwork
+onto the screen: every tile was called `AECi — <board> — <metric phrasing>` and described
+itself as *"Datadog parity: 'Top routes by request count (SSR route_class)'"*. That is a
+migration record, and it reads like one. Someone opening a board at 2 a.m. wants to know
+what the number means, not which Datadog widget it descends from.
+
+So `insights.json` now carries **four** text fields, two of which reach PostHog:
+
+| Field | Pushed? | Written for |
+|---|---|---|
+| `key` | as a **tag** (`aeci-key:<key>`) | The applier. The stable identity — see below. Never change one. |
+| `name` | yes | The reader. Plain English, no issue ids, no spec refs, no metric names. Short enough to survive a dashboard tile. |
+| `description` | yes | The reader. One to three sentences: what the tile shows, plus any caveat that changes how you read the number. |
+| `notes` | **no** | The engineer editing the query. Datadog lineage, accepted narrowings, why a query is shaped the way it is. This is the old `description` text, kept verbatim — nothing was lost in the rewrite, it moved. |
+| `previousNames` | **no** (but read by `apply.sh`) | The applier's fallback, for objects that pre-date the key tag. |
+
+Three rules hold the line:
+
+1. **A caveat that changes the reading stays in `description`; provenance goes to `notes`.**
+   "This counts only pages the server actually rendered, so it is not a visitor count"
+   changes what the number means and belongs on screen. "Ported from
+   `dashboard.json` widget 3" does not.
+2. **Thresholds stay, in words.** An alert's threshold *is* its meaning, so
+   `description` says "more than one request in a hundred" rather than dropping it or
+   writing `> 1%`. Issue numbers and metric names are what got removed, not the substance.
+3. **`key` is the identity, and it is permanent.** PostHog exposes no external id field,
+   so the original applier matched on the exact `name` — which meant a rename did not
+   rename anything, it forked the object and left the original on the board with no error.
+   Names are written for a reader and *will* be rewritten, so they cannot be the identity.
+   Each dashboard and insight now carries a `key`, pushed as the tag `aeci-key:<key>`, and
+   `apply.sh` resolves in this order:
+
+   1. the `aeci-key:<key>` tag — authoritative, survives any rename
+   2. the current `name` — for a live object that pre-dates the tag
+   3. `previousNames`, in order — same, for one already renamed upstream
+
+   Steps 2 and 3 stop mattering once a project has been applied, but they must stay: they
+   are what a fresh project, or a project applied before the tag existed, falls back to.
+   That fallback is not hypothetical — production carried
+   `…Cron job failed (any of the twelve…)` against this file's `…thirteen…`, so a
+   name-only lookup would have duplicated that insight. It is in `previousNames` for
+   exactly that reason. **`previousNames` is append-only** and `key` never changes;
+   changing a key orphans the live object as surely as renaming used to.
+
+Alerts point at their source insight by `insightKey`, never by name, for the same reason.
+
+The applier reconciles **name, description and tags as well as the query**. It used to
+compare only `.query.source.query`, which meant an edited description printed `skip` and
+changed nothing live — the exact silent divergence the drift check exists to prevent, in
+the fields an operator actually reads.
 
 ---
 
@@ -264,7 +319,7 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    The one piece of arithmetic here that has never seen real data. While both vendors are
    emitting, compare:
    - Datadog: `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production}`
-   - PostHog: the insight `AECi — ALERT — Detail page render p95, cache MISS (1 h)`
+   - PostHog: the insight `Alert: product pages are rendering slowly`
    The PostHog number should be **≥** the Datadog p95 and within one bucket width of it
    (bounds: `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms). If it is
    *lower*, or 0 while Datadog shows traffic, the reconstruction is wrong — check the
@@ -296,6 +351,18 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    branch. `aeci.ssr.render` is a counter emitted on **every** branch the SSR Worker runs
    and would give strictly better coverage. Not changed here because a port should not
    quietly change what a number means; revisit once the dual-run confirms parity.
+
+7. **Land the rename on both projects.** Every dashboard and insight was renamed and
+   re-described in this file; 525793 and 354071 both still carry the old text.
+   `./observability/posthog/apply.sh` renames all 50 objects **in place** — same ids, same
+   tiles, same layout, same alert attachments — and stamps each with its `aeci-key:` tag,
+   after which identity no longer depends on the title at all.
+
+   Drilled against a stub seeded with **production's real state** (old names, no key tags,
+   including the drifted `…any of the twelve…`): 7 + 43 in-place PATCHes, **zero**
+   object-creating POSTs, the drifted insight matched by name and renamed rather than
+   duplicated, and a second run reporting 50 clean `skip` lines. Run `--verify` first if
+   you want the list as a drift report before anything is written.
 
 ---
 
@@ -331,8 +398,19 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
   verified admin session — the two surfaces disagree for a reason that looks exactly like
   a bug.
 
-- [ ] **Run `apply.sh` against production** (manual step 3) and paste the dashboard URLs
-  into `docs/OBSERVABILITY.md`.
+- [x] **Run `apply.sh` against production.** ✅ Done 2026-08-26 — dashboards
+  `2033129`–`2033136`, insights `11342302`–`11342372`, verified live 2026-09-04. This row
+  and `docs/OBSERVABILITY.md` both claimed for over a week that it was still outstanding.
+
+- [ ] **Re-run `apply.sh` against BOTH projects** to land the renamed, re-described
+  dashboards and insights and stamp the `aeci-key:` tags (manual step 7). Renames happen
+  in place — no duplicates, no lost tiles. Until it runs, both projects show the old
+  Datadog-derived titles and the tables above describe the committed names, not the live
+  ones.
+
+- [ ] **Bring `AECi — Activation` (prod `2025826`) under `insights.json`**, or accept that
+  it stays hand-managed. It is the only AECi board this applier does not own, so it keeps
+  its original title through any rename pass here.
 
 - [ ] **Delete the `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets.**
   Now unused (spec §8.7).
@@ -342,19 +420,34 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
 
 ---
 
-## Live objects (non-production, project 525793)
+## Live objects — BOTH projects are applied
 
-Created 2026-08-24 from this committed JSON. Production is empty pending manual step 3.
+Non-production 525793 was created 2026-08-24; **production 354071 was applied 2026-08-26**
+and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
+`11342302`–`11342372`), verified 2026-09-04. Earlier revisions of this file and of
+`docs/OBSERVABILITY.md` said production was still empty pending "manual step 3"; that was
+stale, and it mattered — it is the difference between a first apply and a rename of live
+objects.
 
-| Dashboard | id | URL |
+Production additionally carries **`AECi — Activation`** (id `2025826`, created 2026-08-24
+by AECI-649). It is **not** in `insights.json` and this applier does not touch it, so it
+still has its original title and no `aeci-key:` tag. Bringing it under management here is
+the obvious follow-up; until then it is the one board a rename pass does not reach.
+
+> **The names below are the committed ones, not yet the live ones.** Every dashboard and
+> insight was renamed in this file (see "Naming and descriptions"); both projects still
+> carry the old names until someone re-runs `apply.sh`, which renames all 50 objects in
+> place — manual step 7. Ids do not change, so these URLs stay correct.
+
+| Dashboard | non-prod id (525793) | URL |
 |---|---|---|
-| AECi — Traffic (SSR + API) | 2025785 | <https://us.posthog.com/project/525793/dashboard/2025785> |
-| AECi — Search (Algolia + browser) | 2025786 | <https://us.posthog.com/project/525793/dashboard/2025786> |
-| AECi — Home / Stats | 2025787 | <https://us.posthog.com/project/525793/dashboard/2025787> |
-| AECi — Auth / Reviews / Moderation | 2025788 | <https://us.posthog.com/project/525793/dashboard/2025788> |
-| AECi — Requests / Linear pipeline | 2025789 | <https://us.posthog.com/project/525793/dashboard/2025789> |
-| AECi — Cron health & retention | 2025790 | <https://us.posthog.com/project/525793/dashboard/2025790> |
-| AECi — Alert signal sources | 2025791 | <https://us.posthog.com/project/525793/dashboard/2025791> |
+| AECi — Traffic, speed and errors | 2025785 | <https://us.posthog.com/project/525793/dashboard/2025785> |
+| AECi — Search | 2025786 | <https://us.posthog.com/project/525793/dashboard/2025786> |
+| AECi — Home page numbers and page-view logging | 2025787 | <https://us.posthog.com/project/525793/dashboard/2025787> |
+| AECi — Sign-ins, reviews and moderation | 2025788 | <https://us.posthog.com/project/525793/dashboard/2025788> |
+| AECi — Vendor requests and their Linear issues | 2025789 | <https://us.posthog.com/project/525793/dashboard/2025789> |
+| AECi — Scheduled jobs and data cleanup | 2025790 | <https://us.posthog.com/project/525793/dashboard/2025790> |
+| AECi — What the alerts are watching | 2025791 | <https://us.posthog.com/project/525793/dashboard/2025791> |
 
 43 insights, ids `11280545`–`11280671`. No alerts exist in 525793 by design.
 

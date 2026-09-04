@@ -1,22 +1,12 @@
 {
   "_readme": [
     "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6 + §5.",
-    "The thirteen PostHog alerts that replace sixteen of the twenty-six live Datadog monitors.",
-    "The other ten go to the liveness sweep (8) and the daily digests (2) — the complete",
-    "twenty-six-row disposition, with every retired threshold, is README.md §\"Monitor",
-    "disposition\".",
+    "The 13 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
+    "`replaces`, so re-promoting or re-tuning one is a config change and not archaeology.",
     "",
-    "Alerts are PRODUCTION ONLY (project 354071). apply.sh will refuse to create them in the",
-    "non-production project: a preview deploy failing a cron is not an incident, and the same",
-    "alert firing from two projects trains the operator to ignore it.",
-    "",
-    "The `insight` field names an entry in insights.json by NAME, not id — ids differ per",
-    "project and are resolved at apply time.",
-    "",
-    "`replaces.datadogQuery` is the retired Datadog query verbatim. It is here so that",
-    "re-promoting a threshold, or auditing whether the port changed the meaning, is a diff",
-    "rather than archaeology. Do not delete it when observability/datadog/ is removed at",
-    "AECI-651 — this becomes the only record."
+    "`insightKey` names the source insight by its STABLE KEY in insights.json, never by its",
+    "display name. Names are written for a reader and get rewritten; keys do not. Pointing an",
+    "alert at a name meant that renaming a tile silently detached its alert."
   ],
   "managedBy": "AECI-647",
   "appliesTo": ["prod"],
@@ -24,7 +14,7 @@
     {
       "key": "worker-error-rate",
       "name": "AECi — Worker error rate > 1% (1 h)",
-      "insight": "AECi — ALERT — Worker 5xx rate (1 h)",
+      "insightKey": "alert-worker-error-rate",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -53,7 +43,7 @@
     {
       "key": "cron-job-failed",
       "name": "AECi — Cron job failed (any daily/hourly job)",
-      "insight": "AECi — ALERT — Cron job failed (any of the thirteen, 24 h)",
+      "insightKey": "alert-cron-failed",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -82,7 +72,7 @@
     {
       "key": "data-quality-error",
       "name": "AECi — Data quality check found ERROR-severity issues",
-      "insight": "AECi — ALERT — Data quality ERROR-severity findings (24 h)",
+      "insightKey": "alert-data-quality-error",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -111,7 +101,7 @@
     {
       "key": "retention-runaway",
       "name": "AECi — Retention prune runaway (> 5,000 rows/table/day)",
-      "insight": "AECi — ALERT — Retention prune deleted an unexpected number of rows (24 h)",
+      "insightKey": "alert-retention-runaway",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -140,7 +130,7 @@
     {
       "key": "reconcile-persistent-stuck",
       "name": "AECi — Linear reconciliation: persistent stuck requests",
-      "insight": "AECi — ALERT — Linear reconciliation persistent failures (1 h)",
+      "insightKey": "alert-linear-reconcile-stuck",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -169,7 +159,7 @@
     {
       "key": "algolia-orphan-cap",
       "name": "AECi — Algolia orphan sweep capped",
-      "insight": "AECi — ALERT — Algolia orphan sweep hit its safety cap (24 h)",
+      "insightKey": "alert-algolia-orphan-capped",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -198,7 +188,7 @@
     {
       "key": "auth-error-rate",
       "name": "AECi — Auth sign-in error rate > 30% (1 h)",
-      "insight": "AECi — ALERT — Auth sign-in failure rate (1 h)",
+      "insightKey": "alert-auth-failure-rate",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -227,7 +217,7 @@
     {
       "key": "toxicity-outage",
       "name": "AECi — Toxicity scoring outage (> 50% errors, 1 h)",
-      "insight": "AECi — ALERT — Toxicity scoring failure rate (1 h)",
+      "insightKey": "alert-toxicity-failure-rate",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -256,7 +246,7 @@
     {
       "key": "pageviews-write-errors",
       "name": "AECi — page_views write error rate > 10% (1 h)",
-      "insight": "AECi — ALERT — page_views write failure rate (1 h)",
+      "insightKey": "alert-pageviews-error-rate",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -285,7 +275,7 @@
     {
       "key": "linear-pipeline-failure",
       "name": "AECi — Linear pipeline failure rate > 50% (1 h)",
-      "insight": "AECi — ALERT — Linear pipeline failure rate (1 h)",
+      "insightKey": "alert-linear-failure-rate",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -314,7 +304,7 @@
     {
       "key": "webhook-hmac-failure",
       "name": "AECi — Linear webhook HMAC failures > 3 (1 h)",
-      "insight": "AECi — ALERT — Linear webhook HMAC failures (1 h)",
+      "insightKey": "alert-linear-hmac",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -343,7 +333,7 @@
     {
       "key": "waf-ratelimit-spike",
       "name": "AECi — WAF rate-limit / challenge spike (> 2,000 / 1 h)",
-      "insight": "AECi — ALERT — WAF rate-limit / challenge volume (1 h)",
+      "insightKey": "alert-waf-spike",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
@@ -372,7 +362,7 @@
     {
       "key": "detail-render-p95",
       "name": "AECi — p95 detail page render > 1.5 s (1 h)",
-      "insight": "AECi — ALERT — Detail page render p95, cache MISS (1 h)",
+      "insightKey": "alert-detail-render-p95",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {
