@@ -359,13 +359,17 @@ describe('ProductsPairPage', () => {
       expect(el.textContent).not.toContain('confirmed by one vendor only');
     });
 
-    // The "confirmation arrives with the portal" subline is only true while no
-    // vendor has spoken. Each case needs its own test — `setup()` instantiates
-    // the TestBed, which can only happen once per spec.
-    const AWAITING = 'Vendor confirmation arrives with the vendor portal';
+    // The awaiting-vendors subline only renders while no vendor has spoken.
+    // Each case needs its own test — `setup()` instantiates the TestBed, which
+    // can only happen once per spec.
+    const AWAITING = 'These flows are asserted by AECi';
 
     it('keeps the awaiting-vendors subline while every attestation is AECi’s', () => {
-      expect(renderState('unverified', [aeciSeed()]).textContent).toContain(AWAITING);
+      const el = renderState('unverified', [aeciSeed()]);
+      expect(el.textContent).toContain(AWAITING);
+      // AECI-781: the vendor portal shipped 2026-09-03. No surface on this page
+      // may describe it as forthcoming again.
+      expect(el.textContent).not.toContain('vendor portal');
     });
 
     it('retires the awaiting-vendors subline once a vendor has spoken, even to deny', () => {

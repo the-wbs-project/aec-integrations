@@ -232,8 +232,8 @@ interface PairView {
   readonly syncHeadline: string;
   readonly confirmedRatio: string;
   /** True while no vendor has said anything about any claim on this pair — the
-   *  Stage 1.5 posture, and the only time the "vendor confirmation arrives with
-   *  the portal" subline is still true. */
+   *  Stage 1.5 posture, and the only time every attestation on the pair is
+   *  AECi's, which is exactly what the "asserted by AECi" subline claims. */
   readonly awaitingVendors: boolean;
   /** The two vendor names attestations are attributed to (§4.3). */
   readonly vendorNames: PairVendorNames;
@@ -542,11 +542,15 @@ function writePairViewCookie(mode: PairViewMode): void {
               <p class="font-display text-2xl leading-tight text-(--text-primary)">
                 {{ v.syncHeadline }}
               </p>
-              <!-- Only honest while no vendor has spoken; once attestations
-                   exist the ratio line below carries the posture. -->
+              <!-- Attribution, not a count: the ratio line below already says how
+                   many are vendor-confirmed, so this line says who asserted them.
+                   Only true while every attestation on the pair is AECi's. -->
               @if (v.awaitingVendors) {
-                <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
-                  Unverified. Vendor confirmation arrives with the vendor portal.
+                <p
+                  class="mt-2 text-sm text-(--text-secondary)"
+                  i18n="@@pair.dataflow.subline.aeciAsserted"
+                >
+                  These flows are asserted by AECi.
                 </p>
               }
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
@@ -560,9 +564,11 @@ function writePairViewCookie(mode: PairViewMode): void {
               >
                 Data flows aren’t documented yet
               </p>
-              <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.empty.subline">
-                We’re cataloguing what each integration syncs. Vendor confirmation arrives with the
-                vendor portal.
+              <p
+                class="mt-2 text-sm text-(--text-secondary)"
+                i18n="@@pair.dataflow.empty.subline.cataloguing"
+              >
+                We’re cataloguing what each integration syncs.
               </p>
             }
 
@@ -881,7 +887,9 @@ export class ProductsPairPage {
       confirmedRatio: confirmedRatioText(confirmed, total, singleSource),
       // Keyed off the presence of a vendor attestation, not off the agreement
       // state: a claim every vendor *denied* is still `unverified`, but a vendor
-      // has spoken, so "confirmation arrives with the portal" is no longer true.
+      // HAS spoken, so "these flows are asserted by AECi" would no longer be the
+      // whole provenance of the pair.
+      // (AECI-781 replaced the copy; the gate it justifies is unchanged.)
       awaitingVendors: pair.mechanisms.every((m) =>
         m.claims.every((c) => c.attestations.every((a) => a.attestor === 'aeci')),
       ),

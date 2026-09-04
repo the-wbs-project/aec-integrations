@@ -289,8 +289,9 @@ export const COPY = {
   /** Sync headline — breadth first (§3.5). */
   syncHeadline: (total: number): string =>
     total === 1 ? '1 data object syncs' : `${total} data objects sync`,
-  /** The honest verification posture — never a trust checkmark. (Brand rule: no em dashes.) */
-  syncSubline: 'Unverified. Vendor confirmation arrives with the vendor portal.',
+  /** Who asserted the flows — never a trust checkmark. The confirmation count is
+   *  the ratio line's job. (Brand rule: no em dashes.) */
+  syncSubline: 'These flows are asserted by AECi.',
   /** Muted metadata, never a red/green hero stat (§3.5). */
   confirmedRatio: (confirmed: number, total: number): string =>
     `${confirmed} of ${total} vendor-confirmed`,
@@ -302,7 +303,7 @@ export const COPY = {
   /** Provenance affordance (§8). */
   provenanceTitle: 'Provenance',
   provenancePrimary: 'Asserted by AECi',
-  provenanceClosing: 'Vendor confirmation is not available yet. It arrives with the vendor portal.',
+  provenanceClosing: 'No vendor has confirmed this flow.',
   provenanceAria: (dataObjectName: string): string =>
     `Provenance for ${dataObjectName}: asserted by AECi`,
 } as const;

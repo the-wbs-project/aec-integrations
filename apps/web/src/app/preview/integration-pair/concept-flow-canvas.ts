@@ -105,8 +105,10 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
           <p class="font-display text-3xl leading-tight text-(--text-primary)">
             {{ v.total > 0 ? copy.syncHeadline(v.total) : copy.emptyHeadline }}
           </p>
-          <p class="mt-2 text-sm text-(--text-secondary)">{{ copy.syncSubline }}</p>
           @if (v.total > 0) {
+            <!-- Attribution line, gated with the ratio: with no flows documented
+                 there is nothing for AECi to have asserted. -->
+            <p class="mt-2 text-sm text-(--text-secondary)">{{ copy.syncSubline }}</p>
             <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
             <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
               {{ copy.confirmedRatio(v.confirmed, v.total) }}

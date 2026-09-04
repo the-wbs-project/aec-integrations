@@ -671,7 +671,23 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
 - **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
   conditional on no vendor having attested at all — keyed off the presence of a vendor attestation,
   not off the agreement state, because a claim every vendor *denied* is still `unverified` yet the
-  subline would be false.
+  subline would be false. **Amended 2026-09-04 (AECI-781):** the vendor portal shipped with the
+  Stage 2 dark launch on 2026-09-03, so all three strings on this page that described it as
+  forthcoming were retired and re-keyed —
+  `@@pair.claim.provenance.closing` → `@@pair.claim.provenance.closing.unverified`
+  ("No vendor has confirmed this flow."),
+  `@@pair.dataflow.subline` → `@@pair.dataflow.subline.aeciAsserted`
+  ("These flows are asserted by AECi."), and
+  `@@pair.dataflow.empty.subline` → `@@pair.dataflow.empty.subline.cataloguing`
+  (the trailing sentence dropped — with zero claims there is nothing to be unconfirmed about).
+  The replacement copy states who has and has not spoken without promising a feature or implying a
+  refusal, per §3.4's never-a-warning rule. **The `awaitingVendors` gate above is unchanged**; only its
+  justification moves — a vendor that has spoken to deny makes "asserted by AECi" no longer the
+  whole provenance of the pair. **The band subline says *who asserted*, never *how many are
+  confirmed*:** the `confirmedRatio` line directly beneath it always reads "0 of N
+  vendor-confirmed" in exactly the state the subline renders, so a subline phrased around the
+  absence of confirmation would restate it verbatim. The provenance popover's closing line has no
+  ratio beneath it and so keeps the confirmation phrasing.
 - **No Mobbin anchor exists for the pair page.** DESIGN.md and the AECI-289/294/300 commits name
   none, so the anchor-site rule had nothing to anchor to. No second site was introduced: the badge
   states reuse the in-repo chip vocabulary and the `VerifiedBadge` token set.
