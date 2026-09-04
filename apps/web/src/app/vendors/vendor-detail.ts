@@ -211,7 +211,19 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
           </div>
         </div>
 
-        <div slot="metadata" class="space-y-6">
+        <!--
+          One instance, two formats, same contract as the product page. Docked
+          sidebar at xl; below xl the layout places it directly under About, where
+          it reads as a contained fact panel (groups pair up from sm, actions sit
+          inline at their natural width) rather than a stack of full-bleed rows at
+          the bottom of the page. See DetailLayout.
+        -->
+        <div
+          slot="metadata"
+          class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
+            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 xl:block xl:space-y-6
+            xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0"
+        >
           <section aria-labelledby="vendor-stats-title" class="space-y-3">
             <h2
               id="vendor-stats-title"
@@ -221,8 +233,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               At a glance
             </h2>
             <dl
-              class="grid grid-cols-2 gap-3 rounded-(--radius-lg) border border-(--border-default)
-                bg-(--surface-raised) p-4"
+              class="grid grid-cols-2 gap-3 rounded-(--radius-lg) border
+                border-(--border-default) bg-(--surface-base) p-4
+                xl:bg-(--surface-raised)"
             >
               <div>
                 <dt
@@ -257,7 +270,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             >
               Actions
             </h2>
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap gap-2 xl:flex-col">
               <a
                 aecRequestTrigger
                 [entity]="'vendor'"
@@ -266,7 +279,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [claimed]="v.verified"
                 [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
+                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
+                  xl:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -303,7 +317,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [slug]="v.slug"
                 [href]="'/vendors/' + v.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
+                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
+                  xl:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -339,7 +354,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
           </section>
         </div>
 
-        <div slot="body" class="space-y-12">
+        <!-- About goes in the LEAD slot so the metadata panel lands under it below
+             xl instead of at the foot of the page. See DetailLayout. -->
+        <div slot="body-lead" class="space-y-12">
           @if (v.description) {
             <section aria-labelledby="vendor-description-title" class="space-y-4">
               <h2
@@ -354,7 +371,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               </p>
             </section>
           }
+        </div>
 
+        <div slot="body" class="space-y-12">
           <section aria-labelledby="vendor-products-title" class="space-y-4">
             <div class="flex items-baseline gap-2">
               <h2

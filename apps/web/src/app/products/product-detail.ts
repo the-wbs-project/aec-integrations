@@ -267,8 +267,25 @@ import { RoleBadge } from './role-badge';
           </div>
         </div>
 
-        <div slot="metadata" class="space-y-6">
-          <section aria-labelledby="vendor-card-title" class="space-y-3">
+        <!--
+          One instance, two formats. At xl this is the docked sidebar: a single
+          column of stacked groups on the page background. Below xl the layout
+          drops it in right under About, where a full-bleed stack of stretched
+          rows read as leftovers. There it becomes a contained fact panel: groups
+          pair up into two columns from sm, the vendor row and the action buttons
+          become surface-base cards on the panel, and the actions sit inline at
+          their natural width instead of spanning the viewport.
+        -->
+        <div
+          slot="metadata"
+          class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
+            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 xl:block xl:space-y-6
+            xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0"
+        >
+          <section
+            aria-labelledby="vendor-card-title"
+            class="space-y-3 sm:col-span-2 xl:col-span-1"
+          >
             <h2
               id="vendor-card-title"
               class="aec-overline text-(--text-secondary)"
@@ -279,9 +296,10 @@ import { RoleBadge } from './role-badge';
             @if (p.vendor; as v) {
               <a
                 [routerLink]="['/vendors', v.slug]"
-                class="flex items-center gap-3 rounded-(--radius-lg) border border-(--border-default)
-                  bg-(--surface-raised) p-4 no-underline transition-colors
-                  hover:border-(--border-strong)"
+                class="flex items-center gap-3 rounded-(--radius-lg) border
+                  border-(--border-default) bg-(--surface-base) p-3 no-underline
+                  transition-colors hover:border-(--border-strong)
+                  xl:bg-(--surface-raised) xl:p-4"
               >
                 <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
                 <span class="flex min-w-0 items-center gap-1.5">
@@ -293,8 +311,9 @@ import { RoleBadge } from './role-badge';
               </a>
             } @else {
               <p
-                class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)
-                  p-4 text-(--text-secondary)"
+                class="rounded-(--radius-lg) border border-(--border-default)
+                  bg-(--surface-base) p-3 text-(--text-secondary)
+                  xl:bg-(--surface-raised) xl:p-4"
                 i18n="@@products.detail.vendor.none"
               >
                 No vendor listed
@@ -378,7 +397,7 @@ import { RoleBadge } from './role-badge';
             </section>
           }
 
-          <section aria-labelledby="actions-label" class="space-y-3">
+          <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 xl:col-span-1">
             <h2
               id="actions-label"
               class="aec-overline text-(--text-secondary)"
@@ -386,7 +405,7 @@ import { RoleBadge } from './role-badge';
             >
               Actions
             </h2>
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap gap-2 xl:flex-col">
               <a
                 aecRequestTrigger
                 [entity]="'product'"
@@ -395,7 +414,8 @@ import { RoleBadge } from './role-badge';
                 [claimed]="p.vendor?.verified ?? false"
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
+                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
+                  xl:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -432,7 +452,8 @@ import { RoleBadge } from './role-badge';
                 [slug]="p.slug"
                 [href]="'/products/' + p.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
+                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
+                  xl:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -468,11 +489,30 @@ import { RoleBadge } from './role-badge';
           </section>
         </div>
 
-        <div slot="body" class="space-y-12">
-          @if (sectionNav().length >= 2) {
-            <aec-section-nav [basePath]="'/products/' + p.slug" [sections]="sectionNav()" />
-          }
+        <!--
+          The nav takes its own slot rather than riding along in the body: the
+          layout projects it bare into the page container so its sticky bound is
+          the whole page. Inside a body column it would unstick partway down. The
+          bottom margin is on the nav itself for the same reason: it has no
+          wrapper to inherit spacing from. See DetailLayout.
+        -->
+        @if (sectionNav().length >= 2) {
+          <aec-section-nav
+            slot="nav"
+            class="mb-12"
+            [basePath]="'/products/' + p.slug"
+            [sections]="sectionNav()"
+          />
+        }
 
+        <!--
+          About goes in the LEAD slot, not the body slot: below xl the layout
+          renders the metadata sidebar directly after this block, so the vendor /
+          taxonomy / actions facts read as part of About instead of being dumped
+          under Reviews at the foot of the page. At xl this is simply the top of
+          column 1, and nothing moves. See DetailLayout.
+        -->
+        <div slot="body-lead" class="space-y-12">
           @if (p.description) {
             <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
               <h2
@@ -487,7 +527,9 @@ import { RoleBadge } from './role-badge';
               </p>
             </section>
           }
+        </div>
 
+        <div slot="body" class="space-y-12">
           @if (p.usefulness; as u) {
             <aec-product-usefulness id="how-teams-use-it" class="scroll-mt-20" [data]="u" />
           }

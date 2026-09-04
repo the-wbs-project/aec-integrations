@@ -52,12 +52,22 @@ export interface SectionNavItem {
   selector: 'aec-section-nav',
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Sticky lives on the HOST, not the inner <nav>: position:sticky only travels
-  // within its containing block, and the host's containing block is the tall
-  // body column (same setup the metadata sidebar uses). A sticky <nav> inside
-  // the host would be trapped in the host's own (nav-height) box and never stick.
+  // within its containing block. A sticky <nav> inside the host would be trapped
+  // in the host's own (nav-height) box and never stick.
+  //
+  // For the same reason the host itself must be projected into DetailLayout's
+  // `nav` slot, which renders it bare into the page container: the nav sticks
+  // only as long as its PARENT is on screen, so any narrower parent (a wrapper
+  // div, or the body-lead column) unpins it partway down the page.
+  //
+  // The background is fully OPAQUE, deliberately. A translucent
+  // `bg-(--surface-base)/85 backdrop-blur` let the body underneath read through
+  // as legible text — a section <h2> scrolling past sat directly on top of the
+  // nav labels (AECi is an editorial surface; overlapping type is not a look).
+  // `backdrop-blur` also cannot save it: it blurs, it does not hide. If a frosted
+  // treatment is ever wanted back, it needs a solid layer under it, not an alpha.
   host: {
-    class:
-      'block sticky top-0 z-10 border-b border-(--border-default) bg-(--surface-base)/85 backdrop-blur',
+    class: 'block sticky top-0 z-10 border-b border-(--border-default) bg-(--surface-base)',
   },
   template: `
     <nav aria-label="On this page" i18n-aria-label="@@products.detail.nav.aria">
