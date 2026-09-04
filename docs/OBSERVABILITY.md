@@ -1053,8 +1053,8 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **thirteen-cron liveness registry** the CI sweep reads. |
-| `observability/posthog/insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. |
-| `observability/posthog/alerts.json` | 13 alerts, each naming its source insight and carrying the **retired Datadog query verbatim**. |
+| `observability/posthog/insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/alerts.json` | 13 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
@@ -1066,12 +1066,22 @@ to "no rows", which is the shape that makes a threshold alert safe.
 **Live dashboards (non-production, project 525793):**
 <https://us.posthog.com/project/525793/dashboard> — Traffic `2025785`, Search
 `2025786`, Home/Stats `2025787`, Auth/Reviews/Moderation `2025788`,
-Requests/Linear `2025789`, Cron health `2025790`, Alert signal sources `2025791`
+Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watching `2025791`
 (43 insights, ids `11280545`–`11280671`; no alerts exist in 525793 by design).
 
-**Production (354071) is not yet applied** — it needs the `phx_` personal key,
-which is still an outstanding operator step. Paste the production dashboard URLs
-here after the first prod `apply.sh` run (spec §7).
+> **Board titles on both projects are still the old Datadog-derived ones.** Every
+> dashboard and insight was renamed and re-described in `insights.json`; the live
+> objects catch up on the next `apply.sh` run, which renames them **in place** (ids
+> and alert attachments unchanged) and stamps the `aeci-key:` identity tag.
+
+**Production (354071) IS applied** — 2026-08-26, verified live 2026-09-04:
+<https://us.posthog.com/project/354071/dashboard> — the same seven boards at ids
+`2033129`–`2033136`, with 43 insights at `11342302`–`11342372`. This paragraph
+previously said production was still unapplied and pending the `phx_` key; that
+was stale for over a week, and it is not a harmless kind of stale — it is the
+difference between "the next run creates these" and "the next run edits live
+production objects". Production also carries **`AECi — Activation`** (`2025826`,
+AECI-649), which is **not** in `insights.json` and is not managed by `apply.sh`.
 
 **What is verified and what is not.** All 43 queries compile and execute; all 13
 alert-source queries return exactly one row on an empty table; the

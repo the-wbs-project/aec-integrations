@@ -71,16 +71,16 @@ survive, `observability/datadog/` having been deleted.
 | 14 | Linear pipeline failure | `failed/(non-skipped) * 100 > 50` over `last_1h` | **PostHog alert (hourly)**, window + threshold unchanged, **≥3-attempt floor added** | [Linear pipeline failure](#linear-pipeline-failure-issue-creation--sync) |
 | 15 | Linear webhook HMAC failures | `sum:aeci.webhooks.linear.hmac_failure > 3` over `last_1h` | **PostHog alert (hourly)**, unchanged in every respect except cadence (security signal, not a job signal) | [Linear webhook HMAC failures](#linear-webhook-hmac-failures) |
 | 16 | WAF rate-limit spike | `sum:aeci.waf.ratelimit.blocked > 500` over `last_15m` | **PostHog alert (hourly)**, **threshold rescaled 500/15 m → 2,000/1 h** | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
-| 17 | Retention prune skipped *(non-paging)* | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest + dashboard** — "Cron health & retention" → *Retention — rows deleted, skipped and truncated runs*. **No alert.** The daily data-quality digest already carries it | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 18 | Data quality **WARN** severity *(non-paging)* | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest + dashboard** — *Data quality — findings by check and severity*. **No alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 17 | Retention prune skipped *(non-paging)* | `sum:aeci.retention.prune{outcome:skipped} > 0` over `last_1d` | **Digest + dashboard** — "Scheduled jobs and data cleanup" → *Old-data cleanup — what was deleted, and what was not*. **No alert.** The daily data-quality digest already carries it | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 18 | Data quality **WARN** severity *(non-paging)* | `max:aeci.data_quality.check{severity:warn} by {check} > 0` over `last_1d` | **Digest + dashboard** — *Nightly data-quality checks*. **No alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
 | 19 | Algolia sync not running *(no-data)* | `sum:aeci.algolia.sync{outcome:ok,trigger:cron} < 1` over `last_2d`; `notify_no_data` @ 2880 min | **Liveness sweep** — `algolia-sync`, window **tightened 48 h → 26 h** | [Algolia sync failed](#algolia-sync-failed) |
 | 20 | Home stats not running *(no-data)* | `sum:aeci.stats.compute{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `home-stats`, 26 h | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
 | 21 | Data quality not running *(no-data)* | `sum:aeci.data_quality.job{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `data-quality`, 26 h | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
 | 22 | Reconcile sweep not running *(no-data)* | `min:aeci.linear.reconcile.stuck < 0` over `last_1h`; no-data @ 60 min | **Liveness sweep** — `request-reconcile`, window **relaxed 60 → 90 min** (the extra 30 is margin for the *sweep's* lateness, not the job's) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
 | 23 | WAF poll not running *(no-data)* | `sum:aeci.waf.poll{outcome:ok,trigger:cron} < 1` over `last_3h`; no-data @ 180 min | **Liveness sweep** — `waf-poll`, 180 min unchanged | [WAF rate-limit / challenge spike](#waf-rate-limit--challenge-spike) |
 | 24 | Retention prune not running *(no-data)* | `sum:aeci.retention.prune{trigger:cron} < 1` over `last_2d`; no-data @ 1560 min | **Liveness sweep** — `retention-prune`, 26 h | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
-| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Algolia index drift and orphan sweep per index* · **Liveness sweep** (`algolia-drift`, 26 h). **The value half stops alerting** — it is report-only and self-heals | [Algolia index drift](#algolia-index-drift) |
-| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Auth / Reviews / Moderation" → *Moderation queue depth and oldest pending age* · **Liveness sweep** (`moderation-snapshot`, 26 h). **The backlog half stops alerting** — read it on the dashboard | [Moderation queue backlog](#moderation-queue-backlog) |
+| 25 | Algolia index drift *(dual)* | value: `abs(max:aeci.algolia.index_drift) by {index} > 0` over `last_1d` · liveness: no-data @ 2880 min | **Dashboard (value)** — "Search" → *Is Algolia out of step with our database?* · **Liveness sweep** (`algolia-drift`, 26 h). **The value half stops alerting** — it is report-only and self-heals | [Algolia index drift](#algolia-index-drift) |
+| 26 | Moderation queue backlog *(dual)* | backlog: `max:aeci.moderation.queue_oldest_age_hours > 48` over `last_1d` · liveness: no-data @ 1560 min | **Dashboard (backlog)** — "Sign-ins, reviews and moderation" → *Moderation queue — how deep, and how long the oldest has waited* · **Liveness sweep** (`moderation-snapshot`, 26 h). **The backlog half stops alerting** — read it on the dashboard | [Moderation queue backlog](#moderation-queue-backlog) |
 
 **Totals: 13 PostHog alerts covering 16 monitors · 8 → the liveness sweep · 2 → the
 digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
@@ -101,8 +101,8 @@ returns the **failing metric names** in it. **The breach email tells you which j
 failed.** Read the label column first, then open the matching runbook below.
 
 If the email is truncated or you want history, the breakdown is on the PostHog
-dashboard **"AECi — Cron health & retention" → *Crons — failed runs by job (last 7
-days)***. `/admin/system` carries the same record in-product (`job_runs`, 90-day
+dashboard **"AECi — Scheduled jobs and data cleanup" → *Scheduled jobs that failed, last
+7 days***. `/admin/system` carries the same record in-product (`job_runs`, 90-day
 window, with the data-quality job's full result set), and it does not require a
 telemetry login at all.
 
@@ -137,7 +137,7 @@ State these before an incident, not during one.
    `continue-on-error` to that workflow. The independent second record, when the
    sweep is dark, is `/admin/system` + the two daily digest emails.
 
-Dashboard for the render / error-rate runbooks below: **AECi — Traffic (SSR + API)**
+Dashboard for the render / error-rate runbooks below: **AECi — Traffic, speed and errors**
 in PostHog (URLs in `docs/OBSERVABILITY.md`). Edge cache HIT-rate is in **neither** — it lives on the
 Cloudflare Workers observability dashboard (WC-8; see below).
 
@@ -255,7 +255,7 @@ mitigating so the post-mortem can reconstruct the failure.
 
 **Alert:** none. The old `AECi — Algolia index drift (D1 ≠ Algolia)` monitor (value > 0
 daily, plus `notify_no_data` @ 48 h) **does not alert any more**. The value half is a
-**dashboard** read (PostHog "AECi — Search" → *Algolia index drift and orphan sweep per index*)
+**dashboard** read (PostHog "AECi — Search" → *Is Algolia out of step with our database?*)
 because it is report-only and negative drift self-heals; the liveness half becomes the
 **CI liveness sweep** (`algolia-drift`, window tightened 48 h → 26 h). The companion
 `AECi — Algolia orphan sweep capped` **does** stay a PostHog alert, on merit — it is a
@@ -626,8 +626,8 @@ is a launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
 (threshold plus a `notify_no_data` cron-liveness check) was retired with the Datadog plane.
 
 > **The backlog does not alert.** It is a **dashboard** read
-> (PostHog "AECi — Auth / Reviews / Moderation" → *Moderation queue depth and oldest pending
-> age*), and the liveness half moves to the **CI liveness sweep** (`moderation-snapshot`, 26 h).
+> (PostHog "AECi — Sign-ins, reviews and moderation" → *Moderation queue — how deep, and how
+> long the oldest has waited*), and the liveness half moves to the **CI liveness sweep** (`moderation-snapshot`, 26 h).
 > That is a deliberate call — a chronic backlog is a staffing/process issue, not an incident —
 > but it means **nobody is paged about it**, so it has to be *looked at*. It is a row in the
 > daily pass in `POST_LAUNCH_MONITORING.md` §1 for exactly that reason.
@@ -835,8 +835,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
   Different runbook entirely (triage the finding, don't restart the job). It also gets *better*:
   the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's
   `max(...) > 0` could not see a thrown check — a real hole, closed in the port.
-- **WARN severity stops alerting** — dashboard ("AECi — Cron health & retention" → *Data quality —
-  findings by check and severity*) plus the daily digest, which already carries the rows.
+- **WARN severity stops alerting** — dashboard ("AECi — Scheduled jobs and data cleanup" →
+  *Nightly data-quality checks*) plus the daily digest, which already carries the rows.
 - **"Job failed" folds into the combined** cron-failure alert; the `label_column` names it.
 - **"Not running" moves to the CI liveness sweep** (`data-quality`, 26 h).
 
@@ -906,7 +906,7 @@ telling apart, and the screen distinguishes them on purpose:
 1. **Unknown, and the job should have run by now?** Check the **heartbeat metric** *first* — it is
    the only thing that can distinguish "the cron never fired" from "the cron fired and the
    bookkeeping write failed". That means the CI liveness sweep's last run (and the same
-   series on the PostHog "Cron health & retention" dashboard). If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
+   series on the PostHog "Scheduled jobs and data cleanup" dashboard). If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
    `source:job-runs` error log `aeci.job_runs.write_failed`.
 2. **In flight, and the stamp is older than the job's cadence?** (Quarter-hourly reconcile: >30 min.
    A daily job: >6h.) The run was interrupted. Confirm against the job's own `*.crashed` log and the
@@ -1021,8 +1021,8 @@ genuinely measured.
 5,000 rows/table/day** (a *successful* run with the wrong effect — its runbook is "find out what was
 deleted before it ages out", which shares nothing with "the job failed"); **failed folds into the
 combined** cron-failure alert; **not-running moves to the CI liveness sweep** (`retention-prune`,
-26 h); and **skipped stops alerting**, becoming a dashboard read ("AECi — Cron health & retention" →
-*Retention — rows deleted, skipped and truncated runs*) alongside the digest that already carries
+26 h); and **skipped stops alerting**, becoming a dashboard read ("AECi — Scheduled jobs and data cleanup" →
+*Old-data cleanup — what was deleted, and what was not*) alongside the digest that already carries
 it.
 
 **Metrics:**
