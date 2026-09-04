@@ -214,7 +214,7 @@ export class ClaimProvenance {
       case 'conflict':
         return $localize`:@@pair.claim.provenance.closing.conflict:The two vendors describe this flow differently. We show both accounts rather than pick one.`;
       default:
-        return $localize`:@@pair.claim.provenance.closing:Vendor confirmation is not available yet. It arrives with the vendor portal.`;
+        return $localize`:@@pair.claim.provenance.closing.unverified:No vendor has confirmed this flow.`;
     }
   });
 

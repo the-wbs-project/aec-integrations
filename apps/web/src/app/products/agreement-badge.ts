@@ -8,10 +8,10 @@ import type { AgreementState } from '@aeci/shared';
  *
  * The four states and their tone, which is the whole point of the component:
  *
- * - **`unverified`** — the Stage 1.5 baseline and still the only state reachable
- *   until the vendor portal (AECI-301). Neutral chip, read as *"not yet
- *   vendor-confirmed"*, never a warning or a defect (the AECi-never-red rule,
- *   §3.4).
+ * - **`unverified`** — the Stage 1.5 baseline, and the state of every claim no
+ *   vendor has confirmed. Still the overwhelming majority of the catalog.
+ *   Neutral chip, read as *"not vendor-confirmed"*, never a warning or a defect
+ *   (the AECi-never-red rule, §3.4).
  * - **`single_source`** — exactly one vendor affirms and the counterparty is
  *   silent. Deliberately **neutral and attributed**: it names the vendor and
  *   says the other has not responded, so the silence is visible rather than

@@ -79,7 +79,7 @@ describe('ClaimProvenance', () => {
     expect(btn?.getAttribute('aria-label')).toContain('Provenance for RFIs');
   });
 
-  it('attributes the AECi seed and keeps the Stage 1.5 closing line', () => {
+  it('attributes the AECi seed and closes on the unconfirmed state', () => {
     const { popoverText } = open(claim('unverified', [att('aeci', true, 'Curated by AECi.')]), {
       context: 'Acme Software',
       other: 'Globex',
@@ -87,7 +87,10 @@ describe('ClaimProvenance', () => {
     expect(popoverText).toContain('AECi');
     expect(popoverText).toContain('asserts this flow');
     expect(popoverText).toContain('Curated by AECi.');
-    expect(popoverText).toContain('Vendor confirmation is not available yet');
+    expect(popoverText).toContain('No vendor has confirmed this flow');
+    // AECI-781: the vendor portal shipped 2026-09-03, so the closing line must
+    // never again describe vendor confirmation as a forthcoming feature.
+    expect(popoverText).not.toContain('vendor portal');
   });
 
   it('names each vendor by its context-relative attestor', () => {
