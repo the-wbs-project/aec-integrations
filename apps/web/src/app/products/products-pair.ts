@@ -232,8 +232,8 @@ interface PairView {
   readonly syncHeadline: string;
   readonly confirmedRatio: string;
   /** True while no vendor has said anything about any claim on this pair — the
-   *  Stage 1.5 posture, and the only time the "no vendor has confirmed these
-   *  flows" subline adds anything the ratio line below it doesn't already say. */
+   *  Stage 1.5 posture, and the only time every attestation on the pair is
+   *  AECi's, which is exactly what the "asserted by AECi" subline claims. */
   readonly awaitingVendors: boolean;
   /** The two vendor names attestations are attributed to (§4.3). */
   readonly vendorNames: PairVendorNames;
@@ -526,14 +526,15 @@ function writePairViewCookie(mode: PairViewMode): void {
               <p class="font-display text-2xl leading-tight text-(--text-primary)">
                 {{ v.syncHeadline }}
               </p>
-              <!-- Only rendered while no vendor has spoken at all; once any
-                   attestation exists the ratio line below carries the posture. -->
+              <!-- Attribution, not a count: the ratio line below already says how
+                   many are vendor-confirmed, so this line says who asserted them.
+                   Only true while every attestation on the pair is AECi's. -->
               @if (v.awaitingVendors) {
                 <p
                   class="mt-2 text-sm text-(--text-secondary)"
-                  i18n="@@pair.dataflow.subline.unconfirmed"
+                  i18n="@@pair.dataflow.subline.aeciAsserted"
                 >
-                  No vendor has confirmed these flows.
+                  These flows are asserted by AECi.
                 </p>
               }
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
@@ -869,8 +870,8 @@ export class ProductsPairPage {
       confirmedRatio: confirmedRatioText(confirmed, total, singleSource),
       // Keyed off the presence of a vendor attestation, not off the agreement
       // state: a claim every vendor *denied* is still `unverified`, but a vendor
-      // HAS spoken, so the blanket "no vendor has confirmed these flows" subline
-      // would be a thinner account of the pair than the ratio line beneath it.
+      // HAS spoken, so "these flows are asserted by AECi" would no longer be the
+      // whole provenance of the pair.
       // (AECI-781 replaced the copy; the gate it justifies is unchanged.)
       awaitingVendors: pair.mechanisms.every((m) =>
         m.claims.every((c) => c.attestations.every((a) => a.attestor === 'aeci')),

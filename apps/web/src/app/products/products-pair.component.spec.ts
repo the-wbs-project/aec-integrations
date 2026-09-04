@@ -362,7 +362,7 @@ describe('ProductsPairPage', () => {
     // The awaiting-vendors subline only renders while no vendor has spoken.
     // Each case needs its own test — `setup()` instantiates the TestBed, which
     // can only happen once per spec.
-    const AWAITING = 'No vendor has confirmed these flows';
+    const AWAITING = 'These flows are asserted by AECi';
 
     it('keeps the awaiting-vendors subline while every attestation is AECi’s', () => {
       const el = renderState('unverified', [aeciSeed()]);
