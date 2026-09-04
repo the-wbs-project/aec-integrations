@@ -414,21 +414,25 @@ export function buildPairJsonLd(input: {
 
 /**
  * Build the pair page's `BreadcrumbList`, mirroring the trail the page actually
- * renders (`products-pair.ts`: Home › {context} › {other}). Google requires
- * breadcrumb markup to match visible content, so the shape is dictated by the
- * template — including the last crumb being the OTHER product's name rather than
- * the pair title.
+ * renders (`products-pair.ts`: Home › {context} › Integrations › {other}). Google
+ * requires breadcrumb markup to match visible content, so the shape is dictated by
+ * the template — including the last crumb being the OTHER product's name rather
+ * than the pair title, and the "Integrations" crumb pointing at the context
+ * product's `#integrations` section rather than at a route of its own (there is no
+ * `/products/:slug/integrations` page; the list lives on the detail page).
  *
- * `homeLabel` is passed in under the template's own `@@pair.breadcrumb.home`
- * message id, so a translation can never move the visible text without moving
- * the markup with it. The final crumb omits `item` per schema.org convention for
- * the current page, which also keeps the payload correct on the non-default
- * orientation, whose canonical points at the other URL.
+ * `homeLabel` and `integrationsLabel` are passed in under the template's own
+ * `@@pair.breadcrumb.home` / `@@pair.breadcrumb.integrations` message ids, so a
+ * translation can never move the visible text without moving the markup with it.
+ * The final crumb omits `item` per schema.org convention for the current page,
+ * which also keeps the payload correct on the non-default orientation, whose
+ * canonical points at the other URL.
  */
 export function buildPairBreadcrumbLd(input: {
   canonical: string;
   origin: string;
   homeLabel: string;
+  integrationsLabel: string;
   context: ProductListItem;
   other: ProductListItem;
 }): BreadcrumbListLd {
@@ -444,7 +448,13 @@ export function buildPairBreadcrumbLd(input: {
         name: input.context.name,
         item: `${input.origin}/products/${input.context.slug}`,
       },
-      { '@type': 'ListItem', position: 3, name: input.other.name },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: input.integrationsLabel,
+        item: `${input.origin}/products/${input.context.slug}#integrations`,
+      },
+      { '@type': 'ListItem', position: 4, name: input.other.name },
     ],
   };
 }

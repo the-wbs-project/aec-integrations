@@ -235,14 +235,16 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // Built from `pair` — the payload AFTER `gateHistoricalDepth` (AECI-304), so
     // the LD can never describe version depth the page does not serve. Reusing
     // `name` / `description` verbatim is what keeps the structured data and the
-    // `<title>` from drifting; the breadcrumb label reuses the template's own
-    // `@@pair.breadcrumb.home` message id for the same reason.
+    // `<title>` from drifting; the breadcrumb labels reuse the template's own
+    // `@@pair.breadcrumb.home` / `@@pair.breadcrumb.integrations` message ids for
+    // the same reason.
     if (!noindex) {
       meta.setPairJsonLd({
         canonical,
         name,
         description,
         homeLabel: $localize`:@@pair.breadcrumb.home:Home`,
+        integrationsLabel: $localize`:@@pair.breadcrumb.integrations:Integrations`,
         context: pair.context_product,
         other: pair.other_product,
       });
