@@ -51,6 +51,10 @@ const VIEW_BTN_BASE =
  */
 @Component({
   selector: 'aec-listing-toolbar',
+  // A custom element defaults to `display: inline`, and vertical margins never
+  // apply to an inline box — so the hosts' `space-y-6` on the grid slot silently
+  // collapsed to nothing and the first card sat flush against the toolbar.
+  host: { class: 'block' },
   template: `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="inline-flex items-center gap-2">
@@ -60,11 +64,14 @@ const VIEW_BTN_BASE =
           i18n="@@listing.toolbar.sort.label"
           >Sort</label
         >
+        <!-- py-2.5 is not arbitrary: it makes the select 42px, matching the view
+             toggle beside it (2px border + 8px p-1 + 12px py-1.5 + 20px text-sm
+             line box). Change one side and change the other. -->
         <div class="relative">
           <select
             [id]="sortId"
             class="appearance-none rounded-(--radius-md) border border-(--border-default)
-              bg-(--surface-base) py-1.5 pe-9 ps-3 text-sm text-(--text-primary)
+              bg-(--surface-base) py-2.5 pe-9 ps-3 text-sm text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             (change)="onSortChange($event)"
           >

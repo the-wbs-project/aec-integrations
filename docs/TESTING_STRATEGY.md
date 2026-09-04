@@ -829,6 +829,45 @@ A test is flaky if it fails intermittently without code changes. Flaky tests are
 
 This is strict but necessary. Tolerating flakiness leads to compounding pain.
 
+### 14.3 The two e2e hazards that actually cause flakes here
+
+Both are timing races against Angular, and both have a standard remedy. Neither
+is hypothetical: `e2e/facets.spec.ts` "criterion #1" hit *both* on `main` within
+hours of each other.
+
+**(a) There is no hydration gate.** `await expect(page.locator('app-root')).toBeAttached()`
+is the repo's standard preamble, but it passes on the SSR HTML alone — it says
+nothing about whether Angular has attached its listeners. A click or
+`selectOption` dispatched in that window is dropped outright (event replay does
+not rescue it), the URL never changes, and the following `toHaveURL` times out.
+Whether hydration wins the race depends on machine load, so it reads like a code
+regression. There is no clean DOM signal to wait on: `#ng-state` survives the
+`TransferState` read, and `[ngh]` attributes are already consumed by the time a
+default `goto` resolves.
+
+  **Remedy — retry the *action*, not just the assertion:**
+  `await expect(async () => { await click(); await expect(page).toHaveURL(x, { timeout: 1_000 }); }).toPass({ timeout: 15_000 })`.
+  `apps/web/e2e/listing-toolbar.ts` (`chooseView` / `chooseSort`) is the worked
+  example. Note the retry is only unconditionally safe for **idempotent**
+  actions; for a toggle (a facet checkbox, where a second click *removes* the
+  term) widen the inner timeout so a landed click is not mistaken for a dropped
+  one — the loop still converges, since every attempt ends on the same assertion.
+
+**(b) A response is not a render.** `page.waitForResponse(...)` resolves when the
+response arrives, not when Angular has applied it, and `httpResource` keeps
+serving the stale value until it does. So a "wait for the refetch, then snapshot
+the DOM" sequence still reads pre-refetch content, and any click that follows
+navigates using post-refetch content — a read-then-click race that surfaces as a
+bafflingly wrong assertion target ("expected Fixture Procore, received ConEst
+IntelliBid").
+
+  **Remedy — gate on a rendered value that can only come from the new data**,
+  then snapshot. On the listing pages the lede total works (`(N in total)`),
+  because the lede and the grid are driven by the same `httpResource`. Where a
+  test snapshots several fields off one element, read them in a single
+  `locator.evaluate()` so they cannot describe two different records.
+
+
 ---
 
 ## 15. Coverage exceptions
