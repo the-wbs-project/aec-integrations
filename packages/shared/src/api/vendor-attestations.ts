@@ -185,7 +185,11 @@ export type VendorOwnAttestation = z.infer<typeof VendorOwnAttestationSchema>;
  * with the other party's position shown; it does not require — and must not
  * leak — the counterparty's version stamps or its `attested_by_vendor_id`. The
  * note is already public on the pair page's provenance disclosure, so surfacing
- * it here reveals nothing new.
+ * it here reveals nothing new. That still holds after AECI-779: suppression there
+ * applies to `aeci`-sourced notes only, and a counterparty is by definition a
+ * VENDOR slot — `toCounterparty` filters `source !== 'aeci'` — so nothing this
+ * schema can carry was withheld from the reader. Do not read this sentence as
+ * blanket authorization to publish any `attestations.note`.
  *
  * `null` when the counterparty slot is empty. That silence is the whole point of
  * `single_source`: absence of an attestation is never rendered as agreement

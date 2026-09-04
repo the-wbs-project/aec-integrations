@@ -357,14 +357,16 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     ]);
     // Stage 1.5: every claim is AECi-only, so agreement is always unverified.
     expect(claimsOut.every((c) => c.agreement === 'unverified')).toBe(true);
-    // Provenance rides along: the single AECi attestation with its note. The
-    // AECi seed is never attributed to an endpoint — it is not a party to the vote.
+    // Provenance rides along: the single AECi attestation. The AECi seed is never
+    // attributed to an endpoint — it is not a party to the vote — and since
+    // AECI-779 its `note` is SUPPRESSED: the seed note is curation-internal, so it
+    // arrives as `null` however the row was seeded.
     expect(claimsOut[0]!.attestations).toEqual([
       {
         source: 'aeci',
         attestor: 'aeci',
         asserted: true,
-        note: 'Curated by AECi.',
+        note: null,
         introduced_at: null,
         deprecated_at: null,
       },
@@ -542,6 +544,37 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
 
   // `attestor` is what lets the pair page render "Confirmed by {vendor}" from
   // the two hydrated `ProductListItem.vendor` links, with no vendors join.
+  // AECI-779. The AECi seed note is curation-internal — the AECI-299 pass wrote
+  // machine-prefixed research annotations there, and §8 (the render contract this
+  // popover was built against) never specified a note render at all. This is the
+  // FIRST half of the lockstep; the second is `routes/pair-timeline.spec.ts`
+  // ("SUPPRESSES the AECi seed note…"), because the History section renders the
+  // same note from a DIFFERENT route and mapper. The rule itself is unit-tested in
+  // `lib/reader-facing-note.spec.ts`.
+  it('SUPPRESSES the AECi seed note but keeps the vendor note, on one claim', async () => {
+    await seedClaimWith([
+      {
+        source: 'aeci',
+        asserted: true,
+        note: 'ai_seed: scraped from zapier.com — edge marked bidirectional',
+      },
+      { source: 'vendor_a', asserted: true, by: ACME, note: 'Only RFIs created after 2025.' },
+    ]);
+
+    const { claim: out } = await readClaim();
+    // Both attestations still render and still VOTE — suppression drops the note,
+    // never the assertion. (One vendor + the seed ⇒ single_source, per §4.2.)
+    expect(out.attestations.map((a) => [a.source, a.note])).toEqual([
+      ['aeci', null],
+      ['vendor_a', 'Only RFIs created after 2025.'],
+    ]);
+    expect(out.agreement).toBe('single_source');
+    // The internal text is absent from the whole payload — this is the blob the
+    // pair resolver puts into TransferState on an indexable, cacheable page, so
+    // "not on the field I asserted" is not a strong enough claim.
+    expect(JSON.stringify(out)).not.toContain('ai_seed');
+  });
+
   it('translates the attestation slot into the context frame, both orientations', async () => {
     await seedClaimWith([
       { source: 'vendor_a', asserted: true, by: ACME },
