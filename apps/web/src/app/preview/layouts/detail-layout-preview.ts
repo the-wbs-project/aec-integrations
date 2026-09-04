@@ -46,12 +46,16 @@ import { DetailLayout } from '../../layouts/detail-layout';
         </div>
       </dl>
 
-      <article slot="body" class="prose-section space-y-6">
+      <article slot="body-lead" class="prose-section space-y-6">
         <h2 class="font-display text-2xl font-semibold">Overview</h2>
         <p class="text-(--text-secondary)">
-          Body sections stack vertically in the main column. The metadata sidebar sticks alongside
-          on tablets and up, and folds below the hero on phones.
+          Lead body sections stack vertically in the main column. The metadata sidebar sticks
+          alongside them from xl; below xl it renders immediately after this block, so the facts
+          stay near the top of the page instead of landing under the last section.
         </p>
+      </article>
+
+      <article slot="body" class="prose-section space-y-6">
         <h2 class="font-display text-2xl font-semibold">Integrations</h2>
         <p class="text-(--text-secondary)">
           Real detail pages defer heavy sub-sections. The layout itself doesn't care what's

@@ -798,8 +798,14 @@ describe('ProductDetailPage claim CTA', () => {
  * order, the hero reach line, and the §13.4(2) self-exclusion that decides
  * whether the powered section renders at all.
  */
+// Both body slots, in document order. The page splits its body across
+// `body-lead` (About, which must stay above the metadata panel when
+// DetailLayout is single-column) and `body` (everything after it), so a
+// `[slot="body"]`-only sweep would silently drop `#about` from the order this
+// spec exists to pin. querySelectorAll returns document order, not selector
+// order, so the two slots come back interleaved correctly.
 const bodySectionIds = (el: HTMLElement): string[] =>
-  [...el.querySelectorAll('[slot="body"] > [id]')].map((n) => n.id);
+  [...el.querySelectorAll('[slot="body-lead"] > [id], [slot="body"] > [id]')].map((n) => n.id);
 
 const navIds = (el: HTMLElement): string[] => {
   const nav = el.querySelector('aec-section-nav');

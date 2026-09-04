@@ -465,7 +465,7 @@ Defer to DESIGN.md and PRODUCT.md for token-level decisions and voice. Phase 2 p
 
 Three reusable Angular layout components (per `DESIGN.md` patterns):
 
-- `DetailLayout` — left column hero (name, vendor, key facts) + right column metadata + body sections below
+- `DetailLayout` — full-width hero (name, vendor, key facts) above a two-column body + right-column metadata. The two-column split is **`xl:` and up**; below that the page is single-column, so the body's data tables keep the full content width. Single-column pages do **not** push the metadata to the foot: the body is split across a `body-lead` slot (About) and `body`, and the undocked sidebar renders between them, reformatted as a contained fact panel. The sticky in-page nav sits in its own `nav` slot, projected unwrapped above the grid so it stays pinned for the whole page (see `DESIGN.md` §"Layout shells")
 - `BrowseLayout` — header strip + filter sidebar (Phase 3 placeholder) + grid of cards
 - ~~`IndexLayout` — table-style listing with sort headers + pagination~~ **(deleted, AECI-657)**
 
