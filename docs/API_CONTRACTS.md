@@ -768,7 +768,6 @@ export const ClaimTimelineEntrySchema = z.object({
                                                     // on the pair read. This is the SECOND reader
                                                     // mapper; both must suppress or the note stays
                                                     // published in the History section.
-
   introduced_version: z.string().optional(),        // version labels, omitted when unstamped
   deprecated_version: z.string().optional(),
   created_at: z.string(),                           // the append-only ordering key (oldest first)

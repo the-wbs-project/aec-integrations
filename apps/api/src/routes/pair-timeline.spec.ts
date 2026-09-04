@@ -151,9 +151,7 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
     // may hold a slot — which is exactly the shape retract-then-insert produces.
     // `vendor_a`, not `aeci`: AECI-779 suppresses the AECi seed note on this read,
     // so an `aeci`-sourced fixture would make the notes null and this test would
-    // stop measuring ORDER. The slot is legal — `attestations_slot_key` is
-    // `unique(claim_id, source) WHERE retracted_at IS NULL`, and the earlier row
-    // is retracted.
+    // stop measuring ORDER.
     await attestation({
       id: u(41),
       source: 'vendor_a',
