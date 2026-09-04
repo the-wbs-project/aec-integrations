@@ -638,7 +638,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                   >
                     @if (m.builtByVendor; as bv) {
                       <span>
-                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>
+                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>&ngsp;
                         <a
                           [routerLink]="['/vendors', bv.slug]"
                           class="text-(--accent-primary) underline underline-offset-2"
@@ -651,7 +651,8 @@ function writePairViewCookie(mode: PairViewMode): void {
                     }
                     @if (m.poweredByProduct; as pb) {
                       <span>
-                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container>
+                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container
+                        >&ngsp;
                         <a
                           [routerLink]="['/products', pb.slug]"
                           class="text-(--accent-primary) underline underline-offset-2"

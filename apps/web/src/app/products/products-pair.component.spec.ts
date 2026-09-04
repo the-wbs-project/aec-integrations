@@ -448,6 +448,17 @@ describe('ProductsPairPage', () => {
       expect(el.textContent).toContain('·');
     });
 
+    it('keeps a space between the label and its link', () => {
+      // Angular strips the newline between `</ng-container>` and `<a>` under the
+      // default `preserveWhitespaces: false`, which rendered "Built byAgave".
+      // The `&ngsp;` entities in the template are what put the space back.
+      const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
+      const text = el.textContent!.replace(/\s+/g, ' ');
+
+      expect(text).toContain('Built by Agave');
+      expect(text).toContain('Powered by Agave ERP Sync');
+    });
+
     it('falls back to the vendor-only segment when powered_by_product is null', () => {
       const { el } = setup(buildPairWithProvenance(agaveVendor, null));
 
