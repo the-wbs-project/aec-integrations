@@ -69,8 +69,17 @@ if [ ! -d "$PH_SM_DIR" ]; then
   exit 0
 fi
 
-if [ -z "${POSTHOG_CLI_API_KEY:-}" ] || [ -z "${POSTHOG_CLI_PROJECT_ID:-}" ]; then
-  echo "::warning::posthog-sourcemaps: POSTHOG_CLI_API_KEY and/or POSTHOG_CLI_PROJECT_ID unset — skipping inject+upload. Production stack traces in PostHog Error Tracking will stay MINIFIED until the operator provisions them (AECI-640). Deleting the maps anyway so they are never served."
+# Named separately for the same reason as the deploy marker: POSTHOG_CLI_PROJECT_ID
+# is passed by every CI caller with a literal fallback, so a combined "and/or"
+# message pointed at a cause that cannot occur and hid the one that can.
+if [ -z "${POSTHOG_CLI_API_KEY:-}" ]; then
+  echo "::warning::posthog-sourcemaps: POSTHOG_CLI_API_KEY unset — skipping inject+upload. Stack traces in PostHog Error Tracking will stay MINIFIED until the operator provisions the personal phx_ key (docs/OBSERVABILITY.md §8.7). Deleting the maps anyway so they are never served."
+  sweep_maps
+  exit 0
+fi
+
+if [ -z "${POSTHOG_CLI_PROJECT_ID:-}" ]; then
+  echo "::warning::posthog-sourcemaps: POSTHOG_CLI_PROJECT_ID unset — skipping inject+upload. CI callers always pass it with a literal fallback, so this means a direct invocation omitted it. Deleting the maps anyway so they are never served."
   sweep_maps
   exit 0
 fi

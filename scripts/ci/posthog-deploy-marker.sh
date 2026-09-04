@@ -120,8 +120,16 @@ print(json.dumps({
 fi
 
 # ── Leg 2: project annotation (personal phx_ key) ────────────────────────────
-if [ -z "${POSTHOG_CLI_API_KEY:-}" ] || [ -z "${PH_PROJECT_ID:-}" ]; then
-  echo "::warning::posthog-deploy-marker: POSTHOG_CLI_API_KEY and/or PH_PROJECT_ID unset — skipping the annotation. Insights will not show a deploy line for ${PH_EVENT_ENV} @ ${SHORT_SHA}. Provision the phx_ key + the POSTHOG_PROJECT_ID_* repo variables (AECI-640 operator steps)."
+# Name the variable that is ACTUALLY missing. The old message said "and/or",
+# which sent a reader hunting for an unset PH_PROJECT_ID that cannot occur from
+# CI — every workflow passes `vars.POSTHOG_PROJECT_ID_* || <literal>`, so the
+# id is always populated and the key is always the real cause.
+if [ -z "${POSTHOG_CLI_API_KEY:-}" ]; then
+  echo "::warning::posthog-deploy-marker: POSTHOG_CLI_API_KEY unset — skipping the annotation. Insights will not show a deploy line for ${PH_EVENT_ENV} @ ${SHORT_SHA}. Provision the personal phx_ key as a GitHub secret (docs/OBSERVABILITY.md §8.7). The queryable deployment event above is unaffected."
+  exit 0
+fi
+if [ -z "${PH_PROJECT_ID:-}" ]; then
+  echo "::warning::posthog-deploy-marker: PH_PROJECT_ID unset — skipping the annotation for ${PH_EVENT_ENV} @ ${SHORT_SHA}. Callers from CI always pass it with a literal fallback, so this means a direct invocation omitted it."
   exit 0
 fi
 

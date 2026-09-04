@@ -74,11 +74,13 @@ gate"):
   delivers `$exception` events — so the browser error path works; it just has no
   Error Tracking console to read it in until the toggle is on.
 
-The rest of the outstanding operator checklist (the `phx_` personal key, the internal-user
-exclusion, running `apply.sh` against production, deleting the two unused
-`POSTHOG_KEY_*` GitHub secrets) is in `observability/posthog/README.md`. **Until the
-personal key exists, the liveness sweep exits 2 on every run — "unchecked", which is
-not a pass**, and deploy annotations and source-map upload warn-skip.
+The rest of the outstanding operator checklist (the internal-user exclusion, running
+`apply.sh` against production, deleting the two unused `POSTHOG_KEY_*` GitHub secrets)
+is in `observability/posthog/README.md`. The `phx_` personal key is **done** —
+`POSTHOG_CLI_API_KEY` was set as a GitHub repo secret on 2026-09-04, so the liveness
+sweep, deploy annotations and source-map upload all run for real. **If it is ever
+rotated away the sweep exits 2 on every run — "unchecked", which is not a pass** — and
+annotations and source-map upload go back to warn-skipping.
 
 ---
 

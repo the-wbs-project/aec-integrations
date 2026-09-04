@@ -1062,7 +1062,7 @@ jobs:
       # Two legs: a project ANNOTATION (the vertical line across every insight —
       # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
       # HogQL query joins against — needs only the publishable `phc_` token). The
-      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # annotation leg needs POSTHOG_CLI_API_KEY (provisioned 2026-09-04; it warn-skips if rotated away);
       # the event leg works today because the project key is a committed var.
       #
       # `continue-on-error: true` AND the script always exits 0 — belt and braces.
