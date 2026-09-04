@@ -323,8 +323,8 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 1. Provision the prod scheduled-job queues — six as of AECI-302 (`aeci-{algolia-sync,algolia-drift,stats,reconcile,data-quality,attestation-notify}-production`) — **and the WC-5 cross-Worker `aeci-cache-purge-production` queue** (idempotent; before both Worker deploys — its consumer is on the SSR Worker)
 2. Apply the app DB migrations to **Cloudflare D1** + reconcile the D1 taxonomy seed via `scripts/d1-apply-migrations.sh aeci-app-production production` (wraps `wrangler d1 migrations apply … --remote` + the two `wrangler d1 execute … --file=seed/*.sql` reconciles, **retrying each on a transient Cloudflare D1 `[code: 7500]` internal error** — safe because all three are idempotent), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
-4. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
-5. Post the deployment marker — the PostHog annotation + `deployment` event (§9.1). (A Datadog `/api/v1/events` marker ran alongside it until AECI-651.) Source maps were injected + uploaded earlier, before the SSR deploy (§3.2 step 5b)
+4. **Inject + upload the PostHog source maps** (`scripts/ci/posthog-sourcemaps.sh`, prod project `354071`) and then **assert `apps/web/dist/browser` holds no `.map` file** — the one source-map step that fails the promote rather than warn-skipping (§9.1a). Then deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT` and push the Worker runtime secrets
+5. Post the deployment marker — the PostHog annotation + `deployment` event (§9.1). (A Datadog `/api/v1/events` marker ran alongside it until AECI-651.)
 6. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
@@ -688,7 +688,7 @@ questions and neither substitutes for the other:
 
 | Leg | What it is | Needs | State today |
 |---|---|---|---|
-| Project **annotation** | the vertical line PostHog draws across every insight and dashboard | personal `phx_` key (`POSTHOG_CLI_API_KEY`) + numeric project id | warn-skips until the operator provisions the key |
+| Project **annotation** | the vertical line PostHog draws across every insight and dashboard | personal `phx_` key (`POSTHOG_CLI_API_KEY`) + numeric project id | live — the key was provisioned 2026-09-04; it warn-skipped before that |
 | `deployment` **event** | the queryable record a HogQL query joins against — "which deploy introduced this error", "how many deploys this week" | only the publishable `phc_` project token, which is a committed var | **works today**, including on PR previews and forks |
 
 Properties on the event: `env`, `service` (`aeci-web` / `aeci-api` / `both`), `version`
@@ -731,8 +731,16 @@ Markers appear on Datadog dashboards as vertical lines, making it easy to correl
 
 ### 9.1a Source-map upload (AECI-646)
 
-`scripts/ci/posthog-sourcemaps.sh` runs on all four deploy paths, **after the build and
-before the deploy**. Angular's `production` configuration emits **hidden** source maps
+`scripts/ci/posthog-sourcemaps.sh` runs on all four deploy paths — PR preview
+(`pr-preview.yml`), staging (`deploy.yml`), demo (`promote-to-demo.yml`) and production
+(`promote-to-prod.yml`) — **after the build and before the deploy**.
+
+> **The production step was missing until 2026-09-04.** `promote-to-prod.yml` builds
+> `apps/web` inline and deploys `dist/browser` verbatim as Worker assets, so with no step
+> in that lane the hidden `.map` files were neither uploaded *nor deleted* — production was
+> the one tier that could serve the whole app source at a guessable URL, and its stack
+> traces stayed minified. The step now sits immediately before `Deploy SSR (production)`
+> and uploads to the **prod** project `354071` (every other tier uses `525793`). Angular's `production` configuration emits **hidden** source maps
 (`{ scripts: true, styles: false, hidden: true, vendor: false }`): the `.map` files exist
 but no `//# sourceMappingURL=` comment is written into the served JS, so a devtools session
 cannot pull our source while PostHog can still symbolicate a minified frame.
@@ -746,6 +754,11 @@ Three things about this script are load-bearing:
    an inject failure, an upload failure, and the success path (belt and braces over
    `--delete-after`). `dist/browser` is uploaded verbatim as Worker assets, so a `.map`
    surviving to a deploy would publish the whole app source at a guessable URL.
+   On the **production** lane only, a following `Assert no source maps ship to production`
+   step re-checks `dist/browser` and **fails the promote** if any `.map` survives. The
+   sourcemap step itself is `continue-on-error: true` everywhere (it must never block a
+   deploy), which means a runner-level failure of that step would otherwise deploy the maps;
+   shipping the app's source is worse than a delayed production promote, so prod asserts.
 3. **`--release-name` is passed explicitly.** Left to itself the CLI tries to derive one
    from git and warns "Could not create release", producing uploads not tied to a release —
    which is exactly what makes "which deploy introduced this error" unanswerable.
@@ -1082,7 +1095,7 @@ Before the first deploy:
 - [ ] Supabase projects created for dev/staging/production
 - [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`preview_*` / `staging_*` / `production_*`, per §7.5)
 - [ ] Datadog account configured with appropriate API keys *(dual-run — Datadog stays until AECI-651)*
-- [ ] PostHog: both projects exist (`aec-integrations` 354071 = production only; `aec-integrations-dev` 525793 = every other tier), error tracking enabled on both, internal-user exclusion configured, `POSTHOG_CLI_API_KEY` + the two `POSTHOG_PROJECT_ID_*` repo variables set. **No PostHog Worker secret to provision** — the publishable token is a committed wrangler var
+- [ ] PostHog: both projects exist (`aec-integrations` 354071 = production only; `aec-integrations-dev` 525793 = every other tier) ✅, error tracking enabled on both ✅ (2026-08-26), `POSTHOG_CLI_API_KEY` set ✅ (2026-09-04), **internal-user exclusion configured** ⬜ — the one item still open, and the reason production product analytics carry operator traffic while `page_views` excludes it. The two `POSTHOG_PROJECT_ID_*` repo **variables** are optional: the workflows fall back to the literals `354071` / `525793`, so they are a repoint convenience, not a prerequisite (note the prod var is read as `POSTHOG_PROJECT_ID_PROD`, not `_PRODUCTION` — the identically-prefixed *secrets* are a different, Worker-bound pair). **No PostHog Worker secret to provision** — the publishable token is a committed wrangler var
 - [ ] Resend account configured: verified sending domain (SPF/DKIM/DMARC), `EMAIL_FROM` sender, and the single shared `RESEND_API_KEY` GH secret; Supabase Auth SMTP pointed at Resend for magic links (see `docs/email.md`)
 - [ ] Linear workspace configured per `STAGE_1_SPEC.md` §24
 - [ ] DNS configured for `demo.aecintegrations.com` (web prod), `staging.aecintegrations.com`, and the landing apex + `www.aecintegrations.com`

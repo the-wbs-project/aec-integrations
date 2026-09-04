@@ -434,6 +434,23 @@ by SHA** across staging → demo → prod (`docs/environments.md`), so `producti
 *is* the configuration every deployed tier is built with. The bare
 `"sourceMap": true` §AW5 refers to is on `development`, and stays.
 
+### §8.4a The production lane was missing the source-map step (fixed 2026-09-04)
+
+AECI-646 wired `scripts/ci/posthog-sourcemaps.sh` into PR preview, staging and
+demo, but **not** `promote-to-prod.yml`. That workflow builds `apps/web` inline
+and deploys `dist/browser` verbatim as Worker assets, so on the production lane
+the hidden `.map` files were neither uploaded nor deleted — production was the
+one tier whose stack traces stayed minified *and* whose app source was reachable
+at a guessable URL. The step now runs immediately before `Deploy SSR
+(production)`, uploading to the prod project **354071** (every other tier uses
+525793).
+
+It is followed by an `Assert no source maps ship to production` step that fails
+the promote if any `.map` survives. The sourcemap step is `continue-on-error:
+true` on every lane — it must never block a deploy — which means a runner-level
+failure of that step would otherwise deploy the maps. On production alone,
+shipping the app's source is the worse outcome, so the assertion is fail-closed.
+
 ### §8.5 `@aeci/shared/posthog` is not in the barrel (AECI-642)
 
 Every other module in `packages/shared/src/index.ts` is a pure declaration.
@@ -475,7 +492,7 @@ Live check, 2026-08-24. None of these block the code; each gates a capability.
 
 | Prerequisite | State |
 |---|---|
-| Personal `phx_` key → `POSTHOG_CLI_API_KEY` | ✅ **Created 2026-08-26** (GH secret + `apply.sh` run pending). Was: not provisioned. Deploy annotations and source-map upload warn-skip until it exists. Needs the §8.3 union of scopes. |
+| Personal `phx_` key → `POSTHOG_CLI_API_KEY` | ✅ **Created 2026-08-26; set as a GitHub repo secret 2026-09-04.** (`apply.sh` run against the production project 354071 is still pending — it is an operator step, now unblocked.) Was: not provisioned, so deploy annotations and source-map upload warn-skipped. Needs the §8.3 union of scopes. |
 | `POSTHOG_PROJECT_ID_PROD` / `_NONPROD` repo variables | **Not set.** The workflows fall back to the literals `354071` / `525793`, so this is a repoint convenience, not a prerequisite. |
 | Error tracking (exception autocapture) | ✅ **Enabled on both, 2026-08-26.** Was: disabled on both. Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
 | Internal-user exclusion | **Not configured.** Until it is, production product analytics carry operator traffic while `page_views` excludes it via verified admin session — so the two surfaces disagree for a reason that looks like a bug. |

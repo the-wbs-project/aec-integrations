@@ -613,6 +613,62 @@ jobs:
           printf '%s' "$INDEXNOW_KEY_VALUE" \
             | pnpm exec wrangler secret put INDEXNOW_KEY --env production
 
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # This step was MISSING from the production path while staging, demo and
+      # PR preview all had it. That was not a scoping choice: this workflow
+      # builds `apps/web` inline (the `pnpm --filter @aeci/web build` above) and
+      # then deploys `dist/browser` verbatim as Worker assets, so with no step
+      # here the hidden `.map` files were neither uploaded NOR deleted — i.e.
+      # production was the one tier that could serve the whole app source at a
+      # guessable URL, which is exactly the leak the script exists to prevent.
+      #
+      # ORDER MATTERS: after the build, before the SSR deploy. `sourcemap inject`
+      # rewrites the built JS to append the `//# chunkId=…` comment PostHog
+      # matches a minified frame against, so deploying the pre-inject bundle
+      # would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks the promote.
+      #
+      # PROJECT ID: production is the ONLY tier on `aec-integrations` (354071);
+      # every other tier uses `aec-integrations-dev` (525793). Uploading prod
+      # maps to the non-prod project would leave prod stack traces minified.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (production)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
+          PH_SM_RELEASE_VERSION: ${{ inputs.commit_sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
+
+      # Belt and braces, production only: `continue-on-error: true` above means a
+      # runner-level failure of that step (not a script failure — the script always
+      # exits 0) would let the deploy proceed with `.map` files still in
+      # dist/browser. Assert the directory is clean rather than trusting it. This
+      # one DOES block: shipping the app's source is worse than a delayed promote.
+      - name: Assert no source maps ship to production
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          leaked="$(find dist/browser -name '*.map' -type f 2>/dev/null || true)"
+          if [ -n "$leaked" ]; then
+            echo "$leaked"
+            echo "::error::.map files are present in apps/web/dist/browser — Worker assets are served verbatim, so deploying would publish the app source. The PostHog source-map step above should have deleted them on every exit path; check its log."
+            exit 1
+          fi
+          echo "no .map files in dist/browser — safe to deploy."
+
       # AECI-747 removed the Google Indexing API ping (and its GOOGLE_INDEXING_SA_*
       # secret-push steps that used to sit here): Google accepts only
       # `JobPosting`/`BroadcastEvent` URLs, so the ping never did anything for our
@@ -916,7 +972,7 @@ jobs:
       # Two legs: a project ANNOTATION (the vertical line across every insight —
       # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
       # HogQL query joins against — needs only the publishable `phc_` token). The
-      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # annotation leg needs POSTHOG_CLI_API_KEY (provisioned 2026-09-04; it warn-skips if rotated away);
       # the event leg works today because the project key is a committed var.
       #
       # `continue-on-error: true` AND the script always exits 0 — belt and braces.

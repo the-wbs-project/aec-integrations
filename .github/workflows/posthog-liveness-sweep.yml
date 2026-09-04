@@ -81,9 +81,10 @@ jobs:
         env:
           # Personal `phx_` key with `query read` on the production project. NOT the
           # publishable phc_ token — us.posthog.com/api/projects/:id/query/ is the
-          # MANAGEMENT API and rejects project tokens. As of the §8.7 audit this secret
-          # is NOT YET PROVISIONED; until it is, the script exits 2 ("unchecked"), which
-          # is deliberately distinct from exit 1 ("a cron is dead") and from a pass.
+          # MANAGEMENT API and rejects project tokens. Provisioned 2026-09-04; before
+          # that the script exited 2 ("unchecked"), which is deliberately distinct from
+          # exit 1 ("a cron is dead") and from a pass. It still exits 2 if the key is
+          # ever rotated away or its `query read` scope is dropped.
           POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
           # Repo variable with a literal fallback, matching the house pattern established
           # by the deploy markers (§8.7: the variables are a repoint convenience, not a

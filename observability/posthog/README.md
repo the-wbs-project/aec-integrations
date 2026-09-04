@@ -301,27 +301,29 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
 
 ## Operator checklist (User Input required)
 
-None of these block the code. Each gates a capability, and each is currently outstanding
-(verified 2026-08-24; consistent with spec §8.7).
+None of these block the code. Each gates a capability. Rows marked ✅ are done; the rest
+are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8.7).
 
-- [ ] **Personal `phx_` API key → `POSTHOG_CLI_API_KEY`.** Not provisioned. Needed by
-  `apply.sh` (operator keychain, as `POSTHOG_PERSONAL_API_KEY` or `POSTHOG_CLI_API_KEY`),
-  by the liveness-sweep workflow (GitHub secret), by deploy annotations, and by source-map
-  upload. **One key needs the union of scopes** (spec §7 + §8.3):
+- [x] **Personal `phx_` API key → `POSTHOG_CLI_API_KEY`.** ✅ Created 2026-08-26 and set as
+  a GitHub repo secret 2026-09-04, so the liveness sweep, deploy annotations and source-map
+  upload are live. Also needed in the operator keychain for `apply.sh` (as
+  `POSTHOG_PERSONAL_API_KEY` or `POSTHOG_CLI_API_KEY` — it cannot read the GitHub secret).
+  **One key needs the union of scopes** (spec §7 + §8.3):
   insight write · dashboard write · alert write · project read · **query read** ·
   error tracking write · organization read.
   Create at <https://us.posthog.com/settings/user-api-keys>.
-  *Until it exists, the liveness sweep exits 2 on every run — "unchecked", not a pass.*
+  *If it is ever rotated away, the liveness sweep exits 2 on every run — "unchecked", not a pass.*
 
 - [ ] **Repo variables `POSTHOG_PROJECT_ID_PROD=354071` / `POSTHOG_PROJECT_ID_NONPROD=525793`.**
   Not set (confirmed via `gh variable list`). The workflows fall back to the literals, so
   this is a repoint convenience rather than a blocker.
 
-- [ ] **Error tracking (exception autocapture) enabled on both projects.** Disabled on
-  both. It is a product toggle, not an API object — the personal-API-key scope set does
+- [x] **Error tracking (exception autocapture) enabled on both projects.** ✅ Enabled on
+  both, 2026-08-26. It is a product toggle, not an API object — the personal-API-key scope set does
   not include `product_enablement:write`, so this is dashboard-only:
   <https://us.posthog.com/project/354071/settings/error-tracking> and the same for 525793.
-  Until it is on, browser and Worker exception capture has nowhere to land.
+  Was: disabled on both — with the toggle off, browser and Worker exception capture had
+  nowhere to land.
 
 - [ ] **Internal-user exclusion configured on 354071.** Not configured. Add
   `chrisw@thewbsproject.com` under project settings → Internal users. Until then
