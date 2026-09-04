@@ -298,6 +298,7 @@ export class MetaService {
     name: string;
     description: string;
     homeLabel: string;
+    integrationsLabel: string;
     context: ProductListItem;
     other: ProductListItem;
   }): void {
@@ -310,6 +311,7 @@ export class MetaService {
         canonical,
         origin,
         homeLabel: input.homeLabel,
+        integrationsLabel: input.integrationsLabel,
         context: input.context,
         other: input.other,
       }),

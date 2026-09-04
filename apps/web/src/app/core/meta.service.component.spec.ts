@@ -375,6 +375,7 @@ describe('MetaService.setPairJsonLd', () => {
       name: 'Procore and Revit integrations',
       description: 'How Procore and Revit exchange data across their integrations.',
       homeLabel: 'Home',
+      integrationsLabel: 'Integrations',
       context: pairProduct({ slug: 'procore', name: 'Procore' }),
       other: pairProduct(),
     });
@@ -436,6 +437,7 @@ describe('MetaService.setPairJsonLd', () => {
       name: 'Pair',
       description: 'Pair.',
       homeLabel: 'Home',
+      integrationsLabel: 'Integrations',
       context: pairProduct({ slug: 'evil', name: '</script><script>alert(1)</script>' }),
       other: pairProduct(),
     });

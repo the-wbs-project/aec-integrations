@@ -589,15 +589,18 @@ describe('buildPairBreadcrumbLd', () => {
       canonical: PAIR_CANONICAL,
       origin: PAIR_ORIGIN,
       homeLabel: 'Home',
+      integrationsLabel: 'Integrations',
       context: makePairProduct({ slug: 'procore', name: 'Procore' }),
       other: makePairProduct(),
     });
   }
 
-  // Mirrors the trail `products-pair.ts` renders: Home › {context} › {other}.
-  // Google requires breadcrumb markup to match visible content, so the shape is
-  // dictated by the template — including the last crumb being the OTHER
-  // product's name rather than the pair title.
+  // Mirrors the trail `products-pair.ts` renders:
+  // Home › {context} › Integrations › {other}. Google requires breadcrumb markup
+  // to match visible content, so the shape is dictated by the template —
+  // including the last crumb being the OTHER product's name rather than the pair
+  // title, and the "Integrations" crumb resolving to the context product's
+  // `#integrations` section rather than to a route of its own.
   it('mirrors the visible trail', () => {
     expect(build()).toEqual({
       '@context': 'https://schema.org',
@@ -611,7 +614,13 @@ describe('buildPairBreadcrumbLd', () => {
           name: 'Procore',
           item: `${PAIR_ORIGIN}/products/procore`,
         },
-        { '@type': 'ListItem', position: 3, name: 'Revit' },
+        {
+          '@type': 'ListItem',
+          position: 3,
+          name: 'Integrations',
+          item: `${PAIR_ORIGIN}/products/procore#integrations`,
+        },
+        { '@type': 'ListItem', position: 4, name: 'Revit' },
       ],
     });
   });
@@ -625,7 +634,7 @@ describe('buildPairBreadcrumbLd', () => {
   });
 
   it('numbers positions from 1, contiguously', () => {
-    expect(build().itemListElement.map((i) => i.position)).toEqual([1, 2, 3]);
+    expect(build().itemListElement.map((i) => i.position)).toEqual([1, 2, 3, 4]);
   });
 
   it('resolves back to the WebPage that references it', () => {

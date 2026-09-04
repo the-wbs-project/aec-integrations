@@ -357,6 +357,22 @@ function writePairViewCookie(mode: PairViewMode): void {
                 >
               </li>
               <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
+              <!-- The trail is Home › {context} › Integrations › {other}. Without the
+                   "Integrations" crumb the last two read as a parent/child pair, which
+                   says the OTHER product belongs to the context product rather than
+                   that this page is one edge in the context product's integration
+                   list. The crumb deep-links to that list's section anchor on the
+                   context product's detail page. -->
+              <li>
+                <a
+                  [routerLink]="['/products', context.slug]"
+                  fragment="integrations"
+                  class="no-underline hover:text-(--accent-primary)"
+                  i18n="@@pair.breadcrumb.integrations"
+                  >Integrations</a
+                >
+              </li>
+              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
               <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
                 {{ other.name }}
               </li>
