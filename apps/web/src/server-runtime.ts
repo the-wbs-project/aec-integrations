@@ -1354,6 +1354,34 @@ export function createApp(options: {
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
 
+  // AECI-685 — retraction residue. Bluebeam is a Nemetschek brand; both Bluebeam
+  // products were re-parented to Nemetschek Group, leaving the `bluebeam` vendor
+  // with zero products but still promoted, indexed, in `sitemap.xml`, and
+  // rendering an empty product grid. The row is being deleted; this 301 keeps the
+  // indexed URL pointing somewhere true instead of 404ing it, on the same
+  // reasoning as AECI-165 above.
+  //
+  // Hard-coded on purpose. This is the FIRST per-entity redirect in the app —
+  // every other one here is a whole route class — and one entity does not justify
+  // a redirect subsystem. The general case (a mutable slug→slug map, which would
+  // need a `Cache-Tag` handle precisely because it is NOT immutable like the
+  // mappings above) belongs to AECI-595's retract path. If a second entry ever
+  // lands here, build that instead of adding a third.
+  //
+  // Registered BEFORE the SSR catch-all so it wins, and it wins whether or not
+  // the vendor row still exists — which is why it can be deployed ahead of the
+  // production delete, leaving no window where the URL 404s.
+  app.get('/vendors/bluebeam', (c) => {
+    const url = new URL(c.req.url);
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/vendors/nemetschek-group`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+      },
+    });
+  });
+
   // AECI-294 (Stage 1.5) — the standalone `/integrations/:id` detail page was
   // consolidated into the product-PAIR page. Any legacy link 301-redirects to the
   // canonical pair URL: we resolve the integration's two product slugs via the

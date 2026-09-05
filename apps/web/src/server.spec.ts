@@ -861,6 +861,67 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
   });
 });
 
+describe('createApp /vendors/bluebeam → /vendors/nemetschek-group 301 (AECI-685)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  it('301-redirects the retracted vendor to its parent without invoking SSR', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/vendors/bluebeam'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://www.aecintegrations.com/vendors/nemetschek-group',
+    );
+    // Same permanent-mapping headers as the AECI-165 redirects above.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('wins over the SSR pipeline even while the vendor row still exists', async () => {
+    // The redirect ships BEFORE the production row is deleted, so it must not
+    // depend on the page 404ing — that is what leaves no window where the URL
+    // is broken. A 200-returning API binding stands in for the live row.
+    const { binding } = recordingApiBinding(
+      new Response(JSON.stringify({ slug: 'bluebeam' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/vendors/bluebeam'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('leaves every other vendor detail page on the SSR pipeline', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/vendors/nemetschek-group'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    // In particular the redirect TARGET must not itself redirect — that would
+    // be a loop.
+    expect(res.status).toBe(200);
+    expect(ssrRenderer).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
   const integrationResponse = () =>
     new Response(
