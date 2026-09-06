@@ -2,7 +2,7 @@
  * The `data_object` controlled vocabulary — find-only resolution, in one place
  * (Stage 1.5 §6.2 / `docs/DATA_OBJECT_VOCABULARY.md`).
  *
- * `taxonomy_data_objects` is a **frozen, closed** 20-term list, seeded from
+ * `taxonomy_data_objects` is a **frozen, closed** 27-term list, seeded from
  * `apps/api/seed/data-objects.sql`. A claim's `dataObject` resolves against it by
  * slug **or** alias, and **never** find-or-create: minting a term is an AECi
  * curation act, and neither promote nor a vendor may do it
@@ -61,7 +61,7 @@ export type DataObjectResolver = (value: string) => DataObjectTerm | undefined;
 /**
  * Load the vocabulary and return a synchronous resolver over it.
  *
- * One `SELECT` for the whole 20-row table rather than a query per lookup: the
+ * One `SELECT` for the whole 27-row table rather than a query per lookup: the
  * aliases live in a JSON column, so slug-or-alias matching cannot be pushed into
  * SQL without a scan anyway, and promote resolves many terms per request.
  * Callers that may not need it at all (promote skips the load unless a claim is
@@ -133,7 +133,7 @@ export interface DataObjectListing {
  * `Number.MAX_SAFE_INTEGER` in JS — i.e. **NULLs last**. SQLite sorts NULLs
  * *first* by default, so the `IS NULL` term below is load-bearing, not
  * decorative: without it this list and the tab's lanes would disagree on any
- * hand-inserted row. (All 20 seeded terms carry a `display_order`, which is
+ * hand-inserted row. (All 27 seeded terms carry a `display_order`, which is
  * exactly what would make the divergence invisible until it wasn't.)
  *
  * Note that **today's only consumer does not observe this order.** The vendor

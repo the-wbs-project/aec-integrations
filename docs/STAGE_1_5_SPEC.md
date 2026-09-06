@@ -88,7 +88,7 @@ The Review-app lane (290 → 292 → 295/296) and the OPS re-curation (299) run 
 
 ## 2. `data_object` vocabulary
 
-The `data_object` controlled vocabulary is **frozen** and lives in **`docs/DATA_OBJECT_VOCABULARY.md`** (with a generated machine-readable mirror, `docs/data-object-vocabulary.json`). **That document is the source of truth — this spec references it and does not duplicate the 20-term table** (one source of truth; the table drifts the moment it is copied).
+The `data_object` controlled vocabulary is **frozen** and lives in **`docs/DATA_OBJECT_VOCABULARY.md`** (with a generated machine-readable mirror, `docs/data-object-vocabulary.json`). **That document is the source of truth — this spec references it and does not duplicate the 27-term table** (one source of truth; the table drifts the moment it is copied).
 
 A `data_object` is the **noun that flows between two integrated products** — the *what* of an integration (RFIs, Budgets, Models…). It is the load-bearing middle term of claim identity (§3.1). The vocabulary mirrors the existing taxonomy vocabularies (`taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one field, **`aliases`**.
 

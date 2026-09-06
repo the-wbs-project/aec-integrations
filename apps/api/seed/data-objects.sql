@@ -1,7 +1,7 @@
 -- `data_object` controlled vocabulary for Cloudflare D1 (Stage 1.5 — AECI-293).
 -- Canonical seed + source of truth for the main-app `taxonomy_data_objects` table,
--- mirroring apps/api/seed/taxonomy.sql. Materialises the frozen 20-term vocabulary from
--- docs/DATA_OBJECT_VOCABULARY.md (§4) / its generated mirror docs/data-object-vocabulary.json.
+-- mirroring apps/api/seed/taxonomy.sql. Materialises the frozen 27-term vocabulary from
+-- docs/DATA_OBJECT_VOCABULARY.md (§4) / its hand-maintained mirror docs/data-object-vocabulary.json.
 --
 -- Idempotent UPSERTs keyed on slug; ids are deterministic UUIDv5(slug) so they are stable
 -- across re-runs and environments. Applied with `pnpm db:seed:data-objects:local` →
@@ -9,23 +9,30 @@
 -- --remote seed step in deploy.yml / promote-to-*.yml). NEVER deletes.
 --
 -- `aliases` is a JSON array (resolver metadata): the promote ingest (AECI-297) resolves a
--- claim's `dataObject` find-only by slug then alias (§6.2). Edit the doc table + the JSON
--- mirror, then regenerate this file — never hand-edit rows (a d1.spec test guards the sync).
+-- claim's `dataObject` find-only by slug then alias (§6.2). There is NO generator: the doc table,
+-- the JSON mirror and the rows below are hand-edited in lockstep, and the `seed/data-objects.sql
+-- materialises exactly the 27-term vocabulary` test in src/test/d1.spec.ts is what enforces that
+-- this file and the JSON mirror agree (it applies this file to a migrated DB and diffs the slugs).
+-- Insert a new row in `display_order` position; the ordering here is documentation, not semantics.
 --
 -- UUIDv5 namespace = UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/data_object')
 --                  = 4a9d061b-fec7-596f-be52-8db72334eb59
 -- (URL_NS = 6ba7b811-9dad-11d1-80b4-00c04fd430c8). Ids are not stored in the doc/JSON — derived from the slug.
 
 INSERT INTO "taxonomy_data_objects" ("id","slug","name","description","display_order","aliases","created_at","updated_at") VALUES
+  ('d0a80355-d3b7-5a7c-8e35-7246437edf68', 'projects', 'Projects & Jobs', 'The project / job master record that every cost and field artifact is coded to.', 5, '["Project","Job","Jobs","Sub Jobs","Subjobs","Job Setup","Project Setup","Project Master","Job Master","JC Jobs"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('12f6d14b-b996-565a-beda-c35f72136e13', 'models', 'Models', 'BIM / 3D models exchanged between authoring and coordination tools.', 10, '["Model","BIM","BIM Models","3D Models","IFC","Revit Models","Federated Model","Coordination Model"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('990704b3-6374-5639-82ad-62ed19e29811', 'drawings', 'Drawings', '2D sheets and plans (DWG/PDF) shared across design and field tools.', 20, '["Drawing","Sheets","2D Drawings","Plans","Construction Drawings","DWG","CAD"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('e25eeda0-3650-5a74-b3a0-b266a3eaf1c1', 'specifications', 'Specifications', 'Specification sections defining materials, products, and execution standards.', 30, '["Specification","Specs","Spec","Spec Sections","CSI Specs","Project Manual"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('c90c9e1a-acdb-5bd9-94a9-1f5e64114da2', 'bids-tenders', 'Bids & Tenders', 'Bid / tender packages and procurement solicitations exchanged during buyout.', 40, '["Bids","Bid","Tenders","Tender","Bid Packages","Tendering","ITB","Invitation to Bid","Procurement"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('d095ecd1-21e2-5610-b653-b643d2be68ff', 'commitments', 'Commitments & Contracts', 'Executed commitments — subcontracts and purchase orders — that draw down the budget.', 50, '["Commitment","Contracts","Contract","Subcontracts","Subcontract","Purchase Orders","PO","POs"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('4a48e38a-b5c0-5613-a058-e3a9d4ede49b', 'prime-contracts', 'Prime Contracts', 'Owner-side (revenue) contracts and their value, as distinct from cost-side commitments.', 55, '["Prime Contract","Main Contract","Main Contracts","Owner Contract","Owner Contracts","Head Contract","Client Contract","Revenue Contract","Revenue Budget","Job Contracts"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('32a8cbf5-7bde-5fea-ada9-4ae7a3dea1eb', 'budgets', 'Budgets', 'The project budget and its budget line items.', 60, '["Budget","Project Budget","Budget Line Items","Original Budget"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('8ad70643-8635-5859-ae78-856517b78ece', 'cost-codes', 'Cost Codes', 'The cost-code / cost-breakdown structure that line items are coded to.', 70, '["Cost Code","Cost Breakdown Structure","CBS","WBS Codes","Budget Codes"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('94eec696-7e24-5141-a654-27d79aeec1ef', 'change-orders', 'Change Orders', 'Change orders and potential change events that adjust scope or cost.', 80, '["Change Order","CO","PCO","Potential Change Order","Change Events","Change Event"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('79fbd05d-ec35-5016-a51b-c7300f481388', 'job-costs', 'Job Costs', 'Actual cost transactions posted against a budget line, separate from the invoices that document them.', 85, '["Job Cost","Job Costing","Actual Costs","Direct Costs","Expenses","Expense","Cost Transactions","Job Cost Detail","Job Cost Transactions","Item Receipts","Project Transactions"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('d302efc3-4443-56a2-b803-3de64db60393', 'invoices-payments', 'Invoices & Payments', 'Invoices, pay applications, and payment records.', 90, '["Invoices","Invoice","Payments","Pay Applications","Pay App","Applications for Payment","Billings","AP"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('9ad0ebb4-4873-5f63-bdcf-b3e3583c9772', 'general-ledger', 'General Ledger', 'Ledger accounts, journals, journal entries, and bank accounts behind the job cost ledger.', 95, '["GL","Ledger","Ledger Accounts","Chart of Accounts","COA","Journal Entries","Journals","General Journal","Bank Accounts","Cost Centers"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('705ba5ba-4719-518d-8382-9e514bc17c1b', 'schedules', 'Schedules', 'Project schedules (CPM / Gantt) and their activities.', 100, '["Schedule","Project Schedule","Gantt","CPM Schedule","Activities","P6","Programme"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('2d14be8b-4d2a-55f9-8d45-c1092a5302af', 'rfis', 'RFIs', 'Requests for Information and their responses.', 110, '["RFI","Requests for Information","Request for Information","Information Requests"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('ac58f9ee-97be-513c-b6a9-cc421f491a6c', 'submittals', 'Submittals', 'Submittal packages (shop drawings, product data, samples) and their review.', 120, '["Submittal","Submittal Package","Shop Drawings","Product Data","Samples"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -35,8 +42,11 @@ INSERT INTO "taxonomy_data_objects" ("id","slug","name","description","display_o
   ('155a9150-22df-5de0-ac83-1bb997701903', 'inspections', 'Inspections', 'Quality and field inspections and their results.', 160, '["Inspection","Quality Inspections","Field Inspections","QA/QC Inspections"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('e9f15d64-0b81-5c69-a51e-422a2cee3714', 'punch-lists', 'Punch Lists', 'Punch / snag lists tracking deficiencies to close out.', 170, '["Punch List","Punchlist","Snag List","Snags","Deficiency List","Punch Items"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('d4a01852-8cda-50ee-b924-9c02e823ecce', 'time-labor', 'Time & Labor', 'Timesheets and labor hours.', 180, '["Timesheets","Timesheet","Labor","Time Tracking","Timecards","Crew Hours","Manpower"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('259050d8-b636-5273-b0e0-24d8d017ce76', 'equipment', 'Equipment & Assets', 'Owned and rented equipment, plant, and tracked assets.', 185, '["Equipments","Assets","Asset","Fleet","Plant","Machinery","Equipment Tracking","Asset Tracking","EM Equipment"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('54aac7f5-4c9a-54da-88e8-73fd5eb09b25', 'documents', 'Documents', 'General project documents and files under document management.', 190, '["Document","Files","Project Documents","Document Management","Attachments"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('da30093b-e634-5687-84ed-bdb2addeb8aa', 'directory-contacts', 'Directory & Contacts', 'The project / company directory of people and companies.', 200, '["Directory","Contacts","Contact","Company Directory","Project Directory","People","Companies"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('da30093b-e634-5687-84ed-bdb2addeb8aa', 'directory-contacts', 'Directory & Contacts', 'The project / company directory of people and companies.', 200, '["Directory","Contacts","Contact","Company Directory","Project Directory","People","Companies"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('719f3223-f3a6-5ebd-9a97-d04387a487c3', 'employees', 'Employees & Payroll', 'Employee master records and payroll data, as distinct from the project contact directory.', 205, '["Employee","Payroll","Employee Records","Personnel","Workers","Crew","Human Resources","HR","Payroll Records","PR Employees"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('53e74eb2-093c-5eb7-98bf-c0421436d45e', 'compliance-documents', 'Compliance Documents', 'Insurance certificates, lien waivers, W-9s, and other vendor compliance documents tracked against a contract.', 210, '["Compliance","Vendor Compliance","Vendor Compliances","Insurance Certificates","Certificates of Insurance","COI","Lien Waivers","W-9","Subcontractor Compliance","Compliance Codes"]', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("slug") DO UPDATE SET
   "name" = excluded."name",
   "description" = excluded."description",

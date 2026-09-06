@@ -131,7 +131,7 @@ export type ClaimOrigin = z.infer<typeof ClaimOriginSchema>;
  * on `./taxonomy.ts` does expose `display_order`; that facet is re-sorted by
  * several surfaces, this one is not.)
  *
- * `description` rides along as the picker's disambiguating hint on a 20-term
+ * `description` rides along as the picker's disambiguating hint on a 27-term
  * list; it is nullable because the column is.
  */
 export const DataObjectOptionSchema = z.object({
@@ -148,7 +148,7 @@ export type DataObjectOption = z.infer<typeof DataObjectOptionSchema>;
  * `GET /api/vendor/integrations` applies to a claim list, so the picker's rows
  * and the tab's lanes agree.
  *
- * Never paginated: a closed 20-term list. An unseeded vocabulary is an empty
+ * Never paginated: a closed 27-term list. An unseeded vocabulary is an empty
  * array, not an error — the dashboard degrades the "add a data flow" affordance
  * rather than failing the whole tab.
  */
