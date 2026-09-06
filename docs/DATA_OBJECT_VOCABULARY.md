@@ -189,8 +189,15 @@ When I8 / AECI-290 materialise this list, mirror the existing taxonomy pattern
 
 ## 6. Keeping the mirror in sync
 
-[`data-object-vocabulary.json`](./data-object-vocabulary.json) is a **generated mirror** of the
-table in §4. It is an object carrying `vocabulary` / `stage` / `closed` metadata plus a `terms`
-array — one object per row, in `display_order` order. The markdown table is the human-edited
-canonical source; **edit the table, then regenerate the JSON**, never the reverse. A row in §4 ⇔ an
-object in `terms`: same `slug`, `name`, `description`, `display_order`, and `aliases`.
+[`data-object-vocabulary.json`](./data-object-vocabulary.json) mirrors the table in §4. It is an
+object carrying `vocabulary` / `stage` / `closed` metadata plus a `terms` array — one object per
+row, in `display_order` order. The markdown table is the canonical source; **edit the table first,
+then the JSON**, never the reverse. A row in §4 ⇔ an object in `terms`: same `slug`, `name`,
+`description`, `display_order`, and `aliases`.
+
+**There is no generator.** The table, the JSON mirror and `apps/api/seed/data-objects.sql` are
+hand-edited in lockstep; the `seed/data-objects.sql materialises exactly the 27-term vocabulary`
+test in `apps/api/src/test/d1.spec.ts` is what enforces that the seed and the JSON agree (it applies
+the seed to a migrated DB and diffs the slugs). It compares **slugs only** — a `name`,
+`description`, `display_order` or `aliases` edit applied to one file and not the others will not
+fail CI.

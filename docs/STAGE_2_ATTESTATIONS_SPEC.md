@@ -970,10 +970,10 @@ Decisions taken at build that §6 did not pre-specify:
   later change, and the one place in the portal that re-sorts the vocabulary — `dataObjectOptions`
   in `vendor-add-claim-form.ts`. The bullet above still holds for the wire and for the lanes; only
   this control diverges. The lanes are **read**, and `display_order`'s project-lifecycle sequence
-  (Models → Drawings → … → Directory & Contacts) is the information in them. The picker is
+  (Projects & Jobs → Models → … → Compliance Documents) is the information in them. The picker is
   **searched**: the vendor already knows they want "Submittals", and `AecSelect` is a non-editable
   Aria combobox with no type-to-filter, so an unfamiliar semantic order makes finding a known label
-  a 20-item linear scan with no anchor. Sorted client-side on the rendered `name` via
+  a 27-item linear scan with no anchor. Sorted client-side on the rendered `name` via
   `localeCompare` rather than in SQL, because the terms are translatable copy and alphabetical order
   is per-locale. Both halves are pinned — sorted in the component spec, unsorted in the route spec —
   so "restoring" the wire order in the picker fails rather than quietly reverting the decision.

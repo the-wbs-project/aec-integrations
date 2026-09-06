@@ -474,7 +474,7 @@ create index taxonomy_data_objects_slug_idx on taxonomy_data_objects(slug);
 ```
 
 - **D1 specifics.** `id` is `TEXT` (deterministic UUIDv5 of the `slug`); `aliases` is `TEXT` in JSON mode (a JSON array of strings). Seeded from `apps/api/seed/data-objects.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env).
-- **Source of truth** for the vocabulary is `docs/DATA_OBJECT_VOCABULARY.md` (§4) / its generated mirror `docs/data-object-vocabulary.json` — a frozen, closed 27-term list (20 at Stage 1.5; seven added 2026-09-06, AECI-793).
+- **Source of truth** for the vocabulary is `docs/DATA_OBJECT_VOCABULARY.md` (§4) / its hand-maintained mirror `docs/data-object-vocabulary.json` — a frozen, closed 27-term list (20 at Stage 1.5; seven added 2026-09-06, AECI-793).
 - **`aliases`** is resolver metadata: the promote ingest (AECI-297) resolves a claim's `dataObject` find-only by slug **then** alias (`STAGE_1_5_SPEC.md` §6.2). It never drives ranking or display.
 
 ---

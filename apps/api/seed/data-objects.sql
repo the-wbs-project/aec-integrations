@@ -1,7 +1,7 @@
 -- `data_object` controlled vocabulary for Cloudflare D1 (Stage 1.5 — AECI-293).
 -- Canonical seed + source of truth for the main-app `taxonomy_data_objects` table,
 -- mirroring apps/api/seed/taxonomy.sql. Materialises the frozen 27-term vocabulary from
--- docs/DATA_OBJECT_VOCABULARY.md (§4) / its generated mirror docs/data-object-vocabulary.json.
+-- docs/DATA_OBJECT_VOCABULARY.md (§4) / its hand-maintained mirror docs/data-object-vocabulary.json.
 --
 -- Idempotent UPSERTs keyed on slug; ids are deterministic UUIDv5(slug) so they are stable
 -- across re-runs and environments. Applied with `pnpm db:seed:data-objects:local` →
