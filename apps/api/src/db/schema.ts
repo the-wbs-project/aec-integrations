@@ -415,7 +415,7 @@ export const taxonomyTrades = sqliteTable(
 // `data_object` controlled vocabulary (Stage 1.5 — STAGE_1_5_SPEC.md §6.1). Mirrors
 // `taxonomyCategories` and adds `aliases`: resolver metadata (JSON array of alternate
 // names) the promote ingest matches a claim's `dataObject` against, find-only by slug
-// then alias (§6.2, AECI-297). Closed 20-term list; seeded from
+// then alias (§6.2, AECI-297). Closed 27-term list; seeded from
 // `apps/api/seed/data-objects.sql` (UUIDv5-by-slug, idempotent upsert).
 export const taxonomyDataObjects = sqliteTable(
   'taxonomy_data_objects',

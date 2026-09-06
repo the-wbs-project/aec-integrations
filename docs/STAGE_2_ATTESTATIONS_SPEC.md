@@ -964,7 +964,7 @@ Decisions taken at build that §6 did not pre-specify:
 - **The ordering is NULLs-last, matching the claim sort.** `createListVendorIntegrationsHandler`
   coerces a null `display_order` to `MAX_SAFE_INTEGER` in JS; SQLite sorts NULLs *first*. Without
   the explicit `IS NULL` term the endpoint's rows and the tab's lanes would disagree on any
-  hand-inserted row — invisible today, since all 20 seeded terms carry an order, which is what would
+  hand-inserted row — invisible today, since all 27 seeded terms carry an order, which is what would
   make it expensive later. Pinned by a test in both the route and lib specs.
 - **The picker renders the vocabulary ALPHABETICALLY, not in `display_order` (2026-08-26).** A
   later change, and the one place in the portal that re-sorts the vocabulary — `dataObjectOptions`
