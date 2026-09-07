@@ -37,8 +37,9 @@ treats the D1 rows outside that set as stranded.
 ### How this differs from the daily strand audit
 
 `scripts/ops/2026-08-promote-strand-audit/` computes the same set difference as its
-`stray` bucket, reading Airtable directly, and runs daily in CI. **This lane is not a
-duplicate.** It adds the three things that audit deliberately does not do:
+`stray` bucket, reading Airtable directly, and is *scheduled* daily in CI (it has never
+actually executed — see below). **This lane is not a duplicate.** It adds the three
+things that audit deliberately does not do:
 
 1. **Why the claim is gone** — DELETED upstream vs **REJECTED** upstream. A rejected
    record is invisible to every ordinary MCP read tool (`list_products` excludes them
@@ -320,10 +321,12 @@ authority; this audit only confirms the vendor is still there.
 
 ## Non-goals
 
-- **This is not a CI cron.** `promote-strand-audit.yml` already watches the cheap set
-  difference daily. This sweep costs a per-product `get_product` fan-out against a
-  rate-limited curation DB; it is a measuring instrument, not a monitor. If it is ever
-  wired up it needs a documented allowance, exactly as
+- **This is not a CI cron.** It costs a per-product `get_product` fan-out against a
+  rate-limited curation DB; it is a measuring instrument, not a monitor. Note this is
+  *not* because a daily check already exists — `promote-strand-audit.yml` has never run
+  and its transport is dead (AECI-796); the cheap daily set difference has to be rebuilt
+  on this lane's transport before anything watches it. If this sweep is ever wired up it
+  needs a documented rate allowance, exactly as
   `2026-08-powered-by-backfill/README.md` warns about its own permanent floors.
 - **No write path, now or in a follow-up commit.** Retraction stays with
   `ops:retract-product` and the datatool prune, both of which carry guards, rollback

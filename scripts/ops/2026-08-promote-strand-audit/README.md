@@ -122,7 +122,7 @@ rejected, retracted from D1, and its Airtable row kept the now-dead id. Healed o
 2026-08-13 by clearing `supabase_product_id` + `supabase_slug` on all three (status left
 at `rejected` — these products are intentionally not live).
 
-### The 2 stray integrations — RESOLVED 2026-08-13 (AECI-593)
+### The 2 stray integrations — DECIDED 2026-08-13, STILL LIVE (AECI-593)
 
 | D1 id | Pair | Mechanism | Created |
 |---|---|---|---|
@@ -158,8 +158,11 @@ attestations; `integration_count` repairs to polycam 1, autocad 7, arcgis 13. Tw
 indexable pair pages (`/products/{arcgis,autocad}/integrations/polycam`) begin 404ing and
 drop out of the sitemap, which is correct — the content is retracted.
 
-> **Status: decided, not yet executed.** Update this section and add a Measurement row once
-> the production prune has run and the audit reports `Integrations → stray: 0`.
+> **Status: decided, not yet executed — re-confirmed 2026-09-07.** AECI-593 is marked Done
+> and PR #510 shipped the *tooling* (the datatool named-guard acknowledgment and the daily
+> workflow), but the prune itself was never performed: the AECI-767 sweep found both rows
+> still live, indexed, and rendering four weeks later. Update this section and add a
+> Measurement row once the production prune has run.
 
 > **The generalizable lesson.** These rows were not duplicate residue and the guards were
 > right to refuse them — but the exit was still a delete. A tripped guard means "not a
@@ -205,8 +208,9 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `docs/REVIEW_APP_PROMOTE_API.md` — the promote contract, including the async
   kick-off/poll/collect protocol and the upsert rule this audit tests.
 - `docs/adr/0021-async-promote-ingest-via-workflows.md` — why promote went async.
-- `scripts/ops/2026-09-stranded-row-audit/` — the **companion** sweep (AECI-767), not a
-  duplicate. This audit detects the drift cheaply and daily; that one explains it. It
+- `scripts/ops/2026-09-stranded-row-audit/` — the **successor** sweep (AECI-767). This
+  audit was meant to detect the drift cheaply and daily; it never ran and its transport
+  is dead (AECI-796), so that lane is the only one that currently works. It
   reaches the same catalog over the review-app MCP instead of Airtable, sub-classifies a
   missing claim as **deleted** vs **rejected** upstream (`find_product` with
   `include_rejected` is the only read that can see a rejected record), walks the

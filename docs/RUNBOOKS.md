@@ -1266,6 +1266,16 @@ job id would duplicate them.
 
 ## Promote strand audit is red
 
+> **This runbook is currently unreachable (found 2026-09-07, AECI-796).** The workflow has
+> never executed: `AIRTABLE_TOKEN` was never provisioned, so all 25 scheduled runs since
+> 2026-08-13 skipped green — and the secret is not the fix, because the review app has
+> moved off Airtable onto its own D1, leaving this audit's `api.airtable.com` transport
+> pointed at a decommissioned system. Nothing below can fire until the check is re-pointed
+> at the review-app MCP. In the meantime the working sweep is
+> `scripts/ops/2026-09-stranded-row-audit/` (`AECI_MCP_TOKEN`), which also sub-classifies a
+> missing claim as **deleted** vs **rejected** upstream. The buckets, first checks and
+> repair recipes below remain correct for when the check is revived.
+
 **Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
 exits non-zero. There is no monitor on either plane — the workflow's own red **is** the alert, the
 same pattern the AECI-647 cron liveness sweep now uses for absence detection, and for the same
