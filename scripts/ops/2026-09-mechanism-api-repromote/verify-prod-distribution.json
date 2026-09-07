@@ -1,0 +1,44 @@
+[
+  {
+    "results": [
+      {
+        "k": "native",
+        "n": 726
+      },
+      {
+        "k": "iPaaS",
+        "n": 117
+      },
+      {
+        "k": "partner",
+        "n": 54
+      },
+      {
+        "k": "(NULL)",
+        "n": 23
+      },
+      {
+        "k": "marketplace-app",
+        "n": 6
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.7009
+      },
+      "duration": 0.7009,
+      "changes": 0,
+      "last_row_id": 47742,
+      "changed_db": false,
+      "size_after": 49278976,
+      "rows_read": 1857,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

@@ -2083,8 +2083,9 @@ population: `routeIntegrationLane` clause (c) in
 **`partner` is deliberately NOT in the disjunct.** It is the dumping ground AECI-698 exists to empty
 — a sample of six held a Concur app-center listing, a Procore support tutorial and a partnerpage.io
 directory entry — so treating it as third-party delivery would suppress attestation on 55 production
-edges an endpoint vendor may well have built. Those rows earn `integrator`, or `native`, or
-`marketplace-app`, one at a time, upstream, under the rubric. They do not inherit it by proximity.
+edges an endpoint vendor may well have built (2026-08-31; the count reads 54 as of 2026-09-07 —
+`SEARCH_RANKING.md` §4.3 carries the maintained figure). Those rows earn `integrator`, or `native`,
+or `marketplace-app`, one at a time, upstream, under the rubric. They do not inherit it by proximity.
 
 **AECI-721 also shrinks the FK disjunct's population, without changing the rule.** 19 of the 79
 FK-carrying prod edges leave `integrations` for `connector_evidenced_pairs`, so they stop reaching
@@ -2172,7 +2173,8 @@ they act on findings.
 - **The server computes `attestable`; the client never re-derives it.** The union is non-obvious, and
   a browser-side copy would drift and show controls that collect a 403.
 - **`powered_by` is a `ProductLink`, not a raw id** (§4.5, "attribution is a display concern"). It is
-  `null` on 53 of the 132 production edges, where the copy falls back to the free-text
+  `null` on 53 of the 132 production edges (2026-08-31; 57 as of 2026-09-07 after AECI-766 — see
+  `SEARCH_RANKING.md` §4.3), where the copy falls back to the free-text
   `mechanism_name` — that fallback is the majority path, not an edge case.
 - **`.default(true)`, not `false`.** The SSR and API Workers deploy per-commit but not atomically
   (the same reason `sync_headline.single_source` carries `.default(0)`, §4.5). `true` is what an

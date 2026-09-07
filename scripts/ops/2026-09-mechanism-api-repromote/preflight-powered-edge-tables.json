@@ -1,0 +1,74 @@
+[
+  {
+    "results": [
+      {
+        "tbl": "integrations",
+        "id": "028f9585-6c19-4b94-bd61-bf2cfb009dbc",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "integrations",
+        "id": "0fe03aef-e01f-4814-82e8-1fddf55cc056",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "integrations",
+        "id": "bfe21876-9745-4c4d-966d-4e29a8fadc32",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "integrations",
+        "id": "cc16a950-d338-4610-9dbf-4ba721b7f9f2",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "integrations",
+        "id": "e2c11ead-14ff-402d-8c31-0816feee63ed",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "integrations",
+        "id": "eaeda72d-f049-49a6-bc0a-38db4b775c6f",
+        "k": "iPaaS"
+      },
+      {
+        "tbl": "connector_evidenced_pairs",
+        "id": "44155bfa-c516-41ff-a8b3-9c4d620503f0",
+        "k": ""
+      },
+      {
+        "tbl": "connector_evidenced_pairs",
+        "id": "46a99e0f-6713-435c-8ce3-dc746ebc1977",
+        "k": ""
+      },
+      {
+        "tbl": "connector_evidenced_pairs",
+        "id": "b16a0be6-b8fd-4aab-bb02-f15eb1210156",
+        "k": ""
+      },
+      {
+        "tbl": "connector_evidenced_pairs",
+        "id": "b1f4cdbb-1cfa-4f60-803f-e7e2ce5ebfcc",
+        "k": ""
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.3625
+      },
+      "duration": 0.3625,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 49037312,
+      "rows_read": 30,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
