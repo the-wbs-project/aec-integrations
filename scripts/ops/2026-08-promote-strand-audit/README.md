@@ -67,7 +67,15 @@ scoped to `data.records:read` on the AEC Integrations base.
 > staging/demo/preview compares them against an unrelated seeded catalog and reports
 > near-total mismatch. The script warns when you do.
 
-### Runs daily in CI
+### Runs daily in CI — but has never actually audited anything
+
+> **Inert since it shipped (found 2026-09-07, tracked as AECI-796).** The skip-green
+> branch below was never taken out of play: `AIRTABLE_TOKEN` was never added to the repo
+> secrets, so all **25** scheduled runs since 2026-08-13 report `success` after logging
+> the warning and running the audit **zero** times (verified on run `34033166656`). The
+> green history is indistinguishable from a healthy one. Provision the secret — or make
+> the job fail — before treating this cron as a guard.
+
 
 `.github/workflows/promote-strand-audit.yml` runs this against production every day at
 09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at

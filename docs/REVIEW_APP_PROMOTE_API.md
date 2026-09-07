@@ -919,14 +919,20 @@ example: two Polycam edges were editorially retracted on 2026-08-09 and the audi
 them four days later. Repair recipes:
 `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
 
-**Detection is not the weak link — execution is.** The AECI-767 sweep
+**How much of this is actually happening, measured.** The AECI-767 sweep
 (`scripts/ops/2026-09-stranded-row-audit/`) measured the whole tail against production
 on **2026-09-07**: **0 stranded products**, 1 vendor and 6 integration edges, 7 claims
 and 7 attestations in cascade — a cleanup, not a trust problem. But **five of the seven
 publicly reachable rows were already-known items that were never executed**, including
 both Polycam edges, still live and indexed four *weeks* after the ruling, and the
-AECI-685 `bluebeam` vendor, still live after its 301 shipped. A daily red audit that
-nobody acts on is indistinguishable from no audit. That measurement, its per-row
+AECI-685 `bluebeam` vendor, still live after its 301 shipped.
+
+**And the daily backstop named above has never actually run.** It skips green when
+`AIRTABLE_TOKEN` is absent, and that secret was never provisioned — all 25 scheduled
+runs since 2026-08-13 report success having audited nothing (**AECI-796**). Read the
+backstop paragraph above as intended behaviour, not observed behaviour, until that is
+fixed: today the only things that have ever caught a stranded row are a human noticing
+and a one-off sweep. That measurement, its per-row
 dispositions, and the FK ordering that blocks the Bluebeam vendor delete are in that
 lane's README; it is also where you go to tell a **deleted** upstream record from a
 **rejected** one, which this daily audit cannot do.

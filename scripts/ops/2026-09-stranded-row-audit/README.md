@@ -194,12 +194,27 @@ live (see [Two gates](#two-gates)).
 SketchUp` and `Polycam ↔ Xactimate`, confirming both records are gone. The rows have
   been live and indexed for **four weeks**, not the four days the issue recorded.
 
-So the sweep's most useful finding is not a new class of damage. **The detector works;
-the follow-through is what fails.** The daily audit has been red on the Polycam rows
-every morning for four weeks under an issue that reads as closed — which is the failure
-mode a green-looking tracker is worst at surfacing, and worth weighing when AECI-595's
-priority is set: a retract _feature_ does not help if a retract _task_ does not get
-done.
+### The daily backstop has never run
+
+The obvious reading of the above — "the daily audit went red for four weeks and nobody
+acted" — is **wrong**, and the truth is worse.
+
+`.github/workflows/promote-strand-audit.yml` skips green when `AIRTABLE_TOKEN` is
+absent, on the reasoning that a red-on-arrival cron teaches people to ignore the cron.
+**That secret was never added.** `gh secret list` does not contain it, and all **25**
+scheduled runs since the workflow shipped on 2026-08-13 report `success` after logging
+`AIRTABLE_TOKEN is not set — skipping the strand audit` and running the audit zero
+times. Verified on run `34033166656` (2026-09-06): `AIRTABLE_TOKEN:` is empty, the
+`::warning` fires, the job exits 0.
+
+So the backstop AECI-593 shipped **has never executed once**, and its green history is
+indistinguishable from a healthy one. Tracked as **AECI-796**.
+
+That reframes what this sweep found. It is not that the detector works and the
+follow-through fails — **the detector has never been switched on**, and the only two
+things that have ever found a stranded row are a human noticing and this one-off run.
+Worth weighing when AECI-595's priority is set: a retract _feature_ is worth less than a
+retract _detector that actually runs_, and the cheapest fix on the table is a secret.
 
 ### The two genuinely new rows
 
