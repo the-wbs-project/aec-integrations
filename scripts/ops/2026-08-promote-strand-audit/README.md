@@ -90,9 +90,10 @@ scoped to `data.records:read` on the AEC Integrations base.
 `.github/workflows/promote-strand-audit.yml` runs this against production every day at
 09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at
 the next manual audit — which is what AECI-593 needed: two editorially-retracted edges sat
-live for four days because nothing was watching. The job **skips green** until the
-`AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2 without it, and a
-red-on-arrival cron just teaches people to ignore the cron). It writes its report to
+live for four days because nothing was watching (and then, because this workflow was never
+credentialed and nobody re-checked a closed issue, for four more weeks — AECI-796). The job
+**skips green** until the `AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2
+without it, and a red-on-arrival cron just teaches people to ignore the cron). It writes its report to
 `$RUNNER_TEMP` and uploads nothing.
 
 ## Measurement — 2026-08-13, production
@@ -122,7 +123,7 @@ rejected, retracted from D1, and its Airtable row kept the now-dead id. Healed o
 2026-08-13 by clearing `supabase_product_id` + `supabase_slug` on all three (status left
 at `rejected` — these products are intentionally not live).
 
-### The 2 stray integrations — DECIDED 2026-08-13, STILL LIVE (AECI-593)
+### The 2 stray integrations — DECIDED 2026-08-13, RETRACTED 2026-09-07 (AECI-593)
 
 | D1 id | Pair | Mechanism | Created |
 |---|---|---|---|
@@ -158,11 +159,16 @@ attestations; `integration_count` repairs to polycam 1, autocad 7, arcgis 13. Tw
 indexable pair pages (`/products/{arcgis,autocad}/integrations/polycam`) begin 404ing and
 drop out of the sitemap, which is correct — the content is retracted.
 
-> **Status: decided, not yet executed — re-confirmed 2026-09-07.** AECI-593 is marked Done
-> and PR #510 shipped the *tooling* (the datatool named-guard acknowledgment and the daily
-> workflow), but the prune itself was never performed: the AECI-767 sweep found both rows
-> still live, indexed, and rendering four weeks later. Update this section and add a
-> Measurement row once the production prune has run.
+> **Status: EXECUTED 2026-09-07.** For four weeks this section read "decided, not yet
+> executed": PR #510 shipped the *tooling* (the datatool named-guard acknowledgment and the
+> daily workflow) in August, the issue read as Done, and the prune itself was never
+> performed — the AECI-767 sweep found both rows still live, indexed and rendering four
+> weeks later, and a 2026-08-25 re-promote of Polycam had not healed them (it cannot; §5.1).
+> Both rows, their 3 claims and 3 attestations were deleted from `aeci-app-production` on
+> 2026-09-07, `integration_count` repaired (polycam 3→1, autocad 12→11, arcgis 18→17) and
+> the two Algolia objects removed. Full record, including why the pair pages return a
+> noindexed empty state rather than the 404 this section predicted:
+> `scripts/ops/2026-09-polycam-retraction/README.md`.
 
 > **The generalizable lesson.** These rows were not duplicate residue and the guards were
 > right to refuse them — but the exit was still a delete. A tripped guard means "not a

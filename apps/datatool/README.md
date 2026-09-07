@@ -101,6 +101,14 @@ that tier's own SSR Worker consumes.
   guard straight from the dry-run response, so you cannot tick one the plan did not
   report.
 
+  **The retraction this was built for did not run through here.** AECI-593 was finally
+  executed on 2026-09-07 via a one-off script
+  (`scripts/ops/2026-09-polycam-retraction/`) driving `wrangler d1 execute --remote`,
+  because reaching this endpoint needs a Cloudflare Access service token or `TOOL_TOKEN`
+  and **neither is provisioned in an operator workspace** — while `CLOUDFLARE_API_TOKEN`
+  is. Worth knowing before you plan the next prune around this API: budget for minting a
+  credential, or expect the operation to route around the guards this Worker owns.
+
   Error codes: `GUARD_TRIPPED` (409, a tripped guard is unacknowledged),
   `GUARD_ACK_STALE` (400, acknowledged a guard that reads zero), `ACK_REASON_REQUIRED`
   (400), `BAD_ACK_GUARDS` (400, unknown guard name). The production double-confirm

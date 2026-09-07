@@ -187,8 +187,8 @@ live (see [Two gates](#two-gates)).
 | URL                                                              | Bucket                        | Cascade                  | What it is                                                             |
 | ---------------------------------------------------------------- | ----------------------------- | ------------------------ | ---------------------------------------------------------------------- |
 | `/vendors/bluebeam`                                              | `vendorNoLiveProducts`        | 0 products               | **AECI-685**, In Progress — redirect shipped, D1 delete still pending. |
-| `/products/polycam/integrations/arcgis`                          | `integrationSourceGone`       | 1 claim, 1 attestation   | **AECI-593, marked Done — rows still live.**                           |
-| `/products/polycam/integrations/autocad`                         | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-593, marked Done — rows still live.**                           |
+| `/products/polycam/integrations/arcgis`                          | `integrationSourceGone`       | 1 claim, 1 attestation   | **AECI-593** — reopened and **retracted the same day**, see below.     |
+| `/products/polycam/integrations/autocad`                         | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-593** — reopened and **retracted the same day**, see below.     |
 | `/products/procore-project-management/integrations/followup-crm` | `integrationSourceGone`       | 2 claims, 2 attestations | **New** — AECI-794. Reverse twin survives.                             |
 | `/products/microsoft-dynamics-365/integrations/monday-com`       | `integrationSourceGone`       | 1 claim, 1 attestation   | **New** — AECI-795. No twin.                                           |
 | `/products/autodesk-revit/integrations/bluebeam-revu`            | `integrationEndpointStranded` | 1 claim, 1 attestation   | `built_by` → the dead Bluebeam vendor.                                 |
@@ -214,6 +214,11 @@ live (see [Two gates](#two-gates)).
   while the retraction itself was never performed. Upstream now holds only `Polycam ↔
 SketchUp` and `Polycam ↔ Xactimate`, confirming both records are gone. The rows have
   been live and indexed for **four weeks**, not the four days the issue recorded.
+  **Closed the same day this sweep ran:** AECI-593 was reopened and the retraction
+  executed against production on 2026-09-07 — both rows, 3 claims and 3 attestations
+  deleted, `integration_count` repaired (polycam 3→1, autocad 12→11, arcgis 18→17), both
+  Algolia objects removed. Record: `scripts/ops/2026-09-polycam-retraction/README.md`.
+  A re-run of this audit no longer lists either id.
 
 ### The daily backstop has never run
 
@@ -260,9 +265,10 @@ integrations are DELETE; none is an adopt.** Sources are their production D1 and
 | `2e6ad5bf-…` dynamics-365 → monday-com | **DELETE**, and this is the one that argues for a retraction channel. The edge *was* materialised in a 2026-07 sweep and is gone now, **with no ruling written down on either side**. Probably swept up by the AECI-700/701 Zapier-convention change, which matches its `iPaaS` kind — but the review app explicitly declines to assert that from the data. No upstream record, no defence: if the edge is real it should be re-materialised deliberately with current evidence, not adopted from a stranded row. |
 
 **The single most useful fact they returned:** Polycam was **re-promoted on 2026-08-25**,
-after the deletion, and both rows are still live. That is §5.1 demonstrated end-to-end —
-**a re-promote does not heal a retraction** — and it is the cleanest evidence available
-for sizing AECI-595.
+after the deletion, and both rows were still live four weeks later. That is §5.1
+demonstrated end-to-end — **a re-promote does not heal a retraction** — and it is the
+cleanest evidence available for sizing AECI-595. It took a deliberate, hand-run delete on
+2026-09-07 to remove them, which is the whole argument for a retraction channel.
 
 ### The Bluebeam vendor: upstream is finished, we are not
 
@@ -355,6 +361,7 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | Date       | Env        | Action      | Result                                                                                                                                           |
 | ---------- | ---------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-09-07 | production | `audit.mjs` | 0 products, 1 vendor, 6 integrations stranded; 7 claims + 7 attestations in cascade. Reconciled 247/247, 0 unresolved reads. No write performed. |
+| 2026-09-07 | production | `audit.mjs` | Re-run after the AECI-593 retraction: 0 products, 1 vendor, 4 integrations stranded; 4 claims + 4 attestations in cascade; 5 publicly reachable. `integrationSourceGone` is down to **2** (AECI-794, AECI-795), carrying 3 of those claims/attestations. Both Polycam ids gone. Still exits 1 — correctly, those two rulings are open. |
 
 ## Follow-ups filed from this run
 
@@ -365,7 +372,10 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 
 Five of the seven rows were already covered: **AECI-685** (the vendor and both
 `built_by` edges) and **AECI-593** (both Polycam edges). Both carry a comment recording
-the confirmed 2026-09-07 state.
+the confirmed 2026-09-07 state. **AECI-593 was executed that same day** — see
+`scripts/ops/2026-09-polycam-retraction/` — leaving five stranded rows, all five still
+publicly reachable (the vendor, the two undecided `integrationSourceGone` edges, and the
+two `built_by` strands).
 
 ## Related
 
