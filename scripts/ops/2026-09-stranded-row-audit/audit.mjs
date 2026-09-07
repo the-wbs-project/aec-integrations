@@ -264,6 +264,8 @@ const productCohort = allStatuses
 // 2. Resolve the cohort to its `supabaseId`s. get_product is the ONLY tool that
 //    exposes them; list_products does not.
 const productByRecId = new Map();
+/** How many records came free off the list vs. cost a per-record call. See the fast path. */
+const fastPath = { products: null, vendors: null };
 /** Records the review app failed to return, so a clean verdict cannot hide behind them. */
 const unresolvedUpstream = [];
 
@@ -308,11 +310,38 @@ async function resolveProduct(recId) {
 if (cache) {
   for (const p of cache.products) productByRecId.set(p.recId, p);
 } else {
-  await mapWithConcurrency(
-    productCohort.map((r) => r.id),
-    MCP_CONCURRENCY,
-    resolveProduct,
-  );
+  // OPPORTUNISTIC FAST PATH. The review app is adding `supabaseId` / `supabaseSlug` to
+  // the `list_products` / `list_vendors` projections (offered 2026-09-07: four lines,
+  // zero extra queries, since both tools already hydrate the full record and then
+  // project a subset). The moment that ships, the list row carries everything this
+  // sweep needs and the per-record fan-out becomes dead weight — ~300 calls collapse
+  // into ~8 paged reads.
+  //
+  // So detect it rather than wait for it: a row that already carries `supabaseId` is
+  // used directly, and only the rest fall through to `get_product`. This is a no-op
+  // today and needs no follow-up commit when the upstream change lands.
+  const needsResolve = [];
+  for (const row of productCohort) {
+    if (row.supabaseId) {
+      productByRecId.set(row.id, {
+        recId: row.id,
+        name: row.name ?? null,
+        website: row.website ?? null,
+        supabaseId: row.supabaseId,
+        supabaseSlug: row.supabaseSlug ?? null,
+        promotionStatus: row.promotionStatus ?? null,
+        vendorRecIds: (row.vendors ?? []).map((v) => v.id),
+        reviewUrl: row.reviewUrl ?? null,
+      });
+    } else {
+      needsResolve.push(row.id);
+    }
+  }
+  fastPath.products = {
+    fromList: productCohort.length - needsResolve.length,
+    viaGetProduct: needsResolve.length,
+  };
+  await mapWithConcurrency(needsResolve, MCP_CONCURRENCY, resolveProduct);
 }
 
 /** D1 product id → the upstream record claiming it. */
@@ -329,8 +358,31 @@ const upstreamVendorByRecId = new Map(upstreamVendors.map((v) => [v.id, v]));
 const vendorRecIds = [...new Set([...productByRecId.values()].flatMap((p) => p.vendorRecIds))];
 const vendorByRecId = new Map();
 if (cache) for (const v of cache.vendors) vendorByRecId.set(v.recId, v);
+// Same opportunistic fast path for vendors (see the products block above).
+const vendorNeedsResolve = [];
+if (!cache) {
+  for (const recId of vendorRecIds) {
+    const listRow = upstreamVendorByRecId.get(recId);
+    if (listRow?.supabaseId) {
+      vendorByRecId.set(recId, {
+        recId,
+        companyName: listRow.companyName ?? null,
+        supabaseId: listRow.supabaseId,
+        supabaseSlug: listRow.supabaseSlug ?? null,
+        toolCount: listRow.toolCount ?? null,
+        reviewUrl: listRow.reviewUrl ?? null,
+      });
+    } else {
+      vendorNeedsResolve.push(recId);
+    }
+  }
+  fastPath.vendors = {
+    fromList: vendorRecIds.length - vendorNeedsResolve.length,
+    viaGetVendor: vendorNeedsResolve.length,
+  };
+}
 if (!cache)
-  await mapWithConcurrency(vendorRecIds, MCP_CONCURRENCY, async (recId) => {
+  await mapWithConcurrency(vendorNeedsResolve, MCP_CONCURRENCY, async (recId) => {
     let v;
     try {
       v = await callWithRetry('get_vendor', { record_id: recId });
@@ -707,6 +759,8 @@ const report = {
   productsAccounted,
   reconciles: productsAccounted === d1Products.length,
   // Rows the cohort missed but `find_product` proved are still claimed upstream.
+  // Populated once the upstream list projections carry `supabaseId` — see the fast path.
+  fastPath,
   reclaimedByFindProduct: reclaimed,
   // Upstream reads the review app could not serve. A non-empty list means the sweep
   // is INCOMPLETE: some D1 row may be misclassified as stranded purely because its
