@@ -1,0 +1,21 @@
+{
+  "captured_at": "2026-09-07T12:55:00Z",
+  "database": "aeci-app-production",
+  "vendor_id": "b52e0001-8b9e-40c5-87fc-953c2e0dd843",
+  "restrict_fks": {
+    "integrations.built_by_vendor_id": 2,
+    "page_views.vendor_id": 31,
+    "profiles.vendor_id": 0,
+    "connector_evidenced_pairs.built_by_vendor_id": 0
+  },
+  "cascade_fks": {
+    "product_vendors.vendor_id": 0,
+    "claims.created_by_vendor_id": 0,
+    "attestations.attested_by_vendor_id": 0,
+    "vendor_entitlements.vendor_id": 0,
+    "vendor_seat_invites.vendor_id": null
+  },
+  "notes": {
+    "vendor_seat_invites.vendor_id": "NOT CAPTURED. Missed at pre-flight; the table is live in production (migration 0025) and the FK is ON DELETE CASCADE, so any row was deleted silently by apply.sql and rollback.sql cannot restore it. Expected zero in practice — the vendor portal is dark and no seat has been granted to any vendor — but that is an inference, not a measurement. Any future vendor retraction must count all NINE vendors FKs (four RESTRICT, five CASCADE)."
+  }
+}
