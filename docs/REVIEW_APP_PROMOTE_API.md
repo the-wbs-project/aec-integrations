@@ -915,9 +915,21 @@ collected promote leaves a stray if the record is later deleted.
 
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
 production D1 against the base daily and fails on any stray. AECI-593 is the worked
-example: two Polycam edges were editorially retracted on 2026-08-09 and sat live on
-production until the audit found them. Repair recipes:
+example: two Polycam edges were editorially retracted on 2026-08-09 and the audit found
+them four days later. Repair recipes:
 `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+
+**Detection is not the weak link — execution is.** The AECI-767 sweep
+(`scripts/ops/2026-09-stranded-row-audit/`) measured the whole tail against production
+on **2026-09-07**: **0 stranded products**, 1 vendor and 6 integration edges, 7 claims
+and 7 attestations in cascade — a cleanup, not a trust problem. But **five of the seven
+publicly reachable rows were already-known items that were never executed**, including
+both Polycam edges, still live and indexed four *weeks* after the ruling, and the
+AECI-685 `bluebeam` vendor, still live after its 301 shipped. A daily red audit that
+nobody acts on is indistinguishable from no audit. That measurement, its per-row
+dispositions, and the FK ordering that blocks the Bluebeam vendor delete are in that
+lane's README; it is also where you go to tell a **deleted** upstream record from a
+**rejected** one, which this daily audit cannot do.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

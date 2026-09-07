@@ -29,13 +29,20 @@ those ids was lost. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 ### Claims are deliberately out of scope
 
 `integration_claims` has a `supabase_claim_id` field, and **zero records carry one**.
-That is not damage. The ingest replaces an integration's claims wholesale on every
-promote — `db.delete(claims).where(eq(claims.integrationId, …))` then re-insert with
-fresh `crypto.randomUUID()`s (`apps/api/src/routes/promote.ts`, §6.2) — so a
-written-back `supabase_claim_id` is invalidated by the very next re-promote. Claim rows
-are wholly owned by their integration and cannot be orphaned independently of it.
-Auditing them would report all 915, every time. The write-back itself is dead weight;
-tracked separately.
+That is not damage — though the reason has changed since this was written. The ingest
+**used to** replace an integration's claims wholesale on every promote (delete-by-
+integration, then re-insert with fresh `crypto.randomUUID()`s), which invalidated any
+written-back `supabase_claim_id` on the very next re-promote. Since AECI-604 that is no
+longer the mechanism: `apps/api/src/lib/promote-claims.ts` matches on the
+`(integration_id, data_object_id, direction)` identity triple and **reuses** the row, so
+claim ids are now stable.
+
+The conclusion is unaffected. Claim rows are wholly owned by their integration —
+`claims.integration_id` and `attestations.claim_id` both cascade — and cannot be
+orphaned independently of it, so auditing them as their own axis would report all of
+them, every time. `scripts/ops/2026-09-stranded-row-audit/` reports them as **cascade
+weight** on a stranded integration instead, which is the form the number is useful in.
+The write-back itself is dead weight; tracked separately.
 
 ## Run it
 
@@ -180,6 +187,14 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `docs/REVIEW_APP_PROMOTE_API.md` — the promote contract, including the async
   kick-off/poll/collect protocol and the upsert rule this audit tests.
 - `docs/adr/0021-async-promote-ingest-via-workflows.md` — why promote went async.
+- `scripts/ops/2026-09-stranded-row-audit/` — the **companion** sweep (AECI-767), not a
+  duplicate. This audit detects the drift cheaply and daily; that one explains it. It
+  reaches the same catalog over the review-app MCP instead of Airtable, sub-classifies a
+  missing claim as **deleted** vs **rejected** upstream (`find_product` with
+  `include_rejected` is the only read that can see a rejected record), walks the
+  transitive damage into claims and attestations, and reports public reachability and the
+  retraction cascade per row. Measured 2026-09-07: 0 stranded products, 1 vendor,
+  6 integrations.
 - `scripts/ops/2026-08-orphan-integration-cleanup/` — the earlier, larger stray-integration
   sweep (22 rows, run; all confirmed absent from production on 2026-08-13).
 - `apps/datatool/README.md` — the Access-gated Worker that owns the dangerous half of a
