@@ -69,12 +69,22 @@ scoped to `data.records:read` on the AEC Integrations base.
 
 ### Runs daily in CI — but has never actually audited anything
 
-> **Inert since it shipped (found 2026-09-07, tracked as AECI-796).** The skip-green
-> branch below was never taken out of play: `AIRTABLE_TOKEN` was never added to the repo
-> secrets, so all **25** scheduled runs since 2026-08-13 report `success` after logging
-> the warning and running the audit **zero** times (verified on run `34033166656`). The
-> green history is indistinguishable from a healthy one. Provision the secret — or make
-> the job fail — before treating this cron as a guard.
+> **Inert since it shipped, and now obsolete (found 2026-09-07, tracked as AECI-796).**
+> Two separate problems, and the second one supersedes the first.
+>
+> 1. The skip-green branch below was never taken out of play: `AIRTABLE_TOKEN` was never
+>    added to the repo secrets, so all **25** scheduled runs since 2026-08-13 report
+>    `success` after logging the warning and running the audit **zero** times (verified
+>    on run `34033166656`). The green history is indistinguishable from a healthy one.
+> 2. **The review app has since moved off Airtable onto its own D1.** This script reads
+>    `api.airtable.com/v0/appy81IdGJY6Fngf9` directly, so it points at a decommissioned
+>    system. **Do not mint the PAT this README asks for** — there is nothing to
+>    authenticate against, and that is almost certainly why the secret was never added.
+>
+> Everything below about *buckets*, *healing* and the 2026-08-13 measurement is still
+> accurate as a record of what was true then. The **transport is dead**. The successor
+> is `scripts/ops/2026-09-stranded-row-audit/`, which reaches the same catalog over the
+> review app's MCP with `AECI_MCP_TOKEN`.
 
 
 `.github/workflows/promote-strand-audit.yml` runs this against production every day at

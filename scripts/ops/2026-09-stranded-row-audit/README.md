@@ -48,8 +48,16 @@ duplicate.** It adds the three things that audit deliberately does not do:
    strand their claims and attestations.
 3. **Public reachability and the retraction cascade**, per row.
 
-Keep the daily audit for drift detection. Reach for this one when you need to know what
-the drift _is_.
+**And since 2026-09-07 there is a fourth difference that supersedes the rest: the
+review app no longer runs on Airtable.** It has its own D1 (`server/db/ids.ts` keeps
+the `rec…` id *format*, which is why the ids still look Airtable-shaped —
+`apps/api/src/db/schema.ts:1755-1776` says so explicitly). The daily audit reads
+`api.airtable.com` directly, so it is not merely uncredentialed — **its data source is
+decommissioned and it cannot be made to work again as written**. See
+[The daily backstop has never run](#the-daily-backstop-has-never-run).
+
+So this is the **replacement**, not the companion: it already speaks to the current
+system. What it is not yet is a *cheap* daily check — see AECI-796 for that split.
 
 ## Buckets
 
@@ -99,9 +107,11 @@ not one per tier.
 | `CLOUDFLARE_ACCOUNT_ID` | ditto                                                                                           |
 | `AECI_MCP_TOKEN`        | the review-app MCP (`.mcp.json`, injected from the Conductor keychain)                          |
 
-No `AIRTABLE_TOKEN`, deliberately: it is not in this repo's environment, and
-`mcp-client.mjs` (copied from `2026-08-powered-by-backfill`, plus `find_product` on the
-allow-list) reaches the same catalog with a credential the workspace already holds.
+No `AIRTABLE_TOKEN` — and as of 2026-09-07 that is no longer merely a convenience.
+**The review app is off Airtable**, so there is no Airtable base to point a token at;
+`AECI_MCP_TOKEN` against the review app's own MCP is the only way in. `mcp-client.mjs`
+(copied from `2026-08-powered-by-backfill`, plus `find_product` on the allow-list) is
+that path. Ignore the sibling lane's instructions for minting an Airtable PAT.
 
 ### The upstream cache
 
@@ -208,7 +218,16 @@ times. Verified on run `34033166656` (2026-09-06): `AIRTABLE_TOKEN:` is empty, t
 `::warning` fires, the job exits 0.
 
 So the backstop AECI-593 shipped **has never executed once**, and its green history is
-indistinguishable from a healthy one. Tracked as **AECI-796**.
+indistinguishable from a healthy one.
+
+**And the secret is not the fix.** The review app has since moved off Airtable onto its
+own D1, so `scripts/ops/2026-08-promote-strand-audit/audit.mjs` — which reads
+`api.airtable.com/v0/appy81IdGJY6Fngf9` directly — points at a decommissioned system.
+Minting a PAT would not revive it; there is nothing to authenticate against. The skip
+branch was hiding an audit that had *also* gone obsolete underneath it, which is why
+"just add the secret" was never done. Tracked as **AECI-796**, whose fix is to re-point
+the daily check at the review app over `AECI_MCP_TOKEN` — the transport this lane
+already uses and proves works.
 
 That reframes what this sweep found. It is not that the detector works and the
 follow-through fails — **the detector has never been switched on**, and the only two
