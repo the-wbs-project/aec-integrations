@@ -1,0 +1,46 @@
+[
+  {
+    "results": [
+      {
+        "id": "3d3709e1-e8ef-47f3-ae90-3ff8e8ab76e7",
+        "connector_product_id": "1e10b14e-1de5-478d-9694-bce45d4499bd",
+        "product_a_id": "422499fd-094d-4a4c-8ace-050dfb693073",
+        "product_b_id": "d8f04618-637d-4101-bc6a-af81d6771069",
+        "name": "Roofr → QuickBooks Online",
+        "built_by_vendor_id": null,
+        "mechanism_name": "Agave",
+        "direction": "b_to_a",
+        "description": "Roofr exports contacts, catalog items, invoices, and payment data to QuickBooks Online, powered by Agave's embedded integration (currently Beta / limited availability per Roofr's pricing page). Available on Roofr's Scale plan; a Zapier connector is also available.",
+        "website": null,
+        "listing_url": "https://useagave.com/integrations/quickbooks-online",
+        "docs_url": null,
+        "mechanism_url": null,
+        "pricing_model": "Included in Scale plan subscription",
+        "maturity": "beta",
+        "notes": "AECI-444: reclassified native→iPaaS, powered_by Agave (consistent with the Agave ERP Sync pattern); maturity=beta per roofr.com/pricing (\"QuickBooks integration - Beta\") and useagave.com/integrations/quickbooks-online. One-way export claims (Directory & Contacts, Invoices & Payments) unchanged.",
+        "last_reviewed_at": null,
+        "maintained_by": "aeci",
+        "created_at": "2026-07-25T15:52:33.204Z",
+        "updated_at": "2026-08-27T09:49:10.420Z"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2579
+      },
+      "duration": 0.2579,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 48369664,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
