@@ -1,0 +1,184 @@
+[
+  {
+    "results": [
+      {
+        "sid": "535ec93b-289a-4c77-b989-cfc1aeb067eb",
+        "review_rec": "recIXg6JhwMuOY4RS",
+        "src": "ADP Workforce Now",
+        "src_rec": "recpq25ro2WtVsrhp",
+        "tgt": "busybusy",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "2eb2da87-3f9b-4f55-b7ba-a58caec9e2b0",
+        "review_rec": "rec5UVJ3uAPJ2uoBg",
+        "src": "BigTime PSA",
+        "src_rec": "recKzU5FCfTqsLoV3",
+        "tgt": "Power BI",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "be12798a-cb1a-4937-b5cf-4fff75185c96",
+        "review_rec": "recg4lxU9aTAcNtnO",
+        "src": "Deltek Costpoint",
+        "src_rec": "recwmKT1kIchXn8lL",
+        "tgt": "Power BI",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "38536dda-d0f9-473a-917c-cdc3133075a7",
+        "review_rec": "rec3WCW5flxnE1Pij",
+        "src": "Deltek Vantagepoint",
+        "src_rec": "recvm3gJmUFLMzVIL",
+        "tgt": "SAP Concur",
+        "expected_kind": "iPaaS",
+        "powered_by": "Blackbox Connector",
+        "powered_by_status": "unreviewed"
+      },
+      {
+        "sid": "71dc78e0-1bf0-4f26-8fa4-31606e388c84",
+        "review_rec": "recB8sv092qnpzsR4",
+        "src": "Deltek Vantagepoint",
+        "src_rec": "recvm3gJmUFLMzVIL",
+        "tgt": "Paylocity",
+        "expected_kind": "iPaaS",
+        "powered_by": "Blackbox Connector",
+        "powered_by_status": "unreviewed"
+      },
+      {
+        "sid": "345f270b-98e6-4d15-b8a0-99645bd1bdc4",
+        "review_rec": "recgNWzOaHtXhZpgc",
+        "src": "Deltek Vantagepoint",
+        "src_rec": "recvm3gJmUFLMzVIL",
+        "tgt": "BambooHR",
+        "expected_kind": "iPaaS",
+        "powered_by": "Blackbox Connector",
+        "powered_by_status": "unreviewed"
+      },
+      {
+        "sid": "2ebe8c24-b957-495f-9bff-6ca2e4443d2a",
+        "review_rec": "rechMeAiC856bKAjZ",
+        "src": "Deltek Vantagepoint",
+        "src_rec": "recvm3gJmUFLMzVIL",
+        "tgt": "ADP Workforce Now",
+        "expected_kind": "iPaaS",
+        "powered_by": "Blackbox Connector",
+        "powered_by_status": "unreviewed"
+      },
+      {
+        "sid": "94d613a1-d13e-4bf4-bf11-0e9cd03f3bf2",
+        "review_rec": "recnFWUj5haqDJC8C",
+        "src": "Deltek Vantagepoint",
+        "src_rec": "recvm3gJmUFLMzVIL",
+        "tgt": "Planifi",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "870268ca-ecd3-429c-bbf0-8c3023b23599",
+        "review_rec": "rec6lAM7FltH2JjJe",
+        "src": "HeavyJob",
+        "src_rec": "rec8tPLsT5ezww4L3",
+        "tgt": "Oracle Primavera P6",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "5d20e93d-d30c-4c49-84fb-a69f70eb1f08",
+        "review_rec": "reclytNbem2e8HyN3",
+        "src": "HeavyJob",
+        "src_rec": "rec8tPLsT5ezww4L3",
+        "tgt": "Microsoft Project",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "23da78a7-856d-4ce7-83ea-b81cb6439042",
+        "review_rec": "recrNN40tOUROo4WS",
+        "src": "Oracle Aconex",
+        "src_rec": "recY0IqcGJSJceOLM",
+        "tgt": "Power BI",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "7d9cae8f-3c56-4047-85f9-78e3f180e1ad",
+        "review_rec": "recX1Bb5Oz7I5kulq",
+        "src": "Oracle Fusion Cloud HCM",
+        "src_rec": "recbEUQMUCZIIwsJ7",
+        "tgt": "Microsoft Entra ID",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "a2abad06-ccf2-465c-a3d0-19bdc04b698e",
+        "review_rec": "recMYMnJHbpUq5pSi",
+        "src": "Oracle Primavera P6",
+        "src_rec": "recYnnisU8jezz8LF",
+        "tgt": "Octave Sequence Enterprise",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "8ef398fa-c1b7-470e-9fa1-7105d2f8bab5",
+        "review_rec": "recP14WomLvYqDz1k",
+        "src": "Oracle Primavera P6",
+        "src_rec": "recYnnisU8jezz8LF",
+        "tgt": "Oracle Aconex",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "6784d49b-39d1-4541-8229-df1a2c0aa358",
+        "review_rec": "recEXv0XwIhVsfmCz",
+        "src": "Ramp",
+        "src_rec": "recPO2iYCSB6YoSPa",
+        "tgt": "ADP Workforce Now",
+        "expected_kind": "native",
+        "powered_by": "",
+        "powered_by_status": ""
+      },
+      {
+        "sid": "aca4b43d-8471-440e-9e65-71ee70e9b24e",
+        "review_rec": "rectyFhpkytyqMfGT",
+        "src": "SmartPM",
+        "src_rec": "recqERDulmFo80HV3",
+        "tgt": "Tableau",
+        "expected_kind": "(NULL)",
+        "powered_by": "",
+        "powered_by_status": ""
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "APAC",
+      "served_by_colo": "SIN",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 66.8183
+      },
+      "duration": 66.8183,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 23736320,
+      "rows_read": 2522,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

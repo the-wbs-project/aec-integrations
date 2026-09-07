@@ -1,0 +1,64 @@
+[
+  {
+    "results": [
+      {
+        "slug": "adp-workforce-now",
+        "integration_count": 18
+      },
+      {
+        "slug": "bigtime-psa",
+        "integration_count": 6
+      },
+      {
+        "slug": "deltek-costpoint",
+        "integration_count": 6
+      },
+      {
+        "slug": "deltek-vantagepoint",
+        "integration_count": 17
+      },
+      {
+        "slug": "heavyjob",
+        "integration_count": 15
+      },
+      {
+        "slug": "oracle-aconex",
+        "integration_count": 13
+      },
+      {
+        "slug": "oracle-fusion-cloud-hcm",
+        "integration_count": 2
+      },
+      {
+        "slug": "oracle-primavera-p6",
+        "integration_count": 20
+      },
+      {
+        "slug": "ramp",
+        "integration_count": 11
+      },
+      {
+        "slug": "smartpm",
+        "integration_count": 3
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5402
+      },
+      "duration": 0.5402,
+      "changes": 0,
+      "last_row_id": 47742,
+      "changed_db": false,
+      "size_after": 49278976,
+      "rows_read": 20,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

@@ -1,0 +1,104 @@
+[
+  {
+    "results": [
+      {
+        "id": "535ec93b-289a-4c77-b989-cfc1aeb067eb",
+        "edge": "ADP Workforce Now -> busybusy",
+        "actual": "native"
+      },
+      {
+        "id": "2eb2da87-3f9b-4f55-b7ba-a58caec9e2b0",
+        "edge": "BigTime PSA -> Power BI",
+        "actual": "(NULL)"
+      },
+      {
+        "id": "be12798a-cb1a-4937-b5cf-4fff75185c96",
+        "edge": "Deltek Costpoint -> Power BI",
+        "actual": "(NULL)"
+      },
+      {
+        "id": "2ebe8c24-b957-495f-9bff-6ca2e4443d2a",
+        "edge": "Deltek Vantagepoint -> ADP Workforce Now",
+        "actual": "iPaaS"
+      },
+      {
+        "id": "345f270b-98e6-4d15-b8a0-99645bd1bdc4",
+        "edge": "Deltek Vantagepoint -> BambooHR",
+        "actual": "iPaaS"
+      },
+      {
+        "id": "71dc78e0-1bf0-4f26-8fa4-31606e388c84",
+        "edge": "Deltek Vantagepoint -> Paylocity",
+        "actual": "iPaaS"
+      },
+      {
+        "id": "94d613a1-d13e-4bf4-bf11-0e9cd03f3bf2",
+        "edge": "Deltek Vantagepoint -> Planifi",
+        "actual": "native"
+      },
+      {
+        "id": "38536dda-d0f9-473a-917c-cdc3133075a7",
+        "edge": "Deltek Vantagepoint -> SAP Concur",
+        "actual": "iPaaS"
+      },
+      {
+        "id": "5d20e93d-d30c-4c49-84fb-a69f70eb1f08",
+        "edge": "HeavyJob -> Microsoft Project",
+        "actual": "(NULL)"
+      },
+      {
+        "id": "870268ca-ecd3-429c-bbf0-8c3023b23599",
+        "edge": "HeavyJob -> Oracle Primavera P6",
+        "actual": "(NULL)"
+      },
+      {
+        "id": "23da78a7-856d-4ce7-83ea-b81cb6439042",
+        "edge": "Oracle Aconex -> Power BI",
+        "actual": "(NULL)"
+      },
+      {
+        "id": "7d9cae8f-3c56-4047-85f9-78e3f180e1ad",
+        "edge": "Oracle Fusion Cloud HCM -> Microsoft Entra ID",
+        "actual": "native"
+      },
+      {
+        "id": "a2abad06-ccf2-465c-a3d0-19bdc04b698e",
+        "edge": "Oracle Primavera P6 -> Octave Sequence Enterprise",
+        "actual": "native"
+      },
+      {
+        "id": "8ef398fa-c1b7-470e-9fa1-7105d2f8bab5",
+        "edge": "Oracle Primavera P6 -> Oracle Aconex",
+        "actual": "native"
+      },
+      {
+        "id": "6784d49b-39d1-4541-8229-df1a2c0aa358",
+        "edge": "Ramp -> ADP Workforce Now",
+        "actual": "native"
+      },
+      {
+        "id": "aca4b43d-8471-440e-9e65-71ee70e9b24e",
+        "edge": "SmartPM -> Tableau",
+        "actual": "(NULL)"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5593
+      },
+      "duration": 0.5593,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 49274880,
+      "rows_read": 80,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

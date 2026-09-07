@@ -815,8 +815,10 @@ predicate used to, **for every edge that could be routed**.
 53 production edges are `iPaaS` with a NULL `powered_by` because their connector is not a promoted
 product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-700 parks Zapier and
 Workato permanently — so they cannot be routed, and they are 53 of the 132 edges
-`isConnectorPoweredEdge` gates for AECI-705. Dropping the value would have silently re-opened vendor
-attestation prompts on every one. Clause (b) is therefore still reachable, and clause (a) still
+`isConnectorPoweredEdge` gates for AECI-705. **Those two figures are the 2026-08-31 measurement; the
+`iPaaS` half reads 57 as of 2026-09-07 (AECI-766 re-promoted four more onto it). `SEARCH_RANKING.md`
+§4.3 carries the maintained count — this paragraph is not it.** Dropping the value would have
+silently re-opened vendor attestation prompts on every one. Clause (b) is therefore still reachable, and clause (a) still
 matters for the ~60 Convention-A rows that stay.
 
 **Closed by AECI-735 (2026-09-02): `iPaaS` is retained PERMANENTLY, not deferred.** AECI-730
@@ -826,7 +828,7 @@ NULL, and AECI-700 parks Zapier and Workato indefinitely — while ~144 of the 3
 rows are Convention-A self-references that stay in `integrations` by design. Meanwhile the value
 became load-bearing in **three** shipped predicates, not one: `isConnectorPoweredEdge` (AECI-705's
 attestation gate), `routeIntegrationLane` clause (c) below (AECI-713's Via lane — the only thing
-keeping those 53 edges off the direct lane), and `MECHANISM_ORDER`, which `freeze()` uses as a
+keeping those edges off the direct lane), and `MECHANISM_ORDER`, which `freeze()` uses as a
 **filter** so a gap drops badges silently. Retiring it would need a replacement marker and there is
 none short of a new `integrations` column, which buys vocabulary tidiness at the cost of breaking
 three predicates. `iPaaS` is a marker; treat clause (c) and `CONNECTOR_MECHANISM_KINDS` as siblings
@@ -1032,7 +1034,8 @@ mid-flight will make a local decision about a cross-cutting contract.
     leave §4's rank table. AECI-721 adds `integrator` (tied with the `partner` it replaces, so the
     upstream re-key is rank-neutral) and pins connector-evidenced pairs to a fixed rank of **4**
     rather than letting a structurally-absent kind fall through to the unknown-kind `0`. Removing
-    `iPaaS` is deferred: 53 production edges are `iPaaS` with a NULL `powered_by` because their
+    `iPaaS` is deferred: 53 production edges (2026-08-31; 57 as of 2026-09-07 — see
+    `SEARCH_RANKING.md` §4.3) are `iPaaS` with a NULL `powered_by` because their
     connector is unpromoted and AECI-700 parks Zapier and Workato permanently, they cannot migrate
     (`connector_product_id` is NOT NULL), and they are 53 of the 132 edges `isConnectorPoweredEdge`
     gates — so nulling their kind would silently re-open AECI-705's attestation prompts on every

@@ -1,0 +1,120 @@
+{
+  "issue": "AECI-766",
+  "ran_at": "2026-09-07T07:36Z–07:44Z",
+  "target": "aeci-app-production (via review-app promote_product, serialized)",
+  "note": "Every job returned status=ok, operation=updated, withheld=[] and skipped=[] on collection. The withheld[] lists quoted below are from each job's KICK-OFF response — they name edges/claims held back because the far endpoint product is not promoted, which is the ordinary product-driven promotion rule, not a withheld correction.",
+  "jobs": [
+    {
+      "n": 1,
+      "product": "SmartPM",
+      "rec": "recqERDulmFo80HV3",
+      "job_id": "recqERDulmFo80HV3-mtqxg3jl-7dcbfb06",
+      "supabase_id": "6763dbc6-36f0-4963-a54c-f284bc1d2fa5",
+      "slug": "smartpm",
+      "operation": "updated",
+      "withheld_at_kickoff": 0,
+      "api_rows_after": 15
+    },
+    {
+      "n": 2,
+      "product": "Oracle Fusion Cloud HCM",
+      "rec": "recbEUQMUCZIIwsJ7",
+      "job_id": "recbEUQMUCZIIwsJ7-mtqxgwcx-29afce08",
+      "supabase_id": "b6e2378f-ceef-432e-9fde-80bce9e795b3",
+      "slug": "oracle-fusion-cloud-hcm",
+      "operation": "updated",
+      "withheld_at_kickoff": 4,
+      "api_rows_after": 14
+    },
+    {
+      "n": 3,
+      "product": "BigTime PSA",
+      "rec": "recKzU5FCfTqsLoV3",
+      "job_id": "recKzU5FCfTqsLoV3-mtqxhozo-6364e4f7",
+      "supabase_id": "c292a402-eaff-4133-a26c-022e0dfbf92b",
+      "slug": "bigtime-psa",
+      "operation": "updated",
+      "withheld_at_kickoff": 4,
+      "api_rows_after": 13
+    },
+    {
+      "n": 4,
+      "product": "Deltek Costpoint",
+      "rec": "recwmKT1kIchXn8lL",
+      "job_id": "recwmKT1kIchXn8lL-mtqxih90-4c565408",
+      "supabase_id": "19531474-3d01-4252-891d-0685a593a45e",
+      "slug": "deltek-costpoint",
+      "operation": "updated",
+      "withheld_at_kickoff": 18,
+      "api_rows_after": 12
+    },
+    {
+      "n": 5,
+      "product": "Oracle Aconex",
+      "rec": "recY0IqcGJSJceOLM",
+      "job_id": "recY0IqcGJSJceOLM-mtqxj84r-1d593175",
+      "supabase_id": "23e0f3bf-bc5b-4689-a3d7-a6f6d58fa247",
+      "slug": "oracle-aconex",
+      "operation": "updated",
+      "withheld_at_kickoff": 1,
+      "api_rows_after": 10,
+      "carried_extra": "also fixed Oracle Primavera P6 -> Oracle Aconex (Aconex is the target endpoint)"
+    },
+    {
+      "n": 6,
+      "product": "HeavyJob",
+      "rec": "rec8tPLsT5ezww4L3",
+      "job_id": "rec8tPLsT5ezww4L3-mtqxk6x5-b1f75d6e",
+      "supabase_id": "29fba7a5-f1ba-4e2a-bd12-e43da1688687",
+      "slug": "heavyjob",
+      "operation": "updated",
+      "withheld_at_kickoff": 10,
+      "api_rows_after": 8
+    },
+    {
+      "n": 7,
+      "product": "Oracle Primavera P6",
+      "rec": "recYnnisU8jezz8LF",
+      "job_id": "recYnnisU8jezz8LF-mtqxl40i-acfd699f",
+      "supabase_id": "f722d274-09f7-4c07-8091-fa436e94d305",
+      "slug": "oracle-primavera-p6",
+      "operation": "updated",
+      "withheld_at_kickoff": 4,
+      "api_rows_after": 7
+    },
+    {
+      "n": 8,
+      "product": "Ramp",
+      "rec": "recPO2iYCSB6YoSPa",
+      "job_id": "recPO2iYCSB6YoSPa-mtqxm4f1-aa17ddd5",
+      "supabase_id": "e7fee07d-51ba-427e-96c3-97e89e27ad14",
+      "slug": "ramp",
+      "operation": "updated",
+      "withheld_at_kickoff": 0,
+      "api_rows_after": 6
+    },
+    {
+      "n": 9,
+      "product": "ADP Workforce Now",
+      "rec": "recpq25ro2WtVsrhp",
+      "job_id": "recpq25ro2WtVsrhp-mtqxn800-b80febcb",
+      "supabase_id": "36b62af7-3657-4120-acbe-8d7b80845e36",
+      "slug": "adp-workforce-now",
+      "operation": "updated",
+      "withheld_at_kickoff": 21,
+      "api_rows_after": 4,
+      "carried_extra": "also fixed Deltek Vantagepoint -> ADP Workforce Now (ADP is the target endpoint)"
+    },
+    {
+      "n": 10,
+      "product": "Deltek Vantagepoint",
+      "rec": "recvm3gJmUFLMzVIL",
+      "job_id": "recvm3gJmUFLMzVIL-mtqxoabg-66acc04a",
+      "supabase_id": "d94e6b16-64a4-4d38-bf56-6bd45c75a0e1",
+      "slug": "deltek-vantagepoint",
+      "operation": "updated",
+      "withheld_at_kickoff": 84,
+      "api_rows_after": 0
+    }
+  ]
+}
