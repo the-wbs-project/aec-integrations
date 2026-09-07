@@ -346,6 +346,29 @@ Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`
 - Auth: surfaced tools are `mcp__mobbin__authenticate` and `mcp__mobbin__complete_authentication`. Call `authenticate` first, then `complete_authentication`; additional Mobbin tools become callable in the same session after auth completes.
 - **The anchor-site rule.** Once a surface picks a Mobbin site as its theme, additional components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — the originating theme site stays the visual anchor (composition, hierarchy, density, atmosphere). This protects editorial coherence: AECi should read as one publication, not a mashup. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule" for the binding rule.
 
+## Writing for Chris
+
+Chris reads your final message to decide what to do. Write it so he can act without re-reading.
+These rules apply to every report, finding, plan summary, and Linear comment.
+
+- **Answer first.** Open with the conclusion or the outcome. Evidence and reasoning come after,
+  never before.
+- **Every finding has three parts, in this order:** what is wrong, why it matters, what to do. If
+  you cannot fill all three, say which one is missing.
+- **One claim per sentence.** About 20 words. No em dashes, no semicolons joining clauses, no
+  parentheticals. Start a new sentence instead.
+- **Say it plainly.** Prefer "the setting is off" to "the configuration is suboptimal". Prefer "we
+  do not know" to "this remains to be validated". Never write "plausibly", "arguably", or "it is
+  worth noting".
+- **Gloss every term the first time.** Assume Chris knows the product and the stack but not the
+  acronym you just coined. Expand it or replace it.
+- **Numbers and code go in blocks or tables, not prose.** Name at most one file, function, or flag
+  per sentence.
+- **End with a bullet summary.** Five to eight bullets, each an action or a decision, so he can
+  read the bullets and choose whether to read the rest.
+- **Do not perform expertise.** If a sentence exists to sound authoritative rather than to tell him
+  something, delete it.
+
 ## Commands you hand to the operator
 
 When you write a shell command for the human to copy-paste, hand over the command **and nothing
