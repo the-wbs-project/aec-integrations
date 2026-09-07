@@ -38,7 +38,7 @@
       "key": "nonprod",
       "id": 525793,
       "name": "aec-integrations-dev",
-      "tiers": ["development", "preview", "staging", "demo", "stage2"],
+      "tiers": ["development", "preview", "staging", "demo"],
       "publishableToken": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       "repoVariable": "POSTHOG_PROJECT_ID_NONPROD",
       "receivesAlerts": false,

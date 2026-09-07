@@ -220,7 +220,7 @@ retrofitted (§3.10).
   — so the two surfaces disagree for a reason that looks like a bug. Configure
   PostHog's "filter internal and test users" on project 354071.
 - **Demo does not report to production.** Since AECI-640, preview / staging /
-  demo / stage2 all report to `aec-integrations-dev` (525793) and production is
+  demo all report to `aec-integrations-dev` (525793) and production is
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**
   that change carry mixed tiers — filter by `$host` when reading history.
 
@@ -378,7 +378,7 @@ the browser.
 4. **Put the check at route or feature level**, and make the flagged branch
    reconcile post-hydration if it renders on a cacheable route (§10.4).
 5. **Create the flag in BOTH PostHog projects** — `aec-integrations-dev`
-   (525793) for preview / staging / demo / stage2 and `aec-integrations`
+   (525793) for preview / staging / demo and `aec-integrations`
    (354071) for production. A flag that exists only in prod reads as its default
    everywhere else, which looks exactly like a broken rollout.
 6. **Write down the removal trigger** in the issue: what has to be true before

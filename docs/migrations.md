@@ -260,15 +260,22 @@ git show origin/stage-2:apps/api/migrations/0022_powerful_killraven.sql \
 grep -v '^--' apps/api/migrations/0027_powerful_killraven.sql | shasum -a256
 ```
 
-**PENDING — the two hand-applied tiers still record the old names.** `aeci-app-stage2` and remote
-`aeci-app-preview` are not CI-migrated, so nothing has corrected them. **No data is at risk**: the
-next `d1-apply-migrations.sh` simply fails, loudly, on the first renamed file rather than doing
-anything destructive. Census first, then rewrite — **descending**, so no intermediate name collides
-with one still in use (`0021`/`0022` are both an old name *and* a new name in this set):
+**PENDING on remote `aeci-app-preview` — the last tier that still records the old names.** It is
+not CI-migrated, so nothing has corrected it. (`aeci-app-stage2` was the other one; it was
+repaired 2026-09-03 and the tier has since been deleted entirely — AECI-808.) **No data is at
+risk**: the next `d1-apply-migrations.sh` simply fails, loudly, on the first renamed file rather
+than doing anything destructive. Census first, then rewrite — **descending**, so no intermediate
+name collides with one still in use (`0021`/`0022` are both an old name *and* a new name in this
+set):
+
+Two things learned running this on `stage2`, both of which apply here: the tier may have only
+**some** of the seven applied, so an `UPDATE` legitimately reporting `changes: 0` is not a
+failure — read the counts rather than assuming. And `aeci-app-preview`'s census may differ from
+stage2's anyway; it already carries the AECI-619 rename.
 
 ```bash
 cd apps/api
-npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
   "SELECT name FROM d1_migrations ORDER BY id"
 
 for pair in \
@@ -279,17 +286,16 @@ for pair in \
   0018_chilly_joseph:0023_chilly_joseph \
   0017_slim_iron_lad:0022_slim_iron_lad \
   0016_lyrical_leper_queen:0021_lyrical_leper_queen ; do
-  npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+  npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
     "UPDATE d1_migrations SET name='${pair##*:}.sql' WHERE name='${pair%%:*}.sql'"
 done
 
-npx wrangler d1 migrations apply aeci-app-stage2 --env stage2 --remote
-npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+npx wrangler d1 migrations apply aeci-app-preview --env preview --remote
+npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
   "SELECT name FROM d1_migrations ORDER BY id"
 ```
 
-Repeat for remote `aeci-app-preview` (`--env preview`), whose census may differ — it already
-carries the AECI-619 rename. **staging / demo / production need nothing**: they only ever recorded
+**staging / demo / production need nothing**: they only ever recorded
 `main`'s `0016`–`0020`, whose numbers are unchanged. The out-of-order apply that follows (stage-2's
 seven were applied before `main`'s back-fill) is inert by the same disjoint-objects check above.
 

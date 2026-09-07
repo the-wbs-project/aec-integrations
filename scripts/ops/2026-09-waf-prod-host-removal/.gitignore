@@ -1,0 +1,5 @@
+# Ruleset snapshots carry the live WAF expressions for the whole zone, including the
+# three preserved rules this change does not touch. They are operator artifacts,
+# produced fresh before every apply and kept only as the revert source — never
+# committed. The dated record that matters lives in docs/waf-rate-limits.md.
+snapshot-*.json

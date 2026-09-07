@@ -89,21 +89,23 @@ export type WebEnv = {
    * tests) the logs/metrics tags and the browser bootstrap report `development` —
    * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
    * `production` are the two public, non-Access-gated tiers (see
-   * `@aeci/shared/deploy-env`). `stage2` is the TEMPORARY Stage 2 test tier
-   * (AECI-637) — Access-gated, so deliberately NOT a public site; remove it from
-   * this union at teardown.
+   * `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.
-   * Pre-launch, no env sets it — so `prod.aecintegrations.com` (the `production`
-   * env) and `demo.aecintegrations.com` (the `demo` env), both public and NOT
-   * behind Cloudflare Access, plus staging and PR previews, all emit
-   * `X-Robots-Tag: noindex` (the authoritative block) plus a sitemap-less
-   * `robots.txt` that still allows crawling so the noindex is seen. Deliberately
-   * NOT derived from `ENV` — both public tiers stay no-index until the apex
-   * cutover. Set to `"true"` on the env that should be indexed at public launch.
+   * Since the apex cutover (AECI-247/277) exactly ONE env sets it: `production`,
+   * which serves `aecintegrations.com` + `www.aecintegrations.com`. Everything
+   * else — `demo.aecintegrations.com` (public but no-index by decision), staging,
+   * PR previews — emits `X-Robots-Tag: noindex` (the authoritative block) plus a
+   * sitemap-less `robots.txt` that still allows crawling so the noindex is seen.
+   *
+   * Deliberately NOT derived from `ENV`: an env can serve more than one hostname,
+   * and this flag is per-ENV, not per-host. That is precisely how
+   * `prod.aecintegrations.com` became an indexable duplicate — it rode the
+   * `production` env's `"true"` (AECI-807, now retired). Adding a hostname to an
+   * indexed env opts it into indexing with no separate decision.
    */
   ALLOW_INDEXING?: string;
   /**
@@ -178,7 +180,7 @@ export type WebEnv = {
    *   (`server/seo-headers.ts`).
    *
    * Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): production points
-   * at `aec-integrations` (354071); preview/staging/demo/stage2 all point at
+   * at `aec-integrations` (354071); preview/staging/demo all point at
    * `aec-integrations-dev` (525793). Demo previously received the *production*
    * key and polluted the prod project with synthetic traffic — AECI-640.
    */

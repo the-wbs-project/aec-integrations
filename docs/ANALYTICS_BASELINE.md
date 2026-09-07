@@ -160,7 +160,7 @@ live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Cred
 > **Two topology facts that change how you read a production number:**
 >
 > - Since AECI-640, **production is the only tier on the production PostHog project**
->   (`aec-integrations`, 354071); preview / staging / demo / stage2 all report to
+>   (`aec-integrations`, 354071); preview / staging / demo all report to
 >   `aec-integrations-dev` (525793). Before that, `promote-to-demo.yml` pushed the production
 >   key to the demo Worker, so **synthetic demo traffic landed in the production project**.
 >   Events in 354071 from **before** that change carry mixed tiers — filter by `$host` when

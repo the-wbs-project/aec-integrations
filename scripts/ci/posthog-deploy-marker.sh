@@ -26,7 +26,7 @@
 #
 # Usage (all values via env):
 #
-#   PH_EVENT_ENV        required  deployment tier: preview|staging|demo|production|stage2
+#   PH_EVENT_ENV        required  deployment tier: preview|staging|demo|production
 #   PH_SERVICE          required  which Worker(s): aeci-web|aeci-api|both
 #   PH_VERSION          required  the commit SHA being deployed
 #   PH_DEPLOY_KIND      optional  deploy|promote|preview|auto_rollback   (default: deploy)

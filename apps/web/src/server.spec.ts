@@ -989,7 +989,7 @@ describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
 
 describe('createApp /preview/* public-tier gate', () => {
   it.each<['production' | 'demo', string]>([
-    ['production', 'https://prod.aecintegrations.com/preview/vendor-detail'],
+    ['production', 'https://www.aecintegrations.com/preview/vendor-detail'],
     ['demo', 'https://demo.aecintegrations.com/preview/vendor-detail'],
   ])(
     'returns 404 with no-store on /preview/* on the %s tier (renderer never invoked)',

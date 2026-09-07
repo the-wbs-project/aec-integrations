@@ -5,12 +5,15 @@
  * Canonicals are **self-referential**: each host canonicalises to itself (the serving
  * origin), rather than a hardcoded production apex. This is deliberate and multi-host:
  *
- *   - The web app currently serves `prod.aecintegrations.com` (production) and
- *     `demo.aecintegrations.com` (demo); the apex (`aecintegrations.com`) is served by the
- *     landing Worker. A hardcoded-apex canonical would point crawlers at a host the web app
- *     doesn't serve. Self-referential follows the serving host, so when the directory
- *     promotes to the apex/www at the apex cutover the canonicals are already correct — no
- *     code change at launch.
+ *   - The web app serves `www.aecintegrations.com` + the apex (production, since the
+ *     AECI-247/277 cutover) and `demo.aecintegrations.com` (demo). Self-referential
+ *     follows the serving host, which is why the apex cutover needed no code change here.
+ *   - The flip side, and the reason this is worth understanding before adding a hostname:
+ *     a self-referential canonical means a second public host does not point at `www.` —
+ *     it declares ITSELF canonical for every URL it serves. `prod.aecintegrations.com`
+ *     did exactly that until AECI-807 retired it. Adding a route to an indexed env
+ *     (`apps/web/wrangler.jsonc` `env.production`) is what creates that situation; there
+ *     is no per-host opt-out here by design.
  *   - Non-prod hosts (PR previews `*.workers.dev`, `staging.`) sit behind Cloudflare Access
  *     (`docs/access.md`), so their self-canonicals never reach the public index.
  *   - The sitemap (`server/sitemap.ts`) and `robots.txt` already build against the serving

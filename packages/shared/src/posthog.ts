@@ -112,15 +112,14 @@ export type PosthogLogEvent = {
  * and the SSR Worker's `WebEnv` satisfy this structurally, so the configured
  * client accepts either without a cast — which means this `ENV` union must stay
  * a superset of theirs, or every `forwardAuditLog`/`logToPosthog` call site
- * fails to typecheck. `stage2` is the TEMPORARY Stage 2 test tier (AECI-637);
- * remove it here in the same commit as the two `env.ts` unions at teardown.
+ * fails to typecheck. Change it in the same commit as the two `env.ts` unions.
  */
 export type PosthogEnv = {
   /** Publishable `phc_` project token. Absent → the whole transport no-ops. */
   POSTHOG_PROJECT_KEY?: string;
   /** Ingest origin, e.g. `https://us.i.posthog.com`. NOT the management host. */
   POSTHOG_HOST?: string;
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /** Deploy SHA (AECI-74) — rides every pipe as the `version` dimension. */
   COMMIT_SHA?: string;
 };

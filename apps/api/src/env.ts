@@ -139,11 +139,9 @@ export type Env = {
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
    * tests) both `/api/version` and the telemetry tags report `development` — one
    * convention for the unset state (AECI-119). `demo` + `production` are the two
-   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`). `stage2` is
-   * the TEMPORARY Stage 2 test tier (AECI-637) — Access-gated, so deliberately
-   * NOT a public site; remove it from this union at teardown.
+   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and
@@ -172,7 +170,7 @@ export type Env = {
    * the management API (`us.posthog.com`); swapping them 404s. Defaults to the
    * US ingest host when unset.
    *
-   * Topology (spec §3.6 / D4): preview/staging/demo/stage2 carry the
+   * Topology (spec §3.6 / D4): preview/staging/demo carry the
    * `aec-integrations-dev` (525793) token; ONLY production carries
    * `aec-integrations` (354071).
    */

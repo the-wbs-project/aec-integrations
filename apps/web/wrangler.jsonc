@@ -8,10 +8,11 @@
  *
  * Tiers (promotion order): preview → staging → demo → production.
  *   - Web production serves the apex `aecintegrations.com` + `www.` (the public
- *     home) AND `prod.aecintegrations.com` (the Access-gated internal host). The
- *     apex cutover (AECI-247/277) moved apex + www off the retired landing Worker
- *     onto this Worker; the bare apex 301s to `www.` in the SSR Worker (`www.` is
- *     the canonical served host — ADR 0011 amendment 2026-07-05).
+ *     home), and nothing else. The apex cutover (AECI-247/277) moved apex + www
+ *     off the retired landing Worker onto this Worker; the bare apex 301s to
+ *     `www.` in the SSR Worker (`www.` is the canonical served host — ADR 0011
+ *     amendment 2026-07-05). AECI-807 retired the third hostname,
+ *     `prod.aecintegrations.com` — see the production env block.
  *   - Web demo serves `demo.aecintegrations.com` (the public showcase tier).
  *   - Preview deploys use `workers_dev` URLs per PR; staging is
  *     `staging.aecintegrations.com`.
@@ -143,7 +144,7 @@
         // provisioning step to forget and gives PR previews analytics for free.
         //
         // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview,
-        // staging, demo and stage2 all report to `aec-integrations-dev`
+        // staging and demo all report to `aec-integrations-dev`
         // (525793); ONLY production reports to `aec-integrations` (354071).
         // Tiers inside the non-prod project are separated by `$host`/`env`.
         "POSTHOG_HOST": "https://us.i.posthog.com",
@@ -224,8 +225,9 @@
       // `exports` block) is a deliberate future step (ADR 0020 §1).
       // The public showcase tier. `custom_domain: true` makes wrangler reconcile
       // the demo.aecintegrations.com DNS record + cert on deploy — on the first
-      // demo deploy it REASSIGNS that hostname off the old production Worker, so
-      // deploy demo BEFORE re-deploying production onto prod.aecintegrations.com.
+      // demo deploy it REASSIGNED that hostname off the old production Worker.
+      // (Historical ordering note: that reassignment is long done, and the
+      // production Worker no longer claims a `prod.` hostname — AECI-807.)
       "routes": [
         {
           "pattern": "demo.aecintegrations.com",
@@ -249,60 +251,27 @@
         ],
       },
     },
-    // AECI-637 — TEMPORARY `stage2` tier. Delete this whole block at teardown.
-    // The SSR half of the hand-deployed Stage 2 test surface (see the matching
-    // block + rationale in apps/api/wrangler.jsonc, and docs/environments.md §10).
-    //
-    //   - NO `exports` block ⇒ UNCACHED, like demo/production. It still ships the
-    //     WC-4 two-entrypoint code (the gateway forwards to `Renderer`), just with
-    //     the platform cache off. Deliberate for a test tier: every request runs the
-    //     render, so what you see is the deploy you just made, with no MISS→HIT wait
-    //     and no purge story to operate.
-    //   - NO `queues` consumer — with no cache there is nothing to purge, and the
-    //     API Worker has no `CACHE_PURGE_QUEUE` producer to feed it.
-    //   - Access-gated (unlike public demo): `stage2.aecintegrations.com` is added as
-    //     a destination on the `AECi Non-Prod` app (docs/access.md §1).
-    //   - `ALLOW_INDEXING` stays "false" — Access already keeps crawlers out, but the
-    //     header is the fail-closed layer and a test tier must never be indexable.
-    //
-    // `custom_domain: true` provisions `stage2.aecintegrations.com` + its cert on the
-    // first deploy. This is a NEW hostname — nothing is reassigned off another Worker,
-    // unlike the demo/apex cutovers — and the DNS record is removed when the Worker is
-    // deleted at teardown.
-    "stage2": {
-      "name": "aeci-web-stage2",
-      "vars": {
-        "ENV": "stage2",
-        // See the preview env's note. stage2 is behind Access AND non-indexable.
-        "ALLOW_INDEXING": "false",
-        "COMMIT_SHA": "unknown",
-        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // ADR 0017: the single shared auth project (same value in every env).
-        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
-        "POSTHOG_HOST": "https://us.i.posthog.com",
-        // See the preview env note (AECI-640). stage2 is a TEMPORARY test tier
-        // (AECI-637) and reports to `aec-integrations-dev` (525793).
-        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
-      },
-      "observability": { "enabled": true },
-      "routes": [
-        {
-          "pattern": "stage2.aecintegrations.com",
-          "custom_domain": true,
-        },
-      ],
-      "services": [{ "binding": "API", "service": "aeci-api-stage2" }],
-    },
     "production": {
       "name": "aeci-web-production",
       "vars": {
         "ENV": "production",
         // AECI-247/277 apex cutover: the app is the public home, so indexing is
         // ON. Removes `X-Robots-Tag: noindex` + makes robots.txt/sitemap.xml
-        // crawlable (server-runtime.ts). The Access-gated `prod.` internal host
-        // stays crawler-free via Cloudflare Access (docs/access.md), so a single
-        // ALLOW_INDEXING="true" doesn't leak a duplicate index. Provision the
-        // launch-only SEO secret (INDEXNOW_KEY) at the same
+        // crawlable (server-runtime.ts). One `ALLOW_INDEXING` flag covers every
+        // hostname this env serves, so it is only safe while all of them SHOULD
+        // be indexed — which is now true: the routes below are the apex and
+        // `www.` only, and the apex 301s to `www.` at the edge.
+        //
+        // It was NOT true before AECI-807. This env also served
+        // `prod.aecintegrations.com`, and the comment here claimed Cloudflare
+        // Access kept it crawler-free. That premise was verified FALSE on
+        // 2026-08-14 (HTTP 200, no Access redirect), so `prod.` spent the
+        // post-launch period as an indexable duplicate that ALSO self-canonicalised
+        // (canonicals follow the serving origin — ADR 0011), i.e. a second host
+        // asserting itself as the original for every sitemap URL. Any route you
+        // add below inherits this flag: gate it or don't add it.
+        //
+        // Provision the launch-only SEO secret (INDEXNOW_KEY) at the same
         // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
         "ALLOW_INDEXING": "true",
         "COMMIT_SHA": "unknown",
@@ -319,15 +288,25 @@
       // caching stays OFF here (no `cache`/`exports` block). The prod-enable gate
       // (WC-4/5/6/8) is fully merged; enabling it (add the preview-style `exports`
       // block) is a deliberate future step (ADR 0020 §1) — see the preview env note.
-      // AECI-247/277 apex cutover. Web prod now serves the public apex
-      // `aecintegrations.com` + `www.` AND the Access-gated internal
-      // `prod.aecintegrations.com`. `custom_domain: true` makes wrangler reconcile
-      // the DNS record + cert on the aecintegrations.com zone on deploy — for the
-      // apex + www it REASSIGNS the hostnames off the (retired) landing Worker onto
-      // this one (same mechanism environments.md relies on for demo.). THIS IS THE
-      // DNS FLIP: the next promote-to-prod deploy after this merges makes the app
-      // the live apex. The bare apex 301s to `www.` inside the SSR Worker (`www.` is
-      // the canonical served host — ADR 0011 amendment 2026-07-05).
+      // AECI-247/277 apex cutover. Web prod serves the public apex
+      // `aecintegrations.com` + `www.`. `custom_domain: true` makes wrangler
+      // reconcile the DNS record + cert on the aecintegrations.com zone on deploy —
+      // it REASSIGNED both hostnames off the (retired) landing Worker onto this one
+      // (same mechanism environments.md relies on for demo.). The bare apex 301s to
+      // `www.` inside the SSR Worker (`www.` is the canonical served host — ADR 0011
+      // amendment 2026-07-05).
+      //
+      // AECI-807 removed a third entry, `prod.aecintegrations.com`. Two things to
+      // know before re-adding any hostname here:
+      //   - Removing a route from this list does NOT reap the Custom Domain.
+      //     A Custom Domain is a separate Cloudflare resource with its own cert and
+      //     DNS record; wrangler's "routes are overridden on deploy" behaviour does
+      //     not cover it. Deleting one is a dashboard action
+      //     (Worker > Settings > Domains & Routes). Verify by eye after a deploy.
+      //   - Every hostname here shares the single `ALLOW_INDEXING` above, and the
+      //     canonical follows the SERVING origin (ADR 0011). So a second public
+      //     hostname does not quietly become a duplicate of `www.` — it claims to
+      //     be the original. That is exactly what `prod.` did.
       "routes": [
         {
           "pattern": "aecintegrations.com",
@@ -335,10 +314,6 @@
         },
         {
           "pattern": "www.aecintegrations.com",
-          "custom_domain": true,
-        },
-        {
-          "pattern": "prod.aecintegrations.com",
           "custom_domain": true,
         },
       ],
