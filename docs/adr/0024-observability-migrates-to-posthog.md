@@ -61,7 +61,7 @@ The load-bearing choices, ratified with the operator on 2026-08-24:
    `/admin/system` + the digest emails remain the in-product record.
 3. **Two projects, not an `env` filter.** Prod = `aec-integrations` (354071),
    production only; non-prod = `aec-integrations-dev` (525793) for
-   local/preview/staging/**demo**/stage2, separated by `$host`. Demo had been receiving
+   local/preview/staging/**demo**, separated by `$host`. Demo had been receiving
    the production key and polluting prod analytics; that ends (AECI-640).
 4. **The SSR key injection stays — a deliberate reversal of EV's equivalent step.** EV
    committed per-tier tokens into its environment files; AECi promotes one build by SHA

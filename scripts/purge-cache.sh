@@ -8,15 +8,15 @@
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #
-# Like smoke-test.sh: staging, PR previews, AND prod (prod.aecintegrations.com,
-# gated by Cloudflare Access until launch per ADR 0017) are reachable from CI only
-# via the `aeci-gh-actions` service token, so we always attach the headers and
-# never branch on host. The public demo tier (demo.aecintegrations.com) ignores
-# them; at the prod launch, dropping the prod Access app makes the headers a
-# harmless no-op there too (they're ignored once the destination is public).
+# Like smoke-test.sh: staging and PR previews are reachable from CI only via the
+# `aeci-gh-actions` service token, so we always attach the headers and never
+# branch on host. The public tiers (www.aecintegrations.com since the apex
+# cutover, demo.aecintegrations.com) ignore them — an Access header is inert once
+# the destination is public. Attaching them unconditionally is what lets a host be
+# re-gated behind Access without touching this script or its callers.
 #
 # Usage (env):
-#   HOST                    https://prod.aecintegrations.com
+#   HOST                    https://www.aecintegrations.com
 #   PURGE_TAGS              space-separated tag list, e.g. "taxonomy route:browse"
 #   ADMIN_PURGE_TOKEN       Bearer token (SSR Worker `ADMIN_PURGE_TOKEN` secret)
 #   CF_ACCESS_CLIENT_ID     service-token client id
@@ -32,7 +32,7 @@
 
 set -euo pipefail
 
-: "${HOST:?HOST is required, e.g. https://prod.aecintegrations.com}"
+: "${HOST:?HOST is required, e.g. https://www.aecintegrations.com}"
 : "${PURGE_TAGS:?PURGE_TAGS is required, e.g. \"taxonomy route:browse\"}"
 : "${ADMIN_PURGE_TOKEN:?ADMIN_PURGE_TOKEN is required (SSR Worker bearer secret)}"
 : "${CF_ACCESS_CLIENT_ID:?CF_ACCESS_CLIENT_ID is required (Cloudflare Access service token)}"

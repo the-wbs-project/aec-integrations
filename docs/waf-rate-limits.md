@@ -106,11 +106,38 @@ sends a browser UA rather than being silently challenged (§2). Applied with
 The Rule B and scraper rule ids recorded above were unrecorded here until `snapshot.mjs`
 resolved them (2026-09-03).
 
+### Host-set narrowing — `prod.` removed (2026-09, AECI-807)
+
+**PENDING — not yet applied to the zone.** The expressions in §1/§2 above are already
+written in their post-AECI-807 (three-host) form; the live rules still carry the
+four-host form until an operator runs the migration. Until then this doc is *ahead* of
+the zone, which is the deliberate direction — `apply.mjs` compares the live rule against
+these literals and aborts on anything it does not recognise, so the doc has to be written
+first. Replace this paragraph with the dated applied result.
+
+`prod.aecintegrations.com` is retired (AECI-807): the route is off `env.production` in
+`apps/web/wrangler.jsonc` and the promote smoke gate polls `www.` instead. The rules were
+narrowed from four hosts to three. Nothing else changes — not the paths, not the UA list,
+not the actions, thresholds or descriptions.
+
+Run it **after** the Custom Domain is actually gone. Running it first is harmless but
+leaves a window where the hostname resolves and has no rules.
+
+The pass condition is an **unchanged** `verify.mjs` table for the three remaining hosts
+(`403 / 200` each). That is the opposite of AECI-659, where the point was that `www.`
+flipped — here a row that flips to `200 / 200` means the narrowing overshot. Applied with
+[`scripts/ops/2026-09-waf-prod-host-removal/`](../scripts/ops/2026-09-waf-prod-host-removal/README.md).
+
 > The bare apex `aecintegrations.com` is deliberately **not** in the host set: it 301s to
 > `www.` at the edge, so a request never reaches a path these rules match under the apex
-> host. `prod.aecintegrations.com` **is** covered — it still serves production content.
-> That it does so at all is a separate problem (an indexable duplicate of `www.`; it wants
-> a 301 or Cloudflare Access) tracked on its own issue.
+> host.
+>
+> `prod.aecintegrations.com` **was** covered from AECI-659 until **AECI-807** retired the
+> hostname (2026-09). It is out of all three expressions now — a term matching a host that
+> no longer resolves is the same staleness AECI-659 existed to fix, read backwards. The
+> narrowing ran via
+> [`scripts/ops/2026-09-waf-prod-host-removal/`](../scripts/ops/2026-09-waf-prod-host-removal/README.md),
+> whose pass condition is an **unchanged** probe table for the three remaining hosts.
 
 ---
 
@@ -119,7 +146,7 @@ resolved them (2026-09-03).
 | Host | On zone `aecintegrations.com`? | Covered by these rules? |
 |---|---|---|
 | `www.aecintegrations.com` (SSR Worker, **production** — the live public site) | yes | **yes** (host-scoped; added 2026-09, AECI-659) |
-| `prod.aecintegrations.com` (SSR Worker, production — internal host, an indexable duplicate of `www.`) | yes | **yes** (host-scoped; added 2026-09, AECI-659) |
+| ~~`prod.aecintegrations.com`~~ (SSR Worker, production — internal host) | **retired 2026-09** (AECI-807) | n/a — the hostname no longer resolves to a Worker; dropped from all three expressions |
 | `demo.aecintegrations.com` (SSR Worker, the public **showcase** tier — no-index, *not* production) | yes | **yes** (host-scoped) |
 | `staging.aecintegrations.com` (SSR Worker, staging) | yes | **yes** (host-scoped) |
 | `aecintegrations.com` (bare apex) | yes | **no** — 301s to `www.` at the edge, so no request under this host reaches a matched path |
@@ -132,7 +159,7 @@ resolved them (2026-09-03).
 
 **Everything is one zone.** Staging, demo, and production share `aecintegrations.com`, so
 **WAF rules are zone-wide**. Every rule below is scoped with
-`http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}`
+`http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}`
 so it applies to every app host and never to a hostname the app does not serve. There is
 no way to give staging its own independent WAF surface short of a separate zone.
 
@@ -191,7 +218,7 @@ same characteristics" = IP** → set the rate and action as listed.
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (http.request.method eq "POST") and (starts_with(http.request.uri.path, "/api/requests/") or http.request.uri.path eq "/api/subscribe" or http.request.uri.path eq "/api/feedback")` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and (http.request.method eq "POST") and (starts_with(http.request.uri.path, "/api/requests/") or http.request.uri.path eq "/api/subscribe" or http.request.uri.path eq "/api/feedback")` |
 | Count characteristics | **IP** |
 | Rate | **5 requests** per **1 minute** (whole number; 1 min is the longest period Pro allows) |
 | Action | **Block** |
@@ -219,7 +246,7 @@ cheaper than an uncapped mailer.
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (http.request.method eq "POST") and (http.request.uri.path eq "/api/reviews")` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and (http.request.method eq "POST") and (http.request.uri.path eq "/api/reviews")` |
 | Count characteristics | **IP** |
 | Rate | **5 requests** per **1 minute** (whole number; 1 min is the longest period Pro allows) |
 | Action | **Block** |
@@ -261,7 +288,7 @@ Create a custom rule. **When incoming requests match** → paste the expression 
 
 | Field | Value |
 |---|---|
-| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com" "prod.aecintegrations.com"}) and (not cf.client.bot) and (starts_with(http.request.uri.path, "/products") or starts_with(http.request.uri.path, "/vendors") or http.request.uri.path eq "/api/products" or http.request.uri.path eq "/api/vendors") and (lower(http.user_agent) contains "scrapy" or lower(http.user_agent) contains "python-requests" or lower(http.user_agent) contains "httpx" or lower(http.user_agent) contains "curl" or lower(http.user_agent) contains "wget" or lower(http.user_agent) contains "go-http-client" or lower(http.user_agent) contains "java/" or lower(http.user_agent) contains "okhttp" or lower(http.user_agent) contains "node-fetch" or lower(http.user_agent) contains "scraper" or http.user_agent eq "")` |
+| Expression | `(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and (not cf.client.bot) and (starts_with(http.request.uri.path, "/products") or starts_with(http.request.uri.path, "/vendors") or http.request.uri.path eq "/api/products" or http.request.uri.path eq "/api/vendors") and (lower(http.user_agent) contains "scrapy" or lower(http.user_agent) contains "python-requests" or lower(http.user_agent) contains "httpx" or lower(http.user_agent) contains "curl" or lower(http.user_agent) contains "wget" or lower(http.user_agent) contains "go-http-client" or lower(http.user_agent) contains "java/" or lower(http.user_agent) contains "okhttp" or lower(http.user_agent) contains "node-fetch" or lower(http.user_agent) contains "scraper" or http.user_agent eq "")` |
 | Action | **Managed Challenge** |
 
 Why it is shaped this way:
@@ -333,7 +360,8 @@ the WAF again, and a 404 is a real routing bug rather than the dark launch.)
 
 Originally verified 2026-08-26 (morning) by curl: any request whose path contains the literal
 `/vendor/` gets the Cloudflare "Attention Required / Sorry, you have been blocked"
-403 page on **every** host in the zone — `www`, `staging`, `demo`, `stage2`. It is
+403 page on **every** host in the zone probed at the time — `www`, `staging`, `demo`, and
+the since-retired `stage2`. It is
 case-sensitive (`/api/VENDOR/seats` passes) and substring-based (`/apix/vendor/x`
 and `/foo/vendor/bar` are blocked too). `/vendor` with no trailing segment is fine,
 and `/vendors/<slug>` is fine.
@@ -493,13 +521,17 @@ rule change.
   production series read ~0 while production was in fact entirely unprotected. Since the
   host-set extension (2026-09) the production poll reports real mitigations for `www.`.
   If it ever returns to a flat ~0, **re-run
-  `scripts/ops/2026-09-waf-host-scope/verify.mjs` before concluding the zone is quiet** —
+  `scripts/ops/2026-09-waf-prod-host-removal/verify.mjs` (the current three-host probe)
+  before concluding the zone is quiet** —
   a `200 / 200` row means the rules stopped covering the host, not that the attacks
   stopped.
 
-  `prod.aecintegrations.com` is covered by the rules but counted by **no** env's poll:
-  each env filters on its own `PUBLIC_SITE_URL` and no env points at `prod.`. Its
-  mitigations are visible in **Security → Events** only.
+  Every host now in the rules is also counted by some env's poll, because each env filters
+  on its own `PUBLIC_SITE_URL`. That was **not** true until 2026-09: `prod.aecintegrations.com`
+  was covered by the rules and pointed at by no env, so its mitigations were visible in
+  **Security → Events** only. AECI-807 retired the host and dropped it from the expressions,
+  which closes the gap. Re-opening it is the cost of adding a host to a rule without adding a
+  poll — check both when you widen a host set.
 
 ---
 

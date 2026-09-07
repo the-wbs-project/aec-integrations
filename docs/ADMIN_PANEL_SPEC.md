@@ -594,8 +594,7 @@ stays parked with AECI-715 / 716, the first *public* reader. What AECI-722 does 
 discharges, is the `relations()` block.
 
 **Local data.** The sender is AECI-731 and it is unbuilt, so `connector_*` is empty in every
-environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain and in
-`db:seed:stage2`) seeds two catalogues and ~35 listings covering every state the screen draws —
+environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain) seeds two catalogues and ~35 listings covering every state the screen draws —
 including a high-confidence machine proposal that must **not** read as confirmed, and a
 low-confidence human decision that must.
 

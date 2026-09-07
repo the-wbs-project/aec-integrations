@@ -71,9 +71,10 @@ function normalizeEmail(email: string): string {
  * service-role key is a legitimate state in local dev and PR previews, and an
  * admin queue must render rather than 500. What was NOT by design is that the
  * status code and error text went with it: on 2026-08-24 the claim queue read
- * "Account status unknown" for every row on `stage2`, first because the key was
- * absent and then because it carried a bad value, and there was nothing in any
- * log to tell those two apart from a genuine "this claimant has no account".
+ * "Account status unknown" for every row on the (since-retired) `stage2` test
+ * tier, first because the key was absent and then because it carried a bad
+ * value, and there was nothing in any log to tell those two apart from a
+ * genuine "this claimant has no account".
  *
  * `console.warn` rather than the `logToPosthog` helpers used elsewhere
  * (`lib/email.ts`, `lib/toxicity.ts`): those need `(executionCtx, env, request)`

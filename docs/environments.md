@@ -6,7 +6,7 @@
 
 ## Topology
 
-AECi runs four permanent tiers of environment plus local, and — while Stage 2 is being tested — one temporary fifth (`stage2`, AECI-637). Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
+AECi runs four tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
 
 | Tier | Cloudflare Workers | Supabase Auth | Public URL | Access control |
 | --- | --- | --- | --- | --- |
@@ -14,23 +14,22 @@ AECi runs four permanent tiers of environment plus local, and — while Stage 2 
 | **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Shared auth project | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
 | **Staging** | `aeci-{api,web}-staging` | Shared auth project | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
 | **Demo** | `aeci-{api,web}-demo` | Shared auth project | `https://demo.aecintegrations.com` | Public (showcase) |
-| **Production** | `aeci-{api,web}-production` | Shared auth project | `https://prod.aecintegrations.com` | Cloudflare Access until launch (ADR 0017), then public |
-| **stage2** _(temporary — AECI-637)_ | `aeci-{api,web}-stage2` | Shared auth project | `https://stage2.aecintegrations.com` | Cloudflare Access — same allowlist as staging |
+| **Production** | `aeci-{api,web}-production` | Shared auth project | `https://www.aecintegrations.com` (+ the apex, which 301s to it) | Public |
 
-> **`stage2` is a throwaway tier, not a fifth permanent one.** It existed because staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the `stage-2` branch had no deployed surface. **That reason expired on 2026-09-03**, when `stage-2` merged into `main` and was retired — Stage 2 now deploys to staging like everything else. Tearing this tier down is **AECI-637**, and its trigger has fired. It is **hand-deployed** from a `stage-2` SHA — there is no `promote-to-stage2.yml`, no GH Environment, no CI step and no GH secret that names it — and it runs **no crons and no queues** so it can never send real email or do scheduled work. Bootstrap + teardown: **§10** below. It also has **no Algolia** — search is not being tested on it (§10.4). Delete it when Stage 2 testing is done; everything about it, including the `env.stage2` config blocks and the `stage2` entries in the `ENV` / `PosthogEnv` / `AlgoliaEnv` unions, is meant to be reverted in one commit.
+> **There is no `stage2` tier.** A temporary fifth (`stage2.aecintegrations.com`, AECI-637) existed 2026-08-20 → 2026-09 because staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the `stage-2` branch had no deployed surface. That reason expired on 2026-09-03 when `stage-2` merged into `main` and was retired, and the tier was torn down under **AECI-808**: both Workers, its D1 (`aeci-app-stage2`), both KV namespaces, the Access destination and the Supabase redirect entry are gone, along with the `env.stage2` config blocks and every `stage2` member of the `ENV` / `PosthogEnv` / `AlgoliaEnv` unions. Old commits, PRs and issues that reference it are reading a tier that no longer exists. The bootstrap procedure it used is still worth having if a future throwaway tier is ever wanted — see **§10**.
 
 > **Supabase is auth-only** (app data is on D1 — ADR 0016). Per **[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md)** a single shared auth project (`ktuhnlypztujpsseujzx`) backs **every** tier; per-environment isolation is provided by Cloudflare Access, not project separation. (The retained legacy Supabase-Postgres `public`-schema gate still lives on the old `dmbygwupskttzsvfzluq` / `jgxebjufabtwkcgxjqvk` projects until AECI-256/257 retire it — that's what the `SUPABASE_*_PROJECT_REF` repo variables below point at, unrelated to auth.)
 
-> The **production** tier serves the apex `aecintegrations.com` + `www.aecintegrations.com` (the public home, `ALLOW_INDEXING="true"`, indexable) and `prod.aecintegrations.com` (the Access-gated internal host per ADR 0017, crawler-free); the **demo** tier serves `demo.aecintegrations.com` (the public showcase, still **no-index** `ALLOW_INDEXING="false"`). The **apex cutover** (AECI-247/277) binds `aecintegrations.com` + `www.` to `aeci-web-production` in the web wrangler config and folds the bare apex→`www.` with a 301 in the SSR Worker (`www.` is the canonical served host — ADR 0011 amendment 2026-07-05, reversing the original www→apex direction); the retired `apps/landing` Worker no longer serves them. The DNS reassignment (off the old landing Worker onto the app) executes on the next `promote-to-prod` deploy after the cutover PR merges — see `docs/launch-cutover-runbook.md`.
+> The **production** tier serves the apex `aecintegrations.com` + `www.aecintegrations.com` (the public home, `ALLOW_INDEXING="true"`, indexable) **and nothing else** — it also served an internal `prod.aecintegrations.com` until **AECI-807** retired that hostname (ADR 0017 had assumed it was Access-gated; it was verified public on 2026-08-14, which made it an indexable, self-canonicalising duplicate of `www.`, and it was also the host the promote smoke gate polled — that gate now polls `www.`). The **demo** tier serves `demo.aecintegrations.com` (the public showcase, still **no-index** `ALLOW_INDEXING="false"`). The **apex cutover** (AECI-247/277) binds `aecintegrations.com` + `www.` to `aeci-web-production` in the web wrangler config and folds the bare apex→`www.` with a 301 in the SSR Worker (`www.` is the canonical served host — ADR 0011 amendment 2026-07-05, reversing the original www→apex direction); the retired `apps/landing` Worker no longer serves them. The DNS reassignment (off the old landing Worker onto the app) executes on the next `promote-to-prod` deploy after the cutover PR merges — see `docs/launch-cutover-runbook.md`.
 >
 > **All tiers share one Supabase auth project** (ADR 0017; auth-only — the app DB is Cloudflare D1 per ADR 0016), so one admin login works everywhere. Demo and Production still have **independent** D1, KV, Cloudflare Queues, and Algolia index sets: production keeps `aeci-app-production` / `aeci-*-production` / `production_*`; demo has its own `aeci-app-demo` / `aeci-*-demo` / `demo_*`. The `ENV` var (and therefore Algolia prefix + the PostHog `env` dimension) is `production` vs `demo`; the two are the audience-facing tiers recognised by `isPublicSite()` (`@aeci/shared/deploy-env`) — both block `/preview/*`, strip per-request response validation, and bound per-render log volume.
 
 Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
 
-| Worker | Preview env | Staging env | Demo env | Production env | stage2 env _(temp)_ |
-| --- | --- | --- | --- | --- | --- |
-| `apps/api` | `aeci-api-preview` | `aeci-api-staging` | `aeci-api-demo` | `aeci-api-production` | `aeci-api-stage2` |
-| `apps/web` | `aeci-web` (`workers_dev: true`) | `aeci-web-staging` | `aeci-web-demo` | `aeci-web-production` | `aeci-web-stage2` |
+| Worker | Preview env | Staging env | Demo env | Production env |
+| --- | --- | --- | --- | --- |
+| `apps/api` | `aeci-api-preview` | `aeci-api-staging` | `aeci-api-demo` | `aeci-api-production` |
+| `apps/web` | `aeci-web` (`workers_dev: true`) | `aeci-web-staging` | `aeci-web-demo` | `aeci-web-production` |
 
 The SSR Worker (`apps/web`) is the only public ingress. The API Worker (`apps/api`) is reachable only via the SSR Worker's `services.API` binding. This is enforced per environment by matching `services.binding.service` to the API Worker's deployed `name` in the same tier.
 
@@ -216,7 +215,7 @@ What happens, in order:
 - **Approval pause** — the `deploy-prod-workers` job enters the `production` GH Environment and blocks **before any mutation** (queue/D1/deploy). The GitHub Actions UI shows "Waiting for review". This is the single approval gate.
 - **After approval (~5 min)** — provisions the prod scheduled-job queues, then applies the **app DB migrations to Cloudflare D1** (`wrangler d1 migrations apply aeci-app-production --remote`), reconciles the D1 taxonomy seed (`wrangler d1 execute … --file=seed/taxonomy.sql`), and purges the taxonomy cache tags. This is the **only** data migration: the app DB is D1 (ADR 0016) and auth is the single shared Supabase project (ADR 0017) whose auth-only baseline is maintained out of band, so the promote touches **no** Supabase Postgres — there is no pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml`, the post-D1 template — AECI-256/278).
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
-- **Deploy marker + smoke** — the PostHog marker (`scripts/ci/posthog-deploy-marker.sh`, AECI-640), best-effort — a project annotation plus a queryable `deployment` event carrying `env`/`service`/`version`/`deploy_kind`. The prod rollback path emits a PostHog marker too, with `deploy_kind: auto_rollback`. Then via `scripts/verify-version.sh` + `scripts/verify-health.sh` polls until **both** `https://prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` **and** `/api/health` is `db:ok`. Fails after a 60-second budget; a smoke failure auto-rolls-back both Workers.
+- **Deploy marker + smoke** — the PostHog marker (`scripts/ci/posthog-deploy-marker.sh`, AECI-640), best-effort — a project annotation plus a queryable `deployment` event carrying `env`/`service`/`version`/`deploy_kind`. The prod rollback path emits a PostHog marker too, with `deploy_kind: auto_rollback`. Then via `scripts/verify-version.sh` + `scripts/verify-health.sh` polls until **both** `https://www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` **and** `/api/health` is `db:ok`. (It polled the internal `prod.aecintegrations.com` until AECI-807 retired that hostname; the smoke step still passes the Access service-token headers, which are inert on a public host and mean re-gating production behind Access would need no workflow change.) Fails after a 60-second budget; a smoke failure auto-rolls-back both Workers.
 
 **Recovering from a bad promote.** Worker code rolls back automatically on a smoke failure, or by hand: `wrangler rollback --env production` against `apps/api` and `apps/web` (docs/CICD_PLAN.md §6.1). The app DB is **Cloudflare D1** with 30-day time-travel — restore it to a point just before the promote (the DB is **not** auto-restored; the failure runbook in the run summary prints the exact commands):
 
@@ -585,7 +584,7 @@ Secrets are stored in three places:
 | `SUPABASE_TEST_USER_EMAIL` + `SUPABASE_TEST_USER_PASSWORD` | ❌ never on a Worker | ❌ never on a Worker | ✅ (CI test only) | AECI-235. Credentials for the **admin** test user (`test@thewbsproject.com`, an admin account in the shared Supabase project; its `role='admin'` D1 profile is keyed to Supabase user id `519f1e77-…` in `apps/api/seed/auth-fixtures.sql`) that `apps/web/e2e/authed-console.spec.ts` signs in to console-check the auth-gated Phase 5 pages. Consumed only by the `deploy.yml` Playwright step `env:` (never a Worker binding, never client-exposed). **Optional — warn-and-skip:** absent → the spec skips its 4 cases. Local dev sets the same pair in `apps/web/.dev.vars`. **Remaining manual step** to activate the gate in CI. |
 | `SUPABASE_VENDOR_TEST_USER_EMAIL` + `SUPABASE_VENDOR_TEST_USER_PASSWORD` | ❌ never on a Worker | ❌ never on a Worker | ✅ (CI test only) | AECI-522. Credentials for the **vendor** test user (a `role='vendor_admin'` account with a non-null `vendor_id`; its D1 profile is seeded in `apps/api/seed/auth-fixtures.sql`, id `e1a8f812-…` = the account's real Supabase `sub`, anchored to the `...061` fixture vendor) that `apps/web/e2e/vendor-dashboard.spec.ts` signs in to drive the Stage 2 `/vendor` portal. Same warn-and-skip posture as the admin pair; `deploy.yml` Playwright step already passes them through. **Remaining manual step:** set the two GH secrets to activate the gate in CI. |
 | `ANTHROPIC_API_KEY` (review toxicity scoring) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ as `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-258. Anthropic key for Claude-Haiku toxicity scoring on `POST /api/reviews`. CI-pushed to the API Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR). **Optional + fail-open on every env (prod included) — warn-and-skip:** a missing key stores `toxicity_score=null` ("Not scored") and the review still enters the moderation queue, so it is **never** in `REQUIRED_WORKER_SECRETS`. **Never on the web Worker.** Supersedes the sunsetting Perspective API. **GDPR prerequisite:** the Messages API has no per-request no-store control (Perspective's `doNotStore` had no equivalent), so the Anthropic org behind the key **must** have zero data retention (ZDR) enabled before a real key is provisioned — confirm as a launch gate, otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. |
-| `POSTHOG_PROJECT_KEY` (publishable `phc_` project token) — **not a secret** | ✅ per env, **committed `var`** (both Workers) | ✅ per env, **committed `var`** (both Workers) | ❌ — **no GH secret exists** | AECI-239 → **AECI-640**. Was the CI-pushed Worker secret `POSTHOG_KEY`; it is now a plain per-env `vars.POSTHOG_PROJECT_KEY` entry in **both** `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`, checked into git. The `phc_` token is publishable — the SSR Worker renders it into the served HTML on every page (`window.__AECI_POSTHOG__`) — so treating it as a secret bought nothing and cost the weeks-dark prod analytics of AECI-326 (the push step ran, the secret was absent, and the warn-and-skip said so only in a log nobody read). **A committed var has no provisioning step to forget, and PR previews get analytics for free.** The four CI push steps are deleted; the `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets are unreferenced and are an operator delete. Per-tier value follows the §3.6/D4 topology: preview/staging/demo/stage2 → `aec-integrations-dev` (**525793**), **production only** → `aec-integrations` (**354071**). |
+| `POSTHOG_PROJECT_KEY` (publishable `phc_` project token) — **not a secret** | ✅ per env, **committed `var`** (both Workers) | ✅ per env, **committed `var`** (both Workers) | ❌ — **no GH secret exists** | AECI-239 → **AECI-640**. Was the CI-pushed Worker secret `POSTHOG_KEY`; it is now a plain per-env `vars.POSTHOG_PROJECT_KEY` entry in **both** `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`, checked into git. The `phc_` token is publishable — the SSR Worker renders it into the served HTML on every page (`window.__AECI_POSTHOG__`) — so treating it as a secret bought nothing and cost the weeks-dark prod analytics of AECI-326 (the push step ran, the secret was absent, and the warn-and-skip said so only in a log nobody read). **A committed var has no provisioning step to forget, and PR previews get analytics for free.** The four CI push steps are deleted; the `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets are unreferenced and are an operator delete. Per-tier value follows the §3.6/D4 topology: preview/staging/demo → `aec-integrations-dev` (**525793**), **production only** → `aec-integrations` (**354071**). |
 | PostHog Worker secrets — **emit path** | ❌ **none** | ❌ **none** | — | **Deliberate: nothing the Workers EMIT needs a credential.** All three PostHog intakes — OTLP logs (`/i/v1/logs`), OTLP metrics (`/i/v1/metrics`) and event capture (`/capture/`) — authenticate with the publishable `phc_` project token above. This is the "Worker telemetry secrets 4 → 0" line in ADR 0024, and it is the reason the row above exists as a var rather than a secret. **The READ path is the exception and is real:** `POSTHOG_QUERY_API_KEY` below is a `phx_` personal key held by the API Worker for the digest's PostHog join (AECI-660). Emitting telemetry needs no secret; querying it back does. |
 | `POSTHOG_CLI_API_KEY` (personal `phx_` key) | ❌ **never on a Worker** | ❌ **never on a Worker** | ✅ (CI-only) | AECI-640 / AECI-646. Personal (not project) key used by two CI steps: `scripts/ci/posthog-sourcemaps.sh` (inject + upload hidden source maps before every deploy) and `scripts/ci/posthog-deploy-marker.sh`'s **annotation** leg. Needs the union of `error tracking write` + `organization read` (source-map upload) **and** insight/dashboard/alert write + project read (the AECI-647 `observability/posthog/apply.sh`). **Optional + fail-open everywhere — warn-and-skip:** absent, source maps are still deleted before deploy (the safety property) and the marker's queryable `deployment` event still ships on the publishable token. **It must never become a Worker secret** — a personal key reaches the whole org. The operator also keeps a keychain copy for `apply.sh`, which cannot read the GH secret. |
 | `POSTHOG_HOST` (**ingest** host) | ✅ per env (both Workers, wrangler `var`) | ✅ per env (both Workers, wrangler `var`) | — (public `var` in `wrangler.jsonc`, not a GH secret) | AECI-239. `https://us.i.posthog.com` (US Cloud). **Host split gotcha:** `us.i.posthog.com` is ingest; `us.posthog.com` (no `.i`) is the **management** API used for annotations and `apply.sh` — swapping them yields a confusing 404, which is why the marker script carries two separate host variables. The static CSP `connect-src` is pinned to the US ingest + assets hosts (`us-assets.i.posthog.com`), so a non-US host needs a matching CSP change. Defaulted in code when unset. |
@@ -723,7 +722,7 @@ production* and provisioning a fresh empty project for development:
 
 - [ ] Confirm `aecintegrations.com` is on Cloudflare with the AEC account and a Pro plan.
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
-- [ ] `demo.aecintegrations.com` and `prod.aecintegrations.com` need **no manual zone edits** — `custom_domain: true` in each web env block makes wrangler provision the DNS record + cert on deploy: `prod.` on the first prod deploy, `demo.` on the first demo deploy (the latter **reassigns** the hostname off the old production Worker, so deploy demo BEFORE re-deploying production). The apex (`aecintegrations.com`) + `www` are also `custom_domain: true` on `aeci-web-production` (AECI-247/277); their reassignment off the retired landing Worker is the apex-cutover DNS flip and executes on the next `promote-to-prod` after the cutover PR merges (`docs/launch-cutover-runbook.md`).
+- [ ] `demo.aecintegrations.com`, the apex (`aecintegrations.com`) and `www` need **no manual zone edits** — `custom_domain: true` in each web env block makes wrangler provision the DNS record + cert on deploy. The apex + `www` are on `aeci-web-production` (AECI-247/277); their reassignment off the retired landing Worker was the apex-cutover DNS flip. **The reverse is not symmetric: removing a route from a Worker that still exists does NOT reap the Custom Domain** — that is a dashboard action (Worker → Settings → Domains & Routes), which is what AECI-807 hit retiring `prod.aecintegrations.com`.
 
 ### 2a. Cloudflare Queues — Algolia jobs (ADR 0013)
 
@@ -748,7 +747,7 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 Since AECI-714 that binding carries **two job kinds**, not one: the product bundle, and a page of a connector catalogue (`POST /api/promote/connector-catalog`). One Workflow class, one KV namespace, one poll route — the params are a discriminated union whose `kind` is *absent* for the product arm, so instances created before AECI-714 keep replaying correctly. **No wrangler change was needed in any environment**, which is the point of doing it that way.
 
 - [ ] **No provisioning step needed for the Workflow itself** — unlike Queues, `wrangler deploy` creates/updates it from the `workflows` block in `apps/api/wrangler.jsonc`. It does require the **Workers Paid plan** (already satisfied for Queues) and the CI `CLOUDFLARE_API_TOKEN`'s existing **Workers Scripts: Edit** permission.
-- [x] **`PROMOTE_KV` — all four namespaces provisioned 2026-08-12** and their ids are in `apps/api/wrangler.jsonc`, in the base block **and in each of the four env blocks**. The per-env entries are load-bearing: wrangler **replaces** (does not merge) the top-level `kv_namespaces` for an env, so an env block without its own `PROMOTE_KV` entry simply has no such binding. (The temporary `env.stage2` block added later carries its own pair — §10.2. This checklist covers the four permanent tiers.) Two key spaces (see `apps/api/src/lib/promote-jobs.ts`): `promote:payload:{jobId}` (24h) stages a bundle too large for the 1 MiB Workflow event-params cap, and `promote:result:{jobId}` (90d) mirrors the committed ID map so it outlives the 30-day instance retention.
+- [x] **`PROMOTE_KV` — all four namespaces provisioned 2026-08-12** and their ids are in `apps/api/wrangler.jsonc`, in the base block **and in each of the four env blocks**. The per-env entries are load-bearing: wrangler **replaces** (does not merge) the top-level `kv_namespaces` for an env, so an env block without its own `PROMOTE_KV` entry simply has no such binding. (A throwaway fifth tier would need its own pair too — §10.2.) Two key spaces (see `apps/api/src/lib/promote-jobs.ts`): `promote:payload:{jobId}` (24h) stages a bundle too large for the 1 MiB Workflow event-params cap, and `promote:result:{jobId}` (90d) mirrors the committed ID map so it outlives the 30-day instance retention.
 
   | Namespace | Id |
   |---|---|
@@ -959,249 +958,231 @@ The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted betw
   ```
   `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY` **and `ALGOLIA_SEARCH_KEY` are all single shared** secrets now — one Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix, NOT a per-env key scope). Demo therefore adds **no net-new Algolia GH secret**: it reads the same shared `ALGOLIA_SEARCH_KEY` as staging/production. ⚠️ Because the search key is shared, it must be scoped to cover `demo_*` (and every other env's indexes) — the old per-`demo_*` `ALGOLIA_SEARCH_KEY_DEMO` isolation no longer applies. Every other demo secret reuses the shared `*_PRODUCTION` values (demo shares the prod Supabase project + zone).
 - [ ] **GitHub Environment.** Create a `demo` GH Environment (Settings → Environments) — already done. `promote-to-demo.yml`'s deploy job targets it; leave reviewers empty for an unattended promote, or add a required reviewer to gate it.
-- [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `prod.aecintegrations.com` on the first prod deploy and `demo.aecintegrations.com` on the first demo deploy (the latter reassigns the hostname off the old production Worker). No manual zone edits.
-- [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` picks up `prod.aecintegrations.com` and keeps serving the existing production data.
+- [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `demo.aecintegrations.com` on the first demo deploy (reassigning the hostname off the old production Worker). No manual zone edits.
+- [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` keeps serving the existing production data on the apex + `www.`. (Historical: it also picked up an internal `prod.aecintegrations.com` here until AECI-807 retired that hostname.)
 
 > **Apex cutover — wired in config (AECI-247/277); executes at launch.** The web/api wrangler configs now carry the cutover: `aecintegrations.com` + `www` are `custom_domain: true` on `aeci-web-production` (reassigned off the retired landing Worker on the next `promote-to-prod`), the production web Worker's `ALLOW_INDEXING="true"`, and the API Worker's `PUBLIC_SITE_URL` is the apex. The remaining launch-day steps are **ops, not code**: provision the launch-only SEO secret so the post-promote IndexNow ping fires — `gh secret set INDEXNOW_KEY_PRODUCTION` (AECI-236); `promote-to-prod.yml` pushes it to the prod API Worker (recommended/warn-and-skip — it stays a graceful no-op until set) — then run the ordered ceremony in `docs/launch-cutover-runbook.md` (verify on `prod.`, promote, confirm the apex serves the app, send the Resend broadcast). *(The Google Indexing service-account secrets that used to sit here were removed in AECI-747 — that API accepts only `JobPosting`/`BroadcastEvent`, so the ping never did anything for our pages. Delete `GOOGLE_INDEXING_SA_EMAIL*` / `GOOGLE_INDEXING_SA_PRIVATE_KEY*` from GitHub Actions and from the production API Worker.)*
 
-### 10. `stage2` temporary tier — bootstrap, operate, tear down (AECI-637)
+### 10. Throwaway tiers — the `stage2` pattern (AECI-637 / AECI-808)
 
-A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vendor portal, attestations, paid tiers, real-time) on `stage2.aecintegrations.com`. Modelled on §9's demo bootstrap, with temp-env trims. **Read §10.6 before you start — two of these steps can damage production if run carelessly.**
+**There is no `stage2` tier. It was torn down under AECI-808.** This section is kept as
+the *pattern* for standing up a throwaway fifth tier, because the next one will want the
+same trims and hit the same three traps. Everything below is written as procedure; none
+of it describes something currently deployed.
 
-Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reached staging, so the usual "verify one tier up" gate had nothing to check. **As of the 2026-09-03 merge there is no `stage-2` branch to deploy from**; the procedure below is retained for the teardown (AECI-637) and as the pattern for any future throwaway tier.
+<details>
+<summary>Why the tier existed, and why it stopped existing</summary>
 
-> ### `d1_migrations` ledger repair (AECI-750) — **done on `stage2`, still OPEN on `preview`**
->
-> The `main → stage-2` reconcile renumbered this line's seven migrations `0016`–`0022` →
-> `0021`–`0027` (`main`'s `0016`–`0020` are applied in production and keep their numbers).
-> Each tier's ledger still held the OLD names, so the next
-> `scripts/d1-apply-migrations.sh` would try to re-run all seven renamed files and fail on the
-> first one. **No data is at risk** — the apply fails loudly and does nothing destructive — but
-> a tier cannot take a migration until its ledger is rewritten.
->
-> - **`aeci-app-stage2` — repaired 2026-09-03.** ✅ Two gotchas worth keeping: the tier had only
->   **5 of the 7** applied, so the first two `UPDATE`s legitimately reported `changes: 0` (read
->   the change counts; do not assume a zero means failure). And the `UPDATE`s **must** run in
->   descending order — `0021`/`0022` are each both an old *and* a new name, so ascending order
->   collides mid-flight.
-> - **`aeci-app-preview` (`--env preview`) — still needs it.** Census it first; it already
->   carries the earlier AECI-619 rename.
-> - **staging / demo / production need nothing.**
->
-> Runnable `UPDATE`s are in **`docs/migrations.md` §0 → "AECI-750 — the second, larger
-> renumber"**. The safety check that matters before running them: a comment-stripped
-> `shasum -a256` of the old and new file must match. Clear this flag once `preview`'s
-> `SELECT name FROM d1_migrations ORDER BY id` matches `apps/api/migrations/`.
->
-> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded (that same file is now named **`0024_easy_sandman`** after the AECI-750 renumber — see the ledger-repair block above; it is no longer the head, see the 2026-09-03 entry below); both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
->
-> **Redeployed 2026-08-26 → `6553e654`.** Hand-deployed from the `stage-2` HEAD that
-> merged the AECI-639 observability dual-run (#568), so this tier now carries the **PostHog
-> leg** and is the surface for testing it. **No migration was needed** — `0019` (now `0024`) was still the
-> head and `wrangler d1 migrations list --remote` reported "No migrations to apply", so
-> everything seeded at bootstrap (including the hand-applied reviews, the operator profile
-> and the `stats_cache` rows in §10.7) survived untouched. Deploy order was API then SSR per
-> §10.7; both Workers report `6553e654…` under `wrangler versions view`, and the Access gate
-> still `302`s with the same `kid`. The PostHog deploy marker was emitted **by hand** (§10.7
-> step 4) and the `deployment` event landed in `aec-integrations-dev` with `env: stage2`.
->
-> **Redeployed 2026-09-03 → `14b7713b`.** A 22-commit jump from `6553e654` carrying the
-> AECI-750 `main` reconcile, the connector lane (AECI-705/707/713/714/720/721/722),
-> **AECI-651** (the Datadog leg removed — PostHog is now the only observability plane) and
-> AECI-735. This deploy is also where the `d1_migrations` **ledger repair** was executed
-> (block above). `0027_powerful_killraven` recreates `integrations` and **is safe** — it copies
-> claims/attestations into `__carry_*` tables, empties the originals so `DROP TABLE integrations`
-> cannot cascade, then restores; a before/after census over the tier was identical (claims 4,
-> attestations 5, reviews 46). That is the counter-example to the general "a recreate's DROP
-> fires `ON DELETE CASCADE`" rule: a recreate is safe **when it carries its dependents
-> explicitly**. Census before and after regardless.
->
-> ⚠️ **The branch head is now `0028_hard_the_call`**, not `0027`. It landed after this deploy
-> (AECI-739, #615 — `ALTER TABLE vendor_requests ADD admin_notes`, purely additive, no
-> table-recreate path). **Whether it has been applied to `aeci-app-stage2` is unconfirmed** —
-> run `wrangler d1 migrations list aeci-app-stage2 --remote` before the next hand-deploy and
-> apply it if the tier is still at `0027`.
->
-> **Access verified 2026-08-20.** A bare request to `/`, `/api/version` and `/_version` all `302` to `aecintegrations.cloudflareaccess.com/cdn-cgi/access/login/stage2.aecintegrations.com`, and the redirect's `kid` is `6d89b808…d98643` — byte-equal to the **App AUD tag** in `docs/access.md` §1, which confirms the hostname was added as a destination on the existing `AECi Non-Prod` app rather than a new one (the §"Locked decisions" requirement). `staging.aecintegrations.com` still `302`s with the same AUD, so nothing regressed on the shared app.
->
-> **Verification now needs the service token.** §10.8's `verify-version.sh` / `verify-health.sh` recipe worked pre-gate without headers; it will `302` now. Export `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (the `aeci-gh-actions` token, `docs/access.md` §1) first, or reach it in a browser via email-OTP. Nothing automated hits this host — there is no workflow for this tier — so the service token is a convenience for manual checks, not a functional dependency.
->
-> Still pending: the Supabase redirect-URL entry (§10.3), without which magic-link sign-in bounces to the project Site URL. No Algolia by decision (§10.4).
+Staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the long-lived
+`stage-2` branch had no deployed surface. `stage2.aecintegrations.com` gave it one:
+`aeci-{api,web}-stage2`, its own D1 and KV, the single shared Supabase auth project
+(ADR 0017), Cloudflare Access in front, hand-deployed from a `stage-2` SHA. Live
+2026-08-20 → 2026-09; last deployed at `4c23496a`.
 
-#### 10.1 What's in the repo already
+That reason expired on **2026-09-03**, when `stage-2` merged into `main` and was retired.
+The tier then sat idle holding three secrets it should not have held — see the
+"secrets" trap below — and was deleted under **AECI-808**.
 
-Committed to `stage-2` (the AECI-637 PR):
+</details>
 
-- `env.stage2` blocks in `apps/{api,web}/wrangler.jsonc` — mirroring `env.demo` minus `triggers`, `queues`, and (web) `exports`, plus `custom_domain: true` on `stage2.aecintegrations.com`. **`workflows` is kept** (`aeci-promote-stage2`): Workflows are created by `wrangler deploy` with no provisioning step, and `POST /api/promote` returns 503 without the binding, which would kill the re-promote seeding path.
-- `stage2` added to the `ENV` unions (`apps/{api,web}/src/env.ts`) and to the three unions that must stay supersets of them or the build breaks: `PosthogEnv.ENV` (`packages/shared/src/posthog.ts`) and `AlgoliaEnv` / `AlgoliaIndexPrefix` (`packages/shared/src/algolia.ts`). The Algolia pair is a **compile** requirement only — this tier has no indexes (§10.4). The Algolia operator scripts are deliberately **not** touched.
-- `pnpm --filter @aeci/{api,web} deploy:stage2` and `pnpm --filter @aeci/api db:seed:stage2`.
+#### 10.1 The shape: mirror `env.demo`, with three trims
 
-`isPublicSite()` deliberately does **not** include `stage2` — it is Access-gated, so `/preview/*` stays reachable and per-request response validation stays on, which is what you want on a test tier.
+Copy the `env.demo` blocks in both wrangler configs and change the names. Then remove:
 
-#### 10.2 Provision (once)
+- **`triggers.crons`** — a temp tier needs no scheduled jobs, and several of them
+  (data-quality digest, attestation notify, entitlement expiry) send **real Resend
+  email**. Every cron handler is env-gated by presence, so their absence is not a
+  degradation, it is the point.
+- **`queues`** — with no crons there is no producer for the five scheduled-job queues,
+  and an uncached SSR Worker gives `CACHE_PURGE_QUEUE` nothing to invalidate. Both
+  producer bindings are optional in `apps/api/src/env.ts` and no-op when unbound.
+- **(web) the `exports` block** — no `exports` means uncached, like demo/production. On
+  a test tier that is what you want: every request runs the render, so what you see is
+  the deploy you just made, with no MISS→HIT wait and no purge story to operate.
+
+**Keep `workflows`.** Workflows are created by `wrangler deploy` with no
+`queues create`-style provisioning step, and `POST /api/promote` returns 503 without the
+`PROMOTE_WORKFLOW` binding (`routes/promote-kickoff.ts`) — which would kill the
+re-promote seeding path. One Workflow per env so instance ids never collide. AECI-637's
+own checklist omitted this and was wrong.
+
+Then add the tier to the `ENV` union in `apps/{api,web}/src/env.ts` **and** to the two
+unions that must stay supersets of them or the build breaks: `PosthogEnv.ENV`
+(`packages/shared/src/posthog.ts`) and `AlgoliaEnv` / `AlgoliaIndexPrefix`
+(`packages/shared/src/algolia.ts`). The Algolia pair is a **compile** requirement, not a
+claim that indexes exist: `algolia-drift-deps.ts` and `routes/promote.ts` assign the
+Worker's `ENV` straight into an `AlgoliaEnv` position, so a tier in one union and not the
+other is 2 × TS2322.
+
+`isPublicSite()` should **not** include a throwaway tier: Access-gated means `/preview/*`
+stays reachable and per-request response validation stays on, which is what you want.
+
+#### 10.2 Provision
 
 Prereqs: Workers **Paid** plan, `CLOUDFLARE_API_TOKEN` with Workers + D1 + KV edit.
 
 ```bash
 cd apps/api
-pnpm exec wrangler d1 create aeci-app-stage2                    # → database_id
-pnpm exec wrangler kv namespace create aeci-api-taxonomy-stage2 # → id  (optional)
-pnpm exec wrangler kv namespace create aeci-api-promote-stage2  # → id  (optional)
+pnpm exec wrangler d1 create aeci-app-<tier>                    # → database_id
+pnpm exec wrangler kv namespace create aeci-api-taxonomy-<tier> # → id  (optional)
+pnpm exec wrangler kv namespace create aeci-api-promote-<tier>  # → id  (optional)
 ```
 
-Paste the three ids over the all-zero placeholders in `apps/api/wrangler.jsonc` `env.stage2` and commit. Both KV namespaces are genuinely optional — `routes/taxonomy.ts` falls back to a direct D1 read, and `PROMOTE_KV` only matters for an oversize promote bundle plus the 90-day result mirror — but the bindings must either carry a real id or be deleted from the block; an all-zero id is not a valid namespace.
+Paste the ids over the placeholders and commit. Both KV namespaces are genuinely
+optional — `routes/taxonomy.ts` falls back to a direct D1 read, and `PROMOTE_KV` only
+matters for an oversize promote bundle plus the 90-day result mirror — but each binding
+must either carry a real id or be deleted; an all-zero id is not a valid namespace.
 
-**No queues.** `stage2` has no crons, so nothing produces onto the five scheduled-job queues, and the SSR Worker is uncached so `CACHE_PURGE_QUEUE` has nothing to invalidate. Both producer bindings are optional in `apps/api/src/env.ts` and no-op when unbound.
+DNS needs nothing: `custom_domain: true` provisions the hostname + cert on the first SSR
+deploy. A **new** hostname reassigns nothing off another Worker (unlike the demo and apex
+cutovers). Note the asymmetry at teardown — deleting the *Worker* drops the record, but
+removing a route from the config does **not**; see §10.5.
 
-#### 10.3 Access, DNS, and the Supabase redirect allow-list
+Add the hostname as a destination on the existing **AECi Non-Prod** Access app
+(`docs/access.md` §1) — not a second app; per "Locked decisions" there, splitting the app
+per-surface has been observed to break Worker requests. Add
+`https://<host>/**` to the shared Supabase project's redirect-URL allow-list, or
+magic-link and OAuth callbacks silently fall back to the project Site URL.
 
-- **DNS — nothing to do.** `custom_domain: true` provisions `stage2.aecintegrations.com` + its cert on the first SSR deploy. This is a **new** hostname, so nothing is reassigned off another Worker (unlike the demo and apex cutovers), and the record is removed when the Worker is deleted.
-- **Access.** Add `stage2.aecintegrations.com` as a destination on the existing `AECi Non-Prod` app — same allowlist and same `aeci-gh-actions` service-token policy. See `docs/access.md` §1. Do **not** create a second Access app (§"Locked decisions").
-- **Supabase.** Add `https://stage2.aecintegrations.com/**` to the shared auth project's redirect-URL allow-list (dashboard → Authentication → URL Configuration). Without it, magic-link and OAuth callbacks silently fall back to the project Site URL and you land on the wrong host.
+#### 10.3 Trap 1 — the two secrets to leave OFF
 
-#### 10.4 Algolia — out of scope. This tier has NO search.
+This is the load-bearing part, and it is what made the idle tier a liability:
 
-**Decided 2026-08-20: `stage2` ships without Algolia.** Search is not being tested on it, so there are no `stage2_*` indexes, no `ALGOLIA_*` secrets on either Worker, and no entry in either script's `VALID_ENVS` — `--env stage2` is rejected by `provision.mjs` / `apply-settings.mjs` on purpose. Nothing to provision here, and nothing to tear down in §10.9.
+- **`SUPABASE_SERVICE_ROLE_KEY`.** Under ADR 0017 one auth project backs **every** tier
+  including production, and this is the project-wide GoTrue Admin key: it can enumerate
+  every real user, mint a session for any address, and delete identities.
+  `DELETE /api/account` on a throwaway tier deletes the **real production** `auth.users`
+  row. Without it the seams degrade as documented — reviewer emails read `null`, the
+  admin claim queue's **Claimant account** signal reads "Account status unknown" for
+  every row (`has_auth_account: null`, AECI-527 — the lookup is *skipped*, not a claim
+  that no account exists), claim approval 503s, everything else works.
+- **`RESEND_API_KEY`.** A single shared key that sends real mail to real addresses.
+  Absent, every send is a fail-open `'skipped'`.
 
-What that costs: `/search` renders the degraded shell (`ALGOLIA_APP_ID` / `ALGOLIA_SEARCH_KEY` absent → `algolia-bootstrap-inject.ts` no-ops). Everything the tier exists to exercise — vendor portal, attestations, paid tiers, real-time — is untouched. The one Stage 2 feature that reads Algolia is the AECI-529 verified badge on the search surfaces; verify that on a PR preview against `preview_*`.
+`LINEAR_API_KEY` is the third of the same shape — fail-open when absent, and it writes to
+the shared team tracker.
 
-`AlgoliaEnv` / `AlgoliaIndexPrefix` in `packages/shared/src/algolia.ts` **do** carry a `stage2` member, and that is a compile requirement rather than a claim that indexes exist: `algolia-drift-deps.ts` and `routes/promote.ts` assign the Worker's `ENV` straight into an `AlgoliaEnv` position, so the union must stay a superset of `Env['ENV']` or the API Worker does not build. Both paths are inert without credentials.
+AECI-637 provisioned all three on 2026-08-24 for a specific test and recorded "remove them
+the moment that test is finished". They were still there at teardown three weeks later. If
+you provision one, put a date on it **and an owner**; "remove when done" is not a
+mechanism.
 
-> **If search on `stage2` is ever wanted, it needs a quota decision first.** The shared Algolia app is **already over its index limit** — 24 live indexes against a 20 cap — so `provision.mjs` cannot create *any* new index. Verified 2026-08-20: `✗ Algolia setSettings failed: Too many indices (24>20)`. A stage2 set matching the other tiers is 7 more (3 primaries + 4 sort replicas). Raising the plan limit is the only unblock that degrades nothing — deleting the three `preview_*` indexes reaches only 21 and breaks PR previews plus the `lighthouse.yml` `/search` gate. Do **not** point `stage2` at another tier's index prefix to dodge it: this tier's promote→index hook would then write into indexes that tier reads. And whatever happens, do **not** overwrite the shared `ALGOLIA_SEARCH_KEY` GitHub secret with a per-env key — it is one value that staging, demo and production all read (§Secrets).
+#### 10.4 Trap 2 — Algolia is a quota decision, not a config line
 
-#### 10.5 Secrets
+The shared Algolia app is **over its index limit** (24 live against a 20 cap, verified
+2026-08-20: `✗ Algolia setSettings failed: Too many indices (24>20)`). A full tier set is
+7 more indexes (3 primaries + 4 sort replicas), so `provision.mjs` cannot create any.
+`stage2` shipped **without search** for exactly this reason and lost nothing that mattered
+— the only Stage 2 feature reading Algolia is the AECI-529 verified badge on the search
+surfaces, verifiable on a PR preview against `preview_*`.
 
-All by hand — no CI pushes to this tier.
+Two things not to do if you hit this: do **not** point a temp tier at another tier's index
+prefix (its promote→index hook would write into indexes that tier reads), and do **not**
+overwrite the shared `ALGOLIA_SEARCH_KEY` GitHub secret with a per-env key — it is one
+value that staging, demo and production all read. Raising the plan limit is the only
+unblock that degrades nothing.
 
-```bash
-cd apps/api   # API Worker
-printf '%s' "$DD_API_KEY"        | pnpm exec wrangler secret put DD_API_KEY --env stage2        # optional
-printf '%s' "$REVIEW_APP_TOKEN"  | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env stage2  # only if re-seeding via promote
-printf '%s' "$ANTHROPIC_API_KEY" | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env stage2 # optional
+Without credentials `/search` renders the degraded shell (`algolia-bootstrap-inject.ts`
+no-ops), which is a clean failure.
 
-cd ../web     # SSR Worker
-printf '%s' "$SUPABASE_ANON_KEY" | pnpm exec wrangler secret put SUPABASE_ANON_KEY --env stage2
-printf '%s' "$DD_APPLICATION_ID" | pnpm exec wrangler secret put DD_APPLICATION_ID --env stage2 # optional
-printf '%s' "$DD_CLIENT_TOKEN"   | pnpm exec wrangler secret put DD_CLIENT_TOKEN --env stage2   # optional
-printf '%s' "$ADMIN_PURGE_TOKEN" | pnpm exec wrangler secret put ADMIN_PURGE_TOKEN --env stage2 # optional (uncached tier)
-```
+#### 10.5 Trap 3 — teardown is a first-class step
 
-`SUPABASE_ANON_KEY` is the only one that gates a headline feature: without it every SSR auth surface returns `503 auth_not_configured`, so sign-in — and therefore the whole vendor portal — is untestable. Everything else above is fail-open.
-
-**No PostHog secret appears in that list, and that is not an omission.** Both `env.stage2` blocks already carry `POSTHOG_HOST` + the committed non-prod `POSTHOG_PROJECT_KEY` (`aec-integrations-dev`, **525793**) as plain vars, so this tier reports to PostHog with nothing hand-provisioned — the `DD_*` lines above exist only because Datadog still uses Worker secrets, and they go away with the rest of the Datadog leg at **AECI-651**. Filter this tier's PostHog data by `$host` / `env` like any other non-prod tier.
-
-**No `ALGOLIA_*` secrets** — this tier has no search by decision (§10.4). Leaving them unset is what makes `/search` degrade cleanly instead of querying indexes that do not exist.
-
-`CF_ZONE_ID` / `CF_ANALYTICS_API_TOKEN` are pointless here: they feed the hourly WAF poll, which is a cron, and this tier has none.
-
-#### 10.6 Two secrets to leave OFF, and why
-
-- **`SUPABASE_SERVICE_ROLE_KEY` — omit** unless you are specifically testing claim approval. Under ADR 0017 one auth project backs **every** tier including production, and this is the project-wide GoTrue Admin key: it can enumerate every real user, mint a session for any address, and delete identities. `DELETE /api/account` on this throwaway tier would delete the **real production** `auth.users` row. Without it the seams degrade exactly as documented in §Secrets — reviewer emails read `null`, the admin claim queue's **Claimant account** signal reads "Account status unknown" for every row (`has_auth_account: null`, AECI-527 — the lookup is skipped, NOT a claim that no account exists), claim approval 503s, and everything else works.
-- **`RESEND_API_KEY` — omit** unless you are specifically testing email. It is a single shared key and sends real mail to real addresses; absent, every send is a fail-open `'skipped'`. (This tier runs no crons, so the nightly digests that would otherwise mail on their own cannot fire either — belt and braces.)
-
-If you do provision either one, note it here with a date and remove it the moment that test is finished.
-
-> **Provisioned 2026-08-24** (all three by hand; each `wrangler secret put` cuts a new `Secret Change` version, so the
-> Worker picks them up immediately — no redeploy):
->
-> | Secret | Version | Why |
-> |---|---|---|
-> | `SUPABASE_SERVICE_ROLE_KEY` | `f54f8421` (02:49:51Z) | Claim-approval / claimant-identity testing (AECI-519/527). **This tier can now delete real production `auth.users` rows via `DELETE /api/account` — see the bullet above.** |
-> | `RESEND_API_KEY` | `2a0a37c7` (02:50:41Z) | Claim-decision email testing (AECI-528). **This tier now sends real mail to real addresses.** |
-> | `LINEAR_API_KEY` | `0794898d` (02:51:00Z) | The form→Linear request pipeline. Not in §10.5's list — it is fail-open when absent, so add it only when testing that pipeline; it writes to the **shared team tracker**. |
->
-> Claims submitted BEFORE 02:49:51Z were reviewed with the seam absent — that is the documented
-> "Account status unknown" degrade, not a defect. **Remove all three when Stage 2 claim/email testing is done.**
-
-#### 10.7 Migrate, seed, deploy
+A half-torn-down temp env is worse than none, because the config blocks keep implying a
+tier that no longer answers.
 
 ```bash
-# 1. Schema + reference data (taxonomy, data objects, trades). cwd MUST be apps/api.
-cd apps/api
-bash "$(git rev-parse --show-toplevel)/scripts/d1-apply-migrations.sh" aeci-app-stage2 stage2
-
-# 2. Test data. The local/CI fixture set — catalog, the verified fixture vendor WITH its
-#    matching vendor_entitlements row, the AECi claim + attestation, product versions,
-#    and the admin + vendor_admin profiles.
-pnpm db:seed:stage2
-
-# 3. Deploy — API FIRST (the SSR services.API binding targets aeci-api-stage2), SSR second.
-pnpm --filter @aeci/api  deploy:stage2
-pnpm --filter @aeci/web  deploy:stage2      # runs the web build first
-```
-
-Both `deploy:stage2` scripts derive `COMMIT_SHA` from `git rev-parse HEAD` and `DEPLOYED_AT` from `date -u`, so run them from a checked-out `stage-2` SHA and the version endpoints report it without any extra flags.
-
-```bash
-# 4. Deploy marker (optional, best-effort). No workflow targets this tier, so nothing
-#    emits one for you — without this step the tier's PostHog data has no deploy line
-#    and no queryable `deployment` row. The script accepts `stage2` as a tier value and
-#    always exits 0. PH_PROJECT_KEY is the committed non-prod var (aec-integrations-dev).
-PH_EVENT_ENV=stage2 PH_SERVICE=both PH_VERSION=$(git rev-parse HEAD) \
-PH_PROJECT_KEY=$(sed -n 's/.*"POSTHOG_PROJECT_KEY": "\(phc_[^"]*\)".*/\1/p' apps/web/wrangler.jsonc | head -1) \
-PH_NOTE="hand deploy from stage-2 (no CI for this tier)" \
-  bash scripts/ci/posthog-deploy-marker.sh
-```
-
-Without `POSTHOG_CLI_API_KEY` + `PH_PROJECT_ID` the **annotation** leg warn-skips (no deploy line drawn across insights) and only the queryable `deployment` event ships — which is the leg that matters for "which deploy introduced this". Both legs are fail-open by design.
-
-`seed/catalog.sql` and `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning. Applying them to `stage2` is a **deliberate exception**: it is a throwaway tier that exists to be thrown away, and hand-writing equivalent SQL would be strictly worse. They give you, for free, the four things the Stage 2 surfaces need and a bare catalog does not:
-
-| Fixture | What it unlocks |
-| --- | --- |
-| `phase2-fixtures.sql` vendor `…061` (`verified = 1`) **+** its `vendor_entitlements` row | The paid-tiers mirror is consistent, so the vendor plan panel renders a real active term. Seeding `verified = 1` **without** the entitlement row is the classic mistake — nothing fails until something reads the mirror. |
-| `phase2-fixtures.sql` claim `…066` + `aeci` attestation `…067` | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane, on `unverified`, ready for a vendor affirm to move it to `single_source`. |
-| `auth-fixtures.sql` profile `e1a8f812-…` (`vendor_admin`, `vendor_id` = `…061`) | `requireVendor()` authorizes the `/vendor` portal. Pair it with the `SUPABASE_VENDOR_TEST_USER_*` account. |
-| `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the §9 version-diff selectors actually render. |
-
-Three things the fixture set does **not** cover, all applied by hand on 2026-08-20:
-
-- **Reviews.** `seed/*.sql` seeds none, so product review sections and the admin moderation queue render empty. `pnpm --filter @aeci/api db:seed-reviews -- --remote --env stage2 --apply` reads this tier's own catalog and writes a deterministic set (46 approved here). Every row carries the `aeceed00-…` id prefix, so `--teardown --apply` removes exactly those.
-- **An operator profile.** The fixture profiles are the two e2e personas; **your own account has no row**, so signing in with it lands you as a role-less user — no `/admin`, no `/vendor`. Authorization is per-tier D1 (ADR 0016), so a profile here grants nothing anywhere else. Seed one with your Supabase `sub` as the PK:
-  ```sql
-  INSERT OR REPLACE INTO profiles (id, display_name, role, created_at, updated_at)
-  VALUES ('<your auth.users.id>', '<name> (operator)', 'admin',
-          strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-  ```
-  Find the id with a read-only GoTrue admin call — `GET {SUPABASE_URL}/auth/v1/admin/users?filter=<substring>`, which is a **case-sensitive substring** match over email OR full name, not an equality lookup.
-- **Home stats.** `GET /api/stats/home` **never live-aggregates** — `stats_cache` is its only source (`routes/stats.ts`), and that table is written by the 07:00 cron, which this tier does not run. Left alone the home page reports `0` products / vendors / reviews over a fully populated catalog, which reads as broken. The six scalar keys were inserted directly using the cron's own definitions from `lib/home-stats.ts` (note `total_reviews` and `total_contributing_firms` count **approved only**, unlike products/vendors/integrations which are unfiltered). The three list keys and two card keys are deliberately left absent so they fall back to `[]` / `null` — with no `page_views` history there is no honest `trending_products` to show.
-
-Alternatives, for the record: **`apps/datatool` cannot clone into this tier** without code changes — `apps/datatool/src/targets.ts` has a closed four-element `ENV_IDS` list and one D1 binding per tier — and adding a fifth to a Worker that can wipe prod D1 is not worth it for a temp env. Re-promoting from the review app works (`REVIEW_APP_TOKEN` + the `PROMOTE_WORKFLOW` binding are both wired) but needs the review app pointed at this host.
-
-#### 10.8 Verify
-
-```bash
-export HOST=https://stage2.aecintegrations.com
-export EXPECTED_SHA=$(git rev-parse HEAD)
-export CF_ACCESS_CLIENT_ID=… CF_ACCESS_CLIENT_SECRET=…   # the aeci-gh-actions service token
-bash scripts/verify-version.sh   # /api/version AND /_version both report the stage-2 SHA
-bash scripts/verify-health.sh    # /api/health → db:ok
-
-# Access gate, both directions:
-curl -sI "$HOST/api/version"                                   # expect 302 → cloudflareaccess.com
-curl -sI "$HOST/api/version" \
-  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"       # expect 200
-```
-
-#### 10.9 Teardown
-
-Run the whole list — a half-torn-down temp env is worse than none, because the config blocks keep implying a tier that no longer answers.
-
-```bash
-pnpm exec wrangler delete --name aeci-web-stage2 --force   # also drops the DNS record + cert
-pnpm exec wrangler delete --name aeci-api-stage2 --force
-pnpm exec wrangler d1 delete aeci-app-stage2
+pnpm exec wrangler delete --name aeci-web-<tier> --force   # also drops the DNS record + cert
+pnpm exec wrangler delete --name aeci-api-<tier> --force
+pnpm exec wrangler d1 delete aeci-app-<tier>
 pnpm exec wrangler kv namespace delete --namespace-id <taxonomy-id>
 pnpm exec wrangler kv namespace delete --namespace-id <promote-id>
 ```
 
-Then, by hand:
+The Workflow needs no separate delete — it goes with the Worker. Then by hand: remove the
+Access destination (**not** the app — staging and the previews share it), remove the
+Supabase redirect entry, and revert the repo side in one commit (both `env.<tier>` blocks,
+the four union memberships from §10.1, the package scripts, the docs rows).
 
-- **Algolia: nothing to do** — this tier creates no indexes and no keys (§10.4).
-- Remove the `stage2.aecintegrations.com` destination from the `AECi Non-Prod` Access app and the entry from `docs/access.md` §1.
-- Remove `https://stage2.aecintegrations.com/**` from the Supabase redirect allow-list.
-- **Revert the repo side in one commit:** both `env.stage2` blocks, the `stage2` entries in the two `ENV` unions + `DatadogEnv.ENV` + `AlgoliaEnv`/`AlgoliaIndexPrefix`, the three `package.json` scripts, this section, and the `stage2` rows in §Topology, `docs/access.md` §1 and `docs/CICD_PLAN.md` §2. Nothing under `scripts/algolia/` was changed, so nothing there needs reverting.
+Deleting the **Worker** reaps its DNS record and cert. Removing a **route** from a Worker
+that still exists does not — a Custom Domain is a separate Cloudflare resource and its
+deletion is a dashboard action (Worker → Settings → Domains & Routes). That distinction is
+what AECI-807 ran into retiring `prod.aecintegrations.com` from the live production
+Worker; it does not apply when the whole Worker goes.
+
+#### 10.6 Seeding, if you build one again
+
+`pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
+`version-diff-fixtures` → `connector-fixtures` is the pattern. `seed/catalog.sql` and
+`seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
+applying them to a throwaway tier is a deliberate exception. Four things they give you
+that a bare catalog does not:
+
+| Fixture | What it unlocks |
+| --- | --- |
+| `phase2-fixtures.sql` verified vendor **+** its `vendor_entitlements` row | The paid-tiers mirror is consistent. Seeding `verified = 1` **without** the entitlement row is the classic mistake — nothing fails until something reads the mirror. |
+| `phase2-fixtures.sql` claim + `aeci` attestation | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane. |
+| `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
+| `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
+
+Four things they do **not** cover, all of which had to be applied by hand:
+
+- **Reviews.** None are seeded, so review sections and the moderation queue render empty.
+  `db:seed-reviews -- --remote --env <tier> --apply` writes a deterministic set; every row
+  carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those.
+- **An operator profile.** The fixture profiles are the two e2e personas; your own account
+  has no row, so you sign in as a role-less user with no `/admin` and no `/vendor`.
+  Authorization is per-tier D1 (ADR 0016), so a profile there grants nothing elsewhere.
+  `profiles.role` is **single-valued** and `admin` / `vendor_admin` are mutually exclusive
+  by design (`lib/authz.ts`) — use a second account, don't re-role the one under test.
+- **Home stats.** `GET /api/stats/home` **never live-aggregates** — `stats_cache` is its
+  only source (`routes/stats.ts`), written by the 07:00 cron a temp tier does not run. Left
+  alone the home page reports `0` over a full catalogue, which reads as broken. Insert the
+  six scalar keys directly using `lib/home-stats.ts`'s own definitions (`total_reviews` and
+  `total_contributing_firms` count **approved only**); leave the list and card keys absent
+  so they fall back to `[]` / `null`.
+- **`connector-fixtures.sql` is not idempotent** — plain `INSERT INTO`, so a second run
+  fails on the PK. It is self-contained, so apply just it rather than re-running the whole
+  chain, which would overwrite operator test state.
+
+`apps/datatool` **cannot** clone into a fifth tier without code changes:
+`apps/datatool/src/targets.ts` has a closed four-element `ENV_IDS` list and one D1 binding
+per tier, and adding an entry to a Worker that can wipe prod D1 is not worth it for a temp
+env. Re-promoting from the review app works if `REVIEW_APP_TOKEN` and the
+`PROMOTE_WORKFLOW` binding are wired and the review app is pointed at the host.
+
+#### 10.7 Verifying a hand-deployed tier
+
+```bash
+export HOST=https://<host>
+export EXPECTED_SHA=$(git rev-parse HEAD)
+export CF_ACCESS_CLIENT_ID=… CF_ACCESS_CLIENT_SECRET=…   # the aeci-gh-actions service token
+bash scripts/verify-version.sh   # /api/version AND /_version both report the SHA
+bash scripts/verify-health.sh    # /api/health → db:ok
+```
+
+Deploy **API first, SSR second** (the SSR `services.API` binding targets the API Worker),
+and pass `--var COMMIT_SHA --var DEPLOYED_AT` on both or the version endpoints report
+`unknown`.
+
+Three diagnostic facts worth carrying forward:
+
+- **`wrangler versions view <id>` needs no session at all** and is the reliable SHA check.
+  Browser verification needs *two* independent sessions (Access + app sign-in), both of
+  which expire within hours.
+- **A lapsed Access session is misleading** — everything redirects to
+  `aecintegrations.cloudflareaccess.com` and page-text tools return "no text content" or
+  hang. Useful trick: the `kid` query param on an Access redirect **is** the app's AUD tag,
+  so one unauthenticated `curl -I` identifies which Access app guards a hostname, with no
+  Access API permission needed.
+- **A lapsed app sign-in 404s `/admin/*` and `/vendor/*` by design** (`admin-shell.ts`
+  renders `<aec-not-found/>` on 401/403 from `GET /api/admin/summary`, ADMIN_PANEL_SPEC
+  §7.1; `vendor-gate.ts` likewise). A working admin URL that starts 404ing is a lapsed
+  session, not a broken deploy — probe `/api/vendor/me`.
+
+Finally, no workflow targets a hand-built tier, so nothing emits a PostHog deploy marker
+for you. `scripts/ci/posthog-deploy-marker.sh` accepts any tier value and always exits 0;
+without it the tier's PostHog data has no deploy line and no queryable `deployment` row.
+
 
 ## What lives where
 

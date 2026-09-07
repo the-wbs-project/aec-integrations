@@ -550,7 +550,7 @@ surfaces mount it — the real portal, the dev preview, and the shell's own spec
 
 > ⚠️ **Deployed-environment blocker — the zone WAF 403s any path containing
 > `/vendor/`.** Verified 2026-08-26 by curl on `www`, `staging`, `demo` and
-> `stage2`: `/vendor` is fine, `/vendor/acme/overview` is a Cloudflare block page.
+> Observed on the since-retired `stage2` tier: `/vendor` is fine, `/vendor/acme/overview` is a Cloudflare block page.
 > Almost certainly a Cloudflare **Managed Ruleset** rule (the Composer/PHPUnit
 > `vendor/` RCE family), not one of ours. This already broke every browser-side
 > `/api/vendor/*` call (SSR reaches the API over a service binding, so the page

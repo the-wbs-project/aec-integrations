@@ -39,7 +39,7 @@ the earlier text is left intact so the delta stays legible.
 | D1 | Cutover shape | **Dual-run**: PostHog transport ships beside Datadog (adapter fan-out); Datadog deleted only after verification + prod soak (§AW-final). Datadog is live and operated — 26 monitors, 5 dashboards, runbooks — so no direct swap. |
 | D2 | Browser consent posture | **Two-mode init**: an anonymous operational slice (errors + web vitals, memory persistence, no identifiers) runs for **all** visitors — **including DNT/GPC browsers**, matching today's consent-independent Datadog RUM; the consent banner **and** DNT/GPC keep hard-gating product analytics. Industry basis: DNT is deprecated (W3C WG closed 2019; Safari removed 2019, Firefox removed v135 Feb 2025); GPC binds in 12 US states but only for sale/share, which AECi doesn't do; ops telemetry is opt-out-exempt in normal practice. Disclosed in the privacy policy (§AW2). |
 | D3 | Alerts | Org is **Pay-as-you-go → alert count unlimited** ("Free tier organizations can create up to 5 alerts total. Paid plans have no limit" — posthog.com/docs/alerts). Port failure/threshold monitors **individually on merit**. **Hourly cadence accepted** (15-min checks need the Boost add-on; revisit post-growth). Liveness/no-data → one **external CI sweep** (§AW6) — no PostHog tier has `notify_no_data`. |
-| D4 | Project topology | Prod = `aec-integrations` (**354071**), production tier only. Non-prod = `aec-integrations-dev` (**525793**): local, preview, staging, **demo**, stage2 — separated by `$host`/`env`. (Demo previously received the production key and polluted prod data — fixed by AECI-640.) |
+| D4 | Project topology | Prod = `aec-integrations` (**354071**), production tier only. Non-prod = `aec-integrations-dev` (**525793**): local, preview, staging, **demo** — separated by `$host`/`env`. (A temporary `stage2` tier also reported here 2026-08 → 2026-09; retired under AECI-808.) (Demo previously received the production key and polluted prod data — fixed by AECI-640.) |
 | D5 | Session replay | **OFF at v0** (as since AECI-31); enabling it is a separate privacy review, not part of this migration. |
 | D6 | Branch | **`stage-2`**, one PR per workstream, no epic branch (dual-emit keeps each workstream independently shippable). Prod stays on Datadog until `stage-2 → main` merges. The dispatch-only `promote-to-*.yml` workflows execute from `main`; their edits ride the merge or land as small main PRs at cutover. |
 
@@ -516,7 +516,7 @@ Live check, 2026-08-24. None of these block the code; each gates a capability.
 >
 > Three consequences:
 >
-> 1. **`$web_vitals` now fires on preview / staging / demo / stage2.** The "silently does
+> 1. **`$web_vitals` now fires on preview / staging / demo.** The "silently does
 >    nothing on the tiers you would actually test on" warning below is **historical** — §6(4)
 >    is now verifiable on a non-prod tier.
 > 2. **Exception autocapture is on for both projects**, so `$exception` now arrives from the
@@ -560,7 +560,7 @@ afternoon. Compared live:
 | `sessionRecording` | **enabled** (full config object) | `false` |
 
 So web vitals works in production and **silently does nothing** on preview,
-staging, demo and stage2 — the tiers you would actually test on. A verification
+staging and demo — the tiers you would actually test on. A verification
 run against the non-prod project will conclude "web vitals is broken" when the
 code is fine.
 

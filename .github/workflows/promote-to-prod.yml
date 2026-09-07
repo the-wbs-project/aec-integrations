@@ -34,10 +34,15 @@
 #      - Deploys API FIRST, then SSR (so any brief mismatch lands API-ahead-of-SSR);
 #        both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
-#      - Polls `prod.aecintegrations.com` (Access-gated until launch — ADR 0017;
-#        the smoke step passes the `aeci-gh-actions` service-token headers, a
-#        no-op if the host is public) until BOTH Workers report
-#        `inputs.commit_sha` AND `/api/health` is `db:ok`. Fails after 60s (a
+#      - Polls `www.aecintegrations.com` — the canonical served host — until BOTH
+#        Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`. It polled
+#        the internal `prod.aecintegrations.com` until AECI-807 retired that
+#        hostname. The smoke step still passes the `aeci-gh-actions`
+#        service-token headers; they are a no-op on a public host, and keeping
+#        them means re-gating production behind Access needs no workflow change.
+#        WAF-safe: the three host-scoped rules (AECI-659) match /products,
+#        /vendors and the form POSTs — never /api/version, /_version, /api/health
+#        or /admin/purge — so the scraper rule does not catch the gate's curl UA. Fails after 60s (a
 #        DB-unreachable prod fails the promote rather than shipping). A smoke
 #        failure auto-rolls-back both Workers; the D1 app DB is restored by hand
 #        via Cloudflare D1 time-travel (the failure runbook prints the command).
@@ -276,7 +281,7 @@ jobs:
     # UI. This is the single approval gate for the promote.
     environment:
       name: production
-      url: https://prod.aecintegrations.com
+      url: https://www.aecintegrations.com
     permissions:
       contents: read
     steps:
@@ -799,7 +804,7 @@ jobs:
       - name: Purge taxonomy cache tags
         continue-on-error: true
         env:
-          HOST: https://prod.aecintegrations.com
+          HOST: https://www.aecintegrations.com
           PURGE_TAGS: 'taxonomy route:browse'
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -827,7 +832,7 @@ jobs:
       - name: Smoke test production (API + SSR at SHA, DB healthy)
         id: smoke
         env:
-          HOST: https://prod.aecintegrations.com
+          HOST: https://www.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

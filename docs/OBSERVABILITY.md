@@ -114,7 +114,7 @@ actually arrived, not what was intended):
 | `service.name` | `aeci-api` / `aeci-web` | ✅ | ✅ | — |
 | `service` | same value, undotted | ✅ | ✅ | ✅ |
 | `app` | always `aeci` | ✅ | ✅ | ✅ |
-| `env` | `development` / `preview` / `staging` / `demo` / `stage2` / `production` | ✅ | ✅ | ✅ |
+| `env` | `development` / `preview` / `staging` / `demo` / `production` | ✅ | ✅ | ✅ |
 | `worker` | `aeci-api` / `aeci-web` | ✅ | ✅ | ✅ |
 | `source` | `worker` (API) / `worker-angular` (SSR) | ✅ | ✅ | ✅ |
 | `version` | `COMMIT_SHA`, the real one (AECI-74) | ✅ | ✅ | ✅ |
@@ -316,7 +316,7 @@ are not:
   temporarily doubles. It collapses back on its own, but it means the budget
   must be sized against `2 × steady-state`, not steady-state.
 - **`env` is ×1 in the production project and up to ×4 in the non-production
-  one**, which carries preview, staging, demo and stage2 together (§3.6 / D4).
+  one**, which carries preview, staging and demo together (§3.6 / D4).
   The non-prod project is therefore the tighter constraint, not the looser one.
 
 ### The arithmetic
@@ -889,7 +889,7 @@ the flush never happened — which is exactly what `captureImmediate` /
    rather than a UI-built chart. That is a deliberate choice: the underlying table
    is stable SQL even while the product above it is not.
 4. **Two projects, not one `env` filter.** Production is `aec-integrations`
-   (**354071**); preview, staging, demo and stage2 all share `aec-integrations-dev`
+   (**354071**); preview, staging and demo all share `aec-integrations-dev`
    (**525793**). Queries carry **no `env:` predicate** — the project *is* the tier
    boundary. Adding one would be belt-and-braces with a real downside: if the
    transport ever tagged `env` differently, every alert would read 0 forever and
@@ -1346,7 +1346,7 @@ observability-shaped view of it.
 | Credential | Used by | Where it lives | Notes |
 |---|---|---|---|
 | **PostHog Worker secrets (emit path)** | — | **nowhere. There are none.** | **Read this row rather than skipping it — the absence is a design property, not an omission.** All three PostHog intakes (OTLP logs, OTLP metrics, event capture) authenticate with the publishable `phc_` project token, so Worker telemetry secrets went **4 → 0** with the migration. The READ path is the exception: `POSTHOG_QUERY_API_KEY` (a `phx_` personal key) IS an API-Worker secret, held for the AECI-660 digest join — emitting telemetry needs no credential, querying it back does. Beyond that, a Worker-side PostHog personal key is a design change, not a provisioning step. |
-| `POSTHOG_PROJECT_KEY` | Worker runtime (logs + metrics + events) **and** the browser | **Committed per-env `vars` entry in both `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`** | Publishable `phc_` token. Was the CI-pushed secret `POSTHOG_KEY`; AECI-640 made it a committed var. Treating it as a secret bought nothing — the SSR Worker renders it into the served HTML on every page — and cost the weeks-dark prod analytics of AECI-326, where the push step ran, the secret was absent, and the warn-and-skip said so only in a log nobody read. A committed var has **no provisioning step to forget**, and PR previews get telemetry for free. Per-tier value follows the D4 topology: preview/staging/demo/stage2 → `aec-integrations-dev` (**525793**), production only → `aec-integrations` (**354071**). Absent → the whole transport no-ops (invariant 3). |
+| `POSTHOG_PROJECT_KEY` | Worker runtime (logs + metrics + events) **and** the browser | **Committed per-env `vars` entry in both `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`** | Publishable `phc_` token. Was the CI-pushed secret `POSTHOG_KEY`; AECI-640 made it a committed var. Treating it as a secret bought nothing — the SSR Worker renders it into the served HTML on every page — and cost the weeks-dark prod analytics of AECI-326, where the push step ran, the secret was absent, and the warn-and-skip said so only in a log nobody read. A committed var has **no provisioning step to forget**, and PR previews get telemetry for free. Per-tier value follows the D4 topology: preview/staging/demo → `aec-integrations-dev` (**525793**), production only → `aec-integrations` (**354071**). Absent → the whole transport no-ops (invariant 3). |
 | `POSTHOG_HOST` | both Workers + the browser | Wrangler `vars`, per env | `https://us.i.posthog.com` — the **ingest** host. `us.posthog.com` (no `.i`) is the management API used by annotations and `apply.sh`; swapping them yields a confusing 404, which is why the marker script carries two separate host variables. Defaulted in code when unset. |
 | `POSTHOG_CLI_API_KEY` | **CI + operator only** — source-map upload, the deploy-marker annotation leg, `apply.sh`, the liveness sweep | GitHub secret + operator keychain. **Never a Worker secret** — a personal key reaches the whole org | Personal `phx_` key. **One key needs the union of scopes**: insight write · dashboard write · alert write · project read · **query read** (the sweep) · **error tracking write** · **organization read** (the last two are source-map upload, §8.3 — §7's original list missed them). Optional + fail-open everywhere: absent, source maps are still *deleted* before deploy (the safety property survives), the marker's queryable `deployment` event still ships on the publishable token, and the liveness sweep exits **2** — "unchecked", which is not a pass. `apply.sh` also reads it as `POSTHOG_PERSONAL_API_KEY`; it cannot read the GitHub secret, so an operator running it locally must export the value separately. **Provisioned as a GitHub repo secret 2026-09-04** — the annotation leg and the liveness sweep are live from their next run, and source-map upload is live on all four deploy paths (`promote-to-prod.yml` gained its missing step the same day — `CICD_PLAN.md` §9.1a). |
 | `POSTHOG_PROJECT_ID_PROD` / `_NONPROD` | CI (marker annotation, liveness sweep, `apply.sh`) | Repo **variables** | `354071` / `525793`. **Not set** — the workflows fall back to those literals, so this is a repoint convenience rather than a prerequisite. |

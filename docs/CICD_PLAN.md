@@ -75,14 +75,13 @@ Four permanent environments, all on Cloudflare — plus, while Stage 2 is being 
 | **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | `aeci-app-preview` D1 via `aeci-api-preview` (Option 1, see environments.md) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | `aeci-app-staging` D1 |
 | **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | `aeci-app-demo` D1 |
-| **Production** | `aecintegrations.com` + `www.` (public, canonical) and `prod.` | Manual approval, after demo | Manual | `aeci-app-production` D1 |
-| **stage2** _(temporary — AECI-637)_ | `stage2.aecintegrations.com` | Nothing — **no workflow exists** | By hand, `wrangler deploy --env stage2` from a `stage-2` SHA | `aeci-app-stage2` D1 |
+| **Production** | `aecintegrations.com` + `www.` (public, canonical) | Manual approval, after demo | Manual | `aeci-app-production` D1 |
 
-> **`stage2` is outside the promotion chain by design.** It exists because staging auto-tracks `main` (§10 / ADR 0019), so the completed Stage 2 build has no deployed surface; there is no `promote-to-stage2.yml`, no GH Environment, and no GH secret that names it. It carries **no `triggers.crons` and no `queues`**, so it runs no scheduled jobs and cannot send email. Bootstrap, secret posture and teardown: `docs/environments.md` §10. Delete it when Stage 2 testing is done.
+> **The promotion chain has four tiers, not five.** A temporary `stage2` tier sat outside it 2026-08 → 2026-09 (AECI-637) and was torn down under **AECI-808** — no `promote-to-stage2.yml` ever existed, and no GH Environment or secret named it. `docs/environments.md` §10 keeps the bootstrap procedure as the pattern for any future throwaway tier.
 
 > **One Supabase project, one D1 database per tier.** Per **ADR 0017** every tier shares a *single*
 > Supabase project (`ktuhnlypztujpsseujzx`, verified in every `env.*` block of both
-> `wrangler.jsonc` files — including the temporary `env.stage2`) and Supabase is **auth only** — hence the single un-suffixed
+> `wrangler.jsonc` files) and Supabase is **auth only** — hence the single un-suffixed
 > `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (§7.1). The application database is
 > Cloudflare D1 (ADR 0016) and *that* is what is per-tier. Earlier revisions of this table said
 > "Staging Supabase project" / "Production D1 + Supabase", implying per-env Supabase projects;
@@ -123,7 +122,7 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 
 ### 2.4 Production environment
 
-The real site. **Launched** — the AECI-247/277 apex cutover is done, so production serves the public apex `aecintegrations.com` and `www.aecintegrations.com` (the bare apex 301s to `www.`, which is canonical per ADR 0011 as amended 2026-07-05) plus the internal `prod.aecintegrations.com`. Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
+The real site. **Launched** — the AECI-247/277 apex cutover is done, so production serves the public apex `aecintegrations.com` and `www.aecintegrations.com` (the bare apex 301s to `www.`, which is canonical per ADR 0011 as amended 2026-07-05), and nothing else since **AECI-807** retired the internal `prod.aecintegrations.com`. Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
 - Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`)
@@ -135,15 +134,21 @@ The real site. **Launched** — the AECI-247/277 apex cutover is done, so produc
 - Resend sends to real users
 - Linear is the live vendor request destination
 
-> **Production is NOT behind Cloudflare Access.** Verified 2026-08-14 by direct probe: both
-> `https://www.aecintegrations.com/` and `https://prod.aecintegrations.com/` return **HTTP 200**
-> with no Access redirect (staging, by contrast, still 302s to the Access login). Earlier text
-> here said "Cloudflare Access-gated until launch (ADR 0017)"; launch has happened. Note that
-> the `env.production` comment block in `apps/web/wrangler.jsonc` still claims the `prod.` host
-> "stays crawler-free via Cloudflare Access" — **that comment is stale and its premise is
-> false**, which means `prod.` is a publicly reachable duplicate of `www.` under a single
-> `ALLOW_INDEXING="true"`. Worth either re-gating `prod.` in Access or dropping the host;
-> tracked separately, not changed here.
+> **Production is NOT behind Cloudflare Access.** Verified 2026-08-14 by direct probe:
+> `https://www.aecintegrations.com/` returns **HTTP 200** with no Access redirect (staging, by
+> contrast, still 302s to the Access login). Earlier text here said "Cloudflare Access-gated
+> until launch (ADR 0017)"; launch has happened.
+>
+> **The `prod.aecintegrations.com` half of this note is CLOSED (AECI-807, 2026-09).** The same
+> probe found `prod.` publicly reachable too, contradicting the `env.production` comment that
+> justified a single `ALLOW_INDEXING="true"` with "the `prod.` host stays crawler-free via
+> Cloudflare Access". Because canonicals follow the serving origin (ADR 0011), `prod.` was not a
+> passive duplicate — it asserted **itself** as canonical for every URL it served. The hostname
+> is retired: the route is off `env.production`, the promote smoke gate polls `www.`, and the
+> WAF host sets drop it (`scripts/ops/2026-09-waf-prod-host-removal/`). Two facts worth keeping:
+> the `ALLOW_INDEXING` gate is **per-ENV, not per-host**, so any hostname routed to
+> `env.production` is opted into indexing with no separate decision; and removing a route does
+> **not** reap the Custom Domain, which is a dashboard deletion.
 
 ---
 
@@ -325,7 +330,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
 4. **Inject + upload the PostHog source maps** (`scripts/ci/posthog-sourcemaps.sh`, prod project `354071`) and then **assert `apps/web/dist/browser` holds no `.map` file** — the one source-map step that fails the promote rather than warn-skipping (§9.1a). Then deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT` and push the Worker runtime secrets
 5. Post the deployment marker — the PostHog annotation + `deployment` event (§9.1). (A Datadog `/api/v1/events` marker ran alongside it until AECI-651.)
-6. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
+6. Poll both `www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
 The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the six-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
@@ -383,11 +388,12 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
     "production": {
       "vars": { "ENV": "production", "ALLOW_INDEXING": "true" },
       // Post-apex-cutover (AECI-247/277): the app IS the public site. The bare
-      // apex 301s to www. inside the SSR Worker; `prod.` is the internal host.
+      // apex 301s to www. inside the SSR Worker. Every route here shares the one
+      // ALLOW_INDEXING above — which is why AECI-807 removed a third entry,
+      // `prod.aecintegrations.com`, rather than trying to exempt it.
       "routes": [
         { "pattern": "aecintegrations.com", "custom_domain": true },
-        { "pattern": "www.aecintegrations.com", "custom_domain": true },
-        { "pattern": "prod.aecintegrations.com", "custom_domain": true }
+        { "pattern": "www.aecintegrations.com", "custom_domain": true }
       ]
     }
   }

@@ -31,18 +31,16 @@
 /**
  * Deployment-environment label, matching the Workers' `ENV` var (AECI-119).
  *
- * `stage2` (the TEMPORARY Stage 2 test tier, AECI-637) is here for TYPE reasons
- * only — **no `stage2_*` indexes exist and none are meant to.** That tier ships
- * without search: it holds no `ALGOLIA_*` secrets, and the shared Algolia app is
- * over its index quota anyway (`docs/environments.md` §10.4). But two call sites
- * assign the Worker's `ENV` straight into an `AlgoliaEnv` position —
- * `apps/api/src/lib/algolia-drift-deps.ts` `algoliaEnvFor()` and
- * `apps/api/src/routes/promote.ts` `syncAlgoliaAfterPromote()` — so this union
- * has to stay a superset of `Env['ENV']` or the API Worker does not compile.
- * Both are inert on that tier: without credentials the sync is a graceful no-op,
- * and the tier runs no crons at all. Remove with the rest of AECI-637 at teardown.
+ * **This union must stay a superset of `Env['ENV']`** (`apps/api/src/env.ts`), or
+ * the API Worker does not compile: two call sites assign the Worker's `ENV`
+ * straight into an `AlgoliaEnv` position — `algoliaEnvFor()` in
+ * `apps/api/src/lib/algolia-drift-deps.ts` and `syncAlgoliaAfterPromote()` in
+ * `apps/api/src/routes/promote.ts`. Adding a tier to the Worker union without
+ * adding it here is 2 × TS2322; the reverse is harmless. Membership here is a
+ * COMPILE fact, not a claim that an index set exists — `indexPrefixForEnv` will
+ * happily name a prefix nobody ever provisioned.
  */
-export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
+export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production';
 
 /**
  * Physical index-name prefix. `development` folds onto `preview` (there is no
@@ -50,11 +48,11 @@ export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'produ
  * demo, production). `demo` and `production` keep separate index sets — the demo
  * showcase must never read or write the live `production_*` indexes.
  *
- * `stage2` rides along for the same compile-only reason as `AlgoliaEnv` above —
- * `indexPrefixForEnv` passes every non-`development` label straight through — and
- * names no index set that has ever been created.
+ * Kept in lockstep with `AlgoliaEnv` above: `indexPrefixForEnv` passes every
+ * non-`development` label straight through, so a label present there and absent
+ * here is a type error at that function.
  */
-export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
+export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production';
 
 /** The three entity indexes, in a stable order. */
 export const INDEX_ENTITIES = ['products', 'vendors', 'integrations'] as const;

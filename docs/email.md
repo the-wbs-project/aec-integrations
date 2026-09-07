@@ -158,14 +158,14 @@ left unset).
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
 | `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept separate from `ADMIN_ALERT_EMAIL` so claim intake reaches the shared support inbox while sweep alerts and lead capture keep going to the individual operator. Absent → the alert is a `skipped` no-op and the Linear issue remains the durable record. |
-| `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production (+ the temp `stage2`) | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
+| `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
 | `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
 
 > **Every `_FROM` in the repo is `notifications@aecintegrations.com`, deliberately (2026-08-26).**
 > `aecintegrations.com` is the Resend-verified sending domain (§Deliverability below), and it is
 > the only domain a `_FROM` may use. Until 2026-08-26 `DATA_QUALITY_EMAIL_FROM` read
-> `AECi Data Quality <support@thewbsproject.com>` on **staging, demo and stage2** while production
+> `AECi Data Quality <support@thewbsproject.com>` on **staging and demo** while production
 > already used the `aecintegrations.com` address, and two `wrangler.jsonc` comments asserted that
 > `thewbsproject.com` was the verified domain — directly contradicting §Deliverability. That
 > divergence is now removed: all four tiers carry the identical address for both vars.

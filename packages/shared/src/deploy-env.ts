@@ -5,13 +5,13 @@
  * `production`; unset → `development`) labels a deployment. Most code keys off the
  * *exact* label (Algolia index prefix, observability `env` tag, `/api/version`). A few
  * gates instead care about a coarser question: "is this an audience-facing,
- * real-build site?" — true for BOTH `production` (`prod.aecintegrations.com`,
- * the eventual home page) AND `demo` (`demo.aecintegrations.com`, the public
- * showcase). Both run the real build at audience scale; `preview`/`staging` are
- * lower-volume Access-gated test tiers and `development` is local. (Network
- * visibility is orthogonal: demo is public, while `production` stays behind
- * Cloudflare Access until launch per ADR 0017 — but both behave as the real
- * site for the gates below.)
+ * real-build site?" — true for BOTH `production` (the apex +
+ * `www.aecintegrations.com`, the live home) AND `demo`
+ * (`demo.aecintegrations.com`, the public showcase). Both run the real build at
+ * audience scale; `preview`/`staging` are lower-volume Access-gated test tiers
+ * and `development` is local. (Network visibility is orthogonal to this gate:
+ * both are public today, and re-gating one behind Cloudflare Access would not
+ * change how it should behave below.)
  *
  * Use `isPublicSite()` for behavior that must be identical on every audience-facing
  * deployment, not just the one literally named `production`: blocking `/preview/*`

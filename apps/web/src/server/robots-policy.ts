@@ -1,19 +1,22 @@
 /**
  * Crawler-indexing policy for the SSR Worker.
  *
- * AECi is pre-launch. The audience-facing web surfaces are the two real-build
- * tiers — `prod.aecintegrations.com` (the `production` Worker env, behind
- * Cloudflare Access until launch per ADR 0017) and `demo.aecintegrations.com`
- * (the `demo` env, the public showcase — NOT behind Access). The public demo
- * host is genuinely crawlable, so until we deliberately launch (the apex
- * cutover), NO environment should be indexed.
+ * AECi is launched. Exactly ONE env is indexed: `production`, which serves the
+ * apex + `www.aecintegrations.com` and sets `ALLOW_INDEXING="true"` (the apex
+ * cutover, AECI-247/277). `demo.aecintegrations.com` is public but stays
+ * no-index by decision, and staging + PR previews sit behind Cloudflare Access.
  *
- * Indexing is therefore FAIL-CLOSED: every environment blocks crawlers unless
- * `ALLOW_INDEXING` is explicitly the string `"true"`. Keying on the `ENV` label
- * would be wrong here — both public tiers are pre-launch no-index. When the
- * public site launches, set `ALLOW_INDEXING=true` on (only) the env that should
- * be indexed; both enforcement layers below then revert to the normal
- * allow-with-per-page-`<meta robots>` behavior.
+ * Indexing is FAIL-CLOSED: every environment blocks crawlers unless
+ * `ALLOW_INDEXING` is explicitly the string `"true"`. It is keyed on that var
+ * rather than on the `ENV` label because "is this the real build?" and "should
+ * this be indexed?" are different questions — `demo` is the standing
+ * counter-example.
+ *
+ * The gate is per-ENV, not per-host, and an env may serve several hostnames.
+ * That is not a hole to plug here; it is a constraint on what you may route to
+ * an indexed env. `prod.aecintegrations.com` rode `production`'s `"true"` for
+ * the whole post-launch period and became an indexable, self-canonicalising
+ * duplicate of `www.` before AECI-807 retired it.
  *
  * Two layers consume this, both gated on `indexingAllowed`:
  *   1. `X-Robots-Tag: noindex, nofollow` HTTP header on every non-`/api/*`
