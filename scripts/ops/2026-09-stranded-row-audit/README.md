@@ -361,7 +361,7 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | Date       | Env        | Action      | Result                                                                                                                                           |
 | ---------- | ---------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-09-07 | production | `audit.mjs` | 0 products, 1 vendor, 6 integrations stranded; 7 claims + 7 attestations in cascade. Reconciled 247/247, 0 unresolved reads. No write performed. |
-| 2026-09-07 | production | `audit.mjs` | Re-run after the AECI-593 retraction: `integrationSourceGone` **2** (AECI-794, AECI-795), cascade 3 claims + 3 attestations, 2 publicly reachable. Both Polycam ids gone. Still exits 1 — correctly, those two rulings are open. |
+| 2026-09-07 | production | `audit.mjs` | Re-run after the AECI-593 retraction: 0 products, 1 vendor, 4 integrations stranded; 4 claims + 4 attestations in cascade; 5 publicly reachable. `integrationSourceGone` is down to **2** (AECI-794, AECI-795), carrying 3 of those claims/attestations. Both Polycam ids gone. Still exits 1 — correctly, those two rulings are open. |
 
 ## Follow-ups filed from this run
 
@@ -373,8 +373,9 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 Five of the seven rows were already covered: **AECI-685** (the vendor and both
 `built_by` edges) and **AECI-593** (both Polycam edges). Both carry a comment recording
 the confirmed 2026-09-07 state. **AECI-593 was executed that same day** — see
-`scripts/ops/2026-09-polycam-retraction/` — leaving five stranded rows, three of them
-publicly reachable.
+`scripts/ops/2026-09-polycam-retraction/` — leaving five stranded rows, all five still
+publicly reachable (the vendor, the two undecided `integrationSourceGone` edges, and the
+two `built_by` strands).
 
 ## Related
 

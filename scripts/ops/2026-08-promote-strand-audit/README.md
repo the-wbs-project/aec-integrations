@@ -91,9 +91,9 @@ scoped to `data.records:read` on the AEC Integrations base.
 09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at
 the next manual audit — which is what AECI-593 needed: two editorially-retracted edges sat
 live for four days because nothing was watching (and then, because this workflow was never
-credentialed and nobody re-checked a closed issue, for four more weeks — AECI-796). The job **skips green** until the
-`AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2 without it, and a
-red-on-arrival cron just teaches people to ignore the cron). It writes its report to
+credentialed and nobody re-checked a closed issue, for four more weeks — AECI-796). The job
+**skips green** until the `AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2
+without it, and a red-on-arrival cron just teaches people to ignore the cron). It writes its report to
 `$RUNNER_TEMP` and uploads nothing.
 
 ## Measurement — 2026-08-13, production
