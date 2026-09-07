@@ -125,16 +125,26 @@ cache is same-day.
 
 ### Three things that bite, all found the hard way on 2026-09-07
 
-1. **The review app rate-limits.** Eight concurrent `get_product` calls returned
-   `429 {"error":"rate_limited"}` partway through the first run and killed it with
-   nothing written. `mcp-client.mjs` now retries 429/5xx with exponential backoff and
-   honours `Retry-After`; concurrency defaults to **3** (`AECI_MCP_CONCURRENCY`
-   overrides). The 2026-08 copy of that client has neither.
+1. **The review app rate-limits — `{ limit: 100, period: 10 }` keyed on
+   `CF-Connecting-IP`** (their `wrangler.jsonc:96-102`). So ~10 req/s sustained, no burst
+   beyond that window, **no per-token quota**, and every 429 carries `retry-after: 10`.
+   The check runs **before auth**, so a scheduled job shares the budget with anything
+   else on the same egress IP — aim at **5 rps**. Eight concurrent `get_product` calls
+   tripped it partway through the first run and killed it with nothing written.
+   `mcp-client.mjs` now retries 429/5xx with exponential backoff and honours
+   `Retry-After`; concurrency defaults to **3** (`AECI_MCP_CONCURRENCY` overrides). The
+   2026-08 copy of that client has neither. Note a single `tools/call` fans out to
+   several D1 queries upstream, so per-call cost is not uniform — `get_product` is four
+   neighbourhood reads plus a taxonomy batch.
 2. **A tool can fail server-side and return a bare string.** One `get_product`
    returned `Failed query: SELECT id FROM products WHERE …` as its text payload, which
-   a blind `JSON.parse` reports as a meaningless `SyntaxError`. The client now names
-   the tool and echoes the text; the sweep retries three times, then records the record
-   in `unresolvedUpstream` and **refuses to report `clean`** while that list is
+   a blind `JSON.parse` reports as a meaningless `SyntaxError`. **Not a query bug** —
+   the review app diagnosed it as Drizzle's `DrizzleQueryError`, whose `.cause` carries
+   the real D1 error and whose `.message` is just the SQL; their MCP error formatter
+   dropped the cause. They are fixing the formatting, so future failures should say what
+   actually went wrong. The retries were the right response regardless: the client now
+   names the tool and echoes the text, the sweep retries three times, then records the
+   record in `unresolvedUpstream` and **refuses to report `clean`** while that list is
    non-empty. A sweep that could not read upstream must never look like a green one.
 3. **D1 will reset you for a correlated subquery.** `(SELECT count(*) FROM claims
 WHERE integration_id = i.id)` over 927 integrations returned _"D1 DB exceeded its
@@ -234,6 +244,42 @@ follow-through fails — **the detector has never been switched on**, and the on
 things that have ever found a stranded row are a human noticing and this one-off run.
 Worth weighing when AECI-595's priority is set: a retract _feature_ is worth less than a
 retract _detector that actually runs_, and the cheapest fix on the table is a secret.
+
+### Every disposition is now settled (review app, 2026-09-07)
+
+The review app answered on all four integration rows and the vendor. **All four
+integrations are DELETE; none is an adopt.** Sources are their production D1 and code at
+`a29e419`.
+
+| Row | Ruling |
+| --- | --- |
+| `74099c42-…` polycam ↔ arcgis | **DELETE.** The 2026-08-09 curator decision is recorded verbatim on Polycam's `tool_integration_check_notes` *and* `research_notes`: the integration bar is a **purpose-built mechanism**, and a manual file hand-off ("export a DXF, open it in X") is not an integration however well documented. Full evidence for both removed edges is preserved "for easy re-materialization if the bar ever loosens" — so re-creating them upstream would re-litigate a settled decision. |
+| `4dc9d4bb-…` polycam ↔ autocad | **DELETE**, same ruling. |
+| `8f5365f9-…` procore → followup-crm | **DELETE.** Two records existed upstream and one was **deliberately merged away** under AECI-699 — both cited the same evidence page (`marketplace.procore.com/apps/followup-crm`), "one artifact filed twice, not two". The survivor is `rec1HRURkiFzAPUkn`, carrying `111ed9fc-…` — the reverse-orientation twin this audit spotted. The identical `created_at` is because both were seeded in one discovery pass. |
+| `2e6ad5bf-…` dynamics-365 → monday-com | **DELETE**, and this is the one that argues for a retraction channel. The edge *was* materialised in a 2026-07 sweep and is gone now, **with no ruling written down on either side**. Probably swept up by the AECI-700/701 Zapier-convention change, which matches its `iPaaS` kind — but the review app explicitly declines to assert that from the data. No upstream record, no defence: if the edge is real it should be re-materialised deliberately with current evidence, not adopted from a stranded row. |
+
+**The single most useful fact they returned:** Polycam was **re-promoted on 2026-08-25**,
+after the deletion, and both rows are still live. That is §5.1 demonstrated end-to-end —
+**a re-promote does not heal a retraction** — and it is the cleanest evidence available
+for sizing AECI-595.
+
+### The Bluebeam vendor: upstream is finished, we are not
+
+Correcting what this README implied. The upstream re-point is **done** — all three
+integrations moved to Nemetschek Group (`rec2St6GqFE2YK3eu`) on 2026-09-05, and their
+production D1 now shows Bluebeam with **0** `built_by_vendor_id` rows and **0**
+`product_vendors` rows.
+
+What has not happened is a **re-promote**, so the change has not reached us:
+`last_promoted_at` is 2026-08-27 for Bluebeam Revu and 2026-08-26 for Autodesk Revit,
+both before the re-point. AECi keeps rendering "Built by Bluebeam" until one of those
+products is pushed again — which AECI-792 gates behind `5a7af578` being live in
+production.
+
+And the upstream **vendor row still exists on purpose**: AECI-685's order of operations
+is public row first, upstream row last, and their new `deleteVendor` guard now refuses
+(409) while `supabase_vendor_id` is set. So do **not** read `vendorNoLiveProducts` here
+as "the upstream record is gone" — it is not, and that is deliberate.
 
 ### The two genuinely new rows
 

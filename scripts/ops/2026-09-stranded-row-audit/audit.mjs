@@ -101,9 +101,22 @@ const MCP_CONCURRENCY = Number(process.env.AECI_MCP_CONCURRENCY ?? 3);
 
 /**
  * Upstream product statuses that could hold a `supabaseId`, i.e. that a promote could
- * ever have touched. Measured 2026-09-07 the live vocabulary is exactly
- * `unreviewed` (1250) | `promoted` (247) | `on_hold` (22) | `needs_attention` (16),
- * plus `rejected`, which `list_products` hides unconditionally.
+ * ever have touched.
+ *
+ * The authoritative vocabulary is SEVEN values (review app `server/status.ts:47-56`),
+ * confirmed by the review app 2026-09-07:
+ *
+ *   unreviewed · needs_attention · approved · on_hold · promoted · retracted · rejected
+ *
+ * Production counts that day, over 1,586 products: unreviewed 1216 + 34 blank,
+ * promoted 247, rejected 51, on_hold 22, needs_attention 16, approved 0, retracted 0.
+ * A BLANK field means `unreviewed`, not missing — which is why a naive read counts
+ * 1,250 unreviewed, and why 1,586 − 51 rejected = the 1,535 `list_products` returns.
+ *
+ * `retracted` is in the enum but **used by nothing** — zero rows, no writer, and no
+ * reader in the promote path. It is included below as reserved, not because it is live.
+ * `rejected` is excluded because `list_products` hides those unconditionally; they are
+ * reached by the `find_product` second pass instead.
  *
  * `unreviewed` is excluded from the default cohort because it is 80% of the catalog
  * and has never been promoted. That is not a blind spot: a D1 row left unclaimed by
@@ -111,7 +124,13 @@ const MCP_CONCURRENCY = Number(process.env.AECI_MCP_CONCURRENCY ?? 3);
  * status INCLUDING rejected. So the cohort is an optimisation over the common case,
  * not the audit's actual reach. `--all-statuses` resolves every listed row instead.
  */
-const RESOLVABLE_STATUSES = new Set(['promoted', 'on_hold', 'needs_attention']);
+const RESOLVABLE_STATUSES = new Set([
+  'promoted',
+  'approved',
+  'on_hold',
+  'needs_attention',
+  'retracted',
+]);
 
 // ─── args ────────────────────────────────────────────────────────────────────
 
@@ -333,9 +352,16 @@ if (!cache)
 const claimedVendors = new Map();
 for (const v of vendorByRecId.values()) if (v.supabaseId) claimedVendors.set(v.supabaseId, v);
 
-// 4. Integrations. These rows carry `supabaseId` DIRECTLY (fields are omitted when
-//    null, so a missing one means "never promoted"), so this axis costs no per-row
-//    calls at all.
+// 4. Integrations. These rows carry `supabaseId` DIRECTLY, so this axis costs no
+//    per-row calls at all.
+//
+//    Absence semantics, not null: `list_integrations` and `get_integration` run the
+//    SAME hydrator upstream (`server/hydrate.ts:687-711`), and the field is omitted
+//    from the JSON when the column is empty — so a row without it has never been
+//    promoted. Do not conclude from a missing key that the tool cannot return it.
+//    The real asymmetry is on `list_products`, which hand-projects a subset that
+//    does not include `supabaseId`; that is why the product axis needs get_product
+//    per record and this one needs nothing.
 const { rows: upstreamIntegrations, total: upstreamIntegrationTotal } = cache
   ? { rows: cache.upstreamIntegrations, total: cache.upstreamIntegrationTotal }
   : await listAll(session, 'list_integrations');
