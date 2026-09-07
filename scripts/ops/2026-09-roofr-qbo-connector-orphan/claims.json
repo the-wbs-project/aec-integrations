@@ -1,0 +1,48 @@
+[
+  {
+    "results": [
+      {
+        "id": "015ba5da-67b6-4a2e-aa78-8e587e8825e6",
+        "integration_id": null,
+        "connector_evidenced_pair_id": "3d3709e1-e8ef-47f3-ae90-3ff8e8ab76e7",
+        "data_object_id": "da30093b-e634-5687-84ed-bdb2addeb8aa",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "created_by_vendor_id": null,
+        "anchor_id": "3d3709e1-e8ef-47f3-ae90-3ff8e8ab76e7",
+        "created_at": "2026-08-27T09:49:10.420Z",
+        "updated_at": "2026-08-27T09:49:10.420Z"
+      },
+      {
+        "id": "dba57562-9f5e-497e-9a08-19c1ba9fa482",
+        "integration_id": null,
+        "connector_evidenced_pair_id": "3d3709e1-e8ef-47f3-ae90-3ff8e8ab76e7",
+        "data_object_id": "d302efc3-4443-56a2-b803-3de64db60393",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "created_by_vendor_id": null,
+        "anchor_id": "3d3709e1-e8ef-47f3-ae90-3ff8e8ab76e7",
+        "created_at": "2026-08-27T09:49:10.420Z",
+        "updated_at": "2026-08-27T09:49:10.420Z"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5076
+      },
+      "duration": 0.5076,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 48369664,
+      "rows_read": 1699,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

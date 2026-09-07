@@ -1,0 +1,54 @@
+[
+  {
+    "results": [
+      {
+        "id": "0a2d45e9-c725-4b73-951e-97090bbccb1e",
+        "claim_id": "015ba5da-67b6-4a2e-aa78-8e587e8825e6",
+        "source": "aeci",
+        "asserted": 1,
+        "introduced_at": null,
+        "deprecated_at": null,
+        "note": "ai_seed: sweep 2026-07-02, Roofr one-way export of contacts (and catalog items) to QBO. https://roofr.com/pricing",
+        "created_at": "2026-08-27T09:49:10.420Z",
+        "updated_at": "2026-08-27T09:49:10.420Z",
+        "retracted_at": null,
+        "attested_by_vendor_id": null,
+        "introduced_version_id": null,
+        "deprecated_version_id": null
+      },
+      {
+        "id": "c15855a0-2ee8-4803-ae9a-dd52d9d4c34d",
+        "claim_id": "dba57562-9f5e-497e-9a08-19c1ba9fa482",
+        "source": "aeci",
+        "asserted": 1,
+        "introduced_at": null,
+        "deprecated_at": null,
+        "note": "ai_seed: sweep 2026-07-02, Roofr one-way export of invoices and payment data to QBO. https://roofr.com/pricing",
+        "created_at": "2026-08-27T09:49:10.420Z",
+        "updated_at": "2026-08-27T09:49:10.420Z",
+        "retracted_at": null,
+        "attested_by_vendor_id": null,
+        "introduced_version_id": null,
+        "deprecated_version_id": null
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.8666
+      },
+      "duration": 0.8666,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 48369664,
+      "rows_read": 3398,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
