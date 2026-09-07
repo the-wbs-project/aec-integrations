@@ -42,8 +42,8 @@
 #        them means re-gating production behind Access needs no workflow change.
 #        WAF-safe: the three host-scoped rules (AECI-659) match /products,
 #        /vendors and the form POSTs — never /api/version, /_version, /api/health
-#        or /admin/purge — so the scraper rule does not catch the gate's curl UA. Fails after 60s (a
-#        DB-unreachable prod fails the promote rather than shipping). A smoke
+#        or /admin/purge — so the scraper rule does not catch the gate's curl UA.
+#        Fails after 60s (a DB-unreachable prod fails the promote rather than shipping). A smoke
 #        failure auto-rolls-back both Workers; the D1 app DB is restored by hand
 #        via Cloudflare D1 time-travel (the failure runbook prints the command).
 #

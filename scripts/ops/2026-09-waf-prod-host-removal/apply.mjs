@@ -144,8 +144,8 @@ async function main() {
   }
 
   console.log(
-    `\n${pending.length} rule(s) updated. Now run verify.mjs — expect 403/200 on all four hosts — and record the ` +
-      'result in docs/waf-rate-limits.md "Deployed state".',
+    `\n${pending.length} rule(s) updated. Now run verify.mjs — expect an UNCHANGED 403/200 on all ` +
+      'three remaining hosts — and record the result in docs/waf-rate-limits.md "Deployed state".',
   );
   process.exit(0);
 }

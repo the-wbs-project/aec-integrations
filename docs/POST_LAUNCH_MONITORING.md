@@ -114,7 +114,7 @@ data today, with the PostHog successor in brackets.
 > Worker's own render time. They answer different questions and will not agree.
 
 > **PostHog UI gotcha, the same shape:** the org has **five** projects. `aec-integrations`
-> (**354071**) is production; `aec-integrations-dev` (**525793**) carries preview, staging, demo and
+> (**354071**) is production; `aec-integrations-dev` (**525793**) carries preview, staging and demo
 > together, and it is where the seven dashboards are currently applied. There is **no `env:`
 > filter on any query** — the project *is* the tier boundary — so a board read in the wrong project
 > is silently a different tier's numbers, with nothing on screen to say so. Also: production events

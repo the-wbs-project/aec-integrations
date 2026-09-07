@@ -116,8 +116,8 @@ these literals and aborts on anything it does not recognise, so the doc has to b
 first. Replace this paragraph with the dated applied result.
 
 `prod.aecintegrations.com` is retired (AECI-807): the route is off `env.production` in
-`apps/web/wrangler.jsonc` and the promote smoke gate polls `www.` instead. The rules were
-narrowed from four hosts to three. Nothing else changes — not the paths, not the UA list,
+`apps/web/wrangler.jsonc` and the promote smoke gate polls `www.` instead. The rules
+narrow from four hosts to three. Nothing else changes — not the paths, not the UA list,
 not the actions, thresholds or descriptions.
 
 Run it **after** the Custom Domain is actually gone. Running it first is harmless but
@@ -125,7 +125,7 @@ leaves a window where the hostname resolves and has no rules.
 
 The pass condition is an **unchanged** `verify.mjs` table for the three remaining hosts
 (`403 / 200` each). That is the opposite of AECI-659, where the point was that `www.`
-flipped — here a row that flips to `200 / 200` means the narrowing overshot. Applied with
+flipped — here a row that flips to `200 / 200` means the narrowing overshot. Apply with
 [`scripts/ops/2026-09-waf-prod-host-removal/`](../scripts/ops/2026-09-waf-prod-host-removal/README.md).
 
 > The bare apex `aecintegrations.com` is deliberately **not** in the host set: it 301s to
@@ -133,11 +133,12 @@ flipped — here a row that flips to `200 / 200` means the narrowing overshot. A
 > host.
 >
 > `prod.aecintegrations.com` **was** covered from AECI-659 until **AECI-807** retired the
-> hostname (2026-09). It is out of all three expressions now — a term matching a host that
+> hostname (2026-09). It comes out of all three expressions — a term matching a host that
 > no longer resolves is the same staleness AECI-659 existed to fix, read backwards. The
-> narrowing ran via
+> narrowing runs via
 > [`scripts/ops/2026-09-waf-prod-host-removal/`](../scripts/ops/2026-09-waf-prod-host-removal/README.md),
 > whose pass condition is an **unchanged** probe table for the three remaining hosts.
+> **It has not been run yet** — see the "Host-set narrowing" subsection above.
 
 ---
 
@@ -146,7 +147,7 @@ flipped — here a row that flips to `200 / 200` means the narrowing overshot. A
 | Host | On zone `aecintegrations.com`? | Covered by these rules? |
 |---|---|---|
 | `www.aecintegrations.com` (SSR Worker, **production** — the live public site) | yes | **yes** (host-scoped; added 2026-09, AECI-659) |
-| ~~`prod.aecintegrations.com`~~ (SSR Worker, production — internal host) | **retired 2026-09** (AECI-807) | n/a — the hostname no longer resolves to a Worker; dropped from all three expressions |
+| ~~`prod.aecintegrations.com`~~ (SSR Worker, production — internal host) | **retired 2026-09** (AECI-807) — route off `env.production`; the Custom Domain deletion is a pending dashboard action | n/a — dropped from all three expressions **in this doc**; the live rules still list it until `scripts/ops/2026-09-waf-prod-host-removal/` is run |
 | `demo.aecintegrations.com` (SSR Worker, the public **showcase** tier — no-index, *not* production) | yes | **yes** (host-scoped) |
 | `staging.aecintegrations.com` (SSR Worker, staging) | yes | **yes** (host-scoped) |
 | `aecintegrations.com` (bare apex) | yes | **no** — 301s to `www.` at the edge, so no request under this host reaches a matched path |
@@ -526,12 +527,12 @@ rule change.
   a `200 / 200` row means the rules stopped covering the host, not that the attacks
   stopped.
 
-  Every host now in the rules is also counted by some env's poll, because each env filters
-  on its own `PUBLIC_SITE_URL`. That was **not** true until 2026-09: `prod.aecintegrations.com`
-  was covered by the rules and pointed at by no env, so its mitigations were visible in
-  **Security → Events** only. AECI-807 retired the host and dropped it from the expressions,
-  which closes the gap. Re-opening it is the cost of adding a host to a rule without adding a
-  poll — check both when you widen a host set.
+  Once the AECI-807 narrowing is applied, every host in the rules is also counted by some
+  env's poll, because each env filters on its own `PUBLIC_SITE_URL`. That was **not** true
+  until 2026-09: `prod.aecintegrations.com` was covered by the rules and pointed at by no
+  env, so its mitigations were visible in **Security → Events** only. AECI-807 retires the
+  host and drops it from the expressions, which closes the gap. Re-opening it is the cost of
+  adding a host to a rule without adding a poll — check both when you widen a host set.
 
 ---
 

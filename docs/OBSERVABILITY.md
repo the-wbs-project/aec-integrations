@@ -369,8 +369,9 @@ pull request** (`aeci-web-pr-123.<subdomain>.workers.dev`). If `host` were a
 metrics resource attribute, every series in the catalogue would fork per PR —
 **unbounded cardinality that grows with every PR, forever**, and no amount of
 tag discipline elsewhere would recover it. In production it is a more modest
-×2–3 (`aecintegrations.com`, `www.`, `prod.`) but for no analytical gain, since
-`env` already identifies the tier and the apex 301s to `www` anyway.
+×2 (`aecintegrations.com`, `www.` — a third, `prod.`, was retired by AECI-807) but
+for no analytical gain, since `env` already identifies the tier and the apex 301s
+to `www` anyway.
 
 So `host` stays on **logs** — cheap there, high-cardinality is the norm for
 logs, and "which hostname served this" is a real question when reading one.

@@ -961,7 +961,7 @@ The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted betw
 - [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `demo.aecintegrations.com` on the first demo deploy (reassigning the hostname off the old production Worker). No manual zone edits.
 - [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` keeps serving the existing production data on the apex + `www.`. (Historical: it also picked up an internal `prod.aecintegrations.com` here until AECI-807 retired that hostname.)
 
-> **Apex cutover — wired in config (AECI-247/277); executes at launch.** The web/api wrangler configs now carry the cutover: `aecintegrations.com` + `www` are `custom_domain: true` on `aeci-web-production` (reassigned off the retired landing Worker on the next `promote-to-prod`), the production web Worker's `ALLOW_INDEXING="true"`, and the API Worker's `PUBLIC_SITE_URL` is the apex. The remaining launch-day steps are **ops, not code**: provision the launch-only SEO secret so the post-promote IndexNow ping fires — `gh secret set INDEXNOW_KEY_PRODUCTION` (AECI-236); `promote-to-prod.yml` pushes it to the prod API Worker (recommended/warn-and-skip — it stays a graceful no-op until set) — then run the ordered ceremony in `docs/launch-cutover-runbook.md` (verify on `prod.`, promote, confirm the apex serves the app, send the Resend broadcast). *(The Google Indexing service-account secrets that used to sit here were removed in AECI-747 — that API accepts only `JobPosting`/`BroadcastEvent`, so the ping never did anything for our pages. Delete `GOOGLE_INDEXING_SA_EMAIL*` / `GOOGLE_INDEXING_SA_PRIVATE_KEY*` from GitHub Actions and from the production API Worker.)*
+> **Apex cutover — wired in config (AECI-247/277); executes at launch.** The web/api wrangler configs now carry the cutover: `aecintegrations.com` + `www` are `custom_domain: true` on `aeci-web-production` (reassigned off the retired landing Worker on the next `promote-to-prod`), the production web Worker's `ALLOW_INDEXING="true"`, and the API Worker's `PUBLIC_SITE_URL` is the apex. The remaining launch-day steps are **ops, not code**: provision the launch-only SEO secret so the post-promote IndexNow ping fires — `gh secret set INDEXNOW_KEY_PRODUCTION` (AECI-236); `promote-to-prod.yml` pushes it to the prod API Worker (recommended/warn-and-skip — it stays a graceful no-op until set) — then run the ordered ceremony in `docs/launch-cutover-runbook.md` (verify on the tier's existing served host — this was `prod.` at the time; that hostname is retired since AECI-807, so a re-run verifies on demo — promote, confirm the apex serves the app, send the Resend broadcast). *(The Google Indexing service-account secrets that used to sit here were removed in AECI-747 — that API accepts only `JobPosting`/`BroadcastEvent`, so the ping never did anything for our pages. Delete `GOOGLE_INDEXING_SA_EMAIL*` / `GOOGLE_INDEXING_SA_PRIVATE_KEY*` from GitHub Actions and from the production API Worker.)*
 
 ### 10. Throwaway tiers — the `stage2` pattern (AECI-637 / AECI-808)
 
@@ -1006,10 +1006,10 @@ Copy the `env.demo` blocks in both wrangler configs and change the names. Then r
 re-promote seeding path. One Workflow per env so instance ids never collide. AECI-637's
 own checklist omitted this and was wrong.
 
-Then add the tier to the `ENV` union in `apps/{api,web}/src/env.ts` **and** to the two
+Then add the tier to the `ENV` union in `apps/{api,web}/src/env.ts` **and** to the three
 unions that must stay supersets of them or the build breaks: `PosthogEnv.ENV`
 (`packages/shared/src/posthog.ts`) and `AlgoliaEnv` / `AlgoliaIndexPrefix`
-(`packages/shared/src/algolia.ts`). The Algolia pair is a **compile** requirement, not a
+(`packages/shared/src/algolia.ts`) — five memberships in all. The Algolia pair is a **compile** requirement, not a
 claim that indexes exist: `algolia-drift-deps.ts` and `routes/promote.ts` assign the
 Worker's `ENV` straight into an `AlgoliaEnv` position, so a tier in one union and not the
 other is 2 × TS2322.
@@ -1101,7 +1101,7 @@ pnpm exec wrangler kv namespace delete --namespace-id <promote-id>
 The Workflow needs no separate delete — it goes with the Worker. Then by hand: remove the
 Access destination (**not** the app — staging and the previews share it), remove the
 Supabase redirect entry, and revert the repo side in one commit (both `env.<tier>` blocks,
-the four union memberships from §10.1, the package scripts, the docs rows).
+the five union memberships from §10.1, the package scripts, the docs rows).
 
 Deleting the **Worker** reaps its DNS record and cert. Removing a **route** from a Worker
 that still exists does not — a Custom Domain is a separate Cloudflare resource and its

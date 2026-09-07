@@ -7,12 +7,14 @@
 // is the revert artifact: apply.mjs has no undo, so re-PATCHing each rule's
 // `expression` from here is how you back the change out (see README.md → Rollback).
 //
-// It also answers the question a bare rule list does not: is there a `skip` custom
-// rule ABOVE the scraper rule that would match the newly-added hosts? A Skip action
-// terminates ruleset evaluation, so one matching `www.` would make the host-set
-// extension land and do nothing. Three preserved rules exist on this zone ("Skip WAF
-// for stack-test subdomain", "Block scanner probes", "Blocker 2") and the first is
-// exactly that shape — hence the check.
+// It also runs the same ordering check the AECI-659 directory did. This operation only
+// REMOVES a host, so the check cannot block it in the way it could there — it is kept
+// because the post-apply `verify.mjs` table is the pass condition, and a `skip` custom
+// rule ABOVE the scraper rule that matches one of the three REMAINING hosts would make
+// that host read `200/200` for a reason that has nothing to do with the narrowing. A
+// Skip action terminates ruleset evaluation. Three preserved rules exist on this zone
+// ("Skip WAF for stack-test subdomain", "Block scanner probes", "Blocker 2") and the
+// first is exactly that shape — hence the check.
 //
 // USAGE (needs CF_ZONE_ID + CF_WAF_API_TOKEN; Zone WAF: Read is enough):
 //   node scripts/ops/2026-09-waf-prod-host-removal/snapshot.mjs
@@ -60,10 +62,10 @@ function printRuleset(name, ruleset) {
 }
 
 /**
- * A `skip` rule above the scraper rule that could match one of the hosts we are about
- * to add. Expression matching is deliberately crude — a substring test for each new
- * host, plus a flag for any skip rule with no host predicate at all (which matches
- * every host by definition). False positives are cheap; a missed one is not.
+ * A `skip` rule above the scraper rule that could match one of the three hosts that
+ * REMAIN in the set. Expression matching is deliberately crude — a substring test for
+ * each retained host, plus a flag for any skip rule with no host predicate at all (which
+ * matches every host by definition). False positives are cheap; a missed one is not.
  */
 function orderingCheck(customRuleset) {
   const rules = customRuleset.rules ?? [];
@@ -126,7 +128,7 @@ async function main() {
   const ordering = orderingCheck(custom);
   if (ordering.ok) {
     console.log(
-      `\nOrdering check: clean — no enabled \`skip\` rule above the scraper rule (index ${ordering.scraperIndex}) can match the new hosts.`,
+      `\nOrdering check: clean — no enabled \`skip\` rule above the scraper rule (index ${ordering.scraperIndex}) can match the retained hosts.`,
     );
     process.exit(0);
   }
