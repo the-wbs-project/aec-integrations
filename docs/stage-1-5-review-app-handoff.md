@@ -11,7 +11,7 @@ A structured **claim/attestation model** on top of the existing integration cata
 ## The model in one screen (§3)
 
 - A **claim** = `(integration, data_object, direction)`. It **attaches to an integration (mechanism) row**, not to a product pair (ADR 0018). A pair connected by two mechanisms that both move RFIs is **two claims**.
-- **`data_object`** is a term from the **frozen, closed** vocabulary in `DATA_OBJECT_VOCABULARY.md` (20 terms). Resolution is **find-only** — an unmatched term is rejected, never auto-created. `slug` is immutable identity; `aliases` is a case-insensitive synonym list for the resolver.
+- **`data_object`** is a term from the **frozen, closed** vocabulary in `DATA_OBJECT_VOCABULARY.md` (27 terms since 2026-09-06; 20 at Stage 1.5). Resolution is **find-only** — an unmatched term is rejected, never auto-created. `slug` is immutable identity; `aliases` is a case-insensitive synonym list for the resolver.
 - **`direction`** is stored relative to the integration row's own endpoints: `a_to_b` / `b_to_a` / `both`, where **A = the integration's source product, B = its target product** (the stored endpoint order). The main app translates this to context-relative `outbound`/`inbound`/`both` at render time — **the Review app stores the canonical `a_to_b`/`b_to_a`/`both` value only.**
 - An **attestation** = who asserts the claim. Shape: `source` (`aeci` / `vendor_a` / `vendor_b`), `asserted` (boolean), optional `introduced_at` / `deprecated_at` / `note`. **In 1.5 you only ever write `source: 'aeci'`, `asserted: true`.** `vendor_a`/`vendor_b` and the date stamps are dormant — accepted by the contract, written by no 1.5 path.
 

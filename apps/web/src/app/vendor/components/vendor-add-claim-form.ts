@@ -297,7 +297,7 @@ export class VendorAddClaimForm {
    * portal that re-sorts the vocabulary.
    *
    * `GET /api/vendor/data-objects` serves `display_order` — a project-lifecycle
-   * sequence (Models → Drawings → … → Directory & Contacts) chosen so the claim
+   * sequence (Projects & Jobs → Models → … → Compliance Documents) chosen so the claim
    * *lanes* on this tab read the way the public pair page's lanes do
    * (`lib/data-object-vocabulary.ts`, `routes/vendor-attestations.ts`). That
    * order stays exactly as it is on the wire and in the lanes; only this control
@@ -305,7 +305,7 @@ export class VendorAddClaimForm {
    * lifecycle grouping is the point. A picker is *searched*: the vendor already
    * knows they want "Submittals", and `AecSelect` is a non-editable combobox
    * with no type-to-filter, so an unfamiliar semantic order makes finding a
-   * known label a 20-item linear scan with no anchor.
+   * known label a 27-item linear scan with no anchor.
    *
    * Sorted here rather than in SQL on purpose. The key is the **display name in
    * the active locale**, so it must follow the rendered label through

@@ -388,7 +388,7 @@ describe('claims / attestations spine (AECI-293)', () => {
     t.dispose();
   });
 
-  it('seed/data-objects.sql materialises exactly the 20-term vocabulary from the JSON mirror', async () => {
+  it('seed/data-objects.sql materialises exactly the 27-term vocabulary from the JSON mirror', async () => {
     const t = await makeTestDb();
     // Applying the real seed also proves it is valid against the migrated schema.
     const seedSql = readFileSync(join(process.cwd(), 'seed', 'data-objects.sql'), 'utf8');
@@ -401,7 +401,7 @@ describe('claims / attestations spine (AECI-293)', () => {
 
     const seeded = (await t.db.select().from(taxonomyDataObjects)).map((row) => row.slug).sort();
     expect(seeded).toEqual(expected);
-    expect(seeded).toHaveLength(20);
+    expect(seeded).toHaveLength(27);
     t.dispose();
   });
 });

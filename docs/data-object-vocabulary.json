@@ -5,6 +5,24 @@
   "closed": true,
   "terms": [
     {
+      "slug": "projects",
+      "name": "Projects & Jobs",
+      "description": "The project / job master record that every cost and field artifact is coded to.",
+      "display_order": 5,
+      "aliases": [
+        "Project",
+        "Job",
+        "Jobs",
+        "Sub Jobs",
+        "Subjobs",
+        "Job Setup",
+        "Project Setup",
+        "Project Master",
+        "Job Master",
+        "JC Jobs"
+      ]
+    },
+    {
       "slug": "models",
       "name": "Models",
       "description": "BIM / 3D models exchanged between authoring and coordination tools.",
@@ -76,6 +94,24 @@
       ]
     },
     {
+      "slug": "prime-contracts",
+      "name": "Prime Contracts",
+      "description": "Owner-side (revenue) contracts and their value, as distinct from cost-side commitments.",
+      "display_order": 55,
+      "aliases": [
+        "Prime Contract",
+        "Main Contract",
+        "Main Contracts",
+        "Owner Contract",
+        "Owner Contracts",
+        "Head Contract",
+        "Client Contract",
+        "Revenue Contract",
+        "Revenue Budget",
+        "Job Contracts"
+      ]
+    },
+    {
       "slug": "budgets",
       "name": "Budgets",
       "description": "The project budget and its budget line items.",
@@ -104,6 +140,25 @@
       ]
     },
     {
+      "slug": "job-costs",
+      "name": "Job Costs",
+      "description": "Actual cost transactions posted against a budget line, separate from the invoices that document them.",
+      "display_order": 85,
+      "aliases": [
+        "Job Cost",
+        "Job Costing",
+        "Actual Costs",
+        "Direct Costs",
+        "Expenses",
+        "Expense",
+        "Cost Transactions",
+        "Job Cost Detail",
+        "Job Cost Transactions",
+        "Item Receipts",
+        "Project Transactions"
+      ]
+    },
+    {
       "slug": "invoices-payments",
       "name": "Invoices & Payments",
       "description": "Invoices, pay applications, and payment records.",
@@ -117,6 +172,24 @@
         "Applications for Payment",
         "Billings",
         "AP"
+      ]
+    },
+    {
+      "slug": "general-ledger",
+      "name": "General Ledger",
+      "description": "Ledger accounts, journals, journal entries, and bank accounts behind the job cost ledger.",
+      "display_order": 95,
+      "aliases": [
+        "GL",
+        "Ledger",
+        "Ledger Accounts",
+        "Chart of Accounts",
+        "COA",
+        "Journal Entries",
+        "Journals",
+        "General Journal",
+        "Bank Accounts",
+        "Cost Centers"
       ]
     },
     {
@@ -211,6 +284,23 @@
       ]
     },
     {
+      "slug": "equipment",
+      "name": "Equipment & Assets",
+      "description": "Owned and rented equipment, plant, and tracked assets.",
+      "display_order": 185,
+      "aliases": [
+        "Equipments",
+        "Assets",
+        "Asset",
+        "Fleet",
+        "Plant",
+        "Machinery",
+        "Equipment Tracking",
+        "Asset Tracking",
+        "EM Equipment"
+      ]
+    },
+    {
       "slug": "documents",
       "name": "Documents",
       "description": "General project documents and files under document management.",
@@ -230,6 +320,42 @@
         "Project Directory",
         "People",
         "Companies"
+      ]
+    },
+    {
+      "slug": "employees",
+      "name": "Employees & Payroll",
+      "description": "Employee master records and payroll data, as distinct from the project contact directory.",
+      "display_order": 205,
+      "aliases": [
+        "Employee",
+        "Payroll",
+        "Employee Records",
+        "Personnel",
+        "Workers",
+        "Crew",
+        "Human Resources",
+        "HR",
+        "Payroll Records",
+        "PR Employees"
+      ]
+    },
+    {
+      "slug": "compliance-documents",
+      "name": "Compliance Documents",
+      "description": "Insurance certificates, lien waivers, W-9s, and other vendor compliance documents tracked against a contract.",
+      "display_order": 210,
+      "aliases": [
+        "Compliance",
+        "Vendor Compliance",
+        "Vendor Compliances",
+        "Insurance Certificates",
+        "Certificates of Insurance",
+        "COI",
+        "Lien Waivers",
+        "W-9",
+        "Subcontractor Compliance",
+        "Compliance Codes"
       ]
     }
   ]

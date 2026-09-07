@@ -13,7 +13,7 @@
  *    can filter client-side" fail here rather than ship.
  *  - **NULL `display_order` sorts LAST.** SQLite sorts NULLs first; the claim
  *    ordering in `vendor-attestations.ts` coerces null to `MAX_SAFE_INTEGER` and
- *    therefore sorts them last. All 20 seeded terms carry an order, so a
+ *    therefore sorts them last. All 27 seeded terms carry an order, so a
  *    divergence would be invisible until someone hand-inserted a row. This pins
  *    the *wire* order, which the dashboard picker no longer renders directly —
  *    it alphabetizes by label client-side (`vendor-add-claim-form.ts`) — so this
