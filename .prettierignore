@@ -30,3 +30,11 @@ apps/api/migrations/
 # .gitignore, so without this an operator who has run the snapshot fails the
 # pre-push format gate on a file that is not in the repo.
 scripts/ops/**/snapshot-*.json
+
+# Stranded-row audit artifacts (AECI-767) — gitignored operator output written by
+# scripts/ops/2026-09-stranded-row-audit/audit.mjs. Same reasoning as the WAF
+# snapshots above: Prettier does not read .gitignore, so without this an operator
+# who has run the audit fails the pre-push format gate on files that are not in
+# the repo.
+scripts/ops/**/report-*.json
+scripts/ops/**/.upstream-cache.json

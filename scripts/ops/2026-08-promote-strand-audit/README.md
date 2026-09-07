@@ -29,13 +29,20 @@ those ids was lost. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 ### Claims are deliberately out of scope
 
 `integration_claims` has a `supabase_claim_id` field, and **zero records carry one**.
-That is not damage. The ingest replaces an integration's claims wholesale on every
-promote — `db.delete(claims).where(eq(claims.integrationId, …))` then re-insert with
-fresh `crypto.randomUUID()`s (`apps/api/src/routes/promote.ts`, §6.2) — so a
-written-back `supabase_claim_id` is invalidated by the very next re-promote. Claim rows
-are wholly owned by their integration and cannot be orphaned independently of it.
-Auditing them would report all 915, every time. The write-back itself is dead weight;
-tracked separately.
+That is not damage — though the reason has changed since this was written. The ingest
+**used to** replace an integration's claims wholesale on every promote (delete-by-
+integration, then re-insert with fresh `crypto.randomUUID()`s), which invalidated any
+written-back `supabase_claim_id` on the very next re-promote. Since AECI-604 that is no
+longer the mechanism: `apps/api/src/lib/promote-claims.ts` matches on the
+`(integration_id, data_object_id, direction)` identity triple and **reuses** the row, so
+claim ids are now stable.
+
+The conclusion is unaffected. Claim rows are wholly owned by their integration —
+`claims.integration_id` and `attestations.claim_id` both cascade — and cannot be
+orphaned independently of it, so auditing them as their own axis would report all of
+them, every time. `scripts/ops/2026-09-stranded-row-audit/` reports them as **cascade
+weight** on a stranded integration instead, which is the form the number is useful in.
+The write-back itself is dead weight; tracked separately.
 
 ## Run it
 
@@ -60,7 +67,25 @@ scoped to `data.records:read` on the AEC Integrations base.
 > staging/demo/preview compares them against an unrelated seeded catalog and reports
 > near-total mismatch. The script warns when you do.
 
-### Runs daily in CI
+### Runs daily in CI — but has never actually audited anything
+
+> **Inert since it shipped, and now obsolete (found 2026-09-07, tracked as AECI-796).**
+> Two separate problems, and the second one supersedes the first.
+>
+> 1. The skip-green branch below was never taken out of play: `AIRTABLE_TOKEN` was never
+>    added to the repo secrets, so all **25** scheduled runs since 2026-08-13 report
+>    `success` after logging the warning and running the audit **zero** times (verified
+>    on run `34033166656`). The green history is indistinguishable from a healthy one.
+> 2. **The review app has since moved off Airtable onto its own D1.** This script reads
+>    `api.airtable.com/v0/appy81IdGJY6Fngf9` directly, so it points at a decommissioned
+>    system. **Do not mint the PAT this README asks for** — there is nothing to
+>    authenticate against, and that is almost certainly why the secret was never added.
+>
+> Everything below about *buckets*, *healing* and the 2026-08-13 measurement is still
+> accurate as a record of what was true then. The **transport is dead**. The successor
+> is `scripts/ops/2026-09-stranded-row-audit/`, which reaches the same catalog over the
+> review app's MCP with `AECI_MCP_TOKEN`.
+
 
 `.github/workflows/promote-strand-audit.yml` runs this against production every day at
 09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at
@@ -97,7 +122,7 @@ rejected, retracted from D1, and its Airtable row kept the now-dead id. Healed o
 2026-08-13 by clearing `supabase_product_id` + `supabase_slug` on all three (status left
 at `rejected` — these products are intentionally not live).
 
-### The 2 stray integrations — RESOLVED 2026-08-13 (AECI-593)
+### The 2 stray integrations — DECIDED 2026-08-13, STILL LIVE (AECI-593)
 
 | D1 id | Pair | Mechanism | Created |
 |---|---|---|---|
@@ -133,8 +158,11 @@ attestations; `integration_count` repairs to polycam 1, autocad 7, arcgis 13. Tw
 indexable pair pages (`/products/{arcgis,autocad}/integrations/polycam`) begin 404ing and
 drop out of the sitemap, which is correct — the content is retracted.
 
-> **Status: decided, not yet executed.** Update this section and add a Measurement row once
-> the production prune has run and the audit reports `Integrations → stray: 0`.
+> **Status: decided, not yet executed — re-confirmed 2026-09-07.** AECI-593 is marked Done
+> and PR #510 shipped the *tooling* (the datatool named-guard acknowledgment and the daily
+> workflow), but the prune itself was never performed: the AECI-767 sweep found both rows
+> still live, indexed, and rendering four weeks later. Update this section and add a
+> Measurement row once the production prune has run.
 
 > **The generalizable lesson.** These rows were not duplicate residue and the guards were
 > right to refuse them — but the exit was still a delete. A tripped guard means "not a
@@ -180,6 +208,15 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `docs/REVIEW_APP_PROMOTE_API.md` — the promote contract, including the async
   kick-off/poll/collect protocol and the upsert rule this audit tests.
 - `docs/adr/0021-async-promote-ingest-via-workflows.md` — why promote went async.
+- `scripts/ops/2026-09-stranded-row-audit/` — the **successor** sweep (AECI-767). This
+  audit was meant to detect the drift cheaply and daily; it never ran and its transport
+  is dead (AECI-796), so that lane is the only one that currently works. It
+  reaches the same catalog over the review-app MCP instead of Airtable, sub-classifies a
+  missing claim as **deleted** vs **rejected** upstream (`find_product` with
+  `include_rejected` is the only read that can see a rejected record), walks the
+  transitive damage into claims and attestations, and reports public reachability and the
+  retraction cascade per row. Measured 2026-09-07: 0 stranded products, 1 vendor,
+  6 integrations.
 - `scripts/ops/2026-08-orphan-integration-cleanup/` — the earlier, larger stray-integration
   sweep (22 rows, run; all confirmed absent from production on 2026-08-13).
 - `apps/datatool/README.md` — the Access-gated Worker that owns the dangerous half of a

@@ -55,7 +55,7 @@ Build sequence (from the issue, unchanged):
 | Issue | What it fixes | Priority |
 |---|---|---|
 | **AECI-559** | The category vocabulary has no Procurement / Materials Management entry — 40+ products have no correct home. A vocabulary addition with browse/SEO surface impact; do it before pSEO (Stage 3) multiplies the pages built on the taxonomy. | Medium |
-| **AECI-595** | Promote has no retract semantics — deleting an Airtable record always strands the live D1 row (today's workaround is the manual `ops:retract-product` script). | Medium |
+| **AECI-595** | Promote has no retract semantics — deleting an Airtable record always strands the live D1 row (today's workaround is the manual `ops:retract-product` script). **Sized by AECI-767 on 2026-09-07**: the whole production tail is **0 stranded products, 1 vendor, 6 integration edges** (7 claims + 7 attestations in cascade), all seven publicly reachable and in search. That is a cleanup, not a trust problem — and five of the seven were **already-filed items that were never executed**, so the binding constraint is the retraction backlog, not the missing feature. Evidence: `scripts/ops/2026-09-stranded-row-audit/README.md`. | Medium |
 | **AECI-592** | Data-quality check #2 (`ready_products_unpromoted`) is unreachable; replace with a promotion-status invariant guard that can actually fire. | Medium |
 
 ## 5. Stage 2 close-out debt

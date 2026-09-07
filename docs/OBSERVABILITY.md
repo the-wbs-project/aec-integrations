@@ -760,7 +760,9 @@ reporting it as `updated` with an empty slug, and each fallback emits a `warn`
 `aeci.api.promote.stale_supabase_id` (every `{kind, ref, supabaseId}` + per-kind counts) plus the
 `aeci.api.promote.stale_id` count above. The promote itself is correct either way — this is the signal
 that the review app's copy of that id had gone stale, which is the same divergence
-`scripts/ops/2026-08-promote-strand-audit/` sweeps for offline.
+`scripts/ops/2026-09-stranded-row-audit/` sweeps for offline. (Its predecessor
+`scripts/ops/2026-08-promote-strand-audit/` and the daily workflow built on it have never
+run and read a decommissioned Airtable base — AECI-796.)
 
 A fourth (AECI-730): an integration written **without** an optional link, because its
 `poweredByProduct` / `builtByVendor` didn't resolve. This is not a skip — the row landed — so it
