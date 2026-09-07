@@ -16,8 +16,10 @@ and the rollback recipe; there is nothing left to apply.
 > will correctly refuse them. They turned out to be an **editorial retraction** (a curator
 > deleted the Airtable records on purpose), so the exit was still a delete — but routed
 > through the datatool prune with the tripped guards acknowledged by name, not through this
-> script, which has no override. Tracked as AECI-593; see
-> `scripts/ops/2026-08-promote-strand-audit/` for the evidence and
+> script, which has no override. Tracked as AECI-593 and **executed 2026-09-07** — see
+> `scripts/ops/2026-09-polycam-retraction/` for what was run (and why it went through a
+> one-off script rather than the datatool endpoint),
+> `scripts/ops/2026-08-promote-strand-audit/` for the evidence, and
 > `apps/datatool/README.md` for the acknowledgment contract.
 
 ## What an "orphan" is here

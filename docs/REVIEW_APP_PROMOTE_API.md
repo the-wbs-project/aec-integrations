@@ -915,8 +915,10 @@ collected promote leaves a stray if the record is later deleted.
 
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
 production D1 against the base daily and fails on any stray. AECI-593 is the worked
-example: two Polycam edges were editorially retracted on 2026-08-09 and the audit found
-them four days later. Repair recipes:
+example — and the worked example of step 2 being skipped: two Polycam edges were
+editorially retracted on 2026-08-09, the audit found them four days later, and the D1
+delete was then held for a go-ahead that took four weeks to arrive. It was
+**executed 2026-09-07** (`scripts/ops/2026-09-polycam-retraction/`). Repair recipes:
 `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
 
 **How much of this is actually happening, measured.** The AECI-767 sweep
@@ -925,7 +927,10 @@ on **2026-09-07**: **0 stranded products**, 1 vendor and 6 integration edges, 7 
 and 7 attestations in cascade — a cleanup, not a trust problem. But **five of the seven
 publicly reachable rows were already-known items that were never executed**, including
 both Polycam edges, still live and indexed four *weeks* after the ruling, and the
-AECI-685 `bluebeam` vendor, still live after its 301 shipped.
+AECI-685 `bluebeam` vendor, still live after its 301 shipped. The two Polycam edges were
+retracted on **2026-09-07** (AECI-593, `scripts/ops/2026-09-polycam-retraction/`), taking
+the reachable count to 5 and the integration bucket to 2 — AECI-794 and AECI-795, both
+still undecided.
 
 **And the daily backstop named above has never actually run — nor can it, as written.**
 It skips green when `AIRTABLE_TOKEN` is absent, and that secret was never provisioned:
