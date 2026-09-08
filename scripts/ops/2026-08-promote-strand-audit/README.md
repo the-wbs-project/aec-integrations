@@ -1,9 +1,30 @@
-# 2026-08 promote strand audit
+# 2026-08 promote strand audit — SUPERSEDED, HISTORY ONLY
 
-Cross-reference production D1 against the AEC Integrations Airtable base and report
+> **This lane no longer exists as a runnable thing. `audit.mjs` was deleted on 2026-09-08
+> (AECI-796); this file is kept for its §Healing recipes and its 2026-08-13 measurement.**
+>
+> It read `api.airtable.com/v0/appy81IdGJY6Fngf9` directly. The review app has since moved
+> off Airtable onto its own D1, so that base is decommissioned and the script pointed at
+> nothing. **Do not look for an `AIRTABLE_TOKEN` and do not mint an Airtable PAT** — the
+> instructions that used to be in this file asking you to are gone for that reason, not
+> because the credential was hard to get. There is nothing to authenticate against.
+>
+> **The live detector is `scripts/ops/2026-09-stranded-row-audit/`**, which asks the same
+> question of the same catalog over the review app's MCP with `AECI_MCP_TOKEN`, and sub-
+> classifies a missing claim as *deleted* vs *rejected* upstream. Since AECI-796 it is also
+> what `.github/workflows/promote-strand-audit.yml` runs daily at 09:00 UTC.
+>
+> **Two cautions when reading below.** Its bucket names (`stray`, `dangling`, `stranded`,
+> `duplicatePointers`, `pendingJobMarkers`) are **this lane's**, not the successor's — the
+> live six are listed in the successor's README and in `docs/RUNBOOKS.md`. And its Airtable
+> vocabulary ("the Airtable record", "the base") is systematically stale across every promote
+> doc; AECI-797 owns that sweep. The *reasoning* in §Healing survives both, which is why it
+> is still linked from `docs/RUNBOOKS.md` and three sibling ops lanes.
+
+Cross-referenced production D1 against the AEC Integrations Airtable base and reported
 every row on either side without a valid counterpart link (AECI-568).
 
-**Read-only.** There is no `--apply` flag and no write path. Healing is a separate,
+**Was read-only.** There was no `--apply` flag and no write path. Healing is a separate,
 deliberate operator action — see [Healing](#healing).
 
 ## Why the link can break at all
@@ -44,57 +65,47 @@ them, every time. `scripts/ops/2026-09-stranded-row-audit/` reports them as **ca
 weight** on a stranded integration instead, which is the form the number is useful in.
 The write-back itself is dead weight; tracked separately.
 
-## Run it
+## How to run it — you can't, and that is the point
+
+`audit.mjs` was deleted on 2026-09-08. The run instructions and the "mint a read-only
+Airtable PAT scoped to `data.records:read`" line that used to sit here were removed with it,
+so that nobody follows a recipe for authenticating against a system that is gone.
+
+**Run this instead:**
 
 ```bash
-# needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID + AIRTABLE_TOKEN
-node scripts/ops/2026-08-promote-strand-audit/audit.mjs            # production
-node scripts/ops/2026-08-promote-strand-audit/audit.mjs --json     # machine-readable
+AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> \
+  node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache
 ```
 
-Exits **0** when every axis is clean, **1** when any mismatch is found, **2** on a
-usage/credential error. Every run also writes
-`report-<UTC>.json` next to the script with the full id lists — gitignored, because it
-holds production catalog content. Use `--out <path>` to put it elsewhere.
+### The lesson this lane paid for
 
-`AIRTABLE_TOKEN` is **not** in this repo's `.dev.vars` — this repo has no Airtable
-credentials at all. It lives in the review app
-(`apps/review-app/.dev.vars` in `aec-integrations-review`), or mint a read-only PAT
-scoped to `data.records:read` on the AEC Integrations base.
+Worth keeping even though the code is gone, because it cost four weeks of live retracted
+rows and it is the reason the successor workflow has no skip branch.
 
-> **Only `--env production` is meaningful.** Airtable's `supabase_*_id` columns hold
-> production uuids — there is one curation base, not one per tier — so pointing this at
-> staging/demo/preview compares them against an unrelated seeded catalog and reports
-> near-total mismatch. The script warns when you do.
+This lane shipped with a daily CI job — `.github/workflows/promote-strand-audit.yml`, the
+same file, since re-pointed — that **skipped green** when `AIRTABLE_TOKEN` was absent. The
+reasoning was defensible in isolation: the script hard-exits 2 without the credential, and a
+red-on-arrival cron teaches people to ignore the cron. The secret was then never added.
 
-### Runs daily in CI — but has never actually audited anything
+All **25** scheduled runs between 2026-08-13 and 2026-09-06 reported `success` having
+audited nothing (verified on run `34033166656`). AECI-593's two Polycam edges were supposed
+to be caught by this job the next morning. They stayed live and indexed for four weeks under
+an issue marked Done, and that issue's own Verify step — *"the audit returns `stray: 0`"* —
+could never have passed **or** failed. They were eventually found by a human running a
+script by hand.
 
-> **Inert since it shipped, and now obsolete (found 2026-09-07, tracked as AECI-796).**
-> Two separate problems, and the second one supersedes the first.
->
-> 1. The skip-green branch below was never taken out of play: `AIRTABLE_TOKEN` was never
->    added to the repo secrets, so all **25** scheduled runs since 2026-08-13 report
->    `success` after logging the warning and running the audit **zero** times (verified
->    on run `34033166656`). The green history is indistinguishable from a healthy one.
-> 2. **The review app has since moved off Airtable onto its own D1.** This script reads
->    `api.airtable.com/v0/appy81IdGJY6Fngf9` directly, so it points at a decommissioned
->    system. **Do not mint the PAT this README asks for** — there is nothing to
->    authenticate against, and that is almost certainly why the secret was never added.
->
-> Everything below about *buckets*, *healing* and the 2026-08-13 measurement is still
-> accurate as a record of what was true then. The **transport is dead**. The successor
-> is `scripts/ops/2026-09-stranded-row-audit/`, which reaches the same catalog over the
-> review app's MCP with `AECI_MCP_TOKEN`.
+Underneath the skip branch, the audit had *also* gone obsolete: the review app moved off
+Airtable, so adding the secret would have turned 25 green runs into 25 red ones rather than
+25 real audits. That is almost certainly why "just add the secret" never happened.
 
+**Two things came out of it (AECI-796), and both are now enforced elsewhere:**
 
-`.github/workflows/promote-strand-audit.yml` runs this against production every day at
-09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at
-the next manual audit — which is what AECI-593 needed: two editorially-retracted edges sat
-live for four days because nothing was watching (and then, because this workflow was never
-credentialed and nobody re-checked a closed issue, for four more weeks — AECI-796). The job
-**skips green** until the `AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2
-without it, and a red-on-arrival cron just teaches people to ignore the cron). It writes its report to
-`$RUNNER_TEMP` and uploads nothing.
+1. A guard that cannot fail is not a guard. The successor exits **2** on a missing
+   credential and goes red. "Unchecked" is not "clean" — the same 1-vs-2 line
+   `scripts/ci/posthog-liveness-sweep.sh` draws.
+2. A green run has to prove it ran. The successor prints its per-bucket counts and its
+   upstream/prod totals on every run, including the clean one.
 
 ## Measurement — 2026-08-13, production
 
@@ -228,9 +239,9 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `docs/REVIEW_APP_PROMOTE_API.md` — the promote contract, including the async
   kick-off/poll/collect protocol and the upsert rule this audit tests.
 - `docs/adr/0021-async-promote-ingest-via-workflows.md` — why promote went async.
-- `scripts/ops/2026-09-stranded-row-audit/` — the **successor** sweep (AECI-767). This
-  audit was meant to detect the drift cheaply and daily; it never ran and its transport
-  is dead (AECI-796), so that lane is the only one that currently works. It
+- `scripts/ops/2026-09-stranded-row-audit/` — the **successor** sweep (AECI-767), and
+  since AECI-796 the lane the daily workflow actually runs. This audit was meant to detect
+  the drift cheaply and daily; it never ran and its transport is dead. It
   reaches the same catalog over the review-app MCP instead of Airtable, sub-classifies a
   missing claim as **deleted** vs **rejected** upstream (`find_product` with
   `include_rejected` is the only read that can see a rejected record), walks the
@@ -242,6 +253,8 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `apps/datatool/README.md` — the Access-gated Worker that owns the dangerous half of a
   prune (guards + rollback + count repair + reindex), including the `acknowledgeGuards`
   override contract.
-- `.github/workflows/promote-strand-audit.yml` — the daily scheduled run of this script.
+- `.github/workflows/promote-strand-audit.yml` — the daily 09:00 UTC job. It used to run
+  this script; since AECI-796 it runs the successor over `AECI_MCP_TOKEN`, with no
+  skip-green branch. Its header carries the full contract.
 - `docs/REVIEW_APP_PROMOTE_API.md` §5 — why promote has no delete semantics, and what a
   curator must do after deleting a curated integration record.

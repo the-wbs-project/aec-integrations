@@ -31,7 +31,7 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 
 | Purpose | Secret(s) | Notes |
 |---|---|---|
-| IndexNow (7.1) | `INDEXNOW_KEY_PRODUCTION` | **Also host the key file** `<key>.txt` at the site root so IndexNow can verify ownership. |
+| IndexNow (7.1) | `INDEXNOW_KEY_PRODUCTION` | Pushed to **both** prod Workers by `promote-to-prod.yml`. No manual file hosting: the SSR Worker serves `<key>.txt` at the site root off the same secret (`server/routes/indexnow-key.ts`), so the file appears as soon as the secret lands. |
 | Transactional email (7.5) | `RESEND_API_KEY` (single shared, un-suffixed), `EMAIL_FROM` | Supabase → Resend custom SMTP configured (`docs/email.md`); required for the waitlist broadcast + review/account emails. |
 | Product analytics (7.4) | `POSTHOG_KEY` (+ `POSTHOG_HOST`) | Client-only; CSP `connect-src` already allows PostHog (AECI-89). |
 | Data-quality digest (7.6) | `DATA_QUALITY_EMAIL_FROM`, `DATA_QUALITY_EMAIL_TO` | Chris + Bill; cron already scheduled on prod. |
@@ -40,6 +40,31 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 | Search (prod) | `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY_PRODUCTION` | **Fail-closed** on prod promote — must be set. |
 
 - [ ] All required secrets set (`gh secret set …`) and a `promote-to-prod.yml` run has pushed them to the prod Workers + passed `/api/health`.
+
+> **Record the `INDEXNOW_KEY` value somewhere you can read it back. Nothing else can.**
+>
+> Cloudflare and GitHub both store secrets **write-only**. `wrangler secret list` and
+> `gh secret list` return names, never values, and the SSR Worker serves the verification
+> file only at the exact `/{key}.txt` path. So once the key is set, the only ways back to
+> its value are your own password manager, the Bing Webmaster Tools IndexNow panel, or a
+> rotation. Put it in the password manager at the moment you generate it.
+>
+> **Verified 2026-09-08 (AECI-801).** The 2026-07 cutover *did* complete this step, contrary
+> to the issue's premise. `INDEXNOW_KEY_PRODUCTION` was `gh secret set` at
+> `2026-07-05T14:11:37Z` and has never been updated. `wrangler secret list --env production`
+> shows `INDEXNOW_KEY` on **both** `aeci-api-production` and `aeci-web-production`, and the
+> 2026-09-07 `promote-to-prod` run (`34070763150`) logs `✨ Success! Uploaded secret
+> INDEXNOW_KEY` twice, once per Worker. The two values match by construction: both push
+> steps read the same `${{ secrets.INDEXNOW_KEY_PRODUCTION }}` in the same run and pipe it
+> with `printf '%s'`, so neither adds a trailing newline. That is the strongest available
+> proof of match, because neither store returns a value to compare.
+>
+> **Why the doubt arose, and the fix for next time.** Every checkbox in this runbook is
+> still unticked, so the document records the *procedure* and not the *outcome*. Combined
+> with a fail-open integration that logs a handled failure rather than an error, that left
+> no way to tell "provisioned" from "silently skipped" without going to the two stores.
+> The same shape burned us on the cache-purge secrets (AECI-589). **At the next environment
+> cutover, tick these boxes and paste the `wrangler secret list` output into the issue.**
 
 ---
 
@@ -103,7 +128,7 @@ Unsubscribe: {{unsubscribe_url}}
 - [ ] **The app serves the public home** — `https://www.aecintegrations.com` returns the Angular SSR home (not the coming-soon page), and `https://aecintegrations.com` 301s to it (canonical host is `www.`).
 - [ ] **Dual version gate** — `/api/version` and `/_version` both report the target SHA (stale-SSR guard, CLAUDE.md).
 - [ ] **Indexable** — `curl -sI https://www.aecintegrations.com/` (the served host) shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference `www.`; canonical/OG are absolute `www.` URLs (the apex 301s to `www.`, verified above).
-- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root.
+- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root. **Absence of that metric does not mean the key is missing** (AECI-801): the hook returns with no emission when `INDEXNOW_KEY`/`PUBLIC_SITE_URL` are absent, when the promote touched no public URL, and when `PUBLIC_SITE_URL` is set but unparseable — plus the metrics transport itself can be silent. A zero series therefore has four causes and only one of them ("no crawl-worthy write") is benign (`docs/OBSERVABILITY.md`, metric catalogue). Check the secret at the store per §2; use this metric only to confirm a submission that did happen was accepted.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
 - [ ] **Field CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`). *(ADR 0024 dual-run: PostHog `$web_vitals` is the second source and the eventual sole one — captured on the Tier 2 anonymous slice, so it covers every visitor including DNT/GPC. Datadog RUM is deleted at AECI-651; read whichever is live.)*
 - [ ] **WAF** — `scripts/ops/2026-09-waf-host-scope/verify.mjs` reports `403` scraper / `200` browser on every app host (this is what §3 step 5 enables — the metric below cannot substitute for it), then within ~2 h `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.

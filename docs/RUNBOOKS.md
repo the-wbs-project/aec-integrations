@@ -1266,43 +1266,60 @@ job id would duplicate them.
 
 ## Promote strand audit is red
 
-> **This runbook is currently unreachable (found 2026-09-07, AECI-796).** The workflow has
-> never executed: `AIRTABLE_TOKEN` was never provisioned, so all 25 scheduled runs since
-> 2026-08-13 skipped green — and the secret is not the fix, because the review app has
-> moved off Airtable onto its own D1, leaving this audit's `api.airtable.com` transport
-> pointed at a decommissioned system. Nothing below can fire until the check is re-pointed
-> at the review-app MCP. In the meantime the working sweep is
-> `scripts/ops/2026-09-stranded-row-audit/` (`AECI_MCP_TOKEN`), which also sub-classifies a
-> missing claim as **deleted** vs **rejected** upstream. The buckets, first checks and
-> repair recipes below remain correct for when the check is revived.
+> **Rewritten 2026-09-08 (AECI-796). Read this before triaging an old run.** Between
+> 2026-08-13 and 2026-09-06 this workflow read Airtable and **skipped green** when
+> `AIRTABLE_TOKEN` was absent. That secret was never provisioned, so all 25 scheduled runs
+> reported success having audited nothing — and the secret was not the fix either, because
+> the review app had moved off Airtable onto its own D1, leaving the transport pointed at a
+> decommissioned system. The job now runs `scripts/ops/2026-09-stranded-row-audit/` over
+> `AECI_MCP_TOKEN`, with **no skip branch**, and its buckets are the six below rather than
+> the five Airtable-shaped ones it used to report. A green run before 2026-09-08 is evidence
+> of nothing.
 
 **Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
 exits non-zero. There is no monitor on either plane — the workflow's own red **is** the alert, the
-same pattern the AECI-647 cron liveness sweep now uses for absence detection, and for the same
-reason: the check has to live outside the system it is checking. (AECI-568 / AECI-593.)
+same pattern the AECI-647 cron liveness sweep uses for absence detection, and for the same
+reason: the check has to live outside the system it is checking. (AECI-568 / AECI-593 / AECI-796.)
 
-**What it means:** production D1 and the Airtable curation base disagree about which rows exist.
-The only link between them is the `supabase_*_id` column Airtable holds — D1 stores no
+**Which red is this? Check the exit code first — they are different problems.**
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| `1` | Stranded rows found. Production holds a row no upstream record claims. | Triage below. |
+| `2` | The audit **could not run**: a missing credential, an incomplete sweep, or a crash. | The catalog is **unverified, not clean**. Fix the run, then re-dispatch. Do not close this as a pass. |
+
+An exit 2 on a missing `AECI_MCP_TOKEN` means the repo secret is absent — add it under
+Settings → Secrets and variables → Actions. An exit 2 with buckets printed means the sweep
+could not read part of upstream (`unresolvedUpstream` non-empty) or its product classes did
+not reconcile; the bucket list is untrustworthy in both directions, so re-run rather than
+triaging it.
+
+**What it means:** production D1 and the review app's curation catalog disagree about which rows
+exist. The only link between them is the `supabase_*_id` column the review app holds — D1 stores no
 curation-tool key (AECI-562 was rejected deliberately) — so one broken pointer makes a live row
-permanently unreachable. Which bucket fired tells you which direction broke:
+permanently unreachable. Which bucket fired tells you what broke:
 
 | Bucket | Meaning |
 |---|---|
-| `stray` | A D1 row no Airtable record points at. **The common one.** |
-| `dangling` | An Airtable id whose D1 row is gone. |
-| `stranded` | An Airtable record that looks promoted but carries no id. |
-| `duplicatePointers` | One D1 id claimed by two Airtable records. |
-| `pendingJobMarkers` | An uncollected `promote_job_id` — also the liveness check for the AECI-570 hourly reconcile sweep. |
+| `integrationSourceGone` | A D1 integration edge no upstream record claims. **The common one.** |
+| `integrationEndpointStranded` | An edge whose endpoint product is itself stranded. Falls out with the product. |
+| `productDeletedUpstream` | A D1 product no upstream record claims at all. |
+| `productRejectedUpstream` | A D1 product whose upstream record is `rejected` — promoted once, then rejected, never retracted here. |
+| `vendorSourceGone` | A D1 vendor whose upstream record is gone. |
+| `vendorNoLiveProducts` | A D1 vendor whose products have all moved to another vendor. Usually a re-parenting that left the old row behind. |
+
+`orphanChildren` is reported alongside them as cascade weight (claims and attestations that
+would go with the rows), not as a bucket — it does not affect the exit code.
 
 **First checks**
 
-1. **Re-run locally for the full per-bucket dump** (the CI log prints the table; the id lists are
-   in the report file, which CI does not upload):
+1. **Re-run locally for the full per-bucket dump** (the CI log prints the table and the ids; the
+   report file and id list go to `RUNNER_TEMP` and are not uploaded):
    ```bash
-   AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> \
-     node scripts/ops/2026-08-promote-strand-audit/audit.mjs
+   AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> \
+     node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache
    ```
-2. **`stray`: was this an editorial retraction, or duplicate residue?** Read the affected
+2. **`integrationSourceGone`: was this an editorial retraction, or duplicate residue?** Read the affected
    product's upstream `research_notes` and `tool_integration_check_notes` *before* anything
    else, and read the notes on any **surviving sibling row** too — a merge ruling is recorded
    on the survivor, not on the row that went away. All three shapes below flip the repair from
@@ -1321,29 +1338,47 @@ permanently unreachable. Which bucket fired tells you which direction broke:
      the `audit_log` row as `no_upstream_ruling: true`, and the delete then proceeded. A
      plausible cause was visible in the row's own data and was deliberately **not** asserted,
      because consistency is not causation.
-3. **`pendingJobMarkers`: never clear the marker by hand.** It is the recovery handle; a
-   `complete` job still serves its full ID map. See "Promote job errored or stuck" above.
+3. **`productRejectedUpstream` is not automatically a delete.** A rejected upstream record
+   means the curator ruled against the product *after* it was promoted, so the D1 row is
+   almost certainly residue — but read the ruling, because rejection and retraction are
+   recorded differently and only `find_product` with `include_rejected` can see the record
+   at all.
+
+> **The retired `pendingJobMarkers` bucket.** The Airtable-era audit also reported uncollected
+> `promote_job_id` markers, which doubled as the liveness check for the AECI-570 hourly
+> reconcile sweep. The current audit does not compute it. If you are chasing a stuck job, go
+> to "Promote job errored or stuck" above; never clear the marker by hand, it is the recovery
+> handle and a `complete` job still serves its full ID map.
 
 **Repair**
 
 Every bucket's recipe lives in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
-The audit itself has no `--apply` and never writes. Two things worth repeating here:
+That lane is **retired** — its `audit.mjs` was deleted on 2026-09-08 — but the README is kept
+precisely for this section, and the reasoning survives the transport change. Its bucket *names*
+are the old five; map `stray` onto `integrationSourceGone` / `productDeletedUpstream` as you
+read. The audit itself has no `--apply` and never writes. Two things worth repeating here:
 
-- **`stray` is a curation judgement, not a mechanical delete.** Adopt (recreate the Airtable
-  record carrying the existing uuid) or delete (datatool `POST /api/prune-integrations`). A
-  tripped guard means the row is *not* redundant residue — find the ruling rather than reaching
-  for the override. With a ruling, acknowledge exactly the guards the dry run reported plus an
-  `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
+- **A stranded row is a curation judgement, not a mechanical delete.** Adopt (recreate the
+  upstream record carrying the existing uuid) or delete (datatool `POST /api/prune-integrations`).
+  **A tripped guard is not evidence in either direction.** `orphansWithoutATwin` matches on
+  `(source_product_id, target_product_id, mechanism_name)` and is orientation-blind, so it reports
+  "no twin" on a reverse-orientation duplicate that plainly has one; `claimsUniqueToOrphans`
+  inherits that plus an exact `direction` match. AECI-794 is the worked case — both guards tripped
+  on a row that really was redundant residue. Go to the claim data and the upstream ruling
+  (`docs/REVIEW_APP_PROMOTE_API.md` §5.1). With a ruling, acknowledge exactly the guards the dry
+  run reported plus an `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
 - **A prune does not recompute `stats_cache`.** After deleting integrations the home-page totals
   read high until the next promote of any product runs `refreshHomeStatsAfterPromote`. Harmless
   and self-healing; only chase it if no promote is expected soon.
 
 **Root cause, and why this job exists:** promote can create and update but **never delete**
-(`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an Airtable record therefore always
-leaves a stray, and destroys the only pointer that could have found it. Nothing in the promote
-path can guard that, so this scheduled audit is the backstop.
+(`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an upstream record therefore always
+strands the D1 row, and destroys the only pointer that could have found it. Nothing in the promote
+path can guard that, so this scheduled audit is the backstop. AECI-811 will add the other half —
+the review app's `list_retractions` feed, which says *why* a record went away — but a feed only
+journals forward, so this stock check stays.
 
-**Escalation:** a `stray` with no recorded ruling and no obvious curator action is a real unknown
+**Escalation:** a stranded row with no recorded ruling and no obvious curator action is a real unknown
 — do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
 raise it with whoever owns the catalog.
 
