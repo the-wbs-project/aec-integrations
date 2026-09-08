@@ -1305,9 +1305,9 @@ permanently unreachable. Which bucket fired tells you which direction broke:
 2. **`stray`: was this an editorial retraction, or duplicate residue?** Read the affected
    product's upstream `research_notes` and `tool_integration_check_notes` *before* anything
    else, and read the notes on any **surviving sibling row** too — a merge ruling is recorded
-   on the survivor, not on the row that went away. Both shapes flip the repair from "adopt"
-   to "delete", and there are now two worked examples, executed end to end (plan → rollback →
-   audit row → delete → count repair → Algolia → re-audit):
+   on the survivor, not on the row that went away. All three shapes below flip the repair from
+   "adopt" to "delete", and there are now three worked examples, executed end to end (plan →
+   rollback → audit row → delete → count repair → Algolia → re-audit):
    - `scripts/ops/2026-09-polycam-retraction/README.md` — **editorial retraction**. The row
      was the only copy; the guards tripped and were correctly overridden.
    - `scripts/ops/2026-09-procore-followup-retraction/README.md` — **duplicate residue** from

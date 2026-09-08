@@ -90,6 +90,12 @@ is the one recorded: **a query for any other `integrations` row whose two endpoi
 `microsoft-dynamics-365` and `monday-com`, in either orientation, returns 0 rows.** The guard
 and the direct check agree. See `preflight.json`.
 
+`retract.mjs` **refuses** if that query returns anything, rather than printing it and carrying
+on. A twin that differs in orientation or in `mechanism_name` leaves `orphansWithoutATwin`
+reading 1 exactly as it does here, so the exact-match `ACK_GUARDS` check would pass unchanged.
+This is the only check that holds up `ACK_REASON`'s "there is no twin on this pair" and the
+audit row's `twin: null`.
+
 ### The row this is NOT
 
 The single most likely operator error on this issue is deleting the wrong `monday.com (ipaas)`.
@@ -127,8 +133,10 @@ node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh
 Both AECI-794 improvements are kept: the `audit_log` INSERT runs in the **same**
 `wrangler d1 execute` call as the DELETE, ahead of it, and `ACK_GUARDS` is **enforced** by
 exact match rather than printed — the run refuses if the blocked set is not the acknowledged
-set. It is still not a `db.batch`: a single `--command` does not roll its statements back
-together. The real fix is the retract endpoint AECI-595 describes.
+set. This lane adds a third refusal: the direct both-orientations pair query must return
+nothing, because a twin the guards are blind to would otherwise pass them. It is still not a
+`db.batch`: a single `--command` does not roll its statements back together. The real fix is
+the retract endpoint AECI-595 describes.
 
 The audit insert was rehearsed against `aeci-app-preview` with sentinel ids before the
 production run, `json_valid()` checked on both JSON columns, then deleted. `created_at` is

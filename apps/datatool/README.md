@@ -135,7 +135,8 @@ that tier's own SSR Worker consumes.
   row of any orientation shared that pair. Identical guard sheets, opposite meanings.
   The way to tell them apart is not the guard sheet: query the pair directly in **both**
   orientations, which is what `scripts/ops/2026-09-dynamics-monday-retraction/retract.mjs`
-  does and prints alongside the guards.
+  does. It prints that query alongside the guards and **refuses the run** if it returns
+  anything, because the guard sheet alone would read identically either way.
 
   Error codes: `GUARD_TRIPPED` (409, a tripped guard is unacknowledged),
   `GUARD_ACK_STALE` (400, acknowledged a guard that reads zero), `ACK_REASON_REQUIRED`

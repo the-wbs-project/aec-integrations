@@ -68,6 +68,12 @@
 // of it reading 1 on a row that plainly had a twin), so the guard sheet cannot
 // classify a stray either way. The ruling above is what justifies it.
 //
+// So the script runs the direct check the guards cannot: any other `integrations`
+// row whose two endpoints are these two products, in EITHER orientation. That query
+// must return nothing, and the run REFUSES if it does not — the guard sheet would
+// read identically either way, so enforcing it here is what holds up ACK_REASON's
+// "there is no twin on this pair" and the audit row's `twin: null`.
+//
 // ─── THE ONE THING THE DATATOOL DOES THAT THIS DOES NOT ──────────────────────
 //
 // The datatool follows a prune with a CLEAN ALGOLIA REINDEX. A Node process has no
@@ -259,6 +265,8 @@ function buildAuditInsert({ row, footprint, guards, claims, strandWindow, notThi
         '— which is exactly the shape AECI-700/701 replaces with one target=Zapier edge. Consistent ' +
         'with that cause, not proof of it: nothing records why this row went.',
     },
+    // Safe as a constant: the run refuses before this point if the direct
+    // both-orientations pair query returns anything.
     twin: null,
     not_this_row: {
       id: NOT_THIS_ROW_ID,
@@ -403,6 +411,7 @@ async function main() {
   // Every other row on the same pair, in EITHER orientation. The guards are
   // orientation-blind, so this is the direct check the guard sheet cannot make:
   // it must come back empty for "no twin" to be true rather than merely reported.
+  // Enforced below, next to the guard acknowledgment — printing it was not enough.
   const pairRows = d1(
     target,
     `SELECT i.id AS id, s.slug AS sourceSlug, t.slug AS targetSlug,
@@ -510,6 +519,21 @@ async function main() {
   const rollbackPath = join(HERE, 'rollback.sql');
   writeFileSync(rollbackPath, rollbackSql);
   console.log(`\nrollback written: ${rollbackPath}`);
+
+  // ─── The direct twin check, enforced ───────────────────────────────────────
+  // `orphansWithoutATwin` cannot tell "only copy" from "reverse-orientation duplicate",
+  // and it is `mechanism_name`-sensitive, so it reads 1 in BOTH cases (AECI-794 is the
+  // worked example). That means the guard sheet below would pass unchanged if a twin
+  // appeared, while ACK_REASON and `metadata.twin` both assert there is none. This is
+  // the check that actually holds that assertion up, so it refuses rather than reports.
+  if (pairRows.length) {
+    console.error(
+      `\n${pairRows.length} row(s) survive on this pair in some orientation.\n` +
+        'The AECI-795 ruling was made against a pair with no twin, and the audit row would\n' +
+        'record `twin: null`. That is not the state this ruling was made against. Refusing.',
+    );
+    return 1;
+  }
 
   // ─── Guard acknowledgment, exact match ─────────────────────────────────────
   const sameSet =
