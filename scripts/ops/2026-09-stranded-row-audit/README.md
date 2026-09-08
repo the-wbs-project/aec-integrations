@@ -186,13 +186,13 @@ live (see [Two gates](#two-gates)).
 
 | URL                                                              | Bucket                        | Cascade                  | What it is                                                             |
 | ---------------------------------------------------------------- | ----------------------------- | ------------------------ | ---------------------------------------------------------------------- |
-| `/vendors/bluebeam`                                              | `vendorNoLiveProducts`        | 0 products               | **AECI-685**, In Progress — redirect shipped, D1 delete still pending. |
+| `/vendors/bluebeam`                                              | `vendorNoLiveProducts`        | 0 products               | **AECI-685 / AECI-792** — D1 delete **applied 2026-09-07**, see below. |
 | `/products/polycam/integrations/arcgis`                          | `integrationSourceGone`       | 1 claim, 1 attestation   | **AECI-593** — reopened and **retracted the same day**, see below.     |
 | `/products/polycam/integrations/autocad`                         | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-593** — reopened and **retracted the same day**, see below.     |
 | `/products/procore-project-management/integrations/followup-crm` | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-794** — ruled and **retracted 2026-09-08**, see below.          |
 | `/products/microsoft-dynamics-365/integrations/monday-com`       | `integrationSourceGone`       | 1 claim, 1 attestation   | **New** — AECI-795. No twin.                                           |
-| `/products/autodesk-revit/integrations/bluebeam-revu`            | `integrationEndpointStranded` | 1 claim, 1 attestation   | `built_by` → the dead Bluebeam vendor.                                 |
-| `/products/bluebeam-revu/integrations/okta`                      | `integrationEndpointStranded` | 0                        | `built_by` → the dead Bluebeam vendor.                                 |
+| `/products/autodesk-revit/integrations/bluebeam-revu`            | `integrationEndpointStranded` | 1 claim, 1 attestation   | `built_by` → the dead Bluebeam vendor. **Re-pointed 2026-09-07.**      |
+| `/products/bluebeam-revu/integrations/okta`                      | `integrationEndpointStranded` | 0                        | `built_by` → the dead Bluebeam vendor. **Re-pointed 2026-09-07.**      |
 
 ### The headline: detection is not the weak link — execution is
 
@@ -206,6 +206,11 @@ live (see [Two gates](#two-gates)).
   products having moved to `Nemetschek Group` (`toolCount: 8`). Nothing here is news to
   AECI-685, which already enumerates the blockers; this run simply confirms the state
   independently, four weeks on.
+  **Closed the day after this sweep ran:** the vendor row was deleted from production D1
+  on 2026-09-07 and both `built_by` edges re-pointed to Nemetschek Group, so this row and
+  both `integrationEndpointStranded` rows below are gone from the 2026-09-08 re-run.
+  Record: `scripts/ops/2026-09-bluebeam-vendor-retraction/README.md` (Algolia, cache and
+  the upstream record delete were still outstanding at that point).
 - **The two Polycam edges** (`74099c42-…`, `4dc9d4bb-…`) — these are AECI-593's rows,
   and **AECI-593 is marked Done** (closed 2026-08-13). Its own Verify step reads _"the
   strand audit returns `Integrations → stray: 0`"_, and that is still false today.

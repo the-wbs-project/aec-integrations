@@ -137,7 +137,9 @@ URLs immediately after the delete and seeing the new state.
   from `integrationSourceGone`. The bucket still reads **2**, and that is the correct
   answer: the survivors are AECI-794 (`procore-project-management → followup-crm`) and
   AECI-795 (`microsoft-dynamics-365 → monday-com`), which are separate open rulings. The
-  audit exits 1 until those are resolved.
+  audit exits 1 until those are resolved. **AECI-794 was ruled and retracted the next
+  day, 2026-09-08** (`scripts/ops/2026-09-procore-followup-retraction/`), taking the
+  bucket to 1; AECI-795 is the only one left.
 
 ## Rollback
 
@@ -150,9 +152,9 @@ pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env produ
 ```
 
 It restores rows, **not** `integration_count` — follow it with
-`pnpm --filter @aeci/api db:reconcile-counts -- --env production --apply`. Committed on
-purpose (the Roofr precedent): if the integration bar ever loosens, this file plus the
-preserved upstream evidence is what re-materializes the two edges. Note that replaying it
+`RECONCILE_ENV=production pnpm --filter @aeci/api db:reconcile-counts -- --fix --allow-production`.
+Committed on purpose (the Roofr precedent): if the integration bar ever loosens, this file
+plus the preserved upstream evidence is what re-materializes the two edges. Note that replaying it
 would recreate the *stranded* state, not curator control — the upstream records would
 still need recreating with these uuids in `supabase_integration_id`.
 
@@ -162,6 +164,8 @@ still need recreating with these uuids in `supabase_integration_id`.
   motivating instance and now its best-evidenced one.
 - **AECI-796** — the daily strand audit that was supposed to catch this has never run
   (never credentialed, and its Airtable transport is decommissioned).
-- **AECI-794 / AECI-795** — the two remaining stranded edges, same class, undecided.
+- **AECI-794** — same class, ruled DELETE and executed 2026-09-08
+  (`scripts/ops/2026-09-procore-followup-retraction/`).
+- **AECI-795** — the last remaining stranded edge, ruling still open.
 - `scripts/ops/2026-08-promote-strand-audit/` — where the ruling was first recorded.
 - `scripts/ops/2026-09-stranded-row-audit/` — the sweep that found the rows still live.
