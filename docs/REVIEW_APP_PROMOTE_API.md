@@ -963,6 +963,18 @@ one — the mechanism is the daily job, and 2026-09-08 is its first real run. An
 check says only that nothing is stranded *today*; it cannot say a curator deleted nothing,
 which is the AECI-811 half.
 
+**AECI-795 is the row worth remembering, because it had no ruling on either side.** It was the
+last of the seven, `microsoft-dynamics-365 → monday-com`, retracted via
+`scripts/ops/2026-09-dynamics-monday-retraction/`. AECI-593 had a curator note; AECI-794 had a
+merge note on the survivor. This one had nothing — the edge was seeded in a 2026-07 sweep and
+removed with no trace in either system. Its shape (`mechanism_name: Zapier connector`, a
+`zapier.com` per-pair evidence URL) matches the AECI-700/701 convention change, and the review
+app **declined to assert that**, because it cannot be proven from the data. So the exit was an
+**operator ruling taken after escalating to the catalog owner** — the path `docs/RUNBOOKS.md`
+prescribes for a stray with no recorded ruling — and the `audit_log` row carries
+`no_upstream_ruling: true` so the absence stays queryable rather than merely narrated. **That
+absence, not the size of the backlog, is the argument for AECI-811.**
+
 **The daily backstop named above did not run at all for its first 25 scheduled runs, and
 could not have.** Until 2026-09-08 it skipped green when `AIRTABLE_TOKEN` was absent, and
 that secret was never provisioned: every run between 2026-08-13 and 2026-09-06 reported
@@ -1005,9 +1017,9 @@ before this paragraph. Two consequences worth acting on:
   (**AECI-811**) *alongside* the daily sweep, not instead of it.
 
 **It is empty today.** `list_retractions` with `include_confirmed: true` and no entity filter
-returns 0 entries, so it journals deletions going forward only. It could not have caught any
-of the seven rows above, and it cannot catch AECI-795. It prevents the *next* strand, not the
-current ones.
+returns 0 entries, so it journals deletions going forward only. It caught none of the seven
+rows above — including AECI-795, the one row of the seven whose deletion is recorded **nowhere
+else either**. It prevents the *next* strand, not the ones already on the ground.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

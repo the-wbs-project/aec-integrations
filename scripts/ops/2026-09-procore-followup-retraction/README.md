@@ -182,8 +182,10 @@ Had it been cached, the tags would have been
 - `audit_log` — exactly one `integration.deleted` row for the entity, out of 9 total.
 - `audit.mjs --env production` — `integrationSourceGone` is **1**, down from 2, and the id is
   gone. Publicly reachable stranded rows: **1**, down from 5. The audit still exits 1, which is
-  correct: **AECI-795** (`microsoft-dynamics-365 → monday-com`) is the last one and its ruling
-  is open.
+  correct: **AECI-795** (`microsoft-dynamics-365 → monday-com`) was the last one and its ruling
+  was open at the time. It was **ruled and retracted later the same day**
+  (`scripts/ops/2026-09-dynamics-monday-retraction/`), and the sweep has read clean and exited
+  0 ever since.
 
 **The pair page does not 404, and was never going to.** The survivor keeps the edge, so the
 page stays fully populated. Even with no edge at all it would return 200 with a noindexed
@@ -200,8 +202,9 @@ is "the surface to poll on a schedule".
 Neither tool is referenced anywhere in this repo: not in docs, not in `.mcp.json`, not in code.
 
 **It is empty.** `list_retractions` with `include_confirmed: true` and no entity filter returns
-0 entries, so it journals deletions going forward only. It could not have caught this strand
-and cannot catch AECI-795.
+0 entries, so it journals deletions going forward only. It could not have caught this strand,
+and it did not catch AECI-795 either — the one row of the seven whose deletion is recorded
+nowhere on either side.
 
 That matters twice over. **AECI-595 is already Done** — it closed 2026-09-07 on the upstream
 side shipping exactly this (review-repo PR #93). So the protocol question is settled and only
@@ -234,7 +237,9 @@ If the merge itself ever needs undoing, that is an upstream decision first.
 - **AECI-595** — promote has no retract semantics. **Done**, on the upstream half shipping.
 - **AECI-811** — the AECi consumer for that feed, which is the half that was never built.
 - **AECI-796** — the daily strand audit that has never run. `list_retractions` is its transport.
-- **AECI-795** — the last remaining stranded edge, ruling still open.
+- **AECI-795** / `scripts/ops/2026-09-dynamics-monday-retraction/` — the last stranded edge,
+  retracted the same day. Both guards tripped there too, and there they were **true**: same
+  guard sheet, opposite meaning.
 - **AECI-712** — both rows carry the retired `partner` marker. The survivor is still in that
   backfill population, and the upstream note says re-keying it deliberately is AECI-712's job,
   not a dedupe side effect.

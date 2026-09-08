@@ -266,7 +266,7 @@ async function main() {
     '-- Replay order is parent -> child so the FKs hold; INSERT OR IGNORE makes re-runs safe.',
     `-- integrations: ${integrationRows.length}, claims: ${claimRows.length}, attestations: ${attestationRows.length}`,
     '-- Recreating the rows does NOT restore integration_count: re-run',
-    '--   pnpm --filter @aeci/api db:reconcile-counts -- --env <env> --apply',
+    '--   RECONCILE_ENV=<env> pnpm --filter @aeci/api db:reconcile-counts -- --fix --allow-production',
     ...integrationRows.map((r) => toInsert('integrations', r)),
     ...claimRows.map((r) => toInsert('claims', r)),
     ...attestationRows.map((r) => toInsert('attestations', r)),
