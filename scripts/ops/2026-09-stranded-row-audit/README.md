@@ -4,13 +4,22 @@ Read-only sweep for **production D1 rows whose upstream curation record is gone 
 rejected**. It answers the question AECI-595 could not be prioritised without: is the
 stranded tail two rows or two hundred?
 
-> **Status (2026-09-07): seven rows, all publicly reachable, all in search.**
-> **Zero stranded products** — every one of the 247 live products is claimed upstream.
-> The damage is confined to one vendor and six integration edges. This is a cleanup,
-> not a trust problem. The sharper finding is that **five of the seven belong to issues
-> already filed — and two of those sit under an issue marked Done** whose own
-> verification step does not hold. See
-> [Measurement](#measurement--2026-09-07-production).
+> **Status (2026-09-08): CLEAN. Zero rows in every bucket**, reconciling 252/252 products
+> with no unresolved reads. The tail this sweep opened with on 2026-09-07 — seven rows, all
+> publicly reachable, all in search — was drained by hand over two days (AECI-593, AECI-685,
+> AECI-794, AECI-795).
+>
+> **Two things changed on 2026-09-08 besides the count.** This lane is now the **daily CI
+> audit** (AECI-796), not a one-off measuring instrument, so a clean result is a claim that
+> gets re-tested every morning rather than a snapshot. And the review app's `list_products` /
+> `list_vendors` projections now carry `supabaseId`, so the sweep costs ~64 fallback calls
+> instead of ~300 and runs in about two minutes.
+>
+> The original finding is preserved below and is still the point of the exercise: **zero
+> stranded products**, damage confined to one vendor and six edges, and **five of the seven
+> rows belonged to issues already filed — two of them under an issue marked Done** whose own
+> verification step could never have held. See
+> [Measurement](#measurement--2026-09-07-production) and [Run log](#run-log).
 
 **Read-only.** There is no `--apply` flag and no write path. Retraction is a separate,
 authorized action — `pnpm --filter @aeci/api ops:retract-product` for a product, the
@@ -34,12 +43,12 @@ canceled on purpose — no curation-tool key in the public schema). The only lin
 sweep enumerates upstream, builds the set of D1 ids upstream still **claims**, and
 treats the D1 rows outside that set as stranded.
 
-### How this differs from the daily strand audit
+### How this differs from the 2026-08 strand audit it replaced
 
-`scripts/ops/2026-08-promote-strand-audit/` computes the same set difference as its
-`stray` bucket, reading Airtable directly, and is *scheduled* daily in CI (it has never
-actually executed — see below). **This lane is not a duplicate.** It adds the three
-things that audit deliberately does not do:
+`scripts/ops/2026-08-promote-strand-audit/` computed the same set difference as its
+`stray` bucket, reading Airtable directly, and was *scheduled* daily in CI — though it never
+actually executed once (see below). **This lane was not a duplicate of it.** It adds the
+three things that audit deliberately did not do:
 
 1. **Why the claim is gone** — DELETED upstream vs **REJECTED** upstream. A rejected
    record is invisible to every ordinary MCP read tool (`list_products` excludes them
@@ -49,16 +58,19 @@ things that audit deliberately does not do:
    strand their claims and attestations.
 3. **Public reachability and the retraction cascade**, per row.
 
-**And since 2026-09-07 there is a fourth difference that supersedes the rest: the
-review app no longer runs on Airtable.** It has its own D1 (`server/db/ids.ts` keeps
-the `rec…` id *format*, which is why the ids still look Airtable-shaped —
-`apps/api/src/db/schema.ts:1755-1776` says so explicitly). The daily audit reads
-`api.airtable.com` directly, so it is not merely uncredentialed — **its data source is
-decommissioned and it cannot be made to work again as written**. See
-[The daily backstop has never run](#the-daily-backstop-has-never-run).
+**And on 2026-09-07 a fourth difference superseded the rest: the review app no longer runs
+on Airtable.** It has its own D1 (`server/db/ids.ts` keeps the `rec…` id *format*, which is
+why the ids still look Airtable-shaped — `apps/api/src/db/schema.ts:1755-1776` says so
+explicitly). The 2026-08 audit read `api.airtable.com` directly, so it was not merely
+uncredentialed — **its data source was decommissioned and it could not be made to work again
+as written**. Its `audit.mjs` was deleted on 2026-09-08; its README survives for the
+§Healing recipes and the 2026-08-13 measurement.
 
-So this is the **replacement**, not the companion: it already speaks to the current
-system. What it is not yet is a *cheap* daily check — see AECI-796 for that split.
+So this is the **replacement**, not the companion, and since AECI-796 it is what the daily
+job runs. The "make a cheaper integrations-only mode for the cron" split that question
+originally implied was dropped: the sweep self-optimises instead. See
+[Runs daily in CI](#runs-daily-in-ci) and
+[Non-goals](#non-goals).
 
 ## Buckets
 
@@ -90,15 +102,71 @@ node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --json --
 node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache
 ```
 
-Exits **0** when nothing is stranded, **1** when any bucket is non-empty, **2** on a
-usage/credential error. Every run writes `report-<UTC>.json` **and**
-`stranded-ids-<UTC>.txt` — the rollback-ready id list, grouped by class — next to the
-script. Both are gitignored: they hold production catalog content. The dated
-measurement that matters lives below.
+Every run writes `report-<UTC>.json` **and** `stranded-ids-<UTC>.txt` — the rollback-ready
+id list, grouped by class — next to the script. Both are gitignored: they hold production
+catalog content. `--out` moves the report, `--ids-out` moves the id list, `--cache` moves the
+upstream snapshot; the CI caller redirects all three (see below). The dated measurement that
+matters lives below.
 
 Only `--env production` is meaningful, for the reason both sibling lanes give: the
 review app holds **production** uuids in its `supabase*` fields — one curation base,
 not one per tier.
+
+### Exit codes — three-valued since AECI-796, and 2 is not a pass
+
+| Exit | Meaning |
+| ---- | ------- |
+| `0`  | clean and complete — every row is claimed upstream |
+| `1`  | stranded rows found — at least one bucket is non-empty |
+| `2`  | **could not check** — missing credential, bad args, an incomplete sweep, or a crash |
+
+`2` outranks `1`. A sweep that could not read part of upstream, or whose product classes do
+not reconcile, produces a bucket list that is untrustworthy in **both** directions: a row may
+be listed only because its record was unreadable, and a row may be missing for the same
+reason. Before AECI-796 both of those printed a WARNING and exited **0**, so a run where
+every upstream read failed reported clean. That is the same defect class as the 25 green runs
+of the workflow this lane replaced, which is why it was worth fixing here rather than in the
+caller. `report.clean` had always accounted for it; only the exit code had not.
+
+An uncaught throw — a wrangler failure, a dead MCP handshake — also lands on `2`. Node's
+default for an uncaught throw is `1`, which would have arrived wearing the costume of a real
+finding.
+
+**A failed `find_product` is not a stranded product.** That call is the only read that can
+tell a *deleted* upstream record from a *rejected* one, so when it fails the D1 row is left
+out of every bucket rather than filed as `productDeletedUpstream`. Two reasons. It would be a
+phantom finding at exit 1, and the `stranded-ids` file beside the report is what an
+authorized retraction consumes verbatim — an unverified id has no business in it. The
+omission fails `reconciles`, so the run still exits `2`, and the row appears in
+`unresolvedUpstream` as `{ kind: 'product-lookup', d1Id }`.
+
+The line between `1` and `2` is the one `scripts/ci/posthog-liveness-sweep.sh` draws for the
+same reason: "the sweep could not run" is not "the thing being swept is fine".
+
+**None of this has an automated test.** There is no test harness for `scripts/ops/**`
+anywhere in the repo — no vitest include, no package script — so do not assume coverage. The
+exit codes are checked by hand: `--help` (2), a run with `AECI_MCP_TOKEN` unset (2), and a
+real production run (1 while AECI-795 is open).
+
+### Runs daily in CI
+
+`.github/workflows/promote-strand-audit.yml`, 09:00 UTC, production only, since AECI-796.
+That file's header carries the full contract — why it is scheduled rather than a PR check,
+why it never heals, and why it has no skip-green branch. The invocation:
+
+```bash
+node scripts/ops/2026-09-stranded-row-audit/audit.mjs \
+  --env production \
+  --refresh-cache \
+  --cache "$RUNNER_TEMP/upstream-cache.json" \
+  --out "$RUNNER_TEMP/stranded-row-audit.json" \
+  --ids-out "$RUNNER_TEMP/stranded-ids.txt"
+```
+
+Every writable path goes to `RUNNER_TEMP`, and nothing is uploaded as an artifact: all three
+outputs are production catalog content. `--refresh-cache` is belt-and-braces on a fresh
+runner — the snapshot is reused **silently** when present, so a future runner-cache change
+must not be able to turn the job into a replay of an old measurement.
 
 ### Credentials
 
@@ -112,13 +180,21 @@ No `AIRTABLE_TOKEN` — and as of 2026-09-07 that is no longer merely a convenie
 **The review app is off Airtable**, so there is no Airtable base to point a token at;
 `AECI_MCP_TOKEN` against the review app's own MCP is the only way in. `mcp-client.mjs`
 (copied from `2026-08-powered-by-backfill`, plus `find_product` on the allow-list) is
-that path. Ignore the sibling lane's instructions for minting an Airtable PAT.
+that path. The sibling lane's Airtable-PAT instructions are gone — its `audit.mjs` was
+deleted on 2026-09-08 and its README is history only.
 
 ### The upstream cache
 
-The upstream phase costs ~300 `get_product` / `get_vendor` calls against a
+The upstream phase used to cost ~300 `get_product` / `get_vendor` calls against a
 **rate-limited** production curation DB, so its result is snapshotted to
 `.upstream-cache.json` (gitignored) and reused. `--refresh-cache` re-reads it.
+
+**That cost has largely gone.** The review app's `list_products` / `list_vendors` projections
+now carry `supabaseId`, so most records resolve off the paged list. Measured 2026-09-08:
+`fastPath: products {fromList: 252, viaGet: 38}, vendors {fromList: 167, viaGet: 26}` — about
+64 fallback calls instead of ~300, and a run of roughly two minutes. The cache matters much
+less than it did; prefer `--refresh-cache`. Watch the `fastPath:` line: `fromList: 0` means
+the projection regressed and the slow path is back.
 
 The cache is a convenience for iterating on the D1 half within one sitting — **not** a
 substitute for a fresh read. Every published measurement must come from a run whose
@@ -225,7 +301,7 @@ SketchUp` and `Polycam ↔ Xactimate`, confirming both records are gone. The row
   Algolia objects removed. Record: `scripts/ops/2026-09-polycam-retraction/README.md`.
   A re-run of this audit no longer lists either id.
 
-### The daily backstop has never run
+### The daily backstop had never run — fixed 2026-09-08
 
 The obvious reading of the above — "the daily audit went red for four weeks and nobody
 acted" — is **wrong**, and the truth is worse.
@@ -241,20 +317,25 @@ times. Verified on run `34033166656` (2026-09-06): `AIRTABLE_TOKEN:` is empty, t
 So the backstop AECI-593 shipped **has never executed once**, and its green history is
 indistinguishable from a healthy one.
 
-**And the secret is not the fix.** The review app has since moved off Airtable onto its
-own D1, so `scripts/ops/2026-08-promote-strand-audit/audit.mjs` — which reads
-`api.airtable.com/v0/appy81IdGJY6Fngf9` directly — points at a decommissioned system.
-Minting a PAT would not revive it; there is nothing to authenticate against. The skip
+**And the secret was not the fix.** The review app had since moved off Airtable onto its
+own D1, so `scripts/ops/2026-08-promote-strand-audit/audit.mjs` — which read
+`api.airtable.com/v0/appy81IdGJY6Fngf9` directly — pointed at a decommissioned system.
+Minting a PAT would not have revived it; there was nothing to authenticate against. The skip
 branch was hiding an audit that had *also* gone obsolete underneath it, which is why
-"just add the secret" was never done. Tracked as **AECI-796**, whose fix is to re-point
-the daily check at the review app over `AECI_MCP_TOKEN` — the transport this lane
-already uses and proves works.
+"just add the secret" was never done.
 
-That reframes what this sweep found. It is not that the detector works and the
-follow-through fails — **the detector has never been switched on**, and the only two
-things that have ever found a stranded row are a human noticing and this one-off run.
+**Fixed 2026-09-08 (AECI-796).** The workflow now runs *this* lane over `AECI_MCP_TOKEN`,
+the transport this README already proved works. The skip-green branch is gone — a missing
+credential exits 2 and goes red — the Airtable script is deleted, and the audit's own exit
+code no longer reports clean on an incomplete sweep. The one thing the fix cannot supply is
+the credential itself: `AECI_MCP_TOKEN` has to be added to the repo secrets, and until it is
+the job is red on exit 2, which is the intended state rather than a regression.
+
+That reframes what this sweep found. It was not that the detector worked and the
+follow-through failed — **the detector had never been switched on**, and the only two
+things that had ever found a stranded row were a human noticing and this one-off run.
 Worth weighing when AECI-595's priority is set: a retract _feature_ is worth less than a
-retract _detector that actually runs_, and the cheapest fix on the table is a secret.
+retract _detector that actually runs_. Since 2026-09-08 there is one.
 
 ### Every disposition is now settled (review app, 2026-09-07)
 
@@ -338,13 +419,23 @@ authority; this audit only confirms the vendor is still there.
 
 ## Non-goals
 
-- **This is not a CI cron.** It costs a per-product `get_product` fan-out against a
-  rate-limited curation DB; it is a measuring instrument, not a monitor. Note this is
-  *not* because a daily check already exists — `promote-strand-audit.yml` has never run
-  and its transport is dead (AECI-796); the cheap daily set difference has to be rebuilt
-  on this lane's transport before anything watches it. If this sweep is ever wired up it
-  needs a documented rate allowance, exactly as
-  `2026-08-powered-by-backfill/README.md` warns about its own permanent floors.
+- ~~**This is not a CI cron.**~~ **Reversed 2026-09-08 (AECI-796). It is the CI cron now.**
+  `.github/workflows/promote-strand-audit.yml` runs this lane against production daily at
+  09:00 UTC. The original objection was cost — a per-product `get_product` fan-out against a
+  rate-limited curation DB — and it was written when the alternative was thought to be a
+  cheap integrations-only set difference rebuilt on this transport. Two things settled it the
+  other way: the fan-out self-optimises to ~8 paged reads the moment the review app's
+  `list_products` / `list_vendors` projections start carrying `supabaseId` (the script
+  already reads it when present and prints a `fastPath:` line saying which path it took), and
+  a second reduced detector would have meant two sets of bucket semantics to keep in step.
+
+  **The rate allowance this bullet asked for, now that it is wired up.** The review app
+  limits 100 requests / 10 s keyed on `CF-Connecting-IP`, checked *before* auth, so the job
+  shares its budget with anything else on the runner's egress IP. Standing allowance:
+  **concurrency 3 (~5 rps, their own guidance), one run per day, no burst.** Raising the
+  cadence, raising `AECI_MCP_CONCURRENCY`, or adding a second scheduled consumer of this MCP
+  all need a fresh look at that ceiling — the same permanent-floor discipline
+  `2026-08-powered-by-backfill/README.md` applies to its own.
 - **No write path, now or in a follow-up commit.** Retraction stays with
   `ops:retract-product` and the datatool prune, both of which carry guards, rollback
   SQL, count repair and reindex. This script emits the id list they consume.
@@ -374,26 +465,30 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | 2026-09-07 | production | `audit.mjs` | 0 products, 1 vendor, 6 integrations stranded; 7 claims + 7 attestations in cascade. Reconciled 247/247, 0 unresolved reads. No write performed. |
 | 2026-09-07 | production | `audit.mjs` | Re-run after the AECI-593 retraction: 0 products, 1 vendor, 4 integrations stranded; 4 claims + 4 attestations in cascade; 5 publicly reachable. `integrationSourceGone` is down to **2** (AECI-794, AECI-795), carrying 3 of those claims/attestations. Both Polycam ids gone. Still exits 1 — correctly, those two rulings are open. |
 | 2026-09-08 | production | `audit.mjs` | Re-run after the AECI-794 retraction: **0 products, 0 vendors, 1 integration** stranded; 1 claim + 1 attestation in cascade; **1** publicly reachable. `integrationSourceGone` is down to **1**. `8f5365f9-…` is gone, and so are the Bluebeam vendor and both `built_by` strands — that whole lane closed between the two runs. Only **AECI-795** is left. Still exits 1, correctly. |
+| 2026-09-08 | production | `audit.mjs` | **First run of the AECI-796 rewrite, and the first clean one: 0 in every bucket, 0 publicly reachable, 0 orphan children.** Reconciled 252/252, 0 unresolved reads, exit **0**. AECI-795 had moved to In Review nine minutes earlier, so the tail this lane opened on 2026-09-07 with 7 rows is drained. Also the first run to show the upstream fast path live: `fastPath: products {fromList: 252, viaGet: 38}, vendors {fromList: 167, viaGet: 26}` — ~64 fallback calls instead of ~300, about two minutes. Invoked exactly as CI does, with `--refresh-cache` and all three artifacts in a temp dir. |
 
 ## Follow-ups filed from this run
 
 | Issue        | Row                                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------------------- |
 | **AECI-794** | `procore-project-management → followup-crm` — reverse twin survives. **Ruled DELETE and executed 2026-09-08**, see `scripts/ops/2026-09-procore-followup-retraction/` |
-| **AECI-795** | `microsoft-dynamics-365 → monday-com` — no twin, so a retraction removes the only copy of that mechanism. Still needs a ruling. (It does **not** 404 the pair URL: a pair page with no edge returns 200 with a noindexed empty state.) |
+| **AECI-795** | `microsoft-dynamics-365 → monday-com` — no twin, so a retraction removes the only copy of that mechanism. **Resolved 2026-09-08** (In Review as of 04:30 UTC); the 04:39 UTC sweep no longer lists the id. (It does **not** 404 the pair URL: a pair page with no edge returns 200 with a noindexed empty state.) |
 
 Five of the seven rows were already covered: **AECI-685** (the vendor and both
 `built_by` edges) and **AECI-593** (both Polycam edges). Both carry a comment recording
 the confirmed 2026-09-07 state. **AECI-593 was executed that same day** — see
 `scripts/ops/2026-09-polycam-retraction/` — leaving five stranded rows, all five still
 publicly reachable (the vendor, the two undecided `integrationSourceGone` edges, and the
-two `built_by` strands).
+two `built_by` strands). **All five have since closed**, and the 2026-09-08 sweep is clean;
+see the [Run log](#run-log).
 
 ## Related
 
 - `docs/REVIEW_APP_PROMOTE_API.md` §5.1 — why promote has no delete semantics.
-- `scripts/ops/2026-08-promote-strand-audit/` — the daily set-difference audit and its
-  §Healing recipes. Read its healing section before acting on anything found here.
+- `scripts/ops/2026-08-promote-strand-audit/` — **retired 2026-09-08**, README only. Its
+  §Healing recipes are still the reference; read them before acting on anything found here.
+- `.github/workflows/promote-strand-audit.yml` — the daily 09:00 UTC job that runs this
+  lane. Its header carries the scheduling, no-heal and no-skip-green contract.
 - `apps/api/src/lib/retract-product.ts` + `apps/api/scripts/retract-product.ts` — the
   product retraction tool. This sweep's cascade counts mirror its `buildFootprintSql`.
 - `apps/datatool/README.md` — `POST /api/prune-integrations`, including the

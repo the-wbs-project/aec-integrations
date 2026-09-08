@@ -172,5 +172,8 @@ Then, off-database:
   five CASCADE ones including `vendor_seat_invites`, which this op missed.
 - **AECI-791** — the AECI-593 Polycam retraction, marked Done but never executed. Same
   failure mode this README's status line guards against.
-- The daily `promote-strand-audit` cron will **not** catch a mistake here: it has been
-  exiting 0 and skipping every run, and its Airtable transport is retired.
+- The daily `promote-strand-audit` cron would **not** have caught a mistake here at the
+  time this was written: it had been exiting 0 and skipping every run, and its Airtable
+  transport was retired. **Fixed 2026-09-08 (AECI-796)** — the job now runs
+  `scripts/ops/2026-09-stranded-row-audit/` over `AECI_MCP_TOKEN`, has no skip-green
+  branch, and would catch this shape the next morning.

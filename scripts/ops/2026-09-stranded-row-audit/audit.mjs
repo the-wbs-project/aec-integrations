@@ -24,11 +24,13 @@
 // the sweep must enumerate upstream, build the set of D1 ids upstream still CLAIMS,
 // and treat the D1 rows outside that set as stranded.
 //
-// ─── HOW IT DIFFERS FROM THE DAILY STRAND AUDIT ───────────────────────────────
+// ─── THIS *IS* THE DAILY STRAND AUDIT, SINCE AECI-796 ─────────────────────────
 //
-// scripts/ops/2026-08-promote-strand-audit/ computes the same set difference as its
-// `stray` bucket, reading Airtable directly. This lane is not a duplicate: it adds the
-// three things that audit deliberately does not do.
+// scripts/ops/2026-08-promote-strand-audit/ computed the same set difference as its
+// `stray` bucket, reading Airtable directly, and was what the daily workflow ran. Its
+// transport was decommissioned and its audit.mjs was deleted on 2026-09-08; the workflow
+// now runs THIS file. That lane was never a duplicate of this one — it lacked the three
+// things below, which is why the replacement went this direction rather than the reverse.
 //
 //   1. It sub-classifies WHY the claim is gone — DELETED upstream vs REJECTED
 //      upstream. A rejected record is invisible to every ordinary MCP read tool
@@ -68,8 +70,14 @@
 //   node scripts/ops/2026-09-stranded-row-audit/audit.mjs
 //   node scripts/ops/2026-09-stranded-row-audit/audit.mjs --json --out report.json
 //
-// Exits 0 when nothing is stranded, 1 when any bucket is non-empty, 2 on a
-// usage/credential error.
+// EXIT CODES — three-valued since AECI-796, and 2 is NOT a pass:
+//   0  clean and complete
+//   1  stranded rows found (any bucket non-empty)
+//   2  could not check — missing credential, bad args, INCOMPLETE SWEEP, or a crash
+//
+// This runs daily in CI. `.github/workflows/promote-strand-audit.yml` is the caller, and
+// the full contract for why it is scheduled rather than a PR check lives in that file's
+// header. Anything that changes the exit codes or the flags changes that workflow too.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -77,6 +85,24 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { listAll, mapWithConcurrency, openMcpSession } from './mcp-client.mjs';
+
+// A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
+//
+// Node exits 1 on an uncaught throw, which is this script's "stranded rows found" code. So a
+// wrangler failure, a dead MCP handshake or an unreachable D1 would arrive at a scheduled
+// consumer wearing the costume of a real finding, and the operator would go looking for a
+// stranded row that was never reported. Route every unexpected failure to 2 instead, which
+// means exactly one thing: the sweep did not complete, so its verdict is not usable.
+//
+// This matters more since AECI-796 wired the lane into `.github/workflows/promote-strand-audit.yml`.
+// Registered before any work starts so it also covers the MCP handshake.
+for (const signal of ['uncaughtException', 'unhandledRejection']) {
+  process.on(signal, (err) => {
+    console.error(`\nerror (${signal}): ${err?.stack ?? err}`);
+    console.error('the sweep did not complete — this is NOT a clean result. Exit 2.');
+    process.exit(2);
+  });
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -138,7 +164,7 @@ function usage(msg) {
   if (msg) console.error(`error: ${msg}\n`);
   console.error(
     'usage: audit.mjs [--env <preview|staging|demo|production>] [--json] [--out <path>]\n' +
-      '                 [--all-statuses] [--cache <path>] [--refresh-cache]',
+      '                 [--ids-out <path>] [--all-statuses] [--cache <path>] [--refresh-cache]',
   );
   process.exit(2);
 }
@@ -146,6 +172,7 @@ function usage(msg) {
 let env = 'production';
 let asJson = false;
 let outPath = null;
+let idsOutPath = null;
 let allStatuses = false;
 let cachePath = join(HERE, '.upstream-cache.json');
 let refreshCache = false;
@@ -156,6 +183,8 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (arg === '--json') asJson = true;
   else if (arg === '--out') outPath = process.argv[++i];
   else if (arg.startsWith('--out=')) outPath = arg.slice('--out='.length);
+  else if (arg === '--ids-out') idsOutPath = process.argv[++i];
+  else if (arg.startsWith('--ids-out=')) idsOutPath = arg.slice('--ids-out='.length);
   else if (arg === '--all-statuses') allStatuses = true;
   else if (arg === '--cache') cachePath = process.argv[++i];
   else if (arg.startsWith('--cache=')) cachePath = arg.slice('--cache='.length);
@@ -233,7 +262,8 @@ const pairUrl = (a, b) => `/products/${a}/integrations/${b}`;
 
 // ─── upstream ────────────────────────────────────────────────────────────────
 
-// The upstream phase costs ~300 `get_product`/`get_vendor` calls against a
+// The upstream phase used to cost ~300 `get_product`/`get_vendor` calls (it is ~64 since
+// the 2026-09-08 upstream projection change — see the fast path) against a
 // rate-limited production curation DB, so its result is snapshotted to
 // `.upstream-cache.json` (gitignored) and reused. Deleting the file, or passing
 // `--refresh-cache`, re-reads upstream. The cache records `fetchedAt`: it is a
@@ -266,7 +296,14 @@ const productCohort = allStatuses
 const productByRecId = new Map();
 /** How many records came free off the list vs. cost a per-record call. See the fast path. */
 const fastPath = { products: null, vendors: null };
-/** Records the review app failed to return, so a clean verdict cannot hide behind them. */
+/**
+ * Reads the review app failed to serve, so a clean verdict cannot hide behind them.
+ * Three shapes, one meaning — "could not check", which forces exit 2 at the bottom:
+ *   { kind: 'product',        recId }  a `get_product` that failed
+ *   { kind: 'vendor',         recId }  a `get_vendor` that failed
+ *   { kind: 'product-lookup', d1Id }   a `find_product` that failed, so the D1 row was
+ *                                      left UNCLASSIFIED rather than filed as stranded
+ */
 const unresolvedUpstream = [];
 
 /** One read, retried — the curation DB intermittently fails a tool query outright. */
@@ -310,16 +347,17 @@ async function resolveProduct(recId) {
 if (cache) {
   for (const p of cache.products) productByRecId.set(p.recId, p);
 } else {
-  // OPPORTUNISTIC FAST PATH. The review app is adding `supabaseId` / `supabaseSlug` to
-  // the `list_products` / `list_vendors` projections (offered 2026-09-07: four lines,
-  // zero extra queries, since both tools already hydrate the full record and then
-  // project a subset). The moment that ships, the list row carries everything this
-  // sweep needs and the per-record fan-out becomes dead weight — ~300 calls collapse
-  // into ~8 paged reads.
+  // OPPORTUNISTIC FAST PATH — LIVE SINCE 2026-09-08. The review app added `supabaseId` /
+  // `supabaseSlug` to the `list_products` / `list_vendors` projections, so most list rows
+  // now carry everything this sweep needs and the per-record fan-out is mostly dead weight.
+  // Measured on the first CI run: 252 of 290 products and 167 of 193 vendors came off the
+  // list, leaving ~64 `get_product` / `get_vendor` calls instead of ~300.
   //
-  // So detect it rather than wait for it: a row that already carries `supabaseId` is
-  // used directly, and only the rest fall through to `get_product`. This is a no-op
-  // today and needs no follow-up commit when the upstream change lands.
+  // It was written as a detector rather than a switch, and stays one: a row that already
+  // carries `supabaseId` is used directly, and only the rest fall through to `get_product`.
+  // So an upstream regression degrades to the old ~300-call path instead of misreporting.
+  // The `fastPath:` line printed at the end of every run says which path was taken —
+  // `fromList: 0` means the projection regressed.
   const needsResolve = [];
   for (const row of productCohort) {
     if (row.supabaseId) {
@@ -411,9 +449,10 @@ for (const v of vendorByRecId.values()) if (v.supabaseId) claimedVendors.set(v.s
 //    SAME hydrator upstream (`server/hydrate.ts:687-711`), and the field is omitted
 //    from the JSON when the column is empty — so a row without it has never been
 //    promoted. Do not conclude from a missing key that the tool cannot return it.
-//    The real asymmetry is on `list_products`, which hand-projects a subset that
-//    does not include `supabaseId`; that is why the product axis needs get_product
-//    per record and this one needs nothing.
+//    The asymmetry used to be on `list_products`, which hand-projected a subset without
+//    `supabaseId`; that is why the product axis still carries a `get_product` fallback.
+//    Upstream added it on 2026-09-08, so that fallback now fires for a minority of rows
+//    rather than all of them — see the fast path above.
 const { rows: upstreamIntegrations, total: upstreamIntegrationTotal } = cache
   ? { rows: cache.upstreamIntegrations, total: cache.upstreamIntegrationTotal }
   : await listAll(session, 'list_integrations');
@@ -499,7 +538,9 @@ const buckets = Object.fromEntries(BUCKETS.map((b) => [b, []]));
 const unclaimedProducts = d1Products.filter((p) => !claimedProducts.has(p.id));
 const reclaimed = [];
 await mapWithConcurrency(unclaimedProducts, MCP_CONCURRENCY, async (row) => {
-  let matches = [];
+  // No initializer: the catch below returns rather than falling through with an empty
+  // list, so every path that reaches the loop has assigned this.
+  let matches;
   try {
     const found = await callWithRetry('find_product', {
       name: row.name,
@@ -515,8 +556,29 @@ await mapWithConcurrency(unclaimedProducts, MCP_CONCURRENCY, async (row) => {
       reasons: m.reasons ?? [],
     }));
   } catch (err) {
-    matches = [];
-    console.error(`warning: find_product("${row.name}") failed — ${err.message}`);
+    // COULD NOT CHECK — so do not classify, and do not let the run report clean.
+    //
+    // `find_product` is the ONLY read that can tell a deleted upstream record from a
+    // rejected one, so a failure here leaves this row genuinely unknown. Falling
+    // through with `matches = []` would file it as `productDeletedUpstream`: a phantom
+    // finding at exit 1, and — worse — an id in the rollback-ready list that a later
+    // authorized retraction is meant to consume verbatim. Returning instead leaves the
+    // row unaccounted for, which trips BOTH incompleteness signals (`unresolvedUpstream`
+    // here, `reconciles` at the report) and lands the run on exit 2. Same line every
+    // other upstream read in this file draws.
+    //
+    // `d1Id`, not `recId`: the whole point is that no upstream record id was found.
+    unresolvedUpstream.push({
+      kind: 'product-lookup',
+      d1Id: row.id,
+      name: row.name,
+      error: err.message,
+    });
+    console.error(
+      `warning: find_product("${row.name}") failed — ${err.message}\n` +
+        `         ${row.id} is UNCLASSIFIED, not stranded. The sweep is incomplete.`,
+    );
+    return;
   }
 
   // Resolve each candidate far enough to see whether it actually points at this row.
@@ -763,8 +825,10 @@ const report = {
   fastPath,
   reclaimedByFindProduct: reclaimed,
   // Upstream reads the review app could not serve. A non-empty list means the sweep
-  // is INCOMPLETE: some D1 row may be misclassified as stranded purely because its
-  // record could not be read. Never publish a measurement with this non-empty.
+  // is INCOMPLETE, in either of two ways: a D1 vendor may be listed as stranded purely
+  // because its record could not be read, and a D1 product whose `find_product` failed
+  // is deliberately left out of every bucket AND out of `productsAccounted`, so it
+  // fails `reconciles` too. Never publish a measurement with this non-empty.
   unresolvedUpstream,
   clean: !dirty && unresolvedUpstream.length === 0,
   buckets,
@@ -785,8 +849,19 @@ if (asJson) {
   );
   console.log(
     `prod:     ${report.prod.products} products, ${report.prod.vendors} vendors, ` +
-      `${report.prod.integrations} integrations (+${report.prod.connectorEvidencedPairs} evidenced pairs, out of scope)\n`,
+      `${report.prod.integrations} integrations (+${report.prod.connectorEvidencedPairs} evidenced pairs, out of scope)`,
   );
+  // The one line that says whether the upstream `list_products` / `list_vendors` projection
+  // has started carrying `supabaseId`. `fromList` climbing off zero is the whole difference
+  // between ~8 paged reads and ~300 per-record calls, and it happens with no commit here — so
+  // in a scheduled run (AECI-796) this has to be visible in the log rather than inferred from
+  // how long the job took. Both halves stay null when the run reused a cache.
+  if (fastPath.products || fastPath.vendors) {
+    const lane = (f) =>
+      f ? `{fromList: ${f.fromList}, viaGet: ${f.viaGetProduct ?? f.viaGetVendor}}` : 'cached';
+    console.log(`fastPath: products ${lane(fastPath.products)}, vendors ${lane(fastPath.vendors)}`);
+  }
+  console.log('');
   for (const b of BUCKETS) console.log(`${pad(b, 30)}${num(buckets[b].length, 6)}`);
   console.log(
     `${pad('orphanChildren', 30)}${num(`${orphanChildren.claims}c / ${orphanChildren.attestations}a`, 6)}\n`,
@@ -828,7 +903,10 @@ writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`);
 
 // The rollback-ready id list: one id per line, grouped by class, so a later authorized
 // retraction consumes exactly what this run measured rather than a re-derived set.
-const idListPath = join(HERE, `stranded-ids-${stamp}.txt`);
+// `--ids-out` exists for the same reason `--out` does: this file is production catalog
+// content, and the CI caller (AECI-796) writes every artifact to RUNNER_TEMP rather than
+// into the checkout. The default stays beside the script for an operator run.
+const idListPath = idsOutPath ?? join(HERE, `stranded-ids-${stamp}.txt`);
 const idLines = [
   `# stranded row audit — ${report.database} — ${report.measuredAt}`,
   '# READ-ONLY OUTPUT. Retraction is a separate authorized action:',
@@ -844,4 +922,26 @@ writeFileSync(idListPath, `${idLines.join('\n')}\n`);
 
 if (!asJson) console.log(`\nreport written to ${target}\nid list written to ${idListPath}`);
 
-process.exit(dirty ? 1 : 0);
+// EXIT CODES ARE THREE-VALUED, AND 2 IS NOT A PASS (AECI-796).
+//
+//   0  clean and complete — every row is claimed upstream
+//   1  stranded rows found — at least one bucket is non-empty
+//   2  could not check — missing token, bad args, an incomplete sweep, or a crash
+//
+// `incomplete` outranks `dirty` deliberately. A sweep that could not read part of upstream,
+// or whose product classes do not reconcile, produces a bucket list that cannot be trusted in
+// EITHER direction: a row may be listed only because its record was unreadable, and a row may
+// be missing for the same reason. Reporting that as 1 invites triage of a phantom finding;
+// reporting it as 0 is the false-clean this whole issue is about. `report.clean` has always
+// accounted for `unresolvedUpstream`; until now the exit code did not, so a run where every
+// upstream read failed exited 0.
+//
+// One case is stronger than "do not trust this": a product whose `find_product` failed is
+// left out of every bucket entirely, because the id list beside this report is what an
+// authorized retraction consumes verbatim and an unverified id has no business in it. That
+// omission is what fails `reconciles`, so the two clauses below are not redundant.
+//
+// Matches scripts/ci/posthog-liveness-sweep.sh, which draws the same 1-vs-2 line for the same
+// reason: "the sweep could not run" is not "the thing being swept is fine".
+const incomplete = unresolvedUpstream.length > 0 || !report.reconciles;
+process.exit(incomplete ? 2 : dirty ? 1 : 0);
