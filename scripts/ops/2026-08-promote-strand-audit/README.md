@@ -196,8 +196,14 @@ The audit never writes. Once it reports a mismatch:
   `POST /api/prune-integrations` (guards, ordered delete, rollback SQL, count repair,
   reindex — see `apps/datatool/README.md`).
 
-  A tripped guard means it is **not** redundant residue — so stop and find the ruling
-  rather than reaching for the override. If a ruling *does* exist (as in AECI-593), pass
+  A tripped guard means "stop and find the ruling" — but it does **not** reliably mean
+  "not redundant residue". `orphansWithoutATwin` matches on `(source, target,
+  mechanism_name)`, so it is blind to a **reverse-orientation** twin and to an unequal
+  `mechanism_name`; `claimsUniqueToOrphans` inherits that and adds an exact `direction`
+  match. AECI-794 tripped both on a row that was redundant residue
+  (`scripts/ops/2026-09-procore-followup-retraction/`). Go to the claim data and the
+  surviving sibling's notes, not to the guard sheet. If a ruling *does* exist (as in
+  AECI-593 and AECI-794), pass
   `acknowledgeGuards` naming **exactly** the guards the dry run reported, plus an
   `acknowledgeReason` citing it; the prune writes no `audit_log` row, so that reason and
   the operator identity in the Workers log line are the only record. Save `rollbackSql`

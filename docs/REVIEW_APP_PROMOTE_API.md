@@ -913,6 +913,16 @@ collected promote leaves a stray if the record is later deleted.
    that mechanism — so pass `acknowledgeGuards` naming exactly those, plus an
    `acknowledgeReason` citing the ruling. See `apps/datatool/README.md`.
 
+**A tripped guard does not always mean what step 2 says it means.** `orphansWithoutATwin`
+looks for a surviving row sharing the orphan's `(source_product_id, target_product_id,
+mechanism_name)`. It is **orientation-blind**, and it requires an equal `mechanism_name`.
+So on a *reverse-orientation duplicate* it reports "no twin" when a twin plainly exists,
+and `claimsUniqueToOrphans` follows it for the same reason plus an exact `direction`
+match (`a_to_b` is not `both`). AECI-794 is the worked example: the issue was written
+predicting a clean guard sheet as its confirmation signal, and both guards tripped on a
+row that really was redundant residue. **When the guards trip, go to the claim data and
+the upstream ruling — do not read the guard sheet as evidence either way.**
+
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
 production D1 against the base daily and fails on any stray. AECI-593 is the worked
 example — and the worked example of step 2 being skipped: two Polycam edges were
@@ -929,8 +939,15 @@ publicly reachable rows were already-known items that were never executed**, inc
 both Polycam edges, still live and indexed four *weeks* after the ruling, and the
 AECI-685 `bluebeam` vendor, still live after its 301 shipped. The two Polycam edges were
 retracted on **2026-09-07** (AECI-593, `scripts/ops/2026-09-polycam-retraction/`), taking
-the reachable count to 5 and the integration bucket to 2 — AECI-794 and AECI-795, both
-still undecided.
+the reachable count to 5 and the integration bucket to 2 — AECI-794 and AECI-795.
+
+**Re-measured 2026-09-08, after AECI-794:** **0 stranded products, 0 vendors, 1 integration
+edge**, 1 claim and 1 attestation in cascade, **1 publicly reachable row**. AECI-794 was
+duplicate residue from a deliberate upstream merge and was retracted
+(`scripts/ops/2026-09-procore-followup-retraction/`); the Bluebeam vendor and both its
+`built_by` strands cleared in the same window. **AECI-795 is the last one**, and its ruling
+is still open. That is the whole tail: from 7 reachable rows to 1 in two days, once the
+rulings were actually chased rather than filed.
 
 **And the daily backstop named above has never actually run — nor can it, as written.**
 It skips green when `AIRTABLE_TOKEN` is absent, and that secret was never provisioned:
@@ -943,6 +960,33 @@ noticing and a one-off sweep. That measurement, its per-row
 dispositions, and the FK ordering that blocks the Bluebeam vendor delete are in that
 lane's README; it is also where you go to tell a **deleted** upstream record from a
 **rejected** one, which this daily audit cannot do.
+
+**The upstream half of the fix already exists, and we consume none of it.** Found while
+executing AECI-794 on 2026-09-08. The review app's MCP exposes **`list_retractions`** and
+**`confirm_retractions`**. `list_retractions` is a real retraction feed: per entry it carries
+the `supabaseId` AECi needs to remove the row, the record id and name **as they stood** (the
+record itself is gone, so neither can be looked up any more), the curator's `reason`, and
+`carrierProductIds` — the products whose next promote could carry the retraction, empty when
+nothing is left to carry it. It defaults to un-confirmed entries, oldest first, takes a
+`since` cursor, and is explicitly designed to be polled on a schedule. `confirm_retractions`
+is the acknowledgement half.
+
+Nothing in this repo references either tool: not in code, not in `.mcp.json`, not in any doc
+before this paragraph. Two consequences worth acting on:
+
+- **AECI-595** ("promote has no retract semantics") is **Done** — it closed 2026-09-07 on the
+  upstream side shipping this, as review-repo PR #93. What is left is the AECi *consumer*, and
+  it is a consumer to build rather than a protocol to design: the hard half, knowing what was
+  deleted and why after the record is gone, is already answered upstream. Tracked as
+  **AECI-811**.
+- **AECI-796**'s daily backstop should be re-pointed at this feed rather than at the
+  decommissioned `api.airtable.com` transport. A set difference between two databases can only
+  guess at what was deleted; this surface says so directly, and says why. Also AECI-811.
+
+**It is empty today.** `list_retractions` with `include_confirmed: true` and no entity filter
+returns 0 entries, so it journals deletions going forward only. It could not have caught any
+of the seven rows above, and it cannot catch AECI-795. It prevents the *next* strand, not the
+current ones.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

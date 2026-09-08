@@ -101,13 +101,31 @@ that tier's own SSR Worker consumes.
   guard straight from the dry-run response, so you cannot tick one the plan did not
   report.
 
-  **The retraction this was built for did not run through here.** AECI-593 was finally
-  executed on 2026-09-07 via a one-off script
-  (`scripts/ops/2026-09-polycam-retraction/`) driving `wrangler d1 execute --remote`,
-  because reaching this endpoint needs a Cloudflare Access service token or `TOOL_TOKEN`
-  and **neither is provisioned in an operator workspace** — while `CLOUDFLARE_API_TOKEN`
-  is. Worth knowing before you plan the next prune around this API: budget for minting a
-  credential, or expect the operation to route around the guards this Worker owns.
+  **Neither of the two retractions this was built for ran through here.** AECI-593 was
+  executed on 2026-09-07 and AECI-794 on 2026-09-08, both via one-off scripts
+  (`scripts/ops/2026-09-polycam-retraction/`,
+  `scripts/ops/2026-09-procore-followup-retraction/`) driving `wrangler d1 execute
+  --remote`, because reaching this endpoint needs a Cloudflare Access service token or
+  `TOOL_TOKEN` and **neither is provisioned in an operator workspace** — while
+  `CLOUDFLARE_API_TOKEN` is. Worth knowing before you plan the next prune around this
+  API: budget for minting a credential, or expect the operation to route around the
+  guards this Worker owns. Two for two is no longer an exception; if this endpoint is
+  meant to be the path, it needs a credential an operator actually has.
+
+  **`orphansWithoutATwin` is orientation-blind, and that produces false positives.** It
+  looks for a surviving row sharing `(source_product_id, target_product_id,
+  mechanism_name)`, so a **reverse-orientation** duplicate (`B → A` against the orphan's
+  `A → B`) is invisible to it and the guard reports "no twin". An unequal
+  `mechanism_name` does the same, including `NULL` against a set value.
+  `claimsUniqueToOrphans` inherits both, and adds an exact `direction` match, so
+  `a_to_b` never matches a widened `both`.
+
+  AECI-794 is the worked example: a mirror row deliberately merged away upstream, whose
+  reverse twin survives with strictly wider claims, reported
+  `claimsUniqueToOrphans: 2, orphansWithoutATwin: 1`. The delete was correct and both
+  guards had to be acknowledged. **A tripped guard still means stop and check — it just
+  cannot, on its own, tell a unique mechanism from a reverse-orientation duplicate.**
+  Check the claim data and the upstream ruling before concluding either way.
 
   Error codes: `GUARD_TRIPPED` (409, a tripped guard is unacknowledged),
   `GUARD_ACK_STALE` (400, acknowledged a guard that reads zero), `ACK_REASON_REQUIRED`

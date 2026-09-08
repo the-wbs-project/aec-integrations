@@ -1,0 +1,153 @@
+{
+  "issue": "AECI-794",
+  "ruling": "DELETE",
+  "measuredAt": "2026-09-07T09:35Z",
+  "env": "production",
+  "database": "aeci-app-production",
+  "note": "Read-only pre-flight captured before any write. Every figure here was read from production D1, the review-app MCP, the live Algolia write host, or the live site. Nothing in this file is inferred.",
+
+  "target": {
+    "id": "8f5365f9-b759-4605-8aab-b6aac352512d",
+    "name": "Procore Project Management → Followup CRM",
+    "sourceSlug": "procore-project-management",
+    "targetSlug": "followup-crm",
+    "mechanismKind": "partner",
+    "mechanismName": null,
+    "direction": "one-way",
+    "createdAt": "2026-07-25T15:43:40.949Z",
+    "builtByVendorId": "fc088ddb-8072-4ec9-89c7-7961344c7624",
+    "poweredByProductId": null,
+    "descriptionLength": 229,
+    "notesLength": 350,
+    "claims": [
+      {
+        "dataObject": "documents",
+        "name": "Documents",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "attestations": 1
+      },
+      {
+        "dataObject": "directory-contacts",
+        "name": "Directory & Contacts",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "attestations": 1
+      }
+    ]
+  },
+
+  "survivor": {
+    "id": "111ed9fc-5f1c-4041-8c83-05427dc35588",
+    "sourceSlug": "followup-crm",
+    "targetSlug": "procore-project-management",
+    "mechanismKind": "partner",
+    "mechanismName": "FollowUp CRM \"Push to Procore\"",
+    "direction": "bidirectional",
+    "createdAt": "2026-07-25T15:43:40.949Z",
+    "descriptionLength": 249,
+    "notesLength": 973,
+    "upstreamRecordId": "rec1HRURkiFzAPUkn",
+    "upstreamSupabaseId": "111ed9fc-5f1c-4041-8c83-05427dc35588",
+    "claims": [
+      {
+        "dataObject": "documents",
+        "name": "Documents",
+        "direction": "both",
+        "origin": "aeci",
+        "attestations": 1
+      },
+      {
+        "dataObject": "directory-contacts",
+        "name": "Directory & Contacts",
+        "direction": "both",
+        "origin": "aeci",
+        "attestations": 1
+      },
+      {
+        "dataObject": "rfis",
+        "name": "RFIs",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "attestations": 1
+      },
+      {
+        "dataObject": "bids-tenders",
+        "name": "Bids & Tenders",
+        "direction": "a_to_b",
+        "origin": "aeci",
+        "attestations": 1
+      }
+    ]
+  },
+
+  "subsumption": {
+    "verdict": "The target's claims are fully subsumed by the survivor's.",
+    "detail": "The target asserts Documents and Directory & Contacts a_to_b in the procore->followup direction. The survivor asserts the same two data objects as `both` in the followup->procore direction, which covers the target's assertion and adds the reverse. This is the AECI-699 merge note reproduced from D1 alone, with no reliance on the upstream text.",
+    "deletedMirrorUpstreamRecordId": "rec4hd0vorc4G2ljN"
+  },
+
+  "footprint": { "integrations": 1, "claims": 2, "attestations": 2 },
+
+  "guards": {
+    "claimsUniqueToOrphans": 2,
+    "orphansWithoutATwin": 1,
+    "orphansRicherThanTwin": 0,
+    "blocked": ["claimsUniqueToOrphans", "orphansWithoutATwin"],
+    "note": "AECI-794 predicted orphansWithoutATwin would read 0. It reads 1. The datatool twin test matches on (source_product_id, target_product_id, mechanism_name), so it cannot see a reverse-orientation twin, and this pair also disagrees on mechanism_name (NULL vs 'FollowUp CRM \"Push to Procore\"'). claimsUniqueToOrphans reads 2 for the same reason plus an exact direction match, and a_to_b is not both. Both are false positives of an orientation-blind guard, not evidence against the ruling."
+  },
+
+  "affectedProducts": [
+    {
+      "id": "0c0fc849-decf-41eb-8ffa-5377f810f38c",
+      "slug": "procore-project-management",
+      "promotionStatus": "promoted",
+      "integrationCountBefore": 96,
+      "integrationCountExpectedAfter": 95,
+      "updatedAtBefore": "2026-09-07T07:42:37.736Z"
+    },
+    {
+      "id": "0f46713b-4e1c-418c-bef8-90b13df52573",
+      "slug": "followup-crm",
+      "promotionStatus": "promoted",
+      "integrationCountBefore": 14,
+      "integrationCountExpectedAfter": 13,
+      "updatedAtBefore": "2026-09-07T06:59:06.635Z"
+    }
+  ],
+  "affectedProductsNote": "Stored integration_count equalled the computed AECI-721 value for both products at measurement time, so the delete is the only thing moving them.",
+
+  "algoliaBefore": {
+    "production_integrations/8f5365f9-b759-4605-8aab-b6aac352512d": "HTTP 200 (present, must be deleted)",
+    "production_integrations/111ed9fc-5f1c-4041-8c83-05427dc35588": "HTTP 200 (present, must survive untouched)",
+    "production_products/0c0fc849-decf-41eb-8ffa-5377f810f38c": "integration_count = 96",
+    "production_products/0f46713b-4e1c-418c-bef8-90b13df52573": "integration_count = 14"
+  },
+
+  "publicBefore": {
+    "url": "https://www.aecintegrations.com/products/procore-project-management/integrations/followup-crm",
+    "status": 200,
+    "bothIntegrationIdsPresentInHtml": true,
+    "partnerBadgeCount": 2,
+    "robotsNoindex": false,
+    "defect": "The page renders two separate mechanism cards for one real integration. That is the user-visible symptom this retraction removes."
+  },
+
+  "cache": {
+    "productionIsCached": false,
+    "evidence": "apps/web/wrangler.jsonc declares an `exports` block for preview (L108) and staging (L175) only, not demo (L201) or production (L296). The live response carries `cache-control: private, no-store` with no Cf-Cache-Status, no Age and no Cache-Tag.",
+    "consequence": "A Cache-Tag purge is a no-op on production. Verification is by re-fetching the URLs, which is the same conclusion the AECI-593 Polycam run reached.",
+    "tagsThatWouldApply": [
+      "pair:followup-crm__procore-project-management",
+      "product:procore-project-management",
+      "product:followup-crm"
+    ]
+  },
+
+  "upstreamRetractionFeed": {
+    "tools": ["list_retractions", "confirm_retractions"],
+    "entries": 0,
+    "includeConfirmed": true,
+    "finding": "The review app already ships a retraction feed. It is referenced nowhere in this repo. It is empty, so it journals deletions going forward only and cannot heal this strand. Filed as a follow-up: it is the AECi half of AECI-595 and it re-points AECI-796."
+  }
+}
