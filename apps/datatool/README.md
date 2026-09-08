@@ -101,16 +101,18 @@ that tier's own SSR Worker consumes.
   guard straight from the dry-run response, so you cannot tick one the plan did not
   report.
 
-  **Neither of the two retractions this was built for ran through here.** AECI-593 was
-  executed on 2026-09-07 and AECI-794 on 2026-09-08, both via one-off scripts
-  (`scripts/ops/2026-09-polycam-retraction/`,
-  `scripts/ops/2026-09-procore-followup-retraction/`) driving `wrangler d1 execute
+  **None of the three retractions this was built for ran through here.** AECI-593 was
+  executed on 2026-09-07, AECI-794 and AECI-795 on 2026-09-08, all three via one-off
+  scripts (`scripts/ops/2026-09-polycam-retraction/`,
+  `scripts/ops/2026-09-procore-followup-retraction/`,
+  `scripts/ops/2026-09-dynamics-monday-retraction/`) driving `wrangler d1 execute
   --remote`, because reaching this endpoint needs a Cloudflare Access service token or
   `TOOL_TOKEN` and **neither is provisioned in an operator workspace** — while
   `CLOUDFLARE_API_TOKEN` is. Worth knowing before you plan the next prune around this
   API: budget for minting a credential, or expect the operation to route around the
-  guards this Worker owns. Two for two is no longer an exception; if this endpoint is
-  meant to be the path, it needs a credential an operator actually has.
+  guards this Worker owns. **Three for three, and that was the entire stranded-row
+  backlog** — this endpoint has now never been used in anger. If it is meant to be the
+  path, it needs a credential an operator actually has.
 
   **`orphansWithoutATwin` is orientation-blind, and that produces false positives.** It
   looks for a surviving row sharing `(source_product_id, target_product_id,
@@ -126,6 +128,14 @@ that tier's own SSR Worker consumes.
   guards had to be acknowledged. **A tripped guard still means stop and check — it just
   cannot, on its own, tell a unique mechanism from a reverse-orientation duplicate.**
   Check the claim data and the upstream ruling before concluding either way.
+
+  **AECI-795 is the other side of the same coin**, so do not over-generalise from
+  AECI-794. On AECI-794 both guards were false positives. On AECI-795 the same two
+  guards read `claimsUniqueToOrphans: 1, orphansWithoutATwin: 1` and were **true** — no
+  row of any orientation shared that pair. Identical guard sheets, opposite meanings.
+  The way to tell them apart is not the guard sheet: query the pair directly in **both**
+  orientations, which is what `scripts/ops/2026-09-dynamics-monday-retraction/retract.mjs`
+  does and prints alongside the guards.
 
   Error codes: `GUARD_TRIPPED` (409, a tripped guard is unacknowledged),
   `GUARD_ACK_STALE` (400, acknowledged a guard that reads zero), `ACK_REASON_REQUIRED`

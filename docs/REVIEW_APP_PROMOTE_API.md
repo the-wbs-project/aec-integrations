@@ -945,9 +945,24 @@ the reachable count to 5 and the integration bucket to 2 — AECI-794 and AECI-7
 edge**, 1 claim and 1 attestation in cascade, **1 publicly reachable row**. AECI-794 was
 duplicate residue from a deliberate upstream merge and was retracted
 (`scripts/ops/2026-09-procore-followup-retraction/`); the Bluebeam vendor and both its
-`built_by` strands cleared in the same window. **AECI-795 is the last one**, and its ruling
-is still open. That is the whole tail: from 7 reachable rows to 1 in two days, once the
-rulings were actually chased rather than filed.
+`built_by` strands cleared in the same window.
+
+**Re-measured again 2026-09-08, after AECI-795 — the tail is ZERO.** Every bucket empty, **0
+publicly reachable stranded rows**, and the sweep **exits 0 for the first time** since it was
+written. AECI-795 (`microsoft-dynamics-365 → monday-com`) was retracted; see
+`scripts/ops/2026-09-dynamics-monday-retraction/`. That is the whole tail: from 7 reachable
+rows to 0 in two days, once the rulings were actually chased rather than filed.
+
+**AECI-795 is the row worth remembering, because it had no ruling on either side.** AECI-593
+had a curator note; AECI-794 had a merge note on the survivor. This one had nothing — the edge
+was seeded in a 2026-07 sweep and removed with no trace in either system. Its shape
+(`mechanism_name: Zapier connector`, a `zapier.com` per-pair evidence URL) matches the
+AECI-700/701 convention change, and the review app **declined to assert that**, because it
+cannot be proven from the data. So the exit was an **operator ruling taken after escalating to
+the catalog owner** — the path `docs/RUNBOOKS.md` prescribes for a stray with no recorded
+ruling — and the `audit_log` row carries `no_upstream_ruling: true` so the absence stays
+queryable rather than merely narrated. **That absence, not the size of the backlog, is the
+argument for AECI-811.**
 
 **And the daily backstop named above has never actually run — nor can it, as written.**
 It skips green when `AIRTABLE_TOKEN` is absent, and that secret was never provisioned:
@@ -984,9 +999,9 @@ before this paragraph. Two consequences worth acting on:
   guess at what was deleted; this surface says so directly, and says why. Also AECI-811.
 
 **It is empty today.** `list_retractions` with `include_confirmed: true` and no entity filter
-returns 0 entries, so it journals deletions going forward only. It could not have caught any
-of the seven rows above, and it cannot catch AECI-795. It prevents the *next* strand, not the
-current ones.
+returns 0 entries, so it journals deletions going forward only. It caught none of the seven
+rows above — including AECI-795, the one row of the seven whose deletion is recorded **nowhere
+else either**. It prevents the *next* strand, not the ones already on the ground.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

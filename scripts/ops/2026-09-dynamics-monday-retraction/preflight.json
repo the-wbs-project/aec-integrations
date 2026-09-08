@@ -1,0 +1,138 @@
+{
+  "issue": "AECI-795",
+  "ruling": "DELETE",
+  "rulingClass": "operator ruling, no upstream note on either side",
+  "measuredAt": "2026-09-08T04:14Z",
+  "env": "production",
+  "database": "aeci-app-production",
+  "note": "Read-only pre-flight captured before any write. Every figure here was read from production D1, the live Algolia write host, or the live site. Nothing in this file is inferred.",
+
+  "target": {
+    "id": "2e6ad5bf-5590-4222-9710-23d43a625f12",
+    "name": "monday.com (ipaas)",
+    "sourceSlug": "microsoft-dynamics-365",
+    "targetSlug": "monday-com",
+    "mechanismKind": "iPaaS",
+    "mechanismName": "Zapier connector",
+    "direction": "bidirectional",
+    "createdAt": "2026-07-25T15:45:54.139Z",
+    "updatedAt": "2026-08-27T09:48:19.054Z",
+    "builtByVendorId": null,
+    "poweredByProductId": null,
+    "maintainedBy": "aeci",
+    "descriptionLength": 0,
+    "listingUrl": "https://zapier.com/apps/microsoft-dynamics-crm/integrations/monday",
+    "notes": "sources=ipaas | evidence=https://zapier.com/apps/microsoft-dynamics-crm/integrations/monday | notes=Microsoft Dynamics 365 CRM + monday.com integration on Zapier",
+    "claims": [
+      {
+        "id": "aeda3a66-fc2d-4339-a817-a0f616cc933c",
+        "dataObject": "directory-contacts",
+        "direction": "both",
+        "origin": "aeci",
+        "attestations": 1,
+        "attestationSource": "aeci",
+        "attestationNote": "ai_seed: Dynamics 365 CRM ↔ monday.com via Zapier syncs CRM contact/account records into monday items — https://zapier.com/apps/microsoft-dynamics-crm/integrations/monday"
+      }
+    ]
+  },
+
+  "twin": null,
+  "twinNote": "There is no twin. A direct query for any other `integrations` row whose two endpoints are microsoft-dynamics-365 and monday-com, in EITHER orientation, returned 0 rows. That is the check the prune guards cannot make, because `orphansWithoutATwin` is orientation-blind. Here the guard and the direct check agree.",
+
+  "notThisRow": {
+    "id": "048952ee-15b8-4437-9146-df40061e9484",
+    "sourceSlug": "adp-workforce-now",
+    "targetSlug": "monday-com",
+    "claims": 0,
+    "upstreamRecordId": "recgbcRYqUf2OvSZf",
+    "upstreamName": "monday.com (ipaas)",
+    "why": "The upstream record that carries the target's NAME points at THIS uuid, not the target's. It is a healthy, reachable row on an unrelated pair. Deleting it by mistake is the single most likely operator error on this issue, so retract.mjs asserts it is unchanged after the run rather than asserting a survivor."
+  },
+
+  "footprint": { "integrations": 1, "claims": 1, "attestations": 1 },
+
+  "guards": {
+    "claimsUniqueToOrphans": 1,
+    "orphansWithoutATwin": 1,
+    "orphansRicherThanTwin": 0
+  },
+  "guardsNote": "Both tripped guards are TRUE positives, unlike AECI-794 where both were false. `orphansRicherThanTwin` needs a twin to JOIN against, so it reads 0 by construction. The guard sheet is still not the evidence — the ruling is.",
+
+  "affectedProducts": [
+    {
+      "id": "e9810a7e-8d2c-45df-9163-8d0619768578",
+      "slug": "microsoft-dynamics-365",
+      "integrationCountBefore": 10
+    },
+    {
+      "id": "d7ac888b-2a51-4ebf-ba22-17a0b0331f5b",
+      "slug": "monday-com",
+      "integrationCountBefore": 16
+    }
+  ],
+  "affectedProductsNote": "Only the two endpoints move. `powered_by_product_id` is NULL here, and it would not have mattered: `integration_count` counts `integrations` rows where the product is source or target, plus `connector_evidenced_pairs`, and never the edges a connector powers (apps/api/src/lib/recompute-counts.ts).",
+
+  "strandWindow": {
+    "createdAt": "2026-07-25T15:45:54.139Z",
+    "auditRowsBefore": 8,
+    "integrationCreated": 1,
+    "integrationUpdated": 7,
+    "lastPromoteTouch": "2026-08-27T09:48:19.054Z",
+    "approxDays": 12,
+    "note": "`audit_log.entity_id` carries no foreign key, so these rows survive the delete and the window stays measurable afterwards. The upstream record was alive and being promoted until 2026-08-27, then went. AECI-794's mirror was last touched 2026-08-27T06:48:35.338Z — the same day, three hours earlier. Two rows with two different stated causes went in one window. Recorded as an observation, not a claim."
+  },
+
+  "suspectedCause": {
+    "issues": ["AECI-700", "AECI-701"],
+    "asserted": false,
+    "corroboration": "The row is a per-pair Zapier tile on its own data: mechanism_name `Zapier connector`, listing_url and notes evidence both `zapier.com/apps/microsoft-dynamics-crm/integrations/monday`, attestation note `via Zapier`. That is exactly the shape AECI-700/701 replaces with one `target=Zapier` edge.",
+    "whyStillNotAsserted": "Consistency is not causation. The review app was asked directly and declined to assert it, because nothing on either side records why this row went. The honest finding is the absence, not the hypothesis."
+  },
+
+  "algoliaBefore": {
+    "index": "production_integrations",
+    "host": "<APP_ID>.algolia.net (write host)",
+    "target": {
+      "objectID": "2e6ad5bf-5590-4222-9710-23d43a625f12",
+      "status": 200,
+      "mechanism_rank": 4
+    },
+    "notThisRow": { "objectID": "048952ee-15b8-4437-9146-df40061e9484", "status": 200 }
+  },
+
+  "publicBefore": {
+    "/products/microsoft-dynamics-365/integrations/monday-com": {
+      "status": 200,
+      "robots": "none (indexable)",
+      "rendersTargetEdge": true
+    },
+    "/products/monday-com/integrations/microsoft-dynamics-365": {
+      "status": 200,
+      "robots": "none (indexable)"
+    },
+    "/products/adp-workforce-now/integrations/monday-com": {
+      "status": 200,
+      "robots": "none (indexable)"
+    },
+    "/products/microsoft-dynamics-365": { "status": 200, "heading": "Integrations (10)" },
+    "/products/monday-com": { "status": 200, "heading": "Integrations (16)" },
+    "sitemap.xml": { "totalLocs": 1472, "targetPairPresent": true, "adpPairPresent": true }
+  },
+
+  "cache": {
+    "productionCached": false,
+    "evidence": "cache-control: private, no-store; no Cf-Cache-Status, no Age, no Cache-Tag on the live pair page. apps/web/wrangler.jsonc declares an `exports` block for preview and staging only.",
+    "tagsThatWouldApply": [
+      "pair:microsoft-dynamics-365__monday-com",
+      "product:microsoft-dynamics-365",
+      "product:monday-com"
+    ]
+  },
+
+  "upstreamRetractionFeed": {
+    "tools": ["list_retractions", "confirm_retractions"],
+    "consumedHere": false,
+    "empty": true,
+    "note": "AECI-595 shipped the upstream half only. The feed journals deletions going forward, so it could not have caught this row. The AECi consumer is AECI-811."
+  }
+}

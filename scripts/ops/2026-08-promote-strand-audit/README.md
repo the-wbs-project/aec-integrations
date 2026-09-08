@@ -208,6 +208,14 @@ The audit never writes. Once it reports a mismatch:
   `acknowledgeReason` citing it; the prune writes no `audit_log` row, so that reason and
   the operator identity in the Workers log line are the only record. Save `rollbackSql`
   first. Without a ruling, escalate — never override to make a red audit go green.
+
+  **Escalating is a step, not a dead end.** AECI-795
+  (`scripts/ops/2026-09-dynamics-monday-retraction/`) had no note on either side; the
+  catalog owner's answer became the ruling, and the delete recorded the absence as
+  `no_upstream_ruling: true` rather than inventing a cause. Note also that AECI-794 and
+  AECI-795 produced the **same** guard sheet with opposite meanings, so the way to tell
+  a unique mechanism from a reverse-orientation duplicate is to query the pair directly
+  in both orientations.
 - **`duplicatePointers`** — merge per the AECI-403 pattern: keep the richer record,
   re-point edges, delete the duplicate, re-promote.
 - **`pendingJobMarkers`** — never clear the marker by hand; it is the recovery handle.

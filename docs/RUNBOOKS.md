@@ -1314,6 +1314,13 @@ permanently unreachable. Which bucket fired tells you which direction broke:
      an upstream merge. The guards *also* tripped, and this time they were wrong to:
      `orphansWithoutATwin` is orientation-blind, so it could not see the surviving reverse
      twin. Use it as the reminder that the guard sheet cannot classify a stray on its own.
+   - `scripts/ops/2026-09-dynamics-monday-retraction/README.md` — **no ruling on either side.**
+     This is the case the other two do not cover, and the one the "Escalation" note below is
+     written for. Read it before concluding that a missing note means you must stop
+     indefinitely: escalating produced a ruling, the ruling was recorded on the issue and in
+     the `audit_log` row as `no_upstream_ruling: true`, and the delete then proceeded. A
+     plausible cause was visible in the row's own data and was deliberately **not** asserted,
+     because consistency is not causation.
 3. **`pendingJobMarkers`: never clear the marker by hand.** It is the recovery handle; a
    `complete` job still serves its full ID map. See "Promote job errored or stuck" above.
 
@@ -1339,3 +1346,17 @@ path can guard that, so this scheduled audit is the backstop.
 **Escalation:** a `stray` with no recorded ruling and no obvious curator action is a real unknown
 — do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
 raise it with whoever owns the catalog.
+
+**Escalating is a step, not a dead end.** AECI-795 is the worked example (`scripts/ops/2026-09-dynamics-monday-retraction/`).
+The catalog owner answered "no upstream record and no defence; if the edge is real it should be
+re-materialised deliberately with current evidence, not adopted from a stranded row", and that
+answer *is* the ruling. Three things make it safe to act on:
+
+- **Record the absence, not a guess.** The `audit_log` row carries `no_upstream_ruling: true`
+  and names the escalation as the ruling source, so a future auditor sees that nothing was
+  found rather than assuming nobody looked.
+- **Do not promote a hypothesis to a cause.** That row's own data pointed hard at one
+  explanation and it was still filed as `suspected_cause.asserted: false`, because nothing
+  recorded why the row actually went.
+- **Adoption is the riskier exit when there is no note.** Creating an upstream record to justify
+  a live row whose only evidence is that it exists gets the direction backwards.

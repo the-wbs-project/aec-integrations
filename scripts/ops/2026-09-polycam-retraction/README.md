@@ -137,9 +137,10 @@ URLs immediately after the delete and seeing the new state.
   from `integrationSourceGone`. The bucket still reads **2**, and that is the correct
   answer: the survivors are AECI-794 (`procore-project-management → followup-crm`) and
   AECI-795 (`microsoft-dynamics-365 → monday-com`), which are separate open rulings. The
-  audit exits 1 until those are resolved. **AECI-794 was ruled and retracted the next
-  day, 2026-09-08** (`scripts/ops/2026-09-procore-followup-retraction/`), taking the
-  bucket to 1; AECI-795 is the only one left.
+  audit exits 1 until those are resolved. **Both were ruled and retracted the next day,
+  2026-09-08** — AECI-794 at `scripts/ops/2026-09-procore-followup-retraction/` and
+  AECI-795 at `scripts/ops/2026-09-dynamics-monday-retraction/`. The bucket went 2 → 1 → 0
+  and the sweep now exits 0.
 
 ## Rollback
 
@@ -166,6 +167,8 @@ still need recreating with these uuids in `supabase_integration_id`.
   (never credentialed, and its Airtable transport is decommissioned).
 - **AECI-794** — same class, ruled DELETE and executed 2026-09-08
   (`scripts/ops/2026-09-procore-followup-retraction/`).
-- **AECI-795** — the last remaining stranded edge, ruling still open.
+- **AECI-795** — the last stranded edge, ruled DELETE and executed 2026-09-08
+  (`scripts/ops/2026-09-dynamics-monday-retraction/`). Same editorial shape as this lane,
+  but with **no** curator note to cite — the ruling came from escalating.
 - `scripts/ops/2026-08-promote-strand-audit/` — where the ruling was first recorded.
 - `scripts/ops/2026-09-stranded-row-audit/` — the sweep that found the rows still live.
