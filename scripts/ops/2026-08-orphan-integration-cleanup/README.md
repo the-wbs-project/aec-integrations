@@ -42,9 +42,11 @@ ever delete it. It is permanently stranded.
 | **Orphans** (in D1, unreferenced by Airtable) | **22** |
 | Dangling (Airtable id with no D1 row) | 0 |
 
-Re-measured 2026-08-13 after the run, by
-`scripts/ops/2026-08-promote-strand-audit/audit.mjs`: 496 D1 rows / 494 Airtable
-pointers / **2** orphans (none of them from this batch) / 0 dangling.
+Re-measured 2026-08-13 after the run, by the 2026-08 promote strand audit: 496 D1 rows /
+494 Airtable pointers / **2** orphans (none of them from this batch) / 0 dangling. That
+script was deleted on 2026-09-08 (AECI-796) — the measurement is preserved in
+`scripts/ops/2026-08-promote-strand-audit/README.md` §Measurement, and the live sweep is
+`scripts/ops/2026-09-stranded-row-audit/`.
 
 Worked example — Smartsheet ↔ Procore. Airtable holds exactly **two** records
 (`recLidKj1VUMFR5XT`, `rectnbqtS4V2xexTH`); D1 holds **four**. Airtable's two ids point at

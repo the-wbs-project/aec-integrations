@@ -192,8 +192,11 @@ is the _scheduled-delete_ exception and does not apply here.
 | `CLOUDFLARE_ACCOUNT_ID` | ditto                                                                                             |
 | `AECI_MCP_TOKEN`        | the review-app MCP (`.mcp.json`, injected from the Conductor keychain)                            |
 
-The sibling strand audit reads Airtable directly and needs `AIRTABLE_TOKEN`. This sweep
-deliberately does **not**: `AECI_MCP_TOKEN` is already in the workspace, and the MCP
+The 2026-08 strand audit read Airtable directly and needed `AIRTABLE_TOKEN`. This sweep
+deliberately did **not**, and that turned out to be the durable choice: that audit was
+deleted on 2026-09-08 (AECI-796) because its base was decommissioned, and its successor
+`scripts/ops/2026-09-stranded-row-audit/` now uses this same transport.
+`AECI_MCP_TOKEN` is already in the workspace, and the MCP
 server exposes the two reads this needs already joined (`list_integrations` →
 `supabaseId` + `poweredByProduct.id`; `get_product` → the connector's `supabaseId`).
 `mcp-client.mjs` enforces a read-only tool allow-list, because the same server also

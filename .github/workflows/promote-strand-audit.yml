@@ -1,49 +1,81 @@
-# AEC Integrations — promote strand audit (AECI-568 / AECI-593).
+# AEC Integrations — promote strand audit (AECI-568 / AECI-593 / AECI-796).
 #
-# Scheduled READ-ONLY cross-reference of production D1 against the AEC Integrations
-# Airtable curation base. Runs `scripts/ops/2026-08-promote-strand-audit/audit.mjs`,
-# which reports every row on either side without a valid counterpart link and exits
-# non-zero if any bucket is non-empty:
+# Scheduled READ-ONLY cross-reference of production D1 against the review app's curation
+# catalog. Runs `scripts/ops/2026-09-stranded-row-audit/audit.mjs`, which classifies every
+# public row that no upstream record claims and exits non-zero if any bucket is non-empty:
 #
-#   stranded           Airtable record looks promoted but holds no supabase_*_id
-#   stray              a D1 row no Airtable record points at
-#   dangling           an Airtable supabase_*_id whose D1 row is gone
-#   duplicatePointers  one D1 id claimed by >1 Airtable record
-#   pendingJobMarkers  a product still carrying promote_job_id (uncollected job —
-#                      also the liveness check for the AECI-570 reconcile sweep)
+#   productRejectedUpstream      D1 product whose upstream record is `rejected`
+#   productDeletedUpstream       D1 product no upstream record claims at all
+#   vendorNoLiveProducts         D1 vendor whose products have all moved away
+#   vendorSourceGone             D1 vendor whose upstream record is gone
+#   integrationSourceGone        D1 integration edge no upstream record claims
+#   integrationEndpointStranded  an edge whose endpoint product is itself stranded
 #
-# WHY THIS IS SCHEDULED, not a PR check. The link between the two systems lives
-# only in Airtable's `supabase_*_id` columns — D1 stores no curation-tool key
-# (AECI-562 was rejected deliberately). So drift is created by *operator* actions
-# against live data, not by merging code, and the most durable source is one promote
-# cannot guard at all: **a curator deleting an Airtable record whose D1 row still
-# exists.** Promote has no delete semantics, so that always leaves a stray, and
-# nothing else will ever notice. AECI-593 was exactly that — two retracted Polycam
-# edges left live on production for four days. This job is how the next one gets
-# caught the next morning instead of at the next manual audit.
+# Triggers are `schedule` + `workflow_dispatch` only, and the job consumes no event payload —
+# no issue/PR/commit text reaches a `run:` block, so there is no injection surface here. The
+# only inputs are three secrets, all passed via `env:` and referenced as shell variables.
 #
-# The upstream *timeout* cause is fixed (AECI-563 async promote + AECI-567 job
-# ledger + AECI-570 hourly reconcile sweep), so a lost response can no longer strand
-# ids. This guards the residue that remains.
+# WHY THIS IS SCHEDULED, not a PR check. The link between the two systems lives only in the
+# review app's `supabase_*_id` columns — D1 stores no curation-tool key (AECI-562 was
+# rejected deliberately). So drift is created by *operator* actions against live data, not
+# by merging code, and the most durable source is one promote cannot guard at all: **a
+# curator deleting a record whose D1 row still exists.** Promote has no delete semantics, so
+# that always leaves a stranded row, and nothing else will ever notice. AECI-593 was exactly
+# that — two retracted Polycam edges, live and indexed for four WEEKS under an issue marked
+# Done. This job is how the next one gets caught the next morning.
 #
-# PRODUCTION ONLY, deliberately. There is one curation base for all deploy tiers and
-# it holds *production* uuids, so comparing it against staging/demo/preview's seeded
-# catalogs reports near-total mismatch. The script itself warns when pointed
-# elsewhere; there is no matrix here on purpose.
+# ── WHY THIS WORKFLOW WAS REWRITTEN (AECI-796) ─────────────────────────────────────────
 #
-# NEVER heals. The script has no --apply and no write path: it issues SELECTs and
-# GETs. Every bucket's repair is a deliberate, judgement-bearing operator action —
-# `stray` in particular is a curation decision, not a mechanical delete. The
-# recipes live in scripts/ops/2026-08-promote-strand-audit/README.md §Healing.
+# It used to read Airtable and it never ran. Two independent failures, and the second is why
+# the first was never noticed:
+#
+#   1. It skipped GREEN when `AIRTABLE_TOKEN` was absent, on the reasoning that a
+#      red-on-arrival cron trains people to ignore the cron. That secret was never added, so
+#      all 25 scheduled runs between 2026-08-13 and 2026-09-06 reported `success` having
+#      audited nothing. A dead guard is indistinguishable from a healthy one.
+#   2. The review app moved off Airtable onto its own D1, so the script those runs were
+#      skipping had ALSO gone obsolete — `api.airtable.com` is decommissioned and no PAT
+#      could have revived it.
+#
+# Hence: a transport we actually hold a credential for (`AECI_MCP_TOKEN`, the review-app MCP
+# bearer), and NO skip-green branch. A missing credential is now exit 2 and red.
+#
+# ── THIS JOB FAILS RED. DO NOT RESTORE A SKIP BRANCH, DO NOT ADD continue-on-error. ────
+#
+# The temptation is real and it is documented above as the exact defect this rewrite exists
+# to remove. "The audit is unchecked" is NOT "the catalog is fine". Both are red, and the
+# annotations say which is which. The correct precedents are
+# `.github/workflows/posthog-liveness-sweep.yml` and `.github/workflows/reconcile-counts.yml`
+# — scheduled correctness guards that go red and explain themselves.
+#
+#   exit 0  clean and complete
+#   exit 1  stranded rows found
+#   exit 2  could not check — missing credential, bad args, incomplete sweep, or a crash
+#
+# PRODUCTION ONLY, deliberately. There is one curation catalog for all deploy tiers and it
+# holds *production* uuids, so comparing it against staging/demo/preview's seeded catalogs
+# reports near-total mismatch. The script itself warns when pointed elsewhere; there is no
+# matrix here on purpose.
+#
+# NEVER heals. The script has no --apply and no write path, and `mcp-client.mjs` refuses any
+# tool outside a read-only allow-list — the same MCP server exposes `promote_product` and the
+# `create_*`/`update_*` family. Every bucket's repair is a deliberate, judgement-bearing
+# operator action. Recipes: docs/RUNBOOKS.md §"Promote strand audit is red".
+#
+# RATE BUDGET. The review app rate-limits at 100 requests / 10 s keyed on `CF-Connecting-IP`,
+# and the check runs BEFORE auth, so this job shares a budget with anything else on the
+# runner's egress IP. The script reads at concurrency 3 (~5 rps) with backoff on 429. One run
+# per day. Raising the cadence or `AECI_MCP_CONCURRENCY` needs a fresh look at that ceiling.
 #
 # Required secrets:
+#   AECI_MCP_TOKEN        Bearer for https://review.aecintegrations.com/mcp — the same
+#                         credential `.mcp.json` uses for the `aeci-review` server.
+#                         Read-only by construction on this side (the client's allow-list).
 #   CLOUDFLARE_API_TOKEN  Account → D1 → Read (CICD_PLAN §7.1); authenticates the
-#                         `wrangler d1 execute --remote` reads
-#   AIRTABLE_TOKEN        Airtable PAT scoped to `data.records:read` on base
-#                         appy81IdGJY6Fngf9. Until this is set the job SKIPS GREEN
-#                         with a warning rather than failing — the script hard-exits
-#                         2 without it, and a red-on-arrival cron trains people to
-#                         ignore the cron. Same pattern as browserstack.yml.
+#                         `wrangler d1 execute --remote` reads.
+#   CLOUDFLARE_ACCOUNT_ID Passed for parity with the other wrangler jobs. Not strictly
+#                         required — `apps/api/wrangler.jsonc` already declares
+#                         `account_id` — which is why it gets no empty-check below.
 
 name: promote-strand-audit
 
@@ -69,7 +101,14 @@ jobs:
   audit:
     name: Strand audit (production)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20, not the old 10 — headroom, not a measurement. The review app's `list_products` /
+    # `list_vendors` projections now carry `supabaseId`, so most records resolve straight off
+    # the paged list instead of costing a `get_product` each: measured 2026-09-08, 252 of 290
+    # products and 167 of 193 vendors came from the list, leaving ~64 fallback calls and a
+    # ~2-minute run. The script prints a `fastPath:` line every run saying which path it took.
+    # If that line ever shows `fromList: 0` the projection has regressed and the run reverts to
+    # ~300 rate-limited calls at concurrency 3 — which is what this ceiling is sized for.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -86,35 +125,46 @@ jobs:
       # The script shells out to apps/api's local wrangler binary.
       - run: pnpm install --frozen-lockfile
 
-      - name: Audit production D1 against Airtable
+      - name: Audit production D1 against the review app
         env:
+          AECI_MCP_TOKEN: ${{ secrets.AECI_MCP_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -z "$AIRTABLE_TOKEN" ]; then
-            echo "::warning::AIRTABLE_TOKEN is not set — skipping the strand audit. Mint a read-only Airtable PAT (data.records:read on base appy81IdGJY6Fngf9) and add it under Settings → Secrets and variables → Actions to enable this guard."
-            exit 0
+          # exit 2, not 0 and not 1. See the header: an unchecked audit is not a pass, and it
+          # is not a finding either. The script draws the same line internally.
+          if [ -z "$AECI_MCP_TOKEN" ]; then
+            echo "::error::AECI_MCP_TOKEN is not set, so the strand audit is UNCHECKED — this is not a pass. It is the bearer for https://review.aecintegrations.com/mcp (the same one .mcp.json uses). Add it under Settings → Secrets and variables → Actions."
+            exit 2
           fi
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN secret is empty. Configure it under repo Settings → Secrets and variables → Actions."
-            exit 1
+            echo "::error::CLOUDFLARE_API_TOKEN secret is empty, so the production D1 half cannot be read. Account → D1 → Read is sufficient. Configure it under Settings → Secrets and variables → Actions."
+            exit 2
           fi
-          # --out to RUNNER_TEMP, not the default path beside the script: the report
-          # holds production catalog content (which is why the ops dir gitignores
-          # report-*.json), and it is not uploaded as an artifact.
-          node scripts/ops/2026-08-promote-strand-audit/audit.mjs \
+          # Every writable path goes to RUNNER_TEMP. All three outputs hold production catalog
+          # content — names, uuids, public URLs — which is why the ops dir gitignores them, and
+          # none of them is uploaded as an artifact. --refresh-cache is belt-and-braces on a
+          # fresh runner: the snapshot is reused SILENTLY when present, so a future runner-cache
+          # change must not be able to turn this into a replay of an old measurement.
+          node scripts/ops/2026-09-stranded-row-audit/audit.mjs \
             --env production \
-            --out "$RUNNER_TEMP/strand-audit.json"
+            --refresh-cache \
+            --cache "$RUNNER_TEMP/upstream-cache.json" \
+            --out "$RUNNER_TEMP/stranded-row-audit.json" \
+            --ids-out "$RUNNER_TEMP/stranded-ids.txt"
 
-      - name: Explain the mismatch on failure
+      - name: Explain a red audit
         if: failure()
         run: |
           {
-            echo "::error::Promote strand audit found a D1 ↔ Airtable mismatch on production (or the job failed to run)."
-            echo "::error::Most likely cause: a curator deleted or edited an Airtable record whose D1 row is still live. Promote has no delete semantics, so that leaves a stray forever."
-            echo "::error::Read the per-bucket repair recipes before touching anything — 'stray' is a curation decision, not a mechanical delete:"
-            echo "::error::  scripts/ops/2026-08-promote-strand-audit/README.md  §Healing"
-            echo "::error::Re-run locally for the full per-bucket dump:"
-            echo "::error::  AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> node scripts/ops/2026-08-promote-strand-audit/audit.mjs"
-            echo "::error::Deleting a stray goes through the datatool prune with the tripped guards acknowledged by name (apps/datatool/README.md). Never override a guard without a recorded editorial ruling."
+            echo "::error::The strand audit is red. Read the step log above FIRST — it prints the per-bucket counts and every stranded id, and the two states below are not the same problem."
+            echo "::error::  exit 1 — stranded rows found. Production holds a row no upstream record claims."
+            echo "::error::  exit 2 — the audit could NOT run: a missing credential, an incomplete sweep, or a crash. The catalog is unverified, not clean."
+            echo "::error::Triage order for exit 1:"
+            echo "::error::  1. docs/RUNBOOKS.md — 'Promote strand audit is red'. Bucket meanings and the repair recipes."
+            echo "::error::  2. Read the upstream ruling BEFORE anything else. A stranded row is either an editorial retraction or duplicate residue, and that flips the repair from adopt to delete. Two worked examples, executed end to end: scripts/ops/2026-09-polycam-retraction/README.md (retraction) and scripts/ops/2026-09-procore-followup-retraction/README.md (merge residue)."
+            echo "::error::  3. A tripped datatool guard is NOT evidence either way. orphansWithoutATwin is orientation-blind, so it reports 'no twin' on a reverse-orientation duplicate that plainly has one. Go to the claim data. See docs/REVIEW_APP_PROMOTE_API.md 5.1."
+            echo "::error::  4. Never delete a row to make this job green. Retraction is a separate authorized action and needs a recorded ruling."
+            echo "::error::Re-run locally for the full dump:"
+            echo "::error::  AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache"
           }

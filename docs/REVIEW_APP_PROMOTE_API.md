@@ -924,12 +924,19 @@ row that really was redundant residue. **When the guards trip, go to the claim d
 the upstream ruling — do not read the guard sheet as evidence either way.**
 
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
-production D1 against the base daily and fails on any stray. AECI-593 is the worked
-example — and the worked example of step 2 being skipped: two Polycam edges were
-editorially retracted on 2026-08-09, the audit found them four days later, and the D1
-delete was then held for a go-ahead that took four weeks to arrive. It was
-**executed 2026-09-07** (`scripts/ops/2026-09-polycam-retraction/`). Repair recipes:
-`scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+production D1 against the curation catalog daily at 09:00 UTC and fails on any stranded row.
+Since **2026-09-08 (AECI-796)** it reads that catalog over the `aeci-review` MCP with
+`AECI_MCP_TOKEN`, running `scripts/ops/2026-09-stranded-row-audit/audit.mjs` across six
+buckets. It has **no skip-green branch**: a missing credential exits 2 and goes red, because
+an unchecked audit is not a pass. Read the next paragraph before trusting any run of it dated
+before that. Triage: `docs/RUNBOOKS.md` §"Promote strand audit is red"; the repair recipes are
+still `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing, a retired lane kept for
+that section.
+
+AECI-593 is the worked example — and the worked example of step 2 being skipped: two Polycam
+edges were editorially retracted on 2026-08-09, a hand-run audit found them four days later,
+and the D1 delete was then held for a go-ahead that took four weeks to arrive. It was
+**executed 2026-09-07** (`scripts/ops/2026-09-polycam-retraction/`).
 
 **How much of this is actually happening, measured.** The AECI-767 sweep
 (`scripts/ops/2026-09-stranded-row-audit/`) measured the whole tail against production
@@ -945,21 +952,30 @@ the reachable count to 5 and the integration bucket to 2 — AECI-794 and AECI-7
 edge**, 1 claim and 1 attestation in cascade, **1 publicly reachable row**. AECI-794 was
 duplicate residue from a deliberate upstream merge and was retracted
 (`scripts/ops/2026-09-procore-followup-retraction/`); the Bluebeam vendor and both its
-`built_by` strands cleared in the same window. **AECI-795 is the last one**, and its ruling
-is still open. That is the whole tail: from 7 reachable rows to 1 in two days, once the
-rulings were actually chased rather than filed.
+`built_by` strands cleared in the same window. That was the whole tail: from 7 reachable rows
+to 1 in two days, once the rulings were actually chased rather than filed.
 
-**And the daily backstop named above has never actually run — nor can it, as written.**
-It skips green when `AIRTABLE_TOKEN` is absent, and that secret was never provisioned:
-all 25 scheduled runs since 2026-08-13 report success having audited nothing. The secret
-is also not the fix, because **the review app has moved off Airtable onto its own D1**,
-so that script's `api.airtable.com` transport points at a decommissioned system
-(**AECI-796**). Read the backstop paragraph above as intended behaviour, not observed
-behaviour: today the only things that have ever caught a stranded row are a human
-noticing and a one-off sweep. That measurement, its per-row
-dispositions, and the FK ordering that blocks the Bluebeam vendor delete are in that
-lane's README; it is also where you go to tell a **deleted** upstream record from a
-**rejected** one, which this daily audit cannot do.
+**Re-measured 2026-09-08 again, after AECI-795, by the first run of the rewritten daily job:
+CLEAN.** Zero rows in every bucket, zero publicly reachable, reconciling 252/252 products with
+no unresolved reads. From 7 to 0 in two days. Two caveats on reading that as reassurance. The
+tail was drained **by hand**, issue by issue, not by any mechanism that will catch the next
+one — the mechanism is the daily job, and 2026-09-08 is its first real run. And a clean stock
+check says only that nothing is stranded *today*; it cannot say a curator deleted nothing,
+which is the AECI-811 half.
+
+**The daily backstop named above did not run at all for its first 25 scheduled runs, and
+could not have.** Until 2026-09-08 it skipped green when `AIRTABLE_TOKEN` was absent, and
+that secret was never provisioned: every run between 2026-08-13 and 2026-09-06 reported
+success having audited nothing. The secret was also not the fix, because **the review app had
+moved off Airtable onto its own D1**, so that script's `api.airtable.com` transport pointed at
+a decommissioned system. **AECI-796** re-pointed the workflow at the review-app MCP, removed
+the skip branch, and deleted the Airtable script. Two things follow: a green run of this job
+dated before 2026-09-08 is evidence of nothing, and for that whole window the only things that
+had ever caught a stranded row were a human noticing and a one-off sweep. The AECI-767
+measurement, its per-row dispositions, and the FK ordering that blocked the Bluebeam vendor
+delete are in `scripts/ops/2026-09-stranded-row-audit/README.md` — now also the lane the daily
+job runs, so telling a **deleted** upstream record from a **rejected** one is part of the
+daily check rather than a separate errand.
 
 **The upstream half of the fix already exists, and we consume none of it.** Found while
 executing AECI-794 on 2026-09-08. The review app's MCP exposes **`list_retractions`** and
@@ -979,9 +995,14 @@ before this paragraph. Two consequences worth acting on:
   it is a consumer to build rather than a protocol to design: the hard half, knowing what was
   deleted and why after the record is gone, is already answered upstream. Tracked as
   **AECI-811**.
-- **AECI-796**'s daily backstop should be re-pointed at this feed rather than at the
-  decommissioned `api.airtable.com` transport. A set difference between two databases can only
-  guess at what was deleted; this surface says so directly, and says why. Also AECI-811.
+- **AECI-796**'s daily backstop was re-pointed on 2026-09-08 — but at the **set-difference
+  sweep**, not at this feed, and that split is deliberate. The two answer different questions.
+  A set difference is a **stock** check: it compares what exists on both sides today, so it
+  catches a row however long ago it was stranded, but it can only infer *that* something went
+  missing. This feed is an **event** check: it says what was deleted and **why**, in the
+  curator's own words, which is the expensive half of every retraction so far — but it journals
+  forward only, so it is blind to everything stranded before it shipped. Build the consumer
+  (**AECI-811**) *alongside* the daily sweep, not instead of it.
 
 **It is empty today.** `list_retractions` with `include_confirmed: true` and no entity filter
 returns 0 entries, so it journals deletions going forward only. It could not have caught any

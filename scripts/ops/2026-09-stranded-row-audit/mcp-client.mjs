@@ -4,10 +4,10 @@
 //
 // WHY THIS EXISTS. The curation catalog is upstream of this repo and has no REST
 // surface documented here (docs/REVIEW_APP_PROMOTE_API.md is one-directional: it is
-// the contract for the review app pushing INTO us). The sibling strand audit
-// (scripts/ops/2026-08-promote-strand-audit/audit.mjs) reads the Airtable base
-// directly instead — but that needs AIRTABLE_TOKEN, which is deliberately NOT in this
-// repo's environment. AECI_MCP_TOKEN is (.mcp.json + the Conductor keychain).
+// the contract for the review app pushing INTO us). The 2026-08 strand audit read the
+// Airtable base directly instead — but that needed AIRTABLE_TOKEN, which was never in this
+// repo's environment, and the base has since been decommissioned along with that script
+// (AECI-796). AECI_MCP_TOKEN is here (.mcp.json + the Conductor keychain).
 //
 // Copied verbatim from scripts/ops/2026-08-powered-by-backfill/mcp-client.mjs, which
 // is where the transport notes below were paid for. Each ops lane is self-contained by
