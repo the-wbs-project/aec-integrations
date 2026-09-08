@@ -1302,12 +1302,18 @@ permanently unreachable. Which bucket fired tells you which direction broke:
    AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> \
      node scripts/ops/2026-08-promote-strand-audit/audit.mjs
    ```
-2. **`stray`: was this an editorial retraction?** Read the affected product's Airtable
-   `research_notes` and `tool_integration_check_notes` *before* anything else. A curator who
-   deleted an integration on purpose normally records the ruling there — that is exactly what
-   AECI-593 turned out to be, and it flips the repair from "adopt" to "delete". Read
-   `scripts/ops/2026-09-polycam-retraction/README.md` for how that one was actually
-   executed end to end (plan → rollback → delete → count repair → Algolia → re-audit).
+2. **`stray`: was this an editorial retraction, or duplicate residue?** Read the affected
+   product's upstream `research_notes` and `tool_integration_check_notes` *before* anything
+   else, and read the notes on any **surviving sibling row** too — a merge ruling is recorded
+   on the survivor, not on the row that went away. Both shapes flip the repair from "adopt"
+   to "delete", and there are now two worked examples, executed end to end (plan → rollback →
+   audit row → delete → count repair → Algolia → re-audit):
+   - `scripts/ops/2026-09-polycam-retraction/README.md` — **editorial retraction**. The row
+     was the only copy; the guards tripped and were correctly overridden.
+   - `scripts/ops/2026-09-procore-followup-retraction/README.md` — **duplicate residue** from
+     an upstream merge. The guards *also* tripped, and this time they were wrong to:
+     `orphansWithoutATwin` is orientation-blind, so it could not see the surviving reverse
+     twin. Use it as the reminder that the guard sheet cannot classify a stray on its own.
 3. **`pendingJobMarkers`: never clear the marker by hand.** It is the recovery handle; a
    `complete` job still serves its full ID map. See "Promote job errored or stuck" above.
 

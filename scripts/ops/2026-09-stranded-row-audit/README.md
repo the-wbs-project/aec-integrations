@@ -186,13 +186,13 @@ live (see [Two gates](#two-gates)).
 
 | URL                                                              | Bucket                        | Cascade                  | What it is                                                             |
 | ---------------------------------------------------------------- | ----------------------------- | ------------------------ | ---------------------------------------------------------------------- |
-| `/vendors/bluebeam`                                              | `vendorNoLiveProducts`        | 0 products               | **AECI-685**, In Progress — redirect shipped, D1 delete still pending. |
+| `/vendors/bluebeam`                                              | `vendorNoLiveProducts`        | 0 products               | **AECI-685 / AECI-792** — D1 delete **applied 2026-09-07**, see below. |
 | `/products/polycam/integrations/arcgis`                          | `integrationSourceGone`       | 1 claim, 1 attestation   | **AECI-593** — reopened and **retracted the same day**, see below.     |
 | `/products/polycam/integrations/autocad`                         | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-593** — reopened and **retracted the same day**, see below.     |
-| `/products/procore-project-management/integrations/followup-crm` | `integrationSourceGone`       | 2 claims, 2 attestations | **New** — AECI-794. Reverse twin survives.                             |
+| `/products/procore-project-management/integrations/followup-crm` | `integrationSourceGone`       | 2 claims, 2 attestations | **AECI-794** — ruled and **retracted 2026-09-08**, see below.          |
 | `/products/microsoft-dynamics-365/integrations/monday-com`       | `integrationSourceGone`       | 1 claim, 1 attestation   | **New** — AECI-795. No twin.                                           |
-| `/products/autodesk-revit/integrations/bluebeam-revu`            | `integrationEndpointStranded` | 1 claim, 1 attestation   | `built_by` → the dead Bluebeam vendor.                                 |
-| `/products/bluebeam-revu/integrations/okta`                      | `integrationEndpointStranded` | 0                        | `built_by` → the dead Bluebeam vendor.                                 |
+| `/products/autodesk-revit/integrations/bluebeam-revu`            | `integrationEndpointStranded` | 1 claim, 1 attestation   | `built_by` → the dead Bluebeam vendor. **Re-pointed 2026-09-07.**      |
+| `/products/bluebeam-revu/integrations/okta`                      | `integrationEndpointStranded` | 0                        | `built_by` → the dead Bluebeam vendor. **Re-pointed 2026-09-07.**      |
 
 ### The headline: detection is not the weak link — execution is
 
@@ -206,6 +206,11 @@ live (see [Two gates](#two-gates)).
   products having moved to `Nemetschek Group` (`toolCount: 8`). Nothing here is news to
   AECI-685, which already enumerates the blockers; this run simply confirms the state
   independently, four weeks on.
+  **Closed the day after this sweep ran:** the vendor row was deleted from production D1
+  on 2026-09-07 and both `built_by` edges re-pointed to Nemetschek Group, so this row and
+  both `integrationEndpointStranded` rows below are gone from the 2026-09-08 re-run.
+  Record: `scripts/ops/2026-09-bluebeam-vendor-retraction/README.md` (Algolia, cache and
+  the upstream record delete were still outstanding at that point).
 - **The two Polycam edges** (`74099c42-…`, `4dc9d4bb-…`) — these are AECI-593's rows,
   and **AECI-593 is marked Done** (closed 2026-08-13). Its own Verify step reads _"the
   strand audit returns `Integrations → stray: 0`"_, and that is still false today.
@@ -261,7 +266,7 @@ integrations are DELETE; none is an adopt.** Sources are their production D1 and
 | --- | --- |
 | `74099c42-…` polycam ↔ arcgis | **DELETE.** The 2026-08-09 curator decision is recorded verbatim on Polycam's `tool_integration_check_notes` *and* `research_notes`: the integration bar is a **purpose-built mechanism**, and a manual file hand-off ("export a DXF, open it in X") is not an integration however well documented. Full evidence for both removed edges is preserved "for easy re-materialization if the bar ever loosens" — so re-creating them upstream would re-litigate a settled decision. |
 | `4dc9d4bb-…` polycam ↔ autocad | **DELETE**, same ruling. |
-| `8f5365f9-…` procore → followup-crm | **DELETE.** Two records existed upstream and one was **deliberately merged away** under AECI-699 — both cited the same evidence page (`marketplace.procore.com/apps/followup-crm`), "one artifact filed twice, not two". The survivor is `rec1HRURkiFzAPUkn`, carrying `111ed9fc-…` — the reverse-orientation twin this audit spotted. The identical `created_at` is because both were seeded in one discovery pass. |
+| `8f5365f9-…` procore → followup-crm | **DELETE — executed 2026-09-08** (`scripts/ops/2026-09-procore-followup-retraction/`). Two records existed upstream and one was **deliberately merged away** under AECI-699 — both cited the same evidence page (`marketplace.procore.com/apps/followup-crm`), "one artifact filed twice, not two". The survivor is `rec1HRURkiFzAPUkn`, carrying `111ed9fc-…` — the reverse-orientation twin this audit spotted. The identical `created_at` is because both were seeded in one discovery pass. |
 | `2e6ad5bf-…` dynamics-365 → monday-com | **DELETE**, and this is the one that argues for a retraction channel. The edge *was* materialised in a 2026-07 sweep and is gone now, **with no ruling written down on either side**. Probably swept up by the AECI-700/701 Zapier-convention change, which matches its `iPaaS` kind — but the review app explicitly declines to assert that from the data. No upstream record, no defence: if the edge is real it should be re-materialised deliberately with current evidence, not adopted from a stranded row. |
 
 **The single most useful fact they returned:** Polycam was **re-promoted on 2026-08-25**,
@@ -300,13 +305,19 @@ procore-project-management`, also `partner`) carries the identical `created_at`
   record for one direction was later removed. Because the pair page is
   orientation-independent (`pair:{min}__{max}`), **retracting this row would not 404
   the URL** — the twin keeps it alive. That makes it the cheaper of the two to
-  resolve, and the likelier duplicate. Filed as **AECI-794**.
+  resolve, and the likelier duplicate. Filed as **AECI-794**, and **executed 2026-09-08**
+  (`scripts/ops/2026-09-procore-followup-retraction/`). The duplicate reading was right,
+  and it came from the upstream AECI-699 merge note plus the claim data, **not** from the
+  prune guards — both of those tripped. `orphansWithoutATwin` matches on
+  `(source, target, mechanism_name)`, so it is blind to a reverse-orientation twin.
 - **`2e6ad5bf-…` `microsoft-dynamics-365 → monday-com`** (`iPaaS`). **No twin.** The
   upstream `monday.com (ipaas)` record (`recgbcRYqUf2OvSZf`) carries a _different_
   uuid (`048952ee-…`), which is live in D1 on the unrelated `adp-workforce-now ↔
 monday-com` pair. So this is not a duplicate of anything — it is an edge whose own
-  record is gone, and retracting it **would** 404 `/products/microsoft-dynamics-365/
-integrations/monday-com`. Needs a curation ruling.
+  record is gone. Needs a curation ruling. Retracting it would leave
+  `/products/microsoft-dynamics-365/integrations/monday-com` returning 200 with a
+  noindexed empty state, not a 404 — but it removes the only copy of that mechanism,
+  which is the real reason it needs a ruling rather than a sweep.
 
 Note the first carries the retired `partner` mechanism marker, which AECI-735 left
 sequenced behind AECI-712's upstream re-key. Anything that re-keys `partner` rows
@@ -362,13 +373,14 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | ---------- | ---------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-09-07 | production | `audit.mjs` | 0 products, 1 vendor, 6 integrations stranded; 7 claims + 7 attestations in cascade. Reconciled 247/247, 0 unresolved reads. No write performed. |
 | 2026-09-07 | production | `audit.mjs` | Re-run after the AECI-593 retraction: 0 products, 1 vendor, 4 integrations stranded; 4 claims + 4 attestations in cascade; 5 publicly reachable. `integrationSourceGone` is down to **2** (AECI-794, AECI-795), carrying 3 of those claims/attestations. Both Polycam ids gone. Still exits 1 — correctly, those two rulings are open. |
+| 2026-09-08 | production | `audit.mjs` | Re-run after the AECI-794 retraction: **0 products, 0 vendors, 1 integration** stranded; 1 claim + 1 attestation in cascade; **1** publicly reachable. `integrationSourceGone` is down to **1**. `8f5365f9-…` is gone, and so are the Bluebeam vendor and both `built_by` strands — that whole lane closed between the two runs. Only **AECI-795** is left. Still exits 1, correctly. |
 
 ## Follow-ups filed from this run
 
 | Issue        | Row                                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------------------- |
-| **AECI-794** | `procore-project-management → followup-crm` — reverse twin survives, so a retraction does not 404 the pair URL |
-| **AECI-795** | `microsoft-dynamics-365 → monday-com` — no twin; a retraction **does** 404 the pair URL, so it needs a ruling  |
+| **AECI-794** | `procore-project-management → followup-crm` — reverse twin survives. **Ruled DELETE and executed 2026-09-08**, see `scripts/ops/2026-09-procore-followup-retraction/` |
+| **AECI-795** | `microsoft-dynamics-365 → monday-com` — no twin, so a retraction removes the only copy of that mechanism. Still needs a ruling. (It does **not** 404 the pair URL: a pair page with no edge returns 200 with a noindexed empty state.) |
 
 Five of the seven rows were already covered: **AECI-685** (the vendor and both
 `built_by` edges) and **AECI-593** (both Polycam edges). Both carry a comment recording
