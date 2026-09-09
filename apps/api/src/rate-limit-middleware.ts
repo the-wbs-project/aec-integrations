@@ -29,6 +29,21 @@
  * Reads are never limited. `GET /api/vendor/updates` is polled every 20 s per
  * focused vendor seat (AECI-629 / ADR 0023) and its failure mode is a silently
  * stale portal, so the invariant is kept exceptionless rather than carved.
+ *
+ * **`cf-connecting-ip` DOES survive the `env.API` service binding**, which is
+ * worth stating because nothing in this repo read it before AECI-773 and the
+ * neighbouring `request.cf` demonstrably does NOT (that is the entire reason
+ * `applyCfContextHeaders` in `apps/web/src/server-runtime.ts` copies cf fields
+ * onto `x-aeci-cf-*` headers). The difference is that `cf` is a JS property on
+ * the Request object while this is a header, and the SSR passthrough forwards
+ * `c.req.raw` with its headers intact. Verified locally against `pnpm dev:agent`:
+ * distinct `cf-connecting-ip` values get distinct counters and the trip log
+ * reports `key_source: 'ip'`, not `'absent'` — miniflare sets the header from the
+ * client socket when it is missing, so the path is exercised rather than skipped.
+ * If it ever stops arriving on a deployed tier the symptom is a rising
+ * `key_source:absent` on `bucket:token`, and the fix is the strip-then-set
+ * pattern `applyCfContextHeaders` already uses. Do NOT fall back to
+ * `x-forwarded-for`: a client can set it and this Worker cannot tell.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
