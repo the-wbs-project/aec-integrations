@@ -46,8 +46,16 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 > Cloudflare and GitHub both store secrets **write-only**. `wrangler secret list` and
 > `gh secret list` return names, never values, and the SSR Worker serves the verification
 > file only at the exact `/{key}.txt` path. So once the key is set, the only ways back to
-> its value are your own password manager, the Bing Webmaster Tools IndexNow panel, or a
-> rotation. Put it in the password manager at the moment you generate it.
+> its value are your own password manager or a **key rotation**. Put it in the password manager
+> at the moment you generate it.
+>
+> **Corrected 2026-09-09 (AECI-826).** This sentence used to offer a third route, "the Bing
+> Webmaster Tools IndexNow panel". **That route does not exist.** IndexNow never requires
+> registering a key with Bing — the engine verifies ownership by fetching `<key>.txt` from our own
+> host at submission time — so a key generated outside BWT was never visible there. Verified on
+> 2026-09-09: with the property registered, the BWT IndexNow page shows only its introductory copy
+> and no key list. **The current production key value is unrecoverable, and rotation is the only
+> way back to a known value.**
 >
 > **Verified 2026-09-08 (AECI-801).** The 2026-07 cutover *did* complete this step, contrary
 > to the issue's premise. `INDEXNOW_KEY_PRODUCTION` was `gh secret set` at
