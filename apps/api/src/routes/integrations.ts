@@ -35,6 +35,7 @@ import { connectorEvidencedPairs, integrations, products, productVersions } from
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { textAsc } from '../lib/collation';
 import {
   coerceDirection,
   connectorEvidencedPairPairConfig,
@@ -205,11 +206,16 @@ function evidencedListPredicate(
 
 /** `resolveIntegrationOrderBy` addresses `integrations` columns, which a union has
  *  no access to — order by the union's own OUTPUT column names instead. Same two
- *  sorts, same total-order id tiebreak, so paging stays stable. */
+ *  sorts, same total-order id tiebreak, so paging stays stable.
+ *
+ *  The name arm goes through the same `textAsc` the relational path uses — it
+ *  takes any SQL fragment, so an output alias works as well as a column — and the
+ *  two therefore cannot disagree about where a differently-cased name belongs
+ *  (AECI-825). */
 function resolveUnionOrderBy(sort: 'name' | 'created'): SQL[] {
   return sort === 'created'
     ? [sql`"created_at" DESC`, sql`"id" ASC`]
-    : [sql`"name" ASC`, sql`"id" ASC`];
+    : [textAsc(sql`"name"`), sql`"id" ASC`];
 }
 
 /** Adapt a relational-builder row to the union shape, for the fast path that skips
@@ -476,7 +482,7 @@ export function createProductPairHandler(
           eq(connectorEvidencedPairs.productAId, pairA),
           eq(connectorEvidencedPairs.productBId, pairB),
         ),
-        orderBy: [asc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
+        orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
       }),
       db.query.productVersions.findMany({
         columns: {

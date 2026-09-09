@@ -114,6 +114,7 @@ import {
   type VendorOwnAttestation,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
@@ -870,8 +871,8 @@ export function createListVendorIntegrationsHandler(
     // list used before it was filed by product.
     surface.sort(
       (a, b) =>
-        a.context_product.name.localeCompare(b.context_product.name) ||
-        a.other_product.name.localeCompare(b.other_product.name),
+        compareText(a.context_product.name, b.context_product.name) ||
+        compareText(a.other_product.name, b.other_product.name),
     );
 
     return json(surfaceBody(c, surface));

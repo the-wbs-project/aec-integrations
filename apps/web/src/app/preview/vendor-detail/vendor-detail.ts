@@ -4,6 +4,7 @@ import { BrnButton } from '@spartan-ng/brain/button';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
 import type { VendorDetail as VendorDetailContract } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { MetaService } from '../../core/meta.service';
 
@@ -87,7 +88,7 @@ export class VendorDetail implements OnInit {
 
   protected sortedRankings(product: Product): ReadonlyArray<CategoryRanking> {
     return [...product.rankings].sort((a, b) => {
-      if (a.rank === null && b.rank === null) return a.category.localeCompare(b.category);
+      if (a.rank === null && b.rank === null) return compareText(a.category, b.category);
       if (a.rank === null) return 1;
       if (b.rank === null) return -1;
       return a.rank - b.rank;

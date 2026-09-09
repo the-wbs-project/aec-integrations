@@ -19,6 +19,7 @@ const baseRecord: AlgoliaProductRecord = {
   phases: ['Construction'],
   trades: [],
   trade_aliases: [],
+  name_sort: 'procore', // AECI-825 — replica sort key, never rendered
   integration_count: 12,
   review_count: 3,
   rating_overall_avg: 4.5,

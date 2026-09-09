@@ -85,6 +85,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { textAsc } from '../lib/collation';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
@@ -500,10 +501,11 @@ export function createAdminVendorProductsHandler(
         })
         .from(productVendors)
         .innerJoin(products, eq(products.id, productVendors.productId))
-        // `name ASC, id ASC` — names are not unique in this catalogue (two
-        // vendors ship a "Connect"), and an unstable sort makes a row appear on
-        // two pages or neither.
-        .orderBy(asc(products.name), asc(products.id))
+        // `name COLLATE NOCASE ASC, id ASC` — names are not unique in this
+        // catalogue (two vendors ship a "Connect"), and case-folding (AECI-825)
+        // adds case-only collisions to the tie set, so an unstable sort would make
+        // a row appear on two pages or neither.
+        .orderBy(textAsc(products.name), asc(products.id))
         .where(where)
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),

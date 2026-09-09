@@ -6,6 +6,7 @@ import type {
   ProductIntegrationItem,
   ProductLink,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 /**
  * Stage 1.5 Addendum C §13.2 / §13.3 — the lane split behind the ENDPOINT
@@ -159,8 +160,8 @@ function freeze(row: MutableRow): IntegrationLaneRow {
  *  the render order is stable across reloads). */
 function compareRows(x: MutableRow, y: MutableRow): number {
   return (
-    x.other.name.localeCompare(y.other.name) ||
-    x.integration.name.localeCompare(y.integration.name) ||
+    compareText(x.other.name, y.other.name) ||
+    compareText(x.integration.name, y.integration.name) ||
     x.integration.id.localeCompare(y.integration.id)
   );
 }
@@ -226,7 +227,7 @@ export function splitIntegrationLanes(
     // Keep the representative deterministic rather than arrival-ordered: the
     // partner is identical by construction here, so name-then-id decides it.
     const isEarlier =
-      (integration.name.localeCompare(existing.integration.name) ||
+      (compareText(integration.name, existing.integration.name) ||
         integration.id.localeCompare(existing.integration.id)) < 0;
     if (isEarlier) existing.integration = integration;
   };
@@ -246,7 +247,7 @@ export function splitIntegrationLanes(
         // a name it does not have would be arbitrary.
         Number(x.connector === null) - Number(y.connector === null) ||
         y.rows.length - x.rows.length ||
-        (x.connector?.name ?? '').localeCompare(y.connector?.name ?? ''),
+        compareText(x.connector?.name ?? '', y.connector?.name ?? ''),
     );
 
   const directRows = direct.sort(compareRows).map(freeze);

@@ -16,16 +16,22 @@
  *
  * These are illustrative, not the live catalog.
  */
-import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
+import { algoliaSortKey, type AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
 function product(
   n: number,
-  fields: Omit<AlgoliaProductRecord, 'objectID' | 'logo_url' | 'trades' | 'trade_aliases'> &
+  fields: Omit<
+    AlgoliaProductRecord,
+    'objectID' | 'logo_url' | 'trades' | 'trade_aliases' | 'name_sort'
+  > &
     Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases'>>,
 ): AlgoliaProductRecord {
   return {
     objectID: `aec00000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     logo_url: null,
+    // AECI-825 — derived, never hand-written, so a fixture cannot disagree with
+    // the transform about its own sort key.
+    name_sort: algoliaSortKey(fields.name),
     // AECI-545: these fixtures are all horizontal platforms, which by the §1.1
     // tagging rule carry NO trade tags — so the untagged default is the accurate
     // fixture, and it keeps every existing ranking assertion byte-identical. A

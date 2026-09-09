@@ -70,6 +70,7 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
+import { textAsc } from './collation';
 import { liveAttestationsWhere } from './drizzle-helpers';
 
 // ─── Correlated-subquery identifiers ─────────────────────────────────────────
@@ -225,7 +226,7 @@ export async function gapSample(
     .select({ id: products.id, name: products.name, slug: products.slug })
     .from(products)
     .where(GAP_PREDICATE[key])
-    .orderBy(asc(products.name), asc(products.id))
+    .orderBy(textAsc(products.name), asc(products.id))
     .limit(limit);
 }
 
@@ -364,7 +365,7 @@ async function facetUsage(
       value: correlatedCount(join.fk, table.id),
     })
     .from(table)
-    .orderBy(asc(table.displayOrder), asc(table.name));
+    .orderBy(asc(table.displayOrder), textAsc(table.name));
 
   return rows.map((r) => ({
     id: r.id,
@@ -394,7 +395,7 @@ async function dataObjectUsage(db: Db): Promise<AdminTaxonomyTermUsage[]> {
       value: correlatedCount(claims.dataObjectId, taxonomyDataObjects.id),
     })
     .from(taxonomyDataObjects)
-    .orderBy(asc(taxonomyDataObjects.displayOrder), asc(taxonomyDataObjects.name));
+    .orderBy(asc(taxonomyDataObjects.displayOrder), textAsc(taxonomyDataObjects.name));
 
   return rows.map((r) => ({
     id: r.id,
@@ -512,7 +513,7 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
           .innerJoin(sourceProduct, eq(integrations.sourceProductId, sourceProduct.id))
           .innerJoin(targetProduct, eq(integrations.targetProductId, targetProduct.id))
           .where(noClaims)
-          .orderBy(asc(sourceProduct.name), asc(targetProduct.name), asc(integrations.id))
+          .orderBy(textAsc(sourceProduct.name), textAsc(targetProduct.name), asc(integrations.id))
           .limit(sampleLimit)
       : Promise.resolve([]),
   ]);
