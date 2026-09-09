@@ -63,7 +63,7 @@ generally cannot commit across repos from a single workspace.
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
 | Environment topology, promotion model, operator runbook (tiers, PR-preview lifecycle, bootstrap) | `docs/environments.md` |
 | Cloudflare Access for non-prod environments (allowlist, service token rotation, lockout) | `docs/access.md` |
-| Cloudflare WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) | `docs/waf-rate-limits.md` |
+| Cloudflare WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) — **and the zone-level bot settings** (§3b, AECI-800: Super Bot Fight Mode, the AI bot policies, the deprecating `Block AI bots` toggle, AI Crawl Control). Those are dashboard-only, run outside the Ruleset Engine, and a WAF `Skip` rule cannot exempt most of them, so a bot block that no §2 rule explains is almost always there | `docs/waf-rate-limits.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Manual accessibility testing (repeatable VoiceOver/NVDA + keyboard-only screen-reader pass; the human layer beyond axe/Lighthouse CI) | `docs/a11y-manual-testing-checklist.md` |

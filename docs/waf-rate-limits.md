@@ -63,6 +63,12 @@ Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
   `4781ac7e149247baa5b4119274119821` "Blocker 2".
 - `319173bafcf749fdbf9b739480d71ded` — **Scraper-UA Managed Challenge** (added AECI-242), index 3,
   on `/products`,`/vendors` + their JSON APIs (§2).
+- **A fifth rule in this ruleset may be *generated*, not ours.** Whenever AI Crawl
+  Control has a per-crawler block set, Cloudflare writes a rule named `AI Crawl Control`
+  into this same ruleset, and it shows up on the Custom rules screen beside the four
+  above. It is deliberately absent from the AECI-242 / AECI-659 inventory, so a
+  `snapshot.mjs` dump that lists it is **not** drift. Edit it only from the AI Crawl
+  Control dashboard — see [§3b](#3b-zone-level-bot-settings--dashboard-only-and-not-covered-by-anything-above-aeci-800).
 
 **Managed WAF (`http_request_firewall_managed`):** Cloudflare managed ruleset + OWASP
 core (paranoia L2/L3 disabled) — active, untouched.
@@ -468,9 +474,11 @@ place only.
 
 `curl -I` sends **HEAD**, and `handleSsr` gates its cache branch on
 `request.method === 'GET'`. A HEAD therefore takes the non-cacheable branch and returns
-`private, no-store` with no `Cache-Tag` and no CSP — **on every route, always**. That is
-a measurement artifact, not a defect, and it cost real time during AECI-800. Use
-`-D - -o /dev/null` to inspect headers on a genuine GET.
+`private, no-store` with no `Cache-Tag` and no CSP — **on every route that renders a
+`200`, always**. The one exception is a HEAD that 404s: the non-cacheable branch still
+sends a 404 through `withCacheHeaders`, so it carries `Cache-Tag: route:404` and the CSP.
+Either way it is a measurement artifact, not a defect, and it cost real time during
+AECI-800. Use `-D - -o /dev/null` to inspect headers on a genuine GET.
 
 ```bash
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
