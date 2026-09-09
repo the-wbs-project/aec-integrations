@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 // AECI-61 / AECI-157 / AECI-544 — the four taxonomy flat-index pages
 // (`/categories`, `/audiences`, `/phases`, `/trades`): every term with its
@@ -156,14 +157,16 @@ for (const facet of FACETS) {
       // (`Punch List & QA/QC` becomes `punch-list-qa-qc`), so slug order and
       // display-name order are not the same sequence in general.
       const alphabetical = [...terms]
-        .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+        // Through the SAME comparator the component uses (AECI-825), so the
+        // oracle cannot drift from the implementation it is checking.
+        .sort((a, b) => compareText(a.name, b.name))
         .map((t) => t.slug);
       const byProducts = [...terms]
         .sort(
           (a, b) =>
             b.product_count - a.product_count ||
             (b.integration_count ?? 0) - (a.integration_count ?? 0) ||
-            a.name.localeCompare(b.name, 'en'),
+            compareText(a.name, b.name),
         )
         .map((t) => t.slug);
 

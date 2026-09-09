@@ -195,7 +195,7 @@ export type IndexSettings = {
    *  env-agnostic §7.3 shape, so this is absent on `indexSettingsFor()`. */
   replicas?: string[];
   /** Full `ranking` override — only set on a **replica** index to force its sort
-   *  attribute (`asc(name)` / `desc(integration_count)`) ahead of Algolia's
+   *  attribute (`asc(name_sort)` / `desc(integration_count)`) ahead of Algolia's
    *  default criteria. The primary never overrides `ranking` (SEARCH_RANKING §2). */
   ranking?: string[];
 };
@@ -242,6 +242,15 @@ export type ReplicaSort = {
  * full standard replica index — i.e. 4 replicas total — which Algolia keeps in
  * sync with its primary automatically (no extra sync work) at the cost of
  * duplicating the primary's records for quota/billing. See `SEARCH_RANKING.md`.
+ *
+ * **The A–Z replicas rank on `name_sort` / `company_name_sort`, NOT on the display
+ * name** (AECI-825). Algolia orders a string attribute by lexicographical Unicode
+ * order, so `asc(name)` put every capital ahead of every lowercase letter —
+ * `ADP Workforce Now` before `Access Coins Evo`, `eSUB` after `Zoho`. Algolia
+ * exposes no case-insensitive collation, so the key is precomputed on the record
+ * instead (`algoliaSortKey` in `./algolia-records`). Changing either `ranking`
+ * back to the display attribute reintroduces the defect silently — the sort still
+ * "works", it is just wrong.
  */
 const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
   products: [
@@ -250,7 +259,7 @@ const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
       suffix: 'integration_count_desc',
       ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
     },
-    { sort: 'name', suffix: 'name_asc', ranking: ['asc(name)', ...DEFAULT_RANKING_TAIL] },
+    { sort: 'name', suffix: 'name_asc', ranking: ['asc(name_sort)', ...DEFAULT_RANKING_TAIL] },
   ],
   vendors: [
     {
@@ -258,7 +267,11 @@ const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
       suffix: 'integration_count_desc',
       ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
     },
-    { sort: 'name', suffix: 'name_asc', ranking: ['asc(company_name)', ...DEFAULT_RANKING_TAIL] },
+    {
+      sort: 'name',
+      suffix: 'name_asc',
+      ranking: ['asc(company_name_sort)', ...DEFAULT_RANKING_TAIL],
+    },
   ],
   integrations: [],
 };

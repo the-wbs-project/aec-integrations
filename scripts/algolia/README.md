@@ -101,8 +101,27 @@ Or via the package script: `pnpm algolia:apply-settings --env staging`. (An oper
 - **Idempotent** — `setSettings` overwrites each index with the same definition, so re-running with unchanged settings is a no-op at the search layer. Wired to run on every staging/prod deploy (`deploy.yml` / `promote-to-prod.yml`).
 - **Graceful skip** — if `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` are unset, the script **exits 0 with a warning** instead of failing. A deploy is never blocked because Algolia isn't provisioned yet; settings apply on the first deploy after the secrets land. (An invalid/absent `--env`, by contrast, is a usage error and exits non-zero.)
 
+## Settings alone are not always enough: the AECI-825 reindex
+
+`apply-settings.mjs` writes *settings*. It never writes *records*. When a settings change points a
+replica's `ranking` at an attribute the records do not carry yet, applying it makes the sort worse,
+not better, until the records catch up.
+
+That is exactly the state AECI-825 creates. The `*_products_name_asc` / `*_vendors_name_asc`
+replicas now rank on `asc(name_sort)` / `asc(company_name_sort)` — precomputed lowercase keys —
+because Algolia orders a string attribute by lexicographical Unicode and `asc(name)` therefore
+ranked every capital ahead of every lowercase letter. The nightly incremental sync is watermarked on
+`products.updated_at` / `vendors.updated_at`, so it will **not** backfill the new attribute onto
+records already in an index.
+
+**Per environment, after the settings apply, run a full reindex of `products` and `vendors`**
+(`apps/datatool`, `POST /reindex`). Until it runs, that environment's "Name (A–Z)" tab ranks on an
+absent attribute. Nothing errors; the tab just orders arbitrarily.
+
 ## Verify (in the Algolia dashboard, after a run)
 
 - Each `<env>_*` index shows the expected searchable attributes, facets, and custom ranking.
+- Each `*_name_asc` replica's `ranking` leads with `asc(name_sort)` / `asc(company_name_sort)`, and a
+  sampled record in the parent index actually carries that attribute (AECI-825).
 - A second run reports the same indexes with no functional change (idempotent).
 - With `ALGOLIA_*` unset, the script logs the skip warning and exits 0.

@@ -93,6 +93,10 @@
       "types": "./src/seed-reviews/index.ts",
       "default": "./src/seed-reviews/index.ts"
     },
+    "./text-sort": {
+      "types": "./src/text-sort.ts",
+      "default": "./src/text-sort.ts"
+    },
     "./version-sort": {
       "types": "./src/version-sort.ts",
       "default": "./src/version-sort.ts"

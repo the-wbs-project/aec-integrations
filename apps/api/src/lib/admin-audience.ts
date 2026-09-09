@@ -54,6 +54,7 @@ import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '../db/client';
 import { feedback, mailingList } from '../db/schema';
 import { countAll, enumerateDays, note, type UtcWindow } from './admin-analytics';
+import { textAsc } from './collation';
 
 /** `sum(case when <predicate> then 1 else 0 end)` — SQLite returns NULL over an
  *  empty table, hence the coalesce. Same idiom as `lib/admin-catalog.ts`. */
@@ -270,7 +271,11 @@ export async function audienceBreakdown(
     .from(mailingList)
     .where(inWindow(mailingList.createdAt, w))
     .groupBy(column)
-    .orderBy(desc(count()), asc(sql`${column} is null`), asc(column))
+    // The key term is case-folded (AECI-825) so `Newsletter` and `newsletter`
+    // land together rather than a screen apart, then the RAW column settles that
+    // pair — NOCASE calls them equal and this readout is capped, so without the
+    // second term the boundary row is arbitrary.
+    .orderBy(desc(count()), asc(sql`${column} is null`), textAsc(column), asc(column))
     .limit(limit);
 
   return rows.map((r) => ({

@@ -140,6 +140,29 @@ Tables grouped by domain:
 **Future-ready**:
 - `translations` — multi-language content (empty at launch)
 
+### 3.1 Collation: no column declares one; every text `ORDER BY` overrides it (AECI-825)
+
+No column in this schema carries a `COLLATE` clause, so every one of them stores and compares
+under SQLite's default **`BINARY`** collation. That is correct for equality, uniqueness and every
+`WHERE` in the app — and wrong for **ordering a name a human reads**, because `BINARY` ranks all
+of `A–Z` (0x41–0x5A) ahead of all of `a–z` (0x61–0x7A). It put `ADP Workforce Now` above
+`Access Coins Evo` on `/products?sort=name` and sorted `eSUB` after `Zoho`.
+
+The fix is per-`ORDER BY`, not per-column: `textAsc` / `textDesc` in
+`apps/api/src/lib/collation.ts` append `COLLATE NOCASE`. No migration, no schema change, and
+nothing about storage or matching moves. Two rules follow.
+
+- **Every case-folded ordering needs a unique trailing term.** `BINARY` distinguished `ADP` from
+  `adp`; `NOCASE` calls them equal, so a `LIMIT`/`OFFSET` list without a tiebreaker can drop or
+  duplicate the row on a page boundary (AECI-99). The resolvers end in `asc(<table>.id)`.
+- **`slug` columns stay on `BINARY`.** Slugs are lowercase by construction, so the two collations
+  agree on every row and `BINARY` can read the order off the existing unique index. The same holds
+  for ids, enum tokens and ISO timestamps.
+
+`products_name_idx` and `vendors_company_name_idx` are `BINARY` indexes and therefore no longer
+serve the A–Z order — SQLite builds a transient b-tree instead. At a catalog of low thousands that
+is not measurable. If it becomes so, add a `name COLLATE NOCASE` index rather than reverting.
+
 ---
 
 ## 4. Core entity tables

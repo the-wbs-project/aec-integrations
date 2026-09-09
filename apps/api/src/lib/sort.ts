@@ -26,6 +26,14 @@
  * total and stable. It never surfaces in the public query, so §7.4 (which fixes
  * only the primary field+direction) is unaffected (AECI-99).
  *
+ * **Every text sort is case-insensitive** (`textAsc` / `textDir` from
+ * `./collation`, i.e. `COLLATE NOCASE`). SQLite's default `BINARY` collation
+ * ranked `ADP Workforce Now` ahead of `Access Coins Evo` and exiled `eSUB` past
+ * `Zoho` — AECI-825. That makes the trailing `id ASC` tiebreaker load-bearing
+ * rather than merely defensive: `NOCASE` reports `ADP` and `adp` as EQUAL, so
+ * without it a case-only collision would page unstably. `slug` is the one text key
+ * left on `BINARY`, because slugs are lowercase by construction.
+ *
  * Callers pass the parsed (Zod-defaulted) value of `ProductSort` / `VendorSort`
  * / `IntegrationSort`. The shared schemas already default to `'created'` for
  * products+vendors and `'name'` for integrations, so unknown values cannot
@@ -52,6 +60,7 @@ import { asc, desc, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { integrations, products, profiles, vendorEntitlements, vendors } from '../db/schema';
+import { textAsc, textDir } from './collation';
 
 type Direction = 'asc' | 'desc';
 
@@ -67,7 +76,10 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
     case 'created':
       return [desc(products.createdAt), asc(products.id)];
     case 'name':
-      return [asc(products.name), asc(products.id)];
+      // `textAsc`, not `asc` — SQLite's default BINARY collation would rank every
+      // capital ahead of every lowercase letter (AECI-825). The `id` tiebreaker
+      // below is now load-bearing: NOCASE ties `ADP` with `adp`.
+      return [textAsc(products.name), asc(products.id)];
     case 'updated':
       return [desc(products.updatedAt), asc(products.id)];
     case 'rating':
@@ -103,7 +115,8 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
       return [desc(vendors.createdAt), asc(vendors.id)];
     case 'name':
       // Vendors have no `name` column; public `name` → `company_name`.
-      return [asc(vendors.companyName), asc(vendors.id)];
+      // Case-insensitive per AECI-825; `id` keeps the order total.
+      return [textAsc(vendors.companyName), asc(vendors.id)];
     case 'updated':
       return [desc(vendors.updatedAt), asc(vendors.id)];
     default:
@@ -179,11 +192,14 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
 
   switch (sort) {
     case 'name':
-      return [dir(vendors.companyName), asc(vendors.id)];
+      return [textDir(vendors.companyName, ascending), asc(vendors.id)];
     case 'slug':
+      // NOT case-folded, and that is not an oversight: `vendors.slug` is lowercase
+      // by construction (`@aeci/shared/slug`), so BINARY and NOCASE agree on every
+      // row and BINARY can read the order off `vendors_slug_key`.
       return [dir(vendors.slug), asc(vendors.id)];
     case 'verified':
-      return [dir(vendors.verified), asc(vendors.companyName), asc(vendors.id)];
+      return [dir(vendors.verified), textAsc(vendors.companyName), asc(vendors.id)];
     case 'entitlement':
       // Ascending ranks by operational urgency; descending reverses that ranking
       // rather than sorting the status text alphabetically.
@@ -194,13 +210,13 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
           when 'expired' then 2
           when 'revoked' then 3
           else 4 end`),
-        asc(vendors.companyName),
+        textAsc(vendors.companyName),
         asc(vendors.id),
       ];
     case 'products':
       // The `product_count` SELECT alias, resolved by SQLite — not a second copy
       // of the correlated subquery.
-      return [dir(sql`product_count`), asc(vendors.companyName), asc(vendors.id)];
+      return [dir(sql`product_count`), textAsc(vendors.companyName), asc(vendors.id)];
     case 'term':
       // The NULL guard is PINNED ascending — see the docblock. Only the date
       // flips, so descending reads "who lapses last" with the perpetual and
@@ -208,7 +224,7 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
       return [
         asc(sql`${vendorEntitlements.periodEnd} is null`),
         dir(vendorEntitlements.periodEnd),
-        asc(vendors.companyName),
+        textAsc(vendors.companyName),
         asc(vendors.id),
       ];
     case 'updated':
@@ -245,7 +261,8 @@ export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder)
 export function resolveIntegrationOrderBy(sort: IntegrationSort): SQL[] {
   switch (sort) {
     case 'name':
-      return [asc(integrations.name), asc(integrations.id)];
+      // Case-insensitive per AECI-825; `id` keeps the order total under NOCASE.
+      return [textAsc(integrations.name), asc(integrations.id)];
     case 'created':
       return [desc(integrations.createdAt), asc(integrations.id)];
     default:

@@ -132,6 +132,23 @@ Per-entity defaults (Phase 2 Spec §7.4):
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 
+#### Collation — every text sort is case-insensitive (AECI-825)
+
+**Case never decides an alphabetical order, on any surface.** SQLite's default `BINARY` collation ranks every capital ahead of every lowercase letter, which put `ADP Workforce Now` above `Access Coins Evo` and exiled `eSUB` / `iSqFt` / `openBIM` past `Zoho` on `/products?sort=name`. Three independent mechanisms now enforce the rule, and they must stay in step:
+
+| Where the ordering happens | Mechanism | Source |
+|---|---|---|
+| D1 `ORDER BY` (every list endpoint) | `COLLATE NOCASE` via `textAsc` / `textDesc` / `textDir` | `apps/api/src/lib/collation.ts` |
+| In memory (mappers, components, grouping) | `compareText`, an `Intl.Collator` pinned to `'en'` | `@aeci/shared/text-sort` |
+| Algolia `*_name_asc` replicas | `asc(name_sort)` / `asc(company_name_sort)` over a precomputed folded key | `algoliaSortKey`, `@aeci/shared/algolia-records` |
+
+Two consequences worth knowing before touching a sort:
+
+- **The AECI-99 `id ASC` tiebreaker became load-bearing.** `BINARY` distinguished `ADP` from `adp`; `NOCASE` reports them EQUAL, so a paginated list without a unique trailing term can drop or duplicate the row on a page boundary. Every resolver in `apps/api/src/lib/sort.ts` ends in `asc(<table>.id)`; the `GROUP BY` readouts in `admin-analytics.ts` / `admin-audience.ts` follow `textAsc(column)` with the raw `asc(column)` for the same reason.
+- **`slug` stays on `BINARY`, on purpose.** Slugs are lowercase by construction (`@aeci/shared/slug`), so the two collations agree on every row and `BINARY` can read the order straight off `vendors_slug_key`. The same holds for ids, enum tokens, ISO timestamps and `sqlite_master` names.
+
+`COLLATE NOCASE` and `compareText` produce the identical order across the ASCII catalog; `apps/api/src/lib/collation.spec.ts` asserts that agreement against real SQLite rather than asserting it in prose.
+
 ### 3.3 Error response
 
 All error responses use this exact shape.

@@ -38,6 +38,7 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
+import { textAsc } from '../lib/collation';
 import { buildProductsWhere, toTaxonomyTermWithCount } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
@@ -83,7 +84,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyCategories.displayOrder,
         })
         .from(taxonomyCategories)
-        .orderBy(asc(taxonomyCategories.displayOrder), asc(taxonomyCategories.name)),
+        .orderBy(asc(taxonomyCategories.displayOrder), textAsc(taxonomyCategories.name)),
       db
         .select({ termId: productCategories.categoryId, value: count() })
         .from(productCategories)
@@ -99,7 +100,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyAudiences.displayOrder,
         })
         .from(taxonomyAudiences)
-        .orderBy(asc(taxonomyAudiences.displayOrder), asc(taxonomyAudiences.name)),
+        .orderBy(asc(taxonomyAudiences.displayOrder), textAsc(taxonomyAudiences.name)),
       db
         .select({ termId: productAudiences.audienceId, value: count() })
         .from(productAudiences)
@@ -115,7 +116,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyPhases.displayOrder,
         })
         .from(taxonomyPhases)
-        .orderBy(asc(taxonomyPhases.displayOrder), asc(taxonomyPhases.name)),
+        .orderBy(asc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)),
       db
         .select({ termId: productPhases.phaseId, value: count() })
         .from(productPhases)
@@ -131,7 +132,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyTrades.displayOrder,
         })
         .from(taxonomyTrades)
-        .orderBy(asc(taxonomyTrades.displayOrder), asc(taxonomyTrades.name)),
+        .orderBy(asc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)),
       db
         .select({ termId: productTrades.tradeId, value: count() })
         .from(productTrades)

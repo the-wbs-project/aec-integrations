@@ -9,6 +9,7 @@ import {
   isPublishedTrade,
   taxonomyIntegrationCount,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -243,17 +244,19 @@ export class TaxonomyIndexPage {
    *
    * Every comparator is a **total order** — each falls through to `name`, and
    * `name` is unique per facet — so a re-sort can never depend on the incoming
-   * array order and repeated sorts are idempotent. `localeCompare` is pinned to
-   * `'en'` rather than the ambient locale: the app is en-US only at launch, and
-   * an unpinned collation could order differently under the SSR Worker than in
-   * the browser — which for the three A→Z-by-default facets would now be a
-   * server/client mismatch, not merely a cosmetic difference.
+   * array order and repeated sorts are idempotent. Ordering goes through the
+   * shared `compareText` collator (`@aeci/shared/text-sort`), which pins the
+   * locale to `'en'` rather than taking the ambient one: the app is en-US only at
+   * launch, and an unpinned collation could order differently under the SSR
+   * Worker than in the browser — which for the three A→Z-by-default facets would
+   * be a server/client mismatch, not merely a cosmetic difference. That rule
+   * started here and is now the whole app's (AECI-825).
    */
   private sorted(
     terms: ReadonlyArray<TaxonomyTermWithCount>,
   ): ReadonlyArray<TaxonomyTermWithCount> {
     const byName = (a: TaxonomyTermWithCount, b: TaxonomyTermWithCount) =>
-      a.name.localeCompare(b.name, 'en');
+      compareText(a.name, b.name);
 
     switch (this.sort()) {
       case 'sequence':

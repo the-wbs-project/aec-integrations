@@ -46,6 +46,7 @@ import {
   type ProductListItem,
   type StatsCacheKey,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 import {
   and,
   asc,
@@ -71,6 +72,7 @@ import {
   vendors,
 } from '../db/schema';
 // AECI-745 lifted these predicates out of `analytics-digest` into their own module.
+import { textAsc } from './collation';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
@@ -203,11 +205,14 @@ export async function computeTotalContributingFirms(db: Db): Promise<number> {
 }
 
 export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegratedProduct | null> {
-  // Ordering is delegated to the DB: highest `integration_count` wins, name
-  // ascending as the deterministic tiebreak.
+  // Ordering is delegated to the DB: highest `integration_count` wins, then name
+  // ascending, then `id`. The name term is case-insensitive (AECI-825), which
+  // makes the `id` term load-bearing rather than decorative: this is a
+  // `findFirst`, so a NOCASE tie with no tiebreaker would let the home page's
+  // headline product flip between two rows on identical data.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
-    orderBy: [desc(products.integrationCount), asc(products.name)],
+    orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],
   });
   if (!row) return null;
   return {
@@ -290,7 +295,7 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
     if (
       best === null ||
       count > best.count ||
-      (count === best.count && ref.name.localeCompare(best.ref.name) < 0)
+      (count === best.count && compareText(ref.name, best.ref.name) < 0)
     ) {
       best = { ref, count };
     }

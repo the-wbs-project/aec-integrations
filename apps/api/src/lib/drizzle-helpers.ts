@@ -30,6 +30,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 import type {
   AccountReview,
   AdminClaim,
@@ -1402,7 +1403,7 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
   const oa = a.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER;
   const ob = b.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER;
   if (oa !== ob) return oa - ob;
-  return a.dataObject.name.localeCompare(b.dataObject.name);
+  return compareText(a.dataObject.name, b.dataObject.name);
 }
 
 /** One mechanism row on the pair page, with its direction translated to the
@@ -1638,7 +1639,7 @@ function pickPrimaryCategory(
     const bestOrder = best.displayOrder ?? Number.POSITIVE_INFINITY;
     if (
       candidateOrder < bestOrder ||
-      (candidateOrder === bestOrder && candidate.name.localeCompare(best.name) < 0)
+      (candidateOrder === bestOrder && compareText(candidate.name, best.name) < 0)
     ) {
       best = candidate;
     }

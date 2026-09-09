@@ -33,6 +33,7 @@ import {
   toTaxonomyTermWithCount,
   tradeTermConfig,
 } from '../lib/drizzle-helpers';
+import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 const CACHE_KEY = 'taxonomy:v1';
@@ -57,19 +58,19 @@ export function createTaxonomyHandler(
     const [categories, audiences, phases, trades] = await Promise.all([
       db.query.taxonomyCategories.findMany({
         ...categoryTermConfig,
-        orderBy: [asc(taxonomyCategories.displayOrder), asc(taxonomyCategories.name)],
+        orderBy: [asc(taxonomyCategories.displayOrder), textAsc(taxonomyCategories.name)],
       }),
       db.query.taxonomyAudiences.findMany({
         ...audienceTermConfig,
-        orderBy: [asc(taxonomyAudiences.displayOrder), asc(taxonomyAudiences.name)],
+        orderBy: [asc(taxonomyAudiences.displayOrder), textAsc(taxonomyAudiences.name)],
       }),
       db.query.taxonomyPhases.findMany({
         ...phaseTermConfig,
-        orderBy: [asc(taxonomyPhases.displayOrder), asc(taxonomyPhases.name)],
+        orderBy: [asc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)],
       }),
       db.query.taxonomyTrades.findMany({
         ...tradeTermConfig,
-        orderBy: [asc(taxonomyTrades.displayOrder), asc(taxonomyTrades.name)],
+        orderBy: [asc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
       }),
     ]);
 
