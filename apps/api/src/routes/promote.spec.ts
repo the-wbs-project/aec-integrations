@@ -21,6 +21,7 @@ import {
   auditLog,
   claims,
   connectorEvidencedPairs,
+  indexnowQueue,
   integrations,
   productCategories,
   products,
@@ -49,6 +50,7 @@ import {
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
+  bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
@@ -2774,6 +2776,79 @@ describe('IndexNow submission after promote (AECI-236)', () => {
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+
+  // ── The real default, not the seam (AECI-826) ────────────────────────────────
+  //
+  // Everything above injects a mock, which proves the wiring and nothing about
+  // what the hook DOES. These exercise `bufferIndexNowAfterPromote` itself,
+  // because the behaviour that matters is a negative one: it must write a row and
+  // make NO outbound request. A regression to a direct submit here is exactly what
+  // produced 23 consecutive HTTP 429s in production.
+
+  const runCtx = (env: Env): PromoteRunCtx => ({
+    env,
+    request: new Request('http://localhost:8787/api/promote'),
+    waitUntil: () => {},
+    bookmark: () => null,
+  });
+
+  /** A minimal committed-promote response: one created product, nothing else.
+   *  `affectedUrlsForPromote` walks vendors, integrations and all three taxonomy
+   *  facets unconditionally, so every collection has to be present and empty. */
+  const productResponse = (slug = 'revit'): PromoteResponse =>
+    ({
+      product: { ref: 'p1', id: 'p-1', slug, action: 'created' },
+      vendors: [],
+      integrations: [],
+      taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
+      skipped: [],
+    }) as unknown as PromoteResponse;
+
+  it('buffers the affected URLs into indexnow_queue and calls no transport', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await bufferIndexNowAfterPromote(
+      runCtx(indexNowEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+    );
+
+    const rows = await t.db.select({ url: indexnowQueue.url }).from(indexnowQueue);
+    expect(rows.map((r) => r.url).sort()).toEqual([
+      'https://aecintegrations.com/products',
+      'https://aecintegrations.com/products/revit',
+    ]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('buffers nothing when the creds are absent', async () => {
+    await bufferIndexNowAfterPromote(
+      runCtx(baseEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+    );
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+  });
+
+  it('never throws when the buffer write fails — the promote is already committed', async () => {
+    const exploding = {
+      insert: () => {
+        throw new Error('D1 unavailable');
+      },
+    } as unknown as typeof t.db;
+
+    await expect(
+      bufferIndexNowAfterPromote(
+        runCtx(indexNowEnv),
+        productResponse(),
+        Promise.resolve({} as AffectedUrlOptions),
+        exploding,
+      ),
+    ).resolves.toBeUndefined();
   });
 });
 

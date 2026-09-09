@@ -1633,12 +1633,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the thirteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, and the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the fourteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, and the fourteenth is the `*/20` IndexNow drain, AECI-826). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the thirteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the fourteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1653,7 +1653,7 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile, and a fourteenth, `indexnow-drain`, with AECI-826 — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
@@ -1695,6 +1695,82 @@ create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
 **Written by** the weekly `0 2 * * 2` cron (Mondays; Cloudflare's day-of-week is 1=Sunday, AECI-661) (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
 
 **Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
+
+---
+
+### 9.6 `indexnow_queue`
+
+The IndexNow submission buffer (AECI-826; `STAGE_1_SPEC.md` §20.2). Added by migration
+`apps/api/migrations/0029_many_red_shift.sql`. A promote appends the public URLs it
+affected; the `*/20 * * * *` drain cron reads them, submits them to IndexNow in **one**
+request, and deletes what it sent.
+
+```sql
+create table indexnow_queue (
+  id integer primary key autoincrement,  -- the drain's delete cursor; see below
+  url text not null,                     -- ABSOLUTE public URL, e.g. https://www.aecintegrations.com/products/revit
+  queued_at text not null,               -- drives the 7-day staleness sweep
+  source text not null default 'promote' -- what appended it; 'promote' is the only writer today
+);
+
+create unique index indexnow_queue_url_idx on indexnow_queue(url);
+create index indexnow_queue_queued_at_idx on indexnow_queue(queued_at);
+```
+
+**Why it exists.** Before AECI-826 the promote hook called `api.indexnow.org` directly, once
+per promote, so a bulk curation session produced a burst of requests — eleven inside seven
+minutes on 2026-09-07. **Every production submission across 2026-09-07 to 09 returned HTTP
+429**, 23 of 23. Payload size was never the constraint (IndexNow accepts 10,000 URLs per
+request; our largest carried 107); request frequency was.
+
+**`id` exists even though `url` is already unique.** The drain deletes with
+`where id <= :maxId` — one bound parameter. Deleting by the submitted URL list instead would
+need one per URL, and **D1 caps a query at 100 bound parameters**, far below the 10,000 URLs
+IndexNow accepts, forcing chunking for no benefit. `id` is monotonic, so a promote that
+buffers between the drain's `SELECT` and its `DELETE` lands above the cursor and survives to
+the next tick.
+
+**The write side is chunked at 33 rows per statement.** The same 100-parameter cap applies
+to the append, and each row binds three values (`url`, `queued_at`, `source`), so
+`enqueueIndexNowUrls` emits one `INSERT` per `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33) URLs
+and sums the `RETURNING` counts. The set is genuinely unbounded — `affectedUrlsForPromote`
+emits one URL per integration in the promote payload, and the largest production submission
+carried 107 — and an over-cap statement would be rejected by D1 and then swallowed by the
+hook's fail-open catch, buffering nothing at all. The chunks run in sequence rather than in
+a `db.batch`: the inserts are ADR 0022 log-class and idempotent, so there is nothing for
+atomicity to protect, and `RETURNING` rows do not survive the in-memory harness's batch shim.
+Same trap `asn-registry.ts` documents — better-sqlite3 binds 32,766 parameters, so this can
+only be caught by asserting the emitted parameter count, which
+`apps/api/src/lib/indexnow-drain.spec.ts` does.
+
+**Dedupe is the free win.** Every insert is `on conflict do nothing` against the unique
+`url`, so a product promoted three times inside one drain window occupies one row and is
+submitted once. The per-promote design could not dedupe at all.
+
+**One drain reads at most 2,000 rows**, a cap set by D1's ~1 MB response limit rather
+than by IndexNow's 10,000-URL request limit. The only scenario deep enough to hit it is
+a prolonged outage during heavy curation — which is precisely when a failed read would
+be worst — and a capped run leaves the remainder for the next tick.
+
+**Bounded by a staleness sweep, not by retention.** Rows older than
+`INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) are dropped by the drain before it reads. That is a
+containment rule rather than a freshness judgement: if IndexNow stays hostile the table
+would otherwise grow without limit, and by then the sitemap's `<lastmod>` has covered the URL
+for six days. Dropped rows are counted and emitted as `aeci.indexnow.expired` — non-zero is
+always a finding. The §7.4 prune deliberately does not touch this table; the drain owns its
+own bound.
+
+**`audit_log`: the INSERTs are exempt, the DELETEs are not.** Appending is derived, log-class
+and publicly invisible, so ADR 0022 exempts it like `stats_cache` and `job_runs`. The drain's
+delete is a *scheduled* delete, which §26.1 never exempts, so each run that removes rows
+writes exactly one summary row in the **same `db.batch`**: `action='indexnow.drained'`,
+`entity_type='indexnow_queue'`, `metadata.reason` of `submitted` or `expired`. A run that
+removes nothing writes no row.
+
+**Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit)
+and the drain (`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only — no public
+or admin surface queries it; its state is visible as the `aeci.indexnow.pending` gauge and
+the `job_runs` row for `indexnow-drain`.
 
 ---
 

@@ -1,17 +1,23 @@
 /**
- * submit-trade-urls.ts — announce published `/trades/:slug` pages to IndexNow and
- * IndexNow, outside a promote.
+ * submit-trade-urls.ts — announce published `/trades/:slug` pages to IndexNow,
+ * outside a promote.
  *
- * WHY THIS EXISTS. The indexing pings normally ride the post-commit promote hooks
- * (`src/routes/promote.ts` → `callIndexNow`), so a URL only
- * gets announced when a promote touches it. Retuning
+ * WHY THIS EXISTS. Announcements normally ride the promote: since AECI-826 the
+ * post-commit hook appends affected URLs to `indexnow_queue` and the twenty-minute
+ * drain cron (`src/lib/indexnow-drain.ts`) submits them. So a URL only gets
+ * announced when a promote touches it. Retuning
  * `TRADE_PUBLISH_MIN_PRODUCTS` (`@aeci/shared`, `TRADES_VOCABULARY.md` §6) changes
  * which trade pages are indexable **with no promote behind it** — terms cross the
  * floor because the floor moved, not because the catalog did. Nothing then tells
  * an indexing service the pages exist. That is what this script is for. It is the
- * Node shell around the tested transports (`src/lib/indexnow.ts`,
- * `src/lib/indexnow.ts`): it supplies argv, discovery, credentials, and
- * `console`. Same shape as `retract-product.ts` / `backfill-metrics-daily.ts`.
+ * Node shell around the tested transport (`src/lib/indexnow.ts`): it supplies argv,
+ * discovery, credentials, and `console`. Same shape as `retract-product.ts` / `backfill-metrics-daily.ts`.
+ *
+ * It submits DIRECTLY rather than through the buffer, deliberately. It runs from a
+ * laptop with no D1 binding, it is a one-shot operator action rather than a
+ * per-write path, and its set is bounded at ~35 URLs — so the coalescing the buffer
+ * exists to provide buys nothing here. It does inherit the transport's AECI-826
+ * retry, so an isolated 429 no longer loses the run.
  *
  * HOW IT PICKS URLS — it reads indexability off the deployed site rather than
  * recomputing the floor:
@@ -48,8 +54,10 @@
  * Credentials (read from the ambient environment; this script does NOT auto-load
  * .dev.vars). `--apply` only:
  *   - INDEXNOW_KEY                      required
- * All three live only as GitHub Actions secrets and Wrangler Worker secrets, both
- * of which are write-only stores — `wrangler secret list` returns names, not
+ * It lives only as a GitHub Actions secret and a Wrangler Worker secret, both of
+ * which are write-only stores — `wrangler secret list` returns names, never values,
+ * so you must supply the value from the password manager or rotate the key
+ * (`docs/launch-cutover-runbook.md` §2a).
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the outbound submissions.

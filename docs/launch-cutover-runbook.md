@@ -74,6 +74,43 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 > The same shape burned us on the cache-purge secrets (AECI-589). **At the next environment
 > cutover, tick these boxes and paste the `wrangler secret list` output into the issue.**
 
+### 2a. Rotating `INDEXNOW_KEY` (AECI-826)
+
+Rotation is a normal operation, not a repair. IndexNow supports it by design — the engine
+verifies ownership by fetching `<key>.txt` from our host at submission time, so a new key
+becomes valid the moment the SSR Worker starts serving the new file.
+
+**Rotate when you need a key value you can actually read back.** That is the situation
+AECI-826 left us in: the 2026-07 key was provisioned correctly and its value was never
+recorded, and no store returns it. It is also the only way to test the key *at all* — a
+rate-limited submission returns HTTP 429 **before** IndexNow fetches `<key>.txt`, so a wrong
+key and a throttle are indistinguishable from our side.
+
+```
+openssl rand -hex 16
+gh secret set INDEXNOW_KEY_PRODUCTION
+gh workflow run promote-to-prod.yml
+```
+
+Then verify the file-serving half by hand — this is the check the key's unreadability used
+to make impossible:
+
+```
+curl -sI https://www.aecintegrations.com/<newkey>.txt
+```
+
+- [ ] Value recorded in the password manager **at the moment of generation**.
+- [ ] `promote-to-prod` run pushed it to **both** prod Workers (`aeci-api-production`,
+      `aeci-web-production`) — they must match, and they do only because both push steps read
+      the same `${{ secrets.INDEXNOW_KEY_PRODUCTION }}` in the same run.
+- [ ] `<key>.txt` returns `200` on `www.aecintegrations.com`.
+- [ ] `aeci.indexnow.submit{source:cron,outcome:ok}` goes non-zero after the next promote.
+      **Nothing before this line proves the channel works.**
+
+**In-flight submissions are unaffected.** URLs live in the `indexnow_queue` D1 table until the
+`*/20` drain sends them, and the drain reads the key at submission time — so a rotation
+between a promote and its drain simply sends under the new key.
+
 ---
 
 ## 3. Cutover procedure (ordered)
@@ -136,7 +173,7 @@ Unsubscribe: {{unsubscribe_url}}
 - [ ] **The app serves the public home** — `https://www.aecintegrations.com` returns the Angular SSR home (not the coming-soon page), and `https://aecintegrations.com` 301s to it (canonical host is `www.`).
 - [ ] **Dual version gate** — `/api/version` and `/_version` both report the target SHA (stale-SSR guard, CLAUDE.md).
 - [ ] **Indexable** — `curl -sI https://www.aecintegrations.com/` (the served host) shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference `www.`; canonical/OG are absolute `www.` URLs (the apex 301s to `www.`, verified above).
-- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root. **Absence of that metric does not mean the key is missing** (AECI-801): the hook returns with no emission when `INDEXNOW_KEY`/`PUBLIC_SITE_URL` are absent, when the promote touched no public URL, and when `PUBLIC_SITE_URL` is set but unparseable — plus the metrics transport itself can be silent. A zero series therefore has four causes and only one of them ("no crawl-worthy write") is benign (`docs/OBSERVABILITY.md`, metric catalogue). Check the secret at the store per §2; use this metric only to confirm a submission that did happen was accepted.
+- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) buffers URLs into `indexnow_queue`, and the next `*/20` drain records `aeci.indexnow.submit{source:cron,outcome:ok}`; the `<key>.txt` file resolves at the root. **Wait a full tick before reading it** — since AECI-826 the promote itself makes no submission. **Absence of that metric does not mean the key is missing** (AECI-801): the drain emits nothing when `INDEXNOW_KEY`/`PUBLIC_SITE_URL` are absent and nothing when the buffer is empty, plus the metrics transport itself can be silent. Read it beside `aeci.indexnow.drain`, which is emitted on **every** tick and so distinguishes "quiet" from "dead". Check the secret at the store per §2; use this metric only to confirm a submission that did happen was accepted, and see §2a if you need to prove the key value itself.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
 - [ ] **Field CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`). *(ADR 0024 dual-run: PostHog `$web_vitals` is the second source and the eventual sole one — captured on the Tier 2 anonymous slice, so it covers every visitor including DNT/GPC. Datadog RUM is deleted at AECI-651; read whichever is live.)*
 - [ ] **WAF** — `scripts/ops/2026-09-waf-host-scope/verify.mjs` reports `403` scraper / `200` browser on every app host (this is what §3 step 5 enables — the metric below cannot substitute for it), then within ~2 h `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.

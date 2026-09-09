@@ -424,7 +424,7 @@
       "notes": "NEW. The in-product mirror of scripts/ci/posthog-liveness-sweep.sh. It is a MIRROR, not the mechanism: an insight cannot page on absence, and a check that lives inside the system it watches cannot detect its own death — which is exactly why the sweep runs on GitHub Actions instead. If a job is missing from this table entirely, that IS the absence.",
       "tags": ["aeci", "managed-by:aeci-647", "aeci-key:cron-heartbeats"],
       "display": "ActionsTable",
-      "query": "-- AECI-647 / PH-6. Same thirteen heartbeat series as observability/posthog/project-config.json\n-- `liveness.crons[].metric`. Keep the two lists in step.\n-- The window is 15 DAY, not 72 HOUR: `aeci.asn_registry.refresh` is WEEKLY (AECI-750), so a\n-- 72 h window would report it missing six days out of seven. Matches liveness.lookbackHours=360.\nSELECT\n    m.metric_name                                        AS heartbeat_metric,\n    max(m.timestamp)                                     AS last_seen,\n    dateDiff('minute', max(m.timestamp), now())          AS age_minutes,\n    toInt(count())                                       AS points_in_window\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 15 DAY\n  AND m.metric_name IN (\n      'aeci.metrics_snapshot.run',\n      'aeci.asn_registry.refresh',\n      'aeci.retention.prune',\n      'aeci.data_quality.job',\n      'aeci.analytics_digest.email',\n      'aeci.moderation.queue_depth',\n      'aeci.stats.compute',\n      'aeci.algolia.sync',\n      'aeci.algolia.index_drift',\n      'aeci.attestation.notify.job',\n      'aeci.entitlement.expiry.job',\n      'aeci.linear.reconcile.stuck',\n      'aeci.waf.poll')\nGROUP BY heartbeat_metric\nORDER BY age_minutes DESC"
+      "query": "-- AECI-647 / PH-6. Same fourteen heartbeat series as observability/posthog/project-config.json\n-- `liveness.crons[].metric`. Keep the two lists in step.\n-- The window is 15 DAY, not 72 HOUR: `aeci.asn_registry.refresh` is WEEKLY (AECI-750), so a\n-- 72 h window would report it missing six days out of seven. Matches liveness.lookbackHours=360.\nSELECT\n    m.metric_name                                        AS heartbeat_metric,\n    max(m.timestamp)                                     AS last_seen,\n    dateDiff('minute', max(m.timestamp), now())          AS age_minutes,\n    toInt(count())                                       AS points_in_window\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 15 DAY\n  AND m.metric_name IN (\n      'aeci.metrics_snapshot.run',\n      'aeci.asn_registry.refresh',\n      'aeci.retention.prune',\n      'aeci.data_quality.job',\n      'aeci.analytics_digest.email',\n      'aeci.moderation.queue_depth',\n      'aeci.stats.compute',\n      'aeci.algolia.sync',\n      'aeci.algolia.index_drift',\n      'aeci.attestation.notify.job',\n      'aeci.entitlement.expiry.job',\n      'aeci.linear.reconcile.stuck',\n      'aeci.waf.poll',\n      'aeci.indexnow.drain')\nGROUP BY heartbeat_metric\nORDER BY age_minutes DESC"
     },
     {
       "key": "cron-failures",
@@ -432,7 +432,7 @@
       "previousNames": ["AECi — Crons — failed runs by job (last 7 days)"],
       "dashboard": "AECi — Scheduled jobs and data cleanup",
       "dashboardKey": "cron-retention",
-      "description": "Which job failed, on which day, and what had triggered the run. One alert covers all thirteen jobs, so this is where you come after a 'scheduled job failed' email to find out which one it was.",
+      "description": "Which job failed, on which day, and what had triggered the run. One alert covers all fourteen jobs, so this is where you come after a 'scheduled job failed' email to find out which one it was.",
       "notes": "NEW. The breakdown behind the combined 'Cron job failed (any job)' alert: which job, on which day. Four Datadog monitors (Algolia sync / home stats / data quality / retention prune failed) collapsed into that one alert; this is where you find out which of them fired.",
       "tags": ["aeci", "managed-by:aeci-647", "aeci-key:cron-failures"],
       "display": "ActionsTable",
@@ -463,6 +463,17 @@
       "query": "-- AECI-647 / PH-6. Sources: monitor-retention-prune-skipped.json (digest) +\n-- monitor-retention-prune-runaway.json (alerted separately).\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.attributes.table        AS target_table,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.rows_deleted'))       AS rows_deleted,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.prune.truncated'))    AS truncated_runs,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.prune'\n                         AND m.attributes.outcome = 'skipped'))                AS skipped_runs,\n    arrayStringConcat(groupUniqArrayIf(toString(m.attributes.reason),\n                                       m.attributes.outcome = 'skipped'), ', ') AS skip_reason\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name IN (\n      'aeci.retention.rows_deleted',\n      'aeci.retention.prune',\n      'aeci.retention.prune.truncated')\nGROUP BY day, target_table\nORDER BY day DESC\nLIMIT 200"
     },
     {
+      "key": "indexnow-submissions",
+      "name": "Search-engine pings \u2014 did Bing and Yandex accept them?",
+      "dashboard": "AECi \u2014 Scheduled jobs and data cleanup",
+      "dashboardKey": "cron-retention",
+      "description": "Whether the pages we changed actually reached Bing and Yandex. The queue-depth column is the one to watch: it should return to zero every twenty minutes, and a number that climbs day after day means the pings are being refused and nothing is getting through.",
+      "notes": "NEW with AECI-826. Three series on one tile because they only mean anything together: `submit{outcome}` is per outbound request, `queued` is what promotes buffered, and the `pending` gauge is depth AFTER each drain. The failure this replaces was invisible precisely because only the first existed, and a uniformly-failing series looked identical to a healthy one from every surface we had. `aeci.indexnow.drain` is deliberately NOT here \u2014 it is the liveness heartbeat and belongs on the heartbeat tile.",
+      "tags": ["aeci", "managed-by:aeci-647", "aeci-key:indexnow-submissions"],
+      "display": "ActionsTable",
+      "query": "-- AECI-826 / \u00a720.2. The IndexNow push channel, end to end.\n-- Promotes BUFFER (aeci.indexnow.queued) and the */20 drain cron SUBMITS\n-- (aeci.indexnow.submit{source:cron}). max_queue_depth is the gauge read AFTER each\n-- drain: it returns to 0 on a healthy day and climbs when submissions are refused.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.indexnow.submit'\n                         AND m.attributes.outcome = 'ok'))        AS submissions_ok,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.indexnow.submit'\n                         AND m.attributes.outcome = 'failed'))    AS submissions_failed,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.indexnow.queued'))  AS urls_buffered,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.indexnow.expired')) AS urls_expired_unsent,\n    toInt(maxIf(m.value, m.metric_name = 'aeci.indexnow.pending')) AS max_queue_depth\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name IN (\n      'aeci.indexnow.submit',\n      'aeci.indexnow.queued',\n      'aeci.indexnow.expired',\n      'aeci.indexnow.pending')\nGROUP BY day\nORDER BY day DESC"
+    },
+    {
       "key": "alert-worker-error-rate",
       "name": "Alert: server errors above 1%",
       "previousNames": ["AECi — ALERT — Worker 5xx rate (1 h)"],
@@ -483,7 +494,7 @@
       ],
       "dashboard": "AECi — What the alerts are watching",
       "dashboardKey": "alert-sources",
-      "description": "One alert covering all thirteen scheduled jobs. The email names the job or jobs that failed, so bundling them together loses nothing. Anything above zero means at least one run failed during the last 24 hours.",
+      "description": "One alert covering all fourteen scheduled jobs. The email names the job or jobs that failed, so bundling them together loses nothing. Anything above zero means at least one run failed during the last 24 hours.",
       "notes": "COMBINED. One alert covering every scheduled job's failure heartbeat; the breach message names which job(s) via label_column, so combining costs nothing an operator would have used. Replaces four separate Datadog monitors and adds coverage for six crons Datadog never watched.",
       "tags": ["aeci", "alert-source", "managed-by:aeci-647", "aeci-key:alert-cron-failed"],
       "display": "ActionsTable",
@@ -642,6 +653,22 @@
       "tags": ["aeci", "alert-source", "managed-by:aeci-647", "aeci-key:alert-detail-render-p95"],
       "display": "ActionsTable",
       "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-detail-render-p95.json.\n--\n-- Bucket bounds are pinned by the transport (spec §2):\n--   [5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000] ms\n-- and histogram_counts carries bounds.length + 1 entries — the extra one is the +Inf\n-- overflow bucket. `arrayPushBack(bounds, 999999.0)` gives that overflow bucket an edge:\n-- without it a p95 above 10 s indexes past the end of `bounds`, ClickHouse returns the\n-- 0 default, and the WORST case would silently fail to fire.\n--\n-- sumForEach() sums the count arrays element-wise across every data point. It is only\n-- correct because every point shares one bound array; if a future metric ships different\n-- bounds under the same name the arrays misalign silently. Do not reuse this shape\n-- without re-checking that.\n--\n-- lower(cache_status): the SSR Worker emits the literal 'MISS' (server-runtime.ts:989).\n-- Datadog lowercased tag values on ingest and PostHog does not, so a copied\n-- `cache_status:miss` predicate would match nothing. See README.md §'Migration hazards'.\n--\n-- Under WC-8 a cache HIT skips the Worker entirely, so this series is MISS-only volume\n-- and can be sparse. The 20-observation floor keeps a quiet hour from producing a p95\n-- out of three samples.\nWITH agg AS (\n    SELECT\n        sumForEach(m.histogram_counts) AS counts,\n        any(m.histogram_bounds)        AS bounds\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 1 HOUR\n      AND m.metric_name = 'aeci.page.render.duration_ms'\n      AND m.attributes.route_class = 'detail'\n      AND lower(m.attributes.cache_status) = 'miss'\n),\nranked AS (\n    SELECT\n        arraySum(counts)                AS observations,\n        arrayPushBack(bounds, 999999.0) AS edges,\n        indexOf(arrayMap(c -> c >= 0.95 * arraySum(counts), arrayCumSum(counts)), 1) AS bucket_index\n    FROM agg\n)\nSELECT\n    if(observations < 20 OR bucket_index = 0, 0.0, edges[bucket_index]) AS p95_bucket_upper_ms,\n    concat(toString(toInt(observations)), ' MISS detail renders in 1h') AS sample\nFROM ranked"
+    },
+    {
+      "key": "alert-indexnow-failure-rate",
+      "name": "Alert: search-engine pings are being refused",
+      "dashboard": "AECi \u2014 What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when nearly every ping we sent to Bing and Yandex in the last day was refused. While it is firing, changed pages are not being announced to either engine and discovery falls back to ordinary sitemap crawling, which takes days rather than minutes.",
+      "notes": "NEW with AECI-826, and the check that would have caught the original defect. Production ran at a 100% failure rate for at least three days and nothing noticed, because the hook fails open by design and the only evidence was a warn log nobody reads. The window is 24 h rather than 1 h because submissions are sparse by construction after the coalescing fix \u2014 the drain makes no request at all when the buffer is empty. Minimum-denominator floor of 3 stops a single throttled retry from paging. Threshold 90, not 100, so a channel that is 19-of-20 broken still fires.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-indexnow-failure-rate"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-826 / \u00a720.2. No Datadog predecessor \u2014 this metric was never alerted on.\n-- The drain cron emits one aeci.indexnow.submit per outbound request; a tick with\n-- an empty buffer emits none, which is why the denominator floor matters.\nSELECT\n    if(sum(m.value) >= 3,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                       AS failure_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' IndexNow submissions in 24h; ',\n           toString(toInt(sumIf(m.value, m.attributes.outcome = 'failed'))),\n           ' refused')                                            AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.indexnow.submit'"
     }
   ]
 }

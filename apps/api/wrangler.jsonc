@@ -420,6 +420,15 @@
       // so Monday is "2". "0 2 * * 1" (the value before AECI-661) meant SUNDAY, which
       // is the day production actually ran it. See src/lib/cron-schedules.ts for why
       // this stays numeric rather than "0 2 * * MON".
+      // "*/20 * * * *" is the MOST FREQUENT trigger — the IndexNow submission drain
+      // (AECI-826 / §20.2, queue-less): it reads the indexnow_queue buffer the
+      // promote hook writes and makes at most ONE outbound IndexNow request per
+      // tick. It exists because submitting per promote rate-limited the channel to
+      // a standstill — every production submission across 2026-09-07..09 returned
+      // HTTP 429. It cannot be "*/15" (that belongs to the reconcile sweep, and
+      // scheduled.ts switches on the exact cron string), and it is queue-less on
+      // purpose: a queue retry re-submits inside the same rate-limit window, so the
+      // NEXT TICK is the backoff.
       "triggers": {
         "crons": [
           "15 0 * * *",
@@ -434,6 +443,7 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
+          "*/20 * * * *",
           "0 * * * *",
         ],
       },
@@ -569,14 +579,16 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same thirteen crons as staging/production (see staging note — incl. the hourly
+      // Same fourteen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
       // "0 3 * * *" §7.4 retention prune, AECI-584, the daily "0 10 * * *"
       // §7 attestation detector sweep, AECI-302, and the daily "0 11 * * *"
       // Stage 2 §7 entitlement term-expiry sweep, AECI-613 — which WARNS and never
-      // lapses: it never writes status and never writes vendors.verified).
+      // lapses: it never writes status and never writes vendors.verified — and the
+      // "*/20 * * * *" IndexNow submission drain, AECI-826, the most frequent of
+      // the fourteen).
       // Dispatched by `controller.cron`.
       // Strings MUST match the constants in `src/lib/cron-schedules.ts`.
       "triggers": {
@@ -593,6 +605,7 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
+          "*/20 * * * *",
           "0 * * * *",
         ],
       },
@@ -764,7 +777,11 @@
       // (AECI-613, queue-less): active terms inside the 30-day horizon get one renewal
       // prompt to the vendor's seats plus an operator copy, fenced by
       // expiry_notice_sent_at. It WARNS and never lapses — never writes status, never
-      // writes vendors.verified (§7.3).
+      // writes vendors.verified (§7.3); "*/20 * * * *" every 20 min — the IndexNow
+      // submission drain (AECI-826 / §20.2, queue-less), which turns any number of
+      // buffered promotes into ONE outbound IndexNow request. Submitting per promote
+      // rate-limited the channel to a standstill (23 consecutive HTTP 429s,
+      // 2026-09-07..09).
       // Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
@@ -780,6 +797,7 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
+          "*/20 * * * *",
           "0 * * * *",
         ],
       },

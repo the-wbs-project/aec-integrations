@@ -248,7 +248,7 @@ export interface AnalyticsDigestSummary {
  * read on its own (a `wrangler d1` query, a future export) is self-describing and
  * narrows without correlating two fields.
  *
- * Two families: {@link JobRunReasonDetail} for a skip or a crash, and the eight
+ * Two families: {@link JobRunReasonDetail} for a skip or a crash, and the
  * fully-populated report shapes below. Payloads stay SMALL — no rendered emails,
  * no unbounded arrays; Datadog already carries the fine-grained breakdowns.
  */
@@ -362,6 +362,21 @@ export type JobRunDetail =
       batchFailures: number;
       vendor: { sent: number; failed: number; skipped: number };
       admin: { sent: number; failed: number; skipped: number };
+    }
+  /** The twenty-minute IndexNow drain (AECI-826 / §20.2). `submitted` vs `deleted`
+   *  is the load-bearing pair: they are equal on success and `deleted: 0` with a
+   *  non-zero `submitted` is the throttled case, where the rows deliberately stay
+   *  buffered for the next tick. `pending` is counted after the run, so a number
+   *  that climbs across rows is a stuck channel rather than a busy one, and
+   *  `expired` is non-zero only when the channel has been down for a week. */
+  | {
+      job: 'indexnow-drain';
+      submitted: number;
+      deleted: number;
+      expired: number;
+      pending: number;
+      status: number;
+      attempts: number;
     };
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`

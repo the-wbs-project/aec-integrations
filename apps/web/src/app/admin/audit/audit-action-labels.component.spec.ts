@@ -75,6 +75,7 @@ const EMITTED_ACTIONS = [
   'account.deleted',
   'notification.sent',
   'retention.pruned',
+  'indexnow.drained',
 ] as const;
 
 describe('describeAuditAction', () => {

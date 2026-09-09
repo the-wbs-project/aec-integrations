@@ -247,7 +247,7 @@ nowhere.
 
 | Engine | Channel | Automated? |
 |---|---|---|
-| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236) | **Yes** — fires from the promote's post-commit hooks, but **currently failing 100% with HTTP 429** (AECI-826). Until that lands, Bing gets nothing from the push either |
+| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236, rebuilt in AECI-826) | **Yes, but unproven.** The promote's post-commit hook now **buffers** affected URLs into `indexnow_queue`; a `*/20` cron drains them in one request. Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. **Treat Bing discovery as sitemap-only until `aeci.indexnow.submit{outcome:ok}` is non-zero in production**, which needs a prod promote plus a real catalogue write |
 | Google | Search Console → **URL Inspection → Request Indexing** | **No** — a person, after the promote |
 
 Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263

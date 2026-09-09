@@ -1387,7 +1387,7 @@ On any write to products, vendors, or integrations, a Cloudflare Worker submits 
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
-> **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged (PostHog beside Datadog through the AECI-639 dual-run), never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged.
+> **Implemented (AECI-236), rebuilt as a buffer + drain (AECI-826).** The API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and **appends them to the `indexnow_queue` D1 table** right where the Cache-Tag purge fires — best-effort, failures logged, never blocking the write. A separate `*/20 * * * *` cron (`apps/api/src/lib/indexnow-drain.ts`) reads the buffer and submits it to IndexNow (`apps/api/src/lib/indexnow.ts`) in **one** request, then deletes what it sent. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged — and the same gate governs the buffer, so a pre-launch tier never accumulates rows a later key would suddenly release.
 
 > **Trade URLs are publication-gated (AECI-546).** `/trades/:slug` joins the submit set only when the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — pinging an indexing service for a page that serves `noindex` is the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule prevents. Because `affectedUrlsForPromote` is pure over the promote response (which carries no `product_count`), the handler resolves the floor with one grouped count **after** the batch commits (`apps/api/src/routes/promote-trade-publication.ts`) and hands the single result to both pings. The `/trades` **index** is submitted whenever any trade is touched at all, published or not: it renders live per-term counts and gains or loses a tile on a floor crossing, and trades are find-only so the "a term was created" trigger that covers the sibling index pages can never fire for them. This supersedes AECI-542's blanket exclusion, which deferred the decision here.
 
@@ -1406,14 +1406,32 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 > documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so
 > every submission we made was discarded. IndexNow (Bing/Yandex) remains as the only automated push channel.
 >
-> **It is not currently working (AECI-826, 2026-09-09).** Every production IndexNow submission visible in
-> PostHog — 23 attempts across 2026-09-07 to 09 — returned HTTP **429 TooManyRequests**, with no successes at
-> all. **The cause is not established.** One promote fires one request, so a bulk curation session bursting past
-> a rate limit is the obvious candidate, but nothing has tested it — and a 429 throttles before IndexNow ever
-> fetches `<key>.txt`, so a bad key value would look identical from our side. AECI-826 owns finding out. How far
-> back this goes is unknowable: the metric series starts the day production got the PostHog-only build, and the Datadog
-> history before it was decommissioned by AECI-651. **Do not read the sentence above as "Bing discovery is
-> handled" until AECI-826 lands.**
+> **Why the buffer exists — the 2026-09 rate-limit outage (AECI-826).** Every production IndexNow submission
+> visible in PostHog — 23 attempts across 2026-09-07 to 09 — returned HTTP **429 TooManyRequests**, with no
+> successes at all. Per-request URL count was never the constraint (IndexNow accepts 10,000 per request; our
+> largest carried 107). **Request frequency was**: one promote fired one request, and a bulk curation session
+> — which is how the operator actually works, vendor by vendor — burst eleven inside seven minutes on
+> 2026-09-07. The buffer collapses any number of promotes into one request per twenty minutes, a ceiling of 72
+> a day, and far fewer in practice because an empty buffer makes no request at all. It also dedupes: `url` is
+> UNIQUE, so a product promoted twice inside one window is submitted once, which the per-promote design could
+> not do at all.
+>
+> Two things the fix does NOT settle, and both are deliberate:
+>
+> - **How far back the failure goes is unknowable.** The metric series starts the day production received the
+>   PostHog-only build (`44aba9cf`, 2026-09-07); everything before that went to Datadog, which AECI-651
+>   decommissioned. Chronic-since-launch and recent-burst remain equally consistent with the evidence. Neither
+>   is asserted here.
+> - **The key value is still unverified.** A 429 throttles *before* IndexNow fetches `<key>.txt`, so a wrong key
+>   looks identical from our side to a rate limit. Rotation is the only route to a known value
+>   (`docs/launch-cutover-runbook.md` §2a), and until a submission returns 2xx, "Bing discovery is handled" is
+>   still unsupported.
+>
+> **The evidence that it is fixed is `aeci.indexnow.submit{source:cron,outcome:ok}` going non-zero in
+> production**, not this paragraph. Three secondary guards ship with it: a bounded retry with backoff in the
+> transport for an isolated throttle, a seven-day staleness sweep so a prolonged outage cannot grow the table
+> without limit, and a PostHog alert on a sustained failure ratio — the check whose absence let this run silent
+> for at least three days (`docs/OBSERVABILITY.md`, `docs/RUNBOOKS.md`).
 >
 > **Corrected 2026-09-09 (AECI-799).** The sentence that stood here — "Google has **no push channel** for our content types" —
 > was true of the *automated* pipeline and false in practice. Google has no automated push channel; it has a **manual** one, and
@@ -1827,12 +1845,15 @@ create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_
 - `page_views`, `mailing_list`, `feedback` — already documented as exempt in `API_CONTRACTS.md` §6.9 and §6.13, including the unsubscribe soft-delete. This carve-out is where that exemption should always have lived.
 - `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark) and the denormalized product counters (`lib/recompute-counts.ts`), which have never emitted audit rows.
 - `metrics_daily` and `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1, §7.2) — **shipped 2026-08-13** with AECI-581 and AECI-583.
+- `indexnow_queue` (§20.2 / AECI-826) — the IndexNow submission buffer the promote hook appends to. Derived from the promote response, invisible on every public surface, and regenerated by the next promote. Its **INSERTs** are exempt; its scheduled **DELETE** is not — see the exception below.
 
 These are observable through `job_runs` and the emitted metrics instead, not through the audit log. Note the exemption test is **entity class, not actor class**: a system or cron actor writing domain state still audits — `actor_type` already permits `'system'`, and `POST /api/promote` uses it throughout.
 
 **Granularity — a bulk ingest of external facts audits ONCE PER RUN (AECI-714).** Where a single write path mirrors thousands of externally-sourced rows in one commit, the invariant is satisfied by **one summary `audit_log` row per run, in the same batch**, rather than one row per mirrored row. The connector-catalogue sync (`POST /api/promote/connector-catalog`) is the case this was written for: a full mirror is ~3,573 rows today and ~15k once Zapier lands, and per-row auditing would deposit tens of thousands of entries per sync into a table nothing prunes (§26.6), while answering no question the summary does not. `action='connector_catalog.synced'`, `entity_type='connector_catalog'`, `entity_id` = the catalogue, `metadata` = the per-table created/updated/unchanged/deleted/skipped counts plus the page cursor. **A run that changes nothing writes no row at all** — the same rule as `retention.pruned`, and the reason a re-sent page is a true no-op. This is a granularity carve-out, not an exemption: these rows are domain state and they are still audited, inside the same batch, and a *decision-bearing* write on the same tables (flipping a catalogue's `managed_by`) audits per row like any other.
 
 **Exception — scheduled deletion is never exempt.** Any *scheduled* `DELETE` emits exactly one **summary** `audit_log` row per run, in the same batch as the delete: `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. Deletion is the one write whose fact cannot be recovered from the data afterwards. (Precedent: the single `catalog.integrations_reset` row standing for the 2026-07-25 bulk removal.)
+
+> **Two writers satisfy this rule, not one.** The 03:00 retention prune is the original. The `*/20` IndexNow drain (§20.2 / AECI-826) is the second: it deletes the `indexnow_queue` rows it has just submitted, and the rows it drops for exceeding the staleness window, each with one summary row carrying `action='indexnow.drained'` and a `metadata.reason` of `submitted` or `expired`. Its delete is queue consumption rather than data retention, and the rule is written without that distinction — following it costs one statement and is wanted anyway, because a bug there silently drops URLs out of the only automated discovery channel we have. **"No change, no row" applies to both**, so an empty drain writes nothing at all.
 
 ### 26.2 Workflow instances
 
