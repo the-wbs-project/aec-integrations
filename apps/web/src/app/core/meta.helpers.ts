@@ -163,7 +163,7 @@ export function stripQueryParams(url: string): string {
  * canonical is served to both. `utm_*` is the live example of why: it is deliberately
  * absent from both lists.
  *
- * Governing docs: `docs/STAGE_1_PHASE_2_SPEC.md` §9.1, `docs/STAGE_1_SPEC.md` §20.6,
+ * Governing docs: `docs/STAGE_1_PHASE_2_SPEC.md` §9.1a, `docs/STAGE_1_SPEC.md` §20.6,
  * `docs/CACHE_STRATEGY.md` §4a.
  */
 export const CANONICAL_QUERY_ALLOWLIST: ReadonlySet<string> = new Set(['page']);

@@ -136,7 +136,7 @@ describe('stripQueryParams', () => {
 // `stripQueryParams` above still governs every OTHER canonical path (404, /search,
 // static pages, the JSON-LD @id). This allowlist variant governs `setEntityMeta`
 // alone, so that `/products?page=2` can self-canonicalise instead of declaring
-// itself a duplicate of page 1. Spec: STAGE_1_PHASE_2_SPEC.md §9.1.
+// itself a duplicate of page 1. Spec: STAGE_1_PHASE_2_SPEC.md §9.1a.
 
 describe('CANONICAL_QUERY_ALLOWLIST', () => {
   it('contains page and nothing else', () => {

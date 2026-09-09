@@ -457,7 +457,7 @@ describe('MetaService.setPairJsonLd', () => {
 // routes) self-canonicalise instead of every page declaring itself a duplicate of
 // page 1. Everything else it serves — detail, pair, taxonomy index — hands it a
 // hardcoded query-free path, so the allowlist strip is indistinguishable from the
-// full strip there. Spec: STAGE_1_PHASE_2_SPEC.md §9.1.
+// full strip there. Spec: STAGE_1_PHASE_2_SPEC.md §9.1a.
 
 describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
   beforeEach(resetHead);
