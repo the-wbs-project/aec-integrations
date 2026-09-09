@@ -385,15 +385,27 @@ export function buildMetricsBackfillStatements(range: BackfillRange): string[] {
   return [...buildZeroFillStatements(range), ...buildAggregateStatements(range)];
 }
 
+/**
+ * What the run does to one day, as reported by {@link buildValueDiffProbes}.
+ *
+ * `rewrite` — the run writes `recomputed` over `stored` (or inserts it, when
+ * `stored` is NULL). `stale` — the stored value no longer matches what the
+ * current predicate aggregates, and this run does NOT correct it. The two are
+ * kept apart because conflating them would have the dry run promise a write
+ * that never lands; see {@link buildValueDiffProbes}.
+ */
+export type ValueDiffKind = 'rewrite' | 'stale';
+
 export interface ValueDiffProbe {
   metric: AdminMetricKey;
-  /** `SELECT day, stored, recomputed` — one row per day this run would change. */
+  /** `SELECT kind, day, stored, recomputed` — one row per day this run rewrites
+   *  (`kind = 'rewrite'`) or leaves stale (`kind = 'stale'`). */
   sql: string;
 }
 
 /**
- * Per series, the days whose stored value this run would CHANGE — and nothing
- * else. Printed by the dry run.
+ * Per series, the days whose stored value this run would CHANGE, plus the days
+ * it leaves wrong. Printed by the dry run.
  *
  * `metrics_daily` is retained indefinitely (§7.4 / §13 D5), so this script is
  * the one place in the repo that rewrites a permanent record. A dry run that
@@ -403,16 +415,30 @@ export interface ValueDiffProbe {
  * that corrects the AECI-683 definition change looks identical, from a
  * statement count, to one that corrupts every day in the range.
  *
- * **The two arms are not symmetric decoration.** A day whose stored value is
- * non-zero but whose recomputed value is zero produces NO row in
- * `series.select()` — it is grouped away — so a one-sided join from the
- * aggregate would silently miss a series collapsing to nothing, which is
- * exactly the failure worth catching. The second arm drives from the stored
- * side to find it. SQLite has no portable `FULL OUTER JOIN` here, and two
- * compound terms sit well inside D1's five-term cap.
+ * **The two arms are not symmetric, and they do not report the same thing.**
  *
- * Scope is value changes only. The zero-fill pass is `DO NOTHING` and inserts a
- * 0 where no row exists at all; that is a coverage change, reported by
+ * The first arm drives from `src` and is the rewrite: every day the aggregate
+ * pass will actually write. The second drives from the stored side to find days
+ * that fell OUT of `series.select()` — a day whose recomputed value is zero is
+ * grouped away and produces no `src` row at all — so a one-sided join would
+ * miss a series collapsing to nothing. But the run does not fix those days
+ * either, and they are reported as `stale` rather than as a rewrite for exactly
+ * that reason: the aggregate `INSERT … SELECT` emits no row for a day absent
+ * from `src`, and the zero-fill pass is `DO NOTHING`, so the old non-zero value
+ * survives untouched.
+ *
+ * **That is deliberate, and it must not be "fixed" by making the aggregate
+ * write the zero.** §7.4's prune deletes raw `page_views` once `metrics_daily`
+ * has captured the day (`findSnapshotGap` in `retention-prune.ts`). A run that
+ * collapsed absent-from-`src` days to 0 would therefore erase the long memory
+ * for every day whose source rows had aged out — which is the one thing this
+ * table exists to prevent. A `stale` day is corrected by hand, or not at all.
+ *
+ * SQLite has no portable `FULL OUTER JOIN` here, and two compound terms sit
+ * well inside D1's five-term cap.
+ *
+ * Scope is value changes only. The zero-fill pass inserts a 0 where no row
+ * exists at all; that is a coverage change, reported by
  * {@link buildCoverageProbe}, not a value the operator needs to review.
  *
  * Cost: this re-runs each series' `SELECT`, including `NOT_INTERNAL`'s
@@ -426,6 +452,8 @@ export function buildValueDiffProbes(range: BackfillRange): ValueDiffProbe[] {
     // An absent stored row is always in scope: there is no prior provenance for
     // the precedence rule to protect, and the run will insert it.
     const onNew = applies ? ` AND (stored.day IS NULL OR ${applies})` : '';
+    // A day precedence protects is not stale — the measured row is the better
+    // answer, and declining to overwrite it is the rule working, not a gap.
     const onExisting = applies ? ` AND ${applies}` : '';
     return {
       metric: series.metric,
@@ -434,14 +462,16 @@ export function buildValueDiffProbes(range: BackfillRange): ValueDiffProbe[] {
         `stored AS (SELECT "day", "value", "source" FROM metrics_daily ` +
         `WHERE "metric" = ${q(series.metric)} ` +
         `AND "day" >= ${q(range.fromDay)} AND "day" <= ${q(range.toDay)}) ` +
-        `SELECT src.day AS day, stored.value AS stored, src.value AS recomputed ` +
+        `SELECT 'rewrite' AS kind, src.day AS day, stored.value AS stored, src.value AS recomputed ` +
         `FROM src LEFT JOIN stored ON stored.day = src.day ` +
         `WHERE (stored.day IS NULL OR stored.value <> src.value)${onNew} ` +
         `UNION ALL ` +
-        `SELECT stored.day AS day, stored.value AS stored, 0 AS recomputed ` +
+        `SELECT 'stale' AS kind, stored.day AS day, stored.value AS stored, 0 AS recomputed ` +
         `FROM stored LEFT JOIN src ON src.day = stored.day ` +
         `WHERE src.day IS NULL AND stored.value <> 0${onExisting} ` +
-        `ORDER BY 1`,
+        // `kind` first so the rewrites — the rows that govern the --apply
+        // decision — print together and ahead of the advisory block.
+        `ORDER BY 1, 2`,
     };
   });
 }

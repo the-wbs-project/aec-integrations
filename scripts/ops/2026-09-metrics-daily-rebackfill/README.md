@@ -80,6 +80,15 @@ AECI-688). **A run that reports no change on all eight series is the verificatio
 the mechanical form of "the chart has no step at the boundary", and it beats reading a
 chart, because day-to-day traffic varies anyway.
 
+Read the second block separately. Days printed under `stored day(s) NOT corrected by this
+run` have no source rows left, so the series' `SELECT` skips them entirely: the aggregate
+writes nothing and the zero-fill is `DO NOTHING`, and the stored value stays. The run
+deliberately does not collapse them to zero, because §7.4 prunes raw `page_views` once
+`metrics_daily` has captured the day — a zeroing run would erase the long memory for every
+aged-out day. Such a day is corrected by hand or not at all, and it will keep appearing in
+every dry run. The block was added after the 2026-09-09 runs, so re-check for it on the next
+dry run rather than reading the tables above as evidence there are none.
+
 ```bash
 pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
   --from 2026-06-23 --to <yesterday>

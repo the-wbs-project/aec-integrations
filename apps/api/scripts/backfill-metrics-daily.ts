@@ -36,10 +36,11 @@
  *     reconstruction never degrades a real snapshot.
  *   - **That is not a blanket no-op guarantee, and the difference matters.** A
  *     `measured` series upserts UNCONDITIONALLY, cron-written rows included —
- *     the three `traffic.*` keys and `catalog.products_created`. That is the
- *     point, not a hazard: it is what lets a re-run correct a definition change
- *     (AECI-688). The dry run prints every value it would change, per day, so
- *     the rewrite is visible before it happens.
+ *     all five of them: the three `traffic.*` keys, `catalog.products_created`
+ *     and `accounts.sign_ins_new`. That is the point, not a hazard: it is what
+ *     lets a re-run correct a definition change (AECI-688). The dry run prints
+ *     every value it would change, per day, so the rewrite is visible before it
+ *     happens.
  *   - Emits NO `audit_log` row (derived bookkeeping — ADR 0022 / §13 D11).
  *
  * USAGE (from the repo root; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
@@ -66,6 +67,7 @@ import {
   buildZeroFillStatements,
   daysInRange,
   type BackfillRange,
+  type ValueDiffKind,
 } from '../src/lib/metrics-backfill';
 
 // ─── Args + target resolution ────────────────────────────────────────────────
@@ -161,53 +163,97 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
 const MAX_DIFF_ROWS = 40;
 
 interface DiffRow {
+  kind: ValueDiffKind;
   day: string;
   stored: number | null;
   recomputed: number;
 }
 
+/** Truncate a detail block, keeping the count honest when it overflows. */
+function printDetail(lines: string[]): void {
+  for (const line of lines.slice(0, MAX_DIFF_ROWS)) console.log(line);
+  if (lines.length > MAX_DIFF_ROWS) {
+    console.log(`     … +${lines.length - MAX_DIFF_ROWS} more row(s)`);
+  }
+}
+
 /**
- * Print, per series, the days whose stored value this run would rewrite.
+ * Print, per series, the days this run would rewrite — and, separately, the days
+ * it leaves wrong.
  *
  * Dry-run only. `metrics_daily` is kept forever, so "how many statements" is
  * the wrong question to answer before an `--apply`; "which numbers move, and by
- * how much" is the right one. A run that reports no change on every series is
+ * how much" is the right one. A run that reports no rewrite on every series is
  * also the mechanical form of "the backfill is already applied" — which is how
  * AECI-688 verifies itself after the fact.
+ *
+ * **The two blocks are reported apart because only one of them is a promise.**
+ * A `stale` day fell out of the series' SELECT entirely, so the aggregate writes
+ * nothing for it and the zero-fill is `DO NOTHING` — the old value survives this
+ * run untouched. Folding those into the rewrite count would tell the operator a
+ * correction is about to happen that is not, and would make "no change" a state
+ * such a tier could never reach. `lib/metrics-backfill.ts` records why the run
+ * deliberately does not collapse them to zero.
  */
 function reportValueDiff(target: Target, range: BackfillRange): void {
   console.log('Value changes this run would make:');
   const detail: string[] = [];
+  const stale: string[] = [];
   let changedDays = 0;
 
   for (const probe of buildValueDiffProbes(range)) {
     const rows = runD1<DiffRow>(target, probe.sql)[0]?.results ?? [];
-    if (rows.length === 0) {
+    const rewrites = rows.filter((r) => r.kind === 'rewrite');
+    const stalled = rows.filter((r) => r.kind === 'stale');
+
+    if (rewrites.length === 0) {
       console.log(`  = ${probe.metric.padEnd(30)} no change`);
-      continue;
+    } else {
+      changedDays += rewrites.length;
+      const net = rewrites.reduce((sum, r) => sum + (r.recomputed - (r.stored ?? 0)), 0);
+      console.log(
+        `  ≠ ${probe.metric.padEnd(30)} ${rewrites.length} day(s) change, net ${net >= 0 ? '+' : ''}${net}`,
+      );
+      for (const r of rewrites) {
+        detail.push(
+          `     ${r.day}  ${probe.metric.padEnd(30)} ` +
+            `${String(r.stored ?? '(none)').padStart(9)} → ${String(r.recomputed).padStart(9)}`,
+        );
+      }
     }
-    changedDays += rows.length;
-    const net = rows.reduce((sum, r) => sum + (r.recomputed - (r.stored ?? 0)), 0);
-    console.log(
-      `  ≠ ${probe.metric.padEnd(30)} ${rows.length} day(s) change, net ${net >= 0 ? '+' : ''}${net}`,
-    );
-    for (const r of rows) {
-      detail.push(
+
+    for (const r of stalled) {
+      stale.push(
         `     ${r.day}  ${probe.metric.padEnd(30)} ` +
-          `${String(r.stored ?? '(none)').padStart(9)} → ${String(r.recomputed).padStart(9)}`,
+          `${String(r.stored).padStart(9)} stays (live predicate now 0)`,
       );
     }
   }
 
   if (changedDays === 0) {
     console.log('  Nothing to correct: every stored value already agrees with the live predicate.');
+  } else {
     console.log('');
-    return;
+    printDetail(detail);
   }
-  console.log('');
-  for (const line of detail.slice(0, MAX_DIFF_ROWS)) console.log(line);
-  if (detail.length > MAX_DIFF_ROWS) {
-    console.log(`     … +${detail.length - MAX_DIFF_ROWS} more row(s)`);
+
+  if (stale.length > 0) {
+    console.log('');
+    console.log(`⚠  ${stale.length} stored day(s) NOT corrected by this run:`);
+    printDetail(stale);
+    console.log('');
+    console.log(
+      '   These days have no rows left in the source table, so the aggregate writes nothing for',
+    );
+    console.log(
+      '   them and the zero-fill is DO NOTHING. The stored value stays as it is. That is on',
+    );
+    console.log(
+      '   purpose — §7.4 prunes raw page_views once metrics_daily has captured the day, so a run',
+    );
+    console.log(
+      '   that zeroed them would erase the long memory for every aged-out day. Correct by hand.',
+    );
   }
   console.log('');
 }

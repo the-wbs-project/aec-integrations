@@ -414,9 +414,11 @@ describe('the operator probes', () => {
 describe('the dry run reports what it would change (AECI-688)', () => {
   // `metrics_daily` is retained indefinitely, so the operator has to be able to
   // see the rewrite before authorising it. These assert the report is neither
-  // over-broad (a matching day must stay quiet) nor under-broad (a series that
-  // collapses to zero must still be reported).
+  // over-broad (a matching day must stay quiet, and a day the run cannot touch
+  // must not be counted as a rewrite) nor under-broad (a series that collapses
+  // to zero must still be surfaced, as `stale`).
   interface Diff {
+    kind: 'rewrite' | 'stale';
     day: string;
     stored: number | null;
     recomputed: number;
@@ -441,10 +443,10 @@ describe('the dry run reports what it would change (AECI-688)', () => {
     });
 
     expect(diff('traffic.page_views_human')).toEqual([
-      { day: '2026-08-08', stored: 4, recomputed: 2 },
+      { kind: 'rewrite', day: '2026-08-08', stored: 4, recomputed: 2 },
       // A day with no stored row at all is a change too — `(none)` in the
       // printed report — and must not be confused with a day that agrees.
-      { day: '2026-08-10', stored: null, recomputed: 2 },
+      { kind: 'rewrite', day: '2026-08-10', stored: null, recomputed: 2 },
     ]);
   });
 
@@ -457,20 +459,26 @@ describe('the dry run reports what it would change (AECI-688)', () => {
     for (const series of BACKFILL_SERIES) expect(diff(series.metric)).toEqual([]);
   });
 
-  it('reports a stored value the run would collapse to zero', async () => {
+  it('reports a day that fell out of the SELECT as `stale`, and the run leaves it alone', () => {
     // The asymmetric case: the aggregate SELECT emits no row for this day, so a
-    // one-sided join from `src` would miss it entirely.
-    await t.db.insert(metricsDaily).values({
-      day: '2026-08-09',
-      metric: 'traffic.page_views_human',
-      value: 7,
-      source: 'measured',
-      computedAt: '2026-08-10T00:15:00.000Z',
-    });
+    // one-sided join from `src` would miss it entirely. But the run does not fix
+    // it either — the aggregate writes nothing and zero-fill is DO NOTHING — so
+    // it must NOT be reported as a rewrite. Collapsing it to 0 would be worse
+    // than leaving it: §7.4 prunes raw page_views once the day is captured, so a
+    // zeroing run would erase the long memory for every aged-out day.
+    t.raw
+      .prepare(
+        `INSERT INTO metrics_daily (day, metric, value, source, computed_at) ` +
+          `VALUES ('2026-08-09', 'traffic.page_views_human', 7, 'measured', '2026-08-10T00:15:00.000Z')`,
+      )
+      .run();
 
     expect(diff('traffic.page_views_human')).toEqual([
-      { day: '2026-08-09', stored: 7, recomputed: 0 },
+      { kind: 'stale', day: '2026-08-09', stored: 7, recomputed: 0 },
     ]);
+
+    backfill();
+    expect(valueOf('2026-08-09', 'traffic.page_views_human')).toBe(7);
   });
 
   it('does not report a reconstructed series over a measured row the run cannot touch', async () => {
@@ -496,7 +504,7 @@ describe('the dry run reports what it would change (AECI-688)', () => {
       computedAt: '2026-08-09T00:15:00.000Z',
     });
     expect(diff('traffic.page_views_bot')).toEqual([
-      { day: '2026-08-08', stored: 99, recomputed: 1 },
+      { kind: 'rewrite', day: '2026-08-08', stored: 99, recomputed: 1 },
     ]);
   });
 
@@ -517,12 +525,28 @@ describe('the dry run reports what it would change (AECI-688)', () => {
         source: 'measured',
         computedAt: '2026-08-09T00:15:00.000Z',
       },
+      // A day with no source rows left, on a series the run WILL touch
+      // elsewhere. It must land in the `stale` half, not the rewrite half.
+      {
+        day: '2026-08-09',
+        metric: 'traffic.page_views_bot',
+        value: 12,
+        source: 'measured',
+        computedAt: '2026-08-10T00:15:00.000Z',
+      },
     ]);
-    const predicted = new Map(
-      BACKFILL_SERIES.flatMap((s) =>
-        diff(s.metric).map((d) => [`${d.day}|${s.metric}`, d.recomputed] as const),
-      ),
+    const reported = BACKFILL_SERIES.flatMap((s) =>
+      diff(s.metric).map((d) => ({ ...d, metric: s.metric })),
     );
+    const predicted = new Map(
+      reported
+        .filter((d) => d.kind === 'rewrite')
+        .map((d) => [`${d.day}|${d.metric}`, d.recomputed] as const),
+    );
+    const untouched = reported
+      .filter((d) => d.kind === 'stale')
+      .map((d) => [`${d.day}|${d.metric}`, d.stored] as const);
+    expect(untouched).toEqual([['2026-08-09|traffic.page_views_bot', 12]]);
 
     backfill();
 
@@ -533,5 +557,10 @@ describe('the dry run reports what it would change (AECI-688)', () => {
       expect({ key, value: valueOf(day, metric) }).toEqual({ key, value: recomputed });
     }
     expect(valueOf('2026-08-08', 'catalog.integrations_created')).toBe(99);
+    // And a `stale` row is a promise too — that the run does NOT move it.
+    for (const [key, stored] of untouched) {
+      const [day, metric] = key.split('|');
+      expect({ key, value: valueOf(day, metric) }).toEqual({ key, value: stored });
+    }
   });
 });

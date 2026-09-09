@@ -1014,6 +1014,14 @@ means this script rewrites a table retained indefinitely, and "how many statemen
 question to ask first. The precedence rule in full: a `reconstructed` write applies only over an absent
 or already-`reconstructed` row, so a reconstruction never degrades a real snapshot.
 
+**The diff has two blocks, and only the first one is a promise.** Days listed as changing (`≠`) are
+what the run writes. Days listed under `stored day(s) NOT corrected by this run` are days whose source
+rows are all gone, so the series' `SELECT` returns nothing for them: the aggregate writes nothing and
+the zero-fill is `DO NOTHING`, and the stored value survives the run untouched. That is deliberate —
+§7.4's prune deletes raw `page_views` once `metrics_daily` has captured the day, so a run that zeroed
+those days would erase the long memory for every day whose source rows had aged out. Correct such a day
+by hand, or leave it; the script will keep reporting it on every dry run until you do.
+
 **Always pass `--to <yesterday>`.** With `--to` omitted the upper bound defaults to `max(day)` across
 `page_views` / `audit_log` / `products` / `profiles`, which is **today** on any tier with traffic today.
 That writes a partial UTC day into the long memory. The 00:15 cron would normally correct it the next
