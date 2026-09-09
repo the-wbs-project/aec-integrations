@@ -823,6 +823,25 @@ describe('integrationPartnerNames', () => {
     expect(integrationPartnerNames(product)).toEqual(['Asana', 'bluebeam Revu', 'zoho Books']);
   });
 
+  it('breaks a case-only tie on a stable key rather than on arrival order', () => {
+    // `sensitivity: 'base'` calls these two equal, so without the comparator's
+    // second pass the pair would keep the API's unordered relation order and a
+    // cached description could differ between two identical requests.
+    const forward = makeDescribedProduct({
+      integrations_as_source: [
+        makeEdge(SELF, makeLink('revu', 'Revu')),
+        makeEdge(SELF, makeLink('revu-lower', 'revu')),
+      ],
+    });
+    const reversed = makeDescribedProduct({
+      integrations_as_source: [
+        makeEdge(SELF, makeLink('revu-lower', 'revu')),
+        makeEdge(SELF, makeLink('revu', 'Revu')),
+      ],
+    });
+    expect(integrationPartnerNames(forward)).toEqual(integrationPartnerNames(reversed));
+  });
+
   it('ignores the connector that delivers an edge', () => {
     // `via` names the iPaaS in the middle, not a tool the product connects to.
     const edge = { ...makeEdge(SELF, JOBBER), via: makeLink('agave', 'Agave') };

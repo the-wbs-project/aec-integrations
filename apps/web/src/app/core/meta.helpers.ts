@@ -174,9 +174,25 @@ export function buildEntityTitle(name: string, suffix: string): string {
  */
 export const META_DESCRIPTION_MAX_NAMES = 3;
 
-/** Case-insensitive name comparator, matching the AECI-825 sort convention. */
+/**
+ * Case-insensitive name comparator, matching the AECI-825 sort convention.
+ *
+ * Two details make it a **total order on a pinned collation**, which is what the
+ * callers' determinism claims actually rest on:
+ *
+ * The locale is pinned to `'en'`, never the ambient one. `taxonomy-index.ts`
+ * records the rule and the reason: an unpinned collation can order differently
+ * under the SSR Worker than in the browser. That bites harder here than there,
+ * because `applyMeta` runs on SSR *and* again on every client navigation, and
+ * the string it composes is baked into a URL-keyed edge cache entry.
+ *
+ * The `sensitivity: 'base'` pass returns 0 for names differing only in case or
+ * accent, so it cannot break such a tie on its own — it would leave the pair in
+ * the API's declared-unordered relation order. The case-sensitive second pass is
+ * the stable tie-break.
+ */
 function byNameInsensitive(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+  return a.localeCompare(b, 'en', { sensitivity: 'base' }) || a.localeCompare(b, 'en');
 }
 
 /**
