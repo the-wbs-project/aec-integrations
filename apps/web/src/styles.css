@@ -407,8 +407,13 @@ select {
    (`aec-section-nav`) and the skip link rely on native fragment scrolling.
    CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`
    JS path), so it degrades to an instant jump where smooth scrolling is off.
-   The reduced-motion block below resets it to `auto`. No programmatic scrolls
-   exist in the app to disturb. */
+   The reduced-motion block below resets it to `auto`. Programmatic scrolls do
+   exist and must stay instant: router scroll restoration, the router's own
+   anchor re-scroll (which runs on these same fragment clicks, because a
+   same-document fragment navigation fires `popstate`), and
+   `InitialFragmentScroller`. `ScrollBehaviorManager` forces inline
+   `scroll-behavior: auto` for the span of each router navigation so this rule
+   never animates them. */
 html {
   scroll-behavior: smooth;
 }

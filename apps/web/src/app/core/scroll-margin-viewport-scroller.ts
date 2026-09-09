@@ -127,7 +127,9 @@ export class NoopViewportScroller extends ViewportScroller {
 
 /**
  * Replace Angular's `ViewportScroller` with the `scroll-margin`-aware one.
- * Add to `appConfig.providers` AFTER `provideRouter(...)` so it wins.
+ * Add to `appConfig.providers`. An explicit provider always beats the
+ * `providedIn: 'root'` factory, and `@angular/router` only ever *injects* this
+ * token, so position relative to `provideRouter(...)` does not matter.
  */
 export function provideScrollMarginViewportScroller(): Provider {
   return {

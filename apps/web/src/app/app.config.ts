@@ -59,10 +59,12 @@ export const appConfig: ApplicationConfig = {
         anchorScrolling: 'enabled',
       }),
     ),
-    // Must come after `provideRouter(...)`: it overrides the `ViewportScroller`
-    // that `RouterScroller` injects, so the router's anchor scroll honors each
-    // section's `scroll-mt-20` instead of hiding the heading behind the sticky
-    // section-nav. See `core/scroll-margin-viewport-scroller.ts`.
+    // Overrides the `providedIn: 'root'` `ViewportScroller` that `RouterScroller`
+    // injects, so the router's anchor scroll honors each section's `scroll-mt-20`
+    // instead of hiding the heading behind the sticky section-nav. `@angular/router`
+    // never provides that token itself, so array position does not decide the
+    // winner; this sits next to `provideRouter(...)` only because that is what it
+    // affects. See `core/scroll-margin-viewport-scroller.ts`.
     provideScrollMarginViewportScroller(),
     provideClientHydration(
       // Angular v22 incremental hydration is on by default and auto-enables event
