@@ -97,6 +97,18 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 └─ faq                               — seeded from real concierge-onboarding questions, not invented
 ```
 
+> **Boundary with `/methodology` (AECI-804, shipped).** The three `trust/` pages above cover the same
+> ground as the editorial methodology page, which now exists at a top-level URL. They do not duplicate
+> it and they must not replace it. `/methodology` is the **single-page, citable editorial statement**:
+> one read, indexable, in the sitemap, the canonical short answer to "how does this directory work".
+> `/docs/trust/*` is the **task-level depth** underneath it, and links up rather than absorbing. The
+> rule of thumb: `/methodology` is what we assert, `/docs/trust/*` is how to act on it. Same split for
+> `getting-started/what-aeci-is`. See `STAGE_2_5_SPEC.md` §7.2, which owns this boundary.
+>
+> Two things `/docs` inherits from that page when it lands: the `.aec-prose` class (renamed from
+> `.legal-prose` by AECI-804 precisely because it now styles more than the legal set), and the
+> "assemble, never invent" rule with its six do-not-say items in `STAGE_2_5_SPEC.md` §7.1.
+
 ## 6. Deliberately deferred (not in the v0 epic)
 
 - Docs search (Algolia `docs_{env}` is the path when wanted)

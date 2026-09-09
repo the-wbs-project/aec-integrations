@@ -165,6 +165,9 @@ describe('cacheControlForRoute', () => {
     // cacheable — indexability and cacheability are independent.
     ['/updates', { edge: 86_400, browser: 3_600 }],
     ['/roadmap', { edge: 86_400, browser: 3_600 }],
+    // AECI-804 — /methodology is static + indexable, on the same TTL and with
+    // the same deliberate absence of the resilience pair.
+    ['/methodology', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0, ...R }],
     ['/vendors/autodesk', { edge: 900, browser: 0, ...R }],

@@ -16,7 +16,7 @@
  * is trusted/in-repo, but we don't bypass it), and the body is *content*, not UI
  * strings, so it is not `$localize`-extracted. Only the chrome (eyebrow, title,
  * metadata labels, meta) is i18n-wrapped. Body prose is styled by the global
- * `.legal-prose` block in `styles.css`. Layout mirrors `/about`: a warm Bone
+ * `.aec-prose` block in `styles.css`. Layout mirrors `/about`: a warm Bone
  * (`accent-warm`) hero band, body measure capped at 70ch. Light theme only.
  */
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
@@ -96,9 +96,9 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
         </div>
       </section>
 
-      <!-- Body: rendered Markdown (sanitized). Styled globally via .legal-prose. -->
+      <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose. -->
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        <article class="legal-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
+        <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
       </div>
     </div>
   `,

@@ -220,6 +220,25 @@ describe('resolveSitemapEntries', () => {
     }
   });
 
+  it('includes /methodology (AECI-804), the one non-legal static page listed', async () => {
+    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entry = entries.find((e) => e.loc === 'https://aecintegrations.com/methodology');
+    expect(entry).toBeDefined();
+    expect(entry?.changefreq).toBe('monthly');
+    expect(entry?.priority).toBe(0.5);
+    expect(entry?.lastmod).toBeUndefined();
+
+    // The other static pages stay OUT, so a future "add every static page" edit
+    // has to be a deliberate one. /roadmap in particular is noindex, and listing
+    // a noindexed URL is a crawl-budget contradiction.
+    for (const path of ['/', '/about', '/updates', '/roadmap']) {
+      expect(
+        entries.find((e) => e.loc === `https://aecintegrations.com${path}`),
+        path,
+      ).toBeUndefined();
+    }
+  });
+
   it('sets lastmod from updated_at for products/vendors/integration pairs but not taxonomy', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const byLoc = (loc: string) => entries.find((e) => e.loc === loc);

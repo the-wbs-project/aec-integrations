@@ -76,11 +76,16 @@
             // even if it did, `nodejs_compat` provides `util` at runtime.
             "externalDependencies": ["#cloudflare-workers", "cloudflare:workers", "util"],
             // AECI-237 — inline `*.md` imports as raw strings via esbuild's
-            // `text` loader, so the legal-page content registry
-            // (`src/app/legal/legal-content.ts`) can `import` the Markdown
-            // sources in `src/content/legal/`. Applies to every `.md` import,
-            // but only the legal content uses them. The matching ambient type
-            // (`declare module '*.md'`) lives in `src/markdown.d.ts`.
+            // `text` loader, so a content registry can `import` Markdown sources
+            // from `src/content/`. Two consumers today: the legal registry
+            // (`src/app/legal/legal-content.ts` → `src/content/legal/*.md`) and
+            // the methodology page (`src/app/methodology/methodology-content.ts`
+            // → `src/content/methodology.md`, AECI-804). Applies to EVERY `.md`
+            // import anywhere under `src/`. The matching ambient type
+            // (`declare module '*.md'`) lives in `src/markdown.d.ts`, which must
+            // also be listed in `tsconfig.component-spec.json` (it is ambient, so
+            // nothing imports it into the program). Authoring guide:
+            // `src/content/README.md`.
             "loader": {
               ".md": "text"
             },

@@ -25,7 +25,7 @@ The mapping lives in `legal-content.ts`:
 ## Frontmatter
 
 Each file opens with a YAML frontmatter block (scalar keys only — parsed by the hand-rolled
-`parseFrontmatter` in `legal-content.ts`, not a YAML library):
+`parseFrontmatter` in `legal-frontmatter.ts`, not a YAML library):
 
 ```yaml
 ---
