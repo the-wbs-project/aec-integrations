@@ -49,10 +49,60 @@ export const INDEXNOW_QUEUE_MAX_AGE_DAYS = 7;
  */
 export const INDEXNOW_DRAIN_BATCH_SIZE = 2_000;
 
+/**
+ * URLs per INSERT statement.
+ *
+ * **D1 caps a query at 100 bound parameters**
+ * (developers.cloudflare.com/d1/platform/limits/), the same ceiling
+ * `asn-registry.ts` sizes `UPSERT_ROWS_PER_STATEMENT` off. Each buffered row binds
+ * three values — `url`, `queued_at`, `source` — so 33 rows is 99 parameters and
+ * one more row is a rejected statement.
+ *
+ * This has to be sized off the documented limit rather than measured locally,
+ * because **better-sqlite3's ceiling is 32,766**: a single unchunked INSERT of 107
+ * URLs passes every spec in this repo and fails in production. The set is
+ * genuinely unbounded — `affectedUrlsForPromote` emits one URL per integration in
+ * the payload — and the largest submission production has made carried 107, so
+ * this is not a theoretical edge.
+ */
+export const INDEXNOW_INSERT_ROWS_PER_STATEMENT = 33;
+
 /** One buffered URL, as the drain reads it. */
 export interface PendingIndexNowUrl {
   id: number;
   url: string;
+}
+
+function insertChunk(db: Db, chunk: readonly string[], queuedAt: string, source: string) {
+  return db
+    .insert(indexnowQueue)
+    .values(chunk.map((url) => ({ url, queuedAt, source })))
+    .onConflictDoNothing({ target: indexnowQueue.url })
+    .returning({ id: indexnowQueue.id });
+}
+
+/**
+ * The INSERT statements `enqueueIndexNowUrls` will run, chunked to
+ * {@link INDEXNOW_INSERT_ROWS_PER_STATEMENT}.
+ *
+ * Exported so a spec can assert the **bound-parameter count per statement**, which
+ * is the only assertion that actually guards the limit — the in-memory harness
+ * binds thousands of parameters happily, so a behavioural "did all the rows land"
+ * test passes with or without the chunking.
+ */
+export function indexNowInsertStatements(
+  db: Db,
+  urls: readonly string[],
+  queuedAt: string,
+  source: string,
+): ReturnType<typeof insertChunk>[] {
+  const stmts: ReturnType<typeof insertChunk>[] = [];
+  for (let i = 0; i < urls.length; i += INDEXNOW_INSERT_ROWS_PER_STATEMENT) {
+    stmts.push(
+      insertChunk(db, urls.slice(i, i + INDEXNOW_INSERT_ROWS_PER_STATEMENT), queuedAt, source),
+    );
+  }
+  return stmts;
 }
 
 /**
@@ -62,6 +112,16 @@ export interface PendingIndexNowUrl {
  * product promoted three times inside one drain window occupies one row and is
  * submitted once. The pre-AECI-826 design could not dedupe at all — each promote
  * was its own request.
+ *
+ * Written as one statement per {@link INDEXNOW_INSERT_ROWS_PER_STATEMENT} URLs,
+ * run in sequence rather than in a `db.batch`. Two reasons, and neither is cost:
+ * the buffer's INSERTs are ADR 0022 log-class and idempotent, so a chunk set that
+ * stops half way leaves committed rows the drain will submit and a re-promote will
+ * dedupe against — there is nothing for atomicity to protect. And `RETURNING`
+ * rows do not survive `db.batch` in the in-memory harness (its shim reads rows
+ * only for statements beginning `select`/`with`), so batching would make the
+ * inserted count silently wrong in every spec. A failing chunk throws to the
+ * caller, whose fail-open catch logs it (§20.2).
  *
  * Returns how many rows were actually inserted, counted from `RETURNING` rather
  * than from `meta.changes` — D1 does not report `changes` usefully (the same
@@ -77,12 +137,11 @@ export async function enqueueIndexNowUrls(
 ): Promise<number> {
   if (urls.length === 0) return 0;
   const queuedAt = now().toISOString();
-  const inserted = await db
-    .insert(indexnowQueue)
-    .values(urls.map((url) => ({ url, queuedAt, source })))
-    .onConflictDoNothing({ target: indexnowQueue.url })
-    .returning({ id: indexnowQueue.id });
-  return inserted.length;
+  let inserted = 0;
+  for (const stmt of indexNowInsertStatements(db, urls, queuedAt, source)) {
+    inserted += (await stmt).length;
+  }
+  return inserted;
 }
 
 /**

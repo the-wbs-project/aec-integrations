@@ -33,7 +33,12 @@ import {
   INDEXNOW_EXPIRED_METRIC,
   INDEXNOW_SUBMIT_METRIC,
 } from './indexnow-drain';
-import { enqueueIndexNowUrls, INDEXNOW_QUEUE_MAX_AGE_DAYS } from './indexnow-queue';
+import {
+  enqueueIndexNowUrls,
+  INDEXNOW_INSERT_ROWS_PER_STATEMENT,
+  INDEXNOW_QUEUE_MAX_AGE_DAYS,
+  indexNowInsertStatements,
+} from './indexnow-queue';
 
 const NOW = new Date('2026-09-09T12:00:00.000Z');
 
@@ -98,6 +103,38 @@ describe('enqueueIndexNowUrls', () => {
   it('is a no-op on an empty list', async () => {
     expect(await enqueueIndexNowUrls(t.db, [])).toBe(0);
     expect(await queued()).toEqual([]);
+  });
+
+  // ── D1's 100-bound-parameter cap ──────────────────────────────────────────
+  //
+  // The set is unbounded — one URL per integration in the promote payload — and
+  // the largest submission production has made carried 107. Three bound values
+  // per row means an unchunked INSERT of 34 URLs is already over the limit, and
+  // the promote's fail-open catch would swallow the rejection and buffer NOTHING.
+
+  it('keeps every statement under D1s 100-bound-parameter cap', async () => {
+    // The load-bearing assertion. better-sqlite3 binds 32,766 parameters happily,
+    // so the behavioural test below passes with or without the chunking; only the
+    // emitted SQL can tell the two apart.
+    const urls = Array.from({ length: 107 }, (_, i) => url(`p-${i}`));
+    const stmts = indexNowInsertStatements(t.db, urls, NOW.toISOString(), 'promote');
+
+    expect(stmts).toHaveLength(Math.ceil(107 / INDEXNOW_INSERT_ROWS_PER_STATEMENT));
+    for (const stmt of stmts) {
+      expect(stmt.toSQL().params.length).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('buffers a URL set larger than one statement can carry', async () => {
+    const urls = Array.from({ length: INDEXNOW_INSERT_ROWS_PER_STATEMENT * 3 + 8 }, (_, i) =>
+      url(`p-${i}`),
+    );
+
+    expect(await enqueueIndexNowUrls(t.db, urls)).toBe(urls.length);
+    expect(await queued()).toHaveLength(urls.length);
+    // Dedupe still spans chunk boundaries — the unique index does the work, not
+    // the statement grouping.
+    expect(await enqueueIndexNowUrls(t.db, urls)).toBe(0);
   });
 });
 

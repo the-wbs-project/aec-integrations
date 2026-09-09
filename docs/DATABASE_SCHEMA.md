@@ -1701,10 +1701,23 @@ request; our largest carried 107); request frequency was.
 
 **`id` exists even though `url` is already unique.** The drain deletes with
 `where id <= :maxId` — one bound parameter. Deleting by the submitted URL list instead would
-need one per URL, and D1 caps bound parameters per statement far below the 10,000 URLs
+need one per URL, and **D1 caps a query at 100 bound parameters**, far below the 10,000 URLs
 IndexNow accepts, forcing chunking for no benefit. `id` is monotonic, so a promote that
 buffers between the drain's `SELECT` and its `DELETE` lands above the cursor and survives to
 the next tick.
+
+**The write side is chunked at 33 rows per statement.** The same 100-parameter cap applies
+to the append, and each row binds three values (`url`, `queued_at`, `source`), so
+`enqueueIndexNowUrls` emits one `INSERT` per `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33) URLs
+and sums the `RETURNING` counts. The set is genuinely unbounded — `affectedUrlsForPromote`
+emits one URL per integration in the promote payload, and the largest production submission
+carried 107 — and an over-cap statement would be rejected by D1 and then swallowed by the
+hook's fail-open catch, buffering nothing at all. The chunks run in sequence rather than in
+a `db.batch`: the inserts are ADR 0022 log-class and idempotent, so there is nothing for
+atomicity to protect, and `RETURNING` rows do not survive the in-memory harness's batch shim.
+Same trap `asn-registry.ts` documents — better-sqlite3 binds 32,766 parameters, so this can
+only be caught by asserting the emitted parameter count, which
+`apps/api/src/lib/indexnow-drain.spec.ts` does.
 
 **Dedupe is the free win.** Every insert is `on conflict do nothing` against the unique
 `url`, so a product promoted three times inside one drain window occupies one row and is

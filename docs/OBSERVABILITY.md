@@ -24,7 +24,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 
 | Question | Where to look |
 |---|---|
-| "My phone buzzed — what fired?" | One of the 13 PostHog alerts (hourly cadence), production project only |
+| "My phone buzzed — what fired?" | One of the 13 PostHog alerts live in production (hourly cadence), production project only. **14 are committed** — the AECI-826 `indexnow-failure-rate` alert reaches PostHog only when `apply.sh` is re-run; see Dashboards below |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fourteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
@@ -1053,6 +1053,15 @@ deleted with the rest of the plane at AECI-651.
 > project; running `apply.sh` against the production project (354071) is a manual step.
 > Until it runs, production dashboards are empty — and there is no longer a Datadog
 > board to read instead.
+
+> **The counts in this section describe LIVE state (43 insights, 13 alerts); the
+> committed set is 45 and 14 (AECI-826, 2026-09-09).** The two new insights
+> (`indexnow-submissions`, `alert-indexnow-failure-rate`) and the
+> `indexnow-failure-rate` alert reach PostHog only when `apply.sh` is re-run — the
+> applier is not wired into CI, by design. **The alert is the one that matters**:
+> until it is applied, the IndexNow channel has no alarm, which is the exact
+> condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
+> together with `observability/posthog/README.md`.
 
 ### PostHog — 7 dashboards, 43 insights (AECI-647 / §AW6)
 

@@ -35,9 +35,12 @@
  *
  * §20.2 requires the submission to be best-effort and never to block a write. The
  * write is long committed by the time this runs, but the same posture holds for
- * the cron: a missing key, an unparseable `PUBLIC_SITE_URL`, an IndexNow outage
- * and a D1 error all resolve to a `skipped`/`failed` job report rather than an
- * exception. The job is queue-less (`queueForJob` returns `undefined`)
+ * the cron: a missing key, an unparseable `PUBLIC_SITE_URL` and an IndexNow outage
+ * all resolve to a `skipped`/`failed` job report rather than an exception. A **D1**
+ * error is the one exception and is deliberately left to propagate, exactly as the
+ * other cron impls leave theirs: `withJobRun` records the `failed` `job_runs` row
+ * and rethrows, which is what keeps a broken database visible rather than reported
+ * as a quiet no-op. The job is queue-less (`queueForJob` returns `undefined`)
  * **on purpose rather than for cost**: a queue retry re-submits inside the same
  * rate-limit window, which is the burst behaviour this whole job exists to remove.
  * The next tick is the backoff.
@@ -188,7 +191,10 @@ async function commitDrain(db: Db, rows: PendingIndexNowUrl[], status: number): 
 }
 
 /**
- * Run one drain. Pure over its injected deps; never throws.
+ * Run one drain. Pure over its injected deps. Never throws on a transport failure
+ * — an IndexNow outage, a missing key or an unparseable `PUBLIC_SITE_URL` all come
+ * back as a `{ ok: false, reason }` result. A **D1** failure does propagate; see
+ * the module header for why that one is left alone.
  *
  * Exported separately from the `scheduled.ts` job wrapper so the whole decision
  * tree is unit-testable without a `ScheduledController`, an `ExecutionContext` or

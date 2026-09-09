@@ -1756,10 +1756,17 @@ export const asnRegistry = sqliteTable(
  *
  * The drain deletes what it just submitted with `WHERE id <= :maxId` — one bound
  * parameter. Deleting by the URL list instead would need one bound parameter per
- * URL, and D1 caps bound parameters per statement well below the 10,000 URLs
- * IndexNow accepts, so that shape would force chunking for no benefit. `id` is
- * monotonic, so a row inserted between the drain's SELECT and its DELETE always
- * lands above `maxId` and survives to the next run.
+ * URL, and **D1 caps a query at 100 bound parameters**, so that shape would force
+ * chunking for no benefit. `id` is monotonic, so a row inserted between the
+ * drain's SELECT and its DELETE always lands above `maxId` and survives to the
+ * next run.
+ *
+ * The **write** side does not get out of it. Three columns are bound per row, so
+ * `enqueueIndexNowUrls` chunks at `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33) —
+ * a promote emits one URL per integration in its payload and the largest
+ * production submission carried 107. The in-memory spec harness binds 32,766
+ * parameters happily, so `indexnow-drain.spec.ts` asserts the emitted
+ * parameter count per statement rather than only that the rows land.
  *
  * ─── Dedupe is the free win ───────────────────────────────────────────────────
  *

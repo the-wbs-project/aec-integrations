@@ -258,9 +258,10 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The thirteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The fourteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
-// AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
+// AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
+// `*/20` IndexNow drain in AECI-826) so
 // `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
 // `switch`es on rather than a second copy that could drift. Each one MUST still
 // stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
@@ -1811,7 +1812,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all thirteen, which is what makes "each of the thirteen
+ *  enumerate every exit path in all fourteen, which is what makes "each of the fourteen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
