@@ -672,7 +672,7 @@ the brand eating a quarter-column and leaving a dead zone at tablet widths. From
 |---|---|---|
 | **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
 | **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
-| **Company** | About, Contact, Updates, Roadmap | Who we are and where we are going. Updates and Roadmap arrived here when `More▾` was retired; the header links neither, so this is their sole site-wide entry. |
+| **Company** | About, Methodology, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination — how the directory works (AECI-804). Methodology, Updates and Roadmap are all footer-only; the header links none of them, so this is their sole site-wide entry. |
 
 **Rules.**
 
@@ -695,7 +695,7 @@ the brand eating a quarter-column and leaving a dead zone at tablet widths. From
   is a collision.
 - **Adding a column** is a re-measure at `sm`, where three become two. Prefer
   growing an existing column: four to six items read fine, and the Company column
-  absorbed two without a layout change.
+  absorbed three without a layout change.
 
 ### Layout shells
 

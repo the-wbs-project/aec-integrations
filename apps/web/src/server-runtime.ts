@@ -418,6 +418,12 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // `robots: noindex` (component-set) and absent from sitemap.xml; neither
   // affects cacheability.
   { match: (p) => p === '/roadmap', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-804 — /methodology, the editorial methodology page. Static and
+  // visitor-state-neutral like /about, so the same static-page TTL and, like the
+  // other static pages, deliberately NO `...RESILIENCE`. No `cacheKeyParams`, so
+  // the whole query string (incl. UTM) is dropped from the cache key — the page
+  // reads no query params at all. Indexable and in `sitemap.xml`.
+  { match: (p) => p === '/methodology', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },

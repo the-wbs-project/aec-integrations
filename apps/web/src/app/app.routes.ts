@@ -447,6 +447,18 @@ export const routes: Routes = [
     path: 'roadmap',
     loadComponent: () => import('./roadmap/roadmap').then((m) => m.RoadmapPage),
   },
+  // AECI-804 — the editorial methodology page (`/methodology`), a sub-issue of
+  // the AECI-788 SEO / AI-answer-surface epic. Static + indexable + CACHEABLE on
+  // the same 24h edge / 1h browser static-page TTL as /about, and pre-wired in
+  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`. Unlike the other static
+  // pages it IS in `sitemap.xml` — it is the citable trust surface, so discovery
+  // is the point. Body is Markdown inlined at build time (`methodology-content.ts`,
+  // the `/legal/*` pattern); meta is set in the component constructor, no
+  // resolver. Governed by `docs/STAGE_2_5_SPEC.md` §7.
+  {
+    path: 'methodology',
+    loadComponent: () => import('./methodology/methodology').then((m) => m.MethodologyPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),

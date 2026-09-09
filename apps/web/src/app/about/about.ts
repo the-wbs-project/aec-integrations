@@ -196,8 +196,8 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
               class="mt-4 text-base leading-relaxed text-(--text-secondary)"
               i18n="@@app.about.next.body"
             >
-              Browse the directory to see which tools connect to what, or get in touch if you have a
-              question or a correction.
+              Browse the directory to see which tools connect to what, read how the catalogue is
+              built and verified, or get in touch if you have a question or a correction.
             </p>
             <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3">
               <a
@@ -206,6 +206,13 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
                 i18n="@@app.about.next.browse"
               >
                 Browse the directory
+              </a>
+              <a
+                routerLink="/methodology"
+                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                i18n="@@app.about.next.methodology"
+              >
+                How we work
               </a>
               <a
                 routerLink="/contact"

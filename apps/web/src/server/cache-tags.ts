@@ -123,6 +123,9 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   // /roadmap — the coming-soon placeholder linked from the footer. Same shape as
   // /updates: static content page with no §2 entity, route-class tag only.
   if (path === '/roadmap') return { route: 'index' };
+  // AECI-804 — /methodology. Static content page with no §2 entity, so the
+  // route-class tag only, like /about and /updates. Never an ad-hoc namespace.
+  if (path === '/methodology') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
 
   let m: RegExpExecArray | null;

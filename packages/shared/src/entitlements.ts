@@ -46,9 +46,19 @@
  * fails that test until someone edits it deliberately, and it must never name a
  * search-ranking concept (§3.2, the no-pay-for-placement firewall).
  *
- * The last three are **declared with no consumer on purpose**, so the issues
- * that need them become pure render-path/handler changes with no registry edit,
- * and so the whole vocabulary is auditable in one place today.
+ * `attestation.author` and `analytics.view` are **declared with no consumer on
+ * purpose**, so the issues that need them become pure render-path/handler changes
+ * with no registry edit, and so the whole vocabulary is auditable in one place.
+ * (Attestation authoring IS gated today, but on `assertVerifiedVendor` reading the
+ * `vendors.verified` mirror — `apps/api/src/routes/vendor-shared.ts` — not through
+ * this registry; the swap to `requireCapability` is still pending.)
+ *
+ * `integration.version_diff` is **no longer in that set**: AECI-304 shipped its
+ * consumer in `./version-diff` (`canViewVersionDiff`), and it is the one capability
+ * whose effect is visible to an anonymous READER rather than to the vendor — it
+ * gates historical version-diff depth on the public pair page, keyed on the pair's
+ * vendors so the page stays URL-cacheable. That reader-visible reach is why
+ * `/methodology` has to disclose it (`STAGE_2_5_SPEC.md` §7.1).
  */
 export const CAPABILITIES = [
   'profile.edit', // PATCH /api/vendor/profile
@@ -57,7 +67,7 @@ export const CAPABILITIES = [
   'product.taxonomy.edit', // taxonomy assignment on an owned product
   'attestation.author', // AECI-301 — declared, no consumer yet
   'analytics.view', // vendor analytics — declared, no consumer yet
-  'integration.version_diff', // AECI-304 — declared, no consumer yet
+  'integration.version_diff', // AECI-304 — consulted by `./version-diff`
 ] as const;
 
 /** One capability id. */

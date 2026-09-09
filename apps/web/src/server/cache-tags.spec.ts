@@ -128,6 +128,8 @@ describe('cacheTagInputsForPath', () => {
     // /updates + /roadmap are static content pages with no §2 entity — route tag only.
     ['/updates', { route: 'index' }],
     ['/roadmap', { route: 'index' }],
+    // AECI-804 — same shape: static content page, no §2 entity, route tag only.
+    ['/methodology', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
@@ -212,6 +214,7 @@ describe('cacheTagInputsForPath', () => {
     const paths = [
       '/',
       '/about',
+      '/methodology',
       '/updates',
       '/roadmap',
       '/legal/terms',

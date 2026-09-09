@@ -38,11 +38,11 @@ describe('LegalPage', () => {
     expect(host.textContent).toContain('Last updated');
   });
 
-  it('renders the Markdown body (sanitized) into .legal-prose with headings, lists, and links', () => {
+  it('renders the Markdown body (sanitized) into .aec-prose with headings, lists, and links', () => {
     const { host } = render('terms');
-    const article = host.querySelector('article.legal-prose');
+    const article = host.querySelector('article.aec-prose');
     expect(article).not.toBeNull();
-    // marked produced block structure the global .legal-prose styles target.
+    // marked produced block structure the global .aec-prose styles target.
     expect(article!.querySelector('h2')).not.toBeNull();
     expect(article!.querySelector('ul')).not.toBeNull();
     expect(article!.querySelector('blockquote')?.textContent).toContain('pending legal review');
@@ -52,7 +52,7 @@ describe('LegalPage', () => {
 
   it('routes review reports to the reviews@ alias (AECI-307), not the founders@ catch-all', () => {
     const { host } = render('review-guidelines');
-    const article = host.querySelector('article.legal-prose');
+    const article = host.querySelector('article.aec-prose');
     expect(article!.querySelector('a[href="mailto:reviews@thewbsproject.com"]')).not.toBeNull();
     // The review-report path must not fall back to the general contact address.
     expect(article!.querySelector('a[href="mailto:founders@thewbsproject.com"]')).toBeNull();

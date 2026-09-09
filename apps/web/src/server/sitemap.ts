@@ -152,6 +152,14 @@ export async function resolveSitemapEntries(
     { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/listing-accuracy`, changefreq: 'yearly', priority: 0.3 },
+    // AECI-804 — the editorial methodology page. The FIRST non-legal static page
+    // in the sitemap: `/`, `/about`, `/updates` and `/roadmap` are all absent
+    // (the first three by omission, `/roadmap` deliberately, being noindex).
+    // This one is listed on purpose — it is the page an answer engine or a
+    // quality rater is meant to find and cite, so discovery is the whole point.
+    // Higher priority than the legal set and a shorter changefreq, because it is
+    // revised whenever the product's verification posture moves.
+    { loc: `${base}/methodology`, changefreq: 'monthly', priority: 0.5 },
   ];
 
   for (const product of products) {

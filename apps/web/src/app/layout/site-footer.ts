@@ -167,6 +167,13 @@ import { BrandLogo } from './brand-logo';
                 >
               </li>
               <li>
+                <a
+                  routerLink="/methodology"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.methodology">Methodology</ng-container></a
+                >
+              </li>
+              <li>
                 <a routerLink="/contact" class="text-(--text-secondary) hover:text-(--text-primary)"
                   ><ng-container i18n="@@app.footer.contact">Contact</ng-container></a
                 >

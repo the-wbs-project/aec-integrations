@@ -59,11 +59,21 @@ describe('SiteFooter', () => {
     ]);
   });
 
-  it('carries Company including Updates and Roadmap', () => {
+  it('carries Company including Methodology, Updates and Roadmap', () => {
     // Updates and Roadmap were the only two links the footer lacked when it
     // absorbed the header's "More" menu. They must not drift back out: the
     // header no longer links either, so this is their sole site-wide entry.
-    expect(column(render(), 'Company')).toEqual(['/about', '/contact', '/updates', '/roadmap']);
+    // /methodology (AECI-804) sits next to /about because it is the same kind of
+    // destination — how the directory works — and the footer is its only
+    // site-wide entry too (the header is public-directory-only by the DESIGN.md
+    // Overflow Rule, and `site-header.component.spec.ts` asserts its absence).
+    expect(column(render(), 'Company')).toEqual([
+      '/about',
+      '/methodology',
+      '/contact',
+      '/updates',
+      '/roadmap',
+    ]);
   });
 
   it('names every column for assistive tech and renders no role-gated link', () => {

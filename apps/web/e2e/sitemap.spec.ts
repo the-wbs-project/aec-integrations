@@ -42,6 +42,10 @@ test.describe('GET /sitemap.xml', () => {
     // indexes since AECI-157; `/trades` joined them in AECI-546 and, unlike the
     // trade TERM pages, is listed unconditionally.
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/products<\/loc>/);
+    // AECI-804 — /methodology is the one non-legal STATIC page listed, and like
+    // the index pages it is seed-independent. `/`, `/about`, `/updates` and
+    // `/roadmap` stay out (see `server/sitemap.spec.ts`, which pins the absence).
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/methodology<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/categories<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/audiences<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/phases<\/loc>/);
