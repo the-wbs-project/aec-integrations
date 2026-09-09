@@ -1395,9 +1395,12 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 > `Disallow: /` group (`apps/web/src/server/robots.ts` → `BLOCKED_SEO_CRAWLERS`). In August 2026 SemrushBot alone made
 > **4,698 requests across 1,644 distinct paths** — wider coverage than Googlebot or Bingbot — including 1,265
 > integration-PAIR pages, the most expensive route we serve. It returns no visitors and no index placement. This is
-> voluntary compliance, not a control: a scraper that ignores `robots.txt` needs the WAF (AECI-659, still unbuilt on
-> production). `GPTBot` / `OAI-SearchBot` are deliberately NOT blocked — AI answer surfaces are a real distribution
-> channel for a directory.
+> voluntary compliance, not a control: a scraper that ignores `robots.txt` needs the WAF, which **shipped to production
+> on 2026-09-03** (AECI-659 — `docs/waf-rate-limits.md` "Deployed state"). `GPTBot` / `OAI-SearchBot` are deliberately
+> NOT blocked in `robots.txt` — AI answer surfaces are a real distribution channel for a directory. **`robots.txt` was
+> not the whole story (AECI-800):** the zone-level `Block AI bots` toggle was returning `403` to those same crawlers at
+> the edge until 2026-09-09, so the intent above was not what production actually did. Those settings are dashboard-only
+> and unreachable from a WAF rule — `docs/waf-rate-limits.md` §3b is the record.
 >
 > **REMOVED (AECI-747, 2026-09-01).** The **Google Indexing API** ping shipped in AECI-263 and was deleted after Google's own
 > documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so

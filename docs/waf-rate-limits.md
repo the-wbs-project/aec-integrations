@@ -7,6 +7,12 @@ This doc is the source of truth for their definitions and is where you inspect,
 re-tune, or reproduce them (in the dashboard under **Security → WAF**, or via the
 Rulesets API).
 
+> **These rules are not the whole bot story.** Cloudflare also enforces **zone-level bot
+> settings** that live only in the dashboard, run outside the Ruleset Engine, and cannot
+> be exempted by a WAF custom rule. They are **[§3b](#3b-zone-level-bot-settings--dashboard-only-and-not-covered-by-anything-above-aeci-800)**.
+> If traffic is being blocked and no rule below explains it, read §3b before editing
+> anything here — AECI-800 was exactly that, and §2 had **zero** events throughout.
+
 **Referenced by:** [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) §15.1; Linear AECI-242 (Phase 7.7). Companion to [`access.md`](./access.md) (Cloudflare Access on the same zone).
 
 > **Why not config-as-code in CI?** AECI-242's acceptance criteria asked for
@@ -57,6 +63,12 @@ Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
   `4781ac7e149247baa5b4119274119821` "Blocker 2".
 - `319173bafcf749fdbf9b739480d71ded` — **Scraper-UA Managed Challenge** (added AECI-242), index 3,
   on `/products`,`/vendors` + their JSON APIs (§2).
+- **A fifth rule in this ruleset may be *generated*, not ours.** Whenever AI Crawl
+  Control has a per-crawler block set, Cloudflare writes a rule named `AI Crawl Control`
+  into this same ruleset, and it shows up on the Custom rules screen beside the four
+  above. It is deliberately absent from the AECI-242 / AECI-659 inventory, so a
+  `snapshot.mjs` dump that lists it is **not** drift. Edit it only from the AI Crawl
+  Control dashboard — see [§3b](#3b-zone-level-bot-settings--dashboard-only-and-not-covered-by-anything-above-aeci-800).
 
 **Managed WAF (`http_request_firewall_managed`):** Cloudflare managed ruleset + OWASP
 core (paranoia L2/L3 disabled) — active, untouched.
@@ -332,6 +344,7 @@ Why it is shaped this way:
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
 | the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
+| *(not in the spec)* AI crawlers + agent fetchers | ⚠️ governed **elsewhere** | §3b below — zone-level bot settings, dashboard-only, unreachable from any rule here. AECI-800 |
 
 ---
 
@@ -407,6 +420,155 @@ starts_with(http.request.uri.path, "/api/vendor/")
 
 Scope the exception to that one managed rule, not to the whole ruleset. Re-verify
 with the three curls above (expect `404 / 200-or-303 / 200`).
+
+---
+
+## 3b. Zone-level bot settings — dashboard-only, and **not** covered by anything above (AECI-800)
+
+> *External account state — re-verify on audit; last checked 2026-09-09.*
+> Nothing in this repo reads, writes, or tests these. No CI check catches them when
+> they drift. They are the reason §2 is **not** the whole bot story.
+
+Everything in §1–§3a lives in the Ruleset Engine and is reproducible from this doc via
+the Rulesets API. The settings below do not. They live only in
+**Security → Settings**, filtered to **Bot traffic**, and they run in a **separate
+evaluation pipeline** — so a WAF custom rule with `Skip`, `Bypass`, or `Allow` cannot
+exempt most of them.
+
+**AECI-800 is the worked example.** AI crawlers and real agent fetches were getting `403`
+on `/` and `/products/:slug` while Googlebot and browsers got `200`. Every hypothesis
+that pointed at §2 was wrong — that rule is a *Managed Challenge* scoped to `/products`
+and `/vendors`, and its event count was **0**. The block was `Block AI bots`, a
+dashboard toggle no file in this repo mentions.
+
+### The controls, and which ones a rule can reach
+
+| Control | Where | Reachable by a `Skip` custom rule? |
+|---|---|---|
+| **Bot Fight Mode** | Not present on this zone | **No.** Runs outside the Ruleset Engine |
+| **Super Bot Fight Mode** (SBFM) | Security → Settings → Bot traffic | **Yes** — `Skip` → *All Super Bot Fight Mode rules* |
+| **Configure AI bot policies** (Search / Agent / Training) | Security → Settings → Bot traffic | **No** |
+| **Block AI bots** *(deprecates 2026-09-15)* | Security → Settings → Bot traffic | **No** |
+| **AI Crawl Control** (per-crawler allow/block) | AI Crawl Control → Crawlers | Indirectly — it *writes* a custom rule named `AI Crawl Control` |
+
+Two consequences worth internalising:
+
+- **Bot Fight Mode is a Free-plan feature and is absent here.** We are on Pro, which
+  shows Super Bot Fight Mode instead. Do not go looking for a BFM toggle.
+- **The `AI Crawl Control` custom rule is generated.** It appears on the Custom rules
+  screen alongside our four hand-written rules. Edit it from the AI Crawl Control
+  dashboard, never directly — direct edits are not reflected back, so the two views
+  drift apart silently. Hand-added clauses *do* survive a later dashboard update.
+
+### Recorded state (2026-09-09, after the AECI-800 fix)
+
+| Setting | State | Note |
+|---|---|---|
+| Bot Fight Mode | Not present | Pro plan |
+| AI bot policies → Search | Allow | Search indexing is distribution for a directory |
+| AI bot policies → Agent | Allow | ChatGPT browsing, Claude fetch, Perplexity |
+| AI bot policies → Training | Allow | Decided explicitly, not defaulted |
+| **Block AI bots** | **Do not block** | Was `Block on all pages`. **This was the AECI-800 403.** |
+| Block AI bots → mixed-purpose | Continue to allow | Was defaulted to *block on Sept 15* |
+| AI Labyrinth | Off | Would feed generated content to crawlers |
+| Block training in `robots.txt` | Off | |
+| SBFM → Definitely automated | **Allow** | Must stay Allow — see the CI hazard below |
+| SBFM → Verified bots | Allow | GPTBot / ClaudeBot are verified bots |
+| SBFM → Static resource protection | Off | |
+| SBFM → JavaScript Detections | On | The Lighthouse Best-Practices cost — see below |
+| SBFM → Optimize for WordPress | Off | We run no WordPress |
+
+### Three traps
+
+**1. SBFM has no path scoping on Pro, and our CI probes are `curl`.** Setting
+**Definitely automated traffic** to *Block* or *Managed Challenge* applies domain-wide.
+`scripts/smoke-test.sh` and the `/api/health` + `/api/version` probes all run `curl` from
+GitHub Actions and score as definitely automated. §2 deliberately excludes those paths.
+SBFM would not. If you ever need to tighten it, add the `Skip` → *All Super Bot Fight
+Mode rules* custom rule for those paths **first**.
+
+**2. JavaScript Detections is currently pure cost.** Every SBFM action is set to *Allow*,
+so SBFM blocks and challenges nothing. JavaScript Detections still injects the
+`/cdn-cgi/challenge-platform` script on every page, which is the known cause of our
+depressed Lighthouse Best-Practices score. The bot score it produces is **Enterprise-only
+in custom rules**, so nothing on Pro consumes it. Tracked separately.
+
+**3. `Block AI bots` disappears on 2026-09-15.** Its job moves to the Training preset in
+`Configure AI bot policies`. Until then the two overlap, and **the legacy toggle wins** —
+which is exactly how AECI-800 happened, with Training set to *Allow* and the legacy
+toggle set to *Block on all pages*. After the deprecation date, express the policy in one
+place only.
+
+### Verifying a change to any of the above
+
+`curl -I` sends **HEAD**, and `handleSsr` gates its cache branch on
+`request.method === 'GET'`. A HEAD therefore takes the non-cacheable branch and returns
+`private, no-store` with no `Cache-Tag` and no CSP — **on every route that renders a
+`200`, always**. The one exception is a HEAD that 404s: the non-cacheable branch still
+sends a 404 through `withCacheHeaders`, so it carries `Cache-Tag: route:404` and the CSP.
+Either way it is a measurement artifact, not a defect, and it cost real time during
+AECI-800. Use `-D - -o /dev/null` to inspect headers on a genuine GET.
+
+```bash
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+for ua in "$UA" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot" "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)" "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"; do
+for path in / /products/connecteam; do
+printf '%-22s %-42s ' "$path" "$(printf '%s' "$ua" | cut -c1-40)"
+curl -s -o /dev/null -w '%{http_code}\n' -A "$ua" "https://www.aecintegrations.com$path"
+done
+done
+```
+
+All ten rows must read `200`. A `403` on the AI-crawler rows means a bot setting above
+has drifted, **not** that §2 changed — §2 cannot produce a `403` on `/`, and on
+`/products` it produces a *challenge*, which is what the `curl`-default-UA row below
+correctly still shows.
+
+```bash
+for path in / /products/connecteam /api/health /api/version; do
+printf '%-24s ' "$path"
+curl -s -o /dev/null -w '%{http_code}\n' "https://www.aecintegrations.com$path"
+done
+```
+
+Expected: `200 / 403 / 200 / 200`. The `403` is §2 working as designed — `curl` is in its
+UA list and `/products` is in its path list. Do not "fix" it.
+
+**The evidence surface is AI Crawl Control, not user-agent spoofing.** Spoofed AI-crawler
+UAs prove nothing on their own: a `403` may be correct anti-spoofing, and a `200` does not
+prove the real crawler from its real IP range gets through. **AI Crawl Control → Crawlers**
+reports allowed and blocked counts per crawler over real traffic. Two limits on our plan:
+the window maxes out at **7 days**, and detection is by **user-agent string only** (Bot
+Management detection IDs are a plan upgrade). Treat the counts as directional.
+
+`Unsuccessful` is **not** a synonym for "we blocked it" — it bundles our blocks with 404s,
+5xx and timeouts. Read it against a control: the search crawlers' steady ~3% is ordinary
+404 noise, so a category sitting far below that is the signal.
+
+#### Baseline — the AECI-800 before-state (7 days to 2026-09-09, `Block AI bots` still on)
+
+Keep this as the comparison point. The category split is the whole story:
+
+| Category | Allowed | Unsuccessful | Success |
+|---|---|---|---|
+| Search Engine Crawler | 4,699 | 172 | **96%** |
+| AI Crawler | 70 | 322 | **18%** |
+
+Per-crawler extremes: Applebot 2,830 allowed / **0** unsuccessful; Googlebot 2,260 / 68;
+GPTBot 43 / 98; ClaudeBot 13 / 44; CCBot 2 / 47; **Meta-ExternalAgent 0 bytes across 56
+requests**. Every row Cloudflare labels `AI Crawler` was crushed and no row labelled
+`Search Engine Crawler` was — the blocked setting's own category boundary, visible in real
+traffic. That is what settles it; the spoofed-UA table never could.
+
+**PerplexityBot is the one row the category does not explain** (labelled `AI Search`, yet
+3 allowed / 126 unsuccessful, while Applebot carries the same label at 100%). The likely
+cause is lost Cloudflare verified-bot status dropping it into the unverified bucket that
+`Block AI bots` also caught. Unconfirmed — re-check rather than assume.
+
+**Pay Per Crawl is off.** The per-crawler control is a plain `Block Crawler` toggle; when
+Pay Per Crawl is enabled that column offers Charge / Allow / Block instead. Inferred from
+the absent control, not read from a status field. The switch itself is in **account**
+settings, not on this zone screen.
 
 ---
 
@@ -542,6 +704,11 @@ This doc is the source of truth for the rule definitions. If you add, remove, or
 re-tune a rule in the dashboard, update the matching section here in the same PR.
 Remember the 2-rule rate-limit cap and keep every expression host-scoped to the **four**
 app hosts in the Scope table above.
+
+**§3b is the exception to "source of truth".** Those settings are external account state:
+this doc *records* them, it does not define them, and nothing in CI can detect a drift.
+Re-read them from the dashboard on every audit rather than trusting the table. The
+recorded-state table carries its own date for that reason.
 
 **When a new public hostname starts serving the app, it needs adding to all three
 expressions in the same change.** DNS alone does not carry these rules — that omission at
