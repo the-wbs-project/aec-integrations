@@ -237,6 +237,54 @@ Auth lives in the single shared Supabase project (ADR 0017) and is **not** touch
 | Deployed but `/api/version` or `/_version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way (a stale `/_version` with a current `/api/version` is exactly the AECI-92 case the dual check catches). The smoke failure auto-rolls-back both Workers; inspect the deploy step logs. |
 | `pnpm algolia:apply-settings` exits non-zero | `deploy-prod-workers`, **after** the smoke gate | **The release is live and healthy** — this step runs after smoke and sits outside the auto-rollback guard (which fires only on `steps.smoke.outcome == 'failure'`), so nothing was reverted. Do **not** re-run the whole promote to retry one `setSettings`. Re-apply directly: `pnpm algolia:apply-settings --env production` (needs `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`). |
 
+### Request indexing by hand (Google) — after a promote
+
+**A promote that adds or changes public pages is not finished until someone asks Google to look.**
+This is a manual operator step with no automation behind it, and until AECI-799 it was recorded
+nowhere.
+
+**Why it is manual.** The two search engines are fed by different channels, deliberately:
+
+| Engine | Channel | Automated? |
+|---|---|---|
+| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236) | **Yes** — fires from the promote's post-commit hooks, but **currently failing 100% with HTTP 429** (AECI-826). Until that lands, Bing gets nothing from the push either |
+| Google | Search Console → **URL Inspection → Request Indexing** | **No** — a person, after the promote |
+
+Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263
+ping submitted URLs that were discarded on arrival; **AECI-747 deleted it** (`STAGE_1_SPEC.md`
+§20.2). Nothing replaced it, because nothing can. The sitemap plus the crawlable hub pages
+(AECI-746) are the passive discovery path; Request Indexing is the only way to make Google look
+*now*.
+
+**The procedure.**
+
+1. Open Search Console and select the **`aecintegrations.com` Domain property**.
+2. Paste the full URL into the **URL inspection** bar at the top — it must be an absolute
+   `https://www.aecintegrations.com/...` URL, because a Domain property spans several hosts and
+   will not guess one.
+3. If it reports "URL is not on Google", click **Request Indexing**. If it reports the URL is
+   already indexed, request it anyway when the *content* changed (a retitled page, a new
+   attestation on a pair page) — indexed is not the same as current.
+4. Repeat for the pages the promote actually touched.
+
+**Which URLs are worth a request.** In priority order: newly promoted **product** pages, then the
+**integration-PAIR** pages those products created, then any hub page whose content changed
+materially. Everything else is the sitemap's job. Requesting a page whose content did not change
+spends quota for nothing.
+
+**The quota is real and Google does not publish the number.** There is a per-property daily
+ceiling on Request Indexing. Observed behaviour here: a light week uses a handful of requests, and
+a heavy session — working through a conference's worth of vendors — can hit the cap outright. When
+it is hit the console says so; stop and continue the next day. Do not treat the ceiling as a
+number to plan against, because Google changes it without notice.
+
+**The failure mode this step carries.** It is undelegated, unmonitored and invisible. If the
+operator stops doing it, nothing goes red: new products simply take longer to appear in Google,
+and the Googlebot sitemap-coverage figure in
+[`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3a-bis degrades with no alert. That
+figure is the only place the omission would ever surface, which is why the weekly read (§2a of the
+same doc) now names it.
+
 ## Local dev: running the API Worker (D1)
 
 The API Worker reaches the application database through its native **D1 `DB` binding** via Drizzle (ADR 0016) — no external proxy, no `DATABASE_URL`, no Prisma Accelerate. In local `wrangler dev` / `pnpm dev:bound`, that binding resolves to a **per-workspace local SQLite D1** in `.wrangler/state` (not a shared remote DB).

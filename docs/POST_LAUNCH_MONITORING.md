@@ -196,22 +196,89 @@ either in isolation.
    Datadog RUM fallback.
 4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
    ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
-5. **Glance at the D1 footprint** on **`/admin/system`** — total size and per-table row counts, which
+5. **Read both search consoles** (see §2a for ownership and the full procedure). Four numbers off
+   Google Search Console — indexed page count, the largest "why pages aren't indexed" reason,
+   impressions, and average position — each compared against the AECI-799 baseline in
+   [`ANALYTICS_BASELINE.md`](./ANALYTICS_BASELINE.md). **State the host filter you read them
+   under, or apply none deliberately**: the property is a *Domain* property spanning `www.`
+   (indexed) and `demo.` (crawlable-but-noindex by design), so an unfiltered number moves when
+   demo moves. Then run the **one-indexable-host tripwire** in §2a — it is the check that would
+   have caught `prod.aecintegrations.com` (AECI-807) at the apex cutover in 2026-07, instead of
+   two months into the post-launch period.
+6. **Glance at the D1 footprint** on **`/admin/system`** — total size and per-table row counts, which
    used to mean a `wrangler d1 execute` per table. Watch `page_views` in particular: it grows ~1,000
    rows/day and `ADMIN_PANEL_SPEC.md` §7.4 sizes the 400-day retention window against it. The table
    list is read from `sqlite_master` at request time, so a table added by a migration shows up without
    a code change.
-6. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
+7. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
    (weekly through the first month, then at the one-month mark). **Name the console beside each
    number** while the dual-run lasts.
 
+### 2a. Search consoles — ownership, the weekly read, and the one-indexable-host tripwire (AECI-799)
+
+**This section exists because nothing in `docs/` established that the consoles exist.** Before
+AECI-799 three separate places told you to "check Search Console" and none of them said who owned
+it, what type of property it was, or what to read.
+
+**Ownership and property type.**
+
+| | |
+|---|---|
+| **Google Search Console** | **Live.** A **Domain** property on `aecintegrations.com`, owned by Chris. Domain properties are DNS-verified by definition, so the verification lives as a TXT record on the `aecintegrations.com` Cloudflare zone — deleting that record un-verifies the property |
+| **Sitemap submitted to GSC** | `https://www.aecintegrations.com/sitemap.xml`. The Sitemaps report was **empty** when AECI-799 checked it on 2026-09-09 — no sitemap had ever been successfully submitted, despite an assumption that one had. Submitted under that issue; the confirmation is a **Success** fetch with a discovered-URL count. The prod sitemap is a single `<urlset>`, not a `<sitemapindex>` (`apps/web/src/server/sitemap.ts` defers splitting until 50,000 URLs) |
+| **Bing Webmaster Tools** | **Registered 2026-09.** The Google Search Console import failed, so it was verified manually; sitemap submitted and reporting **1.5k URLs discovered**. Search performance needs ~48 h before it reports. This closes AECI-799 AC2 |
+| **The Bing push channel** | **Broken.** The IndexNow ping (AECI-236) is the only automated Bing/Yandex channel, and **every production submission is failing with HTTP 429** (AECI-826, measured 2026-09-09). It reports nothing back either, so BWT is the only place the effect is visible. Treat Bing discovery as sitemap-only until AECI-826 lands |
+
+**A Domain property spans every host in the zone, and that is the point.** It covers `www.`
+(indexed), the apex (301s to `www.`), `demo.` (public, crawlable, `noindex` by decision — see
+`apps/web/src/server/robots-policy.ts`), and it *would* have covered `prod.` while that host
+existed. So every console number is a **composite by default**. Filter to `www.` when you want a
+production number, and when you record a number anywhere, record the filter beside it. A baseline
+taken under one filter and compared against a number taken under another is worse than no
+baseline.
+
+**Read weekly** (this is checklist item 5):
+
+1. **Page indexing** → indexed count, and the largest row in "Why pages aren't indexed". Compare
+   both against the AECI-799 addendum in [`ANALYTICS_BASELINE.md`](./ANALYTICS_BASELINE.md).
+2. **Performance** → impressions, clicks, average position, over a window you name.
+3. **Sitemaps** → the last-read date and the fetch result. A sitemap that stops being read, or
+   starts erroring, is silent — nothing else in our stack notices.
+4. The **tripwire** below.
+
+**The one-indexable-host tripwire.** Exactly **one** host may be indexable:
+`www.aecintegrations.com`. Canonicals are self-referential (ADR 0011 / `core/canonical.ts`) and
+both `robots.txt` and `sitemap.xml` build against the serving origin, so a second indexable host
+does not point at `www.` — it declares **itself** canonical for all ~1,445 URLs and advertises its
+own sitemap. Two hosts each claiming to be the original, and Google picks the winner. That is
+precisely what `prod.aecintegrations.com` did for the whole post-launch period until AECI-807
+retired it, and it went unnoticed because nobody was reading a console that could see it.
+
+The check, weekly, in the Domain property:
+
+> **Page indexing → View data about indexed pages**, then group by / scan the URL list for any
+> host other than `https://www.aecintegrations.com/`. Anything else that is *indexed* — not merely
+> known — is the defect. `demo.` appearing under **"Excluded by 'noindex' tag"** is correct and
+> expected; `demo.` appearing under **Indexed** is a live incident.
+
+The mechanism that creates the defect is adding a route to an indexed env: `ALLOW_INDEXING` is
+per-**env**, not per-host (`robots-policy.ts`), so any hostname routed to `env.production` in
+`apps/web/wrangler.jsonc` inherits `"true"`. There is no per-host opt-out by design. Treat a new
+production route as an SEO change, not a config change.
+
+**The consoles carry a manual dependency.** Google discovery is not fully automated: the operator
+runs **URL Inspection → Request Indexing** after a promote that adds or changes public pages
+(`environments.md` → "Request indexing by hand (Google) — after a promote"). IndexNow covers
+Bing/Yandex automatically; Google is a person. If that person stops, the §3a-bis Googlebot
+coverage figure is the only place it surfaces, and it degrades slowly with no alert.
+
 ### Dual-run additions (drop these once AECI-651 has run)
 
-These were the migration-window checks. AECI-651 has since closed the window, so items 7–8 are
+These were the migration-window checks. AECI-651 has since closed the window, so items 8–9 are
 retained as **standing sanity checks** (the histogram-p95 reconstruction never got validated against
-the Datadog original) and 9–10 as ordinary procedure.
+the Datadog original) and 10–11 as ordinary procedure.
 
-7. **Sanity-check the reconstructed histogram p95.** This is the one piece of arithmetic in the
+8. **Sanity-check the reconstructed histogram p95.** This is the one piece of arithmetic in the
    whole PostHog plane that never got validated against the Datadog original before that plane was
    deleted (AECI-651 ran ahead of this check). Read the insight
    `Alert: product pages are rendering slowly` against the dashboard widget
@@ -221,15 +288,15 @@ the Datadog original) and 9–10 as ordinary procedure.
    Implausibly low, or 0 while the widget shows traffic, means the reconstruction is wrong — check
    the `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform across
    points.
-8. **Sanity-check one high-volume metric weekly and record the number.** Pick
+9. **Sanity-check one high-volume metric weekly and record the number.** Pick
    `aeci.api.query.duration_ms` by `endpoint`, or `aeci.ssr.render`. A number that moves for no
    deploy-shaped reason is the finding; the most likely causes are a `lower()`-casing miss, a query
    reading the wrong PostHog **project**, or a metric whose value is a row count being counted
    rather than summed.
-9. **Read the liveness sweep's run history**, not just its notifications — specifically for **exit 2**
+10. **Read the liveness sweep's run history**, not just its notifications — specifically for **exit 2**
    runs, which mean cron liveness was *unchecked* for that window. A string of them is a provisioning
    or GitHub Actions problem, not a healthy period.
-10. **Confirm telemetry is still arriving at all.** With one vendor there is no second plane to
+11. **Confirm telemetry is still arriving at all.** With one vendor there is no second plane to
     cross-check against, so a silent transport failure looks exactly like a quiet system. The
     cheapest check is the deploy marker: every deploy should produce a PostHog `deployment` event
     for that SHA. No marker means the pipe is down, not that nothing deployed.
@@ -315,10 +382,17 @@ behind it:
 > JavaScript on its first pass, so every crawler saw the error.
 >
 > Measured cost, August 2026: **Googlebot reached 177 of the 1,445 sitemap URLs
-> (12%)** while **Bingbot reached 940 (65%)**. Bing is fine because IndexNow pushes
-> URLs to it directly and it never has to discover anything by crawling; Google
-> has no working push channel (its Indexing API is documented for `JobPosting` /
+> (12%)** while **Bingbot reached 940 (65%)**. Bing was assumed fine because IndexNow
+> pushes URLs to it directly and it never has to discover anything by crawling
+> *(**that assumption is now unsupported** — AECI-826 found every production IndexNow
+> submission failing with HTTP 429. Bingbot's 65% may be ordinary sitemap crawling.
+> Do not cite this sentence as evidence the push works)*; Google
+> has no *automated* push channel (its Indexing API is documented for `JobPosting` /
 > `BroadcastEvent` only), so it must crawl — and every hub page was a dead end.
+> *(Corrected 2026-09-09, AECI-799: Google does have a **manual** push channel and we
+> use it — URL Inspection → Request Indexing, run by hand after a promote. It reaches
+> a handful of URLs a day at best, so it does not change this paragraph's arithmetic;
+> it does mean "no push channel" was never quite true. See §2a.)*
 > Googlebot spent 260 of its 983 monthly crawls on `/` alone and fetched the
 > sitemap twice.
 >
