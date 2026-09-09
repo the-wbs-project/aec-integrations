@@ -46,7 +46,7 @@
   "dependencies": {
     "@aeci/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.0",
+    "hono": "^4.13.5",
     "jose": "^6.2.3",
     "posthog-node": "^5.50.0",
     "tldts": "^7.4.2",
