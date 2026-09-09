@@ -6,6 +6,7 @@ import {
   type IntegrationMechanismKind,
   type ProductLink,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 /**
  * Stage 1.5 Addendum B — the grouping heuristic behind the connector product
@@ -286,18 +287,18 @@ export function groupPoweredIntegrations(
 
     groups.push({
       hub: hub!,
-      partners: partners.sort((x, y) => x.partner.name.localeCompare(y.partner.name)),
+      partners: partners.sort((x, y) => compareText(x.partner.name, y.partner.name)),
     });
   }
 
   // 3 ─ whatever is left shares no hub; render it flat rather than inventing one.
   const others = [...unclaimed]
     .map((key) => freeze(pairs.get(key)!))
-    .sort((x, y) => x.a.name.localeCompare(y.a.name) || x.b.name.localeCompare(y.b.name));
+    .sort((x, y) => compareText(x.a.name, y.a.name) || compareText(x.b.name, y.b.name));
 
   return {
     groups: groups.sort(
-      (x, y) => y.partners.length - x.partners.length || x.hub.name.localeCompare(y.hub.name),
+      (x, y) => y.partners.length - x.partners.length || compareText(x.hub.name, y.hub.name),
     ),
     others,
     pairCount: pairs.size,

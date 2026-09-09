@@ -76,7 +76,7 @@ async function seedJobRuns(days: string[]): Promise<void> {
 }
 
 /** One `metrics_daily` row per day — the gate only asks that a day was captured
- *  at all, not that all 19 keys landed (stocks are never backfilled). */
+ *  at all, not that all 20 keys landed (stocks are never backfilled). */
 async function seedSnapshots(days: string[]): Promise<void> {
   if (days.length === 0) return;
   await t.db
@@ -232,7 +232,7 @@ describe('runRetentionPrune', () => {
 
   it('accepts a day captured by a SINGLE metrics_daily row — stocks are never backfilled', async () => {
     await seedPageViews([PV_LAST_PRUNED_DAY]);
-    await seedSnapshots([PV_LAST_PRUNED_DAY]); // one row, not all 19 keys
+    await seedSnapshots([PV_LAST_PRUNED_DAY]); // one row, not all 20 keys
 
     const result = await runRetentionPrune(t.db, NOW, WINDOWS);
 

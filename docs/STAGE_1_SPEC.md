@@ -1277,7 +1277,7 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
 - [x] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154) — non-blocking BrowserStack Automate lane wired (`.github/workflows/browserstack.yml` + `apps/web/browserstack.yml` + `playwright.browserstack.config.ts`); ADR 0012 Accepted. Inert until the personal-subscription `BROWSERSTACK_*` secrets are set (skips green); pre-launch full sweep + a11y audit still pending.
 - [x] 7.9 — Waitlist welcome banner + token attribution (§11.2) — AECI-243 (#365)
-- [x] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3) — AECI-244; manual pass signed off at the launch gate; repeatable procedure `docs/a11y-manual-testing-checklist.md`
+- [x] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3) — AECI-244; **the pass was waived at the launch gate, not run** (`docs/PHASE_7_COMPLETION.md` §1 records the waiver). The public-site pass finally ran **2026-09-09** — results in `docs/ACCESSIBILITY_AUDIT.md`, procedure in `docs/a11y-manual-testing-checklist.md`. It found **three serious WCAG 4.1.3 (AA) status-message failures** on the login, review-submission and account paths, all invisible to axe because they only exist after a submit. The **VoiceOver/NVDA speech layer is still open** (checklist §6/§7), so AECI-244 is not closed by that run
 - [x] 7.11 — Performance / Core Web Vitals audit — AECI-245 (#371); results `docs/PERFORMANCE_AUDIT.md`
 - [x] 7.12 — Phase 7 completion checkpoint (launch-readiness gate) — AECI-246; `docs/PHASE_7_COMPLETION.md` (launch punts F1–F4 + `docs/launch-cutover-runbook.md`)
 - [ ] 7.13 — DNS cutover from the coming-soon page (§11.2) — AECI-247; runbook prepared: `docs/launch-cutover-runbook.md`
@@ -1483,6 +1483,15 @@ Built as one function call so adding new consumers later (Slack notifications, v
 ### 20.6 Canonical URLs
 
 Every page emits a `<link rel="canonical">` tag. Pages reachable through query parameters (filtered listings, search results) canonicalize to the unfiltered version to prevent duplicate content issues.
+
+> **Amended by AECI-803 (2026-09-09) — `page` is the one exception.** The rule above still holds for
+> `sort`, the four facet ids, and every tracking param, but **not** for pagination. `/products?page=2`
+> and `/{categories,audiences,phases,trades}/:slug?page=2` now emit a **self-referential** canonical:
+> a paginated series wants a self-canonical per page, and pointing page 2 at page 1 can suppress
+> crawling of what page 2 holds. Those five routes are the only ones that read `?page=`. The
+> governing contract, including why facets and sort stay stripped and why the allowlist is coupled to
+> `LISTING_CACHE_KEY_PARAMS`, is **`STAGE_1_PHASE_2_SPEC.md` §9.1a**, which supersedes this paragraph
+> where they differ.
 
 ### 20.7 404 page
 

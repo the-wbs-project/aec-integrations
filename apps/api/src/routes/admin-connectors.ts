@@ -84,6 +84,7 @@ import {
 } from '../lib/admin-connectors';
 import { note } from '../lib/admin-analytics';
 import type { AuthzVariables } from '../lib/authz';
+import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
@@ -192,7 +193,7 @@ export function createAdminConnectorCatalogsListHandler(
         .from(connectorCatalogs)
         .innerJoin(products, eq(products.id, connectorCatalogs.connectorProductId))
         .where(where)
-        .orderBy(asc(products.name), asc(connectorCatalogs.id))
+        .orderBy(textAsc(products.name), asc(connectorCatalogs.id))
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
       db

@@ -310,6 +310,8 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 
 **Catalog-driven product sort** (AECI-657): `integrations` ("Most integrations"), **DESC** on the denormalized `products.integration_count`. `STAGE_1_SPEC.md` §4.5 named it alongside alphabetical and most-reviewed for the browse pages, and it was the one of the three with no implementation anywhere. No visibility gate applies — unlike `rating`, the count is shown on every card (zero included, as "Not yet connected"), so the ranking always matches what the reader sees.
 
+**Collation — `name ASC` means case-insensitive (AECI-825).** §7.4 fixed the field and the direction and said nothing about collation, so the implementation inherited SQLite's `BINARY` default and let case decide: `ADP Workforce Now` ranked above `Access Coins Evo`, and `eSUB` / `iSqFt` / `openBIM` sorted after `Zoho`. Every text `ORDER BY` now carries `COLLATE NOCASE` (`textAsc` in `apps/api/src/lib/collation.ts`). Direction and default per-entity key are unchanged. One knock-on: `NOCASE` reports `ADP` and `adp` as EQUAL, so the AECI-99 `id ASC` tiebreaker is now what keeps a paginated list total rather than merely defensive. See `API_CONTRACTS.md` §3.2 for the full rule, including the Algolia and in-memory halves.
+
 **Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
 
 ---
@@ -397,19 +399,129 @@ In addition to caching headers, every cacheable response carries:
 
 Every page sets:
 
-- `<title>` — page-specific, formatted as `"{entity name} — AEC Integrations"` for details, `"{Taxonomy term} tools — AEC Integrations"` for browse
-- `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars.
-  **One exception since AECI-707 (2026-08-31):** a product whose `product_role` is `connector` and
-  which reaches at least one catalog product gets a computed, reach-shaped variant instead, so the
-  page targets *"«connector» for construction"*-class queries its vendor-written description does
-  not. Everything else — every other role, and a connector with nothing to count — keeps the rule
-  above. The JSON-LD `description` is **not** varied with it. Governing contract:
-  `docs/STAGE_1_5_SPEC.md` §13.6.
-- `<link rel="canonical">` — the canonical URL for this entity (no query params). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
+- `<title>` — page-specific. The separator is a **middot**, not an em dash: `MetaService` appends
+  one of exactly two `$localize`d suffixes, `" · AEC Integrations"` (detail and index kinds) or
+  `" tools · AEC Integrations"` (browse kinds), to a `name` the caller supplies. (This bullet said
+  "—" from Phase 2 until AECI-802 corrected it; the code has emitted `·` since AECI-51, and an em
+  dash in an `apps/web` string literal is now an ESLint error.) The `name` per surface:
+
+  | Surface | `name` | Rendered `<title>` |
+  |---|---|---|
+  | Product detail | `{name} integrations` | `Connecteam integrations · AEC Integrations` |
+  | Vendor detail | `{name} products and integrations` | `Autodesk products and integrations · AEC Integrations` |
+  | Product-PAIR | `{context} and {other} integrations` | unchanged (`@@pair.meta.title`, orientation-framed) |
+  | Taxonomy browse | the term name | `Scheduling tools · AEC Integrations` |
+  | Index (`/products`, `/categories`, …) | the facet name | `Products · AEC Integrations` |
+
+  **The product and vendor modifiers landed in AECI-802 (2026-09-09)** and are the point of that
+  issue: a `<title>` carrying only the vendor's brand competes with the vendor's own domain for a
+  pure brand query, which a directory loses by definition, and matches no long-tail phrase at all.
+  Both are composed in their **resolver** (`productMetaName` / `vendorMetaName`), not in
+  `MetaService` — the service's only title fork is `isBrowseKind`, so branching there would move the
+  pair, browse and index titles too. `products-pair.resolver.ts` established that seam.
+- `<meta name="description">` — a **four-rung ladder**, first match wins (AECI-802, 2026-09-09).
+  Before that issue rungs 1 and 4 were the whole rule and every non-connector entity shipped its
+  vendor's own blurb: text the vendor already publishes on its own site and on every competing
+  directory, which is precisely the aggregator signature the 2026 core updates demoted.
+
+  1. **The connector variant** (AECI-707, 2026-08-31) — a product whose `product_role` is
+     `connector` and which reaches at least one catalog product gets a computed, reach-shaped
+     sentence, so the page targets *"«connector» for construction"*-class queries its vendor-written
+     description does not. Unchanged by AECI-802. Governing contract: `docs/STAGE_1_5_SPEC.md` §13.6.
+  2. **A sentence composed from our own catalog data**, when there is data to compose from:
+     - Product, when `integration_count > 0` and at least one partner product resolves —
+       *"Connecteam has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and
+       Xero."*
+     - Vendor, when `product_count > 0` and at least one product resolves —
+       *"Autodesk publishes 12 products in the AEC directory, including Revit, AutoCAD and
+       Civil 3D."*
+
+     Then a trust line, *"Independent data, compiled and curated by AEC Integrations."*, appended
+     **only when the whole string stays within 155 characters**. The name list shrinks from three to
+     one before the trust line is dropped: a named partner is worth more in a snippet than
+     boilerplate that is byte-identical on every page.
+  3. **The entity's own description**, truncated to ~155 chars — the pre-AECI-802 rule, now reached
+     only by an entity with nothing to compose from. It is still unique text, and a composed
+     sentence there would only advertise the absence.
+  4. `@@meta.defaultDescription`. Last resort, and now genuinely last.
+
+  Four rules the ladder must keep:
+
+  - **The JSON-LD `description` is NOT varied by any of this.** `buildProductJsonLd` /
+    `buildVendorJsonLd` read the raw entity `description`: structured data states a factual entity
+    property, a meta description is a SERP snippet. §13.6 is explicit on the point.
+  - **The product number is `integration_count`**, the denormalized column, so the snippet agrees
+    with the product card, the hero `IntegrationStat`, the Algolia numeric facet and both sort
+    replicas. Deriving a separate figure here would add a fifteenth site to the
+    `docs/STAGE_1_5_SPEC.md` §13.5 count lockstep for no reader benefit.
+  - **The vendor number is `product_count`, never `integration_count`.** A vendor's
+    `integration_count` counts integrations that vendor *built* (`built_by_vendor_id`), not
+    integrations across its products, and it is zero for almost every vendor.
+  - **The trust line must not claim verification.** `/methodology` states that AEC Integrations is
+    currently the source of every claim on the site and that readers will see "Unverified · AECi"
+    throughout, because no vendor seat has been granted (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
+    "vendor-verified" would contradict our own trust page on every indexed URL. When the first seat
+    is granted this line becomes revisable, alongside the other edits §7.1 records as owed.
+
+  Composition split: the budget arithmetic and the name lists are pure functions in
+  `apps/web/src/app/core/meta.helpers.ts` (`integrationPartnerNames`, `vendorProductNames`,
+  `formatNameList`, `composeEntityDescription`), unit-tested under plain Node in
+  `meta.helpers.spec.ts`. The `$localize` sentences live in the resolvers, and the shared trust line
+  in `core/meta-copy.ts`, because `meta.helpers.ts` is deliberately Angular-free.
+
+  Both name lists order through `compareText` (`@aeci/shared/text-sort`, §20a of
+  `ANGULAR_STYLE_GUIDE.md`). That is not a style preference here: the API returns the integration
+  relations and the vendor's product list unordered, `applyMeta` composes the string under the SSR
+  Worker and again in the browser on every client navigation, and the result is baked into a
+  URL-keyed edge cache entry. A pinned, total-order collation is what makes one URL produce one
+  description.
+- `<link rel="canonical">` — the canonical URL for this entity (no query params, with **one** exception: `?page=` on the paginated listings — see §9.1a). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
 
 Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from their resolver. SSR sets the `<head>` tags before sending HTML; on an in-app client navigation the resolver re-applies them so the SPA's head (title/canonical/OG/JSON-LD) stays correct (idempotent upserts; AECI-151). `MetaService` is platform-agnostic — the platform decision lives in the resolver callers, not the service.
+
+### 9.1a Paginated listings self-canonicalise (AECI-803, 2026-09-09)
+
+**`page` is the one query param allowed into a canonical.** `/products?page=2` and
+`/{categories,audiences,phases,trades}/:slug?page=2` emit a **self-referential** canonical
+(`https://www.aecintegrations.com/products?page=2`), not a pointer back at page 1. Google's guidance
+for a paginated series is a self-canonical per page; pointing page 2 at page 1 tells the crawler page 2
+is not canonical content, which can suppress crawling of what is on it. The trail is real and crawlable
+— `<aec-pagination-footer>` renders a genuine `?page=N+1` anchor as its no-JS floor, and
+`createPaginatedIndexResolver` server-renders the requested page (§7.3, AECI-746).
+
+Scope is **exactly those five routes**. They are the only consumers of `createPaginatedIndex`; nothing
+else reads `?page=`. `/search` is `noindex`, the taxonomy *index* pages are flat term grids, and detail
+and product-PAIR routes have no pagination and keep stripping the whole query.
+
+**Everything else stays stripped**, `sort` and the four facet ids included. Their controls are a
+`<select>` and buttons, so no `href` leads to those URLs, they are not in the index, and they must not
+become canonical targets. Two consequences are accepted rather than worked around:
+
+- `?sort=name&page=2` canonicalises to `?page=2`, which is a different set of products. That is no
+  worse than the pre-AECI-803 behaviour, which pointed it at page 1 of the default sort, and no
+  crawler can reach either URL.
+- An out-of-range `?page=99` self-canonicalises. `setEntityMeta` runs at controller construction,
+  before the listing response arrives, so the canonical cannot depend on the total page count. No link
+  leads there.
+
+`?page=1`, `?page=0` and `?page=abc` all canonicalise to the **bare** path — page 1 and the absent
+param are the same document, and the clamp is `parseIndexPage` (`shared/paginated-index/paginated-index-request.ts`),
+imported rather than re-derived so the canonical and the fetched page cannot disagree about what
+`?page=abc` means.
+
+**This is a cache decision as much as an SEO one.** The canonical is baked into the edge-cached HTML, so
+an allowlisted canonical param MUST also be in `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`)
+or two URLs differing only in that param share one entry and the first render's canonical is served to
+both. `page` already is. `utm_*` is the live counter-example: absent from both lists, so `?utm_source=x&page=2`
+and `?page=2` share an entry and correctly emit one canonical. See `CACHE_STRATEGY.md` §4a.
+
+Code: `listingCanonicalUrl()` in `apps/web/src/app/core/canonical.ts` composes it;
+`CANONICAL_QUERY_ALLOWLIST` + `stripQueryParamsExcept()` in `core/meta.helpers.ts` are what let it
+survive `MetaService.setEntityMeta`. Every other `MetaService` canonical path keeps the full strip.
+`og:url` follows the canonical. **No `rel="prev"` / `rel="next"`** is emitted — Google dropped them as
+an indexing signal in 2019; re-open only with a Bing-specific reason.
 
 ### 9.2 JSON-LD
 

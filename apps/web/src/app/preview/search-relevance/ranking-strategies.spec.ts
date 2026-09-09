@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
+import { algoliaSortKey, type AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
 import { FIXTURE_PRODUCTS } from './search-relevance.fixtures';
 import { rankProducts, textScore, tokenize } from './ranking-strategies';
@@ -15,6 +15,9 @@ function rec(partial: Partial<AlgoliaProductRecord> & { name: string }): Algolia
   return {
     objectID: partial.objectID ?? `id-${partial.name.toLowerCase()}`,
     name: partial.name,
+    // AECI-825 — the `name_asc` replica's sort key. Derived, never hand-written,
+    // so a fixture cannot disagree with the transform about its own key.
+    name_sort: partial.name_sort ?? algoliaSortKey(partial.name),
     slug: partial.slug ?? partial.name.toLowerCase(),
     description: partial.description ?? null,
     vendor_name: partial.vendor_name ?? null,

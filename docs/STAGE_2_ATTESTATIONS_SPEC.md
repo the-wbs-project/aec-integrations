@@ -973,9 +973,11 @@ Decisions taken at build that §6 did not pre-specify:
   (Projects & Jobs → Models → … → Compliance Documents) is the information in them. The picker is
   **searched**: the vendor already knows they want "Submittals", and `AecSelect` is a non-editable
   Aria combobox with no type-to-filter, so an unfamiliar semantic order makes finding a known label
-  a 27-item linear scan with no anchor. Sorted client-side on the rendered `name` via
-  `localeCompare` rather than in SQL, because the terms are translatable copy and alphabetical order
-  is per-locale. Both halves are pinned — sorted in the component spec, unsorted in the route spec —
+  a 27-item linear scan with no anchor. Sorted client-side on the rendered `name` via `compareText`
+  (`@aeci/shared/text-sort`) rather than in SQL, because the terms are translatable copy and the
+  rendered label is what the vendor scans. That comparator pins its locale to `'en'` instead of
+  taking the ambient one (AECI-825), so the SSR Worker and the browser cannot order the picker
+  differently. Both halves are pinned — sorted in the component spec, unsorted in the route spec —
   so "restoring" the wire order in the picker fails rather than quietly reverting the decision.
   Recorded in `docs/DATA_OBJECT_VOCABULARY.md` §4.1.
 - **An unseeded vocabulary is `200 { data_objects: [] }`, never a 500** — a fresh local D1 without

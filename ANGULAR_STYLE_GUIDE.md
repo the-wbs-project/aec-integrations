@@ -304,6 +304,34 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 ---
 
+## 20a. Sorting text: `compareText`, never `localeCompare`
+
+Any list a reader sees in alphabetical order goes through `compareText` from
+`@aeci/shared/text-sort`:
+
+```typescript
+import { compareText } from '@aeci/shared/text-sort';
+
+readonly sorted = computed(() => [...this.products()].sort((a, b) => compareText(a.name, b.name)));
+```
+
+**Banned for display text:** a bare `.sort()`, `a < b ? -1 : 1`, and `a.localeCompare(b)` with no
+locale argument. The first two sort by UTF-16 code unit, so case decides the order and
+`ADP Workforce Now` outranks `Access Coins Evo` (AECI-825). The third gets the collation right but
+resolves against the **ambient** locale — the visitor's OS setting in the browser, workerd's default
+under SSR — so a list SSR renders sorted and the client re-sorts after hydration can order
+differently on the two runtimes. `compareText` pins `'en'`.
+
+Still fine on `BINARY`/code-unit comparison, because they are not display text: slugs (lowercase by
+construction), ids, enum tokens, and ISO-8601 timestamps.
+
+The SQL twin of this rule is `COLLATE NOCASE` in `apps/api/src/lib/collation.ts`; the two produce the
+same order, which `apps/api/src/lib/collation.spec.ts` asserts against real SQLite.
+
+Lint: 🟡 review-only.
+
+---
+
 ## 21. Accessibility (WCAG AA + axe-clean)
 
 - Spartan brain primitives give you a11y for free — don't break their built-in semantics.
@@ -450,6 +478,12 @@ Escape hatch: `constraints-guard-allow-next-line` in a comment on the preceding 
 - `@angular-eslint/prefer-signals` and `@angular-eslint/no-uncalled-signals` — both require typed linting (`parserOptions.project`), which isn't yet wired in this workspace. Enabling typed linting is a separate scope-expanding change (slower lint, broader rule surface) and is tracked as a follow-up. Until then, signal usage is review-only.
 - Custom regex / processor rule banning hex / oklch / named Tailwind colors in templates and inline styles (§20). Tracked as AECI-597 — measured during AECI-549 as feasible but not yet false-positive-free (CSS id selectors whose name is accidentally hex, e.g. `#aec-facet-panel`; and legitimately hardcoded hex in transactional email HTML, where custom properties don't work).
 - Custom rule banning template-driven `[(ngModel)]` outside a `<form>` context (§13).
+- `no-restricted-syntax` banning a one-argument `localeCompare` (§20a, AECI-825). Structurally
+  trivial to write, and it would have caught the whole defect class. Deferred because it cannot tell
+  display text from a slug, an id, or an ISO timestamp: ~10 current call sites compare exactly those
+  and are correct as written, so the rule lands as ten `eslint-disable` lines rather than ten fixes.
+  Worth revisiting if the ratio moves — unlike the rejected i18n rule below, the findings here are
+  suppressible with a one-line reason rather than unactionable.
 
 **Rejected, with evidence — do not re-propose without new information.** `@angular-eslint/template/i18n` was evaluated in AECI-549 for the "no hardcoded English in templates" constraint (§22). Its attribute check produced **53 findings in this codebase and zero real ones** — it flags every static attribute, including `d`, `stroke-linecap`, `rel`, `crossorigin`, `inputmode`, `aria-labelledby`, `selectionMode`, `orientation` — because it is configured by denylist (`ignoreAttributes`) and the allowlist we would need is inexpressible. Its text check was cleaner (4 findings) but all four were legitimate: decorative `aria-hidden` icon glyphs and the SVG brand wordmark. A rule with that false-positive rate is worse than no rule, so i18n stays review-only.
 

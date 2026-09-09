@@ -61,6 +61,67 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-09-09 — AECI-688: re-backfilling the long memory, and what it says about the long memory
+
+Scope: an **ops run plus a doc sweep**, not a health sweep. No new instrumentation, no schema change.
+
+**What it corrected.** AECI-683 (2026-08-27) added the operator-pair retro-join to `NOT_INTERNAL`. Every
+future `metrics_daily` write picked it up; rows already written did not, and
+`GET /api/admin/metrics/timeseries` serves snapshot-first for completed days.
+`ops:backfill-metrics-daily` was re-run over `2026-06-23 → 2026-09-08` on production, staging and demo.
+
+Production, `traffic.page_views_human` — six days, net **−51**:
+
+| Day | Before | After | Δ |
+|---|---|---|---|
+| 2026-08-19 | 30 | 29 | −1 |
+| 2026-08-20 | 95 | 94 | −1 |
+| 2026-08-24 | 109 | 87 | −22 |
+| 2026-08-25 | 80 | 77 | −3 |
+| 2026-08-26 | 102 | 80 | −22 |
+| 2026-08-31 | 224 | 222 | −2 |
+
+`traffic.page_views_bot` moved on two days (−2) and `traffic.unique_visitors` on six (−6).
+`catalog.products_created` and `accounts.sign_ins_new` did not move at all — the cron's audit-derived
+values already agreed with the `created_at` reconstruction. Staging additionally needed the operator
+page-view backfill first (81 rows) and then gained days that had no stored row at all. Demo mirrors
+production, plus 2026-09-03.
+
+**The finding that outlives the run: a snapshotted day is not final.** 2026-08-31 is in that table, and it
+**postdates the fix** — snapshotted correctly under the new predicate, then went stale. The retro-join is
+anchored on each row's own timestamp with a ±30-day window, so whether a view counts as human depends on
+operator rows that may not exist yet. The 00:15 cron writes only the prior day and never returns. Every
+completed day inside the trailing 30 days is therefore provisional, the drift does not converge on its own,
+and nothing detects it. Filed as **AECI-827**; the options are in the issue.
+
+**Two stale facts found and corrected while doing it.** `ADMIN_PANEL_SPEC.md` §7.3 marked the operator
+page-view backfill **PENDING** on every tier; production and demo had in fact already been applied, and only
+staging was outstanding. That status had been wrong for about three weeks and it drove an ordering decision
+in this issue's plan. The script's README now carries a run log. Separately, six documents plus two source
+comments said the snapshot cron writes **19 keys**; it writes **20** — AECI-745 added a ninth flow key and no
+count was updated.
+
+**Preview was not corrected and is not correctable today.** Its D1 sits at migration `0015` against the
+repo's `0028`, so `page_views.is_operator` does not exist and every statement in the predicate fails. That is
+the standing preview-migration gap.
+
+**What was deliberately not done: the duplicate `page_views` rows** (AECI-743). The stored counts are
+`count(*)` before and after. The 00:15 cron has been counting duplicates since this table shipped, so the
+inflation was already in the permanent record and this run did not deepen it. Deduplicating in the backfill
+alone would have made reconstructed days disagree with every live surface — the defect this issue existed to
+remove, reintroduced at a different date — and purging has no defensible keep-rule: 589 of the 664 suspected
+human pairs predate AECI-585 and carry a null `navigation`. Measured effect on the corroborated floor is
+still two days: 2026-08-29 (2 → 1) and 2026-08-18 (4 → 3). Reasoning recorded in `ADMIN_PANEL_SPEC.md` §7.1.
+
+**Traffic / signups:** unchanged as a matter of fact — the numbers above restate history, they are not new
+traffic. Every "human page views" figure quoted in this log for 2026-08-19, -20, -24, -25, -26 or -31 is high
+by the delta in the table.
+
+**Regressions / tickets filed:** AECI-827 (`metrics_daily` goes stale again).
+**Threshold tuning:** none.
+**Actions / follow-ups:** decide AECI-827. Preview's migration gap is filed as **AECI-828**.
+
+
 ## 2026-09-01 — AECI-743: the corroborated floor was counting one arrival twice
 
 **Correction, not a snapshot.** This entry exists to restate two published figures, not to read the
@@ -159,7 +220,9 @@ over-count for the same reason, by an amount nobody has measured.
 
 **Actions / follow-ups:** `metrics_daily` rows written before today keep the old definition and
 `/api/admin/metrics/timeseries` serves snapshot-first, so a chart steps at the boundary until
-`ops:backfill-metrics-daily` is re-run — filed, not done. Two more spun out and deferred: reporting
+`ops:backfill-metrics-daily` is re-run — **DONE 2026-09-09 (AECI-688)**, see the entry above; this day's
+own figure moved exactly as predicted, 102 → 80, and five other days moved too for a net −51. Two more
+spun out and deferred: reporting
 singleton `/`-only Direct hits as "door-knocks", and fixing the lapse at its source (the SSR
 passthrough forwards an expired access token rather than refreshing it, so this change corrects the
 rows on read but does not stop them being written).

@@ -22,6 +22,7 @@
  *    Algolia's arbitrary internal index order (§5) so the prototype is reproducible.
  */
 import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
+import { compareText } from '@aeci/shared/text-sort';
 
 export type StrategyId = 'baseline' | 'ratings' | 'coverage' | 'blend';
 
@@ -147,14 +148,14 @@ const COMPARATORS: Record<StrategyId, (a: Scored, b: Scored) => number> = {
     b.textScore - a.textScore ||
     b.record.integration_count - a.record.integration_count ||
     b.record.review_count - a.record.review_count ||
-    a.record.name.localeCompare(b.record.name),
+    compareText(a.record.name, b.record.name),
   ratings: (a, b) =>
     b.textScore - a.textScore ||
     (b.record.rating_overall_avg ?? 0) - (a.record.rating_overall_avg ?? 0) ||
     b.record.integration_count - a.record.integration_count ||
-    a.record.name.localeCompare(b.record.name),
-  coverage: (a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name),
-  blend: (a, b) => b.score - a.score || a.record.name.localeCompare(b.record.name),
+    compareText(a.record.name, b.record.name),
+  coverage: (a, b) => b.score - a.score || compareText(a.record.name, b.record.name),
+  blend: (a, b) => b.score - a.score || compareText(a.record.name, b.record.name),
 };
 
 /**

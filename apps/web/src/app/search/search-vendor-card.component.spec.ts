@@ -10,6 +10,7 @@ import { SearchVendorCard } from './search-vendor-card';
 const baseRecord: AlgoliaVendorRecord = {
   objectID: '00000000-0000-4000-8000-000000010001',
   company_name: 'Procore Technologies',
+  company_name_sort: 'procore technologies', // AECI-825 — replica sort key
   slug: 'procore-technologies',
   verified: false,
   description: 'Construction software vendor.',

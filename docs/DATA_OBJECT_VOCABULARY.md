@@ -171,8 +171,13 @@ identical.
 Two properties of that divergence matter to anyone editing it. It is **client-side only** — the wire
 order is unchanged and still pinned by `apps/api/src/routes/vendor-data-objects.spec.ts`, so a
 future consumer that renders these rows *as lanes* still gets lifecycle order for free. And the sort
-key is the **rendered `name`** through `localeCompare`, not the slug and not a SQL `ORDER BY`,
-because the terms are translatable copy (§2) and alphabetical order is per-locale.
+key is the **rendered `name`** through `compareText` (`@aeci/shared/text-sort`), not the slug and
+not a SQL `ORDER BY`, because the terms are translatable copy (§2) and the label the vendor scans is
+the one that has to be in order. **The collator's locale is pinned to `'en'`, not taken from the
+ambient runtime** (AECI-825): a bare `localeCompare` resolves against the visitor's OS setting in
+the browser and workerd's default under SSR, which for a list rendered on both is a server/client
+mismatch rather than a cosmetic difference. When a second locale ships, the pin is what has to
+change — re-derive the comparator per active locale rather than dropping the argument.
 
 ## 5. Seeding conventions (for the downstream consumers)
 

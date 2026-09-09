@@ -151,6 +151,26 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - HTTP status code that doesn't match the conventions in `API_CONTRACTS.md` §4.1
 - Breaking change to a contract without updating both the schema and the consumers
 
+### Text sorting and collation (AECI-825)
+
+Every default in this stack sorts by byte or code unit, so case decides the order unless something
+overrides it. All three regressions below are **silent** — the sort still returns 200 and still
+looks sorted, so nothing but review or a test catches them.
+
+- **MAJOR** — A D1 `ORDER BY` on a name/title/label column that is not `textAsc` / `textDesc` /
+  `textDir` (`apps/api/src/lib/collation.ts`). `BINARY` ranks `ADP Workforce Now` above
+  `Access Coins Evo`. Slugs, ids, enum tokens and ISO timestamps are exempt — `BINARY` is correct
+  and cheaper there.
+- **MAJOR** — A case-folded `ORDER BY` on a `LIMIT`/`OFFSET` query with no unique trailing term.
+  `NOCASE` reports `ADP` and `adp` as equal, so the AECI-99 `id ASC` tiebreaker is now load-bearing:
+  without it, a row on a page boundary can appear twice or not at all.
+- **MAJOR** — An in-memory sort of display text using a bare `.sort()`, `a < b`, or an unpinned
+  `localeCompare`. Use `compareText` from `@aeci/shared/text-sort`. An unpinned `localeCompare`
+  resolves against the ambient locale, which can differ between the SSR Worker and the browser.
+- **MAJOR** — An Algolia replica `ranking` pointed at a display attribute (`asc(name)`) rather than
+  the folded key (`asc(name_sort)`). Adding a new sort-key attribute also requires a **full reindex
+  per environment** — the incremental sync is watermarked on `updated_at` and will not backfill it.
+
 ### Caching
 
 - Cacheable response without `Cache-Control` headers

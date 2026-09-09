@@ -89,6 +89,7 @@ import {
 // a bar the detector stopped applying.
 import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
 import { loadAsnAnnotations } from './asn-registry';
+import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 import { likeContains } from './sql-like';
@@ -778,12 +779,16 @@ export async function breakdown(
   // (AECI-99). The explicit `IS NULL` sort beats `NULLS LAST`: SQLite ascending
   // puts NULL first, and an unattributed bucket should not outrank a named source
   // that drew the same number of views.
+  //
+  // The key is compared case-insensitively first (AECI-825) so `Google` and
+  // `google` sit together, then by the RAW column: NOCASE calls that pair equal,
+  // and this query is paginated, so the second term is what keeps the order total.
   const rows = await db
     .select({ key: column, views: count() })
     .from(pageViews)
     .where(base)
     .groupBy(column)
-    .orderBy(desc(count()), asc(sql`${column} IS NULL`), asc(column))
+    .orderBy(desc(count()), asc(sql`${column} IS NULL`), textAsc(column), asc(column))
     .limit(perPage)
     .offset(offset);
 

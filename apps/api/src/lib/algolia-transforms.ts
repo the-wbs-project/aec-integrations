@@ -25,6 +25,7 @@ import {
   type AlgoliaIntegrationRecord,
   type AlgoliaProductRecord,
   type AlgoliaVendorRecord,
+  algoliaSortKey,
   flattenTradeAliases,
 } from '@aeci/shared/algolia-records';
 import { sql } from 'drizzle-orm';
@@ -241,6 +242,9 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
       tradeNames,
       row.productTrades.map((r) => r.trade.aliases),
     ),
+    // AECI-825 — what the `name_asc` replica ranks on. Must stay byte-identical
+    // to `buildProductRecords` in `apps/datatool/src/algolia-reindex.ts`.
+    name_sort: algoliaSortKey(row.name),
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     rating_overall_avg: row.ratingOverallAvg,
@@ -253,6 +257,9 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
   return {
     objectID: row.id,
     company_name: row.companyName,
+    // AECI-825 — what the `name_asc` replica ranks on. Must stay byte-identical
+    // to `buildVendorRecords` in `apps/datatool/src/algolia-reindex.ts`.
+    company_name_sort: algoliaSortKey(row.companyName),
     slug: row.slug,
     verified: row.verified, // AECI-529: search-card verified badge
     description: row.description,

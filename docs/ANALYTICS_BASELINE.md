@@ -328,9 +328,12 @@ numbers), and again at launch.
 > 2026-08-26** (0 rows carry one on 08-25, 877 of 918 on 08-26). That is two days of evidence, not
 > thirty. Re-check after a month of verdict coverage.
 >
-> `metrics_daily` rows written before this date keep the old definition, and
-> `/api/admin/metrics/timeseries` serves snapshot-first, so a chart will step at the boundary until
-> `ops:backfill-metrics-daily` is re-run.
+> `metrics_daily` rows written before this date kept the old definition, and
+> `/api/admin/metrics/timeseries` serves snapshot-first, so the chart stepped at the boundary until
+> `ops:backfill-metrics-daily` was re-run. **Done 2026-09-09 (AECI-688)** on production, staging and
+> demo: six production days of `traffic.page_views_human` moved, net **−51**, with 2026-08-26 going
+> 102 → 80. Any figure in this file quoted from one of those days is high by that amount. Preview was
+> not corrected — its D1 sits at migration `0015` and has no `is_operator` column.
 
 ### Decomposing the residual — what survives the automation filter (2026-08-31, AECI-741)
 

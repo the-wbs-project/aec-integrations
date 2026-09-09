@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
+import {
+  algoliaSortKey,
+  type AlgoliaProductRecord,
+  type AlgoliaVendorRecord,
+} from '@aeci/shared/algolia-records';
 
 import {
   mapAutocompleteResults,
@@ -9,9 +13,13 @@ import {
 } from './autocomplete-mapping';
 
 function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductRecord {
+  const name = overrides.name ?? 'Procore';
   return {
     objectID: '11111111-1111-1111-1111-111111111111',
-    name: 'Procore',
+    name,
+    // AECI-825 — the `name_asc` replica's sort key. Derived rather than
+    // hand-written so an overridden name cannot disagree with it.
+    name_sort: algoliaSortKey(name),
     slug: 'procore',
     description: null,
     vendor_name: 'Procore Technologies',
@@ -31,9 +39,12 @@ function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductR
 }
 
 function vendor(overrides: Partial<AlgoliaVendorRecord> = {}): AlgoliaVendorRecord {
+  const companyName = overrides.company_name ?? 'Autodesk';
   return {
     objectID: '22222222-2222-2222-2222-222222222222',
-    company_name: 'Autodesk',
+    company_name: companyName,
+    // AECI-825 — same derivation as the product fixture above.
+    company_name_sort: algoliaSortKey(companyName),
     slug: 'autodesk',
     verified: false,
     description: null,

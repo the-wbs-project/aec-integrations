@@ -9,6 +9,17 @@
 -- would leave the aggregate and the log disagreeing with no way back. This file exists
 -- so any figure quoted from a pre-fix day can be corrected by hand instead.
 --
+-- AECI-688 (2026-09-09) re-examined that and kept the ruling, but note which half of it
+-- still holds. The second reason is now weaker: `ops:backfill-metrics-daily` CAN
+-- re-aggregate the affected days, so the aggregate and the log would not have to stay
+-- disagreeing. The FIRST reason is what carries the decision on its own — the stored row
+-- cannot distinguish a double-fire from a genuine reload, so there is no keep-rule to
+-- write. 589 of the 664 suspected human pairs predate AECI-585 and carry a null
+-- `navigation`, and tightening the window from 20 s to 3 s moves the arrival count from
+-- 52 to 19. AECI-688 also declined to dedupe inside the backfill's SELECT, which would
+-- have put a SECOND definition of "duplicate" in the tree and made reconstructed days
+-- disagree with every live surface. See `docs/ADMIN_PANEL_SPEC.md` §7.1.
+--
 -- Run it:
 --   wrangler d1 execute aeci-app-production --env production --remote \
 --     --file=scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql
