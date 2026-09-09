@@ -147,6 +147,51 @@ export function stripQueryParams(url: string): string {
 }
 
 /**
+ * The ONLY query params allowed to survive into a `<link rel="canonical">` (AECI-803).
+ *
+ * `page` is here because the paginated listings (`/products` and the four taxonomy
+ * browse routes) publish a real, crawlable `?page=N+1` trail from
+ * `<aec-pagination-footer>`, and Google's guidance for those is a SELF-referential
+ * canonical per page. Everything else stays stripped, `sort` and the facet ids
+ * included: their controls are a `<select>` and buttons, so no `href` leads to those
+ * URLs, they are not in the index, and they must not become canonical targets.
+ *
+ * Adding to this set is a cache-correctness decision, not just an SEO one. The
+ * canonical is baked into the edge-cached HTML, so an allowed param MUST also be in
+ * `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`) — otherwise two URLs
+ * that differ only in that param share one cache entry and the first render's
+ * canonical is served to both. `utm_*` is the live example of why: it is deliberately
+ * absent from both lists.
+ *
+ * Governing docs: `docs/STAGE_1_PHASE_2_SPEC.md` §9.1a, `docs/STAGE_1_SPEC.md` §20.6,
+ * `docs/CACHE_STRATEGY.md` §4a.
+ */
+export const CANONICAL_QUERY_ALLOWLIST: ReadonlySet<string> = new Set(['page']);
+
+/**
+ * Strip the fragment and every query param EXCEPT those named in `keep`.
+ *
+ * Same failure contract as `stripQueryParams`: a value that doesn't parse as an
+ * absolute URL is returned unchanged. Param order is normalized to the allowlist's
+ * iteration order rather than the input's, so two orderings of the same allowed set
+ * produce one canonical string.
+ */
+export function stripQueryParamsExcept(url: string, keep: ReadonlySet<string>): string {
+  try {
+    const parsed = new URL(url);
+    const kept = new URLSearchParams();
+    for (const name of keep) {
+      for (const value of parsed.searchParams.getAll(name)) kept.append(name, value);
+    }
+    parsed.search = kept.toString();
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * The scheme+host origin of an absolute URL (no trailing slash, no path), e.g.
  * `https://aecintegrations.com/` → `https://aecintegrations.com`. Used to build
  * the home `WebSite` / `Organization` JSON-LD against the serving origin

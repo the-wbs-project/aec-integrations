@@ -3,7 +3,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
 
-import { canonicalUrl } from '../core/canonical';
+import { listingCanonicalUrl } from '../core/canonical';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
@@ -247,7 +247,14 @@ export class ProductsIndex {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,
       description: $localize`:@@products.index.metaDescription:The directory of every AEC software product on AEC Integrations. Sortable by name, recency, last update, rating, and review count.`,
-      canonical: canonicalUrl('/products'),
+      // AECI-803 — page 2+ self-canonicalises instead of declaring itself a
+      // duplicate of page 1. Read from the SNAPSHOT, not the `queryParamMap`
+      // signal: this runs once at construction on the server and again on the
+      // first client evaluation, and both see the same `?page=`, so the SSR HTML
+      // and the hydrated head agree (the drift ADR 0011 guards against). Append
+      // mode never writes `?page=` to the address bar afterwards, so there is
+      // nothing later to react to.
+      canonical: listingCanonicalUrl('/products', this.route.snapshot.queryParamMap.get('page')),
     },
   });
 

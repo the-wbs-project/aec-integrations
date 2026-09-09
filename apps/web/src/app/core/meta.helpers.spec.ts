@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 import {
+  CANONICAL_QUERY_ALLOWLIST,
   DEFAULT_OG_IMAGE,
   HOME_OG_IMAGE,
   META_DESCRIPTION_MAX,
@@ -20,6 +21,7 @@ import {
   originOf,
   productLdId,
   stripQueryParams,
+  stripQueryParamsExcept,
   truncateAtWordBoundary,
 } from './meta.helpers';
 
@@ -127,6 +129,73 @@ describe('stripQueryParams', () => {
 
   it('returns input unchanged on parse failure', () => {
     expect(stripQueryParams('not a url')).toBe('not a url');
+  });
+});
+
+// ── AECI-803 — the paginated-listing canonical ──────────────────────────────
+// `stripQueryParams` above still governs every OTHER canonical path (404, /search,
+// static pages, the JSON-LD @id). This allowlist variant governs `setEntityMeta`
+// alone, so that `/products?page=2` can self-canonicalise instead of declaring
+// itself a duplicate of page 1. Spec: STAGE_1_PHASE_2_SPEC.md §9.1a.
+
+describe('CANONICAL_QUERY_ALLOWLIST', () => {
+  it('contains page and nothing else', () => {
+    // Pinned rather than merely asserted non-empty: adding a param here also
+    // requires adding it to LISTING_CACHE_KEY_PARAMS in server-runtime.ts, or two
+    // URLs differing only in that param share an edge entry and one canonical.
+    expect([...CANONICAL_QUERY_ALLOWLIST]).toEqual(['page']);
+  });
+});
+
+describe('stripQueryParamsExcept', () => {
+  it.each([
+    // The whole point: `page` survives, so page 2 self-references.
+    ['https://aecintegrations.com/products?page=2', 'https://aecintegrations.com/products?page=2'],
+    // Facets are stripped even alongside an allowed param. Facet controls emit no
+    // `href`, so those URLs are not crawlable and must not be canonical targets.
+    [
+      'https://aecintegrations.com/products?category_id=abc&page=2',
+      'https://aecintegrations.com/products?page=2',
+    ],
+    // Same for sort: the control is a <select>, so nothing links to this URL.
+    [
+      'https://aecintegrations.com/products?sort=name&page=2',
+      'https://aecintegrations.com/products?page=2',
+    ],
+    // utm_* is absent from LISTING_CACHE_KEY_PARAMS, so `?utm_source=x&page=2`
+    // SHARES an edge entry with `?page=2`. Both must emit the same canonical.
+    [
+      'https://aecintegrations.com/products?utm_source=x&page=2',
+      'https://aecintegrations.com/products?page=2',
+    ],
+    ['https://aecintegrations.com/products?utm_source=x', 'https://aecintegrations.com/products'],
+    // Fragments always go, allowed param or not.
+    [
+      'https://aecintegrations.com/categories/structural?page=3#grid',
+      'https://aecintegrations.com/categories/structural?page=3',
+    ],
+    // A detail canonical is untouched, which is what keeps detail/pair routes
+    // identical to their pre-AECI-803 behaviour.
+    ['https://aecintegrations.com/products/foo', 'https://aecintegrations.com/products/foo'],
+  ])('keeps only the allowlist: %s → %s', (input, expected) => {
+    expect(stripQueryParamsExcept(input, CANONICAL_QUERY_ALLOWLIST)).toBe(expected);
+  });
+
+  it('normalizes param order to the allowlist, not the input', () => {
+    const keep = new Set(['page', 'sort']);
+    expect(stripQueryParamsExcept('https://aecintegrations.com/p?sort=name&page=2', keep)).toBe(
+      'https://aecintegrations.com/p?page=2&sort=name',
+    );
+  });
+
+  it('strips everything when the allowlist is empty', () => {
+    expect(stripQueryParamsExcept('https://aecintegrations.com/products?page=2', new Set())).toBe(
+      'https://aecintegrations.com/products',
+    );
+  });
+
+  it('returns input unchanged on parse failure', () => {
+    expect(stripQueryParamsExcept('not a url', CANONICAL_QUERY_ALLOWLIST)).toBe('not a url');
   });
 });
 

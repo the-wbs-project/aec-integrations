@@ -1466,6 +1466,15 @@ Built as one function call so adding new consumers later (Slack notifications, v
 
 Every page emits a `<link rel="canonical">` tag. Pages reachable through query parameters (filtered listings, search results) canonicalize to the unfiltered version to prevent duplicate content issues.
 
+> **Amended by AECI-803 (2026-09-09) — `page` is the one exception.** The rule above still holds for
+> `sort`, the four facet ids, and every tracking param, but **not** for pagination. `/products?page=2`
+> and `/{categories,audiences,phases,trades}/:slug?page=2` now emit a **self-referential** canonical:
+> a paginated series wants a self-canonical per page, and pointing page 2 at page 1 can suppress
+> crawling of what page 2 holds. Those five routes are the only ones that read `?page=`. The
+> governing contract, including why facets and sort stay stripped and why the allowlist is coupled to
+> `LISTING_CACHE_KEY_PARAMS`, is **`STAGE_1_PHASE_2_SPEC.md` §9.1a**, which supersedes this paragraph
+> where they differ.
+
 ### 20.7 404 page
 
 Useful 404 — search box, top categories, "you might be looking for these" links derived from the requested path. Logged with the source URL so broken inbound links can be redirected.

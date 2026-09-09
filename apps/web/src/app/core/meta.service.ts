@@ -5,6 +5,7 @@ import { Meta, Title } from '@angular/platform-browser';
 import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 import {
+  CANONICAL_QUERY_ALLOWLIST,
   DEFAULT_OG_IMAGE,
   type EntityKind,
   HOME_OG_IMAGE,
@@ -21,6 +22,7 @@ import {
   ogTypeForKind,
   originOf,
   stripQueryParams,
+  stripQueryParamsExcept,
   truncateAtWordBoundary,
 } from './meta.helpers';
 
@@ -101,7 +103,13 @@ export class MetaService {
     const description = truncateAtWordBoundary(input.description) || fallback;
     this.meta.updateTag({ name: 'description', content: description });
 
-    const canonical = stripQueryParams(input.canonical);
+    // The ONE canonical path that keeps a query param, and only `page` (AECI-803):
+    // the paginated listings self-reference so page 2 stops declaring itself a
+    // duplicate of page 1. Everything else here — detail, pair, taxonomy index —
+    // passes a hardcoded, query-free path, so the allowlist strip is identical to the
+    // full strip for them. See `CANONICAL_QUERY_ALLOWLIST` for why nothing else is in
+    // the set and what has to move with it if something ever is.
+    const canonical = stripQueryParamsExcept(input.canonical, CANONICAL_QUERY_ALLOWLIST);
     this.upsertCanonical(canonical);
 
     // Indexable by default; noindex only when the caller opts in (e.g. an empty

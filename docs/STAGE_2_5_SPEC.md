@@ -82,6 +82,7 @@ The surfaces that describe AECi to a careful reader, a search quality rater, or 
 | **AECI-784** | The site-wide `@id`-linked JSON-LD entity graph. Owns every structured-data decision; `/methodology` deliberately emits none. Blocked by **AECI-805** (social profiles), or `sameAs` ships empty. | High |
 | **AECI-785 / AECI-787** | `llms.txt` and an RSS/Atom feed. Both new SSR routes, both needing a cache-tag decision. 785 is downgraded to Low on the epic (no provider commits to reading it); ship a static route or decline it, but do not build a generator. | Low |
 | **AECI-802** | Entity titles and meta descriptions carrying search intent. Blocked by **AECI-799** (Search Console baseline) under the epic's measurement-before-change rule. | High |
+| **AECI-803** | Paginated listings self-canonicalise instead of every page claiming to be page 1. Five routes, `page` the only allowlisted canonical param. Contract: `STAGE_1_PHASE_2_SPEC.md` §9.1a. Not blocked by AECI-799 — it fixes a documented anti-pattern rather than tuning copy, so the measurement-before-change rule does not bite. | Low |
 
 ### 7.1 `/methodology` — the build contract (AECI-804, shipped)
 

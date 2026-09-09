@@ -407,11 +407,53 @@ Every page sets:
   not. Everything else — every other role, and a connector with nothing to count — keeps the rule
   above. The JSON-LD `description` is **not** varied with it. Governing contract:
   `docs/STAGE_1_5_SPEC.md` §13.6.
-- `<link rel="canonical">` — the canonical URL for this entity (no query params). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
+- `<link rel="canonical">` — the canonical URL for this entity (no query params, with **one** exception: `?page=` on the paginated listings — see §9.1a). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
 
 Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from their resolver. SSR sets the `<head>` tags before sending HTML; on an in-app client navigation the resolver re-applies them so the SPA's head (title/canonical/OG/JSON-LD) stays correct (idempotent upserts; AECI-151). `MetaService` is platform-agnostic — the platform decision lives in the resolver callers, not the service.
+
+### 9.1a Paginated listings self-canonicalise (AECI-803, 2026-09-09)
+
+**`page` is the one query param allowed into a canonical.** `/products?page=2` and
+`/{categories,audiences,phases,trades}/:slug?page=2` emit a **self-referential** canonical
+(`https://www.aecintegrations.com/products?page=2`), not a pointer back at page 1. Google's guidance
+for a paginated series is a self-canonical per page; pointing page 2 at page 1 tells the crawler page 2
+is not canonical content, which can suppress crawling of what is on it. The trail is real and crawlable
+— `<aec-pagination-footer>` renders a genuine `?page=N+1` anchor as its no-JS floor, and
+`createPaginatedIndexResolver` server-renders the requested page (§7.3, AECI-746).
+
+Scope is **exactly those five routes**. They are the only consumers of `createPaginatedIndex`; nothing
+else reads `?page=`. `/search` is `noindex`, the taxonomy *index* pages are flat term grids, and detail
+and product-PAIR routes have no pagination and keep stripping the whole query.
+
+**Everything else stays stripped**, `sort` and the four facet ids included. Their controls are a
+`<select>` and buttons, so no `href` leads to those URLs, they are not in the index, and they must not
+become canonical targets. Two consequences are accepted rather than worked around:
+
+- `?sort=name&page=2` canonicalises to `?page=2`, which is a different set of products. That is no
+  worse than the pre-AECI-803 behaviour, which pointed it at page 1 of the default sort, and no
+  crawler can reach either URL.
+- An out-of-range `?page=99` self-canonicalises. `setEntityMeta` runs at controller construction,
+  before the listing response arrives, so the canonical cannot depend on the total page count. No link
+  leads there.
+
+`?page=1`, `?page=0` and `?page=abc` all canonicalise to the **bare** path — page 1 and the absent
+param are the same document, and the clamp is `parseIndexPage` (`shared/paginated-index/paginated-index-request.ts`),
+imported rather than re-derived so the canonical and the fetched page cannot disagree about what
+`?page=abc` means.
+
+**This is a cache decision as much as an SEO one.** The canonical is baked into the edge-cached HTML, so
+an allowlisted canonical param MUST also be in `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`)
+or two URLs differing only in that param share one entry and the first render's canonical is served to
+both. `page` already is. `utm_*` is the live counter-example: absent from both lists, so `?utm_source=x&page=2`
+and `?page=2` share an entry and correctly emit one canonical. See `CACHE_STRATEGY.md` §4a.
+
+Code: `listingCanonicalUrl()` in `apps/web/src/app/core/canonical.ts` composes it;
+`CANONICAL_QUERY_ALLOWLIST` + `stripQueryParamsExcept()` in `core/meta.helpers.ts` are what let it
+survive `MetaService.setEntityMeta`. Every other `MetaService` canonical path keeps the full strip.
+`og:url` follows the canonical. **No `rel="prev"` / `rel="next"`** is emitted — Google dropped them as
+an indexing signal in 2019; re-open only with a Bing-specific reason.
 
 ### 9.2 JSON-LD
 
