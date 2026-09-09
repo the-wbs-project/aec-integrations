@@ -24,9 +24,12 @@
 # migration still fails — just after exhausting the (small) attempt budget.
 #
 # Companion to the other CI shell gates in this dir (require-secrets.sh,
-# verify-version.sh, verify-health.sh). Used by the "Apply D1 migrations" step of
-# deploy.yml (staging), promote-to-demo.yml (demo), and promote-to-prod.yml
-# (production). See docs/migrations.md §0 and docs/CICD_PLAN.md.
+# verify-version.sh, verify-health.sh). Used by ALL FOUR deployed tiers: the
+# `migrate-preview` job (preview) and the "Apply D1 migrations" step of
+# deploy-staging (staging) in deploy.yml, promote-to-demo.yml (demo), and
+# promote-to-prod.yml (production). Preview was added in AECI-828 — before that
+# nothing migrated the shared `aeci-app-preview` DB and it drifted 14 behind.
+# See docs/migrations.md §0 and docs/CICD_PLAN.md.
 #
 # Usage (must run with cwd = apps/api, where wrangler.jsonc + migrations/ + seed/
 # resolve — the CI steps set `working-directory: apps/api`):

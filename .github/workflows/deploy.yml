@@ -2,9 +2,15 @@
 #
 # Current posture (AECI-76 / sub-issue (a) of AECI-71):
 #   PR push (ANY base) → lint → typecheck → unit → build → e2e+axe   (no deploy)
-#   push to main       → …same… → deploy-staging
-#   push to stage-2 / admin-panel → …same… (no deploy — deploy-staging is
-#                       independently gated on refs/heads/main)
+#   push to main       → …same… → migrate-preview + deploy-staging
+#   push to stage-2 / admin-panel → …same… (no deploy — migrate-preview and
+#                       deploy-staging are independently gated on
+#                       refs/heads/main)
+#
+# `migrate-preview` (AECI-828) applies the D1 migrations to the SHARED
+# `aeci-app-preview` database that every PR preview binds to. It is its own job,
+# not a step in deploy-staging, because deploy-staging is gated on
+# `vars.STAGING_ENABLED` and preview's schema must not hang off that gate.
 #
 # The PR lane is deliberately BASE-BRANCH-AGNOSTIC. See the `on:` block below for
 # why (short version: `branches: [main]` on `pull_request` filters by BASE, which

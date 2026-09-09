@@ -77,6 +77,7 @@ way to confirm it. Delete that statement and the 441 rows stay human.
 | 2026-08-13 | `aeci-app-staging` | 660 | 660 | 588 | 72 |
 | 2026-08-13 | `aeci-app-demo` | 19,557 | 17,784 | 17,745 | 1,812 |
 | 2026-08-13 | `aeci-app-production` | 26,671 | 17,784 | **24,575** | **2,096** |
+| 2026-09-09 | `aeci-app-preview` (AECI-828) | 713 | 15 | 588 | 125 |
 
 Production, by rule: A 4,941 · A2 441 · B 10,844 · C 1,558 (= 17,784).
 

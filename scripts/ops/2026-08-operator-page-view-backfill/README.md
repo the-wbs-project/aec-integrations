@@ -106,7 +106,7 @@ status cost an ordering decision.
 | production | on or before 2026-09-09 (exact date unrecorded) | 679 per §7.3 | dry run 2026-09-09: 10 pairs, `would_change: 0` |
 | demo | on or before 2026-09-09 (exact date unrecorded) | — | dry run 2026-09-09: 10 pairs, `would_change: 0` |
 | staging | **2026-09-09** (AECI-688) | **81** | re-run dry: `would_change: 0` |
-| preview | **not applicable** | 0 | 0 pairs match, and its D1 is at migration `0015` — `is_operator` does not exist there |
+| preview | **2026-09-09** (AECI-828) | **51** | 2 ASNs matched; human-public 125 → 93. Blocked until then — its D1 sat at migration `0015`, so `is_operator` did not exist. See `scripts/ops/2026-09-preview-d1-catchup/README.md` |
 
 Record the date and the row count here when you apply it. `--rollback` is a true inverse,
 so an entry that turns out wrong is recoverable; an absent entry is not.

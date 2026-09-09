@@ -1242,7 +1242,7 @@ without it the tier's PostHog data has no deploy line and no queryable `deployme
 | --- | --- |
 | `apps/web/wrangler.jsonc` | SSR Worker — has `[env.preview]`, `[env.staging]`, `[env.demo]`, `[env.production]`. |
 | `apps/api/wrangler.jsonc` | API Worker — has `[env.preview]`, `[env.staging]`, `[env.demo]`, `[env.production]`. `COMMIT_SHA` and `DEPLOYED_AT` declared with placeholder defaults per env; overridden at deploy via `--var`. |
-| `.github/workflows/deploy.yml` | CI: lint, typecheck, unit, build, e2e local, integration local, then **`deploy-staging`** on push to `main` (gated by `vars.STAGING_ENABLED`). |
+| `.github/workflows/deploy.yml` | CI: lint, typecheck, unit, build, e2e local, integration local, then **`deploy-staging`** on push to `main` (gated by `vars.STAGING_ENABLED`). Also carries the independent **`migrate-preview`** job (AECI-828) — push to `main` only, `needs: [unit-tests]`, ungated by `STAGING_ENABLED` — which applies the D1 migrations to the shared `aeci-app-preview` database. |
 | `.github/workflows/refresh-staging.yml` | (AECI-77) one-button workflow to restore prod data into staging with credentials scrubbed. |
 | `.github/workflows/promote-to-demo.yml` | One-button workflow to promote a staging commit to the public demo tier (`--env demo`). Light sibling of promote-to-prod — no Postgres (shared prod Supabase project). |
 | `.github/workflows/promote-to-prod.yml` | (AECI-78) two-button workflow to promote a **demo** commit to production with manual approval. |

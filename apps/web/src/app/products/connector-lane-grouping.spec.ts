@@ -82,9 +82,11 @@ describe('routeIntegrationLane — §13.2', () => {
   });
 
   it('(b) routes an un-migrated powered edge by `powered_by_product`', () => {
-    // The un-migrated shape — the row is still in `integrations`. Preview and
-    // staging D1 are not migrated by CI, so without this clause every connector
-    // edge there renders as direct.
+    // The un-migrated shape — the row is still in `integrations`. On any tier
+    // where `0026`/`0027` have not landed, `connector_evidenced_pairs` is empty
+    // while the powered edges sit in `integrations`, so without this clause
+    // every connector edge there renders as direct. (All four deployed tiers are
+    // CI-migrated now — staging since AECI-256, preview since AECI-828.)
     const route = routeIntegrationLane(
       edge({
         source: procore,

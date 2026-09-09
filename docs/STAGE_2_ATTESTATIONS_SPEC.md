@@ -1408,8 +1408,9 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
   `product_versions_label_key` is the guarantee; the read before the batch exists so a vendor gets
   a `400` naming `label` instead of a constraint violation surfacing as a 500 — the same
   resolve-everything-that-can-fail-first discipline as taxonomy-term resolution.
-- **Applied to remote `aeci-app-preview` by hand**, per `docs/migrations.md` §0 — CI still migrates
-  staging/demo/production only.
+- **Applied to remote `aeci-app-preview` by hand**, per `docs/migrations.md` §0 — which at the time
+  was the only way, because CI migrated staging/demo/production only. **No longer necessary
+  (AECI-828):** `deploy.yml`'s `migrate-preview` job applies preview on every push to `main`.
 
 ---
 
