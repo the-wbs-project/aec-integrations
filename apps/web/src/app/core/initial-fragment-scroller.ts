@@ -18,12 +18,15 @@
  * We then unsubscribe so every later navigation is left to `RouterScroller`.
  *
  * Two details:
- * - We use `Element.scrollIntoView()` rather than `ViewportScroller.scrollToAnchor()`
- *   because `scrollIntoView` honors the target's CSS `scroll-margin-top` (the
- *   `scroll-mt-20` on each detail section that clears the sticky section-nav),
- *   matching how the native section-nav `<a href="…#id">` clicks already scroll.
- *   The scroll is forced `'instant'` — a deep link should land immediately, like a
- *   native fragment load, not animate a long glide from the top.
+ * - We use `Element.scrollIntoView()` because it honors the target's CSS
+ *   `scroll-margin-top` (the `scroll-mt-20` on each detail section that clears the
+ *   sticky section-nav), matching how the native section-nav `<a href="…#id">`
+ *   clicks already scroll. Angular's stock `ViewportScroller.scrollToAnchor()`
+ *   does not, which is why the app now installs `ScrollMarginViewportScroller`
+ *   (`core/scroll-margin-viewport-scroller.ts`) — every fragment scroll in the app,
+ *   whoever performs it, lands on the same pixel. The scroll here is forced
+ *   `'instant'` — a deep link should land immediately, like a native fragment load,
+ *   not animate a long glide from the top.
  * - Page-detail CLS (late-loading media above the anchor can shift it after the
  *   first jump) is re-asserted once, shortly after, but only while the visitor
  *   hasn't scrolled away themselves.
@@ -83,8 +86,8 @@ export class InitialFragmentScroller {
     const scrollToTarget = (): boolean => {
       const el =
         this.document.getElementById(id) ?? this.document.getElementsByName(id).item(0) ?? null;
-      // `scrollIntoView` (unlike `ViewportScroller.scrollToAnchor`) honors the
-      // target's `scroll-margin-top`, so the heading clears the sticky nav.
+      // `scrollIntoView` (unlike Angular's stock `ViewportScroller.scrollToAnchor`)
+      // honors the target's `scroll-margin-top`, so the heading clears the sticky nav.
       if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior });
       return el !== null;
     };
