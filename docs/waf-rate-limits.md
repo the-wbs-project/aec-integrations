@@ -500,9 +500,38 @@ UA list and `/products` is in its path list. Do not "fix" it.
 **The evidence surface is AI Crawl Control, not user-agent spoofing.** Spoofed AI-crawler
 UAs prove nothing on their own: a `403` may be correct anti-spoofing, and a `200` does not
 prove the real crawler from its real IP range gets through. **AI Crawl Control → Crawlers**
-reports allowed and blocked counts per crawler over real traffic. On Pro, detection there
-is by user-agent string only — Bot Management detection IDs are an upgrade — so treat the
-counts as directional.
+reports allowed and blocked counts per crawler over real traffic. Two limits on our plan:
+the window maxes out at **7 days**, and detection is by **user-agent string only** (Bot
+Management detection IDs are a plan upgrade). Treat the counts as directional.
+
+`Unsuccessful` is **not** a synonym for "we blocked it" — it bundles our blocks with 404s,
+5xx and timeouts. Read it against a control: the search crawlers' steady ~3% is ordinary
+404 noise, so a category sitting far below that is the signal.
+
+#### Baseline — the AECI-800 before-state (7 days to 2026-09-09, `Block AI bots` still on)
+
+Keep this as the comparison point. The category split is the whole story:
+
+| Category | Allowed | Unsuccessful | Success |
+|---|---|---|---|
+| Search Engine Crawler | 4,699 | 172 | **96%** |
+| AI Crawler | 70 | 322 | **18%** |
+
+Per-crawler extremes: Applebot 2,830 allowed / **0** unsuccessful; Googlebot 2,260 / 68;
+GPTBot 43 / 98; ClaudeBot 13 / 44; CCBot 2 / 47; **Meta-ExternalAgent 0 bytes across 56
+requests**. Every row Cloudflare labels `AI Crawler` was crushed and no row labelled
+`Search Engine Crawler` was — the blocked setting's own category boundary, visible in real
+traffic. That is what settles it; the spoofed-UA table never could.
+
+**PerplexityBot is the one row the category does not explain** (labelled `AI Search`, yet
+3 allowed / 126 unsuccessful, while Applebot carries the same label at 100%). The likely
+cause is lost Cloudflare verified-bot status dropping it into the unverified bucket that
+`Block AI bots` also caught. Unconfirmed — re-check rather than assume.
+
+**Pay Per Crawl is off.** The per-crawler control is a plain `Block Crawler` toggle; when
+Pay Per Crawl is enabled that column offers Charge / Allow / Block instead. Inferred from
+the absent control, not read from a status field. The switch itself is in **account**
+settings, not on this zone screen.
 
 ---
 
