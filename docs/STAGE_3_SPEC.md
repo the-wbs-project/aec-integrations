@@ -70,7 +70,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |
 | AECI-623 capability convergence | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
 | AECI-633 vendor-portal SR pass | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
-| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** (may share a sitting with AECI-633) |
+| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** (may share a sitting with AECI-633). Machine layer discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`; VoiceOver/NVDA + dialogs still open |
 | AECI-598 / 599 / 600 / 601 docs | no project | **Stage 2.5 §6** |
 | AECI-281 moderation refinement | Stage 2 Build | **Stage 3 §2.1** |
 | AECI-340 / 341 / 342 / 343 / 344 | pSEO project | **Stage 3 §2.2** (project adopted as the pillar) |

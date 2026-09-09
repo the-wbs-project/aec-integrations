@@ -64,7 +64,7 @@ Two items moved forward to Stage 2.1 on 2026-08-31 (both are vendor-portal polis
 
 | Issue | What it closes | Priority |
 |---|---|---|
-| **AECI-244** | The outstanding **manual screen-reader pass** over the public site (the Stage-1 Phase 7.10 pass that never ran), per `docs/a11y-manual-testing-checklist.md` and logged. May be run in the same sitting as AECI-633 (Stage 2.1) if calendars align — the former pairing was a scheduling convenience, not a dependency. | Medium |
+| **AECI-244** | The outstanding **manual screen-reader pass** over the public site (the Stage-1 Phase 7.10 pass that never ran), per `docs/a11y-manual-testing-checklist.md` and logged. May be run in the same sitting as AECI-633 (Stage 2.1) if calendars align — the former pairing was a scheduling convenience, not a dependency. **Partly discharged 2026-09-09** by a tool-assisted public-site pass against production `44aba9cf` → `docs/ACCESSIBILITY_AUDIT.md`: the keyboard layer is clean, and it found **three serious WCAG 4.1.3 (AA) status-message failures** plus seven lesser items, now filed. **What remains here** is the part a browser cannot do: the VoiceOver and NVDA speech layer (scripted in checklist §6/§7), dialog focus management, and the review-form `Tab` walk — the last two need a **local seeded** run, because production's moderation queue is empty and its destructive dialogs must not be opened. | Medium |
 
 ## 6. Docs & process de-stale sweep
 

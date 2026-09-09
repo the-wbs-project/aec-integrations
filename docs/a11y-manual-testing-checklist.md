@@ -2,7 +2,7 @@
 
 **Spec:** `STAGE_1_SPEC.md` §21.3 · **Issue:** [AECI-244](https://linear.app/aec-integrations/issue/AECI-244) (Phase 7.10) · **Complements:** the automated axe-core + Lighthouse a11y ≥95 CI gates (AECI-65) — this is the **human layer** those cannot cover.
 
-> **Purpose.** A repeatable procedure for the manual screen-reader + keyboard pass §21.3 requires, so it can be re-run before each launch/major release rather than reinvented. **This is the procedure and a blank log — it records no results itself.** Fill a dated copy of §4 each time you run it; file blocking findings as issues or fix in place.
+> **Purpose.** A repeatable procedure for the manual screen-reader + keyboard pass §21.3 requires, so it can be re-run before each launch/major release rather than reinvented. **This is the procedure and a blank log — it records no results itself.** Fill a dated copy of §4 each time you run it; file blocking findings as issues or fix in place. **Results live in `docs/ACCESSIBILITY_AUDIT.md`** — the 2026-09-09 AECI-244 run is the first entry, and §5 below is the tool-assisted pre-pass it introduced.
 >
 > **Target:** WCAG 2.1 AA. **Tools:** VoiceOver (macOS Safari), NVDA (Windows Firefox/Chrome), and keyboard-only (no pointer) in each browser.
 
@@ -74,6 +74,102 @@ Admin queue          |   ☐      |    ☐      |  ☐   |
 Overall result: PASS ☐   PASS-with-follow-ups ☐   FAIL ☐
 Findings filed: ____________________________________________
 ```
+
+## 5. Tool-assisted pre-pass (Chrome accessibility tree)
+
+Added after the AECI-244 run of 2026-09-09 (`docs/ACCESSIBILITY_AUDIT.md`). This is a **pre-pass, not a
+substitute**: it clears the machine-checkable half cheaply so the human sitting in §6/§7 is spent on the
+half only a screen reader can judge.
+
+**What it establishes.** Chrome MCP's `read_page` returns the browser's own accessibility tree — roles
+and accessible names, the data a screen reader consumes — and `computer` dispatches real key events.
+Together they measure: sequential focus order and cycle closure, keyboard traps, focusable-but-hidden
+elements, accessible-name presence and uniqueness, `aria-labelledby`/`aria-describedby` IDREF
+resolution, heading and landmark structure, skip-link wiring, ARIA state attributes, live-region
+presence and shape, and computed focus-indicator styles.
+
+**What it cannot establish, ever.** How VoiceOver and NVDA *speak* that tree — verbosity, ordering,
+double-speaking, rotor behaviour, browse-mode versus forms-mode. A `MutationObserver` sees DOM, not
+speech. It also drives **Chrome only**, so neither browser §2 mandates is covered.
+
+**Method.** Hypothesis, then evidence, then the diff: a JS pass computes the *candidate* tabbable set,
+the real `Tab` walk is the evidence, and the difference between them is the finding. Never substitute
+`el.focus()` for a `Tab` press — `focus()` does not consult the sequential focus navigation algorithm,
+so a JS-only "focus order" is testing a reimplementation of `tabindex`/`inert` semantics, not the
+browser.
+
+**Three harness traps that make a broken run look like a clean pass:**
+
+1. **The MCP tab runs hidden.** `document.visibilityState` is `"hidden"` and `document.hasFocus()` is
+   `false`, and in that state the browser drops `Tab` presses entirely. Call `window.focus()` from
+   `javascript_tool` first. **Skip this and every surface reports zero findings because nothing was
+   measured.**
+2. **Add a `computer` screenshot to the same batch.** It is a second, independent activator; without
+   one, key events intermittently stop landing even when `hasFocus` is `true`. If screenshot injection
+   times out on a page, that surface's keyboard walk cannot be completed — record it as a gap rather
+   than as a pass.
+3. **`read_page` with `filter: "interactive"` returns only viewport-visible nodes.** It is a spot check,
+   not a full tree dump.
+
+**Run-validity gate.** Capture console messages per surface. A hydration error (NG0500 / NG0602) means
+the DOM was replaced mid-probe, so the run is **void** and must be re-taken. Exclude extension-injected
+DOM from results — a password manager's live region is not ours.
+
+**On production, the pass is read-only.** No form submission, no moderation action, no confirm control
+ever clicked. That is a real constraint, not a formality: it means success-state behaviour must be
+verified from source at the deployed SHA, and the dialogs cannot be exercised at all. **Run the dialog
+and submit-path checks locally instead** (`pnpm dev:agent`, plus
+`pnpm --filter @aeci/api db:seed-reviews -- --apply` so the moderation queue and review lists are
+non-empty).
+
+## 6. Scripted VoiceOver walkthrough (macOS, Safari)
+
+About 10 minutes. `VO` = `Control+Option`. Toggle VoiceOver with `Cmd+F5`. Each step states the
+**expected** announcement, so you are comparing against a stated expectation rather than judging
+freehand. Mark each ✅ / ❌ and note what was actually spoken when it differs.
+
+Derived from the `needs-human` list in `docs/ACCESSIBILITY_AUDIT.md` §3.4 — these are exactly the
+questions the machine pass could not answer.
+
+| # | Surface | Keys | Expected announcement | ✅/❌ |
+|---|---|---|---|---|
+| V1 | `/` | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
+| V2 | `/` | `Return` on it, then `VO+Right` | The cursor should move **into the main content**, not stay in the header. *(H1: `<main>` has no `tabindex="-1"`, so this is the open question.)* | ☐ |
+| V3 | `/` | `VO+U`, choose **Landmarks** | Two "search" entries appear, indistinguishable. *(Confirms A5.)* | ☐ |
+| V4 | `/` | `VO+U`, choose **Links** | Three entries reading "Source, opens in a new tab" with no way to tell them apart. *(Confirms A4.)* | ☐ |
+| V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
+| V6 | `/` | Submit the mailing-list signup | Is the "thanks" message spoken? *(H2 — the region is inserted already populated.)* | ☐ |
+| V7 | `/auth/login` | `VO+A` | "YOUR EMAIL" — read as words, or spelled out letter by letter? *(H3.)* | ☐ |
+| V8 | `/auth/login` | Enter an email, submit | **The critical one.** Is "Check your email" announced? Where does the cursor land? *(A1 — expected to fail.)* | ☐ |
+| V9 | `/products/microsoft-fabric` | `VO+U`, choose **Tables** | Two unnamed tables with identical headers. *(Confirms A7.)* | ☐ |
+| V10 | `/products/:slug/review` | `VO+U`, choose **Headings** | Only one heading, the product name. Is the page's purpose discoverable? | ☐ |
+| V11 | `/products/:slug/review` | `Tab` through the whole form | Is the **Submit review** button ever reached? Is it clear what is blocking it? *(A6 — expected: never reached.)* | ☐ |
+| V12 | `/products/:slug/review` | Complete and submit a review *(local only)* | Is "Review received" announced? Where does the cursor land? *(A2 — expected to fail.)* | ☐ |
+| V13 | `/account` | Load the page | Is the loading-to-loaded transition announced? *(A3 — expected to fail.)* | ☐ |
+| V14 | `/account` | `Return` on "Delete account", then `Escape` | Does VoiceOver enter the dialog and read its title? Does `Escape` return you to the button? *(Untested by machine — do this **locally**.)* | ☐ |
+| V15 | `/admin/reviews` | Moderate one review *(local only)* | Is the outcome announced **once**? This region is the reference-good pattern. | ☐ |
+
+## 7. Scripted NVDA walkthrough (Windows, Firefox then Chrome)
+
+About 10 minutes per browser. NVDA's browse mode is the important difference from VoiceOver: it is the
+mode where quick-nav keys work, and the mode most users spend most of their time in.
+
+| # | Surface | Keys | Expected | ✅/❌ |
+|---|---|---|---|---|
+| N1 | `/` | `NVDA+F7` → **Landmarks** | Same two indistinguishable "search" landmarks. *(A5.)* | ☐ |
+| N2 | `/` | `NVDA+F7` → **Links** | Three identical "Source" links. *(A4.)* | ☐ |
+| N3 | `/` | `D` repeatedly | Landmark quick-nav reaches banner, navigation, main, contentinfo in a sensible order | ☐ |
+| N4 | `/` | `H` repeatedly | Headings descend without skips and describe their sections | ☐ |
+| N5 | `/` | Submit the mailing-list signup | **The NVDA-specific question**: NVDA generally does **not** announce a polite live region that is inserted already populated. Is the "thanks" spoken? *(H2.)* | ☐ |
+| N6 | `/auth/login` | Submit the form | Is "Check your email" spoken? *(A1.)* | ☐ |
+| N7 | `/products/microsoft-fabric` | `T` repeatedly | Two unnamed tables. Then `Ctrl+Alt+Arrow` through cells — are headers announced per cell? *(A7.)* | ☐ |
+| N8 | `/products/:slug/review` | `F` repeatedly, then `Tab` | Does NVDA switch cleanly between browse and forms mode on each control? Are the star ratings usable with arrows? | ☐ |
+| N9 | `/products/:slug/review` | Submit *(local only)* | Is "Review received" spoken? *(A2.)* | ☐ |
+| N10 | `/account` | `Return` on "Delete account", then `Escape` | Focus enters the dialog, `Tab` cycles inside it, `Escape` returns focus to the button. *(Run **locally**.)* | ☐ |
+
+**Record every ❌ in `docs/ACCESSIBILITY_AUDIT.md` §3 with the tool, the browser and what was actually
+spoken.** An announcement that differs between VoiceOver and NVDA is itself a finding worth writing
+down — that divergence is the entire reason §21.3 asks for both.
 
 ---
 

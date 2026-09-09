@@ -66,7 +66,8 @@ generally cannot commit across repos from a single workspace.
 | Cloudflare WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) — **and the zone-level bot settings** (§3b, AECI-800: Super Bot Fight Mode, the AI bot policies, the deprecating `Block AI bots` toggle, AI Crawl Control). Those are dashboard-only, run outside the Ruleset Engine, and a WAF `Skip` rule cannot exempt most of them, so a bot block that no §2 rule explains is almost always there | `docs/waf-rate-limits.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
-| Manual accessibility testing (repeatable VoiceOver/NVDA + keyboard-only screen-reader pass; the human layer beyond axe/Lighthouse CI) | `docs/a11y-manual-testing-checklist.md` |
+| Manual accessibility testing (repeatable VoiceOver/NVDA + keyboard-only screen-reader pass; the human layer beyond axe/Lighthouse CI) — §5 is the tool-assisted Chrome-accessibility-tree pre-pass, §6/§7 the scripted VoiceOver + NVDA walkthroughs | `docs/a11y-manual-testing-checklist.md` |
+| Accessibility audit **results** (dated runs of the above; the AECI-244 public-site pass of 2026-09-09 against prod `44aba9cf` is the first). Holds the standing warning that **axe structurally cannot see the WCAG 4.1.3 status-message class** — the defect only exists after a form submit, and axe never submits | `docs/ACCESSIBILITY_AUDIT.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Code-review exemptions (accepted/deferred findings, expiry rules) | `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |

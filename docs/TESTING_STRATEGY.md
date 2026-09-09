@@ -640,6 +640,25 @@ nothing. `chart-a11y.component.spec.ts` asserts the placement (and each chart's
 table contents against its series) for every chart type, which is the half of the
 §8 accessibility rule the automated pass structurally cannot cover.
 
+**Manual-pass status (AECI-244, 2026-09-09 — `docs/ACCESSIBILITY_AUDIT.md`).** The chart half of this
+debt is **discharged**, with a clean result: on `/admin/overview` the 30-day chart renders its
+`sr-only` `<table>` (caption + 30 rows) as a **sibling** of the `role="img"` element, exactly as this
+section requires, and the neighbouring `role="img"` element with no table is `sparkline.ts`, whose
+omission is deliberate and documented in the component (the stat tile always renders the figure, so the
+chart is never the only representation). The **live-region half is not discharged**: the three
+surviving `role="status"` regions are on the **vendor portal**, which belongs to AECI-633 and is
+unreachable from production — `/preview/*` 404s on public tiers and the Stage 2 dark launch has granted
+zero vendor seats. It needs a seated vendor session or a local run.
+
+**What that pass found instead, and what it means for this section.** Three serious **WCAG 2.1 4.1.3
+Status Messages (AA)** failures on `/auth/login`, `/products/:slug/review` and `/account`: each
+replaces the view on a state change with no live region and no focus move. **No axe run can catch this
+class**, for a reason worth stating plainly here — the defect exists only *after* a form submission,
+and every axe spec we have measures the default render. `auth-login.spec.ts` and
+`reviews-submission.spec.ts` both scan the page and never submit it. When those defects are fixed, the
+regression assertion belongs in the e2e spec (submit, then assert focus or the announcement), not in a
+new axe rule.
+
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
