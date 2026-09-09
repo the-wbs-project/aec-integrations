@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the thirteen cron expressions and is asserted byte-equal to",
+      "truth for the fourteen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -106,7 +106,14 @@
       "asn-registry cron joined this registry: a weekly heartbeat is absent from a 72 h",
       "window six days out of seven, which the sweep would report as MISSING every day.",
       "Widening cannot loosen a daily cron \u2014 staleness is judged per-cron by",
-      "maxAgeMinutes; the window only decides whether a row is found at all."
+      "maxAgeMinutes; the window only decides whether a row is found at all.",
+      "",
+      "AECI-826 added indexnow-drain, the fourteenth cron and the MOST FREQUENT of them",
+      "(every 20 min). Its heartbeat is emitted on EVERY tick including the empty and",
+      "no-creds ones \u2014 a quiet twenty minutes legitimately produces no SUBMISSION, so",
+      "aeci.indexnow.submit could never serve as the heartbeat. maxAgeMinutes is 90,",
+      "mirroring request-reconcile: the floor is set by the SWEEP's own lateness, not by",
+      "the job's cadence."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -218,6 +225,15 @@
         "maxAgeMinutes": 180,
         "datadogMonitor": "AECi \u2014 WAF poll not running (no successful hourly poll)",
         "datadogNoDataTimeframeMinutes": 180
+      },
+      {
+        "job": "indexnow-drain",
+        "cron": "*/20 * * * *",
+        "metric": "aeci.indexnow.drain",
+        "maxAgeMinutes": 90,
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-826. Never had a Datadog monitor \u2014 the cron did not exist. 90 min = 4.5 missed ticks, mirroring request-reconcile's 90 over a 15-minute job: GitHub Actions cron delivery routinely runs several minutes late, and the window has to absorb the SWEEP's lateness rather than only the job's. The heartbeat fires on every tick including the empty and no-creds ones, which is the property that makes its absence mean something."
       }
     ]
   }

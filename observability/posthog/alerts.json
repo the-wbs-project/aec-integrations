@@ -1,7 +1,7 @@
 {
   "_readme": [
     "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6 + §5.",
-    "The 13 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
+    "The 14 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
     "`replaces`, so re-promoting or re-tuning one is a config change and not archaeology.",
     "",
     "`insightKey` names the source insight by its STABLE KEY in insights.json, never by its",
@@ -387,6 +387,36 @@
         "datadogQuery": "avg(last_10m):p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500"
       },
       "runbook": "docs/RUNBOOKS.md — 'Detail page render slow'. Check the render-latency-distribution widget on the Traffic board first: it needs no reconstruction and cannot be wrong."
+    },
+    {
+      "key": "indexnow-failure-rate",
+      "name": "AECi \u2014 Search-engine pings refused (> 90% in 24 h)",
+      "insightKey": "alert-indexnow-failure-rate",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 90
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failure_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-826 \u2014 no Datadog predecessor. `aeci.indexnow.submit` shipped in AECI-236 and was never alerted on, which is why production sat at a 100% HTTP 429 failure rate for at least three days with nothing noticing. A fail-open integration with no ratio alert is indistinguishable from a healthy one."
+      },
+      "runbook": "docs/RUNBOOKS.md \u2014 'IndexNow submissions refused'."
     }
   ]
 }

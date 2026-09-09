@@ -125,7 +125,7 @@ import { planClaimIngest, type ClaimIngestItem } from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
-import { callIndexNow } from '../lib/indexnow';
+import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
@@ -675,20 +675,40 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
   });
 }
 
-// ─── IndexNow notification (AECI-236) ────────────────────────────────────────
+// ─── IndexNow buffering (AECI-236, rebuilt in AECI-826) ──────────────────────
 
 /**
- * Post-commit IndexNow submission seam. Default builds the affected public URLs
- * from the promote response (`affectedUrlsForPromote`) and submits them to
- * IndexNow (Bing/Yandex/…) via `callIndexNow`, gated on `INDEXNOW_KEY` +
- * `PUBLIC_SITE_URL`. Records `aeci.indexnow.submit{source:promote,outcome:ok|failed}`
- * and warn-logs a failure — never throws, never blocks the committed
- * promote (§20.2 / §20.5). Injected for tests (mirrors the Algolia seam).
+ * Post-commit IndexNow seam. Builds the affected public URLs from the promote
+ * response (`affectedUrlsForPromote`) and **appends them to the `indexnow_queue`
+ * buffer**, gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`. Records
+ * `aeci.indexnow.queued{source:promote}` and warn-logs a failure — never throws,
+ * never blocks the committed promote (§20.2 / §20.5). Injected for tests (mirrors
+ * the Algolia seam).
+ *
+ * ─── It used to submit here, and that was the defect ──────────────────────────
+ *
+ * From AECI-236 to AECI-826 this called `callIndexNow` directly, so one promote
+ * meant one outbound request. A bulk curation session fired eleven inside seven
+ * minutes on 2026-09-07, and **every production submission across 2026-09-07..09
+ * returned HTTP 429 — twenty-three of twenty-three, zero successes.** The URL
+ * count per request was never the problem (IndexNow takes 10,000; our largest
+ * carried 107). Request frequency was.
+ *
+ * So the hook buffers and the twenty-minute `indexnow-drain` cron
+ * (`lib/indexnow-drain.ts`) submits, collapsing any number of promotes into one
+ * request. Three secondary wins fall out of the move: the buffer's unique `url`
+ * dedupes a product promoted twice inside one window, which the old design could
+ * not do at all; a D1 insert is far more likely to survive than an outbound
+ * `fetch`; and the promote's post-commit block gives back a Worker connection,
+ * which is the scarce resource AECI-666 was about.
+ *
+ * **Do not restore a direct submit here.** If you need a new IndexNow producer,
+ * append to the buffer.
  *
  * `tradeUrls` carries the trade inputs the response can't supply (AECI-546): the
  * touched trades that are PUBLISHED post-commit, plus the removed slugs. It
- * arrives as a promise so the one D1 read backing it is shared with the Google
- * seam and never awaited on the request path — see `resolveTradeUrlOptions`.
+ * arrives as a promise so the one D1 read backing it is never awaited on the
+ * request path — see `resolveTradeUrlOptions`.
  */
 export type PromoteIndexNowNotify = (
   rc: PromoteRunCtx,
@@ -697,12 +717,26 @@ export type PromoteIndexNowNotify = (
 ) => Promise<void>;
 
 const defaultIndexNowNotify: PromoteIndexNowNotify = (rc, response, tradeUrls) =>
-  notifyIndexNowAfterPromote(rc, response, tradeUrls);
+  // The promote's write bookmark (`rc.bookmark()`) anchors the append at the same
+  // D1 session as the commit, matching the home-stats seam below. It is a write,
+  // so replica lag cannot corrupt it — but pinning the session keeps the whole
+  // post-commit tail on one primary and costs nothing (AECI-250).
+  bufferIndexNowAfterPromote(
+    rc,
+    response,
+    tradeUrls,
+    getDb(rc.env, { bookmark: rc.bookmark() }).db,
+  );
 
-async function notifyIndexNowAfterPromote(
+/** Exported for the promote spec: append the affected public URLs to
+ *  `indexnow_queue`. `db` is a parameter rather than a `getDb` call inside,
+ *  following `refreshHomeStatsAfterPromote` — the in-memory harness has no `DB`
+ *  binding, so a self-resolving hook is untestable end to end. */
+export async function bufferIndexNowAfterPromote(
   rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
+  db: Db,
 ): Promise<void> {
   const key = rc.env.INDEXNOW_KEY;
   const siteUrl = rc.env.PUBLIC_SITE_URL;
@@ -711,24 +745,29 @@ async function notifyIndexNowAfterPromote(
   const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
   if (urlList.length === 0) return;
 
-  let host: string;
-  let keyLocation: string;
+  // Still validated here even though the drain re-derives it: an unparseable
+  // PUBLIC_SITE_URL means every URL we are about to buffer is malformed, and
+  // catching it at the producer keeps junk out of the table rather than making the
+  // drain discard it twenty minutes later.
   try {
-    host = new URL(siteUrl).host;
-    keyLocation = `${siteUrl.replace(/\/+$/, '')}/${key}.txt`;
+    new URL(siteUrl);
   } catch {
-    // PUBLIC_SITE_URL isn't a valid URL — misconfiguration; skip rather than throw.
     logIndexNowFailure(rc, urlList.length, 'invalid_public_site_url');
     return;
   }
 
-  const outcome = await callIndexNow(fetch, { host, key, keyLocation, urlList });
-  submitCount(rc, rc.env, rc.request, 'aeci.indexnow.submit', 1, [
-    'source:promote',
-    `outcome:${outcome.ok ? 'ok' : 'failed'}`,
-  ]);
-  if (!outcome.ok) {
-    logIndexNowFailure(rc, urlList.length, `indexnow_${outcome.status}: ${outcome.message}`);
+  try {
+    const queued = await enqueueIndexNowUrls(db, urlList);
+    submitCount(rc, rc.env, rc.request, 'aeci.indexnow.queued', queued, ['source:promote']);
+  } catch (error) {
+    // Fail-open, exactly as the submission did: the promote is committed and a
+    // missed ping costs discovery latency, never correctness. The sitemap's
+    // `<lastmod>` remains the primary discovery path (§20.5 step 5).
+    logIndexNowFailure(
+      rc,
+      urlList.length,
+      error instanceof Error ? error.message : 'indexnow_enqueue_failed',
+    );
   }
 }
 
@@ -743,19 +782,21 @@ function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string
 }
 
 /**
- * Resolves the publication-gated trade inputs both indexing pings need
+ * Resolves the publication-gated trade inputs the IndexNow URL set needs
  * (AECI-546), as a promise the caller creates but never awaits.
  *
- * Three things this shape buys:
- *   - **One D1 read, two consumers.** IndexNow and Google share the deriver by
- *     design ("no second deriver", §20.2); they must share the floor read too, or
- *     the two pings could disagree about what's published.
+ * Written for two consumers when the Google Indexing ping was the second one;
+ * AECI-747 removed that, so there is one consumer today. The shape is kept because
+ * the other two properties are still what it is for:
  *   - **No added latency.** The read starts as the handler returns and resolves
  *     inside `waitUntil`, so the promote response never waits on it.
- *   - **Fails to the safe side.** A rejected read resolves to `{}`, which submits
+ *   - **Fails to the safe side.** A rejected read resolves to `{}`, which buffers
  *     no trade URLs at all rather than risking a sub-floor (noindex) submission.
+ *     That guard matters MORE since AECI-826, not less: a bad trade URL written to
+ *     `indexnow_queue` outlives the promote and is submitted up to twenty minutes
+ *     later by a job with no way to re-derive whether it should have been.
  *
- * Skipped entirely when no ping is configured or no trade was touched, so the
+ * Skipped entirely when no key is configured or no trade was touched, so the
  * overwhelming majority of promotes — trades are sparse by design — pay nothing.
  */
 function resolveTradeUrlOptions(
@@ -765,9 +806,9 @@ function resolveTradeUrlOptions(
   removedTradeSlugs: string[],
 ): Promise<AffectedUrlOptions> {
   const siteUrl = rc.env.PUBLIC_SITE_URL;
-  // IndexNow is the only ping left (AECI-747 removed the Google Indexing API
+  // IndexNow is the only channel left (AECI-747 removed the Google Indexing API
   // submission — Google supports it for `JobPosting`/`BroadcastEvent` only, which
-  // is nothing we publish).
+  // is nothing we publish). Same gate as the buffer write it feeds.
   const pingConfigured = Boolean(siteUrl) && Boolean(rc.env.INDEXNOW_KEY);
   const touched = touchedTradeSlugs(response, removedTradeSlugs);
   if (!pingConfigured || touched.length === 0) return Promise.resolve({});
@@ -2469,7 +2510,7 @@ export async function runPromoteIngest(
 
 /**
  * The best-effort, post-commit tail of a promote: §26.5 audit forwards, edge-cache
- * purge, home-stats refresh, Algolia upsert, and the IndexNow ping. Every one of
+ * purge, home-stats refresh, Algolia upsert, and the IndexNow buffer write. Every one of
  * them is fire-and-forget through `rc.waitUntil` and self-gates
  * on its own credentials, exactly as it did when this ran off the request — the
  * promote is already committed, so nothing here may throw or delay the result.
@@ -2533,11 +2574,14 @@ export function dispatchPromoteHooks(
     removedTradeSlugs,
   );
 
-  // AECI-236: notify IndexNow of the affected public URLs so Bing/Yandex/…
-  // re-crawl quickly (§20.2/§20.5). Best-effort, post-commit; no-ops without
-  // INDEXNOW_KEY + PUBLIC_SITE_URL. Those are provisioned ONLY at launch
-  // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
-  // a correctness bug, so the secret's absence is the gate.
+  // AECI-236 → AECI-826: BUFFER the affected public URLs for the twenty-minute
+  // IndexNow drain cron (§20.2/§20.5). This used to submit inline, which made one
+  // promote one outbound request and rate-limited the channel to a standstill.
+  // Best-effort, post-commit; no-ops without INDEXNOW_KEY + PUBLIC_SITE_URL.
+  // Those are provisioned ONLY at launch (alongside `ALLOW_INDEXING=true`):
+  // pinging IndexNow for a noindex'd site is a correctness bug, so the secret's
+  // absence is the gate — and it gates the buffer too, so a pre-launch tier never
+  // accumulates rows the drain would submit the moment a key appeared.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
   }

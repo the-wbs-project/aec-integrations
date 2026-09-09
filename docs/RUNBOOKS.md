@@ -85,10 +85,18 @@ survive, `observability/datadog/` having been deleted.
 **Totals: 13 PostHog alerts covering 16 monitors · 8 → the liveness sweep · 2 → the
 digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
 
-**Six crons gain failure coverage they never had** (metrics-snapshot,
-analytics-digest, attestation-notify, entitlement-expiry, waf-poll, and the per-key
-half of home-stats — several shipped after the Datadog monitors were written), and
-the liveness sweep watches **thirteen** crons where Datadog watched six.
+**Seven crons gain failure coverage they never had** (metrics-snapshot,
+analytics-digest, attestation-notify, entitlement-expiry, indexnow-drain, waf-poll,
+and the per-key half of home-stats — several shipped after the Datadog monitors were
+written, and `indexnow-drain` did not exist until AECI-826), and the liveness sweep
+watches **fourteen** crons where Datadog watched six.
+
+**A fourteenth alert exists and is deliberately outside the table above.**
+`indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
+shipped in AECI-236 and was never alerted on by either plane, which is why production sat at
+a 100% HTTP 429 failure rate for at least three days with nothing noticing. The table is a
+disposition record for the 26 *retired* monitors, so a net-new alert belongs beside it, not
+inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused).
 
 ### The combined cron-failure alert — where the detail is
 
@@ -130,7 +138,7 @@ State these before an incident, not during one.
    **outside** the Worker — the property that made "Datadog owns absence" true, and
    one a Worker-hosted check cannot have. If GitHub Actions is degraded, cron
    liveness is **unchecked**, and the sweep says so rather than passing: **exit 0** =
-   all thirteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
+   all fourteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
    `::error::` annotation naming the cron and its allowance), **exit 2** = the sweep
    could not run (PostHog 5xx, or no `POSTHOG_CLI_API_KEY`). **Exit 2 is red, not
    green — "the sweep could not run" is not "the crons are fine."** Never add
@@ -938,7 +946,7 @@ prune skipping because of the gap.
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
 > `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
-> heartbeat is in the query, and the `label_column` names it), **and** it is one of the thirteen crons
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the fourteen crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
 > `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the
@@ -1395,3 +1403,75 @@ answer *is* the ruling. Three things make it safe to act on:
   recorded why the row actually went.
 - **Adoption is the riskier exit when there is no note.** Creating an upstream record to justify
   a live row whose only evidence is that it exists gets the direction backwards.
+
+
+---
+
+## IndexNow submissions refused
+
+**Signal:** the PostHog alert *"AECi — Search-engine pings refused (> 90% in 24 h)"*
+(`observability/posthog/alerts.json` → `indexnow-failure-rate`, hourly). Its label column
+names the submission count and how many were refused.
+
+**What it means:** the pages we changed are not reaching Bing or Yandex. IndexNow is the
+**only** automated discovery channel we have on either engine — AECI-747 deleted the Google
+Indexing ping, and Google discovery is a manual human step (`environments.md` → "Request
+indexing by hand"). Discovery falls back to ordinary sitemap crawling, which is measured in
+days rather than minutes. **Nothing is lost**: the buffered URLs stay in `indexnow_queue`
+and the next twenty-minute drain retries them, up to a seven-day ceiling.
+
+**This alert exists because its absence was the defect.** Production ran at a 100% HTTP 429
+failure rate from at least 2026-09-07 to 09 and nothing noticed, because the hook fails open
+by design and the only evidence was a warn log nobody reads (AECI-826).
+
+### Triage
+
+1. **Read the status, not just the rate.** In PostHog Logs, filter
+   `message = 'aeci.indexnow.submit_failed'` from the `indexnow-drain-cron` source. The
+   `reason` field carries `indexnow_<status>: <body>`.
+
+   | Status | Means | Do |
+   |---|---|---|
+   | **429** | Rate-limited by the aggregator. The limit is undocumented | Check the drain cadence has not been tightened below `*/20`, and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). If the cadence is right and it persists, loosen `INDEXNOW_DRAIN_CRON` toward `*/30` — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
+   | **403 / 422** | The key or the payload is rejected | This is the case a 429 has always hidden. Go to "the key is unverified" below |
+   | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice and the next tick retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
+   | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Check the Worker's outbound health generally; this would not be IndexNow-specific |
+
+2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 on a
+   healthy tick. A number that climbs day over day confirms nothing is getting through.
+   `aeci.indexnow.expired` going non-zero means URLs have now been dropped unsent after seven
+   days — that is a real loss of announcement, though the sitemap still covers those pages.
+
+3. **Confirm the cron is alive at all.** A refused submission and an absent cron look
+   different: `aeci.indexnow.drain` is emitted on **every** tick, including empty ones. If it
+   is missing, this is a cron-liveness problem — see
+   [Cron runs missing or stuck](#cron-runs-missing-or-stuck-in-flight-on-adminsystem), and
+   the CI liveness sweep should already be red.
+
+### The key is unverified, and a 429 cannot tell you otherwise
+
+**A 429 proves the transport reached the aggregator and proves nothing about the key.** Bing
+throttles *before* it fetches `<key>.txt`, so a wrong key and a rate limit are
+indistinguishable from our side. The `INDEXNOW_KEY` value is also **unrecoverable** —
+`wrangler secret list` and `gh secret list` both return names only, and the SSR route serves
+the file solely at the exact `/{key}.txt` path, so the URL cannot be built without already
+knowing the key. **The Bing Webmaster Tools IndexNow panel is not a recovery route** either;
+IndexNow never requires registering a key with Bing (`launch-cutover-runbook.md` §2a).
+
+Rotation is the only way to a known value, and it is cheap — IndexNow supports it by design:
+
+```
+openssl rand -hex 16
+gh secret set INDEXNOW_KEY_PRODUCTION
+gh workflow run promote-to-prod.yml
+```
+
+Record the value in the password manager **at the moment you generate it**. Then
+`https://www.aecintegrations.com/<key>.txt` is checkable by hand, which proves the
+file-serving half independently of any submission.
+
+### Confirming it is fixed
+
+`aeci.indexnow.submit{source:cron,outcome:ok}` non-zero in production. Nothing else counts —
+not a green deploy, not a merged PR. It needs a real catalogue write to buffer something for
+the drain to send, so after a fix, promote a product and wait one tick.

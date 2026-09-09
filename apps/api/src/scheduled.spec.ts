@@ -110,6 +110,7 @@ const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 // literal rather than imported so the dispatcher test still fails if the real
 // constant drifts silently.
 const ASN_REGISTRY_CRON = '0 2 * * 2';
+const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -782,6 +783,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [RETENTION_CRON, 'retention-prune'],
     [ENTITLEMENT_EXPIRY_CRON, 'entitlement-expiry'],
     [ASN_REGISTRY_CRON, 'asn-registry'],
+    [INDEXNOW_DRAIN_CRON, 'indexnow-drain'],
   ];
 
   /**
@@ -793,9 +795,16 @@ describe('job_runs bookkeeping (§7.2)', () => {
    * the wrong reason.
    */
   const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(
-    ([, job]) => job !== 'retention-prune' && job !== 'entitlement-expiry',
+    ([, job]) =>
+      job !== 'retention-prune' && job !== 'entitlement-expiry' && job !== 'indexnow-drain',
   );
 
+  // `indexnow-drain` is carved out for the same reason as the prune: its delete is
+  // a scheduled one, so §26.1's exception applies and it audits. On an empty
+  // database it deletes nothing and writes no row, which would pass the exempt
+  // assertion for the wrong reason. `lib/indexnow-drain.spec.ts` owns that
+  // obligation, including the "no change, no row" half.
+  //
   // `entitlement-expiry` is carved out for the same reason as the prune, and then
   // one further: it is NOT audit-exempt (a delivered warning writes a
   // `vendor_entitlement.expiry_warned` row in the same batch as the fence stamp),

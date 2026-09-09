@@ -22,7 +22,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 |---|---|---|
 | Worker error rate / APM | ✅ live | `aeci.api.query.duration_ms`, SSR error logs |
 | Edge cache hit rate + render latency | ⚠️ split (WC-8) | render latency (MISS) `aeci.page.render.duration_ms{cache_status:miss}`; **edge hit-rate moved off Datadog** to the Cloudflare Workers observability dashboard + `Cf-Cache-Status` (a native-cache HIT skips the Worker; AECI-322) |
-| 13 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + the AECI-647 external CI liveness sweep (**absence** — PostHog has no `notify_no_data`); `job_runs` + `/admin/system` (**the record**, unchanged). The thirteenth (`asn-registry`, AECI-624) arrived with the AECI-750 reconcile and is **weekly**, so the sweep's window had to widen to 15 days for it (`observability/posthog/project-config.json`) |
+| 14 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + the AECI-647 external CI liveness sweep (**absence** — PostHog has no `notify_no_data`); `job_runs` + `/admin/system` (**the record**, unchanged). The thirteenth (`asn-registry`, AECI-624) arrived with the AECI-750 reconcile and is **weekly**, so the sweep's window had to widen to 15 days for it; the fourteenth (`indexnow-drain`, AECI-826) is the most frequent at every 20 min and carries a 90-min staleness allowance (`observability/posthog/project-config.json`) |
 | Moderation queue depth / age | ✅ live | `aeci.moderation.queue_*`, `/api/admin/*` |
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
 | Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |

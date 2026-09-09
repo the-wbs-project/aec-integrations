@@ -141,6 +141,7 @@ import {
   ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
   ENTITLEMENT_EXPIRY_CRON,
+  INDEXNOW_DRAIN_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
   RETENTION_CRON,
@@ -149,6 +150,11 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  drainIndexNowQueue,
+  INDEXNOW_DRAIN_METRIC,
+  INDEXNOW_PENDING_METRIC,
+} from './lib/indexnow-drain';
 import {
   EXPIRY_DURATION_METRIC,
   EXPIRY_JOB_METRIC,
@@ -1446,6 +1452,58 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   };
 }
 
+/**
+ * Drain the `indexnow_queue` buffer into ONE IndexNow request (AECI-826 / §20.2).
+ *
+ * The whole decision tree lives in `lib/indexnow-drain.ts` and is unit-tested
+ * without a controller; this wrapper is the `ctx`/`env`/metric plumbing plus the
+ * `job_runs` outcome mapping.
+ *
+ * **`aeci.indexnow.drain` is emitted on EVERY path**, including the two that make
+ * no outbound request (no key, empty buffer). That is deliberate and load-bearing:
+ * it is the cron-liveness heartbeat the external CI sweep reads, and an
+ * always-emitted series is the only thing that makes its *absence* meaningful. The
+ * submit metric cannot serve that purpose, because a quiet twenty minutes
+ * legitimately produces no submission at all.
+ *
+ * Outcome mapping, and why `skipped` is not `failed`:
+ *   - `skipped` — no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`. That is the correct
+ *     pre-launch and preview posture, not a fault. The buffer is gated on the same
+ *     pair, so nothing is accumulating unserved.
+ *   - `failed` — IndexNow rejected the batch, or `PUBLIC_SITE_URL` is unparseable.
+ *     The rows stay buffered; the next tick retries them.
+ *   - `ok` — submitted and drained, or there was simply nothing to send.
+ */
+async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/indexnow-drain');
+  const result = await drainIndexNowQueue({
+    db: cronDb(env).db,
+    env,
+    metrics: metricSink(ctx, env, req),
+    log: (event) => logToPosthog(ctx, env, req, { ...event, source: 'indexnow-drain-cron' }),
+  });
+
+  const outcome = result.ok ? 'ok' : result.reason === 'no_creds' ? 'skipped' : 'failed';
+  submitCount(ctx, env, req, INDEXNOW_DRAIN_METRIC, 1, ['trigger:cron', `outcome:${outcome}`]);
+  submitGauge(ctx, env, req, INDEXNOW_PENDING_METRIC, result.pending, ['trigger:cron']);
+
+  if (outcome === 'skipped') {
+    return { outcome: 'skipped', detail: { job: 'indexnow-drain', reason: 'no_creds' } };
+  }
+  return {
+    outcome,
+    detail: {
+      job: 'indexnow-drain',
+      submitted: result.submitted,
+      deleted: result.deleted,
+      expired: result.expired,
+      pending: result.pending,
+      status: result.status,
+      attempts: result.attempts,
+    },
+  };
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -1595,6 +1653,16 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // a job whose retry semantics are already "try again next week" would be
       // infrastructure for its own sake. No `ASN_REGISTRY_QUEUE` binding exists.
       return undefined;
+    case 'indexnow_drain':
+      // Queue-less **on purpose rather than for cost** (AECI-826). Every other
+      // job here is queue-less because retries would buy nothing; this one is
+      // queue-less because retries would be actively harmful. A queue retry
+      // re-submits inside the same IndexNow rate-limit window, which is exactly
+      // the burst that produced twenty-three consecutive 429s. The rows stay in
+      // `indexnow_queue` on failure and the next twenty-minute tick IS the
+      // backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
+      // be a regression.
+      return undefined;
   }
 }
 
@@ -1688,6 +1756,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'asn-registry-cron',
     };
   }
+  if (job === 'indexnow_drain') {
+    // Unreachable in practice (indexnow_drain is queue-less, so `queue.send` is
+    // never called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/indexnow-drain',
+      message: 'aeci.indexnow.drain.enqueue_failed',
+      source: 'indexnow-drain-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -1768,6 +1845,8 @@ async function dispatchScheduledJob(
       return runEntitlementExpiryJob(env, ctx);
     case 'asn_registry':
       return runAsnRegistryJob(env, ctx);
+    case 'indexnow_drain':
+      return runIndexNowDrainJob(env, ctx);
   }
 }
 
@@ -1841,6 +1920,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case ENTITLEMENT_EXPIRY_CRON:
       await enqueueOrRun(env, ctx, 'entitlement_expiry');
+      return;
+    case INDEXNOW_DRAIN_CRON:
+      await enqueueOrRun(env, ctx, 'indexnow_drain');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare

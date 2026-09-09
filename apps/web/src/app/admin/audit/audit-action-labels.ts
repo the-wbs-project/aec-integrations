@@ -125,6 +125,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,
   'retention.pruned': $localize`:@@admin.audit.action.retentionPruned:Old records pruned`,
+  // The twenty-minute IndexNow drain (AECI-826). One row per run that removed
+  // buffered URLs — either because they were submitted to Bing/Yandex, or because
+  // they aged out unsent. `metadata.reason` tells the two apart, and metadata is
+  // not on this wire, so the label has to cover both honestly.
+  'indexnow.drained': $localize`:@@admin.audit.action.indexnowDrained:Search-engine ping queue drained`,
 };
 
 /**

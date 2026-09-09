@@ -1,5 +1,5 @@
 /**
- * The thirteen cron expressions the API Worker is triggered on, in one place.
+ * The fourteen cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * thirteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * fourteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -161,6 +161,36 @@ export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 
 /**
+ * IndexNow submission drain (AECI-826 / §20.2). **Every 20 minutes** — the most
+ * frequent trigger here, and the only one whose cadence is a rate limit rather
+ * than a freshness target.
+ *
+ * ⚠️ **It cannot be `*` `/15`.** That expression belongs to the reconcile sweep, and
+ * `scheduled.ts` `switch`es on the raw `controller.cron` string: two jobs cannot
+ * share one expression, because Cloudflare delivers the matched expression and the
+ * switch would route both ticks to whichever case appears first. `cron-schedules.spec.ts`
+ * enforces the same thing arithmetically — it asserts `CRON_JOBS.length * 3`
+ * declared entries — so a shared expression is a red test, not a silent bug.
+ *
+ * **Why 20 minutes.** The old design submitted once per promote and a bulk
+ * curation session burst eleven requests inside seven minutes, every one of them
+ * 429. Twenty minutes puts a hard ceiling of 72 requests a day on the whole
+ * channel, and the real number is far lower because the drain makes no request at
+ * all when the buffer is empty. Discovery latency of up to 20 minutes costs
+ * nothing: the alternative on Bing is ordinary sitemap crawling, measured in days.
+ *
+ * **Queue-less, and that is the point.** Every other sub-hourly job here is
+ * queue-backed for native retries. A retry is exactly the wrong response to a rate
+ * limit — it re-submits inside the same window and 429s again. A failed drain
+ * leaves its rows in `indexnow_queue` and the next tick is the backoff.
+ *
+ * Retuning it is a config change: move this constant and the three
+ * `triggers.crons` entries together (the spec keeps them honest), and record the
+ * new cadence in `POST_LAUNCH_MONITORING.md` §3.
+ */
+export const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -179,6 +209,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'waf-poll': WAF_CRON,
   'attestation-notify': ATTESTATION_NOTIFY_CRON,
   'entitlement-expiry': ENTITLEMENT_EXPIRY_CRON,
+  'indexnow-drain': INDEXNOW_DRAIN_CRON,
 };
 
 /**
@@ -205,10 +236,11 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   waf: 'waf-poll',
   attestation_notify: 'attestation-notify',
   entitlement_expiry: 'entitlement-expiry',
+  indexnow_drain: 'indexnow-drain',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the two sub-daily jobs. The weekly `asn-registry` sits at its 02:00
+ *  day, then the three sub-daily jobs. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
  *  carries the schedule, so "Mondays" is already visible beside it. Matches
  *  `POST_LAUNCH_MONITORING.md` §1a. */
@@ -226,4 +258,5 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'entitlement-expiry',
   'request-reconcile',
   'waf-poll',
+  'indexnow-drain',
 ];

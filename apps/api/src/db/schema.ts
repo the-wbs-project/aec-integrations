@@ -1733,6 +1733,83 @@ export const asnRegistry = sqliteTable(
   ],
 );
 
+/**
+ * The IndexNow submission buffer (AECI-826).
+ *
+ * ─── Why a buffer exists at all ───────────────────────────────────────────────
+ *
+ * Until AECI-826 the post-commit promote hook called `api.indexnow.org` directly,
+ * once per promote. A bulk curation session — which is how the operator actually
+ * works, vendor by vendor — therefore produced a burst of requests: eleven inside
+ * seven minutes on 2026-09-07. **Every production submission between 2026-09-07
+ * and 09 returned HTTP 429 `TooManyRequests`, twenty-three of twenty-three**, so
+ * nothing at all reached Bing or Yandex through the push channel. Payload size was
+ * never the problem (IndexNow accepts 10,000 URLs per request and our largest
+ * attempt carried 107); request FREQUENCY was.
+ *
+ * So the promote no longer submits. It appends the affected public URLs here, and
+ * the twenty-minute drain cron (`lib/indexnow-drain.ts`) turns any number of
+ * buffered promotes into ONE outbound request. This is the AECI-666 lesson applied
+ * to a different transport: batching beats bounding, bounding beats nothing.
+ *
+ * ─── Why `id` exists when `url` is already unique ─────────────────────────────
+ *
+ * The drain deletes what it just submitted with `WHERE id <= :maxId` — one bound
+ * parameter. Deleting by the URL list instead would need one bound parameter per
+ * URL, and D1 caps bound parameters per statement well below the 10,000 URLs
+ * IndexNow accepts, so that shape would force chunking for no benefit. `id` is
+ * monotonic, so a row inserted between the drain's SELECT and its DELETE always
+ * lands above `maxId` and survives to the next run.
+ *
+ * ─── Dedupe is the free win ───────────────────────────────────────────────────
+ *
+ * `url` is UNIQUE and every insert is `ON CONFLICT DO NOTHING`. A product promoted
+ * three times inside one drain window is submitted once. The old per-promote call
+ * could not dedupe at all.
+ *
+ * ─── Audit ────────────────────────────────────────────────────────────────────
+ *
+ * Derived, log-class and publicly invisible, so the INSERTs are **exempt from the
+ * §26.1 audit-in-batch invariant under ADR 0022**, exactly like `stats_cache` and
+ * `job_runs`. The drain's **DELETE is not exempt** — §26.1's scheduled-deletion
+ * exception applies — so each drain run that removes rows emits exactly one
+ * summary `audit_log` row (`action='indexnow.drained'`) in the SAME `db.batch` as
+ * the delete, and a run that removes nothing writes no row at all.
+ */
+export const indexnowQueue = sqliteTable(
+  'indexnow_queue',
+  {
+    /** Monotonic cursor. See the "why `id` exists" note above — this is what makes
+     *  the drain's delete a single bound parameter rather than a chunked IN list. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The absolute public URL to announce, e.g.
+     *  `https://www.aecintegrations.com/products/procore`. Absolute rather than a
+     *  path because IndexNow submits absolute URLs and the drain must be able to
+     *  drop a row whose host no longer matches `PUBLIC_SITE_URL` (an env re-point)
+     *  without re-deriving it. UNIQUE — see the dedupe note above. */
+    url: text('url').notNull(),
+
+    /** When the promote buffered it. Drives the staleness sweep: a URL that has sat
+     *  here past `INDEXNOW_QUEUE_MAX_AGE_DAYS` is dropped rather than submitted,
+     *  because the sitemap has long since covered it and an unbounded buffer is a
+     *  worse failure than a missed ping. */
+    queuedAt: text('queued_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+
+    /** What appended the row. `promote` is the only writer today; present so a
+     *  second one is distinguishable per row rather than only per deploy. */
+    source: text('source').notNull().default('promote'),
+  },
+  (t) => [
+    // The dedupe constraint AND the conflict target for `ON CONFLICT DO NOTHING`.
+    uniqueIndex('indexnow_queue_url_idx').on(t.url),
+    // The staleness sweep's cutoff scan. `id` already serves the FIFO drain read.
+    index('indexnow_queue_queued_at_idx').on(t.queuedAt),
+  ],
+);
+
 // ===========================================================================
 // Connector lane (Stage 1.5 Addendum C §13 / AECI-714)
 //

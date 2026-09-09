@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all thirteen crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all fourteen crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -121,10 +121,10 @@ data today, with the PostHog successor in brackets.
 > from **before** AECI-640 carry mixed tiers (demo was pointed at the prod key), so filter by `$host`
 > when reading history that far back.
 
-### 1a. The 13 scheduled crons (row 6 detail)
+### 1a. The 14 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all thirteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all fourteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -140,7 +140,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **thirteen**. It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **fourteen**. It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -166,10 +166,11 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `0 10 * * *` | §7 attestation detector sweep + nudge email (AECI-302) — four detectors over the claim/attestation spine, deduped through an `audit_log` ledger | `attestation-notify` | **today: nothing** — read `aeci.attestation.detector` (a per-detector gauge, always emitted incl. 0) and `aeci.attestation.notify.job{outcome}`. **The zero series is the liveness signal**: the detectors match nothing until vendors start attesting, so "0 findings" is the healthy steady state and no-data is the failure → **combined + sweep** |
 | `0 11 * * *` | §7 entitlement term-expiry sweep (AECI-613) — warning notices only; terms **never** auto-lapse | `entitlement-expiry` | **today: nothing** — `aeci.entitlement.expiry.job{outcome}` plus the `aeci.entitlement.expiry_due` gauge, emitted every run **including zero**. Same shape as the 10:00 sweep and for longer: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to this job, so **"0 due" is healthy and no-data is the failure** → **combined + sweep** |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data → **persistent-stuck stays its own alert**; liveness → sweep (window **relaxed 60 → 90 min**, margin for the *sweep's* lateness) |
+| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes at most **one** outbound IndexNow request per tick. Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Failure → **combined + sweep (90 min)**; a sustained refusal ratio gets its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
 
-**Seven of these gain failure coverage they never had** — metrics-snapshot, analytics-digest,
-attestation-notify, entitlement-expiry, asn-registry, waf-poll and the per-key half of home-stats. Several shipped
+**Eight of these gain failure coverage they never had** — metrics-snapshot, analytics-digest,
+attestation-notify, entitlement-expiry, asn-registry, indexnow-drain, waf-poll and the per-key half of home-stats. Several shipped
 after the Datadog monitors were written and nobody went back. That is the migration's largest single
 *improvement*, and it is worth weighing against the hourly-cadence regression rather than reading
 either in isolation.
@@ -227,7 +228,7 @@ it, what type of property it was, or what to read.
 | **Google Search Console** | **Live.** A **Domain** property on `aecintegrations.com`, owned by Chris. Domain properties are DNS-verified by definition, so the verification lives as a TXT record on the `aecintegrations.com` Cloudflare zone — deleting that record un-verifies the property |
 | **Sitemap submitted to GSC** | `https://www.aecintegrations.com/sitemap.xml`. The Sitemaps report was **empty** when AECI-799 checked it on 2026-09-09 — no sitemap had ever been successfully submitted, despite an assumption that one had. Submitted under that issue; the confirmation is a **Success** fetch with a discovered-URL count. The prod sitemap is a single `<urlset>`, not a `<sitemapindex>` (`apps/web/src/server/sitemap.ts` defers splitting until 50,000 URLs) |
 | **Bing Webmaster Tools** | **Registered 2026-09.** The Google Search Console import failed, so it was verified manually; sitemap submitted and reporting **1.5k URLs discovered**. Search performance needs ~48 h before it reports. This closes AECI-799 AC2 |
-| **The Bing push channel** | **Broken.** The IndexNow ping (AECI-236) is the only automated Bing/Yandex channel, and **every production submission is failing with HTTP 429** (AECI-826, measured 2026-09-09). It reports nothing back either, so BWT is the only place the effect is visible. Treat Bing discovery as sitemap-only until AECI-826 lands |
+| **The Bing push channel** | **Rebuilt, unproven.** The IndexNow ping (AECI-236) is the only automated Bing/Yandex channel, and **every production submission failed with HTTP 429** across 2026-09-07..09 — 23 of 23. AECI-826 replaced the per-promote submit with a D1 buffer drained every 20 minutes, so a burst of promotes is now one request. **It is fixed when `aeci.indexnow.submit{source:cron,outcome:ok}` is non-zero in production, not when the code merges** — that needs a prod promote plus a real catalogue write. Two things stay open until then: the key value is still unverified (a 429 throttles before IndexNow fetches `<key>.txt`, so a wrong key looks identical), and IndexNow reports nothing back, so BWT is the only place the effect is visible. **Treat Bing discovery as sitemap-only until the `ok` series appears.** |
 
 **A Domain property spans every host in the zone, and that is the point.** It covers `www.`
 (indexed), the apex (301s to `www.`), `demo.` (public, crawlable, `noindex` by decision — see
@@ -327,7 +328,8 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | Retention prune runaway | > 5,000 rows / table / 1d | unchanged | leave it until the prune actually starts deleting (~2026-11) |
 | Data-quality check (warn) | any > 0, **non-paging** (AECI-279) | **no alert** — dashboard + digest | mute/relax individual warn checks that prove noisy (e.g. known duplicate candidates) |
 | *(new)* Cron job failed — combined | n/a | any failure heartbeat > 0, hourly | do not add a floor. A cron failing once is a real event, and the `label_column` tells you which |
-| *(new)* Per-cron staleness | n/a | 26 h daily jobs · 90 min the `*/15` reconcile · 180 min the hourly poll (`observability/posthog/project-config.json`) | these are the *sweep's* allowances and already include margin for the sweep's own lateness. Tighten only if a cron's schedule changes |
+| *(new)* Per-cron staleness | n/a | 26 h daily jobs · 90 min the `*/15` reconcile and the `*/20` IndexNow drain · 180 min the hourly poll (`observability/posthog/project-config.json`) | these are the *sweep's* allowances and already include margin for the sweep's own lateness. Tighten only if a cron's schedule changes |
+| *(new, AECI-826)* Search-engine pings refused | n/a — **never alerted on by either plane**, which is the defect | > 90% of `aeci.indexnow.submit` failed over **24 h**, **≥3-submission floor** | the window is 24 h, not 1 h, because coalescing makes submissions sparse on purpose — an empty buffer sends nothing. Raise the floor only if quiet days start paging. **Do not lower the threshold to 100**: a channel that is 19-of-20 broken should still fire |
 
 ### Home stats-card content tunables (AECI-280 / Phase 8.2)
 
@@ -346,6 +348,18 @@ once the PostHog join lands.
 
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.
+
+### IndexNow drain cadence and buffer window (AECI-826 / §20.2)
+
+Two constants govern the push channel, and both are config changes rather than redesigns.
+
+| Constant | Where | Value | When to retune |
+|---|---|---|---|
+| `INDEXNOW_DRAIN_CRON` | `apps/api/src/lib/cron-schedules.ts` **and** the three `triggers.crons` blocks in `apps/api/wrangler.jsonc` | `*/20 * * * *` | Move both together — `cron-schedules.spec.ts` asserts they stay byte-equal, and `scheduled.ts` matches `controller.cron` by exact string, so a drift silently stops dispatching the job. **It cannot become `*/15`**: that expression belongs to the reconcile sweep and two jobs cannot share one trigger. Loosen toward `*/30` if 429s persist after the buffer lands; tighten only with evidence that discovery latency is costing something |
+| `INDEXNOW_QUEUE_MAX_AGE_DAYS` | `apps/api/src/lib/indexnow-queue.ts` | `7` | The containment bound on `indexnow_queue`, not a freshness judgement. A non-zero `aeci.indexnow.expired` means the channel was refusing submissions for a week and is a finding in its own right — fix the channel rather than widening the window |
+
+**The ceiling this buys:** 72 requests a day, and far fewer in practice because an empty buffer
+makes no request at all. The design it replaced produced eleven inside seven minutes.
 
 ### Trade publication floor (AECI-539 / AECI-546)
 
@@ -384,8 +398,10 @@ behind it:
 > Measured cost, August 2026: **Googlebot reached 177 of the 1,445 sitemap URLs
 > (12%)** while **Bingbot reached 940 (65%)**. Bing was assumed fine because IndexNow
 > pushes URLs to it directly and it never has to discover anything by crawling
-> *(**that assumption is now unsupported** — AECI-826 found every production IndexNow
-> submission failing with HTTP 429. Bingbot's 65% may be ordinary sitemap crawling.
+> *(**that assumption was unsupported** — AECI-826 found every production IndexNow
+> submission failing with HTTP 429, so Bingbot's 65% was ordinary sitemap crawling and
+> nothing else. AECI-826 rebuilt the channel as a buffer plus a 20-minute drain cron, but
+> **the fix is unproven until `aeci.indexnow.submit{outcome:ok}` is non-zero in prod**.
 > Do not cite this sentence as evidence the push works)*; Google
 > has no *automated* push channel (its Indexing API is documented for `JobPosting` /
 > `BroadcastEvent` only), so it must crawl — and every hub page was a dead end.

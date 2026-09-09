@@ -9,9 +9,9 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the thirteen-cron **liveness registry** the CI sweep reads. |
-| `insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 13 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fourteen-cron **liveness registry** the CI sweep reads. |
+| `insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 14 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -57,6 +57,13 @@ threshold in this table, so re-promoting one is a config change and not archaeol
 **Totals:** 13 PostHog alerts covering 16 monitors · 8 → liveness sweep · 2 → digest ·
 2 dual monitors split across both. 26 accounted for, none dropped.
 
+**A fourteenth alert exists and is not in the table above, deliberately.** AECI-826's
+`indexnow-failure-rate` has **no Datadog predecessor** — `aeci.indexnow.submit` shipped in
+AECI-236 and was never alerted on by either plane. That gap is why production sat at a
+100% HTTP 429 failure rate for at least three days with nothing noticing. The table is a
+disposition record for the 26 *retired* monitors; a net-new alert belongs beside it, not
+inside it, or the "26 accounted for" arithmetic stops meaning anything.
+
 ---
 
 ## The "AW6 judges" rows — decisions and reasoning
@@ -78,9 +85,10 @@ with one place to tune.
 Two deliberate widenings ride along:
 
 1. **Six more crons gain failure coverage.** Datadog watched four; the alert watches ten
-   metrics covering all thirteen crons (metrics-snapshot, asn-registry, analytics-digest,
-   attestation-notify, entitlement-expiry, waf-poll and the per-key half of home-stats
-   were previously unwatched — several shipped after the Datadog monitors were written).
+   metrics covering all fourteen crons (metrics-snapshot, asn-registry, analytics-digest,
+   attestation-notify, entitlement-expiry, indexnow-drain, waf-poll and the per-key half of
+   home-stats were previously unwatched — several shipped after the Datadog monitors were
+   written, and `indexnow-drain` did not exist until AECI-826).
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
    `aeci.stats.compute` also fire on `trigger:promote`, and a promote-path failure is a
    real failure. Datadog's Algolia monitor was already trigger-agnostic; its stats monitor
@@ -424,7 +432,16 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
 
 Non-production 525793 was created 2026-08-24; **production 354071 was applied 2026-08-26**
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
-`11342302`–`11342372`), verified 2026-09-04. Earlier revisions of this file and of
+`11342302`–`11342372`), verified 2026-09-04.
+
+> **The committed set is now 45 insights and 14 alerts; live is still 43 and 13
+> (AECI-826, 2026-09-09).** The two new insights (`indexnow-submissions`,
+> `alert-indexnow-failure-rate`) and the `indexnow-failure-rate` alert reach PostHog only
+> when `apply.sh` is re-run — the applier is not wired into CI, by design. **The alert is
+> the one that matters**: until it is applied, the IndexNow channel has no alarm, which is
+> the exact condition AECI-826 was filed over. Numbers and id ranges below describe LIVE
+> state and are deliberately left at their measured values rather than edited to match the
+> file; re-run `apply.sh` and update them together. Earlier revisions of this file and of
 `docs/OBSERVABILITY.md` said production was still empty pending "manual step 3"; that was
 stale, and it mattered — it is the difference between a first apply and a rename of live
 objects.

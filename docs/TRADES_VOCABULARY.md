@@ -22,7 +22,7 @@ Everything downstream seeds from it:
   `product_trades`.
 - **AECI-546** _(shipped)_ — the publication gate in §6 reaches the SEO surfaces: the XML sitemap
   lists published terms only (plus the always-listed `/trades` index), a sub-floor term page renders
-  `noindex`, and `POST /api/promote` submits only published trade URLs to IndexNow / Google.
+  `noindex`, and `POST /api/promote` buffers only published trade URLs for the IndexNow drain.
 
 ---
 
@@ -331,7 +331,7 @@ floor.
 | `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
 | `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
-| IndexNow ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
+| IndexNow submit set on `POST /api/promote` | Buffered for the drain | **Not buffered** (AECI-546) |
 | Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
@@ -353,10 +353,13 @@ it would remove the entry point to the whole namespace, and it would make the fa
 depend on the catalog rather than on the page. It is therefore listed unconditionally in the sitemap
 and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
 
-**Why the indexing pings follow the floor.** `POST /api/promote` submits affected URLs to IndexNow
-(§20.2; the Google Indexing ping was removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
+**Why the indexing pings follow the floor.** `POST /api/promote` buffers affected URLs for IndexNow
+(§20.2; since AECI-826 the promote buffers and a `*/20` cron submits — the Google Indexing ping was
+removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
-only published terms are submitted. The `/trades` **index** is submitted whenever any trade is
+only published terms are buffered. **The floor read matters more under the buffer, not less**: a
+sub-floor trade URL written to `indexnow_queue` outlives the promote and is submitted up to twenty
+minutes later by a job with no way to re-derive whether it should have been. The `/trades` **index** is submitted whenever any trade is
 touched at all — published or not — because it renders live per-term counts and gains or loses a
 tile on a floor crossing. AECI-542 excluded trade URLs outright and deferred the decision to
 AECI-546; this is that decision.
