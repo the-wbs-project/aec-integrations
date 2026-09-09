@@ -167,6 +167,126 @@ export function buildEntityTitle(name: string, suffix: string): string {
 }
 
 /**
+ * Most partner names a composed entity description will name (Phase 2 Spec
+ * §9.1). Three is what fits the 155-char budget alongside a count and the trust
+ * line on a typical product; `composeEntityDescription` shrinks below it when a
+ * long name would overflow.
+ */
+export const META_DESCRIPTION_MAX_NAMES = 3;
+
+/** Case-insensitive name comparator, matching the AECI-825 sort convention. */
+function byNameInsensitive(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+/**
+ * The distinct catalog products this product has an integration with, by name,
+ * sorted case-insensitively.
+ *
+ * Both endpoints of every row are considered and the page product is dropped,
+ * rather than assuming `integrations_as_source` always carries the partner as
+ * `target`. Connector-evidenced pairs are mapped into these arrays by endpoint
+ * (`a`/`b`), not by direction, so the endpoint-position assumption does not hold
+ * for every row. `via` is deliberately NOT included: the connector delivering an
+ * edge is not a tool the product integrates WITH.
+ *
+ * The API returns these relations unordered (`productDetailConfig` applies no
+ * `orderBy`), so the sort is what makes a rendered description deterministic
+ * across requests — which matters because this string lands in a URL-keyed edge
+ * cache entry.
+ */
+export function integrationPartnerNames(product: ProductDetail): string[] {
+  const bySlug = new Map<string, string>();
+  const add = (link: { slug: string; name: string }): void => {
+    if (link.slug === product.slug) return;
+    if (!bySlug.has(link.slug)) bySlug.set(link.slug, link.name);
+  };
+  for (const row of [...product.integrations_as_source, ...product.integrations_as_target]) {
+    add(row.source);
+    add(row.target);
+  }
+  return [...bySlug.values()].sort(byNameInsensitive);
+}
+
+/**
+ * The distinct products a vendor publishes, by name, most-integrated first and
+ * alphabetical within a tie.
+ *
+ * Ordered by `integration_count` rather than alphabetically so a vendor snippet
+ * names the products a reader is most likely to be searching for, and because
+ * `ProductListItem` carries that column already. The name tie-break is what
+ * keeps the output deterministic when several products share a count — which is
+ * the common case, since most counts are 0.
+ */
+export function vendorProductNames(vendor: VendorDetail): string[] {
+  const seen = new Set<string>();
+  const products = vendor.products.filter((p) => {
+    if (seen.has(p.slug)) return false;
+    seen.add(p.slug);
+    return true;
+  });
+  return products
+    .sort((a, b) => b.integration_count - a.integration_count || byNameInsensitive(a.name, b.name))
+    .map((p) => p.name);
+}
+
+/**
+ * Render up to `max` names as prose: `"A"`, `"A and B"`, `"A, B and C"`. No
+ * serial comma, matching the house voice. Returns `''` for an empty list.
+ */
+export function formatNameList(names: readonly string[], max: number): string {
+  const picked = names.slice(0, Math.max(0, max));
+  if (picked.length === 0) return '';
+  if (picked.length === 1) return picked[0];
+  return `${picked.slice(0, -1).join(', ')} and ${picked[picked.length - 1]}`;
+}
+
+/**
+ * Compose an entity `<meta name="description">` that fits `max` characters
+ * (Phase 2 Spec §9.1).
+ *
+ * `render` takes the formatted name list and returns the data sentence. It is a
+ * callback because that sentence is `$localize`d and this module is deliberately
+ * Angular-free (see the file header) — the caller owns the message ids, this
+ * function owns the budget.
+ *
+ * The name list shrinks from {@link META_DESCRIPTION_MAX_NAMES} down to one
+ * BEFORE the trust line is dropped: a named partner product is worth more in a
+ * SERP snippet than the boilerplate is, and the trust line is byte-identical on
+ * every page while the names are not. If even one name overflows on its own —
+ * only reachable with an unusually long entity name — the sentence is truncated
+ * at a word boundary rather than emitted over budget.
+ *
+ * Returns `null` when there are no names, which is the caller's signal to fall
+ * through to the next rung of the §9.1 description ladder. A composed sentence
+ * with nothing to name would assert less than the entity's own description does.
+ */
+export function composeEntityDescription(input: {
+  names: readonly string[];
+  render: (list: string) => string;
+  trustLine: string;
+  max?: number;
+}): string | null {
+  const max = input.max ?? META_DESCRIPTION_MAX;
+  const widest = Math.min(input.names.length, META_DESCRIPTION_MAX_NAMES);
+  if (widest === 0) return null;
+
+  // Widest first, so the loops below find the most informative form that fits.
+  const candidates: string[] = [];
+  for (let count = widest; count >= 1; count--) {
+    candidates.push(input.render(formatNameList(input.names, count)));
+  }
+
+  const withTrust = candidates.find((s) => `${s} ${input.trustLine}`.length <= max);
+  if (withTrust) return `${withTrust} ${input.trustLine}`;
+
+  const alone = candidates.find((s) => s.length <= max);
+  if (alone) return alone;
+
+  return truncateAtWordBoundary(candidates[candidates.length - 1], max);
+}
+
+/**
  * The entity kinds the meta layer knows how to title and classify. Canonical
  * definition lives here (not in `meta.service.ts`, which re-exports it) so the
  * kind→og:type decision is pure-testable in plain Node without booting Angular.

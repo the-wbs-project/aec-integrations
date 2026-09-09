@@ -81,7 +81,7 @@ The surfaces that describe AECi to a careful reader, a search quality rater, or 
 | **AECI-804** | `/methodology` — the editorial methodology page. **Shipped.** See the contract below. | Medium |
 | **AECI-784** | The site-wide `@id`-linked JSON-LD entity graph. Owns every structured-data decision; `/methodology` deliberately emits none. Blocked by **AECI-805** (social profiles), or `sameAs` ships empty. | High |
 | **AECI-785 / AECI-787** | `llms.txt` and an RSS/Atom feed. Both new SSR routes, both needing a cache-tag decision. 785 is downgraded to Low on the epic (no provider commits to reading it); ship a static route or decline it, but do not build a generator. | Low |
-| **AECI-802** | Entity titles and meta descriptions carrying search intent. Blocked by **AECI-799** (Search Console baseline) under the epic's measurement-before-change rule. | High |
+| **AECI-802** | Entity titles and meta descriptions carrying search intent. **Shipped 2026-09-09**, after AECI-799 landed the dated Search Console baseline the epic's measurement-before-change rule required. Contract: `STAGE_1_PHASE_2_SPEC.md` §9.1 (title templates + the four-rung description ladder). Its trust line is constrained by §7.1 below: the snippet must not claim verification while no vendor holds a seat, and it becomes revisable on the day the first one does. | High |
 
 ### 7.1 `/methodology` — the build contract (AECI-804, shipped)
 
@@ -100,7 +100,7 @@ Built as **build-time-inlined Markdown**, generalizing the AECI-237 legal patter
 
 **The legal-page mismatch is disclosed, not papered over.** `/methodology` links to `/legal/listing-accuracy` and `/legal/review-guidelines` as the fuller statements, and both still open with "Draft, pending legal review. This document is not yet in force" (AECI-308 is the counsel gate; AECI-306 owns the outstanding entity and jurisdiction placeholders). A page whose first paragraph promises to describe how the site works today cannot hand the reader a policy that says it is not in force without saying so. The page therefore names the draft status in the same sentence as the links. **When counsel signs off and the banners come down, that sentence must come down with them** — it is a second owed edit alongside the one below.
 
-**The edit that is owed when the vendor portal opens.** Point 6's "not yet open" paragraph, and the matching sentence about the verified-vendor badge, become false the day the first seat is granted. Stage 2.1's exit (`STAGE_2_1_SPEC.md` §5, vendors live) is the trigger; nothing in CI will catch it, which is why it is written down here.
+**The edit that is owed when the vendor portal opens.** Point 6's "not yet open" paragraph, and the matching sentence about the verified-vendor badge, become false the day the first seat is granted. Stage 2.1's exit (`STAGE_2_1_SPEC.md` §5, vendors live) is the trigger; nothing in CI will catch it, which is why it is written down here. **A third edit joined the list with AECI-802 (2026-09-09)** and it is not on this page: `@@meta.trustLine` in `apps/web/src/app/core/meta-copy.ts` reads "Independent data, compiled and curated by AEC Integrations." on every product and vendor page precisely because point 6 is true today. It is deliberately understated, so it does not become *wrong* when a seat is granted — but it does become worth revisiting, and a resolver spec asserts the string carries no "verified" claim, so a future change has to be made on purpose.
 
 ### 7.2 Boundary with the other two surfaces that claim this content
 

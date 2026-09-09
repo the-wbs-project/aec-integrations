@@ -6,7 +6,10 @@
  * specifics: the fetch fn, `applyMeta` (head tags + JSON-LD, runs on SSR and
  * on client navigations), and `pushEmbedded` (server-only Cache-Tag entities).
  *
- * The meta description is role-varied (§13.6) — see `productMetaDescription`.
+ * The title carries a search-intent modifier (§9.1 / AECI-802) — see
+ * `productMetaName`. The meta description runs a four-rung ladder whose first
+ * rung is still the role-varied connector variant (§13.6) — see
+ * `productMetaDescription`.
  *
  * On success → set page meta + JSON-LD; push embedded cache tags
  * (`vendor:{slug}` + `integration:{id}` + `product:{slug}` for each shown
@@ -18,36 +21,98 @@ import type { ProductDetail, ProductIntegrationItem } from '@aeci/shared';
 
 import { fetchProductBySlug } from '../core/api/products';
 import { createDetailResolver } from '../core/create-detail-resolver';
+import { metaTrustLine } from '../core/meta-copy';
+import { composeEntityDescription, integrationPartnerNames } from '../core/meta.helpers';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
 import { connectedProductCount } from './powered-hub-grouping';
 
 /**
- * `<meta name="description">` for a product page, role-varied per Stage 1.5
- * Addendum C §13.6 (AECI-707).
+ * `<title>` name for a product page: `"{name} integrations"`, which
+ * `MetaService` suffixes into `"{name} integrations · AEC Integrations"`
+ * (Phase 2 Spec §9.1, AECI-802).
  *
- * Every role except `connector` keeps the Phase 2 §9.1 default: the entity's own
- * description, truncated to ~155 chars by `MetaService`. A connector page
- * instead targets *"«connector» for construction"*-class queries, which its
- * vendor-written description almost never does. **Pair-shaped queries stay on
- * pair pages** (Addendum A §11.2) so the two addenda never compete for one SERP
- * with two different pages.
+ * The bare product name WAS the whole title until AECI-802. A title carrying
+ * only the vendor's brand competes with the vendor's own domain for a pure brand
+ * query, which a directory loses by definition, and it matches no long-tail
+ * phrase at all. The modifier is the cheapest change that makes the title answer
+ * a question someone actually types.
  *
- * Gated on `N > 0` as well as the role: with nothing to count the variant would
- * assert less than the real description does, so it falls back. `N` is
- * `connectedProductCount`'s catalog-reach figure, the same number the hero line
- * renders, so the snippet and the page agree.
+ * Composed here rather than in `MetaService` because the service's only title
+ * fork is `isBrowseKind`; adding a per-kind branch there would move the pair,
+ * browse and index titles too. `products-pair.resolver.ts` already composes its
+ * own name this way, so this is the established seam.
+ */
+function productMetaName(product: ProductDetail): string {
+  const name = product.name;
+  return $localize`:@@products.detail.meta.title:${name}:name: integrations`;
+}
+
+/**
+ * `<meta name="description">` for a product page — the four-rung ladder of
+ * Phase 2 Spec §9.1, as rewritten by AECI-802.
  *
- * `SoftwareApplication.description` in the JSON-LD is deliberately NOT varied
- * (`buildProductJsonLd` reads `product.description` directly): the structured
- * data states a factual entity property, while this is a SERP snippet.
+ * 1. **Connector variant** (Stage 1.5 Addendum C §13.6 / AECI-707), unchanged.
+ *    Gated on `product_role === 'connector'` AND a non-zero catalog reach, and
+ *    it targets *"«connector» for construction"*-class queries. **Pair-shaped
+ *    queries stay on pair pages** (Addendum A §11.2) so the two addenda never
+ *    compete for one SERP with two different pages. `N` is
+ *    `connectedProductCount`'s figure, the same number the hero line renders,
+ *    so the snippet and the page agree.
+ * 2. **Composed from our own integration data**, which is what AECI-802 added.
+ *    Before it, every non-connector product shipped the vendor's own blurb —
+ *    text the vendor already publishes on its own site and on every competing
+ *    directory, which is precisely the aggregator signature the 2026 core
+ *    updates demoted.
+ * 3. The vendor's blurb, for a product with no integrations to describe. It is
+ *    still unique text, and a composed sentence there would only advertise the
+ *    absence.
+ * 4. `MetaService`'s `@@meta.defaultDescription`, reached by returning `null`.
+ *    Last resort, and now genuinely last: rung 3 catches everything with a
+ *    description and rung 2 everything with an integration.
+ *
+ * The count is `integration_count`, the denormalized column, so the snippet
+ * agrees with the product card, the hero `IntegrationStat`, the Algolia numeric
+ * facet and both sort replicas. Deriving a separate figure here would add a
+ * fifteenth site to the `STAGE_1_5_SPEC.md` §13.5 count lockstep for no reader
+ * benefit.
+ *
+ * `SoftwareApplication.description` in the JSON-LD is deliberately NOT varied by
+ * any of this (`buildProductJsonLd` reads `product.description` directly): the
+ * structured data states a factual entity property, while this is a SERP
+ * snippet. §13.6 is explicit on the point.
  */
 function productMetaDescription(product: ProductDetail): string | null {
-  if (product.product_role !== 'connector') return product.description;
-  const count = connectedProductCount(product.integrations_as_connector, product.slug);
-  if (count === 0) return product.description;
-  const name = product.name;
-  return $localize`:@@products.detail.meta.connector:${name}:name: connects ${count}:count: construction and AEC products. See the integrations it powers and reviews from the teams using them.`;
+  if (product.product_role === 'connector') {
+    const reach = connectedProductCount(product.integrations_as_connector, product.slug);
+    if (reach > 0) {
+      const name = product.name;
+      return $localize`:@@products.detail.meta.connector:${name}:name: connects ${reach}:count: construction and AEC products. See the integrations it powers and reviews from the teams using them.`;
+    }
+  }
+
+  const count = product.integration_count;
+  if (count > 0) {
+    const name = product.name;
+    // `composeEntityDescription` returns null when there is no partner to name —
+    // a stale `integration_count`, or a connector whose count comes entirely
+    // from edges it powers. Falling through then is deliberate: a sentence
+    // promising integrations it cannot name is worse than the vendor's blurb.
+    const composed = composeEntityDescription({
+      // Capped at the count so the sentence can never name more partners than
+      // it claims integrations. Distinct partners are always <= edges, so this
+      // is a no-op on coherent data and a guard against a drifted column.
+      names: integrationPartnerNames(product).slice(0, count),
+      trustLine: metaTrustLine(),
+      render: (list) =>
+        count === 1
+          ? $localize`:@@products.detail.meta.description.one:${name}:name: has 1 integration in the AEC stack, with ${list}:list:.`
+          : $localize`:@@products.detail.meta.description.other:${name}:name: has ${count}:count: integrations in the AEC stack, including ${list}:list:.`,
+    });
+    if (composed) return composed;
+  }
+
+  return product.description;
 }
 
 /**
@@ -86,7 +151,7 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
   applyMeta: (meta, product, canonical) => {
     meta.setEntityMeta({
       entity: 'product',
-      name: product.name,
+      name: productMetaName(product),
       description: productMetaDescription(product),
       canonical,
       ogImage: product.logo_url ?? undefined,
