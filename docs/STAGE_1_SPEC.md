@@ -1402,8 +1402,10 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 >
 > **It is not currently working (AECI-826, 2026-09-09).** Every production IndexNow submission visible in
 > PostHog — 23 attempts across 2026-09-07 to 09 — returned HTTP **429 TooManyRequests**, with no successes at
-> all. One promote fires one request, so a bulk curation session bursts past the rate limit. How far back this
-> goes is unknowable: the metric series starts the day production got the PostHog-only build, and the Datadog
+> all. **The cause is not established.** One promote fires one request, so a bulk curation session bursting past
+> a rate limit is the obvious candidate, but nothing has tested it — and a 429 throttles before IndexNow ever
+> fetches `<key>.txt`, so a bad key value would look identical from our side. AECI-826 owns finding out. How far
+> back this goes is unknowable: the metric series starts the day production got the PostHog-only build, and the Datadog
 > history before it was decommissioned by AECI-651. **Do not read the sentence above as "Bing discovery is
 > handled" until AECI-826 lands.**
 >

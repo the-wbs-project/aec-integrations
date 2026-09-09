@@ -524,6 +524,7 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 >
 > Read-side only, as ever: no `is_bot` write, and RapidSeedbox AS214483 / Web2Objects AS62874 /
 > UAB code200 AS27411 / Rockion AS199737 did **not** join `DATACENTER_ASNS`.
+
 > **AECI-799 addendum (2026-09-09) — the first search-console baseline, and the host filter it was
 > taken under.** This is the before-state that every issue in the AECI-788 SEO epic is measured
 > against, and the gate AECI-802 requires before merge. It is a **historical** baseline, not a
@@ -583,7 +584,10 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > 501 the subtraction suggests. The GSC Sitemaps report was **empty** on 2026-09-09: no sitemap had
 > ever been successfully submitted, contrary to the standing assumption that one had. Submitting it
 > is the cheapest available discovery win and it is the reason AC1 was not in fact complete.
-> **472 of 1,445 advertised URLs are indexed — 33%.**
+> **472 indexed against 1,445 advertised is ~33%, and that ratio is not clean**: the 472 is the
+> same unfiltered zone composite, so it can contain `prod.` pages, which were indexable until
+> AECI-807 retired that host weeks before this reading. Treat 33% as an upper bound until someone
+> re-reads it with the `www.` filter.
 >
 > **2. The largest exclusion bucket is probably correct behaviour, and is not yet decomposed.**
 > `demo.aecintegrations.com` is public, crawlable, and serves `X-Robots-Tag: noindex, nofollow` by

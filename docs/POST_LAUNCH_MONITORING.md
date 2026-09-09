@@ -203,7 +203,8 @@ either in isolation.
    under, or apply none deliberately**: the property is a *Domain* property spanning `www.`
    (indexed) and `demo.` (crawlable-but-noindex by design), so an unfiltered number moves when
    demo moves. Then run the **one-indexable-host tripwire** in §2a — it is the check that would
-   have caught `prod.aecintegrations.com` (AECI-807) years earlier than we did.
+   have caught `prod.aecintegrations.com` (AECI-807) at the apex cutover in 2026-07, instead of
+   two months into the post-launch period.
 6. **Glance at the D1 footprint** on **`/admin/system`** — total size and per-table row counts, which
    used to mean a `wrangler d1 execute` per table. Watch `page_views` in particular: it grows ~1,000
    rows/day and `ADMIN_PANEL_SPEC.md` §7.4 sizes the 400-day retention window against it. The table
