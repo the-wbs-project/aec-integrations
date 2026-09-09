@@ -64,7 +64,7 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 | # | Surface | What happens |
 |---|---|---|
-| **A1** | `/auth/login` | Submitting the magic-link form flips `emailSent()`, and `@if` swaps **the entire view** for a "Check your email" panel. There is no live region anywhere on the page, and no focus move. The submit button that had focus is destroyed with its branch, so focus falls back to `<body>`. |
+| **A1** | `/auth/login` | Submitting the magic-link form flips `emailSent()`, and `@if` swaps **the entire view** for a "Check your email" panel. No live region is present in either state, and there is no focus move. The submit button that had focus is destroyed with its branch, so focus falls back to `<body>`. The page's one `role="status"` (`login.html:63`) sits inside `@if (unavailable())` — the Supabase-missing degrade path — so it never renders on a working sign-in and cannot carry this announcement. |
 | **A2** | `/products/:slug/review` | Identical shape. `@if (submitted())` swaps the whole form for "Review received". No live region, no focus move, focused submit button destroyed. |
 | **A3** | `/account` | Renders "Loading your account…", then replaces it with the loaded content. Neither state contains a live region, so the transition is announced by nothing. |
 
@@ -74,7 +74,7 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 | Instance | Source at `44aba9cf` | Confirmed absent |
 |---|---|---|
-| A1 | `apps/web/src/app/auth/login.html:5-35`; `login.ts:93` sets the signal | `login.ts` has no `.focus()` call and no announcement; the page's live-region count measured **0** |
+| A1 | `apps/web/src/app/auth/login.html:5-35`; `login.ts:93` sets the signal | `login.ts` has no `.focus()` call and no announcement; the page's live-region count measured **0** (the `role="status"` at `login.html:63` is inside `@if (unavailable())`) |
 | A2 | `apps/web/src/app/reviews/review-form.html:8-27`; `review-form.ts:320` | `review-form.ts` has no focus move; page live-region count measured **0** |
 | A3 | `apps/web/src/app/account/account.html`; the `role="status"` at line 94 is inside `@if (saved())` | live-region count measured **0** in both the loading and loaded states |
 
@@ -82,7 +82,7 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 **What to do.** For a whole-view swap, moving focus is better than announcing, because it fixes the lost reading position too: give the success heading `tabindex="-1"` and focus it after the swap. A persistent `role="status"` region is the alternative, and is the right choice for A3's loading transition.
 
-**Regression test each fix must add.** `apps/web/e2e/auth-login.spec.ts` currently runs axe on the default state only and never submits (`reviews-submission.spec.ts` likewise). Each fix should extend its spec to perform the submit and assert `document.activeElement` is the success heading, or that a pre-existing `role="status"` received the text. The assertion style already exists in `apps/web/e2e/nav-menu.spec.ts`, which asserts Escape-closes-and-returns-focus.
+**Regression test each fix must add.** The two specs are in different starting positions, so the work differs. `apps/web/e2e/auth-login.spec.ts` never submits at all — every one of its four tests measures the default render, so A1's fix has to add a submit step first. `apps/web/e2e/reviews-submission.spec.ts` **does** submit: its "a filled form submits and shows the moderation confirmation" test stubs `POST /api/reviews`, fills the form and clicks submit, then asserts only that the confirmation copy is *visible*. A2's fix therefore extends an existing test rather than adding one. In both cases the new assertion is the same: `document.activeElement` is the success heading, or a pre-existing `role="status"` received the text. Note that the axe scan in each file is a **separate** test on the default render, so neither suite would catch this class even where a submit already happens. The assertion style already exists in `apps/web/e2e/nav-menu.spec.ts`, which asserts Escape-closes-and-returns-focus.
 
 ### 3.2 Serious — link and landmark ambiguity
 
@@ -151,7 +151,7 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 | Surface | Reached | Keyboard | Structure | Names | Status messages |
 |---|---|---|---|---|---|
 | Home `/` | ✅ | ✅ clean | ✅ | ⚠️ A4, A5 | n/a |
-| Product detail `/products/microsoft-fabric` | ✅ | ✅ clean | ✅ | ⚠️ A7, A9 | ⚠️ A8 |
+| Product detail `/products/microsoft-fabric` | ✅ | ✅ clean | ⚠️ A8 | ⚠️ A7, A9 | n/a |
 | Login `/auth/login` | ✅ | not walked | ✅ | ✅ | ❌ **A1** |
 | Review submission `/products/:slug/review` | ✅ | ⚠️ partial (§6) | ⚠️ single `h1`, no `h2` | ✅ | ❌ **A2** |
 | Account `/account` | ✅ | not walked | ✅ | ✅ | ❌ **A3** |

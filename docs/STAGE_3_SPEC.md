@@ -56,7 +56,7 @@ The non-feature backlog that fits Stage 3's operating posture, batched loosely: 
 
 **Not in the original outline** — added when the AECI-244 public-site pass finally ran and produced
 findings that needed a home. Operator decision routed them here rather than to Stage 2.5 §5, where the
-triage table above had scoped the AECI-244 close-out. That divergence is recorded in both documents
+triage table in §3 below had scoped the AECI-244 close-out. That divergence is recorded in both documents
 and in each issue, so it does not later read as a filing error.
 
 Evidence for all four: **`docs/ACCESSIBILITY_AUDIT.md`** (production `44aba9cf`, 2026-09-09).
@@ -94,7 +94,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |
 | AECI-623 capability convergence | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
 | AECI-633 vendor-portal SR pass | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
-| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** — but only the VoiceOver/NVDA run itself. The machine layer was discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`, and **the four defect/coverage issues it produced were routed to Stage 3** (see §2.5 below) |
+| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** — but only the VoiceOver/NVDA run itself. The machine layer was discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`, and **the four defect/coverage issues it produced were routed to Stage 3** (see §2.5 above) |
 | AECI-598 / 599 / 600 / 601 docs | no project | **Stage 2.5 §6** |
 | AECI-281 moderation refinement | Stage 2 Build | **Stage 3 §2.1** |
 | AECI-340 / 341 / 342 / 343 / 344 | pSEO project | **Stage 3 §2.2** (project adopted as the pillar) |
