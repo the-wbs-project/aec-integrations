@@ -134,3 +134,80 @@ test.describe('initial-load fragment scrolling', () => {
     expect(sectionViewportTop).toBeLessThan(160);
   });
 });
+
+// In-page section-nav jumps. `SectionNav` renders plain `<a href="{path}#id">`
+// anchors so the browser scrolls natively, honoring each section's `scroll-mt-20`
+// — but a same-document fragment navigation fires `popstate`, Angular reads that
+// as a browser-driven navigation, and `RouterScroller` re-scrolls to the same
+// fragment right after. Angular's stock `ViewportScroller.scrollToAnchor()`
+// ignores `scroll-margin-top`, so that second scroll overshot by 80px and parked
+// the section's <h2> underneath the sticky nav. `ScrollMarginViewportScroller`
+// (app.config.ts) is the fix; this asserts the heading stays visible.
+//
+// The candidate walk matters: the thin local seed puts short products (no
+// description, no integrations) at the head of the index, and a page that cannot
+// scroll cannot show this defect. Taking `.first()` like the tests above would
+// silently skip on every local run.
+test.describe('section-nav jumps clear the sticky nav', () => {
+  test('clicking "Integrations" leaves the section heading below the nav', async ({ page }) => {
+    await page.goto('/products');
+    await expect(page.locator('app-root')).toBeAttached();
+    const productLinks = page.locator('#main a[href^="/products/"]');
+    await productLinks
+      .first()
+      .waitFor({ state: 'attached', timeout: 15000 })
+      .catch(() => {});
+    test.skip((await productLinks.count()) === 0, 'no products seeded in this environment');
+
+    const hrefs = (
+      await productLinks.evaluateAll((els) =>
+        els
+          .map((el) => el.getAttribute('href'))
+          .filter((h): h is string => !!h && !h.includes('#')),
+      )
+    ).slice(0, 8);
+
+    // Walk candidates until one renders a section-nav with an Integrations entry
+    // on a page tall enough to scroll.
+    let usable: string | null = null;
+    for (const href of hrefs) {
+      await page.goto(href);
+      await expect(page.locator('aec-product-detail')).toBeVisible();
+      const hasJump = await page.locator('aec-section-nav a[href$="#integrations"]').count();
+      if (hasJump === 0) continue;
+      const scrollable = await page.evaluate(
+        () => document.documentElement.scrollHeight > window.innerHeight + 120,
+      );
+      if (scrollable) {
+        usable = href;
+        break;
+      }
+    }
+    test.skip(!usable, 'no seeded product is tall enough to jump to #integrations');
+
+    const nav = page.locator('aec-section-nav');
+    await nav.locator('a[href$="#integrations"]').click();
+    await expect(page).toHaveURL(/#integrations$/);
+
+    const heading = page.locator('#integrations-title');
+    await expect(heading).toBeAttached();
+
+    // The regression: the heading must land BELOW the sticky nav's bottom edge,
+    // not flush with the viewport top where the nav covers it. Angular's stock
+    // scroller overshot by the section's `scroll-mt-20`, putting this at -50.
+    await expect
+      .poll(
+        async () => {
+          const navBottom = await nav.evaluate((el) =>
+            Math.round(el.getBoundingClientRect().bottom),
+          );
+          const headingTop = await heading.evaluate((el) =>
+            Math.round(el.getBoundingClientRect().top),
+          );
+          return headingTop - navBottom;
+        },
+        { message: 'the Integrations heading must not sit underneath the sticky section-nav' },
+      )
+      .toBeGreaterThanOrEqual(0);
+  });
+});

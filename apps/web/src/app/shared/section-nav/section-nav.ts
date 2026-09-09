@@ -25,7 +25,7 @@ export interface SectionNavItem {
  * already-localized labels) plus the page's absolute `basePath`, so
  * vendor/integration detail pages can reuse it.
  *
- * **Scrolling is native, not JS.** The app ships `<base href="/">`, which makes
+ * **Scrolling is native — but the router still runs.** The app ships `<base href="/">`, which makes
  * a fragment-only `href="#id"` resolve against the base (`/#id`) and drop the
  * current path — so a bare fragment link would bounce a subpage visitor to the
  * home route. The parent already knows the page path (it resolved the entity),
@@ -38,6 +38,17 @@ export interface SectionNavItem {
  * instantly otherwise. This works under SSR, for crawlers, no-JS, before
  * hydration, and right-click "copy link" alike, and (unlike
  * `scrollIntoView({behavior:'smooth'})`) can never silently no-op.
+ *
+ * What this does NOT do is bypass Angular. A same-document fragment navigation
+ * fires **`popstate`** as well as `hashchange`, and Angular's `HistoryStateManager`
+ * treats `popstate` as a browser-driven navigation — so every click here also runs
+ * a router navigation, and `RouterScroller` re-scrolls to the same fragment right
+ * after the browser already did. Harmless only because
+ * `ScrollMarginViewportScroller` (`core/scroll-margin-viewport-scroller.ts`) makes
+ * that second scroll honor `scroll-margin-top` and land on the identical pixel.
+ * Angular's stock scroller does not, and parked every heading under this nav.
+ * If you change `scroll-mt-20` on the target sections, nothing else needs to move
+ * — but do not assume these anchors are invisible to the router.
  *
  * The only JS is the active-link highlight: a click marks the target active for
  * instant feedback, and an `IntersectionObserver` scrollspy keeps it in sync as
