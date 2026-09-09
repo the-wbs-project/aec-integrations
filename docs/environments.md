@@ -247,7 +247,7 @@ nowhere.
 
 | Engine | Channel | Automated? |
 |---|---|---|
-| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236) | **Yes** — fires from the promote's post-commit hooks |
+| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236) | **Yes** — fires from the promote's post-commit hooks, but **currently failing 100% with HTTP 429** (AECI-826). Until that lands, Bing gets nothing from the push either |
 | Google | Search Console → **URL Inspection → Request Indexing** | **No** — a person, after the promote |
 
 Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263

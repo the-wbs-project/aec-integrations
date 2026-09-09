@@ -608,7 +608,18 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > the issue assumed. The remaining reasons to have done this work — the §11.6 GSC gate on AECI-340,
 > and Bing/Copilot retrieval — are untouched.
 >
-> **What this addendum does not contain.** No Bing figures, because there is no Bing property. No
+> **Bing addendum (2026-09-09).** The BWT property was registered in early September; the Google Search
+> Console import failed, so it was verified manually. The sitemap is submitted and reports **1.5k URLs
+> discovered**, which matches the 1,445 the production sitemap carries. Search performance had not populated
+> yet (Bing states a ~48 h delay), so there is **no Bing performance baseline** in this record. The Bing
+> indexed count was not captured either.
+>
+> One finding came out of that registration and it is not a measurement problem. **The IndexNow push is
+> failing 100% with HTTP 429** (AECI-826, confirmed in PostHog the same day: 23 attempts, zero successes).
+> So the "Bing is fed automatically" premise behind several documents is currently false, and any future
+> Bing number should be read as the product of sitemap crawling alone until AECI-826 lands.
+>
+> **What this addendum does not contain.** No Bing performance figures, because the property is too new. No
 > per-host split, because none was taken. No sitemap fetch result, because the submission is what
 > produces the first one. Each of those is a named gap, not an omission — and a later number that
 > silently fixes one of them by changing the filter is not a comparison.

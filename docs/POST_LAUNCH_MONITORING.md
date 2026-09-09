@@ -225,7 +225,8 @@ it, what type of property it was, or what to read.
 |---|---|
 | **Google Search Console** | **Live.** A **Domain** property on `aecintegrations.com`, owned by Chris. Domain properties are DNS-verified by definition, so the verification lives as a TXT record on the `aecintegrations.com` Cloudflare zone — deleting that record un-verifies the property |
 | **Sitemap submitted to GSC** | `https://www.aecintegrations.com/sitemap.xml`. The Sitemaps report was **empty** when AECI-799 checked it on 2026-09-09 — no sitemap had ever been successfully submitted, despite an assumption that one had. Submitted under that issue; the confirmation is a **Success** fetch with a discovered-URL count. The prod sitemap is a single `<urlset>`, not a `<sitemapindex>` (`apps/web/src/server/sitemap.ts` defers splitting until 50,000 URLs) |
-| **Bing Webmaster Tools** | **Not registered as of 2026-09-09.** This is AECI-799 AC2 and it is genuinely outstanding. Until it exists, the only Bing-side channel is the IndexNow push (AECI-236), which submits URLs and reports nothing back — we can see what we sent and never what Bing did with it |
+| **Bing Webmaster Tools** | **Registered 2026-09.** The Google Search Console import failed, so it was verified manually; sitemap submitted and reporting **1.5k URLs discovered**. Search performance needs ~48 h before it reports. This closes AECI-799 AC2 |
+| **The Bing push channel** | **Broken.** The IndexNow ping (AECI-236) is the only automated Bing/Yandex channel, and **every production submission is failing with HTTP 429** (AECI-826, measured 2026-09-09). It reports nothing back either, so BWT is the only place the effect is visible. Treat Bing discovery as sitemap-only until AECI-826 lands |
 
 **A Domain property spans every host in the zone, and that is the point.** It covers `www.`
 (indexed), the apex (301s to `www.`), `demo.` (public, crawlable, `noindex` by decision — see
@@ -380,8 +381,11 @@ behind it:
 > JavaScript on its first pass, so every crawler saw the error.
 >
 > Measured cost, August 2026: **Googlebot reached 177 of the 1,445 sitemap URLs
-> (12%)** while **Bingbot reached 940 (65%)**. Bing is fine because IndexNow pushes
-> URLs to it directly and it never has to discover anything by crawling; Google
+> (12%)** while **Bingbot reached 940 (65%)**. Bing was assumed fine because IndexNow
+> pushes URLs to it directly and it never has to discover anything by crawling
+> *(**that assumption is now unsupported** — AECI-826 found every production IndexNow
+> submission failing with HTTP 429. Bingbot's 65% may be ordinary sitemap crawling.
+> Do not cite this sentence as evidence the push works)*; Google
 > has no *automated* push channel (its Indexing API is documented for `JobPosting` /
 > `BroadcastEvent` only), so it must crawl — and every hub page was a dead end.
 > *(Corrected 2026-09-09, AECI-799: Google does have a **manual** push channel and we

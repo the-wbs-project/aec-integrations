@@ -1398,7 +1398,14 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 >
 > **REMOVED (AECI-747, 2026-09-01).** The **Google Indexing API** ping shipped in AECI-263 and was deleted after Google's own
 > documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so
-> every submission we made was discarded. IndexNow (Bing/Yandex) remains and genuinely works.
+> every submission we made was discarded. IndexNow (Bing/Yandex) remains as the only automated push channel.
+>
+> **It is not currently working (AECI-826, 2026-09-09).** Every production IndexNow submission visible in
+> PostHog — 23 attempts across 2026-09-07 to 09 — returned HTTP **429 TooManyRequests**, with no successes at
+> all. One promote fires one request, so a bulk curation session bursts past the rate limit. How far back this
+> goes is unknowable: the metric series starts the day production got the PostHog-only build, and the Datadog
+> history before it was decommissioned by AECI-651. **Do not read the sentence above as "Bing discovery is
+> handled" until AECI-826 lands.**
 >
 > **Corrected 2026-09-09 (AECI-799).** The sentence that stood here — "Google has **no push channel** for our content types" —
 > was true of the *automated* pipeline and false in practice. Google has no automated push channel; it has a **manual** one, and
