@@ -948,7 +948,7 @@ prune skipping because of the gap.
 - `aeci.metrics_snapshot.run{outcome:ok|partial|failed}` — one per completed run; the always-emitted
   series is the liveness signal. Note `partial` exists **here but not in `job_runs`**, which records
   a partial run as `failed` (§7.2) — the metric is the finer-grained view.
-- `aeci.metrics_snapshot.metric{metric,outcome:written|failed}` — per-key, 19 keys per run. This is
+- `aeci.metrics_snapshot.metric{metric,outcome:written|failed}` — per-key, 20 keys per run. This is
   what tells you *which* series is broken.
 - `aeci.metrics_snapshot.run.duration_ms` — run duration.
 - `aeci.metrics_snapshot.crashed` / `.enqueue_failed` — the handler threw, or dispatch failed.
@@ -1005,9 +1005,19 @@ Two things to know before you run it:
   forcing would freeze the wrong human/bot split in permanently (the exact defect AECI-582 fixed).
   Run the classifier on that tier first.
 
-Precedence protects you: a `measured` write always wins, and a `reconstructed` write applies only
-over an absent or already-`reconstructed` row — so a backfill can never overwrite what the cron
-genuinely measured.
+**Read the diff it prints before you `--apply`.** Since AECI-688 the dry run reports, per series and
+per day, every stored value the run would change and by how much. That is not decoration: precedence
+protects the *reconstructed* series only. A `measured` series — all three `traffic.*` keys,
+`catalog.products_created` and `accounts.sign_ins_new` — upserts **unconditionally**, cron-written rows
+included. That is intended (it is what let AECI-688 correct the AECI-683 definition change), but it
+means this script rewrites a table retained indefinitely, and "how many statements" is the wrong
+question to ask first. The precedence rule in full: a `reconstructed` write applies only over an absent
+or already-`reconstructed` row, so a reconstruction never degrades a real snapshot.
+
+**Always pass `--to <yesterday>`.** With `--to` omitted the upper bound defaults to `max(day)` across
+`page_views` / `audit_log` / `products` / `profiles`, which is **today** on any tier with traffic today.
+That writes a partial UTC day into the long memory. The 00:15 cron would normally correct it the next
+morning, but it is queue-less and a missed run is never retried.
 
 ## Retention prune skipped, failed, or not running
 

@@ -564,7 +564,7 @@ trigger-agnostic, so a failed *promote* refresh alerts the same as a failed cron
 `aeci.metrics_snapshot.*` (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) is the same shape one layer over:
 the daily 00:15 UTC cron that captures the prior **complete** UTC day into `metrics_daily`, the admin
 panel's long memory. A completed run emits one job-level `aeci.metrics_snapshot.run` count
-(`outcome:ok` = every one of the 19 metrics written, `partial` = some wrote + some failed, `failed` =
+(`outcome:ok` = every one of the 20 metrics written, `partial` = some wrote + some failed, `failed` =
 nothing wrote), one `aeci.metrics_snapshot.run.duration_ms` distribution, and a per-metric
 `aeci.metrics_snapshot.metric{outcome:written|failed}` so a dashboard sees *which* key failed without
 reading logs. The pre-compute crash path (a DB-client-init throw before `runMetricsSnapshot`) stays an

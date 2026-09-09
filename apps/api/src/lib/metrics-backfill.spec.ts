@@ -27,6 +27,7 @@ import {
   buildProductsCrossCheck,
   buildRangeProbe,
   buildUnclassifiedProbe,
+  buildValueDiffProbes,
   buildZeroFillStatements,
   daysInRange,
   isoBounds,
@@ -407,5 +408,130 @@ describe('the operator probes', () => {
     };
     // The shortfall is the evidence for D6, not a defect.
     expect(probe).toEqual({ products: 2, product_created_events: 1 });
+  });
+});
+
+describe('the dry run reports what it would change (AECI-688)', () => {
+  // `metrics_daily` is retained indefinitely, so the operator has to be able to
+  // see the rewrite before authorising it. These assert the report is neither
+  // over-broad (a matching day must stay quiet) nor under-broad (a series that
+  // collapses to zero must still be reported).
+  interface Diff {
+    day: string;
+    stored: number | null;
+    recomputed: number;
+  }
+
+  function diff(metric: string, range: BackfillRange = RANGE): Diff[] {
+    const probe = buildValueDiffProbes(range).find((p) => p.metric === metric);
+    if (!probe) throw new Error(`no probe for ${metric}`);
+    return t.raw.prepare(probe.sql).all() as never;
+  }
+
+  it('reports a stale stored value with both the old and the new number', async () => {
+    await seed();
+    // The AECI-688 shape: a row the cron wrote under the OLD definition, higher
+    // than what the current predicate aggregates for the same day.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-08',
+      metric: 'traffic.page_views_human',
+      value: 4,
+      source: 'measured',
+      computedAt: '2026-08-09T00:15:00.000Z',
+    });
+
+    expect(diff('traffic.page_views_human')).toEqual([
+      { day: '2026-08-08', stored: 4, recomputed: 2 },
+      // A day with no stored row at all is a change too — `(none)` in the
+      // printed report — and must not be confused with a day that agrees.
+      { day: '2026-08-10', stored: null, recomputed: 2 },
+    ]);
+  });
+
+  it('stays silent on a day whose stored value already agrees', async () => {
+    await seed();
+    backfill();
+    // Post-apply, every series must report nothing — this is how the run
+    // verifies itself, and it is the mechanical form of "no step at the
+    // boundary".
+    for (const series of BACKFILL_SERIES) expect(diff(series.metric)).toEqual([]);
+  });
+
+  it('reports a stored value the run would collapse to zero', async () => {
+    // The asymmetric case: the aggregate SELECT emits no row for this day, so a
+    // one-sided join from `src` would miss it entirely.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-09',
+      metric: 'traffic.page_views_human',
+      value: 7,
+      source: 'measured',
+      computedAt: '2026-08-10T00:15:00.000Z',
+    });
+
+    expect(diff('traffic.page_views_human')).toEqual([
+      { day: '2026-08-09', stored: 7, recomputed: 0 },
+    ]);
+  });
+
+  it('does not report a reconstructed series over a measured row the run cannot touch', async () => {
+    await seed();
+    // A `measured` row for a `reconstructed` series: precedence forbids the
+    // write, so reporting it would promise a change that never happens.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-08',
+      metric: 'catalog.integrations_created',
+      value: 99,
+      source: 'measured',
+      computedAt: '2026-08-09T00:15:00.000Z',
+    });
+
+    expect(diff('catalog.integrations_created')).toEqual([]);
+    // Same row, same disagreement, but a measured series — reported, because
+    // that write DOES apply.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-08',
+      metric: 'traffic.page_views_bot',
+      value: 99,
+      source: 'measured',
+      computedAt: '2026-08-09T00:15:00.000Z',
+    });
+    expect(diff('traffic.page_views_bot')).toEqual([
+      { day: '2026-08-08', stored: 99, recomputed: 1 },
+    ]);
+  });
+
+  it('agrees with the write about scope — every reported day actually changes', async () => {
+    await seed();
+    await t.db.insert(metricsDaily).values([
+      {
+        day: '2026-08-08',
+        metric: 'traffic.page_views_human',
+        value: 4,
+        source: 'measured',
+        computedAt: '2026-08-09T00:15:00.000Z',
+      },
+      {
+        day: '2026-08-08',
+        metric: 'catalog.integrations_created',
+        value: 99,
+        source: 'measured',
+        computedAt: '2026-08-09T00:15:00.000Z',
+      },
+    ]);
+    const predicted = new Map(
+      BACKFILL_SERIES.flatMap((s) =>
+        diff(s.metric).map((d) => [`${d.day}|${s.metric}`, d.recomputed] as const),
+      ),
+    );
+
+    backfill();
+
+    // Nothing the probe promised was skipped, and nothing it stayed quiet about
+    // moved. The second half is what catches the two clauses drifting apart.
+    for (const [key, recomputed] of predicted) {
+      const [day, metric] = key.split('|');
+      expect({ key, value: valueOf(day, metric) }).toEqual({ key, value: recomputed });
+    }
+    expect(valueOf('2026-08-08', 'catalog.integrations_created')).toBe(99);
   });
 });

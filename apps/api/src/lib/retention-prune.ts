@@ -251,7 +251,7 @@ async function oldestCreatedAt(db: Db, table: PrunableTable): Promise<string | n
  * row at all.
  *
  * **Presence of ANY row for the day counts as captured**, deliberately — not all
- * 19 keys. AECI-581's backfill zero-fills the flow series but cannot reconstruct
+ * 20 keys. AECI-581's backfill zero-fills the flow series but cannot reconstruct
  * stocks (§7.1: a past total is unrecoverable), so a "all keys present" test
  * would deadlock the prune on every pre-snapshot day, forever.
  *

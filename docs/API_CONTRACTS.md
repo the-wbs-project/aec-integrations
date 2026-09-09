@@ -2790,7 +2790,14 @@ day the 00:15 cron first writes it.
 
 ```typescript
 export const AdminMetricKeySchema = z.enum([
-  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
+  // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since
+  // AECI-683 that includes the operator-pair retro-join). This is the RAW human
+  // count. The identically-named FIELD on GET /api/admin/overview is the
+  // POST-AUTOMATION count (§6.10 / AECI-745); raw is `page_views_human_raw`
+  // there. Same string, two meanings, and no type says so.
+  // Rows snapshotted before 2026-08-27 read high until AECI-688 re-backfilled
+  // them on 2026-09-09.
+  'traffic.page_views_human',
   // AECI-745. SNAPSHOT-ONLY: no live fallback, uncovered days are OMITTED (not
   // zero), `source` is always 'snapshot', and `exclude_internal=1` is a 400.
   'traffic.page_views_human_after_automation',

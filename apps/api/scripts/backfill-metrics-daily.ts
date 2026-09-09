@@ -32,8 +32,14 @@
  *       wrangler d1 execute <db> --env <env> --remote \
  *         --file=../../scripts/ops/backfill-page-view-bots.sql
  *   - Re-runnable: every write is an upsert keyed `(day, metric)`, and a
- *     `reconstructed` row can never overwrite a `measured` one — so a real
- *     snapshot survives any number of re-runs.
+ *     `reconstructed` row can never overwrite a `measured` one — so a
+ *     reconstruction never degrades a real snapshot.
+ *   - **That is not a blanket no-op guarantee, and the difference matters.** A
+ *     `measured` series upserts UNCONDITIONALLY, cron-written rows included —
+ *     the three `traffic.*` keys and `catalog.products_created`. That is the
+ *     point, not a hazard: it is what lets a re-run correct a definition change
+ *     (AECI-688). The dry run prints every value it would change, per day, so
+ *     the rewrite is visible before it happens.
  *   - Emits NO `audit_log` row (derived bookkeeping — ADR 0022 / §13 D11).
  *
  * USAGE (from the repo root; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
@@ -56,6 +62,7 @@ import {
   buildProductsCrossCheck,
   buildRangeProbe,
   buildUnclassifiedProbe,
+  buildValueDiffProbes,
   buildZeroFillStatements,
   daysInRange,
   type BackfillRange,
@@ -144,6 +151,65 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
     );
   }
   return parseWranglerJson<T>(res.stdout);
+}
+
+// ─── What would change ───────────────────────────────────────────────────────
+
+/** Detail rows printed before the summary truncates. High enough to show a
+ *  normal correction whole, low enough that a runaway is obvious rather than a
+ *  wall of scrollback. */
+const MAX_DIFF_ROWS = 40;
+
+interface DiffRow {
+  day: string;
+  stored: number | null;
+  recomputed: number;
+}
+
+/**
+ * Print, per series, the days whose stored value this run would rewrite.
+ *
+ * Dry-run only. `metrics_daily` is kept forever, so "how many statements" is
+ * the wrong question to answer before an `--apply`; "which numbers move, and by
+ * how much" is the right one. A run that reports no change on every series is
+ * also the mechanical form of "the backfill is already applied" — which is how
+ * AECI-688 verifies itself after the fact.
+ */
+function reportValueDiff(target: Target, range: BackfillRange): void {
+  console.log('Value changes this run would make:');
+  const detail: string[] = [];
+  let changedDays = 0;
+
+  for (const probe of buildValueDiffProbes(range)) {
+    const rows = runD1<DiffRow>(target, probe.sql)[0]?.results ?? [];
+    if (rows.length === 0) {
+      console.log(`  = ${probe.metric.padEnd(30)} no change`);
+      continue;
+    }
+    changedDays += rows.length;
+    const net = rows.reduce((sum, r) => sum + (r.recomputed - (r.stored ?? 0)), 0);
+    console.log(
+      `  ≠ ${probe.metric.padEnd(30)} ${rows.length} day(s) change, net ${net >= 0 ? '+' : ''}${net}`,
+    );
+    for (const r of rows) {
+      detail.push(
+        `     ${r.day}  ${probe.metric.padEnd(30)} ` +
+          `${String(r.stored ?? '(none)').padStart(9)} → ${String(r.recomputed).padStart(9)}`,
+      );
+    }
+  }
+
+  if (changedDays === 0) {
+    console.log('  Nothing to correct: every stored value already agrees with the live predicate.');
+    console.log('');
+    return;
+  }
+  console.log('');
+  for (const line of detail.slice(0, MAX_DIFF_ROWS)) console.log(line);
+  if (detail.length > MAX_DIFF_ROWS) {
+    console.log(`     … +${detail.length - MAX_DIFF_ROWS} more row(s)`);
+  }
+  console.log('');
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -242,16 +308,21 @@ export async function main(argv: string[]): Promise<number> {
   const zeroFill = buildZeroFillStatements(range);
   const aggregates = buildAggregateStatements(range);
 
-  // 5. Dry run stops here.
+  // 5. Dry run: report what would CHANGE, then stop.
   if (!apply) {
+    reportValueDiff(target, range);
     console.log(
       `DRY RUN — nothing written. On --apply: ${zeroFill.length} zero-fill statement(s) ` +
         `covering ${days.length * BACKFILL_SERIES.length} (day, metric) pair(s), then ` +
         `${aggregates.length} aggregate statement(s).`,
     );
     console.log(
-      'Existing rows are safe: zero-fill is DO NOTHING, and a reconstructed value never overwrites a measured one.',
+      'Zero-fill is DO NOTHING, and a reconstructed value never overwrites a measured one — but a',
     );
+    console.log(
+      'MEASURED series upserts unconditionally, cron-written rows included. The diff above is the',
+    );
+    console.log('full extent of that rewrite; metrics_daily is retained indefinitely, so read it.');
     console.log('Re-run with --apply to write them.');
     return 0;
   }

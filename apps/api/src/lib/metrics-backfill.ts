@@ -114,8 +114,11 @@ export function daysInRange(range: BackfillRange): string[] {
  * (2026-08-19) until AECI-683. Any range re-backfilled in that period would have
  * written operator traffic into `metrics_daily`, which is retained indefinitely.
  *
- * `metrics-backfill.spec.ts` now asserts every clause is present. If you add a
- * fourth half to `NOT_INTERNAL`, add it here in the same change.
+ * `metrics-backfill.spec.ts` asserts the agreement BEHAVIOURALLY — it seeds rows
+ * each clause admits or excludes and compares this SQL against `metricSeries`
+ * day by day. It does not inspect the emitted text, so a fourth half added only
+ * on the Drizzle side is caught only if the seed happens to exercise it. If you
+ * add one to `NOT_INTERNAL`, add it here AND seed it, in the same change.
  *
  * The `NOT EXISTS` retro-join (AECI-683) is reproduced verbatim rather than
  * approximated: on rows predating D13 `is_operator` is NULL everywhere, so the
@@ -330,6 +333,26 @@ export function buildZeroFillStatements(range: BackfillRange): string[] {
 }
 
 /**
+ * §7.1's precedence rule, as a predicate over an EXISTING `metrics_daily` row:
+ * a `reconstructed` series may write only over a row that is itself
+ * reconstructed; a `measured` series writes unconditionally. `null` means "no
+ * restriction", never "does not apply".
+ *
+ * Factored out because two callers need the same answer — the `ON CONFLICT`
+ * guard in {@link buildAggregateStatements} and the what-would-change report in
+ * {@link buildValueDiffProbes}. A dry run that disagreed with the write about
+ * which rows are in scope would be worse than no dry run, and this module has
+ * drifted once already (see {@link notInternalSql}).
+ *
+ * Note what the rule does NOT say: a `measured` series overwrites a prior
+ * `measured` row, cron-written ones included. That is deliberate and is what
+ * makes a re-backfill able to correct a definition change (AECI-688).
+ */
+function appliesOverExistingSql(series: BackfillSeries, table: string): string | null {
+  return series.source === 'reconstructed' ? `${table}."source" = 'reconstructed'` : null;
+}
+
+/**
  * One `INSERT … SELECT … ON CONFLICT` per series — the DB does the aggregation,
  * so nothing streams through the ops script.
  *
@@ -340,8 +363,8 @@ export function buildZeroFillStatements(range: BackfillRange): string[] {
  */
 export function buildAggregateStatements(range: BackfillRange): string[] {
   return BACKFILL_SERIES.map((series) => {
-    const guard =
-      series.source === 'reconstructed' ? ` WHERE metrics_daily."source" = 'reconstructed'` : '';
+    const applies = appliesOverExistingSql(series, 'metrics_daily');
+    const guard = applies ? ` WHERE ${applies}` : '';
     return (
       `INSERT INTO metrics_daily ("day", "metric", "value", "source", "computed_at") ` +
       `SELECT day, ${q(series.metric)}, value, ${q(series.source)}, ${q(range.computedAt)} ` +
@@ -360,6 +383,67 @@ export function buildAggregateStatements(range: BackfillRange): string[] {
  *  aggregates must be able to overwrite the placeholders. */
 export function buildMetricsBackfillStatements(range: BackfillRange): string[] {
   return [...buildZeroFillStatements(range), ...buildAggregateStatements(range)];
+}
+
+export interface ValueDiffProbe {
+  metric: AdminMetricKey;
+  /** `SELECT day, stored, recomputed` — one row per day this run would change. */
+  sql: string;
+}
+
+/**
+ * Per series, the days whose stored value this run would CHANGE — and nothing
+ * else. Printed by the dry run.
+ *
+ * `metrics_daily` is retained indefinitely (§7.4 / §13 D5), so this script is
+ * the one place in the repo that rewrites a permanent record. A dry run that
+ * reports only statement counts cannot tell an operator whether that rewrite
+ * moves three days or three hundred, which is the number they actually need
+ * before typing `--allow-production`. AECI-688 is the case in point: the run
+ * that corrects the AECI-683 definition change looks identical, from a
+ * statement count, to one that corrupts every day in the range.
+ *
+ * **The two arms are not symmetric decoration.** A day whose stored value is
+ * non-zero but whose recomputed value is zero produces NO row in
+ * `series.select()` — it is grouped away — so a one-sided join from the
+ * aggregate would silently miss a series collapsing to nothing, which is
+ * exactly the failure worth catching. The second arm drives from the stored
+ * side to find it. SQLite has no portable `FULL OUTER JOIN` here, and two
+ * compound terms sit well inside D1's five-term cap.
+ *
+ * Scope is value changes only. The zero-fill pass is `DO NOTHING` and inserts a
+ * 0 where no row exists at all; that is a coverage change, reported by
+ * {@link buildCoverageProbe}, not a value the operator needs to review.
+ *
+ * Cost: this re-runs each series' `SELECT`, including `NOT_INTERNAL`'s
+ * correlated `EXISTS`. Acceptable only because `page_views_operator_pair_idx`
+ * (migration `0019`) turns that join into a covering-index search; without it
+ * the planner scans `op` once per candidate row.
+ */
+export function buildValueDiffProbes(range: BackfillRange): ValueDiffProbe[] {
+  return BACKFILL_SERIES.map((series) => {
+    const applies = appliesOverExistingSql(series, 'stored');
+    // An absent stored row is always in scope: there is no prior provenance for
+    // the precedence rule to protect, and the run will insert it.
+    const onNew = applies ? ` AND (stored.day IS NULL OR ${applies})` : '';
+    const onExisting = applies ? ` AND ${applies}` : '';
+    return {
+      metric: series.metric,
+      sql:
+        `WITH src AS (${series.select(range)}), ` +
+        `stored AS (SELECT "day", "value", "source" FROM metrics_daily ` +
+        `WHERE "metric" = ${q(series.metric)} ` +
+        `AND "day" >= ${q(range.fromDay)} AND "day" <= ${q(range.toDay)}) ` +
+        `SELECT src.day AS day, stored.value AS stored, src.value AS recomputed ` +
+        `FROM src LEFT JOIN stored ON stored.day = src.day ` +
+        `WHERE (stored.day IS NULL OR stored.value <> src.value)${onNew} ` +
+        `UNION ALL ` +
+        `SELECT stored.day AS day, stored.value AS stored, 0 AS recomputed ` +
+        `FROM stored LEFT JOIN src ON src.day = stored.day ` +
+        `WHERE src.day IS NULL AND stored.value <> 0${onExisting} ` +
+        `ORDER BY 1`,
+    };
+  });
 }
 
 /**

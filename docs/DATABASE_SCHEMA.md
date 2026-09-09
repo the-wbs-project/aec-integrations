@@ -1242,7 +1242,7 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
                      and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '+30 days'))
 ```
 
-All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
+All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/page-view-predicates.ts` — AECI-745 lifted it out of `analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
 
 **One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
 
@@ -1534,7 +1534,7 @@ create index metrics_daily_metric_day_idx on metrics_daily(metric, day); -- the 
 
 **`source` is a stored fact, not an inference.** `measured` means captured on the
 day (or re-aggregated from rows that still exist); `reconstructed` means derived
-after the fact by `scripts/backfill-metrics-daily.ts` from data that can no longer
+after the fact by `apps/api/scripts/backfill-metrics-daily.ts` from data that can no longer
 prove the day exactly. One precedence rule follows and both writers obey it: **a
 `measured` write always wins; a `reconstructed` write applies only over an absent
 or already-`reconstructed` row.** That is what makes the backfill re-runnable
@@ -1556,7 +1556,8 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
-| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` and operator sessions excluded | measured |
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, and **all three** `NOT_INTERNAL` clauses of §9.1 — the `/admin`+`/account` path rule, `is_operator`, and the AECI-683 retro-join. This is the **raw** count; the identically-named field on `GET /api/admin/overview` is post-automation (`ADMIN_PANEL_SPEC.md` §7.1). It counts pre-2026-09 duplicate arrivals, deliberately — see §9.1's `dedupe_key` note | measured |
+| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
@@ -1592,7 +1593,7 @@ recorded, which is the opposite of what this table is for.
 Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
 rather than approximate. Any day not sampled is simply lost, which is why the
-cron writes all 19 keys rather than only the ones a screen reads today.
+cron writes all 20 keys rather than only the ones a screen reads today.
 
 **The three `audience.*` stocks are the exception, and AECI-586 deliberately did
 not read them.** `ADMIN_PANEL_SPEC.md` §7.1 named §5.4 as their reader; the
