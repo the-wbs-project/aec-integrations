@@ -781,6 +781,20 @@ Bans are applied by an admin through `PATCH /api/admin/reviewers/:id` — since 
 
 ## 8. GDPR right-to-erasure
 
+> **`DELETE /api/account` is deliberately NOT rate-limited (AECI-773 / ADR 0026).**
+> Every other authenticated write on this API gained an in-Worker burst cap; this one is
+> the named exception. Erasure is a legal obligation, the second call is a no-op, and the
+> entire abuse ceiling is one account erasing itself — so **a 429 must never be the reason
+> an erasure fails.** The accepted cost is that a hammering loop reaches the GoTrue seam
+> (#3 above) and a `reviews`-touching batch; the control is `requireAuth()`. Anyone adding
+> a blanket limiter to the write surface must carve this route out explicitly.
+>
+> One consequence in the other direction, recorded here because it is easy to mistake for
+> a bug: `reviews.reviewer_id` is `ON DELETE SET NULL`, and the AECI-773 hourly review cap
+> counts rows by `reviewer_id`. So an erasure **resets that user's review-submission
+> counter**. That is acceptable — the account is gone — and it is written down rather than
+> left to be rediscovered as a bypass.
+
 Under ADR 0016 the authoritative `profiles` row lives in **D1**, so erasure is
 driven by the Worker (§ flow below), not by the Postgres triggers — those are now
 **vestigial** (§8.1). The D1 schema still carries the FK anonymization seam:

@@ -37,7 +37,7 @@ import {
   type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, count, eq, gte, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -59,6 +59,22 @@ import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { scoreToxicity } from '../lib/toxicity';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+
+/**
+ * `STAGE_1_SPEC.md` §15.1: "Rate limit on `/api/reviews` POST: 3 per
+ * authenticated user per hour". AECI-773 is the first time this is honoured
+ * literally. It never could be at the edge — Cloudflare Pro WAF counts by client
+ * IP only (per-user is an Enterprise feature) AND its window maxes at one
+ * minute, so Rule B has only ever been a per-minute per-IP approximation of an
+ * hourly per-user intent. The native `ratelimits` binding fixes the first half
+ * (`rateLimit('write')` on this route is per user) but not the second: its
+ * `simple.period` is a strict enum of 10 or 60 seconds. So the hourly half is a
+ * D1 count, on the shipped `INVITE_DAILY_LIMIT` model
+ * (`routes/vendor-seat-invites.ts`) — counted over a table we already have,
+ * with no KV, no Durable Object, and no new binding.
+ */
+export const REVIEW_HOURLY_LIMIT = 3;
+const REVIEW_LIMIT_WINDOW_MS = 3_600_000;
 
 const KNOWN_LOCALES: ReadonlySet<string> = new Set([DEFAULT_LOCALE]);
 
@@ -124,7 +140,10 @@ function isReviewDuplicateViolation(err: unknown): boolean {
 const reviewDuplicateError = (): ApiError =>
   new ApiError(409, ApiErrorCode.REVIEW_DUPLICATE, 'You have already reviewed this product.');
 
-function emitSubmit(c: AuthContext, outcome: 'ok' | 'duplicate' | 'product_not_found'): void {
+function emitSubmit(
+  c: AuthContext,
+  outcome: 'ok' | 'duplicate' | 'product_not_found' | 'rate_limited',
+): void {
   submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.review.submit', 1, [`outcome:${outcome}`]);
 }
 
@@ -163,6 +182,42 @@ export function createSubmitReviewHandler(
     if (existing) {
       emitSubmit(c, 'duplicate');
       throw reviewDuplicateError();
+    }
+
+    // AECI-773 / §15.1 — the hourly per-user cap. Placed AFTER the existence and
+    // duplicate checks so a caller cannot spend their hourly budget probing for
+    // products that do not exist, and BEFORE the toxicity call so a rejected
+    // submission never reaches a paid Anthropic request.
+    //
+    // Two semantics that are silent if wrong. **Every status counts** — this
+    // deliberately does NOT reuse the dedup index's `status <> 'archived'`
+    // predicate, because if a rejected review stopped counting, a moderation
+    // loop would become a slot-refund machine. And `reviews.reviewer_id` is
+    // `ON DELETE SET NULL`, so a GDPR erasure naturally resets the counter;
+    // that is acceptable and is written down rather than left to be found.
+    //
+    // Cost: one indexed seek. `reviews_reviewer_idx` covers `reviewer_id` and
+    // the partial `WHERE reviewer_id IS NOT NULL` is usable because a bound
+    // non-null value implies it. `created_at` is not in that index, so the plan
+    // is seek then filter — but `reviews_unique_per_user_product` caps a user at
+    // one review per product, so the fan-out is the number of products they have
+    // ever reviewed. Single digits. Deliberately NO new composite index: it would
+    // be asymptotically better and practically pointless, and drizzle-kit
+    // generation over this table family has already produced one destructive
+    // recreate (migration 0027, guarded by `src/test/migration-0027.spec.ts`).
+    const since = new Date(Date.now() - REVIEW_LIMIT_WINDOW_MS).toISOString();
+    const [recent] = await db
+      .select({ value: count() })
+      .from(reviews)
+      .where(and(eq(reviews.reviewerId, userId), gte(reviews.createdAt, since)));
+    if ((recent?.value ?? 0) >= REVIEW_HOURLY_LIMIT) {
+      emitSubmit(c, 'rate_limited');
+      throw new ApiError(
+        429,
+        ApiErrorCode.RATE_LIMITED,
+        'You have submitted the maximum number of reviews for now. Try again in an hour.',
+        { retryAfterSeconds: REVIEW_LIMIT_WINDOW_MS / 1000 },
+      );
     }
 
     // Toxicity scoring BEFORE the batch — fail-open to null (never auto-reject).

@@ -1021,7 +1021,7 @@ The §5 claim queue is unaffected and remains the path for someone who has **no*
 
 Owner side, behind `requireVendor()` **plus** an in-handler `requireSeatOwner()` that re-reads `seat_owner` from D1 every request (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read in `createAuthzMiddleware`):
 
-- `POST /api/vendor/seats/invites` — 201. Duplicate probe, **rate limit** (`INVITE_DAILY_LIMIT` = 10 per vendor per rolling 24 h, counted over `vendor_seat_invites` — no KV, no new binding). Mail is post-commit `waitUntil`; a send failure never un-creates a committed invite.
+- `POST /api/vendor/seats/invites` — 201. Duplicate probe, **rate limit** (`INVITE_DAILY_LIMIT` = 10 per vendor per rolling 24 h, counted over `vendor_seat_invites`). It stays a D1 count after AECI-773 added a `ratelimits` binding to this Worker, because `simple.period` is a strict enum of 10 or 60 seconds and **no binding window reaches 24 h**; the binding sits *in front of* it as a burst bucket, keyed per vendor for the same reason the daily cap is. Mail is post-commit `waitUntil`; a send failure never un-creates a committed invite.
 - `DELETE /api/vendor/seats/invites/:id` — 204, soft delete (`revoked_at`).
 - `DELETE /api/vendor/seats/:userId` — 204. **The first HTTP surface `revokeSeatStatements` has ever had** (AECI-524 shipped the builder unwired). Refuses self-removal; also carries an explicit last-owner guard which is *currently unreachable* and kept deliberately — see the handler docblock.
 

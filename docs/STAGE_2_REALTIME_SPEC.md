@@ -287,9 +287,11 @@ Hidden is *paused*, not *slowed*: a background tab left open overnight would oth
 
 **Browser only.** Started from `afterNextRender`, torn down through `DestroyRef`. It must never run during SSR — the SSR Worker has no window, no visibility state, and no business holding a timer. This is the ordinary `ANGULAR_STYLE_GUIDE.md` SSR-safety rule; the failure mode if it is broken is not a crash but a Worker that never finishes the render.
 
-### 4.3 No WAF exposure
+### 4.3 No WAF exposure, and no in-Worker limiter exposure either
 
 The blanket `/api/*` rate-limit rule was **removed** when both Cloudflare Pro slots were spent on the two write endpoints (`docs/waf-rate-limits.md` §"2-slot trade-off"); both remaining rules are **POST-only**. A 20-second authenticated GET trips nothing, and this epic must not become the reason someone re-proposes a third slot that does not exist.
+
+**AECI-773 added a second limiting layer, in the Worker, and this endpoint is still untouched by it** — deliberately, and by a rule with no exceptions: **reads are never rate-limited, on any surface** (`docs/waf-rate-limits.md` §6.3, ADR 0026). This poll is the named reason that invariant exists. Do the arithmetic before proposing otherwise: a focused tab is 3 cursor reads per minute per seat, one poll can fan out to six scope refetches, and a multi-seat vendor with tabs open multiplies both — so any write-shaped per-minute ceiling trips inside a minute. The failure would then be silent in **both** directions, a permanently stale portal or a self-inflicted poll amplifier, with nothing logged either way. So: this epic must not become the reason someone re-proposes a third slot that does not exist, **nor the reason someone puts a limiter on a read**.
 
 ### 4.4 The intervals are tunables, and the metric is their evidence
 
@@ -306,7 +308,7 @@ The three intervals and the backoff cap are **compute constants in the web bundl
 - **A dirty-deferred scope is NOT a failed one, and must not be held back.** This is the rule most likely to be "fixed" into a bug by the next reader. When a section holds unsaved edits the store *stashes* the fresh payload deliberately and reports the resource `loaded` — the write succeeded, it is simply not being applied yet, and the vendor has an explicit "reload this section" affordance. `settle()` therefore tests `hasFailed(resource)` and **not** "did the value I hold change": treating a deferral as a failure would let one half-typed form pin that cursor and refetch the same payload every 20 s for as long as the form stays dirty, forever if the vendor walks away mid-edit. Reading `failed` specifically is the whole of what keeps the two apart (`vendor-live-sync.ts:325-337`).
 - **Revisions are compared with `!==` on the raw strings, never `Date.parse`.** SQLite's `MAX()` over a TEXT column is lexicographic and every `*_at` column is an ISO UTC string, so lexicographic and chronological order coincide; string equality also means a value the server can produce but `Date.parse` mangles can never be mistaken for "unchanged". Nothing in the loop does arithmetic between a server timestamp and `Date.now()` — `lastCheckedAt` reports the server's instant purely as an affordance, and scheduling uses relative `setTimeout` delays only.
 
-**No WAF or cache surface materialised**, as §4.3 predicted: the poll is an authenticated GET against `private, no-store`, both Pro rate-limit slots remain POST-only, and no file under `apps/web/src/server/` was touched by this epic.
+**No WAF or cache surface materialised**, as §4.3 predicted: the poll is an authenticated GET against `private, no-store`, both Pro rate-limit slots remain POST-only, and no file under `apps/web/src/server/` was touched by this epic. That still holds after AECI-773: its in-Worker limiter is registered per route on writes only, so the cursor carries no limiter of any kind.
 
 ---
 

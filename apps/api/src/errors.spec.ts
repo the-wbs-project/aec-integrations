@@ -179,3 +179,42 @@ describe('errorHandler — logClientErrors (review-app-promote observability)', 
     });
   });
 });
+
+describe('Retry-After (AECI-773)', () => {
+  it('renders `retryAfterSeconds` as the header, leaving the §3.3 envelope untouched', async () => {
+    // `docs/API_CONTRACTS.md` §4.1 has promised this on 429 since Phase 2.8 and
+    // nothing ever sent it — `ApiError` had no header channel until AECI-773.
+    const res = await request(
+      appThatThrows(
+        new ApiError(429, ApiErrorCode.RATE_LIMITED, 'slow down', { retryAfterSeconds: 60 }),
+      ),
+    );
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+
+    const body = (await res.json()) as { error: Record<string, unknown>; trace_id: string };
+    expect(body.error).toEqual({ code: 'RATE_LIMITED', message: 'slow down' });
+    expect(typeof body.trace_id).toBe('string');
+  });
+
+  it('emits NO Retry-After when the field is absent', async () => {
+    // The regression guard against a default sneaking in.
+    const res = await request(
+      appThatThrows(new ApiError(409, ApiErrorCode.SLUG_CONFLICT, 'taken')),
+    );
+
+    expect(res.status).toBe(409);
+    expect(res.headers.get('Retry-After')).toBeNull();
+  });
+
+  it('rounds up and never emits a useless `Retry-After: 0`', async () => {
+    const res = await request(
+      appThatThrows(
+        new ApiError(429, ApiErrorCode.RATE_LIMITED, 'slow down', { retryAfterSeconds: 0 }),
+      ),
+    );
+
+    expect(res.headers.get('Retry-After')).toBe('1');
+  });
+});

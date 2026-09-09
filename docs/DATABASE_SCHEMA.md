@@ -848,6 +848,14 @@ create table reviews (
 );
 
 create index reviews_product_status_idx on reviews(product_id, status);
+-- Two readers since AECI-773: the account's own-reviews list, and the §15.1 hourly
+-- per-user submit cap (3 per rolling hour, `routes/reviews.ts`). The cap's predicate is
+-- `reviewer_id = ? AND created_at >= ?`, so this index serves its leading term and
+-- `created_at` is filtered after the seek. Deliberately NOT widened to a composite:
+-- `reviews_unique_per_user_product` below caps a user at one review per product, so the
+-- fan-out is the number of products they have ever reviewed — single digits — and
+-- drizzle-kit generation over this table family has already produced one destructive
+-- recreate (migration 0027, guarded by `src/test/migration-0027.spec.ts`).
 create index reviews_reviewer_idx on reviews(reviewer_id) where reviewer_id is not null;
 create index reviews_status_created_idx on reviews(status, created_at desc);
 
@@ -1189,7 +1197,8 @@ create table vendor_seat_invites (
 );
 
 create unique index vendor_seat_invites_token_key on vendor_seat_invites(token);
--- The roster read AND the per-vendor daily rate-limit count.
+-- The roster read AND the per-vendor daily rate-limit count (a D1 count, not the
+-- AECI-773 `ratelimits` binding: `simple.period` caps at 60s and this window is 24h).
 create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, created_at);
 -- The duplicate probe. PARTIAL, so spent rows never widen it.
 create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
