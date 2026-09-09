@@ -524,3 +524,91 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 >
 > Read-side only, as ever: no `is_bot` write, and RapidSeedbox AS214483 / Web2Objects AS62874 /
 > UAB code200 AS27411 / Rockion AS199737 did **not** join `DATACENTER_ASNS`.
+> **AECI-799 addendum (2026-09-09) — the first search-console baseline, and the host filter it was
+> taken under.** This is the before-state that every issue in the AECI-788 SEO epic is measured
+> against, and the gate AECI-802 requires before merge. It is a **historical** baseline, not a
+> from-zero one: the property predates this issue.
+>
+> **Property and filter — read this before comparing anything to these numbers.**
+>
+> | | |
+> |---|---|
+> | Property | **Domain** property on `aecintegrations.com` (Google Search Console) |
+> | Host filter applied | **None.** Every figure below is a whole-zone composite |
+> | Hosts in scope | `www.` (indexed), the apex (301 → `www.`), `demo.` (crawlable, `noindex` by design). `prod.` was in scope until AECI-807 retired it |
+> | Bing Webmaster Tools | **Not registered.** No Bing-side numbers exist to baseline |
+>
+> A Domain property spans the zone, so **`demo.` is inside these numbers**. A later figure taken
+> with a `www.`-only filter is not comparable to the ones here. Say which filter you used, every
+> time.
+>
+> **Performance — 3 months, Search type: Web, no host filter, window ending 2026-09-05.**
+>
+> | Metric | Value |
+> |---|---|
+> | Total clicks | **41** |
+> | Total impressions | **15.9K** |
+> | Average CTR | **0.3%** |
+> | Average position | **31.9** |
+>
+> Position 31.9 is page three to four of results, and a 0.3% CTR is what that position produces —
+> the clicks are a function of rank, not of the titles. That matters for reading AECI-802: a
+> title/description rewrite moves CTR *at a given position*, so if position stays at ~32 the
+> rewrite can succeed and still barely move the click count. Judge it on CTR at fixed position,
+> not on clicks.
+>
+> **Page indexing — as of 2026-09-09, no host filter.**
+>
+> | Bucket | Pages |
+> |---|---|
+> | **Indexed** | **472** |
+> | **Not indexed** | **472** (7 reasons) |
+> | *Total URLs Google knows about* | *944* |
+>
+> | Why pages aren't indexed | Source | Pages |
+> |---|---|---|
+> | Excluded by `noindex` tag | Website | **228** |
+> | Blocked by robots.txt | Website | **166** |
+> | Alternate page with proper canonical tag | Website | **51** |
+> | Crawled – currently not indexed | Google systems | **19** |
+> | Soft 404 | Website | **4** |
+> | Page with redirect | Website | **3** |
+> | Not found (404) | Website | **1** |
+>
+> **Four findings, in descending order of cost.**
+>
+> **1. Google knows fewer URLs than the sitemap advertises, and the sitemap was never submitted.**
+> The production sitemap carried **1,445 URLs** on 2026-09-05. Google knows **944** across the
+> *entire zone* — a set that also includes `demo.`, so the production shortfall is larger than the
+> 501 the subtraction suggests. The GSC Sitemaps report was **empty** on 2026-09-09: no sitemap had
+> ever been successfully submitted, contrary to the standing assumption that one had. Submitting it
+> is the cheapest available discovery win and it is the reason AC1 was not in fact complete.
+> **472 of 1,445 advertised URLs are indexed — 33%.**
+>
+> **2. The largest exclusion bucket is probably correct behaviour, and is not yet decomposed.**
+> `demo.aecintegrations.com` is public, crawlable, and serves `X-Robots-Tag: noindex, nofollow` by
+> decision (`apps/web/src/server/robots-policy.ts` — crawling stays allowed precisely so the
+> noindex header is seen). Every demo URL Google has fetched therefore lands in **"Excluded by
+> `noindex` tag"**, which is the 228. Production also contributes: a pair page with no edge renders
+> `noindex` rather than 404. **Nobody has split the 228 between the two**, and until someone does,
+> that row cannot be read as either healthy or broken. Decomposing it is the first thing to do with
+> the `www.` filter.
+>
+> **3. "Blocked by robots.txt" at 166 is expected but unverified.** Production disallows exactly
+> five prefixes — `/api/`, `/auth/`, `/account`, `/search`, `/preview/` (`server/robots.ts`). 166
+> distinct URLs is far more than five pages, which points at `/search?q=…` query variants each
+> counting as a URL. That is consistent and untested. It is worth one look, because the same bucket
+> would also hold a genuine mistake.
+>
+> **4. No baseline was lost — the issue's own premise #1 is void.** Data exists back to at least
+> **2026-06-07**, the earliest point on the 3-month chart. Impressions rise off zero around
+> **2026-07-07**, which matches the apex cutover rather than any verification event. Whether Search
+> Console backfilled on verification or has been collecting continuously cannot be determined from
+> this view, and it does not matter: there is history, and the AECI-788 before-state is better than
+> the issue assumed. The remaining reasons to have done this work — the §11.6 GSC gate on AECI-340,
+> and Bing/Copilot retrieval — are untouched.
+>
+> **What this addendum does not contain.** No Bing figures, because there is no Bing property. No
+> per-host split, because none was taken. No sitemap fetch result, because the submission is what
+> produces the first one. Each of those is a named gap, not an omission — and a later number that
+> silently fixes one of them by changing the filter is not a comparison.

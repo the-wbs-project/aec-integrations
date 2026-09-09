@@ -1398,8 +1398,15 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 >
 > **REMOVED (AECI-747, 2026-09-01).** The **Google Indexing API** ping shipped in AECI-263 and was deleted after Google's own
 > documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so
-> every submission we made was discarded. IndexNow (Bing/Yandex) remains and genuinely works; Google has **no push channel** for
-> our content types, and is fed by the sitemap plus crawlable hub pages (see AECI-746) instead. Historical text follows.
+> every submission we made was discarded. IndexNow (Bing/Yandex) remains and genuinely works.
+>
+> **Corrected 2026-09-09 (AECI-799).** The sentence that stood here — "Google has **no push channel** for our content types" —
+> was true of the *automated* pipeline and false in practice. Google has no automated push channel; it has a **manual** one, and
+> we have been using it since launch. The operator runs **URL Inspection → Request Indexing** in Search Console after a promote
+> that adds or materially changes public pages (`docs/environments.md` → "Request indexing by hand (Google) — after a promote").
+> So the two engines are fed differently and deliberately: **Bing/Yandex automatically via IndexNow, Google by a person**, on top
+> of the sitemap and the crawlable hub pages (AECI-746). Read this paragraph as "the Google push is a human step, and it is
+> unmonitored", not as "nothing pushes to Google". Historical text follows.
 >
 > ~~**Implemented (AECI-263):** the **Google Indexing API** ping is an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
 
