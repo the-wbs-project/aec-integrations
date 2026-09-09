@@ -936,11 +936,16 @@ mid-flight will make a local decision about a cross-cutting contract.
    **Convention A** (§13.2(a)) is 60 production rows whose `powered_by` equals one
    of their own endpoints; the router must SEE that FK to keep them in the direct
    lane and to withhold the §13.4(3) cache tag from a connector the page never
-   names. And **an un-migrated database still exists**: preview and staging D1 are
-   not migrated by CI (`docs/environments.md`), so there the evidenced table is
-   empty while the powered edges sit in `integrations` — without the field every
-   connector edge on those tiers misfiles as direct, which is the failure §13.2's
-   last paragraph names AECI-706 as the guard against.
+   names. And **an un-migrated database can still exist**: the
+   claim here originally read "preview and staging D1 are not migrated by CI",
+   which was wrong about staging — staging has been CI-migrated since AECI-256
+   (`docs/CICD_PLAN.md` §3.2) — and is now wrong about preview too, which
+   `deploy.yml`'s `migrate-preview` job has owned since AECI-828
+   (`docs/migrations.md` §0). The *shape* of the failure is what to keep: on any
+   tier where `0026`/`0027` have not landed, the evidenced table is empty while
+   the powered edges sit in `integrations`, so without the field every connector
+   edge there misfiles as direct — the failure §13.2's last paragraph names
+   AECI-706 as the guard against.
 
    **A second, unnamed gap closed with it.** AECI-721 unioned the evidenced tier
    into `integrations_as_connector` — the CONNECTOR's page — but not into

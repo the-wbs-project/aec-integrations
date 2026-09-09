@@ -378,12 +378,14 @@ brought forward to match. Decisions taken at build that this section did not pre
   WHERE retracted_at IS NULL GROUP BY 1,2 HAVING c > 1;
   ```
 
-- **Applied to remote `aeci-app-preview` by hand.** CI applies migrations remotely for staging, demo
-  and production only (`scripts/d1-apply-migrations.sh`, invoked from `deploy.yml` /
-  `promote-to-demo.yml` / `promote-to-prod.yml`) — **nothing migrates remote preview**, which PR
-  previews bind to, so it drifts silently. It was one migration behind before this issue and is now
-  current; `wrangler d1 migrations apply aeci-app-preview --env preview --remote` is the command,
-  and it stays a manual step until a CI job owns it.
+- **Applied to remote `aeci-app-preview` by hand — no longer necessary (AECI-828).** When this
+  shipped, CI applied migrations remotely for staging, demo and production only, so
+  **nothing migrated remote preview**, which every PR preview binds to, and it drifted silently.
+  A CI job now owns it: `deploy.yml`'s `migrate-preview` runs the same
+  `scripts/d1-apply-migrations.sh aeci-app-preview preview` on every push to `main`. The manual
+  command (`wrangler d1 migrations apply aeci-app-preview --env preview --remote`) is still the
+  escape hatch when a PR needs its own migration live before merge — the job tracks `main`'s head
+  and deliberately does not run ahead of it.
 
 > **✅ Handoff to §4 (AECI-605) — discharged.** At the time of writing,
 > `integrationPairConfig` (`apps/api/src/lib/drizzle-helpers.ts`) had **no `where`** on its

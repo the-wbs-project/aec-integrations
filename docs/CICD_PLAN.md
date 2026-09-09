@@ -72,7 +72,7 @@ Four permanent environments, all on Cloudflare — plus, while Stage 2 is being 
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
-| **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | `aeci-app-preview` D1 via `aeci-api-preview` (Option 1, see environments.md) |
+| **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | `aeci-app-preview` D1 via `aeci-api-preview` — ONE shared database for every PR (Option 1, see environments.md); migrated on push to `main` by `deploy.yml`'s `migrate-preview` job (AECI-828) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | `aeci-app-staging` D1 |
 | **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | `aeci-app-demo` D1 |
 | **Production** | `aecintegrations.com` + `www.` (public, canonical) | Manual approval, after demo | Manual | `aeci-app-production` D1 |
@@ -235,7 +235,7 @@ This job is where the non-negotiable constraints are enforced (AECI-549), not ju
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
-**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
+**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. **No migrations of any kind are applied per-PR** under the current Option 1 strategy — not Supabase (there is no Postgres app DB) and deliberately not D1 either. The shared `aeci-app-preview` D1 is migrated on push to `main` by `deploy.yml`'s `migrate-preview` job (§3.2), never from a PR branch: applying an unmerged branch's schema would change the database every *other* PR preview reads. A PR that adds a migration therefore previews against the pre-merge schema (AECI-828).
 
 **Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
 1. Wait for preview deployment health check
@@ -291,6 +291,8 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 2. `scripts/require-secrets.sh` preflight — refuse to deploy a half-provisioned staging
 3. Provision the staging queues — the scheduled-job set (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, `aeci-stats-staging`, `aeci-reconcile-staging`, `aeci-data-quality-staging`, and the AECI-302 `aeci-attestation-notify-staging`) plus the WC-5 `aeci-cache-purge-staging` purge queue; idempotent
 4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
+
+In parallel with `deploy-staging`, the independent **`migrate-preview`** job applies the same migrations to the shared preview D1 (`scripts/d1-apply-migrations.sh aeci-app-preview preview`, AECI-828). It is a separate job on purpose: `deploy-staging` is gated on `vars.STAGING_ENABLED`, and preview's schema must not hang off the staging gate. It `needs: [unit-tests]` so nothing reaches a real database while `migration-0027.spec.ts` is red, and it is gated to `main` so `admin-panel`'s migrations never reach the shared preview DB.
 5. `wrangler deploy --env staging` for the API Worker, then push its runtime secrets (`REVIEW_APP_TOKEN`, Algolia, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CF_ANALYTICS_API_TOKEN` — the optional ones warn-and-skip)
    - **5b — PostHog source maps** (`scripts/ci/posthog-sourcemaps.sh`, AECI-646) — runs **after the build and before the SSR deploy**, and that order is load-bearing: `posthog-cli sourcemap inject` rewrites the built JS to add the `//# chunkId=…` comment PostHog matches on, so deploying the pre-inject bundle would upload maps that can never be matched. Angular's `production` configuration emits **hidden** maps (no `sourceMappingURL` comment in the served JS), and **every exit path of the script deletes the `.map` files** — including the warn-skip when `POSTHOG_CLI_API_KEY` is absent. That deletion is the safety property, not a tidy-up: `dist/browser` is uploaded verbatim as Worker assets, so a surviving `.map` would publish the whole app source at a guessable URL.
 6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config). **No observability push step at all** — AECI-640 deleted the four PostHog ones and AECI-651 deleted the Datadog RUM credential push; the publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY` in `wrangler.jsonc`
@@ -428,7 +430,7 @@ The application database is **Cloudflare D1**, with migrations generated by **dr
 
 ### 5.1 Migration source
 
-The schema source of truth is the Drizzle schema `apps/api/src/db/schema.ts`. Migration SQL is generated by `pnpm --filter @aeci/api db:generate` (drizzle-kit) into `apps/api/migrations/`, committed alongside the schema change. Applied with `wrangler d1 migrations apply <db> [--remote]` — locally via `pnpm db:migrate:local`, in CI via `deploy.yml` (staging) / `promote-to-prod.yml` (production). There is no `DATABASE_URL` / `DIRECT_URL` / `supabase db push` — Prisma was removed entirely (AECI-278) and the API Worker reaches D1 through its native `DB` binding.
+The schema source of truth is the Drizzle schema `apps/api/src/db/schema.ts`. Migration SQL is generated by `pnpm --filter @aeci/api db:generate` (drizzle-kit) into `apps/api/migrations/`, committed alongside the schema change. Applied with `wrangler d1 migrations apply <db> [--remote]` — locally via `pnpm db:migrate:local`, in CI via `deploy.yml` (**preview** + **staging**, two independent jobs) / `promote-to-demo.yml` (**demo**) / `promote-to-prod.yml` (**production**). All four deployed tiers go through `scripts/d1-apply-migrations.sh`. There is no `DATABASE_URL` / `DIRECT_URL` / `supabase db push` — Prisma was removed entirely (AECI-278) and the API Worker reaches D1 through its native `DB` binding.
 
 ### 5.2 Forward-only
 
@@ -440,7 +442,8 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
 
 ### 5.3 Migration ordering
 
-- Migrations apply to staging at merge-to-main
+- Migrations apply to **preview and staging** at merge-to-main (two independent `deploy.yml` jobs — `migrate-preview` and `deploy-staging`)
+- Migrations apply to demo at the demo promote
 - Migrations apply to production at production approval
 - Migrations are typically applied **before** the new Worker code is deployed, to ensure the database is ready for the new code
 - Migrations that can't be safely run with old code still deployed require feature flags or a two-phase migration:

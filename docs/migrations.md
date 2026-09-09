@@ -65,9 +65,9 @@ Rules:
   The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   Airtable via `POST /api/promote`).
-- **Per-env apply** (staging/demo/production) is wired into CI in Phase 5
-  (AECI-256): the deploy lanes (`deploy.yml`, `promote-to-demo.yml`,
-  `promote-to-prod.yml`) run `scripts/d1-apply-migrations.sh <db> <env>`, which
+- **Per-env apply** (**all four tiers**) is wired into CI: the deploy lanes
+  (`deploy.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`) run
+  `scripts/d1-apply-migrations.sh <db> <env>`, which
   applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
   reconciles the three reference-data seeds. The helper **retries each remote D1
   command** on a transient Cloudflare D1 API internal error (`[code: 7500]`) —
@@ -84,12 +84,28 @@ Rules:
   leaves the tree dirty under `apps/api/migrations/` — i.e. you edited `schema.ts` but forgot
   to generate + commit the migration. Fix by running `db:generate` and committing the new
   `apps/api/migrations/*` (including `meta/`).
-- **Remote `aeci-app-preview` is NOT migrated by CI.** The per-env apply above covers staging,
-  demo and production only, but PR previews bind the shared `env.preview` D1 — so it drifts
-  until someone applies by hand:
+- **Remote `aeci-app-preview` tracks `main`'s head, and CI owns it (AECI-828).** Every PR
+  preview binds the *same* remote D1 (the `env.preview` block in `apps/api/wrangler.jsonc`),
+  so it is a shared database, not a per-PR one. `deploy.yml`'s **`migrate-preview`** job runs
+  the same `scripts/d1-apply-migrations.sh aeci-app-preview preview` on every push to `main`.
+  It is gated to `main` (pushes to `admin-panel` carry migrations that are not on the
+  production line) and `needs: [unit-tests]`, so nothing reaches a real database while
+  `migration-0027.spec.ts` is red.
+  **What this does NOT do is run ahead of `main`.** A PR that *adds* a migration still
+  previews against the pre-merge schema — the deliberate Option-1 trade-off recorded in
+  `docs/environments.md` §"PR previews". Applying an unmerged branch's migrations would push
+  its schema into the database every other PR preview reads. If your PR needs its own
+  migration live to be reviewable, apply it by hand and say so on the PR:
   `cd apps/api && pnpm exec wrangler d1 migrations apply aeci-app-preview --env preview --remote`.
-  Do it as part of any PR that adds a migration. (`db:migrate:local` also names
-  `aeci-app-preview`, but that is the *local* SQLite copy — a different database.)
+  (`db:migrate:local` also names `aeci-app-preview`, but that is the *local* SQLite copy — a
+  different database.)
+  **History worth keeping.** Until 2026-09-09 nothing migrated this tier and the rule was
+  "apply it by hand on any migration-bearing PR". That rule failed 14 times in a row: preview
+  sat at `0015` against a repo head of `0029`, so `page_views.is_operator` did not exist and
+  every surface downstream of it — `NOT_INTERNAL`, the digest, `/admin/overview`,
+  `/admin/traffic`, the swarm detectors, `/admin/connectors`, both page-view backfills —
+  failed on preview *while reading as a code bug on the PR*. AECI-688 lost time to exactly
+  that. A convention nobody executes is not a control; that is why there is a job now.
 
 #### ⚠️ When drizzle-kit wants to recreate a table, hand-author the ALTERs instead
 
@@ -260,12 +276,27 @@ git show origin/stage-2:apps/api/migrations/0022_powerful_killraven.sql \
 grep -v '^--' apps/api/migrations/0027_powerful_killraven.sql | shasum -a256
 ```
 
-**PENDING on remote `aeci-app-preview` — the last tier that still records the old names.** It is
-not CI-migrated, so nothing has corrected it. (`aeci-app-stage2` was the other one; it was
-repaired 2026-09-03 and the tier has since been deleted entirely — AECI-808.) **No data is at
-risk**: the next `d1-apply-migrations.sh` simply fails, loudly, on the first renamed file rather
-than doing anything destructive. Census first, then rewrite — **descending**, so no intermediate
-name collides with one still in use (`0021`/`0022` are both an old name *and* a new name in this
+**DONE on remote `aeci-app-preview` — 2026-09-09, AECI-828.** It was the last tier still
+recording the old names, because nothing migrated it. (`aeci-app-stage2` was the other one; it
+was repaired 2026-09-03 and the tier has since been deleted entirely — AECI-808.) The census
+found exactly **two** stray rows, not seven — preview had only ever applied two of the renumbered
+set, on 2026-08-14:
+
+| recorded name | rewritten to |
+|---|---|
+| `0016_lyrical_leper_queen.sql` | `0021_lyrical_leper_queen.sql` |
+| `0017_slim_iron_lad.sql` | `0022_slim_iron_lad.sql` |
+
+That is the whole reason the census comes first: the generic seven-pair loop below would have
+reported `changes: 0` on five of its pairs, which is correct behaviour and not a failure. The
+schema confirmed the ledger was truthful before the rewrite — `claims.origin` and
+`product_versions` were both already present, so these were renames to record, not migrations to
+re-run. Full run record: `scripts/ops/2026-09-preview-d1-catchup/README.md`.
+
+**Kept because the procedure is the reusable part.** **No data is at risk**: the next
+`d1-apply-migrations.sh` simply fails, loudly, on the first renamed file rather than doing
+anything destructive. Census first, then rewrite — **descending**, so no intermediate name
+collides with one still in use (`0021`/`0022` are both an old name *and* a new name in this
 set):
 
 Two things learned running this on `stage2`, both of which apply here: the tier may have only
@@ -497,7 +528,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 
 ## 8. CI / CD
 
-For the **app database (D1)** this is the live story, not this legacy section: CI applies migrations with `wrangler d1 migrations apply` on merge to `main` (staging) and on prod approval (production) — see [§0](#0-d1--drizzle-the-target-workflow) and `docs/CICD_PLAN.md` §5.
+For the **app database (D1)** this is the live story, not this legacy section: CI applies migrations with `wrangler d1 migrations apply` on merge to `main` (**preview** and **staging**, in the `migrate-preview` and `deploy-staging` jobs), on demo promote (**demo**) and on prod approval (**production**) — all four tiers, all through `scripts/d1-apply-migrations.sh`. See [§0](#0-d1--drizzle-the-target-workflow) and `docs/CICD_PLAN.md` §5.
 
 The legacy `supabase db push` flow described here applied to the Postgres app schema and is retired (AECI-278). Any remaining Supabase **Auth** baseline reconciliation is the manual `supabase migration repair` decommission step (§10), not a CI auto-apply.
 

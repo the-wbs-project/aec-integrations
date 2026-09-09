@@ -101,9 +101,12 @@ in this issue's plan. The script's README now carries a run log. Separately, six
 comments said the snapshot cron writes **19 keys**; it writes **20** — AECI-745 added a ninth flow key and no
 count was updated.
 
-**Preview was not corrected and is not correctable today.** Its D1 sits at migration `0015` against the
-repo's `0028`, so `page_views.is_operator` does not exist and every statement in the predicate fails. That is
-the standing preview-migration gap.
+**Preview was not corrected in this run — closed later the same day by AECI-828.** Its D1 sat at migration
+`0015` against a repo head of `0029`, so `page_views.is_operator` did not exist and every statement in the
+predicate failed. AECI-828 repaired the migration ledger, applied the 12 pending migrations, ran the `is_bot`
+and `is_operator` backfills, and completed this backfill for preview: 624 `metrics_daily` rows across 78 days,
+all gap fill (preview's `metrics_daily` was entirely empty), and a re-run reports no change on all eight
+series. `deploy.yml`'s `migrate-preview` job now keeps the tier current.
 
 **What was deliberately not done: the duplicate `page_views` rows** (AECI-743). The stored counts are
 `count(*)` before and after. The 00:15 cron has been counting duplicates since this table shipped, so the
