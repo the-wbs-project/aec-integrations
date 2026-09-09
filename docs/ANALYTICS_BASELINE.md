@@ -333,7 +333,9 @@ numbers), and again at launch.
 > `ops:backfill-metrics-daily` was re-run. **Done 2026-09-09 (AECI-688)** on production, staging and
 > demo: six production days of `traffic.page_views_human` moved, net **−51**, with 2026-08-26 going
 > 102 → 80. Any figure in this file quoted from one of those days is high by that amount. Preview was
-> not corrected — its D1 sits at migration `0015` and has no `is_operator` column.
+> not corrected in that run — its D1 sat at migration `0015` and had no `is_operator` column. **AECI-828
+> closed that later the same day**: preview was brought to head and backfilled (51 `is_operator` rows,
+> 624 `metrics_daily` rows), and `deploy.yml`'s `migrate-preview` job now keeps the tier current.
 
 ### Decomposing the residual — what survives the automation filter (2026-08-31, AECI-741)
 

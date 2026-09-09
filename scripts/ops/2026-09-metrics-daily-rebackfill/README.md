@@ -50,7 +50,7 @@ so a missed run never corrects it.
 | production | 2026-06-23 → 2026-09-08 | 6 days, net **−51** | 2 days, −2 | 6 days, −6 | clean |
 | staging | first-day → 2026-09-08 | 3 days, +10 (gap fill) | 4 days, +569 | 3 days, +8 | clean |
 | demo | first-day → 2026-09-08 | 7 days, net −52 | 2 days, −2 | 7 days, −7 | clean |
-| preview | — | **not run** | — | — | — |
+| preview | 2026-06-23 → 2026-09-08 | 78 days, **+624 rows** (all gap fill) | — | — | clean |
 
 Production, day by day:
 
@@ -68,10 +68,11 @@ cron's audit-derived values already agreed with the `created_at` reconstruction,
 side effect a full-range run risks did not materialise. Staging's figures are gap fills,
 not corrections: it had days with no stored row at all.
 
-**Preview could not be run and is not blocked on this issue.** Its D1 is at migration
-`0015` against the repo's `0028`, so `page_views.is_operator` does not exist and every
-statement in the predicate fails. That is the standing preview-migration gap, not a
-property of this backfill — tracked in **AECI-828**.
+**Preview could not be run here — done 2026-09-09 under AECI-828.** Its D1 was at migration
+`0015` against a repo head of `0029`, so `page_views.is_operator` did not exist and every
+statement in the predicate failed. That was the standing preview-migration gap, not a
+property of this backfill. AECI-828 closed it: ledger repair, 12 migrations, both page-view
+backfills, then this one. See `scripts/ops/2026-09-preview-d1-catchup/README.md`.
 
 ## Verifying it, then and later
 
