@@ -184,9 +184,15 @@ Stated plainly so nobody reads a gap as a pass.
 | Dialog focus management, review-form `Tab` walk, mobile viewport | Coverage — needs a **local seeded** run | [AECI-832](https://linear.app/aec-integrations/issue/AECI-832) |
 | H1–H4 — VoiceOver / NVDA adjudication | Human | **AECI-244 itself** — run the checklist §6/§7 scripts, then fill the §4 run log |
 
-**AECI-244 does not close on this audit.** The machine layer is done and the defects it found are filed.
-What remains on the issue is the speech layer: the §6 VoiceOver and §7 NVDA walkthroughs, about ten
-minutes each, plus a dated §4 run-log entry.
+All four defect and coverage issues live in the **Stage 3** Linear project, seeded 2026-09-09 by
+operator decision. Note the divergence so a later reader does not take it for a filing error:
+`docs/STAGE_2_5_SPEC.md` §5 and the `docs/STAGE_3_SPEC.md` §3 triage table had both scoped the AECI-244
+close-out to Stage 2.5. Both are annotated, and `STAGE_3_SPEC.md` §2.5 now carries the four issues.
+
+**AECI-244 does not close on this audit, and it does not move to Stage 3.** The machine layer is done
+and the defects it found are filed. What remains on the issue is the speech layer: the §6 VoiceOver and
+§7 NVDA walkthroughs, about ten minutes each, plus a dated §4 run-log entry. That stays where
+`STAGE_2_5_SPEC.md` §5 puts it, because it is a human run rather than a code change.
 
 ---
 

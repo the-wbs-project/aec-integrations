@@ -52,6 +52,30 @@ The AECI-636 long-term direction: "tools that connect to what I already run" bea
 
 The non-feature backlog that fits Stage 3's operating posture, batched loosely: **AECI-533** (drop the 19 review-app-only D1 columns), **AECI-590** (reverse-proxy PostHog through our own domain), **AECI-597** (hardcoded-color-literal lint rule), **AECI-602** (plan check → CI sticky comment, once the FP rate is known), **AECI-555** (re-evaluate Cloudflare CI on Workflows at Artifacts GA — spike, trigger-gated), **AECI-620** (slim CLAUDE.md; if not taken as the 2.5 rider), **AECI-621** (spec-grill skill — *useful for authoring the Stage 3 companion specs themselves; consider building it first*). The **AECI-637 temp-env decision** that used to sit on this list is **resolved and off it**: `stage-2` merged into `main` on 2026-09-03, so the `stage2` mirror lost the branch it mirrored, and it was torn down under **AECI-808** rather than being carried through Stage 2.1 and 2.5.
 
+### 2.5 Accessibility remediation (added 2026-09-09)
+
+**Not in the original outline** — added when the AECI-244 public-site pass finally ran and produced
+findings that needed a home. Operator decision routed them here rather than to Stage 2.5 §5, where the
+triage table above had scoped the AECI-244 close-out. That divergence is recorded in both documents
+and in each issue, so it does not later read as a filing error.
+
+Evidence for all four: **`docs/ACCESSIBILITY_AUDIT.md`** (production `44aba9cf`, 2026-09-09).
+
+| Issue | What | Severity |
+|---|---|---|
+| **AECI-829** | `/auth/login`, `/products/:slug/review` and `/account` replace the view on a state change with no live region and no focus move. **WCAG 2.1 4.1.3 Status Messages, Level AA**, on the two primary conversion paths. | Serious |
+| **AECI-830** | Three links with the identical accessible name "Source" pointing to three different destinations; two `role="search"` landmarks, neither named. | Serious |
+| **AECI-831** | Minor set of five: `disabled` rather than `aria-disabled` submit buttons, unnamed integration tables, no `aria-current` on the section nav, no new-tab warning on "Visit website", duplicated `aria-current` in the admin nav. | Minor |
+| **AECI-832** | The coverage the production run could not reach: dialog focus management on all four dialogs, the review-form `Tab` walk, and the mobile viewport. Needs a **local seeded** run. | Coverage |
+
+**The point worth carrying forward.** None of these is catchable by the automated gates, and AECI-829's
+class is structurally invisible to axe: the defect exists only *after* a form submission, and axe never
+submits. When these are fixed, the regression assertion belongs in the e2e spec — submit, then assert
+focus or the announcement — not in a new axe rule. Each issue names the assertion and the spec file.
+
+**Still owned by AECI-244, not by this stage:** the VoiceOver and NVDA speech layer, which is a human
+run against the scripted walkthroughs in `docs/a11y-manual-testing-checklist.md` §6/§7.
+
 ## 3. Backlog triage (2026-08-24)
 
 Every open, stage-less or misplaced issue, with its proposed destination. Marketing project excluded per the planning instruction; Legal project stays its own track (AECI-309…312 are deliberate deferred decisions, not build work); AECI-596 stays with the admin-panel track (AECI-572).
@@ -70,7 +94,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |
 | AECI-623 capability convergence | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
 | AECI-633 vendor-portal SR pass | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
-| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** (may share a sitting with AECI-633). Machine layer discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`; VoiceOver/NVDA + dialogs still open |
+| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** — but only the VoiceOver/NVDA run itself. The machine layer was discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`, and **the four defect/coverage issues it produced were routed to Stage 3** (see §2.5 below) |
 | AECI-598 / 599 / 600 / 601 docs | no project | **Stage 2.5 §6** |
 | AECI-281 moderation refinement | Stage 2 Build | **Stage 3 §2.1** |
 | AECI-340 / 341 / 342 / 343 / 344 | pSEO project | **Stage 3 §2.2** (project adopted as the pillar) |

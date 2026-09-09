@@ -64,7 +64,7 @@ Two items moved forward to Stage 2.1 on 2026-08-31 (both are vendor-portal polis
 
 | Issue | What it closes | Priority |
 |---|---|---|
-| **AECI-244** | The outstanding **manual screen-reader pass** over the public site (the Stage-1 Phase 7.10 pass that never ran), per `docs/a11y-manual-testing-checklist.md` and logged. May be run in the same sitting as AECI-633 (Stage 2.1) if calendars align — the former pairing was a scheduling convenience, not a dependency. **Partly discharged 2026-09-09** by a tool-assisted public-site pass against production `44aba9cf` → `docs/ACCESSIBILITY_AUDIT.md`: the keyboard layer is clean, and it found **three serious WCAG 4.1.3 (AA) status-message failures** plus seven lesser items, now filed. **What remains here** is the part a browser cannot do: the VoiceOver and NVDA speech layer (scripted in checklist §6/§7), dialog focus management, and the review-form `Tab` walk — the last two need a **local seeded** run, because production's moderation queue is empty and its destructive dialogs must not be opened. | Medium |
+| **AECI-244** | The outstanding **manual screen-reader pass** over the public site (the Stage-1 Phase 7.10 pass that never ran), per `docs/a11y-manual-testing-checklist.md` and logged. May be run in the same sitting as AECI-633 (Stage 2.1) if calendars align — the former pairing was a scheduling convenience, not a dependency. **Partly discharged 2026-09-09** by a tool-assisted public-site pass against production `44aba9cf` → `docs/ACCESSIBILITY_AUDIT.md`: the keyboard layer is clean, and it found **three serious WCAG 4.1.3 (AA) status-message failures** plus seven lesser items, now filed. **What remains here** is only the part a browser cannot do: the **VoiceOver and NVDA speech layer**, scripted in checklist §6/§7 — about ten minutes per screen reader, then a dated §4 run-log entry. **Everything else moved to Stage 3 on 2026-09-09 by operator decision** (AECI-829 the 4.1.3 class, AECI-830 links/landmarks, AECI-831 the minor set, AECI-832 the local-seeded run that covers dialog focus management, the review-form `Tab` walk and the mobile viewport). Those four are defect and coverage work, not this interlude's punch list. | Medium |
 
 ## 6. Docs & process de-stale sweep
 
@@ -117,7 +117,7 @@ Three planned surfaces overlap, and without a rule they duplicate:
 - [ ] `curl` of `/products` + one page per taxonomy type on production returns product links and no error string (AECI-618 AC), locked by an e2e assertion.
 - [ ] `POST /admin/purge` succeeds on every tier; GDPR erasure deletes or loudly fails; the reconcile sweep writes audit rows.
 - [ ] Procurement category live; retract semantics shipped; the invariant guard can fire.
-- [ ] The public-site screen-reader pass (AECI-244) logged; the four-doc de-stale sweep merged.
+- [ ] The public-site screen-reader pass (AECI-244) logged — **the machine half is done** (`docs/ACCESSIBILITY_AUDIT.md`, 2026-09-09); what gates this box is the VoiceOver/NVDA run and its §4 run-log entry. The defects it found are **Stage 3** (AECI-829…832), so they do not gate 2.5. The four-doc de-stale sweep merged.
 - [ ] `/methodology` live, indexable and in the sitemap, with every assertion on it traceable to shipped behaviour (§7.1).
 
 ## 9. Out of scope
