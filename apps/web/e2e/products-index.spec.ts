@@ -47,6 +47,32 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(html, 'view toggle buttons must render (aria-pressed)').toMatch(/aria-pressed/);
   });
 
+  // AECI-803 — page 2+ self-canonicalises rather than pointing back at page 1.
+  // Data-independent: the canonical is composed from the URL, so this holds on an
+  // empty local DB as well as a seeded one.
+  test('page 2 self-canonicalises; a facet filter still canonicalises to /products', async ({
+    request,
+  }) => {
+    const paged = await request.get('/products?page=2');
+    expect(paged.status()).toBe(200);
+    const pagedOrigin = new URL(paged.url()).origin;
+    const pagedHtml = await paged.text();
+    expect(
+      pagedHtml.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/)?.[1],
+      'canonical on ?page=2 must self-reference, not point at page 1',
+    ).toBe(`${pagedOrigin}/products?page=2`);
+
+    // Facets stay stripped: their controls emit no `href`, so those URLs are not
+    // crawlable and must not become canonical targets.
+    const faceted = await request.get('/products?category_id=00000000-0000-4000-8000-000000030001');
+    expect(faceted.status()).toBe(200);
+    const facetedOrigin = new URL(faceted.url()).origin;
+    const facetedHtml = await faceted.text();
+    expect(facetedHtml.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/)?.[1]).toBe(
+      `${facetedOrigin}/products`,
+    );
+  });
+
   test('emits §8.3 cache headers — s-maxage=300, max-age=0, Cache-Tag for /products', async ({
     request,
   }) => {

@@ -74,13 +74,17 @@ function buildClient(
   return { request: vi.fn(request) as ServerApiClient['request'] };
 }
 
-function buildRouteSnapshot(slug: string): ActivatedRouteSnapshot {
+function buildRouteSnapshot(
+  slug: string,
+  queryParams: Record<string, string> = {},
+): ActivatedRouteSnapshot {
   // `queryParamMap` is always present on a real `ActivatedRouteSnapshot`, and the
   // AECI-746 grid prefetch reads it for `?page=`/`?sort=`. Omitting it made this
-  // fake diverge from the type it claims to be.
+  // fake diverge from the type it claims to be. Since AECI-803 the resolver reads
+  // `?page=` from it a second time, to build the canonical.
   return {
     paramMap: convertToParamMap({ slug }),
-    queryParamMap: convertToParamMap({}),
+    queryParamMap: convertToParamMap(queryParams),
   } as unknown as ActivatedRouteSnapshot;
 }
 
@@ -93,6 +97,7 @@ function setup(opts: {
   request?: Request | null;
   meta?: Partial<MetaService>;
   slug?: string;
+  queryParams?: Record<string, string>;
   resolver?: typeof categoryBrowseResolver;
 }): {
   run: () => Promise<TaxonomyTermDetail | null>;
@@ -117,7 +122,7 @@ function setup(opts: {
     httpMock: TestBed.inject(HttpTestingController),
     run: () =>
       TestBed.runInInjectionContext(() =>
-        resolver(buildRouteSnapshot(opts.slug ?? 'project-management'), STATE),
+        resolver(buildRouteSnapshot(opts.slug ?? 'project-management', opts.queryParams), STATE),
       ) as Promise<TaxonomyTermDetail | null>,
   };
 }
@@ -170,6 +175,57 @@ describe('categoryBrowseResolver — server path', () => {
 
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.taxonomy-browse:category:project-management']).toEqual(term);
+  });
+
+  // AECI-803 — the browse grid is paginated, so page 2+ self-canonicalises rather
+  // than telling the crawler it is a duplicate of page 1. `?page=` is the only
+  // param that survives; the facet ids stay stripped because nothing links to them.
+  it('self-canonicalises page 2 and strips the facet params beside it', async () => {
+    const term = buildTerm();
+    const setEntityMeta = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => term));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request(
+        'https://aecintegrations.com/categories/project-management?page=2&audience_id=abc',
+      ),
+      queryParams: { page: '2', audience_id: 'abc' },
+      meta: { setEntityMeta } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(setEntityMeta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canonical: 'https://aecintegrations.com/categories/project-management?page=2',
+      }),
+    );
+  });
+
+  it('canonicalises ?page=1 to the bare term URL', async () => {
+    const term = buildTerm();
+    const setEntityMeta = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => term));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/categories/project-management?page=1'),
+      queryParams: { page: '1' },
+      meta: { setEntityMeta } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(setEntityMeta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canonical: 'https://aecintegrations.com/categories/project-management',
+      }),
+    );
   });
 
   it('returns null on NOT_FOUND, sets status 404 + noindex meta, no pageView/embedded', async () => {

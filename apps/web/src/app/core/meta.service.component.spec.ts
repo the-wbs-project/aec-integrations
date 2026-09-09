@@ -450,3 +450,76 @@ describe('MetaService.setPairJsonLd', () => {
     expect(JSON.parse(raw).about[0].name).toBe('</script><script>alert(1)</script>');
   });
 });
+
+// ── AECI-803 ────────────────────────────────────────────────────────────────
+// `setEntityMeta` is the ONE canonical path that keeps a query param, and only
+// `page`, so the paginated listings (`/products` and the four taxonomy browse
+// routes) self-canonicalise instead of every page declaring itself a duplicate of
+// page 1. Everything else it serves — detail, pair, taxonomy index — hands it a
+// hardcoded query-free path, so the allowlist strip is indistinguishable from the
+// full strip there. Spec: STAGE_1_PHASE_2_SPEC.md §9.1.
+
+describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
+  beforeEach(resetHead);
+
+  const ORIGIN = 'https://www.aecintegrations.com';
+
+  function canonicalOf(doc: Document): string | null {
+    return doc.head.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null;
+  }
+
+  function ogUrlOf(doc: Document): string | null {
+    return doc.head.querySelector('meta[property="og:url"]')?.getAttribute('content') ?? null;
+  }
+
+  it('keeps ?page= on a listing canonical, and og:url follows it', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'index',
+      name: 'Products',
+      description: 'The directory.',
+      canonical: `${ORIGIN}/products?page=2`,
+    });
+
+    expect(canonicalOf(doc)).toBe(`${ORIGIN}/products?page=2`);
+    // og:url must agree with the canonical or the two disagree about which URL
+    // this document is.
+    expect(ogUrlOf(doc)).toBe(`${ORIGIN}/products?page=2`);
+  });
+
+  it('strips facet params, keeping only page', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'category',
+      name: 'Project Management',
+      description: 'Tools.',
+      canonical: `${ORIGIN}/categories/project-management?category_id=abc&page=2&sort=name`,
+    });
+
+    expect(canonicalOf(doc)).toBe(`${ORIGIN}/categories/project-management?page=2`);
+  });
+
+  it('strips a facet-only query back to the bare listing URL', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'index',
+      name: 'Products',
+      description: 'The directory.',
+      canonical: `${ORIGIN}/products?category_id=abc`,
+    });
+
+    expect(canonicalOf(doc)).toBe(`${ORIGIN}/products`);
+  });
+
+  it('leaves a detail canonical untouched, fragment and tracking params included', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'product',
+      name: 'Procore',
+      description: 'Construction management.',
+      canonical: `${ORIGIN}/products/procore?utm_source=email#reviews`,
+    });
+
+    expect(canonicalOf(doc)).toBe(`${ORIGIN}/products/procore`);
+  });
+});

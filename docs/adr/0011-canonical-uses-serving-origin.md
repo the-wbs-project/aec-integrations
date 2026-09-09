@@ -56,6 +56,7 @@ Alternatives considered:
 - ➖ Canonicals are environment-dependent. Tests must assert the **serving origin**, not a fixed string (done). Any future canonical-asserting test must follow suit.
 - ➖ The apex literal survives only as the no-request fallback and in two documented exceptions (404, `/preview/*`); a reviewer scanning for `aecintegrations.com` will still find those — they are intentional.
 - ➖ If a non-prod tier ever became publicly crawlable (Access removed), its self-canonical would be indexable. The mitigation is the Access gate, not the canonical; revisit if that gate changes.
+- ➖ **The "(no query params)" quote in Context is no longer literally true (AECI-803, 2026-09-09).** `page` survives on the five paginated listing routes, which now self-canonicalise per page. The *serving-origin* decision this ADR makes is untouched — `listingCanonicalUrl()` composes the path and hands it to `canonicalUrl()`, so there is still exactly one construction point. The query-param contract belongs to `STAGE_1_PHASE_2_SPEC.md` §9.1a, not here.
 
 ## Amendment (2026-07-05): canonical host is `www.`
 
