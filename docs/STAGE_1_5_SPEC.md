@@ -1174,6 +1174,18 @@ mid-flight will make a local decision about a cross-cutting contract.
   connector variant targets *"«connector» for construction"*-class queries. **Pair-shaped queries
   stay on pair pages**, which Addendum A §11.2 owns — stated as a boundary so the two addenda do
   not compete for the same SERP with two different pages.
+  - ⚠️ **Amended by AECI-802 (2026-09-09): "one shape for every role" is no longer true, and the
+    fallback is no longer the vendor's blurb.** The description is now a four-rung ladder
+    (`STAGE_1_PHASE_2_SPEC.md` §9.1). **This variant is rung 1 and is unchanged** — same gate, same
+    message id, same reasoning, and it still wins over everything below it. What changed is what a
+    non-connector page falls to: rung 2 composes a sentence from the product's own integration data
+    (*"Connecteam has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and
+    Xero."*), and only a product with nothing to count reaches the vendor blurb at rung 3. The
+    sub-bullet below that reads "it falls back to the `STAGE_1_PHASE_2_SPEC.md` §9.1 default" is
+    still correct by reference — that default is now the ladder, not the blurb.
+    **The JSON-LD carve-out survives intact and applies to the new rung too**: rung 2 varies the
+    SERP snippet and never `SoftwareApplication.description`. AECI-802 added the same rule on the
+    vendor side, where `buildVendorJsonLd` keeps `Organization.description` raw.
   - **Gated on `product_role === 'connector' && N > 0`.** Unlike the hero line this one *is*
     role-scoped, as written, and it reduces to a decision about a single page: Datagrid has no
     powered edges so it never trips `N > 0`, leaving AnyWare Apps as the only hybrid in range — and

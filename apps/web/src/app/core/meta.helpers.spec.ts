@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
+import type {
+  ProductDetail,
+  ProductIntegrationItem,
+  ProductLink,
+  ProductListItem,
+  VendorDetail,
+} from '@aeci/shared';
 
 import {
   CANONICAL_QUERY_ALLOWLIST,
   DEFAULT_OG_IMAGE,
   HOME_OG_IMAGE,
   META_DESCRIPTION_MAX,
+  META_DESCRIPTION_MAX_NAMES,
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
@@ -16,6 +23,9 @@ import {
   buildSiteOrganizationLd,
   buildVendorJsonLd,
   buildWebSiteJsonLd,
+  composeEntityDescription,
+  formatNameList,
+  integrationPartnerNames,
   isBrowseKind,
   ogTypeForKind,
   originOf,
@@ -23,6 +33,7 @@ import {
   stripQueryParams,
   stripQueryParamsExcept,
   truncateAtWordBoundary,
+  vendorProductNames,
 } from './meta.helpers';
 
 /** A pair endpoint (`ProductListItem`, not `ProductDetail`). Defaults to Revit. */
@@ -717,5 +728,316 @@ describe('buildPairBreadcrumbLd', () => {
       other: makePairProduct(),
     });
     expect(page.breadcrumb['@id']).toBe(crumbs['@id']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AECI-802 — composed entity descriptions (Phase 2 Spec §9.1)
+// ---------------------------------------------------------------------------
+
+function makeLink(slug: string, name: string): ProductLink {
+  return { id: `id-${slug}`, slug, name, logo_url: null };
+}
+
+/** One `ProductIntegrationItem` between two products, in the page's frame. */
+function makeEdge(source: ProductLink, target: ProductLink): ProductIntegrationItem {
+  return {
+    id: `edge-${source.slug}-${target.slug}`,
+    name: `${source.name} to ${target.name}`,
+    mechanism_kind: 'native',
+    mechanism_name: null,
+    direction: 'one-way',
+    source,
+    target,
+    via: null,
+    context_direction: 'outbound',
+    powered_by_product: null,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+  };
+}
+
+function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
+  const base: ProductDetail = {
+    id: '00000000-0000-0000-0000-0000000000f1',
+    slug: 'connecteam',
+    name: 'Connecteam',
+    logo_url: null,
+    product_role: 'application',
+    vendor: null,
+    primary_category: null,
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+    description: null,
+    website: null,
+    tool_integrations_url: null,
+    api_docs_url: null,
+    has_api_docs: false,
+    categories: [],
+    audiences: [],
+    phases: [],
+    trades: [],
+    usefulness: null,
+    integrations_as_source: [],
+    integrations_as_target: [],
+    integrations_as_connector: [],
+    related_products: [],
+    reviews: [],
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+  };
+  return { ...base, ...overrides };
+}
+
+function makeListedProduct(slug: string, name: string, integrationCount: number): ProductListItem {
+  return {
+    id: `id-${slug}`,
+    slug,
+    name,
+    logo_url: null,
+    product_role: 'application',
+    vendor: null,
+    primary_category: null,
+    integration_count: integrationCount,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+  };
+}
+
+function makeProductVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
+  const base: VendorDetail = {
+    id: '00000000-0000-0000-0000-0000000000b0',
+    slug: 'autodesk',
+    company_name: 'Autodesk',
+    logo_url: null,
+    verified: false,
+    headquarters: null,
+    founded_year: null,
+    product_count: 0,
+    integration_count: 0,
+    review_count: 0,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+    description: null,
+    website: null,
+    linkedin_url: null,
+    x_url: null,
+    facebook_url: null,
+    instagram_url: null,
+    youtube_url: null,
+    products: [],
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+  };
+  return { ...base, ...overrides };
+}
+
+const SELF = makeLink('connecteam', 'Connecteam');
+const JOBBER = makeLink('jobber', 'Jobber');
+const XERO = makeLink('xero', 'Xero');
+
+describe('integrationPartnerNames', () => {
+  it('returns an empty list when the product has no integrations', () => {
+    expect(integrationPartnerNames(makeDescribedProduct())).toEqual([]);
+  });
+
+  it('collects partners from both relation arrays and excludes the page product', () => {
+    const product = makeDescribedProduct({
+      integrations_as_source: [makeEdge(SELF, XERO)],
+      integrations_as_target: [makeEdge(JOBBER, SELF)],
+    });
+    expect(integrationPartnerNames(product)).toEqual(['Jobber', 'Xero']);
+  });
+
+  it('reads the partner from whichever endpoint is not the page product', () => {
+    // A connector-evidenced pair is mapped in by endpoint (a/b), not by
+    // direction, so the page product can sit on either side of a row filed
+    // under `integrations_as_source`.
+    const product = makeDescribedProduct({
+      integrations_as_source: [makeEdge(JOBBER, SELF)],
+    });
+    expect(integrationPartnerNames(product)).toEqual(['Jobber']);
+  });
+
+  it('deduplicates a partner reached by several edges', () => {
+    const product = makeDescribedProduct({
+      integrations_as_source: [makeEdge(SELF, JOBBER)],
+      integrations_as_target: [makeEdge(JOBBER, SELF)],
+    });
+    expect(integrationPartnerNames(product)).toEqual(['Jobber']);
+  });
+
+  it('returns nothing for a product whose only edge points at itself', () => {
+    const product = makeDescribedProduct({
+      integrations_as_source: [makeEdge(SELF, SELF)],
+    });
+    expect(integrationPartnerNames(product)).toEqual([]);
+  });
+
+  it('sorts case-insensitively so the rendered snippet is deterministic', () => {
+    // The API applies no `orderBy` to these relations, so the sort here is the
+    // only thing keeping a cached description stable across requests.
+    const product = makeDescribedProduct({
+      integrations_as_source: [
+        makeEdge(SELF, makeLink('zoho', 'zoho Books')),
+        makeEdge(SELF, makeLink('asana', 'Asana')),
+        makeEdge(SELF, makeLink('bluebeam', 'bluebeam Revu')),
+      ],
+    });
+    expect(integrationPartnerNames(product)).toEqual(['Asana', 'bluebeam Revu', 'zoho Books']);
+  });
+
+  it('breaks a case-only tie on a stable key rather than on arrival order', () => {
+    // `compareText` is full-strength, so case still settles a tie it never lets
+    // outrank a letter difference. A weaker comparator would call these two
+    // equal, leave the pair in the API's unordered relation order, and let a
+    // cached description differ between two identical requests.
+    const forward = makeDescribedProduct({
+      integrations_as_source: [
+        makeEdge(SELF, makeLink('revu', 'Revu')),
+        makeEdge(SELF, makeLink('revu-lower', 'revu')),
+      ],
+    });
+    const reversed = makeDescribedProduct({
+      integrations_as_source: [
+        makeEdge(SELF, makeLink('revu-lower', 'revu')),
+        makeEdge(SELF, makeLink('revu', 'Revu')),
+      ],
+    });
+    expect(integrationPartnerNames(forward)).toEqual(integrationPartnerNames(reversed));
+  });
+
+  it('ignores the connector that delivers an edge', () => {
+    // `via` names the iPaaS in the middle, not a tool the product connects to.
+    const edge = { ...makeEdge(SELF, JOBBER), via: makeLink('agave', 'Agave') };
+    const product = makeDescribedProduct({ integrations_as_source: [edge] });
+    expect(integrationPartnerNames(product)).toEqual(['Jobber']);
+  });
+});
+
+describe('vendorProductNames', () => {
+  it('returns an empty list for a vendor with no products', () => {
+    expect(vendorProductNames(makeProductVendor())).toEqual([]);
+  });
+
+  it('orders most-integrated first, alphabetically within a tie', () => {
+    const vendor = makeProductVendor({
+      products: [
+        makeListedProduct('civil-3d', 'Civil 3D', 0),
+        makeListedProduct('revit', 'Revit', 40),
+        makeListedProduct('autocad', 'AutoCAD', 0),
+      ],
+    });
+    expect(vendorProductNames(vendor)).toEqual(['Revit', 'AutoCAD', 'Civil 3D']);
+  });
+
+  it('deduplicates by slug', () => {
+    const vendor = makeProductVendor({
+      products: [makeListedProduct('revit', 'Revit', 1), makeListedProduct('revit', 'Revit', 1)],
+    });
+    expect(vendorProductNames(vendor)).toEqual(['Revit']);
+  });
+
+  it('does not mutate the payload it was given', () => {
+    const products = [
+      makeListedProduct('autocad', 'AutoCAD', 0),
+      makeListedProduct('revit', 'Revit', 40),
+    ];
+    const vendor = makeProductVendor({ products });
+    vendorProductNames(vendor);
+    expect(products.map((p) => p.slug)).toEqual(['autocad', 'revit']);
+  });
+});
+
+describe('formatNameList', () => {
+  it('returns an empty string for no names', () => {
+    expect(formatNameList([], 3)).toBe('');
+    expect(formatNameList(['Jobber'], 0)).toBe('');
+  });
+
+  it('renders one, two, and three names', () => {
+    expect(formatNameList(['Jobber'], 3)).toBe('Jobber');
+    expect(formatNameList(['Jobber', 'Xero'], 3)).toBe('Jobber and Xero');
+    expect(formatNameList(['Jobber', 'QuickBooks Online', 'Xero'], 3)).toBe(
+      'Jobber, QuickBooks Online and Xero',
+    );
+  });
+
+  it('caps at `max` rather than rendering every name', () => {
+    expect(formatNameList(['A', 'B', 'C', 'D'], 2)).toBe('A and B');
+  });
+
+  it('treats a negative max as zero', () => {
+    expect(formatNameList(['Jobber'], -1)).toBe('');
+  });
+});
+
+describe('composeEntityDescription', () => {
+  const TRUST = 'Independent data, compiled and curated by AEC Integrations.';
+  const render = (list: string) =>
+    `Connecteam has 5 integrations in the AEC stack, including ${list}.`;
+
+  it('returns null when there is nothing to name', () => {
+    expect(composeEntityDescription({ names: [], render, trustLine: TRUST })).toBeNull();
+  });
+
+  it('names up to META_DESCRIPTION_MAX_NAMES and appends the trust line', () => {
+    const out = composeEntityDescription({
+      names: ['Jobber', 'QuickBooks Online', 'Xero', 'Asana'],
+      render,
+      trustLine: TRUST,
+    });
+    expect(out).toBe(
+      'Connecteam has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and Xero. ' +
+        TRUST,
+    );
+    expect(out!.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+    expect(META_DESCRIPTION_MAX_NAMES).toBe(3);
+  });
+
+  it('drops names before it drops the trust line', () => {
+    // A named partner is worth more in a snippet than boilerplate that is
+    // byte-identical on every page, so the list shrinks first.
+    const long = ['Autodesk Construction Cloud', 'Procore Project Management', 'Bluebeam Revu'];
+    const out = composeEntityDescription({ names: long, render, trustLine: TRUST });
+    expect(out).toBe(
+      `Connecteam has 5 integrations in the AEC stack, including ${long[0]}.` + ` ${TRUST}`,
+    );
+    expect(out!.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+  });
+
+  it('drops the trust line when even one name leaves no room for it', () => {
+    const out = composeEntityDescription({
+      names: ['Jobber'],
+      render: (list) => `${'x'.repeat(120)} ${list}.`,
+      trustLine: TRUST,
+    });
+    expect(out).toBe(`${'x'.repeat(120)} Jobber.`);
+    expect(out).not.toContain(TRUST);
+  });
+
+  it('truncates at a word boundary when the one-name sentence still overflows', () => {
+    const out = composeEntityDescription({
+      names: ['Jobber'],
+      render: (list) => `${'word '.repeat(40)}${list}.`,
+      trustLine: TRUST,
+    });
+    expect(out!.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+    expect(out!.endsWith('…')).toBe(true);
+  });
+
+  it('honours an explicit max', () => {
+    const out = composeEntityDescription({
+      names: ['Jobber', 'Xero'],
+      render: (list) => `Tools: ${list}.`,
+      trustLine: TRUST,
+      max: 30,
+    });
+    expect(out).toBe('Tools: Jobber and Xero.');
   });
 });

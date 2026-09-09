@@ -8,9 +8,18 @@
  * `detail-resolver.harness.ts` (AECI-113); only the vendor fixtures live here.
  * The vendor resolver has no entity-specific case.
  */
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
-import { registerDetailResolverSuite } from '../core/testing/detail-resolver.harness';
+import { createRequestContext } from '../../server/request-context';
+import {
+  buildClient,
+  createSetup,
+  registerDetailResolverSuite,
+} from '../core/testing/detail-resolver.harness';
+import type { MetaService, SetEntityMetaInput } from '../core/meta.service';
 
 import { vendorDetailResolver } from './vendor-detail.resolver';
 
@@ -76,15 +85,23 @@ registerDetailResolverSuite<VendorDetail>({
   stateKey: 'aeci.vendor-detail:procore',
   buildFixture: () =>
     buildVendor({
+      // Coherent with the embedded list: `product_count` and `products.length`
+      // are the same fact from two places, and AECI-802's description reads both.
+      product_count: 2,
       products: [
         buildProduct('procore-platform', '00000000-0000-4000-8000-000000020001'),
         buildProduct('procore-revizto', '00000000-0000-4000-8000-000000020002'),
       ],
     }),
+  // AECI-802: composed title + description. Only ONE product is named even
+  // though two exist, because naming both would push the trust line past the
+  // 155-char budget and a named product outranks byte-identical boilerplate.
   expectedMeta: {
     entity: 'vendor',
-    name: 'Procore Technologies',
-    description: 'Construction management vendor.',
+    name: 'Procore Technologies products and integrations',
+    description:
+      'Procore Technologies publishes 2 products in the AEC directory, including procore-platform. ' +
+      'Independent data, compiled and curated by AEC Integrations.',
     canonical: 'https://aecintegrations.com/vendors/procore',
     ogImage: 'https://example.com/procore.png',
   },
@@ -106,4 +123,90 @@ registerDetailResolverSuite<VendorDetail>({
     slug: 'procore',
     canonical: 'https://aecintegrations.com/vendors/procore',
   },
+});
+
+/** The §9.1 description ladder for vendors (AECI-802). */
+describe('vendorDetailResolver — title and description (AECI-802)', () => {
+  const setup = createSetup<VendorDetail>(vendorDetailResolver, 'slug', 'procore');
+  const TRUST = 'Independent data, compiled and curated by AEC Integrations.';
+
+  beforeEach(() => TestBed.resetTestingModule());
+
+  async function metaFor(vendor: VendorDetail): Promise<SetEntityMetaInput> {
+    const setEntityMeta = vi.fn();
+    const { run } = setup({
+      platform: 'server',
+      ctx: createRequestContext(buildClient(async () => vendor)),
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/vendors/procore'),
+      meta: { setEntityMeta, setVendorJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+    await run();
+    expect(setEntityMeta).toHaveBeenCalledTimes(1);
+    return setEntityMeta.mock.calls[0][0] as SetEntityMetaInput;
+  }
+
+  function named(slug: string, name: string, integrationCount = 0): ProductListItem {
+    return { ...buildProduct(slug, `id-${slug}`), name, integration_count: integrationCount };
+  }
+
+  it('titles the page with the intent modifier and no em dash', async () => {
+    const meta = await metaFor(buildVendor());
+    expect(meta.name).toBe('Procore Technologies products and integrations');
+    expect(meta.name).not.toContain('—');
+  });
+
+  it('composes the description from the catalog footprint, not the blurb', async () => {
+    const vendor = buildVendor({
+      company_name: 'Acme',
+      product_count: 3,
+      products: [named('b', 'Beta'), named('a', 'Alpha'), named('g', 'Gamma')],
+    });
+    const meta = await metaFor(vendor);
+    expect(meta.description).toBe(
+      `Acme publishes 3 products in the AEC directory, including Alpha, Beta and Gamma. ${TRUST}`,
+    );
+    expect(meta.description).not.toContain('Construction management vendor.');
+  });
+
+  it('names the most-integrated products first', async () => {
+    const vendor = buildVendor({
+      company_name: 'Acme',
+      product_count: 3,
+      products: [named('a', 'Alpha'), named('b', 'Beta', 40), named('g', 'Gamma')],
+    });
+    const meta = await metaFor(vendor);
+    expect(meta.description).toContain('including Beta, Alpha and Gamma.');
+  });
+
+  it('uses the singular message id at a count of one', async () => {
+    const vendor = buildVendor({
+      company_name: 'Acme',
+      product_count: 1,
+      products: [named('a', 'Alpha')],
+    });
+    const meta = await metaFor(vendor);
+    expect(meta.description).toBe(`Acme publishes 1 product in the AEC directory: Alpha. ${TRUST}`);
+  });
+
+  it('never claims verification, which no vendor holds today', async () => {
+    const vendor = buildVendor({ product_count: 1, products: [named('a', 'Alpha')] });
+    const meta = await metaFor(vendor);
+    expect(meta.description).not.toMatch(/verified/i);
+  });
+
+  it('falls back to the vendor blurb when the vendor publishes nothing', async () => {
+    const meta = await metaFor(buildVendor({ product_count: 0, products: [] }));
+    expect(meta.description).toBe('Construction management vendor.');
+  });
+
+  it('falls back to the blurb when the count is non-zero but names nothing', async () => {
+    const meta = await metaFor(buildVendor({ product_count: 4, products: [] }));
+    expect(meta.description).toBe('Construction management vendor.');
+  });
+
+  it('returns null for the generic fallback only when there is nothing at all', async () => {
+    const meta = await metaFor(buildVendor({ product_count: 0, products: [], description: null }));
+    expect(meta.description).toBeNull();
+  });
 });

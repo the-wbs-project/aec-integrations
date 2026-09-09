@@ -7,6 +7,7 @@ import type { VendorDetail as VendorDetailContract } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { MetaService } from '../../core/meta.service';
+import { vendorMetaDescription, vendorMetaName } from '../../vendors/vendor-detail.resolver';
 
 import {
   CategoryRanking,
@@ -79,8 +80,11 @@ export class VendorDetail implements OnInit {
   ngOnInit(): void {
     this.meta.setEntityMeta({
       entity: 'vendor',
-      name: VENDOR_DETAIL_FIXTURE.company_name,
-      description: VENDOR_DETAIL_FIXTURE.description,
+      // Through the real composers (AECI-802), not the raw fixture fields: this
+      // route is what `e2e/meta.spec.ts` asserts against, so a divergence here
+      // would be a green e2e over a preview that misrepresents the live page.
+      name: vendorMetaName(VENDOR_DETAIL_FIXTURE),
+      description: vendorMetaDescription(VENDOR_DETAIL_FIXTURE),
       canonical: 'https://www.aecintegrations.com/preview/vendor-detail',
     });
     this.meta.setVendorJsonLd(VENDOR_DETAIL_FIXTURE);

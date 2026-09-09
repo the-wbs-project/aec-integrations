@@ -11,7 +11,7 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductDetail } from '@aeci/shared';
+import type { ProductDetail, ProductIntegrationItem } from '@aeci/shared';
 
 import { createRequestContext } from '../../server/request-context';
 import {
@@ -19,7 +19,7 @@ import {
   createSetup,
   registerDetailResolverSuite,
 } from '../core/testing/detail-resolver.harness';
-import type { MetaService } from '../core/meta.service';
+import type { MetaService, SetEntityMetaInput } from '../core/meta.service';
 
 import { productDetailResolver } from './product-detail.resolver';
 
@@ -143,10 +143,17 @@ registerDetailResolverSuite<ProductDetail>({
         },
       ],
     }),
+  // AECI-802: the title carries the intent modifier and the description is
+  // composed from the fixture's own integration data, not the vendor blurb.
+  // Partner names come from BOTH endpoints of every row (so `int-a`, whose
+  // endpoints are A and B, contributes both) and are capped at the claimed
+  // count of 2.
   expectedMeta: {
     entity: 'product',
-    name: 'Procore',
-    description: 'Construction management platform.',
+    name: 'Procore integrations',
+    description:
+      'Procore has 2 integrations in the AEC stack, including A and B. ' +
+      'Independent data, compiled and curated by AEC Integrations.',
     canonical: 'https://aecintegrations.com/products/procore',
     ogImage: 'https://example.com/procore.png',
   },
@@ -362,5 +369,136 @@ describe('productDetailResolver — product-specific', () => {
       ).toBe('Construction management platform.');
       TestBed.resetTestingModule();
     }
+  });
+});
+
+/**
+ * The §9.1 description ladder (AECI-802). Each rung is asserted end-to-end
+ * through the resolver rather than against the composer, because the ladder's
+ * order is the behaviour and it lives in the resolver.
+ */
+describe('productDetailResolver — title and description (AECI-802)', () => {
+  const setup = createSetup<ProductDetail>(productDetailResolver, 'slug', 'procore');
+  const TRUST = 'Independent data, compiled and curated by AEC Integrations.';
+
+  beforeEach(() => TestBed.resetTestingModule());
+
+  async function metaFor(product: ProductDetail): Promise<SetEntityMetaInput> {
+    const setEntityMeta = vi.fn();
+    const { run } = setup({
+      platform: 'server',
+      ctx: createRequestContext(buildClient(async () => product)),
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta, setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+    await run();
+    expect(setEntityMeta).toHaveBeenCalledTimes(1);
+    return setEntityMeta.mock.calls[0][0] as SetEntityMetaInput;
+  }
+
+  function partnerEdge(slug: string, name: string): ProductIntegrationItem {
+    return {
+      id: `int-${slug}`,
+      name: `Procore to ${name}`,
+      mechanism_kind: 'native',
+      mechanism_name: null,
+      direction: null,
+      context_direction: null,
+      source: { id: 'self', name: 'Procore', slug: 'procore', logo_url: null },
+      target: { id: slug, name, slug, logo_url: null },
+      via: null,
+      powered_by_product: null,
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    };
+  }
+
+  it('titles the page with the intent modifier, not the bare product name', async () => {
+    // The defect AECI-802 exists to fix: `<title>Procore · AEC Integrations</title>`
+    // competes with procore.com for the query "procore" and wins nothing else.
+    const meta = await metaFor(buildProduct());
+    expect(meta.name).toBe('Procore integrations');
+  });
+
+  it('composes the description from integration data, not the vendor blurb', async () => {
+    const product = buildProduct({
+      integration_count: 5,
+      description: 'Construction management platform.',
+      integrations_as_source: [
+        partnerEdge('xero', 'Xero'),
+        partnerEdge('jobber', 'Jobber'),
+        partnerEdge('quickbooks-online', 'QuickBooks Online'),
+      ],
+    });
+    const meta = await metaFor(product);
+    expect(meta.description).toBe(
+      `Procore has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and Xero. ${TRUST}`,
+    );
+    expect(meta.description).not.toContain('Construction management platform.');
+  });
+
+  it('uses the singular message id at a count of one', async () => {
+    const product = buildProduct({
+      integration_count: 1,
+      integrations_as_source: [partnerEdge('xero', 'Xero')],
+    });
+    const meta = await metaFor(product);
+    expect(meta.description).toBe(
+      `Procore has 1 integration in the AEC stack, with Xero. ${TRUST}`,
+    );
+  });
+
+  it('never claims verification, which no vendor holds today', async () => {
+    // `/methodology` states AECi is the source of every claim on the site. A
+    // snippet saying "vendor-verified" would contradict it on every indexed URL.
+    const product = buildProduct({
+      integration_count: 1,
+      integrations_as_source: [partnerEdge('xero', 'Xero')],
+    });
+    const meta = await metaFor(product);
+    expect(meta.description).not.toMatch(/verified/i);
+  });
+
+  it('keeps the connector variant ahead of the composed sentence (§13.6)', async () => {
+    const product = buildProduct({
+      product_role: 'connector',
+      integration_count: 4,
+      integrations_as_source: [partnerEdge('xero', 'Xero')],
+      integrations_as_connector: [
+        {
+          id: 'powered-1',
+          name: 'D to E',
+          mechanism_kind: 'iPaaS',
+          mechanism_name: null,
+          direction: null,
+          source: { id: 'd', name: 'D', slug: 'd', logo_url: null },
+          target: { id: 'e', name: 'E', slug: 'e', logo_url: null },
+          via: null,
+          created_at: '2024-01-01T00:00:00.000Z',
+          updated_at: '2024-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    const meta = await metaFor(product);
+    expect(meta.description).toContain('connects 2 construction and AEC products');
+  });
+
+  it('falls back to the vendor blurb when the product has no integrations', async () => {
+    const meta = await metaFor(buildProduct({ integration_count: 0 }));
+    expect(meta.description).toBe('Construction management platform.');
+  });
+
+  it('falls back to the blurb when the count is non-zero but names nothing', async () => {
+    // A drifted `integration_count`, or a connector whose count is all powered
+    // edges. A sentence promising integrations it cannot name is worse than the
+    // blurb it would replace.
+    const meta = await metaFor(buildProduct({ integration_count: 3 }));
+    expect(meta.description).toBe('Construction management platform.');
+  });
+
+  it('returns null for the generic fallback only when there is nothing at all', async () => {
+    const meta = await metaFor(buildProduct({ integration_count: 0, description: null }));
+    expect(meta.description).toBeNull();
   });
 });
