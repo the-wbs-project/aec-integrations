@@ -207,9 +207,20 @@ describe('sortReplicasFor', () => {
     const tail = ['typo', 'geo', 'words', 'filters', 'proximity', 'attribute', 'exact', 'custom'];
     const products = sortReplicasFor('products');
     expect(products[0]!.ranking).toEqual(['desc(integration_count)', ...tail]);
-    expect(products[1]!.ranking).toEqual(['asc(name)', ...tail]);
-    // Vendors sort their name field by its real attribute name.
-    expect(sortReplicasFor('vendors')[1]!.ranking).toEqual(['asc(company_name)', ...tail]);
+    expect(products[1]!.ranking).toEqual(['asc(name_sort)', ...tail]);
+    expect(sortReplicasFor('vendors')[1]!.ranking).toEqual(['asc(company_name_sort)', ...tail]);
+  });
+
+  // AECI-825 — Algolia orders a string attribute by lexicographical Unicode order,
+  // so ranking on the DISPLAY name puts every capital ahead of every lowercase
+  // letter. The A–Z replicas must rank on the precomputed folded key instead. This
+  // asserts the negative because the regression is silent: the sort keeps working,
+  // it is just wrong, and no request fails.
+  it('ranks A–Z on the folded sort key, never on the display attribute', () => {
+    expect(sortReplicasFor('products')[1]!.ranking[0]).toBe('asc(name_sort)');
+    expect(sortReplicasFor('products')[1]!.ranking).not.toContain('asc(name)');
+    expect(sortReplicasFor('vendors')[1]!.ranking[0]).toBe('asc(company_name_sort)');
+    expect(sortReplicasFor('vendors')[1]!.ranking).not.toContain('asc(company_name)');
   });
 
   it('gives the hidden integrations tab no replicas (§7.5)', () => {
@@ -426,7 +437,7 @@ describe('applyIndexSettings', () => {
       searchableAttributes: base.searchableAttributes,
       attributesForFaceting: base.attributesForFaceting,
       customRanking: base.customRanking,
-      ranking: ['asc(name)', ...RANKING_TAIL],
+      ranking: ['asc(name_sort)', ...RANKING_TAIL],
     });
 
     // waitForTask is awaited per index (primary + replicas) when provided.

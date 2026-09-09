@@ -92,3 +92,21 @@ public-page population** — taking all-time human page views from **2,494 to ~2
 **~18% correction**. The rest are rows already classified as datacenter crawls
 (the operator's own WARP/VPN traffic, currently mislabelled as bots) which stop being
 counted as crawler activity.
+
+## Run log
+
+Added 2026-09-09 by AECI-688, which needed to know whether this had run and could not
+tell. `ADMIN_PANEL_SPEC.md` §7.3 read **PENDING** for three weeks after production was
+already done. The dry run answers it in one command — every pair reports
+`would_change: 0` on a tier that is applied — but a table costs nothing and a wrong
+status cost an ordering decision.
+
+| Tier | Applied | Rows written | Verified by |
+|---|---|---|---|
+| production | on or before 2026-09-09 (exact date unrecorded) | 679 per §7.3 | dry run 2026-09-09: 10 pairs, `would_change: 0` |
+| demo | on or before 2026-09-09 (exact date unrecorded) | — | dry run 2026-09-09: 10 pairs, `would_change: 0` |
+| staging | **2026-09-09** (AECI-688) | **81** | re-run dry: `would_change: 0` |
+| preview | **not applicable** | 0 | 0 pairs match, and its D1 is at migration `0015` — `is_operator` does not exist there |
+
+Record the date and the row count here when you apply it. `--rollback` is a true inverse,
+so an entry that turns out wrong is recoverable; an absent entry is not.

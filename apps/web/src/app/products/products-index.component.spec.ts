@@ -92,3 +92,45 @@ describe('ProductsIndex review-driven sort options', () => {
     httpMock.verify();
   });
 });
+
+// ── AECI-803 ────────────────────────────────────────────────────────────────
+// The canonical is composed from `?page=` at construction, so page 2 stops
+// declaring itself a duplicate of page 1. This asserts the real `<head>` rather
+// than the meta config, because the value has to survive `MetaService`'s
+// allowlist strip to reach the HTML the crawler sees.
+
+describe('ProductsIndex paginated canonical', () => {
+  /** The head is global and leaks across suites; scrub it before each case. */
+  function resetHead(): void {
+    for (const el of document.head.querySelectorAll('link[rel="canonical"]')) el.remove();
+  }
+
+  async function canonicalFor(url: string): Promise<string | null> {
+    resetHead();
+    const { httpMock, router } = createIndexSetup(ProductsIndex, 'products');
+    await router.navigateByUrl(url);
+    const fixture = TestBed.createComponent(ProductsIndex);
+    fixture.detectChanges();
+
+    httpMock.match((r) => r.url === '/api/products').forEach((r) => r.flush(fixtureResponse));
+    await settle();
+    fixture.detectChanges();
+
+    for (const req of httpMock.match((r) => r.url === '/api/products/facets')) {
+      req.flush({ categories: [], audiences: [], phases: [], trades: [] });
+    }
+    return document.head.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null;
+  }
+
+  it('self-canonicalises /products?page=2', async () => {
+    expect(await canonicalFor('/products?page=2')).toMatch(/\/products\?page=2$/);
+  });
+
+  it('canonicalises the bare listing to /products', async () => {
+    expect(await canonicalFor('/products')).toMatch(/\/products$/);
+  });
+
+  it('canonicalises a facet-filtered listing to /products', async () => {
+    expect(await canonicalFor('/products?category_id=abc')).toMatch(/\/products$/);
+  });
+});

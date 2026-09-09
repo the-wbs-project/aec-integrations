@@ -109,6 +109,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   - *Rationale:* a product wired into more integrations is more useful in a directory whose value proposition is integration coverage; reviews break the next tie once they exist (§6).
   - **Trades add no custom-ranking signal.** The `trades` facet changes what is *findable* and *filterable*, never what ranks higher. Carrying a trade tag is a factual claim about a product's scope, not a quality or commercial signal, and boosting on it would be a placement lever — which AECi does not have (`STAGE_1_SPEC.md` §1, no pay-for-placement).
   - **Trades are sparse on purpose.** Most products carry `trades: []` (`TRADES_VOCABULARY.md` §1.1 — horizontal platforms get no tags), so an empty array is normal and must not be treated as missing data in relevance tuning.
+- **`name_sort` (AECI-825)** is the lowercased copy of `name` that the `products_name_asc` replica ranks on (§5a). Sort-only: never searchable, never faceted, never rendered.
 - **Rejected alternative for aliases: Algolia Synonyms.** Synonyms are index-level configuration state applied globally, and they are not managed as code in this repo. A record attribute keeps the alias vocabulary in the same code-managed lockstep as everything else (`docs/TRADES_VOCABULARY.md` §5 → `apps/api/seed/trades.sql` → D1 → transform → record). Recorded as a possible §7 lever, not a gap.
 - **Deferred tuning lever: `unordered(trade_aliases)`.** `trade_aliases` is a flattened join artifact, so element order is meaningless, and Algolia otherwise slightly favours matches in earlier array positions. The bare form ships first because it is settings-only to change later — no reindex — and there is no query data yet to justify the tweak (§7).
 - **Publication floor does not apply here.** `TRADE_PUBLISH_MIN_PRODUCTS` (`TRADES_VOCABULARY.md` §6) gates the API-backed facet sidebar and nav (AECI-546). It is deliberately NOT applied to the Algolia `trades` facet: Algolia facet counts are query- and refinement-scoped rather than global, publication is a property of the *term* while an Algolia record is per-*product* (a term crossing the floor moves no product's `updated_at`, so the flag would go stale until the next full reindex), and `/search` is `noindex` + `no-store`, so the floor's SEO rationale doesn't apply.
@@ -122,6 +123,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
 - **Custom ranking:** `desc(integration_count)`, then `desc(product_count)`
   - *Rationale:* a vendor whose catalog participates in more integrations ranks first; product count breaks the tie.
+- **`company_name_sort` (AECI-825)** is the lowercased copy of `company_name` that the `vendors_name_asc` replica ranks on (§5a). Sort-only: never searchable, never faceted, never rendered.
 - **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior. The **record** may carry it; `INDEX_SETTINGS` may never name it, and `entitlements.spec.ts` asserts exactly that (§1).
 
 ### 3.3 `integrations`
@@ -262,12 +264,18 @@ When records tie on the full `customRanking` list, Algolia falls back to the rec
 |---|---|---|---|
 | Products | Relevance *(default)* | `<prefix>_products` (primary) | — (the §3.1 default formula) |
 | Products | Most integrations | `<prefix>_products_integration_count_desc` | `desc(integration_count)`, typo…custom |
-| Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name)`, typo…custom |
+| Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name_sort)`, typo…custom |
 | Vendors | Relevance *(default)* | `<prefix>_vendors` (primary) | — (the §3.2 default formula) |
 | Vendors | Most integrations | `<prefix>_vendors_integration_count_desc` | `desc(integration_count)`, typo…custom |
-| Vendors | Name (A–Z) | `<prefix>_vendors_name_asc` | `asc(company_name)`, typo…custom |
+| Vendors | Name (A–Z) | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
 
 The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `replicaNamesFor`) in `packages/shared/src/algolia.ts`, asserted in `algolia.spec.ts`. A replica leads its `ranking` with the sort attribute, then keeps Algolia's default criteria (`typo → geo → words → filters → proximity → attribute → exact → custom`) as the tie-break tail — so e.g. equal `integration_count` still falls back to textual relevance.
+
+**A–Z ranks on a folded key, NOT on the display name (AECI-825).** Algolia documents an alphabetical sort as the lexicographical Unicode order of a string's **first 50 characters**, "with the exception of some normalized characters" — which ranks every capital ahead of every lowercase letter, so `asc(name)` put `ADP Workforce Now` before `Access Coins Evo` and `eSUB` / `openBIM` after `Zoho`. Algolia exposes no case-insensitive collation for a sort attribute, and the normalization caveat is not specified further, so the key is precomputed on the record instead rather than left dependent on undocumented behaviour: `name_sort` / `company_name_sort`, both `algoliaSortKey(displayName)` = `toLowerCase()`. Three things follow.
+
+- **The attribute is required on the record schema**, not defaulted. The datatool's raw-SQL builder (`buildProductRecords`) has no compile-time link to `AlgoliaProductRecord`, so a default would let a full reindex omit the key, emit `''`, and sort every product to the top of A–Z with nothing failing. Both builders assert the key in their own specs, and the Zod parse in `apps/datatool/src/algolia-reindex.spec.ts` is what catches a forgotten field.
+- **Adding the attribute does not backfill it.** The nightly incremental sync is watermarked on `products.updated_at` / `vendors.updated_at`, so records already in an index keep whatever they had. **Every environment needs a full reindex** (`apps/datatool/src/algolia-reindex.ts`) after the settings apply, or its A–Z tab orders by an absent attribute until one runs.
+- **It matches the D1 side.** `COLLATE NOCASE` in `apps/api/src/lib/collation.ts` and `compareText` in `@aeci/shared/text-sort` fold the same way, so `/search?sort=name` and `/products?sort=name` agree. Reverting either replica's `ranking` to the display attribute reintroduces the defect **silently** — the sort still returns 200 and still looks sorted.
 
 **Replicas inherit faceting.** `applyIndexSettingsTo` sets each replica's `searchableAttributes` / `attributesForFaceting` / `customRanking` to the **same** values as its primary (only `ranking` differs), so the §7.2 facet sidebar keeps working under any sort.
 

@@ -10,6 +10,7 @@ import {
   type VendorClaim,
   type VendorOwnAttestation,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { DIRECTION_ORDER, directionHeading } from '../../products/pair-direction-labels';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
@@ -308,15 +309,15 @@ export class VendorAddClaimForm {
    * known label a 27-item linear scan with no anchor.
    *
    * Sorted here rather than in SQL on purpose. The key is the **display name in
-   * the active locale**, so it must follow the rendered label through
-   * `localeCompare`; SQLite would order by ASCII bytes against the en-US names.
-   * The in-place `sort` is safe — it runs on the array `map` just produced, not
-   * on the `dataObjects()` input.
+   * the active locale**, so it must follow the rendered label through the shared
+   * `compareText` collator (`@aeci/shared/text-sort`, AECI-825) rather than the
+   * wire order. The in-place `sort` is safe — it runs on the array `map` just
+   * produced, not on the `dataObjects()` input.
    */
   protected readonly dataObjectOptions = computed<readonly AecSelectOption[]>(() =>
     this.dataObjects()
       .map((term) => ({ value: term.slug, label: term.name }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
+      .sort((a, b) => compareText(a.label, b.label)),
   );
 
   protected readonly directionOptions = computed(() =>

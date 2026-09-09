@@ -567,6 +567,16 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  * verbatim (§7.1) and renaming it would orphan every stored row.
  */
 export const ADMIN_METRIC_KEYS = [
+  /**
+   * The **RAW** human count — `NOT_INTERNAL` + `HUMAN`, nothing subtracted.
+   *
+   * Not the same thing as the identically-named FIELD on
+   * {@link AdminOverviewTrafficSchema}, which AECI-745 redefined to the
+   * POST-AUTOMATION count and whose raw figure moved to `page_views_human_raw`.
+   * Two shapes happen to share a string; nothing in either type says so, which
+   * is why it is said here and in `ADMIN_PANEL_SPEC.md` §7.1. The filtered
+   * series is the separate key below.
+   */
   'traffic.page_views_human',
   /**
    * Human page views less the views the swarm detector attributed to automated

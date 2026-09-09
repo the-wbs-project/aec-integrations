@@ -42,6 +42,10 @@ describe('algolia reindex — record builders', () => {
     expect(revit.categories).toEqual(['BIM Authoring']);
     expect(revit.has_api_docs).toBe(false); // 0 → boolean
     expect(revit.integration_count).toBe(1);
+    // AECI-825 — the folded key the `name_asc` replica ranks on. Must match
+    // `toAlgoliaProduct`'s `name_sort` byte for byte, or a full reindex silently
+    // reorders A–Z relative to what the nightly sync produces.
+    expect(revit.name_sort).toBe('revit');
   });
 
   /**
@@ -93,7 +97,13 @@ describe('algolia reindex — record builders', () => {
   it('builds vendor records with product/integration counts', async () => {
     const records = await buildVendorRecords(h.db);
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ objectID: 'ven-1', slug: 'autodesk', product_count: 1 });
+    expect(records[0]).toMatchObject({
+      objectID: 'ven-1',
+      slug: 'autodesk',
+      product_count: 1,
+      // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
+      company_name_sort: 'autodesk',
+    });
   });
 
   it('builds integration records with a numeric mechanism_rank', async () => {

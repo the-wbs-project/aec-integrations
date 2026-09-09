@@ -24,6 +24,13 @@
 import { DOCUMENT } from '@angular/common';
 import { REQUEST, inject } from '@angular/core';
 
+// The listing engine's own `?page=` clamp, imported rather than re-derived: the
+// canonical and the fetched page must agree on what `?page=abc` means, and a second
+// copy that agrees by coincidence is how they would drift. The module is pure (no
+// `inject`, no `$localize`) and already in the eager route graph, so this costs
+// nothing at the bundle level.
+import { parseIndexPage } from '../shared/paginated-index/paginated-index-request';
+
 /**
  * Fallback when neither the SSR request nor a browser location is available (e.g. a
  * build-time prerender with no request context). The canonical public home — `www.`
@@ -50,9 +57,37 @@ export function servingOrigin(): string {
 
 /**
  * Absolute, self-referential canonical URL for an app-relative path (leading slash optional).
- * Query params are not stripped here — `MetaService` strips them before writing the tag.
- * Must be called within an injection context.
+ * Query params are not stripped here — `MetaService` strips them before writing the tag,
+ * keeping only `CANONICAL_QUERY_ALLOWLIST` (`page`, for the paginated listings that go
+ * through `listingCanonicalUrl` below). Must be called within an injection context.
  */
 export function canonicalUrl(path: string): string {
   return `${servingOrigin()}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+/**
+ * Canonical for a PAGINATED listing surface — `/products` and the four taxonomy
+ * browse routes (AECI-803).
+ *
+ * Page 2 and beyond self-reference (`…/products?page=2`) instead of pointing back at
+ * page 1, which is Google's documented guidance for a paginated series and which the
+ * `<aec-pagination-footer>` `?page=N+1` anchor makes a real, crawlable trail. Page 1
+ * is the bare path: `?page=1` and the absent param are the same document, so the
+ * clamp collapses them (as it does `?page=0` and `?page=abc`) rather than minting a
+ * second URL for one page of content.
+ *
+ * `page` is the ONLY param that survives; `MetaService.setEntityMeta` strips the rest
+ * via `CANONICAL_QUERY_ALLOWLIST`. Sort and facet selections are deliberately not
+ * canonical targets — their controls emit no `href`, so nothing crawls them. The
+ * accepted consequence is that `?sort=name&page=2` canonicalises to `?page=2`, a
+ * different set of products; that is no worse than the previous behaviour, which
+ * pointed it at page 1 of the default sort.
+ *
+ * Cache-safe because `page` is in `LISTING_CACHE_KEY_PARAMS` (`server-runtime.ts`),
+ * so `?page=2` has its own edge entry to bake this canonical into. Keep the two lists
+ * in step. Must be called within an injection context.
+ */
+export function listingCanonicalUrl(path: string, pageParam: string | null): string {
+  const page = parseIndexPage(pageParam);
+  return canonicalUrl(page > 1 ? `${path}?page=${page}` : path);
 }

@@ -6,6 +6,7 @@
  * Spec anchor: docs/STAGE_1_PHASE_2_SPEC.md §9 (§9.1 metadata, §9.2 JSON-LD).
  */
 
+import { compareText } from '@aeci/shared/text-sort';
 import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 export const META_DESCRIPTION_MAX = 155;
@@ -147,6 +148,51 @@ export function stripQueryParams(url: string): string {
 }
 
 /**
+ * The ONLY query params allowed to survive into a `<link rel="canonical">` (AECI-803).
+ *
+ * `page` is here because the paginated listings (`/products` and the four taxonomy
+ * browse routes) publish a real, crawlable `?page=N+1` trail from
+ * `<aec-pagination-footer>`, and Google's guidance for those is a SELF-referential
+ * canonical per page. Everything else stays stripped, `sort` and the facet ids
+ * included: their controls are a `<select>` and buttons, so no `href` leads to those
+ * URLs, they are not in the index, and they must not become canonical targets.
+ *
+ * Adding to this set is a cache-correctness decision, not just an SEO one. The
+ * canonical is baked into the edge-cached HTML, so an allowed param MUST also be in
+ * `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`) — otherwise two URLs
+ * that differ only in that param share one cache entry and the first render's
+ * canonical is served to both. `utm_*` is the live example of why: it is deliberately
+ * absent from both lists.
+ *
+ * Governing docs: `docs/STAGE_1_PHASE_2_SPEC.md` §9.1a, `docs/STAGE_1_SPEC.md` §20.6,
+ * `docs/CACHE_STRATEGY.md` §4a.
+ */
+export const CANONICAL_QUERY_ALLOWLIST: ReadonlySet<string> = new Set(['page']);
+
+/**
+ * Strip the fragment and every query param EXCEPT those named in `keep`.
+ *
+ * Same failure contract as `stripQueryParams`: a value that doesn't parse as an
+ * absolute URL is returned unchanged. Param order is normalized to the allowlist's
+ * iteration order rather than the input's, so two orderings of the same allowed set
+ * produce one canonical string.
+ */
+export function stripQueryParamsExcept(url: string, keep: ReadonlySet<string>): string {
+  try {
+    const parsed = new URL(url);
+    const kept = new URLSearchParams();
+    for (const name of keep) {
+      for (const value of parsed.searchParams.getAll(name)) kept.append(name, value);
+    }
+    parsed.search = kept.toString();
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * The scheme+host origin of an absolute URL (no trailing slash, no path), e.g.
  * `https://aecintegrations.com/` → `https://aecintegrations.com`. Used to build
  * the home `WebSite` / `Organization` JSON-LD against the serving origin
@@ -175,27 +221,6 @@ export function buildEntityTitle(name: string, suffix: string): string {
 export const META_DESCRIPTION_MAX_NAMES = 3;
 
 /**
- * Case-insensitive name comparator, matching the AECI-825 sort convention.
- *
- * Two details make it a **total order on a pinned collation**, which is what the
- * callers' determinism claims actually rest on:
- *
- * The locale is pinned to `'en'`, never the ambient one. `taxonomy-index.ts`
- * records the rule and the reason: an unpinned collation can order differently
- * under the SSR Worker than in the browser. That bites harder here than there,
- * because `applyMeta` runs on SSR *and* again on every client navigation, and
- * the string it composes is baked into a URL-keyed edge cache entry.
- *
- * The `sensitivity: 'base'` pass returns 0 for names differing only in case or
- * accent, so it cannot break such a tie on its own — it would leave the pair in
- * the API's declared-unordered relation order. The case-sensitive second pass is
- * the stable tie-break.
- */
-function byNameInsensitive(a: string, b: string): number {
-  return a.localeCompare(b, 'en', { sensitivity: 'base' }) || a.localeCompare(b, 'en');
-}
-
-/**
  * The distinct catalog products this product has an integration with, by name,
  * sorted case-insensitively.
  *
@@ -209,7 +234,10 @@ function byNameInsensitive(a: string, b: string): number {
  * The API returns these relations unordered (`productDetailConfig` applies no
  * `orderBy`), so the sort is what makes a rendered description deterministic
  * across requests — which matters because this string lands in a URL-keyed edge
- * cache entry.
+ * cache entry. `compareText` (`@aeci/shared/text-sort`, AECI-825) is what makes
+ * that hold: it pins the collation to `'en'` and is a total order. An unpinned
+ * `localeCompare` would resolve against the ambient locale, and `applyMeta` runs
+ * under the SSR Worker AND again in the browser on every client navigation.
  */
 export function integrationPartnerNames(product: ProductDetail): string[] {
   const bySlug = new Map<string, string>();
@@ -221,7 +249,7 @@ export function integrationPartnerNames(product: ProductDetail): string[] {
     add(row.source);
     add(row.target);
   }
-  return [...bySlug.values()].sort(byNameInsensitive);
+  return [...bySlug.values()].sort(compareText);
 }
 
 /**
@@ -230,9 +258,9 @@ export function integrationPartnerNames(product: ProductDetail): string[] {
  *
  * Ordered by `integration_count` rather than alphabetically so a vendor snippet
  * names the products a reader is most likely to be searching for, and because
- * `ProductListItem` carries that column already. The name tie-break is what
- * keeps the output deterministic when several products share a count — which is
- * the common case, since most counts are 0.
+ * `ProductListItem` carries that column already. The `compareText` tie-break is
+ * what keeps the output deterministic when several products share a count —
+ * which is the common case, since most counts are 0.
  */
 export function vendorProductNames(vendor: VendorDetail): string[] {
   const seen = new Set<string>();
@@ -242,7 +270,7 @@ export function vendorProductNames(vendor: VendorDetail): string[] {
     return true;
   });
   return products
-    .sort((a, b) => b.integration_count - a.integration_count || byNameInsensitive(a.name, b.name))
+    .sort((a, b) => b.integration_count - a.integration_count || compareText(a.name, b.name))
     .map((p) => p.name);
 }
 

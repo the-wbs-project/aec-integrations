@@ -56,7 +56,7 @@ import {
   fetchTaxonomyTermBySlug,
   type TaxonomyTermDetail,
 } from '../core/api/taxonomy';
-import { canonicalUrl } from '../core/canonical';
+import { listingCanonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -115,7 +115,11 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
     const transferState = inject(TransferState);
     const meta = inject(MetaService);
     const stateKey = termStateKey(kind, slug);
-    const canonical = canonicalUrl(`/${segment}/${slug}`);
+    // AECI-803 — the browse grid is paginated, so page 2+ self-canonicalises
+    // rather than pointing at page 1. The two `setNotFoundMeta` calls below reuse
+    // this value deliberately and need no branch: that method still strips the
+    // whole query, so a 404 keeps self-referencing the bare term URL.
+    const canonical = listingCanonicalUrl(`/${segment}/${slug}`, route.queryParamMap.get('page'));
 
     // ── Client path: in-app navigation or initial hydration (AECI-151). ─────
     if (!isPlatformServer(platformId)) {

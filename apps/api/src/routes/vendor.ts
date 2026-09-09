@@ -99,6 +99,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, entitlementRequired, requireCapability } from '../lib/authz';
+import { textAsc } from '../lib/collation';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { pendingInvitesFor } from '../lib/vendor-seat-invites';
@@ -532,7 +533,9 @@ export function createVendorMeHandler(
       productIds.length
         ? db.query.products.findMany({
             where: inArray(products.id, productIds),
-            orderBy: [asc(products.name)],
+            // Case-insensitive (AECI-825); `id` keeps the order total, since
+            // NOCASE ties two spellings that differ only in case.
+            orderBy: [textAsc(products.name), asc(products.id)],
           })
         : Promise.resolve([]),
       loadTaxonomySlugs(db, productIds),

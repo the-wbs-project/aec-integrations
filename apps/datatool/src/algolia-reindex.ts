@@ -32,7 +32,7 @@ import {
   type AlgoliaBatchCredentials,
   callAlgoliaBatch,
 } from '@aeci/shared/algolia-batch';
-import { flattenTradeAliases } from '@aeci/shared/algolia-records';
+import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-records';
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
@@ -120,6 +120,8 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       phases: splitNames(r.phases),
       trades,
       trade_aliases: flattenTradeAliases(trades, parseAliasGroups(r.trade_aliases)),
+      // AECI-825 — byte-identical to `toAlgoliaProduct`'s `name_sort`.
+      name_sort: algoliaSortKey(r.name),
       integration_count: r.integration_count,
       review_count: r.review_count,
       rating_overall_avg: r.rating_overall_avg,
@@ -158,6 +160,8 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
   return results.map((r) => ({
     objectID: r.objectID,
     company_name: r.company_name,
+    // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
+    company_name_sort: algoliaSortKey(r.company_name),
     slug: r.slug,
     description: r.description,
     headquarters: r.headquarters,

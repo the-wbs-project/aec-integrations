@@ -157,6 +157,10 @@ describe('toAlgoliaProduct', () => {
 
     expect(record.objectID).toBe(u(1));
     expect(record.name).toBe('Procore');
+    // AECI-825 — what the `name_asc` replica ranks on. Algolia sorts a string
+    // attribute by Unicode order, so ranking on `name` would put every capital
+    // ahead of every lowercase letter.
+    expect(record.name_sort).toBe('procore');
     expect(record.slug).toBe('procore');
     expect(record.description).toBe('Construction management platform.');
     expect(record.vendor_name).toBe('Procore Technologies');
@@ -270,6 +274,8 @@ describe('toAlgoliaVendor', () => {
     expect(record).toEqual({
       objectID: u(1),
       company_name: 'Procore Technologies',
+      // AECI-825 — what the `name_asc` replica ranks on.
+      company_name_sort: 'procore technologies',
       slug: 'procore-technologies',
       verified: true,
       description: null,

@@ -57,6 +57,19 @@ export const AlgoliaProductRecordSchema = z.object({
   phases: z.array(z.string()),
   trades: z.array(z.string()).default([]),
   trade_aliases: z.array(z.string()).default([]),
+  // AECI-825 — the case-folded copy of `name` the `*_products_name_asc` replica
+  // ranks on. See `algoliaSortKey`. Never searchable, never faceted, never
+  // rendered; it exists only so `asc()` has something to sort that case cannot
+  // reorder.
+  //
+  // REQUIRED, unlike `trades` / `verified`, which carry `.default()` so records
+  // written before they existed still parse. This one is deliberately strict: the
+  // datatool's raw-SQL builder has no compile-time link to this type, and a
+  // `.default('')` would let it forget the field, emit an empty key, and sort
+  // every product to the top of A–Z with nothing failing. The Zod parse in
+  // `apps/datatool/src/algolia-reindex.spec.ts` is the only guard against that,
+  // so it has to be able to fail.
+  name_sort: z.string().min(1),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),
@@ -99,6 +112,38 @@ export function flattenTradeAliases(
 }
 
 /**
+ * The case-folded sort key for a display name (AECI-825).
+ *
+ * ── WHY A SEPARATE ATTRIBUTE ────────────────────────────────────────────────────
+ * Algolia documents an alphabetical sort as the **lexicographical Unicode order of
+ * a string's first 50 characters**, which ranks every capital ahead of every
+ * lowercase letter — the same defect SQLite's `BINARY` collation produced on the
+ * D1 side, so `asc(name)` put `ADP Workforce Now` above `Access Coins Evo` and
+ * `eSUB` after `Zoho`. Algolia exposes no case-insensitive collation for a sort
+ * attribute, and its "some normalized characters" caveat is not specified further,
+ * so precomputing the key is the only way to make the order deterministic from
+ * this side rather than dependent on undocumented normalization.
+ * `SEARCH_RANKING.md` §5a.
+ *
+ * Lives here, beside {@link flattenTradeAliases}, for the same reason that one
+ * does: BOTH record builders must produce byte-identical output or the nightly
+ * incremental sync (`apps/api/src/lib/algolia-transforms.ts`) and the datatool
+ * full reindex (`apps/datatool/src/algolia-reindex.ts`) would disagree about
+ * where the same product belongs.
+ *
+ * `toLowerCase()` matches D1's `COLLATE NOCASE` across the ASCII catalog. The two
+ * diverge on accented capitals — `É` folds here and does not under NOCASE — which
+ * is a divergence in the right direction and affects no record today.
+ *
+ * **Adding this field to the schema does not backfill it.** The incremental sync
+ * is watermarked on `updated_at`, so existing records keep whatever they had until
+ * a full reindex runs per environment.
+ */
+export function algoliaSortKey(name: string): string {
+  return name.toLowerCase();
+}
+
+/**
  * `vendors` index record (§7.1). `objectID` is the Supabase vendor UUID.
  * `product_count` / `integration_count` are the same denormalized counts the
  * `/vendors` pages show (sourced from the `_count` aggregation in the transform,
@@ -117,6 +162,10 @@ export const AlgoliaVendorRecordSchema = z.object({
   description: z.string().nullable(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
+  // AECI-825 — the case-folded copy of `company_name` the `*_vendors_name_asc`
+  // replica ranks on. Required for the same reason as the product record's
+  // `name_sort` — see the note there.
+  company_name_sort: z.string().min(1),
   product_count: z.number().int().min(0),
   integration_count: z.number().int().min(0),
   logo_url: z.string().url().nullable(),

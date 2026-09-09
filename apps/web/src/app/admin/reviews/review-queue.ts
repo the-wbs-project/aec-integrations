@@ -26,6 +26,7 @@ import {
 import { z } from 'zod';
 
 import type { AdminReview, RepeatOffenderPrompt } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminSummaryStore } from '../admin-summary.store';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
@@ -133,7 +134,7 @@ export class ReviewQueue {
         return list.sort(byCreatedAtAsc);
       case 'product':
         return list.sort(
-          (a, b) => a.product.name.localeCompare(b.product.name) || byCreatedAtAsc(a, b),
+          (a, b) => compareText(a.product.name, b.product.name) || byCreatedAtAsc(a, b),
         );
       case 'reviewer':
         return list.sort(byReviewerNullsLast);
@@ -483,5 +484,5 @@ function byReviewerNullsLast(a: AdminReview, b: AdminReview): number {
   if (ea === null && eb === null) return byCreatedAtAsc(a, b);
   if (ea === null) return 1;
   if (eb === null) return -1;
-  return ea.localeCompare(eb) || byCreatedAtAsc(a, b);
+  return compareText(ea, eb) || byCreatedAtAsc(a, b);
 }

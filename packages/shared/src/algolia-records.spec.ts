@@ -4,6 +4,7 @@ import {
   AlgoliaIntegrationRecordSchema,
   AlgoliaProductRecordSchema,
   AlgoliaVendorRecordSchema,
+  algoliaSortKey,
   flattenTradeAliases,
 } from './algolia-records';
 
@@ -19,6 +20,7 @@ const PRODUCT = {
   phases: ['Construction', 'Closeout & Operations'],
   trades: ['Paving & Asphalt'],
   trade_aliases: ['Blacktop', 'Asphalt Paving'],
+  name_sort: 'procore',
   integration_count: 342,
   review_count: 0,
   rating_overall_avg: null,
@@ -29,6 +31,7 @@ const PRODUCT = {
 const VENDOR = {
   objectID: '22222222-2222-4222-8222-222222222222',
   company_name: 'Procore Technologies',
+  company_name_sort: 'procore technologies',
   slug: 'procore-technologies',
   verified: true,
   description: null,
@@ -82,6 +85,16 @@ describe('AlgoliaProductRecordSchema', () => {
     const record = AlgoliaProductRecordSchema.parse(stale);
     expect(record.trades).toEqual([]);
     expect(record.trade_aliases).toEqual([]);
+  });
+
+  // AECI-825 — the field the `name_asc` replica ranks on. REQUIRED on purpose:
+  // the datatool's raw-SQL builder has no compile-time link to this type, and a
+  // default would let it omit the key, sort every product to the top of A–Z, and
+  // fail nothing. This parse is the guard, so it has to be able to fail.
+  it('REJECTS a record missing name_sort (a forgotten builder field must fail loud)', () => {
+    const { name_sort: _n, ...missing } = PRODUCT;
+    expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
+    expect(() => AlgoliaProductRecordSchema.parse({ ...PRODUCT, name_sort: '' })).toThrow();
   });
 });
 
@@ -146,6 +159,12 @@ describe('AlgoliaVendorRecordSchema', () => {
     expect(() => AlgoliaVendorRecordSchema.parse(rest)).toThrow();
   });
 
+  // AECI-825 — same strictness rule as the product record's `name_sort`.
+  it('rejects a missing company_name_sort', () => {
+    const { company_name_sort: _omit, ...rest } = VENDOR;
+    expect(() => AlgoliaVendorRecordSchema.parse(rest)).toThrow();
+  });
+
   it('carries the verified flag through (AECI-529)', () => {
     expect(AlgoliaVendorRecordSchema.parse(VENDOR).verified).toBe(true);
   });
@@ -173,5 +192,31 @@ describe('AlgoliaIntegrationRecordSchema', () => {
     expect(() =>
       AlgoliaIntegrationRecordSchema.parse({ ...INTEGRATION, direction: 'sideways' }),
     ).toThrow();
+  });
+});
+
+// AECI-825 — the case-folded sort keys the A–Z replicas rank on. Asserted as a
+// pure function here; the two record builders' lockstep is asserted in
+// `apps/api/src/lib/algolia-transforms.spec.ts` and
+// `apps/datatool/src/algolia-reindex.spec.ts`.
+describe('algoliaSortKey', () => {
+  it('folds case so a byte sort cannot rank capitals ahead of lowercase', () => {
+    const names = ['ADP Workforce Now', 'AEC Stack', 'Access Coins Evo', 'eSUB', 'Zoho'];
+    const byRawBytes = [...names].sort();
+    const byKey = [...names].sort((a, b) => (algoliaSortKey(a) < algoliaSortKey(b) ? -1 : 1));
+
+    // The defect, reproduced: raw bytes put ADP first and exile eSUB past Zoho.
+    expect(byRawBytes).toEqual([
+      'ADP Workforce Now',
+      'AEC Stack',
+      'Access Coins Evo',
+      'Zoho',
+      'eSUB',
+    ]);
+    expect(byKey).toEqual(['Access Coins Evo', 'ADP Workforce Now', 'AEC Stack', 'eSUB', 'Zoho']);
+  });
+
+  it('leaves an already-lowercase name untouched', () => {
+    expect(algoliaSortKey('procore')).toBe('procore');
   });
 });

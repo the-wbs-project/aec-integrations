@@ -65,7 +65,9 @@ export function buildForwardDriftSql(): string {
     'FROM "vendors" v',
     'WHERE v."verified" = 1',
     '  AND NOT EXISTS (SELECT 1 FROM "vendor_entitlements" e WHERE e."vendor_id" = v."id")',
-    'ORDER BY v."company_name";',
+    // NOCASE so the operator's report reads A→Z rather than capitals-then-lowercase
+    // (AECI-825). Both drift reports use it.
+    'ORDER BY v."company_name" COLLATE NOCASE;',
   ].join('\n');
 }
 
@@ -76,7 +78,7 @@ export function buildReverseDriftSql(): string {
     'FROM "vendors" v',
     'JOIN "vendor_entitlements" e ON e."vendor_id" = v."id"',
     'WHERE v."verified" = 0 AND e."status" = \'active\'',
-    'ORDER BY v."company_name";',
+    'ORDER BY v."company_name" COLLATE NOCASE;',
   ].join('\n');
 }
 

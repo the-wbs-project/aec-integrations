@@ -31,6 +31,7 @@ import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concur
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import { textAsc } from './collation';
 import {
   and,
   asc,
@@ -127,7 +128,7 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
     .select({ slug: products.slug, name: products.name })
     .from(products)
     .where(notInArray(products.id, withVendor))
-    .orderBy(asc(products.name));
+    .orderBy(textAsc(products.name));
   return { lines: rows.map((r) => `${r.name} (${r.slug})`) };
 }
 
@@ -185,7 +186,7 @@ export async function checkVendorsWithoutProducts(db: Db): Promise<CheckFinding>
     .select({ slug: vendors.slug, name: vendors.companyName })
     .from(vendors)
     .where(notInArray(vendors.id, withProduct))
-    .orderBy(asc(vendors.companyName));
+    .orderBy(textAsc(vendors.companyName));
   return { lines: rows.map((r) => `${r.name} (${r.slug})`) };
 }
 
@@ -363,7 +364,7 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
         and(eq(vendors.verified, false), eq(vendorEntitlements.status, 'active')),
       ),
     )
-    .orderBy(asc(vendors.companyName));
+    .orderBy(textAsc(vendors.companyName));
 
   return {
     lines: rows.map((r) => {

@@ -18,6 +18,7 @@ import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
 
 import type { VendorProduct } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { VENDOR_NAV_ITEM_CLASS } from './vendor-nav';
 
@@ -234,7 +235,7 @@ export class VendorProductsMenu {
   /** Alphabetical: the menu is a lookup, so it is ordered the way a reader would
    *  look something up, not by `is_primary`. */
   private readonly sorted = computed<readonly VendorProduct[]>(() =>
-    [...(this.frozen() ?? this.products())].sort((a, b) => a.name.localeCompare(b.name)),
+    [...(this.frozen() ?? this.products())].sort((a, b) => compareText(a.name, b.name)),
   );
 
   protected readonly filtered = computed<readonly VendorProduct[]>(() => {

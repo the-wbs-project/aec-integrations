@@ -1,4 +1,5 @@
 import type { TaxonomyTermWithCount } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 /**
  * Pure ranking policy for the primary-nav taxonomy flyouts, kept free of any
@@ -45,7 +46,5 @@ export function byDisplayOrder(
   list: readonly TaxonomyTermWithCount[] | undefined,
 ): TaxonomyTermWithCount[] {
   if (!list) return [];
-  return [...list].sort(
-    (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name),
-  );
+  return [...list].sort((a, b) => a.display_order - b.display_order || compareText(a.name, b.name));
 }
