@@ -9,7 +9,8 @@
  */
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
+import { provideRouter, RouterLink } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { IntegrationListItem, ProductLink } from '@aeci/shared';
@@ -137,6 +138,20 @@ describe('ProductPoweredHub', () => {
     // The crawler invariant: the pair links are still in the HTML.
     expect(rows(el)).toBe(9);
     expect(el.querySelector('a[href^="/products/acumatica/integrations/"]')).not.toBeNull();
+  });
+
+  it('navigates pair rows through the ROUTER, not as a plain href', () => {
+    // Angular has no global anchor interception: only the RouterLink directive
+    // handles the click. A bare `[href]` here still serialises the same URL and
+    // still passes an href assertion, while silently turning every row into a
+    // full document load. So assert the directive, not the attribute.
+    const { fixture } = setup(NINE);
+    const rowLinks = fixture.debugElement
+      .queryAll(By.directive(RouterLink))
+      .filter((d) =>
+        (d.nativeElement as HTMLAnchorElement).getAttribute('href')?.includes('/integrations/'),
+      );
+    expect(rowLinks).toHaveLength(9);
   });
 
   it('re-opens a collapsed card when a query matches inside it', () => {

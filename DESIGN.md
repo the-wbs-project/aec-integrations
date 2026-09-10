@@ -396,7 +396,7 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 
 ### Role + category chips
 
-Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip surface (bordered, `rounded.sm`, `text-secondary`):
+Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip **surface** (bordered, `rounded.sm`, `surface-raised`, `text-secondary`) and — since AECI-841 — the **standalone attribution chip metrics** in §Badges (`px-2.5 py-1` / `0.75rem`, 29px). They render in the same flex row, so the two must move together; see the "One chip spec" rule for what happened the last time one moved alone.
 
 - **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively.
 - **CategoryChip** (`aec-category-chip`) — the primary category as plain styled text (not a link), for contexts where the whole card is already a link.
@@ -526,12 +526,27 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > marker below. This is why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
-**One chip spec (AECI-841).** Every neutral status chip is `px-2.5 py-1` / `0.75rem` /
-`font-medium` / `tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. This is a rule
-because it was broken: `RoleBadge` shipped at `px-2 py-0.5` and the product-detail hero put a 22px
-"Connector" chip next to the 29px maintenance marker in the same row. Two peers at two heights
-reads as a hierarchy that is not there, and the text was the same 12px in both. If you are writing
-a chip and reaching for different padding, you are making a second chip vocabulary.
+**One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
+card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
+`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Four components carry it:
+`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`.
+
+This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
+and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
+same row; the text was the same 12px in both. Fixing that alone then left `RoleBadge` at 29px beside
+`CategoryChip` at 22px in `ProductCardGrid`'s chip row — the identical defect, relocated. **Chip
+metrics travel with the vocabulary, not the component**, so moving one means auditing every row the
+component appears in. If you are writing a chip and reaching for different padding, you are making a
+second chip vocabulary.
+
+**There is a second vocabulary, and it is deliberate.** The **in-row mechanism/metadata badge** is
+denser and bolder — `px-2.5 py-0.5` / `text-xs` / `font-bold` — because it is one of several
+columns inside a table row or list row, not a standalone statement. It renders in
+`product-integration-row.ts`, `product-powered-hub.ts`, `search-integration-card.ts` and
+`home/integration-tile.ts`. Do not "converge" it onto the 29px spec: at row density the extra 7px
+per badge is what pushes a row off one line. Three badges keep their own documented specs for
+reasons stated below or in their own sections — `VerifiedBadge` (a `rounded-full` pill),
+`TaxonomyBadge` (a link, `px-3` / 13px) and `ReviewStatusBadge` (a coloured state chip).
 
 **Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
 overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
@@ -599,6 +614,8 @@ What actually renders today:
 ### Tags / Taxonomy chips
 
 Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators.
+
+> **Metrics here govern `TaxonomyBadge` only.** The two non-link card-grid chips that borrow this surface (`RoleBadge`, `CategoryChip` — see "Role + category chips" above) take the §Badges standalone-attribution metrics instead: `px-2.5 py-1` / `0.75rem`. They share the surface, not the type scale.
 
 - **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px) — chips, not pills (the pill shape is reserved for vendor-verified badges).
 - **Typography:** Atkinson Hyperlegible Next **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (600): the chip reads as a content tag, not a button. (500 is a real cut since the Next upgrade, AECI-230 — the classic family silently rendered it as 400.) `text-primary` shifts to `accent-primary` on hover.

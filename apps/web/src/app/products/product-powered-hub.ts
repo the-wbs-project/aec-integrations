@@ -1,4 +1,5 @@
 import { Component, computed, input, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
 
@@ -67,7 +68,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  */
 @Component({
   selector: 'aec-product-powered-hub',
-  imports: [LogoOrInitial, IntegrationGroupCard, IntegrationListFilter],
+  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter],
   // A custom element defaults to `display: inline`, so the parent section's
   // `space-y-4` margin lands on an inline box and is silently dropped. Harmless
   // while this was the section's last child; once the catalog-scope note
@@ -106,7 +107,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
             @for (partner of group.partners; track partner.key) {
               <li>
                 <a
-                  [href]="pairHref(partner)"
+                  [routerLink]="pairLink(partner)"
                   [attr.aria-label]="pairAriaLabel(group.hub.name, partner.partner.name)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
@@ -189,7 +190,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
             @for (pair of filteredView().others; track pair.key) {
               <li>
                 <a
-                  [href]="pairHref(pair)"
+                  [routerLink]="pairLink(pair)"
                   [attr.aria-label]="pairAriaLabel(pair.a.name, pair.b.name)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
@@ -330,21 +331,27 @@ export class ProductPoweredHub {
   }
 
   /**
-   * Href for the canonical pair page — context slug is the alphabetically
+   * RouterLink to the canonical pair page — context slug is the alphabetically
    * -first of the two, which `PoweredConnection.a` already is (both are
    * normalized through `orderedPairSlugs`, the same rule
    * `defaultIntegrationContext` applies). Routed through the shared helper
    * anyway so the two can never drift.
    *
-   * A plain `href` rather than `routerLink`: these rows sit inside a projected
-   * `<ng-content>`, and every one of them is an indexable internal link, so the
-   * simplest thing that always renders a real URL is the right thing. The router
-   * still intercepts the click.
+   * **`routerLink`, not a plain `href`.** Angular's router has no global anchor
+   * interception — only the `RouterLink` directive handles the click — so a bare
+   * `href` here would turn every row into a full document load and app bootstrap
+   * instead of a SPA navigation. Being inside a projected `<ng-content>` changes
+   * nothing: the sibling `#integrations` section's `ProductIntegrationRow` is
+   * projected into the same `IntegrationGroupCard` panel and keeps `routerLink`
+   * too. `routerLink` still serialises a real `href` for crawlers and no-JS
+   * readers, so nothing is lost. The card's own trailing "View product" anchor is
+   * the deliberate exception — it opens a new tab, where a router navigation
+   * would be pointless.
    */
-  protected pairHref(pair: PoweredConnection): string {
+  protected pairLink(pair: PoweredConnection): readonly string[] {
     const context = defaultIntegrationContext(pair.a.slug, pair.b.slug);
     const other = context === pair.a.slug ? pair.b.slug : pair.a.slug;
-    return '/products/' + context + '/integrations/' + other;
+    return ['/products', context, 'integrations', other];
   }
 
   /**

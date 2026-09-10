@@ -14,11 +14,16 @@ import type { ProductRole } from '@aeci/shared';
  * product card grid and the product-detail hero.
  *
  * **Chip metrics are shared, not per-component.** `px-2.5 py-1` / `0.75rem` /
- * `font-medium` / `tracking-[0.01em]` is the same spec `MaintenanceMarker` and
- * `AgreementBadge` use. This badge was `px-2 py-0.5` and rendered **22px tall
- * beside the marker's 29px** in the product-detail hero, two chips in one row at
- * two heights — which reads as "the smaller one is less important" rather than as
- * two peers. The text was never smaller; both are 12px.
+ * `font-medium` / `tracking-[0.01em]` is the same spec `MaintenanceMarker`,
+ * `AgreementBadge` and `CategoryChip` use. This badge was `px-2 py-0.5` and
+ * rendered **22px tall beside the marker's 29px** in the product-detail hero, two
+ * chips in one row at two heights — which reads as "the smaller one is less
+ * important" rather than as two peers. The text was never smaller; both are 12px.
+ *
+ * **`CategoryChip` moves with this one.** The two render side by side in the same
+ * flex row in `ProductCardGrid`, so changing one alone just relocates the defect
+ * from the hero to `/products` and the taxonomy browse pages. See `DESIGN.md`
+ * §Badges → "One chip spec".
  */
 @Component({
   selector: 'aec-role-badge',
