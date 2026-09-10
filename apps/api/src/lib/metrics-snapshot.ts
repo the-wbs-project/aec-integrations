@@ -375,7 +375,7 @@ export function emitMetricsSnapshotMetrics(
 }
 
 // ---------------------------------------------------------------------------
-// The re-check pass (AECI-827 / ADR 0026)
+// The re-check pass (AECI-827 / ADR 0027)
 // ---------------------------------------------------------------------------
 
 /**
@@ -638,7 +638,7 @@ const AFTER_AUTOMATION: AdminMetricKey = 'traffic.page_views_human_after_automat
 
 /**
  * Re-check the trailing retro-join window and correct the days that moved
- * (AECI-827 / ADR 0026).
+ * (AECI-827 / ADR 0027).
  *
  * Runs AFTER the primary capture, and the order is load-bearing rather than
  * arbitrary: a missed *stock* sample is unrecoverable (§7.1), while everything

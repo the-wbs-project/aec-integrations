@@ -17,10 +17,14 @@
  *
  *   1. **Query-time only.** Never touches `is_bot`, never runs at ingest, never
  *      enters `scripts/ops/backfill-page-view-bots.sql`.
- *   2. **Show both numbers, never substitute.** Callers report the unfiltered
- *      count as the primary figure and only ever ADD the filtered one beside it
- *      (`AdminCount` in `@aeci/shared`). §1.1 forbids reporting the filtered
- *      figure as *the* figure.
+ *   2. **Show both numbers, never substitute.** Callers report the
+ *      ASN-unfiltered count as the primary figure and only ever ADD the
+ *      ASN-excluded one beside it (`AdminCount` in `@aeci/shared`). §1.1 forbids
+ *      reporting the ASN-excluded figure as *the* figure. Read "unfiltered"
+ *      here as "not ASN-filtered" and nothing wider — the AECI-745 automation
+ *      filter and the AECI-683 operator-leak match both apply to the primary
+ *      figure on `/admin/overview`, and conflating the axes is what AECI-752
+ *      fixed.
  *   3. **Declare the seam, ship it unset.** No ASN is hardcoded anywhere. Absent
  *      var → {@link parseInternalAsns} returns `[]` → the filter is unavailable
  *      and the UI hides the toggle.

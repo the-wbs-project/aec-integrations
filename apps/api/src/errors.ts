@@ -59,6 +59,29 @@ export type ApiErrorOptions = {
   field?: string;
   /** Free-form structured context (e.g. `{ resource, slug }` for 404s). */
   details?: unknown;
+  /**
+   * Seconds the caller should wait before retrying, rendered as the
+   * `Retry-After` RESPONSE HEADER (AECI-773).
+   *
+   * `docs/API_CONTRACTS.md` §4.1 has promised this on `429` since Phase 2.8 and
+   * until AECI-773 nothing ever sent it: `ApiError` had no header channel and
+   * {@link renderApiError} called `json()` with a status and nothing else. So
+   * every 429 this Worker has ever returned — including the shipped
+   * `INVITE_DAILY_LIMIT` rejection — told the caller to back off without
+   * telling it for how long.
+   *
+   * A **header**, never a body field: the §3.3 envelope and `ApiErrorSchema`
+   * are untouched, so `apps/web/src/server-api-client.ts` parses exactly as
+   * before. Emitted as whole delta-seconds (RFC 9110 §10.2.3), never an
+   * HTTP-date.
+   *
+   * Deliberately a single typed number rather than a general
+   * `headers?: Record<string, string>` bag. A general bag would let any thrown
+   * error set any response header — including `Vary`, which the AECI-549
+   * `no-restricted-syntax` rule cannot see through an object it does not
+   * construct. One field, one meaning, one formatting site.
+   */
+  retryAfterSeconds?: number;
 };
 
 /**
@@ -71,6 +94,7 @@ export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly field?: string;
   readonly details?: unknown;
+  readonly retryAfterSeconds?: number;
 
   constructor(status: number, code: ApiErrorCode, message: string, options: ApiErrorOptions = {}) {
     super(message);
@@ -79,6 +103,7 @@ export class ApiError extends Error {
     this.code = code;
     this.field = options.field;
     this.details = options.details;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -295,5 +320,14 @@ function renderApiError<E extends { Bindings: Env }>(
   if (error.field !== undefined) errorObject.field = error.field;
   if (error.details !== undefined) errorObject.details = error.details;
 
-  return json({ error: errorObject, trace_id: traceId }, { status: error.status });
+  // AECI-773. `json()` builds a `Headers` from `init.headers` and only DEFAULTS
+  // `Content-Type` / `Cache-Control`, so adding one header composes with
+  // nothing else touched. `Math.max(1, ...)` because `Retry-After: 0` is legal
+  // and useless; `Math.ceil` because the header is whole seconds.
+  const headers: Record<string, string> = {};
+  if (error.retryAfterSeconds !== undefined) {
+    headers['Retry-After'] = String(Math.max(1, Math.ceil(error.retryAfterSeconds)));
+  }
+
+  return json({ error: errorObject, trace_id: traceId }, { status: error.status, headers });
 }

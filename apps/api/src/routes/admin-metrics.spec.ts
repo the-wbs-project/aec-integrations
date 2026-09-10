@@ -564,7 +564,7 @@ describe('GET /api/admin/metrics/timeseries — basis=net (AECI-686)', () => {
   });
 });
 
-describe('the operator-lookback caveat (AECI-827 / ADR 0026)', () => {
+describe('the operator-lookback caveat (AECI-827 / ADR 0027)', () => {
   const codes = (r: AdminTimeseriesResponse) => r.notes.map((n) => n.code);
 
   it('declares the trailing window as not final on a traffic series', async () => {

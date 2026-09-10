@@ -1,4 +1,4 @@
-# ADR 0026: A `metrics_daily` snapshot is corrected, not final
+# ADR 0027: A `metrics_daily` snapshot is corrected, not final
 
 **Status:** Accepted
 **Date:** 2026-09-09

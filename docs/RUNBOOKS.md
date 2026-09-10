@@ -965,7 +965,7 @@ prune skipping because of the gap.
 `apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
 20 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
 
-**Since AECI-827 the same job has a SECOND pass** (ADR 0026): after the capture it re-checks the
+**Since AECI-827 the same job has a SECOND pass** (ADR 0027): after the capture it re-checks the
 trailing ~33 days and rewrites the `traffic.*` days the operator retro-join moved. It emits its own
 `aeci.metrics_snapshot.recheck.*` family, and its result lands in the same `job_runs` row under
 `detail.recheck`. **Triage the two halves separately** — `detail.metrics` is the capture,
@@ -1061,7 +1061,7 @@ the cron is queue-less and a missed run is never retried.
 **AECI-827's re-check does not close this hole, and cannot.** Its window ends at `today - 2`, so it
 never sees the partial day on the morning the capture would have fixed it; and once it does reach the
 day, the full recompute is **higher** than the partial value, which is exactly the shape the increase
-guard refuses (ADR 0026 — the retro-join can only remove rows, so an increase is never convergence).
+guard refuses (ADR 0027 — the retro-join can only remove rows, so an increase is never convergence).
 The run reports it as `refusals[].reason = 'increase'` and leaves the partial value in place. So a
 partial day is repaired only by re-running the capture for that day or the backfill with a correct
 `--to`. Pass `--to` and mean it.
@@ -1221,6 +1221,63 @@ a manual Cloudflare block. The threshold is a launch placeholder; re-tune it in
 `observability/posthog/alerts.json` (2,000/1 h) once baseline volume is known. That figure is
 the retired Datadog monitor's 500/15 m rescaled 4× for the hourly window — keep the rescale in
 mind when re-tuning, or the alert will mean something different from what the runbooks assume.
+
+**Do not re-tune this layer for an in-Worker complaint.** Since AECI-773 there are two limiting
+layers with different owners, and the whole triage risk is fixing the wrong one — see the sibling
+runbook below before touching a rule here.
+
+---
+
+## In-Worker rate limiter tripped (AECI-773 / ADR 0026)
+
+The sibling of the WAF runbook above, for the layer that lives in the API Worker rather than on the
+zone. Read the two together: **almost every mis-triage here is re-tuning the wrong layer.**
+
+**Metrics:**
+- `aeci.api.ratelimit{bucket,outcome,key_source}` — one count per event. `outcome:limited` is a
+  rejection; `outcome:unconfigured` is a tier with no binding.
+- `aeci.review.submit{outcome:rate_limited}` — the separate §15.1 hourly per-user review cap, which
+  is a D1 count rather than the binding and therefore never appears on the series above.
+
+**Tell them apart first.** A caller blocked by the WAF and a caller blocked in the Worker see
+completely different things, and that is the fastest discriminator:
+
+| | WAF (edge) | in-Worker |
+|---|---|---|
+| Response | Cloudflare's own **403 block page**, HTML | `429` + the §3.3 JSON envelope, `code: RATE_LIMITED` |
+| `Retry-After` | absent | always present |
+| Duration | **1 h hard block**, no self-service recovery | the bucket window; the counter does not advance while denied |
+| Evidence | Cloudflare → Security → Events, `aeci.waf.ratelimit.blocked` | PostHog `aeci.api.ratelimit`, plus a `console.warn` carrying path, method and `key_source` |
+| Fix lives in | `docs/waf-rate-limits.md` + `scripts/ops/` | `RATE_LIMIT_BUCKETS` in `apps/api/src/rate-limit-middleware.ts`, then a normal deploy |
+
+**First checks**
+
+1. **`outcome:unconfigured` on a deployed tier is the urgent one.** It means that tier's Worker has
+   no `ratelimits` binding and is limiting **nothing** — the AECI-659 failure shape, where a
+   protection that covers nothing looks exactly like a protection with nothing to do. Check the
+   tier's block in `apps/api/wrangler.jsonc`; `ratelimits` is **not inherited**, so each bucket is
+   declared five times. `apps/api/src/wrangler-ratelimits.spec.ts` should have caught it before
+   merge, so if this fires in production, find out why it did not. Note the series is emitted
+   **once per isolate** — read it as presence/absence, never as a rate.
+2. **A rising `key_source:absent` on `bucket:token`** means `cf-connecting-ip` stopped arriving
+   through the SSR service binding, so every anonymous caller now shares one counter. Still a limit,
+   a much blunter one. The fix is the existing strip-then-set pattern in
+   `apps/web/src/server-runtime.ts` (`applyCfContextHeaders`), which exists because `request.cf`
+   already does not survive that hop.
+3. **`outcome:limited` with `key_source:user` or `vendor`** is a specific customer being stopped.
+   Read the `console.warn` for the path. If it is a legitimate burst — a vendor bulk-authoring
+   product versions, say — the answer is to raise `RATE_LIMIT_BUCKETS.write` and ship, **not** to
+   touch the zone. Note the counters are **per Cloudflare colo**, so a distributed client sees a
+   higher effective ceiling than the configured number; that is documented Cloudflare behaviour and
+   not a bug.
+4. **A `500` on an authenticated write, with `limit()` never called**, means `rateLimit()` was
+   registered *before* its authz guard. The middleware refuses to guess a key rather than silently
+   degrading a per-user cap into a per-NAT one. Fix the registration order in
+   `apps/api/src/index.ts`.
+
+**Repair:** nothing here is an outage on its own — a 429 with `Retry-After` is a working control.
+The two cases that are real problems are (1) above (a tier protecting nothing) and a legitimate
+customer being stopped repeatedly. Neither is fixed in the Cloudflare dashboard.
 
 ---
 

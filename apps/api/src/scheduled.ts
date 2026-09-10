@@ -753,7 +753,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
     metrics_failed: failed.length,
   });
 
-  // ─── The trailing re-check (AECI-827 / ADR 0026) ──────────────────────────
+  // ─── The trailing re-check (AECI-827 / ADR 0027) ──────────────────────────
   //
   // Deliberately LAST. The primary pass's stock metrics are unrecoverable if the
   // day is missed (§7.1); everything the re-check touches is recomputable from

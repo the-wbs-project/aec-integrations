@@ -228,7 +228,7 @@ export function createAdminTimeseriesHandler(
       notes.push(
         ...(await trafficNotes(db, w, { unique: query.metric === 'traffic.unique_visitors' })),
       );
-      // AECI-827 / ADR 0026. A stored day inside the retro-join's reach is not
+      // AECI-827 / ADR 0027. A stored day inside the retro-join's reach is not
       // final: an `is_operator = 1` anchor written tomorrow retro-excludes views
       // up to 30 days behind it. The 00:15 re-check converges those days, so this
       // is a caveat about the hours BEFORE it next runs — and about the one case

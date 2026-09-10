@@ -13,7 +13,14 @@ Rulesets API).
 > If traffic is being blocked and no rule below explains it, read §3b before editing
 > anything here — AECI-800 was exactly that, and §2 had **zero** events throughout.
 
-**Referenced by:** [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) §15.1; Linear AECI-242 (Phase 7.7). Companion to [`access.md`](./access.md) (Cloudflare Access on the same zone).
+> **This doc now covers TWO layers.** §0–§5 are the **Cloudflare zone** — the rules you
+> edit in the dashboard or through `scripts/ops/`. **[§6](#6-the-in-worker-limiter-aeci-773--adr-0026)**
+> is the **in-Worker limiter** that AECI-773 added beneath them, which lives in
+> `apps/api/src/rate-limit-middleware.ts` and is changed by editing code, not the zone.
+> They mitigate at different points and neither replaces the other. If you are here to
+> re-tune a limit, work out which layer tripped first — §6 tells you how.
+
+**Referenced by:** [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) §15.1; Linear AECI-242 (Phase 7.7), AECI-773 (§6). Companion to [`access.md`](./access.md) (Cloudflare Access on the same zone).
 
 > **Why not config-as-code in CI?** AECI-242's acceptance criteria asked for
 > config-as-code (Terraform / CF API). For launch the rules were applied directly
@@ -118,6 +125,16 @@ sends a browser UA rather than being silently challenged (§2). Applied with
 The Rule B and scraper rule ids recorded above were unrecorded here until `snapshot.mjs`
 resolved them (2026-09-03).
 
+### In-Worker limiter added — the zone unchanged (2026-09, AECI-773)
+
+**No zone change.** AECI-773 added an in-Worker rate-limiting layer (§6) and did **not**
+add, widen, retire or re-tune any rule here. `scripts/ops/` was not run, the rate-limit
+ruleset is still at 2 of 2 Pro slots with the same two rules, and the custom-rule set is
+untouched. It is recorded in Deployed state precisely so that an operator diffing the
+live zone against this doc does not go looking for an apply that never happened. The one
+outstanding zone action is still AECI-807's host narrowing, below, which predates this
+and is unrelated.
+
 ### Host-set narrowing — `prod.` removed (2026-09, AECI-807)
 
 **PENDING — not yet applied to the zone.** The expressions in §1/§2 above are already
@@ -199,10 +216,16 @@ These shape every threshold below; they are not tunable without a plan upgrade:
   *10 seconds* or *1 minute*, **not** 1 hour — and request counts must be whole
   numbers. **A true per-hour limit is therefore not expressible as a WAF rule.**
   The rules below are **per-minute burst caps**: they stop scripted floods but not
-  slow-drip abuse spread across an hour. A real hourly cap would require in-Worker
-  state (a KV / Durable Object counter keyed by IP or user) — deliberately out of
-  scope here (see §3). *(The **block** duration after a trip is a separate field and
-  **does** support up to 1 hour — both rules use a 1 h block.)*
+  slow-drip abuse spread across an hour. *(The **block** duration after a trip is a
+  separate field and **does** support up to 1 hour — both rules use a 1 h block.)*
+  **Both gaps above are now answered in the Worker, not the zone** — see
+  [§6](#6-the-in-worker-limiter-aeci-773--adr-0026). This bullet used to end "a real
+  hourly cap would require in-Worker state (a KV / Durable Object counter) —
+  deliberately out of scope here", which is wrong on the mechanism as well as the
+  scope: AECI-773 used Cloudflare's native `ratelimits` binding, which needs neither
+  KV nor a Durable Object, and the hourly caps are D1 counts over tables we already
+  have. What is still true is that **none of it happens at the edge**: a Worker
+  invocation is already paid for by the time §6 runs.
 - Numeric bot *score* (`cf.bot_management.score`) requires the paid Bot Management
   add-on. The free `cf.client.bot` verified-bot **boolean** is available and is what
   the scraper rule uses.
@@ -222,6 +245,10 @@ These shape every threshold below; they are not tunable without a plan upgrade:
 ---
 
 ## 1. Rate-limiting rules — Security → WAF → Rate limiting rules (2 of 2 Pro slots)
+
+> Still 2 of 2, and AECI-773 did not change that. The in-Worker limiter (§6) neither
+> added a slot, freed one, nor moved anything between them — it is a different layer,
+> not a third rule.
 
 For each rule, in the dashboard: **Create rule** → name it → paste the expression
 into the **"If incoming requests match… → Edit expression"** box → set **"with the
@@ -246,8 +273,9 @@ rather than the spec's hourly cap — see §3. A human filling a form never appr
 
 **Why `/api/subscribe` + `/api/feedback` ride this rule (AECI-659, 2026-09).** The two
 lead-capture endpoints had **no** rate limit anywhere — not on any host, and the API
-Worker applies no rate-limiting middleware. A fresh subscribe fires **two real Resend
-sends** (operator alert + subscriber welcome, AECI-327), so a scripted loop burns Resend
+Worker applied no rate-limiting middleware at the time (it does since AECI-773, but §6
+deliberately leaves these three families on Rule A alone — see §6.2). A fresh subscribe
+fires **two real Resend sends** (operator alert + subscriber welcome, AECI-327), so a scripted loop burns Resend
 quota *and* mails third parties from our domain. Pro caps the zone at **2** rate-limit
 rules and both slots are spent, so they are covered by widening this predicate rather
 than by a third rule. The three families share one 5-per-minute counter — acceptable,
@@ -282,6 +310,9 @@ moderation-gated, so this is a coarse flood backstop, not the only control.
 > are only 2 slots — pick one.
 
 ### Deliberately **not** rate-limited
+
+Both endpoints below are excluded from the **in-Worker limiter too** (§6.2), not just
+from these rules. Read the two exclusions as one decision each, not as a zone-only note.
 
 - **`POST /api/page-views`** — a fire-and-forget analytics beacon that fires on
   every page load and returns 204. A per-IP cap would throttle legitimate analytics
@@ -338,13 +369,14 @@ Why it is shaped this way:
 
 | Spec §15.1 item | Status here | Where it actually lives |
 |---|---|---|
-| `/api/requests/*` 5/IP/**hr** | ⚠️ approximated as 5/IP/**min** (Rule A) | Pro caps the window at 1 min; a true hourly cap needs in-Worker KV/DO state (out of scope) |
+| `/api/requests/*` 5/IP/**hr** | ⚠️ approximated as 5/IP/**min** (Rule A) — and **permanently**, by data shape rather than by plan | Pro caps the window at 1 min. AECI-773 did **not** close this one and closed it as a question: `vendor_requests` stores no client IP, and adding one to drive a rate-limit counter would put a new personal identifier inside the `AUTH_AND_RLS.md` §8 erasure boundary. The only key we hold is a caller-supplied email, which an adversary rotates for free. Rule A's 5/min with a **1 h block** is stronger in practice than 5/hr would be. See §6.2 |
 | *(not in the spec)* `/api/subscribe` + `/api/feedback` | ✅ **added** to Rule A (AECI-659) | 5/IP/min, shared with the `/api/requests/*` counter — §1 Rule A. Beyond the four §15.1 bullets: the spec predates the lead-capture endpoints moving into the API Worker (AECI-257) and their Resend sends (AECI-327). |
-| `/api/reviews` 3/**user**/hr | ⚠️ approximated as 5/**IP**/**min** (Rule B) | per-user is Enterprise-only on WAF *and* the window caps at 1 min; existing dedup + moderation are the real per-user controls |
+| `/api/reviews` 3/**user**/hr | ✅ **delivered** — literally, since AECI-773 | Not here: Rule B is unchanged and stays the per-IP edge burst brake. The spec's actual sentence is honoured in the Worker — `rateLimit('write')` gives the per-**user** half (Enterprise-only on WAF) and a D1 `count()` over `reviews` gives the per-**hour** half (which the native binding also cannot do — its window enum is 10 or 60 s). §6.2, ADR 0026 |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
 | the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
 | *(not in the spec)* AI crawlers + agent fetchers | ⚠️ governed **elsewhere** | §3b below — zone-level bot settings, dashboard-only, unreachable from any rule here. AECI-800 |
+| *(not in the spec)* the vendor-portal writes, the two token-presenting paths, the account/identity writes | ✅ **covered in the Worker** (AECI-773) | Not coverable here at all: both Pro slots are spent and there is no third. §6 |
 
 ---
 
@@ -695,6 +727,109 @@ rule change.
   env, so its mitigations were visible in **Security → Events** only. AECI-807 retires the
   host and drops it from the expressions, which closes the gap. Re-opening it is the cost of
   adding a host to a rule without adding a poll — check both when you widen a host set.
+
+---
+
+## 6. The in-Worker limiter (AECI-773 / ADR 0026)
+
+Everything above is the **zone**. This section is the **Worker**. It was added because
+the zone structurally cannot cover what Stage 2.1 needed: both Pro rate-limit slots are
+spent with no third available, and Pro counts by client IP only, so no rule here can
+express `STAGE_1_SPEC.md` §15.1's "per authenticated user" at any price below Enterprise.
+
+**You do not edit the zone to change any of this.** It lives in
+`apps/api/src/rate-limit-middleware.ts` and ships through a normal deploy. Conversely,
+nothing in §6 mitigates at the edge — a Worker invocation is already paid for by the time
+it runs, which is why §1's rules stay exactly as they are.
+
+### 6.1 The two buckets
+
+Cloudflare's native `ratelimits` binding (GA 2025-09-19). No rule cap, no KV, no Durable
+Object, no migration, and **no provisioning**: `namespace_id` is an integer you choose and
+there is no `wrangler ratelimit create`.
+
+| Bucket | Binding | Window | Keyed by |
+|---|---|---|---|
+| `token` | `TOKEN_RATE_LIMIT` | **10 / 10 s** | client IP (`cf-connecting-ip`) |
+| `write` | `WRITE_RATE_LIMIT` | **30 / 60 s** | authenticated user — vendor on the shared mailer |
+
+Three properties to hold on to before changing anything:
+
+- **`simple.period` is a strict enum of 10 or 60 seconds.** These are burst caps. They do
+  not and cannot implement an hourly cap, exactly like the WAF rules above. Hourly and
+  daily intent is a **D1 count** over a table we already have — `INVITE_DAILY_LIMIT`
+  (10 per vendor per rolling 24 h) and the AECI-773 review cap (3 per user per rolling
+  hour). §6.2 marks which is which.
+- **Counters are per Cloudflare colo** and eventually consistent; Cloudflare documents the
+  API as permissive and explicitly not an accounting system. A distributed attacker gets
+  `limit × colos`. That is acceptable only because §1 exists — the WAF is the volumetric
+  answer and this is a per-actor brake. Two requests from one IP through different colos
+  not sharing a counter is expected behaviour, not a bug.
+- **The binding is not inherited across wrangler environments.** Each bucket is declared
+  **five** times in `apps/api/wrangler.jsonc` (base + preview + staging + demo +
+  production), each with its own `namespace_id` because counters are shared *account-wide*
+  by namespace and the sibling `aec-integrations-review` app already ships this binding on
+  the same account. A missing block is bound on zero Workers, throws nothing, and looks
+  exactly like a limit that is simply never reached — the AECI-659 failure read into a
+  config file. `apps/api/src/wrangler-ratelimits.spec.ts` is the gate, and it names the
+  environment it fails on. Nothing else catches it: **the PR suite runs no
+  `wrangler deploy --dry-run`**, so a missing `env.production` block would otherwise
+  surface at the prod promote, after merge.
+
+### 6.2 What is limited, and what deliberately is not
+
+| Endpoint | Layer | Why |
+|---|---|---|
+| `PATCH /api/vendor/profile`, the four `/api/vendor/products/*` writes, `POST /api/vendor/claims`, `PUT`/`DELETE …/attestation`, `DELETE /api/vendor/seats/*` | `write` (by user) | Covered by nothing at the edge. The product PATCH purges cache tags, so an unbounded loop there is an edge-cache purge loop |
+| `POST /api/vendor/seats/invites` | `write` (**by vendor**) + D1 `INVITE_DAILY_LIMIT` | The one `by: 'vendor'` on the surface: the protected resource is vendor-**shared** outbound Resend mail, so five seats must not buy five times the sends. The 24 h cap stays a D1 count — no binding window reaches it |
+| `POST /api/reviews` | `write` (by user) + D1 3/user/rolling hour | §15.1's second bullet, honoured literally for the first time. Rule B unchanged |
+| `PATCH /api/account`, `POST /api/auth/profile/ensure` | `write` (by user) | Both are D1 writes with no limit before. `profile/ensure` is the last hop of every sign-in, so a mis-set limit there is a login outage — it gets the loosest bucket and one sign-in spends one unit |
+| `POST /api/seat-invites/:token/accept`, `POST /api/unsubscribe` | `token` (by IP) | The caller presents a secret. Keyed by IP, **never by the token** — a per-token key hands every guess its own fresh budget |
+| **`DELETE /api/account`** | **none** | Erasure is a legal obligation (`AUTH_AND_RLS.md` §8), the second call is a no-op, and the whole abuse ceiling is one account erasing itself. **A 429 must never be why an erasure fails.** `requireAuth()` is the control |
+| **every `GET`, everywhere** | **none** | See §6.3 |
+| **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
+| **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
+| **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |
+| **`POST /api/promote`, `/api/promote/connector-catalog`** | none | First-party trusted caller, and the connector arm is **paged** — a limiter throttles our own ingest. `REVIEW_APP_PROMOTE_API.md` §6 publishes this to the review app's repo |
+| **the nine `requireAdmin()` writes** | none | Hand-granted role with no anonymous path to it, and every write emits an `audit_log` row in the same batch. A limiter would risk 429-ing a moderation burst, which is the legitimate workload |
+| **`POST /admin/purge`** (SSR Worker) | none | It would be the SSR Worker's first non-transport binding across four env blocks, and buys little: an unauthenticated flood costs one constant-time compare and a 401, and an attacker who *has* the token purges everything in one request. If a control is wanted, use a WAF **custom** rule — separate, larger quota, consumes neither rate-limit slot |
+
+### 6.3 Two invariants
+
+**Reads are never rate-limited, on any surface, with no exceptions.**
+`GET /api/vendor/updates` is polled every 20 s per focused vendor seat and one poll can
+fan out to six scope refetches, so a limiter on it trips inside a minute — and the failure
+is silent in **both** directions: a permanently stale portal, or a self-inflicted poll
+amplifier, with nothing logged either way. The rule is kept exceptionless on purpose.
+`GET /api/seat-invites/:token` is the one place that costs something — it is the cheaper
+enumeration oracle of that pair — and it is still not limited: the token is a 122-bit
+`crypto.randomUUID()` that no achievable request rate meaningfully erodes, and a grinder
+is visible by its 404 rate.
+
+**`rateLimit()` is registered per route, after the authz guard, never globally.**
+A global middleware runs before every per-route guard and can never see `c.get('auth')`,
+which would silently collapse every key to IP and defeat the `write` bucket entirely. The
+`write` bucket throws a **500** rather than guessing when no principal is present, so a
+mis-ordered registration is loud instead of quietly becoming a per-NAT cap.
+
+### 6.4 Triage — which layer tripped?
+
+A blocked caller sees a very different thing depending on the layer, and that is the
+fastest way to tell them apart:
+
+| | §1 WAF rule | §6 in-Worker |
+|---|---|---|
+| Response | Cloudflare's own **403 block page**, HTML | `429` + the §3.3 JSON envelope, `code: RATE_LIMITED` |
+| `Retry-After` | absent | present — `10` or `60` (or `3600` / `86400` on the D1 caps) |
+| Duration | **1 h hard block**, no self-service recovery | the bucket window, and the counter does not advance while denied |
+| Evidence | Cloudflare → Security → Events; `aeci.waf.ratelimit.blocked` | PostHog: `aeci.api.ratelimit{outcome:limited}` + a `console.warn` carrying path, method and `key_source` |
+| Where you fix it | this doc + `scripts/ops/` | `RATE_LIMIT_BUCKETS` in `apps/api/src/rate-limit-middleware.ts`, then deploy |
+
+`aeci.api.ratelimit{outcome:unconfigured}` on **any** deployed tier means that tier lost
+its binding and is limiting nothing. It is emitted once per isolate, so read it as
+presence/absence and never as a rate. A rising `key_source:absent` on `bucket:token` means
+`cf-connecting-ip` stopped arriving and the anonymous limiter has collapsed to a single
+shared counter — still a limit, but a far blunter one.
 
 ---
 

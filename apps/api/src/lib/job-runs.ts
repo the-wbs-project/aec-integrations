@@ -271,7 +271,7 @@ export type JobRunDetail =
       written: number;
       failed: number;
       metrics: MetricsSnapshotResult['metrics'];
-      /** The AECI-827 trailing re-check (ADR 0026), bounded — see
+      /** The AECI-827 trailing re-check (ADR 0027), bounded — see
        *  `RECHECK_DETAIL_MAX_ENTRIES`. Absent when the pass did not run at all. */
       recheck?: MetricsRecheckSummary;
     }

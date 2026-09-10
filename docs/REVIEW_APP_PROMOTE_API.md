@@ -167,7 +167,12 @@ no matter how much later.
 `error` carries the code). Poll every 1–2 seconds; a typical promote completes in a
 few seconds, and a very heavy bundle can take a minute or more. There is no
 `Retry-After`; nothing rate-limits this endpoint, but do back off rather than
-hammering it.
+hammering it. **That is a deliberate exemption, not an oversight** — AECI-773 added an
+in-Worker rate limiter to this API and explicitly left the whole `/api/promote*` surface
+out of it, because the connector arm is **paged** and a catalogue sync legitimately fires
+many pages back to back. The controls here are the bearer token and idempotency (the
+`promote_jobs` ledger row, and upserts keyed on the review app's own record ids), not a
+rate limit. Do not add one without re-reading `docs/waf-rate-limits.md` §6.2.
 
 **Collect.** On `complete`, write the IDs from `result` back to Airtable, **then**
 clear `promote_job_id`. Collect must be idempotent and resumable: if you crash

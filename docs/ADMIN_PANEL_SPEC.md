@@ -853,7 +853,7 @@ cannot inflate, is **two days**: 2026-08-29 (2 → 1) and 2026-08-18 (4 → 3).
 `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only. Correct any figure
 quoted from a pre-2026-09 day by hand; do not correct the table.
 
-**A stored day is corrected, not final — the trailing re-check (AECI-827 / ADR 0026).** §7.1 was
+**A stored day is corrected, not final — the trailing re-check (AECI-827 / ADR 0027).** §7.1 was
 built on an assumption nobody wrote down because it was true when it shipped: the value of a
 completed day does not change. AECI-683 ended that. `NOT_INTERNAL`'s third half is a correlated
 `EXISTS` anchored on **each page view's own timestamp** with a symmetric ±`OPERATOR_PAIR_LOOKBACK_DAYS`
@@ -864,7 +864,7 @@ day was snapshotted. Measured: production 2026-08-31 stored 224 and recomputes 2
 
 So the 00:15 job runs a **second pass** after the primary capture, re-checking
 `OPERATOR_PAIR_LOOKBACK_DAYS + 1 + SNAPSHOT_RECHECK_SLACK_DAYS` days back and ending at `today - 2`.
-Six properties are load-bearing; ADR 0026 carries the full reasoning.
+Six properties are load-bearing; ADR 0027 carries the full reasoning.
 
 1. **Bounded because finality is computable.** An anchor reaches ±30 days and is only ever written at
    `now`, so a day is final at `day + 31`. The minimum window has **zero** margin — the last anchor
@@ -1539,7 +1539,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   **Scope note.** `NOT_INTERNAL` is deliberately kept a *static* predicate — the retro-join is a correlated subquery anchored on each row's own timestamp rather than a `notInternalFor(window)` function — so all five read surfaces (digest, swarm detectors, `/admin/overview`, `/admin/traffic` + the `metrics_daily` snapshot beneath it, and the public trending card) inherit it without any of them remembering to. It also binds a fixed two parameters regardless of pair count, which the naive JS-resolved pair list does not. **Consequence, and it was closed on 2026-09-09 (AECI-688):** `metrics_daily` rows already written kept the old definition, and `/api/admin/metrics/timeseries` serves snapshot-first, so the chart stepped at the snapshot boundary until `ops:backfill-metrics-daily` was re-run. It has been, on production, staging and demo. `lib/metrics-backfill.ts` was correct for that re-run — it had carried **only** the §9.6 path clause and no `is_operator` at all since D13 shipped.
 
-  **What the re-run also revealed, and AECI-688 did not close: a stored day is not final.** The retro-join is anchored on each row's own timestamp with a ±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so whether a given page view is internal depends on operator rows that may not exist yet. AECI-688 corrected six production days, and **one of them — 2026-08-31 — postdated the fix**: it was snapshotted correctly under the new predicate and then went stale when a later operator row retro-matched it. Every completed day inside the trailing 30 days is therefore provisional, and the 00:15 cron never revisits it because it writes only the prior day. The drift is small and self-limiting, but it does not converge on its own. **Closed on 2026-09-09 by AECI-827 / ADR 0026**: the 00:15 job now runs a second, correction-only pass over the trailing window and rewrites the days that moved, and the timeseries endpoint declares the window soft with `series_within_operator_lookback` — D15(b)'s report-the-inference rule extended to its non-finality. Three residuals stay, deliberately. A day is final at `day + 31` **only because anchors are written at `now`**, so the §7.3 operator-page-view backfill, which sets `is_operator` on historical rows, un-finalises days by the amount it reaches — its documented follow-up is already a re-run of `ops:backfill-metrics-daily`. A **definition change** is still a human decision: the pass refuses any increase and any diff wider than ten days, and routes both to that script's dry run. And a **swarm threshold change** moves `traffic.page_views_human_after_automation` for every stored day with no change to any raw count, so nothing detects it and that key has no backfill. §7.1 carries the mechanism.
+  **What the re-run also revealed, and AECI-688 did not close: a stored day is not final.** The retro-join is anchored on each row's own timestamp with a ±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so whether a given page view is internal depends on operator rows that may not exist yet. AECI-688 corrected six production days, and **one of them — 2026-08-31 — postdated the fix**: it was snapshotted correctly under the new predicate and then went stale when a later operator row retro-matched it. Every completed day inside the trailing 30 days is therefore provisional, and the 00:15 cron never revisits it because it writes only the prior day. The drift is small and self-limiting, but it does not converge on its own. **Closed on 2026-09-09 by AECI-827 / ADR 0027**: the 00:15 job now runs a second, correction-only pass over the trailing window and rewrites the days that moved, and the timeseries endpoint declares the window soft with `series_within_operator_lookback` — D15(b)'s report-the-inference rule extended to its non-finality. Three residuals stay, deliberately. A day is final at `day + 31` **only because anchors are written at `now`**, so the §7.3 operator-page-view backfill, which sets `is_operator` on historical rows, un-finalises days by the amount it reaches — its documented follow-up is already a re-run of `ops:backfill-metrics-daily`. A **definition change** is still a human decision: the pass refuses any increase and any diff wider than ten days, and routes both to that script's dry run. And a **swarm threshold change** moves `traffic.page_views_human_after_automation` for every stored day with no change to any raw count, so nothing detects it and that key has no backfill. §7.1 carries the mechanism.
 
 - **D16 — `client_verdict` decides on its own, with no view floor** (settled by AECI-744 on 2026-09-01; `POST_LAUNCH_MONITORING.md` §3, `lib/swarm-detection.ts`). D14 shipped the verdict as *corroboration* and D15 made it a *hard gate*. Both of those are readings of a GROUP, and both groups are gated on a view-count floor (`SWARM_MIN_VIEWS` / `ASN_ROTATOR_MIN_VIEWS`, both 4) checked **before any evidence is weighed** — so a low-volume automated client never reached the code that reads its verdict at all.
 
@@ -1632,3 +1632,33 @@ Found while settling §13 (AECI-573):
 | **AECI-590** | Reverse-proxy PostHog to recover blocker-lost events (D9) | Backlog · **Low** · outside the epic. Recoverable population is only "accepted the banner **and** runs a blocker" |
 | **AECI-591** | The `*/15` reconcile sweep mutates `vendor_requests` + `workflow_instances` unaudited and unbatched (`lib/linear.ts`) | Backlog · **Medium**. A genuine §26.1 violation on *domain* state — ADR 0022 surfaces it without legitimizing it, and EX-002 explicitly does not cover it. More serious than anything this epic introduced |
 | **AECI-592** | `data-quality.ts` check #2 is unreachable; replace it with a promotion-status invariant guard | Backlog · **Medium**. AECI-587 corrected the comments only |
+
+**Found after closeout, while fixing AECI-752 (2026-09-09).** Both concern note *prose*, which
+§6 item 3 deliberately keeps out of this spec — `code` is the contract and the English sentence
+is the UI's. That division is correct, and it has one cost worth writing down.
+
+- **A semantic change to a figure has no mechanical link to the sentence describing it.** §12's
+  docs-to-update table obliges no note-string sweep, and there is no §12c addendum for D15 / D16
+  / D17. So AECI-683 redefined what `NOT_INTERNAL` counts and AECI-745 redefined what
+  `page_views_human` means, and nobody revisited `internal_filter_unavailable`, whose string read
+  *"Internal-traffic filtering is not available, so every figure here is unfiltered."* That
+  sentence was true of the ASN filter and false of the screen, and it sat directly above a
+  headline filtered twice. **Fixed 2026-09-09 by AECI-752**, which narrowed every one of the five
+  affected strings — two in `AdminNotes`, two in `AdminNoteList`, and the wire `message` in
+  `internalFilterNote` — to the ASN axis. No linter can catch prose going stale; what the fix
+  leaves behind instead is UI prose that depends on no state at all.
+  `internal_filter_unavailable` fires in three states — the var is unset; it is set but the
+  request did not ask; the metric carries no ASN — so both UI strings now report only that no
+  ASN exclusion was applied, never why. *"Is not configured"* is false in the second state, and
+  `/admin/catalog` reaches that state through `GET /api/admin/metrics/timeseries`, which passes
+  the caller's `exclude_internal`. The wire `message` is the deliberate exception: it names the
+  var and distinguishes the states, because a `curl` reader is the person who can act on it.
+  The tests pin the ABSENCE of the over-broad phrasing rather than today's sentence.
+- **§6's P1.3 note (this doc) says there is one shared note renderer. There are three.**
+  `AdminNotes` (`admin-notes.ts`) is the exhaustive one it describes; `AdminNoteList`
+  (`notes/admin-note-list.ts`) renders the same codes on `/admin/traffic` and `/admin/audience`
+  with different `@@` ids and divergent wording; and `system/system-status.ts` carries a partial
+  map for the five system codes. AECI-752 corrected the copy in the first two and did not merge
+  them — consolidating is a real change, not a copy fix. **Still open**, and untracked at the
+  time of writing. Until it closes, a note-string change has to be made in up to three places,
+  which is the same failure mode as the bullet above with a shorter fuse.

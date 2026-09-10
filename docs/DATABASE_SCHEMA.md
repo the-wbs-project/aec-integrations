@@ -848,6 +848,14 @@ create table reviews (
 );
 
 create index reviews_product_status_idx on reviews(product_id, status);
+-- Two readers since AECI-773: the account's own-reviews list, and the §15.1 hourly
+-- per-user submit cap (3 per rolling hour, `routes/reviews.ts`). The cap's predicate is
+-- `reviewer_id = ? AND created_at >= ?`, so this index serves its leading term and
+-- `created_at` is filtered after the seek. Deliberately NOT widened to a composite:
+-- `reviews_unique_per_user_product` below caps a user at one review per product, so the
+-- fan-out is the number of products they have ever reviewed — single digits — and
+-- drizzle-kit generation over this table family has already produced one destructive
+-- recreate (migration 0027, guarded by `src/test/migration-0027.spec.ts`).
 create index reviews_reviewer_idx on reviews(reviewer_id) where reviewer_id is not null;
 create index reviews_status_created_idx on reviews(status, created_at desc);
 
@@ -1189,7 +1197,8 @@ create table vendor_seat_invites (
 );
 
 create unique index vendor_seat_invites_token_key on vendor_seat_invites(token);
--- The roster read AND the per-vendor daily rate-limit count.
+-- The roster read AND the per-vendor daily rate-limit count (a D1 count, not the
+-- AECI-773 `ratelimits` binding: `simple.period` caps at 60s and this window is 24h).
 create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, created_at);
 -- The duplicate probe. PARTIAL, so spent rows never widen it.
 create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
@@ -1530,7 +1539,7 @@ The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row 
 (`apps/api/src/lib/metrics-snapshot.ts`), which captures the prior **complete**
 UTC day.
 
-**And then re-checks the trailing ~33 days (AECI-827 / ADR 0026).** A stored day is
+**And then re-checks the trailing ~33 days (AECI-827 / ADR 0027).** A stored day is
 corrected, not final: `NOT_INTERNAL`'s retro-join (§9.1) is anchored on each page
 view's OWN timestamp with a symmetric ±30-day window, so the three raw `traffic.*`
 values below depend on `is_operator = 1` rows that may not exist yet. The same cron
@@ -1575,7 +1584,7 @@ day (or re-aggregated from rows that still exist); `reconstructed` means derived
 after the fact by `apps/api/scripts/backfill-metrics-daily.ts` from data that can no longer
 prove the day exactly. One precedence rule follows and both writers obey it: **a
 `measured` write always wins; a `reconstructed` write applies only over an absent
-or already-`reconstructed` row.** ADR 0026 adds the clause the rule did not need
+or already-`reconstructed` row.** ADR 0027 adds the clause the rule did not need
 until there were two *scheduled* writers: **a `measured` write may overwrite a
 `measured` row, but only where the source rows demonstrably survive.** Without it
 the nightly re-check would read a pruned or purged day as zero and write that over
@@ -1602,7 +1611,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
 | `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, and **all three** `NOT_INTERNAL` clauses of §9.1 — the `/admin`+`/account` path rule, `is_operator`, and the AECI-683 retro-join. This is the **raw** count; the identically-named field on `GET /api/admin/overview` is post-automation (`ADMIN_PANEL_SPEC.md` §7.1). It counts pre-2026-09 duplicate arrivals, deliberately — see §9.1's `dedupe_key` note | measured |
-| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed. Since ADR 0026 the 00:15 re-check recomputes it whenever its raw half moves — the only convergence path it will ever have, and still not a backfill |
+| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed. Since ADR 0027 the 00:15 re-check recomputes it whenever its raw half moves — the only convergence path it will ever have, and still not a backfill |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |

@@ -337,7 +337,7 @@ numbers), and again at launch.
 > closed that later the same day**: preview was brought to head and backfilled (51 `is_operator` rows,
 > 624 `metrics_daily` rows), and `deploy.yml`'s `migrate-preview` job now keeps the tier current.
 >
-> **And a stored day is no longer left to go stale (AECI-827 / ADR 0026, 2026-09-09).** The retro-join
+> **And a stored day is no longer left to go stale (AECI-827 / ADR 0027, 2026-09-09).** The retro-join
 > is anchored on each row's own timestamp, so a day inside the trailing 30 can lose views to an
 > operator session that had not happened when it was snapshotted — 2026-08-31 did, *after* the fix.
 > The 00:15 job now re-checks the trailing ~33 days and corrects what moved, always downward. Two

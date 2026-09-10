@@ -856,7 +856,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
   });
 
   it('the 00:15 snapshot records BOTH of its passes in one job_runs row', async () => {
-    // AECI-827 / ADR 0026. The re-check is the half that fails silently if it
+    // AECI-827 / ADR 0027. The re-check is the half that fails silently if it
     // stops working, so its result must reach `detail` — and it must not displace
     // the primary pass's twenty per-metric outcomes, which is why the summary is
     // bounded rather than the whole result.

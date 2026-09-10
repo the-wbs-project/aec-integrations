@@ -396,7 +396,7 @@ describe('emitMetricsSnapshotMetrics', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The trailing re-check (AECI-827 / ADR 0026)
+// The trailing re-check (AECI-827 / ADR 0027)
 // ---------------------------------------------------------------------------
 
 /** 00:15 on this day; the primary pass captures 2026-09-14, the re-check spans
