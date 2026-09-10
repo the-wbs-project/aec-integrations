@@ -270,6 +270,24 @@ export class ClaimDetail {
     return name?.trim() ? name : $localize`:@@admin.claims.detail.seat.unnamed:Unnamed seat`;
   }
 
+  /**
+   * FALLBACK person link (AECI-847): a pre-built LinkedIn people-search URL from
+   * the claimant's name, falling back to their email. Rendered only when the
+   * claimant supplied no `submitter_linkedin_url` of their own. A LINK only — the
+   * reviewer opens it deliberately and no claimant data leaves AECi at render time
+   * (§8.3(4)); real person-lookup providers stay a deferred DPA/GDPR call (§11).
+   *
+   * Duplicated from `ClaimQueue.linkedInSearchUrl` rather than shared: it is four
+   * lines with no state, and the two surfaces are already parallel copies by
+   * design (§5.1 "the surface is a /admin/requests clone").
+   */
+  protected linkedInSearchUrl(claim: AdminClaimDetail): string {
+    const keywords = claim.submitter_name?.trim()
+      ? claim.submitter_name.trim()
+      : claim.submitter_email;
+    return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keywords)}`;
+  }
+
   /** Which of the queue's two duplicate rules this sibling matched. */
   protected matchReasonLabel(reason: ClaimDuplicateSibling['match_reason']): string {
     return reason === 'target'

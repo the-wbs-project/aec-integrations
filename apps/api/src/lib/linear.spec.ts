@@ -172,6 +172,9 @@ describe('createLinearIssueForRequest — issue creation', () => {
     expect(sent.variables.input.description).toContain(`Request: ${REQUEST_ID}`);
     expect(sent.variables.input.description).toContain(INPUT.submitterEmail);
 
+    // A correction carries no LinkedIn line: the field is claim-only (AECI-847).
+    expect(sent.variables.input.description).not.toContain('**LinkedIn:**');
+
     // One `linkIssue` call covers both compare-and-set updates (request + workflow);
     // it carries the issue url (AECI-261) for the /admin/requests link.
     expect(links).toEqual([
@@ -192,6 +195,48 @@ describe('createLinearIssueForRequest — issue creation', () => {
       expect.any(Number),
       ['outcome:ok'],
     );
+  });
+
+  it('puts the claimant-supplied LinkedIn profile in the claim description (AECI-847)', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx(),
+      store,
+      {
+        ...INPUT,
+        kind: 'claim',
+        submitterName: 'Dana Reyes',
+        submitterRole: 'Head of Partnerships',
+        submitterLinkedinUrl: 'https://www.linkedin.com/in/dana-reyes',
+      },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input.description).toContain(
+      '**LinkedIn:** https://www.linkedin.com/in/dana-reyes',
+    );
+  });
+
+  it('omits the LinkedIn line when the claimant supplied nothing', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx(),
+      store,
+      { ...INPUT, kind: 'claim', submitterLinkedinUrl: null },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input.description).not.toContain('**LinkedIn:**');
   });
 
   it('adds the domain-check-pending label when domainMatch is no_match (§7.1)', async () => {

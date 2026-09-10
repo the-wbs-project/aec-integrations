@@ -1,0 +1,1 @@
+ALTER TABLE `vendor_requests` ADD `submitter_linkedin_url` text;

@@ -1031,8 +1031,13 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
   slug: z.string().min(1),
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
-//                     submitter_role (1–100), body (20–2000) }
+//                     submitter_role (1–100), body (20–2000),
+//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200) }
 ```
+
+**`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
+
+Unlike every other field on these two schemas, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
 
 #### `POST /api/requests/correction`
 
@@ -1371,6 +1376,12 @@ export const AdminVendorRequestSchema = z.object({
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
+  // AECI-847 identity signal, CLAIMS ONLY: the claimant's own LinkedIn profile
+  // URL, host-anchored to `linkedin.com` by `ClaimFormSchema` at submit. `null`
+  // for every correction, for a claim that skipped the optional field, and for
+  // any claim predating the column. `/admin/claims` renders it as the reviewer's
+  // primary person link and falls back to the built name-search URL when null.
+  submitter_linkedin_url: z.string().nullable(),
   // Surfaced VERBATIM from the DB (`pending|match|no_match|manual_review`). This
   // deviates from §7.1's yes/no framing; computing it is a 6.8 (AECI-215)
   // concern, so until that lands every row reads `pending`.

@@ -249,6 +249,11 @@ export class ClaimQueue {
    * to their email). A LINK only — the reviewer opens it deliberately; no claimant
    * data is sent anywhere by rendering it (§8.3(4) working decision). Real
    * person-lookup/enrichment providers are a deferred DPA/GDPR decision (§11).
+   *
+   * Since AECI-847 this is the FALLBACK, shown only when the claimant supplied no
+   * profile of their own (`submitter_linkedin_url`). A name search returns many
+   * people and confirms nobody; the supplied profile names one. Rendering both
+   * would invite the reviewer to treat the guess as corroboration of the claim.
    */
   protected linkedInSearchUrl(r: AdminClaim): string {
     const keywords = r.submitter_name?.trim() ? r.submitter_name.trim() : r.submitter_email;

@@ -892,6 +892,13 @@ create table vendor_requests (
   submitter_email text not null,
   submitter_name  text,
   submitter_role  text,
+  -- AECI-847: the claimant's own LinkedIn profile URL, the identity signal the
+  -- reviewer opens during claim review (STAGE_2_VENDOR_PORTAL_SPEC.md §5).
+  -- Volunteered and optional, so nullable; host-anchored to linkedin.com by
+  -- ClaimFormSchema before it reaches the column. Physically available to
+  -- corrections (like admin_notes); the API surface is claim-only, since a
+  -- correction identifies nobody. Added by migration 0030 (additive).
+  submitter_linkedin_url text,
 
   -- Domain-match outcome computed at submission time
   domain_match text not null default 'pending'

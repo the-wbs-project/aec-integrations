@@ -121,7 +121,31 @@
       </p>
 
       <div class="mt-4 flex flex-wrap gap-2">
-        @if (c.source_url) {
+        <!--
+          AECI-847 identity signal. The claimant's OWN profile when supplied,
+          otherwise the built name search. Never both: the search is a guess, and
+          showing it beside real evidence invites reading it as corroboration.
+          Mirrors the same pair on the queue so both screens tell one story.
+        -->
+        @if (c.submitter_linkedin_url) {
+        <a
+          [href]="c.submitter_linkedin_url"
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          class="inline-flex items-center rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.claims.detail.linkedin.supplied"
+          >LinkedIn profile the claimant gave ↗</a
+        >
+        } @else {
+        <a
+          [href]="linkedInSearchUrl(c)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.claims.detail.linkedin.search"
+          >Search LinkedIn for this person ↗</a
+        >
+        } @if (c.source_url) {
         <a
           [href]="c.source_url"
           target="_blank"

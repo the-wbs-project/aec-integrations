@@ -479,6 +479,7 @@ describe('sendClaimSubmittedNotification', () => {
     submitterEmail: 'ops@globex.com',
     submitterName: 'Dana Ops',
     submitterRole: 'VP Product',
+    submitterLinkedinUrl: 'https://www.linkedin.com/in/dana-ops',
     domainMatch: 'match',
     duplicateOfRequestId: null,
   };
@@ -502,7 +503,18 @@ describe('sendClaimSubmittedNotification', () => {
     expect(text).toContain('Domain match: match');
     expect(text).toContain('Possible duplicate: no');
     expect(text).toContain('req-9');
+    // AECI-847: the reviewer reads the identity signal off the alert, not just Linear.
+    expect(text).toContain('LinkedIn: https://www.linkedin.com/in/dana-ops');
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-submitted-alert']);
+  });
+
+  it('says the LinkedIn profile was not supplied rather than omitting the row', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, submitterLinkedinUrl: null },
+    );
+    expect(String(lastBody(fetchSpy).text)).toContain('LinkedIn: not supplied');
   });
 
   it('links a vendor target at /vendors and a product target at /products', async () => {

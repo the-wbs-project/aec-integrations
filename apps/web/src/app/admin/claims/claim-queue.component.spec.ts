@@ -51,6 +51,7 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_email: over.submitter_email ?? 'submitter@vendor.test',
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
+    submitter_linkedin_url: over.submitter_linkedin_url ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,

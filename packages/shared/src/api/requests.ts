@@ -79,11 +79,46 @@ export type CorrectionRequest = z.infer<typeof CorrectionRequestSchema>;
 // ─── Claim ───────────────────────────────────────────────────────────────────
 
 /**
+ * Host allowlist for `submitter_linkedin_url` (AECI-847). A claimant-supplied
+ * profile URL is an IDENTITY signal, so it is only worth anything if it points at
+ * the site the reviewer is going to read. An unanchored `z.string().url()` would
+ * accept the claimant's own marketing page — indistinguishable from evidence, and
+ * a paste error would land silently in the admin queue.
+ *
+ * Matches `linkedin.com` and any subdomain of it, which is what the real profile
+ * hosts look like: `www.linkedin.com/in/…`, and the regional mirrors
+ * (`uk.linkedin.com`, `de.linkedin.com`) that LinkedIn still serves. Scheme is
+ * pinned to `https:` — the value is rendered as an `href` in `/admin/claims`, and
+ * a scheme allowlist is the cheapest place to keep a `javascript:` URL out of it.
+ */
+const LINKEDIN_HOST = 'linkedin.com';
+
+function isLinkedInProfileUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  return host === LINKEDIN_HOST || host.endsWith(`.${LINKEDIN_HOST}`);
+}
+
+/**
  * Claim-form fields. `body` ("anything we should know") is required here rather
  * than optional as in the original spec copy: the column is NOT NULL and a claim
  * needs verification context. `phone` from the spec mock is dropped — the Phase 2
  * §5.1 table has no phone column. Both are flagged as table-reconciliation
  * decisions in the PR.
+ *
+ * `submitter_linkedin_url` (AECI-847) is optional. It resolves to a concrete
+ * `string` like `CorrectionFormSchema.source_url` — the Signal Forms field cannot
+ * be `string | undefined`, so "not supplied" is the empty string. It differs from
+ * `source_url` in carrying `.default('')`, which makes the KEY omittable on the
+ * wire: `source_url` shipped with its endpoint, whereas this field is added to an
+ * endpoint already in production, and a body that predates it must still validate.
+ * The server stores `''` as NULL either way.
  */
 export const ClaimFormSchema = z.object({
   submitter_name: z
@@ -102,6 +137,19 @@ export const ClaimFormSchema = z.object({
     .trim()
     .min(1, 'Your role is required.')
     .max(100, 'Keep your role under 100 characters.'),
+  // Trim BEFORE the blank check, not as one branch of a `''`-vs-URL union: a
+  // pasted value routinely carries a leading or trailing space, and under a union
+  // whitespace-only input falls to the URL branch and errors instead of reading as
+  // "not supplied".
+  submitter_linkedin_url: z
+    .string()
+    .trim()
+    .max(200, 'Keep the LinkedIn URL under 200 characters.')
+    .refine(
+      (value) => value === '' || isLinkedInProfileUrl(value),
+      'Enter a LinkedIn profile URL (https://www.linkedin.com/in/…).',
+    )
+    .default(''),
   body: z
     .string()
     .trim()

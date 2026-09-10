@@ -1769,6 +1769,7 @@ export const adminVendorRequestConfig = {
     submitterEmail: true,
     submitterName: true,
     submitterRole: true,
+    submitterLinkedinUrl: true,
     domainMatch: true,
     body: true,
     sourceUrl: true,
@@ -1798,6 +1799,7 @@ export interface RawAdminVendorRequestRow {
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
+  submitterLinkedinUrl: string | null;
   domainMatch: string;
   body: string;
   sourceUrl: string | null;
@@ -1888,6 +1890,7 @@ export function toAdminVendorRequest(
     submitter_email: raw.submitterEmail,
     submitter_name: raw.submitterName,
     submitter_role: raw.submitterRole,
+    submitter_linkedin_url: raw.submitterLinkedinUrl,
     domain_match: raw.domainMatch,
     body: raw.body,
     source_url: raw.sourceUrl,

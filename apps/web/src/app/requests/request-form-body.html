@@ -266,6 +266,47 @@
     }
   </div>
 
+  <!-- LinkedIn profile (optional; AECI-847 identity signal) -->
+  <div class="space-y-1.5">
+    <label
+      for="claim-linkedin"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@requests.claim.linkedin.label"
+    >
+      LinkedIn profile
+      <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
+    </label>
+    <input
+      id="claim-linkedin"
+      type="url"
+      inputmode="url"
+      autocomplete="url"
+      placeholder="https://www.linkedin.com/in/your-profile"
+      [formField]="form.submitter_linkedin_url"
+      [attr.aria-invalid]="form.submitter_linkedin_url().touched() && form.submitter_linkedin_url().invalid() ? 'true' : null"
+      [attr.aria-describedby]="form.submitter_linkedin_url().touched() && form.submitter_linkedin_url().getError('standardSchema') ? 'claim-linkedin-hint claim-linkedin-error' : 'claim-linkedin-hint'"
+      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    />
+    <p
+      id="claim-linkedin-hint"
+      class="text-xs text-(--text-secondary)"
+      i18n="@@requests.claim.linkedin.hint"
+    >
+      Adding your profile is the fastest way for us to confirm you work here.
+    </p>
+    @if (form.submitter_linkedin_url().touched() &&
+    form.submitter_linkedin_url().getError('standardSchema')) {
+    <p
+      id="claim-linkedin-error"
+      class="text-xs font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@requests.claim.linkedin.error"
+    >
+      Enter a LinkedIn profile URL, starting with https://www.linkedin.com/in/
+    </p>
+    }
+  </div>
+
   <!-- Work email -->
   <div class="space-y-1.5">
     <label
@@ -320,7 +361,7 @@
       i18n="@@requests.claim.body.hint"
     >
       Tell us how you're connected to this listing: the team you work on, what you do with the
-      product, or a link to your profile on the company site.
+      product, or anything else that helps us verify you.
       <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
     </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {

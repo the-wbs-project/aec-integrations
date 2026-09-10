@@ -1033,6 +1033,9 @@ export function sendClaimSubmittedNotification(
     submitterEmail: string;
     submitterName: string | null;
     submitterRole: string | null;
+    /** AECI-847 identity signal: the claimant's own LinkedIn profile, or null when
+     *  they skipped the optional field. */
+    submitterLinkedinUrl: string | null;
     /** §6.8 signal: `match` | `no_match` | `pending`. */
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
@@ -1045,6 +1048,7 @@ export function sendClaimSubmittedNotification(
     ['Submitter', opts.submitterEmail],
     ['Name', opts.submitterName ?? '—'],
     ['Role', opts.submitterRole ?? '—'],
+    ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied'],
     ['Domain match', opts.domainMatch],
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
     ['Request id', opts.requestId],

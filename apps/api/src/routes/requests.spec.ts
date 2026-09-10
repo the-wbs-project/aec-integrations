@@ -216,6 +216,83 @@ describe('POST /api/requests/claim', () => {
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
 
+  const submitClaim = (body: Record<string, unknown>) =>
+    claimApp().request('/api/requests/claim', postInit(body), TEST_ENV, fakeExecutionContext());
+
+  // ── AECI-847: the claimant-supplied LinkedIn profile ──────────────────────
+  describe('submitter_linkedin_url (AECI-847)', () => {
+    it('persists a supplied LinkedIn profile URL', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({
+        ...validBody,
+        submitter_linkedin_url: 'https://www.linkedin.com/in/dana-reyes',
+      });
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.submitterLinkedinUrl).toBe(
+        'https://www.linkedin.com/in/dana-reyes',
+      );
+    });
+
+    it('stores an empty string as NULL, not as an empty signal', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({ ...validBody, submitter_linkedin_url: '' });
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.submitterLinkedinUrl).toBeNull();
+    });
+
+    // A pasted URL routinely carries surrounding whitespace, so trimming has to
+    // happen before the blank check, not after it.
+    it('treats a whitespace-only value as not supplied', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({ ...validBody, submitter_linkedin_url: '   ' });
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.submitterLinkedinUrl).toBeNull();
+    });
+
+    it('trims a pasted URL rather than rejecting it', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({
+        ...validBody,
+        submitter_linkedin_url: '  https://www.linkedin.com/in/dana-reyes  ',
+      });
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.submitterLinkedinUrl).toBe(
+        'https://www.linkedin.com/in/dana-reyes',
+      );
+    });
+
+    // The field was added to an endpoint already in production, so a body that
+    // predates it must still validate (the `.default('')` on the shared schema).
+    it('accepts a body that omits the key entirely', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim(validBody);
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.submitterLinkedinUrl).toBeNull();
+    });
+
+    it.each([
+      ['a non-LinkedIn host', 'https://example.com/in/dana-reyes'],
+      ['a lookalike host', 'https://linkedin.com.evil.example/in/dana'],
+      ['plain http', 'http://www.linkedin.com/in/dana-reyes'],
+      ['a javascript: URL', 'javascript:alert(1)'],
+      ['not a URL at all', 'dana-reyes'],
+    ])('rejects %s with 400 and writes nothing', async (_label, url) => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({ ...validBody, submitter_linkedin_url: url });
+      expect(res.status).toBe(400);
+      expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    });
+
+    it('accepts a regional LinkedIn subdomain', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({
+        ...validBody,
+        submitter_linkedin_url: 'https://uk.linkedin.com/in/dana-reyes',
+      });
+      expect(res.status).toBe(201);
+    });
+  });
+
   it('inserts a claim row with the submitter fields and returns 201', async () => {
     await seedVendor({ slug: 'acme-co' });
     const res = await claimApp().request(
