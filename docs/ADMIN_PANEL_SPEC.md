@@ -1565,3 +1565,33 @@ Found while settling §13 (AECI-573):
 | **AECI-590** | Reverse-proxy PostHog to recover blocker-lost events (D9) | Backlog · **Low** · outside the epic. Recoverable population is only "accepted the banner **and** runs a blocker" |
 | **AECI-591** | The `*/15` reconcile sweep mutates `vendor_requests` + `workflow_instances` unaudited and unbatched (`lib/linear.ts`) | Backlog · **Medium**. A genuine §26.1 violation on *domain* state — ADR 0022 surfaces it without legitimizing it, and EX-002 explicitly does not cover it. More serious than anything this epic introduced |
 | **AECI-592** | `data-quality.ts` check #2 is unreachable; replace it with a promotion-status invariant guard | Backlog · **Medium**. AECI-587 corrected the comments only |
+
+**Found after closeout, while fixing AECI-752 (2026-09-09).** Both concern note *prose*, which
+§6 item 3 deliberately keeps out of this spec — `code` is the contract and the English sentence
+is the UI's. That division is correct, and it has one cost worth writing down.
+
+- **A semantic change to a figure has no mechanical link to the sentence describing it.** §12's
+  docs-to-update table obliges no note-string sweep, and there is no §12c addendum for D15 / D16
+  / D17. So AECI-683 redefined what `NOT_INTERNAL` counts and AECI-745 redefined what
+  `page_views_human` means, and nobody revisited `internal_filter_unavailable`, whose string read
+  *"Internal-traffic filtering is not available, so every figure here is unfiltered."* That
+  sentence was true of the ASN filter and false of the screen, and it sat directly above a
+  headline filtered twice. **Fixed 2026-09-09 by AECI-752**, which narrowed every one of the five
+  affected strings — two in `AdminNotes`, two in `AdminNoteList`, and the wire `message` in
+  `internalFilterNote` — to the ASN axis. No linter can catch prose going stale; what the fix
+  leaves behind instead is UI prose that depends on no state at all.
+  `internal_filter_unavailable` fires in three states — the var is unset; it is set but the
+  request did not ask; the metric carries no ASN — so both UI strings now report only that no
+  ASN exclusion was applied, never why. *"Is not configured"* is false in the second state, and
+  `/admin/catalog` reaches that state through `GET /api/admin/metrics/timeseries`, which passes
+  the caller's `exclude_internal`. The wire `message` is the deliberate exception: it names the
+  var and distinguishes the states, because a `curl` reader is the person who can act on it.
+  The tests pin the ABSENCE of the over-broad phrasing rather than today's sentence.
+- **§6's P1.3 note (this doc) says there is one shared note renderer. There are three.**
+  `AdminNotes` (`admin-notes.ts`) is the exhaustive one it describes; `AdminNoteList`
+  (`notes/admin-note-list.ts`) renders the same codes on `/admin/traffic` and `/admin/audience`
+  with different `@@` ids and divergent wording; and `system/system-status.ts` carries a partial
+  map for the five system codes. AECI-752 corrected the copy in the first two and did not merge
+  them — consolidating is a real change, not a copy fix. **Still open**, and untracked at the
+  time of writing. Until it closes, a note-string change has to be made in up to three places,
+  which is the same failure mode as the bullet above with a shorter fuse.

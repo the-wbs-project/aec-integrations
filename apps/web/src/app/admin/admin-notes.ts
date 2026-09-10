@@ -144,11 +144,37 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   catalog_claims_recreated_by_promote: () =>
     $localize`:@@admin.notes.catalogClaimsRecreatedByPromote:Every promote rewrites the claims on an integration, so a claim is dated by the last promote rather than by when it first appeared. Read Claims as a count of live claims, not as a history of when they arrived.`,
 
+  // AECI-752. Both strings name the ASN axis and nothing else. The old pair said
+  // "every figure here is unfiltered" and "the unfiltered figure is always the
+  // primary one" — true of `ANALYTICS_INTERNAL_ASNS` alone, but read as a claim
+  // about the whole screen, directly above a headline that AECI-745 filters for
+  // automation and AECI-683 filters for operator self-traffic. Saying "including
+  // / excluding these networks" instead of "unfiltered / filtered" is what stops
+  // the sentence generalising; §13 D10 constraint 2 is kept, only re-scoped.
+  //
+  // `internal_filter_unavailable` covers THREE states, and this string has to be
+  // true in all of them, so it says what was applied and never why. "…is not
+  // configured" would be false in the second state, and three of this component's
+  // callers can reach it:
+  //
+  //   1. `ANALYTICS_INTERNAL_ASNS` unset — the shipped default everywhere.
+  //   2. Set, but the request did not ask. `/admin/overview` and `/admin/activity`
+  //      cannot reach this: `admin-overview.ts` and `admin-page-views.ts` (via its
+  //      `countFilter`) both hardcode `resolveInternalFilter(env, true)`. But
+  //      `/admin/catalog` renders this component over
+  //      `GET /api/admin/metrics/timeseries` notes (`catalog-coverage.ts`,
+  //      `additions-table.ts`), and `admin-metrics.ts` passes the CALLER's
+  //      `exclude_internal`, which neither catalog caller sends.
+  //   3. The metric carries no ASN — `admin-metrics.ts` builds its own message for
+  //      that one, but the code, and so this string, is the same.
+  //
+  // `AdminNoteList` renders the same code on /admin/traffic and /admin/audience
+  // and is state-agnostic for the same reason, in its own words.
   internal_filter_unavailable: () =>
-    $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not available, so every figure here is unfiltered.`,
+    $localize`:@@admin.notes.internalFilterUnavailable:No internal-network (ASN) filtering is applied here, so these figures include any company-network traffic. Automation and operator self-traffic exclusions are applied where noted.`,
 
   internal_filter_applied: (p) =>
-    $localize`:@@admin.notes.internalFilterApplied:Figures are reported both unfiltered and excluding these networks: ${str(p, 'asns')}:ASNS:. The unfiltered figure is always the primary one.`,
+    $localize`:@@admin.notes.internalFilterApplied:Figures are reported both including and excluding these networks: ${str(p, 'asns')}:ASNS:. The figure that includes them is always the primary one.`,
 
   requires_recompute: () =>
     $localize`:@@admin.notes.requiresRecompute:Algolia drift is left out of this view because it needs network calls, and the data-quality checks shown are the last stored scheduled run. Use Recompute to run both live.`,

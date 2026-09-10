@@ -61,6 +61,30 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-09-09 — AECI-752: correcting a standing claim this log makes about every number it quotes
+
+Scope: **copy only.** No numbers move, no instrumentation changes, nothing is re-derived.
+
+**What was wrong.** The 2026-08-14 entry below says, under "properties that bound every number
+this log will quote from the panel", that because `ANALYTICS_INTERNAL_ASNS` ships unset
+"no internal-traffic figure is available and every number is unfiltered". The first half is
+still true. **The second half has been false since 2026-08-27.** AECI-683 added the
+operator-pair retro-join to `NOT_INTERNAL`, and AECI-745 made the `/admin/overview` headline
+the post-automation figure. On 2026-08-31 the panel reported 222 server-side views as 59.
+
+Per §14.3's rule the 2026-08-14 entry is **left byte-identical** — a dated log gets a new
+entry, not an edit. Read that bullet as scoped to the ASN filter alone.
+
+**What changed in the tree.** The same over-broad wording was live on `/admin/overview`,
+`/admin/activity` and `/admin/traffic`, and in the `message` a `curl` of those endpoints
+returns. All of it is narrowed to the ASN axis. `docs/environments.md`'s seam-var row carried
+the same claim and is corrected there, since that table is a live reference rather than a log.
+
+**Nothing here is a measurement.** No entry's figures are affected. The bound this log should
+apply going forward: a panel number is ASN-unfiltered, and separately may be net of the
+automation filter and the operator-leak match — check the response's own notes, which now say
+which.
+
 ## 2026-09-09 — AECI-688: re-backfilling the long memory, and what it says about the long memory
 
 Scope: an **ops run plus a doc sweep**, not a health sweep. No new instrumentation, no schema change.
