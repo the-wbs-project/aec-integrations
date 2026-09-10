@@ -44,11 +44,13 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
  * `status` and never writes `vendors.verified` (§7.3).
  * `indexnow_drain` is the `*` `/20`-minute IndexNow submission drain (AECI-826 /
- * §20.2): it reads the `indexnow_queue` buffer the promote hook writes, makes at
- * most ONE outbound IndexNow request per tick, and deletes what it submitted.
- * Queue-less **on purpose** rather than by cost — a queue retry re-submits inside
- * the same rate-limit window, which is the burst behaviour this job exists to
- * remove. A failed drain simply leaves its rows for the next tick.
+ * §20.2): it reads the `indexnow_queue` buffer the promote hook writes, makes
+ * ONE outbound IndexNow submission per tick, and deletes what it submitted. Under
+ * a rate limit that submission is exactly one request, because the transport does
+ * not retry a bare 429 (AECI-833); a 5xx or a `Retry-After`-bearing 429 can still
+ * cost up to three. Queue-less **on purpose** rather than by cost — a queue retry
+ * re-submits inside the same rate-limit window, which is the burst behaviour this
+ * job exists to remove. A failed drain simply leaves its rows for the next tick.
  * `asn_registry` is the WEEKLY 02:00 UTC Monday refresh (cron `0 2 * * 2` —
  * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
  * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when

@@ -17,7 +17,10 @@
  * laptop with no D1 binding, it is a one-shot operator action rather than a
  * per-write path, and its set is bounded at ~35 URLs — so the coalescing the buffer
  * exists to provide buys nothing here. It does inherit the transport's AECI-826
- * retry, so an isolated 429 no longer loses the run.
+ * retry as gated by AECI-833: a 5xx, a transport error, or a 429 naming a
+ * `Retry-After` inside ten seconds is retried, and a BARE 429 is not — a rate
+ * limit is not fixed by asking again inside the same window, so re-run the script
+ * later instead.
  *
  * HOW IT PICKS URLS — it reads indexability off the deployed site rather than
  * recomputing the floor:

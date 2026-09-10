@@ -1507,9 +1507,9 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
 
    | Status | Means | Do |
    |---|---|---|
-   | **429** | Rate-limited by the aggregator. The limit is undocumented | Check the drain cadence has not been tightened below `*/20`, and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). If the cadence is right and it persists, loosen `INDEXNOW_DRAIN_CRON` toward `*/30` — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
+   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled tick costs one request and the next tick is the backoff. Check the drain cadence has not been tightened below `*/20`, and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). If the cadence is right and it persists, loosen `INDEXNOW_DRAIN_CRON` toward `*/30` — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
    | **403 / 422** | The key or the payload is rejected | This is the case a 429 has always hidden. Go to "the key is unverified" below |
-   | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice and the next tick retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
+   | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice — a 5xx is a fault rather than a rate limit, so it keeps the blind backoff a 429 lost — and the next tick retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
    | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Check the Worker's outbound health generally; this would not be IndexNow-specific |
 
 2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 on a

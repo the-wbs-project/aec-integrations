@@ -15,8 +15,13 @@
  * Payload size was never the constraint. IndexNow accepts 10,000 URLs per request
  * and our largest attempt carried 107. **Request frequency was.** So the promote
  * now writes to `indexnow_queue` and this job turns any number of buffered
- * promotes into ONE request per tick — the AECI-666 lesson on a different
+ * promotes into ONE submission per tick — the AECI-666 lesson on a different
  * transport: batching beats bounding, bounding beats nothing.
+ *
+ * One submission is one request under a rate limit, because `callIndexNow` does
+ * not retry a bare 429 (AECI-833). It was up to three until that gate landed,
+ * which made the channel's documented 72-a-day ceiling really 216 — and every one
+ * of the extra requests was spent against the limiter this job is waiting on.
  *
  * ─── Order of operations, and why it is this order ────────────────────────────
  *

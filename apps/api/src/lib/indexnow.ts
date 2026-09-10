@@ -41,34 +41,56 @@ export type IndexNowOutcome =
   | { ok: false; status: number; message: string; attempts: number };
 
 /**
- * How many times a throttled or upstream-failed submission is re-sent before the
- * outcome is returned as-is (AECI-826). Two, so a request is attempted at most
- * three times.
+ * How many times a *retryable* failure is re-sent before the outcome is returned
+ * as-is (AECI-826). Two, so such a request is attempted at most three times.
  *
- * This handles an ISOLATED 429. It is explicitly NOT the fix for the burst that
- * produced twenty-three consecutive 429s in production — that is the
- * `indexnow_queue` buffer plus the twenty-minute drain cron, because a retry
- * inside the same rate-limit window is just a fourth request that also fails.
- * Both exist; neither replaces the other.
+ * **What counts as retryable is decided by {@link isRetryableStatus}, and a bare
+ * 429 does not (AECI-833).** This constant is therefore the ceiling on a 5xx, a
+ * transport error, or a 429 that named a usable `Retry-After` — never on a bare
+ * rate limit. See that function for why the two are governed by different rules.
  */
 export const INDEXNOW_MAX_RETRIES = 2;
 
 /** Backoff before retry N (1-indexed), in ms, when the response carries no usable
  *  `Retry-After`. Deliberately short and finite: the drain cron is the long
- *  backoff, so all this has to survive is a momentary throttle. */
+ *  backoff, so all this has to survive is a momentary aggregator fault. Since
+ *  AECI-833 a bare 429 never reaches this schedule at all. */
 const INDEXNOW_RETRY_DELAYS_MS = [1_000, 4_000];
 
 /** Ceiling on an upstream-supplied `Retry-After`. IndexNow may name a window far
  *  longer than a cron tick; waiting it out inside the Worker would burn the
  *  invocation for a submission the next tick retries anyway. Past this we return
- *  the failure and let the buffer hold the URLs. */
+ *  the failure and let the buffer hold the URLs.
+ *
+ *  Since AECI-833 this cap is load-bearing on the 429 path rather than merely
+ *  protective: an over-cap `Retry-After` makes {@link retryAfterMs} return
+ *  `undefined`, which makes the 429 unretryable, so the tick costs one request. */
 const INDEXNOW_MAX_RETRY_AFTER_MS = 10_000;
 
-/** Status codes worth re-sending: the rate limit itself, and any upstream 5xx.
- *  A 4xx that is not 429 (a bad key, a host mismatch, a malformed body) is a
- *  defect that a retry cannot fix, so it is returned on the first attempt. */
-function isRetryableStatus(status: number): boolean {
-  return status === 429 || (status >= 500 && status < 600);
+/**
+ * Whether this failure is worth re-sending. **429 and 5xx are governed by
+ * different rules, and conflating them was AECI-833.**
+ *
+ * - **5xx** — an aggregator fault, transient by nature and unrelated to how often
+ *   we call. Retried blind on the {@link INDEXNOW_RETRY_DELAYS_MS} schedule, as is
+ *   a thrown transport error (DNS, TLS, connection reset).
+ * - **429** — a rate limit. Re-sending inside the same window is the exact
+ *   behaviour the `indexnow_queue` buffer exists to remove, and it is the reason
+ *   ADR 0025 declined a Cloudflare Queue. So a 429 is retried **only** when the
+ *   response carries a usable `Retry-After`, i.e. only when IndexNow itself named
+ *   a time to come back. A bare 429 is returned on the first attempt and the next
+ *   twenty-minute drain tick is the backoff.
+ * - **any other 4xx** — a bad key, a host mismatch, a malformed body. A defect a
+ *   retry cannot fix.
+ *
+ * This is what makes the drain's documented ceiling honest. Before the gate every
+ * tick under a sustained throttle spent three guaranteed-failing requests against
+ * the limiter we were waiting on; production measured exactly that on its first
+ * real tick (`attempts: 3`, 2026-09-09 08:20:11 UTC).
+ */
+function isRetryableStatus(status: number, retryAfter: number | undefined): boolean {
+  if (status === 429) return retryAfter !== undefined;
+  return status >= 500 && status < 600;
 }
 
 /**
@@ -114,8 +136,9 @@ const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTim
  * No-ops to a structured `{ ok: false }` (without calling fetch) when the key /
  * host is absent or the URL list is empty.
  *
- * Retries a 429 or a 5xx up to {@link INDEXNOW_MAX_RETRIES} times, honouring a
- * capped `Retry-After` (AECI-826). Every attempt's body is consumed or discarded
+ * Retries a 5xx, a transport error, and a 429 that names a capped `Retry-After`,
+ * up to {@link INDEXNOW_MAX_RETRIES} times. **A bare 429 is not retried** — see
+ * {@link isRetryableStatus} (AECI-826, gated by AECI-833). Every attempt's body is consumed or discarded
  * before the next one starts, so a retry loop cannot accumulate held connections
  * — the AECI-666 failure mode, which a retry is exactly the kind of change that
  * would reintroduce.
@@ -176,7 +199,7 @@ export async function callIndexNow(
         discardResponseBody(res);
       }
       last = { ok: false, status: res.status, message, attempts: attempt };
-      if (!isRetryableStatus(res.status)) return last;
+      if (!isRetryableStatus(res.status, retryAfter)) return last;
     } catch (error) {
       // A transport-level failure (DNS, TLS, connection reset). Retried on the
       // same schedule as a 5xx: it is the same class of transient.

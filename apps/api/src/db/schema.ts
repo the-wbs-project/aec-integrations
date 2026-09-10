@@ -1749,7 +1749,8 @@ export const asnRegistry = sqliteTable(
  *
  * So the promote no longer submits. It appends the affected public URLs here, and
  * the twenty-minute drain cron (`lib/indexnow-drain.ts`) turns any number of
- * buffered promotes into ONE outbound request. This is the AECI-666 lesson applied
+ * buffered promotes into ONE outbound submission — one request under a rate limit,
+ * because a bare 429 is not retried (AECI-833). This is the AECI-666 lesson applied
  * to a different transport: batching beats bounding, bounding beats nothing.
  *
  * ─── Why `id` exists when `url` is already unique ─────────────────────────────

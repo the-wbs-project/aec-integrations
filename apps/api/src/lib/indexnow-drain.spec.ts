@@ -32,6 +32,7 @@ import {
   INDEXNOW_DRAINED_ACTION,
   INDEXNOW_EXPIRED_METRIC,
   INDEXNOW_SUBMIT_METRIC,
+  type IndexNowDrainLogSink,
 } from './indexnow-drain';
 import {
   enqueueIndexNowUrls,
@@ -53,10 +54,18 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-/** A metric + log sink that records instead of emitting. */
+/**
+ * A metric + log sink that records instead of emitting.
+ *
+ * `logs` is typed off `IndexNowDrainLogSink`'s own parameter rather than
+ * re-declared, so every field the drain reports (`attempts`, `status`, `pending`,
+ * `urls_count`) is assertable here and a new one cannot go unobservable.
+ */
+type DrainLogEvent = Parameters<IndexNowDrainLogSink>[0];
+
 function sinks() {
   const metrics: { metric: string; value: number; tags: string[] }[] = [];
-  const logs: { level: string; message: string; reason?: string }[] = [];
+  const logs: DrainLogEvent[] = [];
   return {
     metrics,
     logs,
@@ -67,8 +76,7 @@ function sinks() {
         gauge: (metric: string, value: number, tags: string[]) =>
           void metrics.push({ metric, value, tags }),
       },
-      log: (event: { level: 'info' | 'warn' | 'error'; message: string; reason?: string }) =>
-        void logs.push(event),
+      log: (event: DrainLogEvent) => void logs.push(event),
     },
   };
 }
@@ -212,8 +220,10 @@ describe('drainIndexNowQueue', () => {
       ...s.deps,
       fetchImpl: respond(429, '{"errorCode":"TooManyRequests"}'),
       now: () => NOW,
-      // Instant backoff. The transport really does wait 1 s + 4 s on a 429,
-      // which is fine in a twenty-minute cron and fatal to a 5 s test timeout.
+      // Instant backoff. Unreachable on this path since AECI-833 gated the bare
+      // 429, but kept so the test still passes if the gate is ever loosened —
+      // the real schedule is 1 s + 4 s, fine in a twenty-minute cron and fatal to
+      // a 5 s test timeout.
       sleep: async () => {},
     });
 
@@ -227,6 +237,34 @@ describe('drainIndexNowQueue', () => {
       tags: ['source:cron', 'outcome:failed'],
     });
     expect(s.logs.some((l) => l.level === 'warn' && l.reason?.includes('429'))).toBe(true);
+  });
+
+  it('spends exactly ONE request on a throttled tick (AECI-833)', async () => {
+    // The drain-level statement of the ceiling. `*/20` gives 72 ticks a day, and
+    // this is what makes that 72 REQUESTS a day rather than 216: production
+    // measured `attempts: 3` on its first real tick under a sustained throttle,
+    // spending three guaranteed-failing requests against the limiter it was
+    // waiting on. A bare 429 is not retried (`lib/indexnow.ts` isRetryableStatus).
+    await enqueueIndexNowUrls(t.db, [url('revit'), url('procore')]);
+    const fetchImpl = respond(429, '{"errorCode":"TooManyRequests"}');
+    const s = sinks();
+
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+      // Deliberately NO injected sleep. A retried tick would wait the real 1 s +
+      // 4 s and blow the default timeout, so a regression here fails loudly
+      // rather than passing slowly.
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: false, status: 429, attempts: 1 });
+    expect(
+      s.logs.some((l) => l.message === 'aeci.indexnow.submit_failed' && l.attempts === 1),
+    ).toBe(true);
   });
 
   it('makes no request at all when the buffer is empty', async () => {

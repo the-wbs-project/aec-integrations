@@ -1423,10 +1423,16 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 > successes at all. Per-request URL count was never the constraint (IndexNow accepts 10,000 per request; our
 > largest carried 107). **Request frequency was**: one promote fired one request, and a bulk curation session
 > — which is how the operator actually works, vendor by vendor — burst eleven inside seven minutes on
-> 2026-09-07. The buffer collapses any number of promotes into one request per twenty minutes, a ceiling of 72
-> a day, and far fewer in practice because an empty buffer makes no request at all. It also dedupes: `url` is
-> UNIQUE, so a product promoted twice inside one window is submitted once, which the per-promote design could
-> not do at all.
+> 2026-09-07. The buffer collapses any number of promotes into one submission per twenty minutes, a ceiling of
+> **72 ticks** a day, and far fewer in practice because an empty buffer makes no request at all. It also
+> dedupes: `url` is UNIQUE, so a product promoted twice inside one window is submitted once, which the
+> per-promote design could not do at all.
+>
+> **Ticks are not requests, and this paragraph used to say "72 requests" (corrected 2026-09-10, AECI-833).**
+> A throttled tick costs exactly one request, because `isRetryableStatus` does not retry a bare 429. Only a
+> 5xx, a transport error, or a 429 naming a `Retry-After` inside ten seconds can cost up to three — so 216 a
+> day is the absolute worst case and not the throttled one. The full table is in
+> `docs/POST_LAUNCH_MONITORING.md` §3 and the reasoning is ADR 0025's 2026-09-10 amendment.
 >
 > Two things the fix does NOT settle, and both are deliberate:
 >
@@ -1441,8 +1447,9 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 >
 > **The evidence that it is fixed is `aeci.indexnow.submit{source:cron,outcome:ok}` going non-zero in
 > production**, not this paragraph. Three secondary guards ship with it: a bounded retry with backoff in the
-> transport for an isolated throttle, a seven-day staleness sweep so a prolonged outage cannot grow the table
-> without limit, and a PostHog alert on a sustained failure ratio — the check whose absence let this run silent
+> transport, gated since AECI-833 so it fires on an isolated fault and never on a bare rate limit
+> (`isRetryableStatus`, `apps/api/src/lib/indexnow.ts`), a seven-day staleness sweep so a prolonged outage
+> cannot grow the table without limit, and a PostHog alert on a sustained failure ratio — the check whose absence let this run silent
 > for at least three days (`docs/OBSERVABILITY.md`, `docs/RUNBOOKS.md`).
 >
 > **Corrected 2026-09-09 (AECI-799).** The sentence that stood here — "Google has **no push channel** for our content types" —

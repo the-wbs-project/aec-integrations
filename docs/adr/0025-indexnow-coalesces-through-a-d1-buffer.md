@@ -1,9 +1,9 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-826 (this record), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
+**Relates to:** AECI-826 (this record), AECI-833 (the amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
 
 ---
 
@@ -50,12 +50,19 @@ equally consistent with the evidence, and this ADR asserts neither.
 2. A new `*/20 * * * *` cron (`indexnow-drain`, the fourteenth) reads the buffer, submits it
    in **one** `callIndexNow` request, and deletes what it sent.
 3. On failure the rows stay. **The next tick is the backoff.**
-4. The transport gains a bounded retry — two attempts on 429 or 5xx, honouring a capped
-   `Retry-After` — for an *isolated* throttle.
+4. The transport gains a bounded retry — two attempts, honouring a capped `Retry-After` — for
+   an *isolated* throttle. **As shipped this retried a bare 429 too, which contradicted this
+   record's own reasoning; AECI-833 gated it. See the Amendment.**
 5. A PostHog alert fires on a sustained refusal ratio (> 90% over 24 h, ≥3-submission floor).
 
-**Ceiling: 72 requests a day**, and far fewer in practice because an empty buffer makes no
-request at all. Against eleven in seven minutes.
+**Ceiling: 72 ticks a day**, and far fewer requests in practice because an empty buffer makes
+no request at all. Against eleven in seven minutes.
+
+A tick and a request are not the same thing, and this record originally conflated them.
+**Under a sustained throttle a tick costs exactly one request**, because a bare 429 is not
+retried. A tick costs up to three only on a 5xx, a transport failure, or a 429 that names a
+`Retry-After` inside ten seconds — so **216 a day is the absolute worst case and it is not the
+throttled case**. See the Amendment.
 
 Three properties fall out of the shape rather than being designed in:
 
@@ -95,6 +102,10 @@ fire-and-forget work at a 20-second watchdog, so a retry lands inside the same r
 window and 429s again. It fixes an isolated throttle and does nothing for the pattern we
 actually had. It ships **alongside** the buffer, not instead of it.
 
+The word doing the work in that paragraph is *isolated*, and the shipped code did not
+honour it — it retried a rate limit identically to an aggregator fault. AECI-833 made the
+distinction real; see the Amendment.
+
 ## Consequences
 
 - **Discovery latency rises to at most 20 minutes.** Irrelevant: the alternative on Bing is
@@ -119,7 +130,9 @@ actually had. It ships **alongside** the buffer, not instead of it.
   finding rather than routine housekeeping.
 - **`ops:submit-trade-urls` still submits directly.** It runs from a laptop with no D1
   binding, it is a one-shot operator action, and its set is bounded at ~35 URLs, so coalescing
-  buys nothing. It does inherit the new retry.
+  buys nothing. It does inherit the new retry, and since AECI-833 it inherits the 429 gate
+  with it — which is right for a one-shot operator action, whose correct response to a rate
+  limit is to report it rather than to hammer it.
 
 ## What this does NOT fix
 
@@ -150,6 +163,59 @@ discovery as sitemap-only.
 - **Do nothing and rely on the sitemap.** The honest baseline, and what production has
   effectively been doing. Rejected because the channel is cheap to fix and its silence was
   itself the defect.
+
+## Amendment — 2026-09-10 (AECI-833): the retry now makes the distinction this record only asserted
+
+**What was wrong.** Decision item 4 above described the transport retry as being "for an
+*isolated* throttle". The code did not make that distinction. `isRetryableStatus` treated a
+429 exactly like a 5xx, so every drain tick cost up to three requests whether the previous
+tick had succeeded or been throttled. Two things followed.
+
+**The ceiling was wrong by a factor of three.** "72 requests a day" was really 72 *ticks* a
+day at up to three requests each — 216. The same figure was stated in
+`apps/api/src/lib/cron-schedules.ts`, `docs/POST_LAUNCH_MONITORING.md` (twice, including a
+flat "at most one outbound IndexNow request per tick") and `docs/STAGE_1_SPEC.md` §20.2.
+
+**And it contradicted this record.** "Why the job is queue-less" declines a Cloudflare Queue
+because a retry "re-submits inside the same rate-limit window, which is precisely the burst
+the job exists to remove". The transport then did precisely that, on every tick.
+
+Not theoretical. Production's first real drain tick, 2026-09-09 08:20:11 UTC, logged
+`status: 429, attempts: 3` on 344 buffered URLs — three guaranteed-failing requests spent
+against the limiter we were waiting on.
+
+**What changed.** `isRetryableStatus` now takes the parsed `Retry-After` and applies two
+rules instead of one:
+
+| Failure | Retried? | Backoff |
+|---|---|---|
+| 5xx | yes, twice | 1 s then 4 s |
+| thrown transport error (DNS, TLS, reset) | yes, twice | 1 s then 4 s |
+| 429 naming a `Retry-After` inside the 10 s cap | yes, twice | the header's value |
+| **429 with no usable `Retry-After`** | **no** | the next drain tick |
+| any other 4xx | no | n/a |
+
+The gate is on the *justification*, not on the status: a 429 is retried when IndexNow itself
+named a time to come back, and not when we would only be guessing. `INDEXNOW_MAX_RETRIES`
+stays `2` and now bounds the 5xx path rather than the rate-limit path.
+
+**Why this rather than suppressing the retry when the previous tick 429'd**, which was the
+other candidate. That would have read the drain's own `job_runs` row to detect a sustained
+episode. Three reasons against it. It still spends three requests on the *first* tick of every
+episode, which is the majority of short throttles. It makes the job's behaviour depend on its
+own bookkeeping, inverting `lib/job-runs.ts`'s stated rule that a bookkeeping write must never
+alter the job it records. And it adds cross-tick state to a job whose whole shape is that the
+next tick is the backoff. The `Retry-After` gate needs no state, no query and no migration,
+and it fixes the first throttled tick as well as the hundredth.
+
+**What did not change.** The buffer, the cadence, the queue-less decision, the staleness
+sweep, and the alert. `ops:submit-trade-urls` inherits the gate, which is correct for a
+one-shot operator action. Nothing about the key is settled by this either.
+
+**The evidence it worked** is `attempts: 1` in the next throttled tick's
+`aeci.indexnow.submit_failed` log from the `indexnow-drain-cron` source. That is independent
+of the outstanding AECI-826 criterion, which still needs `outcome:ok` and still waits on
+IndexNow's limiter.
 
 ## Re-open trigger
 
