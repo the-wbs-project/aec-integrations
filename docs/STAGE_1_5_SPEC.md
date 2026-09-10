@@ -599,6 +599,43 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
   the connector's own page — the return path into this surface.
 
+⚠️ **Amended by AECI-841 (2026-09-10): the cards collapse, the section filters, and the hub name
+moved off the heading.** Three changes to this subsection's presentation rules, none to its
+grouping, counting or render-condition rules.
+
+1. **Every card is a disclosure.** The card shape moved into a shared
+   `apps/web/src/app/products/integration-group-card.ts`, which §13.3's endpoint lanes now use too —
+   the two sections were describing the same object in two different shapes, which is what this
+   change closes. Each card header is a `<button aria-expanded aria-controls>` inside the `<h3>`,
+   over a `role="region"` panel named by that heading. **Cards open by default and the panel content
+   is in the DOM in every state**, hidden with the `hidden` attribute rather than removed. That is
+   not a style preference: these rows are every internal link from a product page to its pair pages,
+   the `internal-link-graph` e2e crawler walks them, and §13.3's `@defer (hydrate on viewport)` block
+   needs them SSR-rendered.
+2. **NOT the Angular Aria accordion**, even though `DESIGN.md` §5 names Aria as the provider for
+   accordions. `AccordionPanel` renders its content through `DeferredContent`, which creates the
+   embedded view inside an `afterRenderEffect`, and Angular documents `afterRenderEffect` as running
+   **only on the client**. `preserveContent` does not help — it stops a created view being
+   destroyed, and on the server it is never created. An Aria panel here would ship an empty
+   `<section>` to every crawler. The carve-out is recorded in `docs/adr/0010-angular-aria-alongside-spartan.md`.
+3. **The hub link moved out of the heading and into a trailing "View product" anchor** in the same
+   header bar. A link cannot nest inside a button, and the header is now the disclosure control.
+   This subsection's requirement was the return path into the hub product, not the element carrying
+   it, and the return path survives one Tab away with an accessible name that repeats the hub name.
+4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`). It
+   matches partner names, and a hub whose *own* name matches keeps every partner under it — typing
+   the hub name is a request for that card, not for a partner that happens to share the name. The
+   query is **component state and never a route query param**: `/products/:slug` is a cacheable SSR
+   route keyed on path + query, so a `?q=` would mint an edge-cache entry per keystroke for HTML
+   that does not vary with it. An active filter opens every surviving card, whatever the reader had
+   closed; clearing it restores their collapsed set.
+5. **The counting rule is unchanged and that is the point.** The `<h2>`'s `N` still counts the
+   distinct pairs the UNFILTERED section renders, because the heading is a fact about the product
+   and a filter is a reader's temporary view of it. The filter's own `role="status"` line reports
+   "Showing 3 of 12", and each card's size reads as a fraction while a query is active. Filtering
+   recomputes `pairCount` from the rows it kept, so §12.3's "the count and the rendered rows are
+   provably the same set" holds inside the filtered view as well.
+
 ### 12.4 Cache-tag composition
 
 - **SSR (resolver, `product-detail.resolver.ts`):** each powered edge contributes
@@ -904,6 +941,39 @@ Three notes on what the build had to decide:
   `mergedDirection`) whose `undefined` default means "this row is one edge".
   Synthesising a fake wire object with merged fields was rejected: it would put a
   value on a `ProductIntegrationItem` that no API ever returned.
+
+⚠️ **Amended by AECI-841 (2026-09-10): the lanes became collapsible cards, the section gained a
+filter, and the section moved into its own component.** The lane split, the row identity rules, the
+count invariant and the one-table-per-lane requirement are all untouched. What changed:
+
+- **Each lane renders inside the shared `IntegrationGroupCard`** — the same bordered card with the
+  tinted header bar that §12.3's hub cards use, now with a disclosure button in the header. The two
+  sections were rendering the same object in two shapes; this is that fixed. Every rule the card
+  carries is stated in §12.3's own AECI-841 amendment, including why it is not the Angular Aria
+  accordion and why the panel content stays in the DOM when collapsed.
+- **The `<h3>` is now the disclosure button, so the connector name is no longer the link.** "Via
+  {connector}" is built in TS (`@@products.detail.body.integrations.lane.via.named`) rather than as
+  a template message wrapping an `<a>`, and the connector link moved to the card's trailing "View
+  product" anchor. This subsection asked for the return path into Addendum B's hub, and the return
+  path survives; only the element carrying it changed. §13.2(c)'s unnamed group still gets no link
+  and no invented name.
+- **Group sub-counts read "2 integrations" rather than "(2)"**, and "3 of 12" while a filter is
+  active. The idiom is now shared with §12.3's cards; the sum invariant is unchanged.
+- **A page with NO connector edges is deliberately untouched**: one unheaded table, no card, no
+  toggle. This subsection already rejected a "Direct integrations" heading over the only table as
+  chrome over a fact the `<h2>` states, and a collapsible card would be that same chrome with a
+  button on it. It **does** get the filter when it is long, which is exactly the list a filter is
+  for.
+- **The filter turns the `@defer` cut off.** With a query active the cut limit becomes the filtered
+  row count. A filtered list is short by construction, and a collapsed card's deferred block would
+  otherwise never reach the viewport that triggers it, so a match hiding past row 20 would render
+  nothing.
+- **The section is its own component**, `apps/web/src/app/products/product-integrations-section.ts`,
+  reached through an **attribute selector on the page's existing `<section>`**
+  (`section[aec-product-integrations-section]`). A wrapper custom element would have pushed
+  `#integrations` one level deeper and demoted the labelled region to a plain div; the attribute form
+  leaves the emitted DOM byte-identical at the section boundary, so the anchor, the section-nav
+  entry, the sitemap and the cache tags are all unchanged.
 
 ### 13.4 Contract elements the split needs and does not have
 

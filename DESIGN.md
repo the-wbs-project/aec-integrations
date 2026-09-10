@@ -281,7 +281,7 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
 
-> **Behavior providers (ADR 0010, Accepted).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically, via Tailwind **`aria-*:` variant utilities** (`aria-selected:`, `aria-expanded:`, `aria-checked:`) plus the **`data-[active=true]:`** variant Aria sets on the active option — token-bound, no TS state mirror. (Two adopter-facing deviations: Aria@22 ships no `radio`/`select`, so listbox/combobox stand in; and discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]` — a styling-invisible detail, but see the ADR.) The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
+> **Behavior providers (ADR 0010, Accepted).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically, via Tailwind **`aria-*:` variant utilities** (`aria-selected:`, `aria-expanded:`, `aria-checked:`) plus the **`data-[active=true]:`** variant Aria sets on the active option — token-bound, no TS state mirror. (Three adopter-facing deviations: Aria@22 ships no `radio`/`select`, so listbox/combobox stand in; discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`; and **the accordion is not used for SSR-indexable content** — its panel renders through `afterRenderEffect`, which is client-only, so the panel ships empty to crawlers. See the Disclosure group card below, and the ADR.) The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 ### Buttons
 
@@ -302,6 +302,41 @@ Used for vendor profiles, integration cards, the `/search` result tiles (see Sea
 - **Shadow Strategy:** **None.** Borders separate surfaces. (See the Borders-Not-Shadows Rule above.)
 - **Border:** 0.5px solid `border-default`. Hover (when interactive) raises to 1px solid `border-strong` — no fill change, no shadow, no scale.
 - **Internal Padding:** `spacing.5` (24px). Dense list contexts may use `spacing.4` (16px).
+
+### Disclosure group card
+
+`apps/web/src/app/products/integration-group-card.ts` (AECI-841). One bordered card per group, used by
+both product-detail integration sections. The header bar is the disclosure control; the body is the
+group's rows.
+
+- **Frame:** `rounded.lg`, 0.5px `border-default`, `overflow-hidden`, no shadow.
+- **Header:** `surface-sunken` fill with a `border-default` bottom rule. Contents in order: a chevron
+  (the Lucide `chevron-down` glyph, rotated 180° when open), the subject's logo, the subject name at
+  `text-lg` on an inner `<span>` (the Serif-Floor Rule — the size cannot go on the `<h3>`, see the
+  Unlayered-Heading Rule), and the group size at `text-xs` in text secondary.
+- **Behavior is hand-rolled, not Angular Aria.** A `<button aria-expanded aria-controls>` inside the
+  `<h3>`, over a `role="region"` panel hidden with the `hidden` attribute. Aria's accordion renders
+  its panel through a client-only `afterRenderEffect`, which would ship an empty card to crawlers on
+  an SSR page — see ADR 0010's deviation (c). **The panel content stays in the DOM when collapsed.**
+- **A link never nests inside the header button.** When the group's subject has its own page, that
+  link sits beside the button in the same header bar as a compact "View product" anchor with a full
+  accessible name.
+- **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
+  reader on first paint.
+
+### List filter
+
+`apps/web/src/app/products/integration-list-filter.ts` (AECI-841). The name filter above a long
+list of groups.
+
+- **Shape:** a `type="search"` input (the browser supplies the clear control), `rounded.sm`, 0.5px
+  `border-default`, `surface-base` fill, `text-sm`, capped at `max-w-xs` from `sm` up.
+- **Label:** visually hidden. The section `<h2>` carries the visible name; a second visible label
+  would be chrome.
+- **Result count:** a `role="status"` paragraph that is present from first paint with empty text and
+  gains "Showing 3 of 12" once a query starts. A live region created at the same moment its text
+  arrives is frequently not announced at all, which is why it is not conditionally rendered.
+- **Threshold:** shown at ten or more rows. Below that the whole list is already on one screen.
 
 ### Entity cards (index rows)
 

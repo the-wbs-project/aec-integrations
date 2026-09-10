@@ -236,7 +236,12 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // name — assert on the link identity, which is unambiguous.
     expect(heading.textContent).toContain('Procore');
     expect(heading.textContent).not.toContain('Connects');
-    expect(heading.querySelector('a')!.getAttribute('href')).toBe('/products/procore');
+    // AECI-841: the heading is the disclosure button now, so the hub's own page
+    // link sits beside it in the same header bar rather than inside it. A link
+    // cannot nest in a button.
+    expect(heading.querySelector('a')).toBeNull();
+    expect(heading.querySelector('button')!.getAttribute('aria-expanded')).toBe('true');
+    expect(cards[0]!.querySelector('a[href="/products/procore"]')).toBeTruthy();
     // The card header carries the group size so the count can't drift right.
     expect(cards[0]!.textContent).toContain('2 connections');
 
@@ -268,7 +273,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const cards = section.querySelectorAll('aec-product-powered-hub section');
     expect(cards).toHaveLength(1);
     // No hub cards above it, so it is simply "Connections", not "Other".
-    expect(cards[0]!.querySelector('h3')!.textContent!.trim()).toBe('Connections');
+    const hublessHeading = cards[0]!.querySelector('h3')!.textContent!;
+    expect(hublessHeading).toContain('Connections');
+    expect(hublessHeading).not.toContain('Other');
+    expect(hublessHeading).toContain('1 connection');
 
     const row = cards[0]!.querySelector<HTMLAnchorElement>('ul a')!;
     expect(row.textContent).toContain('Acumatica');
@@ -294,9 +302,14 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Hub identity by link, not heading text (the aria-hidden fallback initial
     // is part of textContent). The trailing card is the hubless bucket, whose
     // heading is a label with no product link.
-    const hubHrefs = [...cards].map((c) => c.querySelector('h3 a')?.getAttribute('href') ?? null);
+    const hubHrefs = [...cards].map(
+      (c) =>
+        c
+          .querySelector('a[href^="/products/"]:not([href*="/integrations/"])')
+          ?.getAttribute('href') ?? null,
+    );
     expect(hubHrefs).toEqual(['/products/procore', null]);
-    expect(cards[1]!.querySelector('h3')!.textContent!.trim()).toBe('Other connections');
+    expect(cards[1]!.querySelector('h3')!.textContent).toContain('Other connections');
     // Viewpoint Vista appears once as a partner under Procore, and once inside
     // the hubless pair row — never as a competing hub heading.
     expect(hubHrefs).not.toContain('/products/viewpoint-vista');
@@ -600,10 +613,14 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     const heading = el.querySelector('#integrations-via-agave-erp-sync')!;
-    expect(heading.textContent).toContain('Via');
-    const linkEl = heading.querySelector('a')!;
+    expect(heading.textContent).toContain('Via Agave ERP Sync');
+    // AECI-841: the heading became the disclosure button, so the connector link
+    // moved to the same header bar beside it. The return path survives; only
+    // the element carrying the name changed.
+    expect(heading.querySelector('a')).toBeNull();
+    const linkEl = heading.parentElement!.querySelector('a')!;
     expect(linkEl.getAttribute('href')).toBe('/products/agave-erp-sync');
-    expect(linkEl.textContent!.trim()).toBe('Agave ERP Sync');
+    expect(linkEl.getAttribute('aria-label')).toBe('View the Agave ERP Sync product page');
   });
 
   it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {
@@ -618,6 +635,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     const heading = el.querySelector('#integrations-via-')!;
     expect(heading.textContent).toContain('Via a connector');
     expect(heading.querySelector('a')).toBeNull();
+    // NEVER invent a name, and never link one either.
+    expect(heading.parentElement!.querySelector('a')).toBeNull();
   });
 
   it('keeps a Convention-A self-reference in the direct lane (§13.2(a))', () => {
@@ -647,8 +666,10 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (3)');
-    expect(el.querySelector('#integrations-direct')!.textContent).toContain('(2)');
-    expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain('(1)');
+    expect(el.querySelector('#integrations-direct')!.textContent).toContain('2 integrations');
+    expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain(
+      '1 integration',
+    );
   });
 
   it('counts COLLAPSED Via rows, so the heading matches what a reader can count', () => {

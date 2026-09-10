@@ -352,3 +352,39 @@ pending sign-off" to the ratified rule, with the two deviations folded in and th
 phrasing corrected to Stage-1 light-only (AECI-226). The point-in-time `docs/PHASE_5_COMPLETION.md`
 snapshot is intentionally left as written (it correctly records "proposed" as the status at Phase 5
 completion).
+
+---
+
+## Amendment (2026-09-10, AECI-841): deviation (c) — Aria's accordion cannot render an SSR page's indexable content
+
+**The rule.** Do not use `@angular/aria`'s accordion (or any other Aria pattern built on
+`ngAccordionContent` / `DeferredContent`) for content that must appear in the server-rendered HTML.
+Use the WAI-ARIA disclosure pattern written out by hand instead: a `<button aria-expanded
+aria-controls>` inside the heading, over a `role="region"` panel hidden with the `hidden` attribute.
+
+**Why.** `AccordionPanel` does not hide its content with CSS. It drives `DeferredContentAware`, and
+`DeferredContent` creates the embedded view inside an `afterRenderEffect`. Angular documents
+`afterRenderEffect` as running **only on the client**
+(`angular.dev/guide/signals/effect#server-side-rendering-caveats`), so on the server the view is
+never created and the panel serialises empty. `preserveContent: true` does not rescue it: that input
+only stops an already-created view from being destroyed on collapse.
+
+**Where it bit.** The two product-detail integration sections (`docs/STAGE_1_5_SPEC.md` §12.3 and
+§13.3). Every row in those cards is an internal link from a product page to a pair page. They are
+what the `internal-link-graph` e2e crawler walks, they are the endpoint section's `@defer (on
+viewport; hydrate on viewport)` payload, and pair pages are the pSEO surface those links feed. An
+Aria accordion would have shipped an empty `<section>` to every crawler and popped the whole list in
+after hydration.
+
+**Scope of the carve-out.** Narrow. This is about *deferred content rendering*, not about Aria. The
+combobox, listbox, tabs and menu adoptions are unaffected — their content is either always rendered
+or genuinely client-only (a popup is not indexable). If Aria later renders deferred content during
+SSR, or exposes a CSS-hiding mode, this deviation should be revisited and the hand-rolled disclosure
+retired.
+
+**The shipped shape** is `apps/web/src/app/products/integration-group-card.ts`. Its controlled
+`expanded` input plus `toggled` output keep the collapsed set with the owning section, which is what
+lets an active list filter re-open a card the reader had closed. The component's own doc comment
+carries the full reasoning, and
+`apps/web/src/app/products/integration-group-card.component.spec.ts` asserts the invariant that
+matters: a collapsed panel is hidden, never emptied.
