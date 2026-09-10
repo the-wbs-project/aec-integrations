@@ -109,15 +109,24 @@ const NINE = [
 describe('ProductIntegrationsSection filter box', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('is absent below the threshold, where the whole list is already on screen', () => {
-    const { el } = setup(NINE);
-    expect(rowCount(el)).toBe(9);
-    expect(filterInput(el)).toBeNull();
+  // There is no row threshold: a section with rows has a filter. This section
+  // and #powered-integrations sit next to each other on a connector page, and
+  // the same control over one and not the other reads as a bug.
+  it('is present on a short section', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    expect(rowCount(el)).toBe(1);
+    expect(filterInput(el)).not.toBeNull();
   });
 
-  it('appears at the threshold', () => {
+  it('is present on a long one', () => {
     const { el } = setup([...NINE, edge(link('sage-300-cre', 'Sage 300 CRE'))]);
     expect(filterInput(el)).not.toBeNull();
+  });
+
+  it('sits in the heading row, not in a band under it', () => {
+    const { el } = setup([...NINE, edge(link('sage-300-cre', 'Sage 300 CRE'))]);
+    const row = el.querySelector('#integrations-title')!.parentElement!;
+    expect(row.querySelector('input#integrations-filter')).not.toBeNull();
   });
 
   it('is absent on an empty section, which has no list to filter', () => {

@@ -230,7 +230,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Heading counts distinct PAIRS — what the section actually renders.
     expect(section!.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
 
-    const cards = section!.querySelectorAll('aec-product-powered-hub section');
+    const cards = section!.querySelectorAll('aec-integration-group-card section');
     expect(cards).toHaveLength(1);
     // Procore is the more frequent endpoint on both edges → it is the hub, no
     // matter which side of the row it was authored on. The heading is now a
@@ -275,7 +275,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const section = el.querySelector('#powered-integrations')!;
     expect(section.querySelector('h2')!.textContent).toContain('Integrations it powers (1)');
 
-    const cards = section.querySelectorAll('aec-product-powered-hub section');
+    const cards = section.querySelectorAll('aec-integration-group-card section');
     expect(cards).toHaveLength(1);
     // No hub cards above it, so it is simply "Connections", not "Other".
     const hublessHeading = cards[0]!.querySelector('h3')!.textContent!;
@@ -303,7 +303,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
       }),
     );
 
-    const cards = el.querySelectorAll('aec-product-powered-hub section');
+    const cards = el.querySelectorAll('aec-integration-group-card section');
     // Hub identity by link, not heading text (the aria-hidden fallback initial
     // is part of textContent). The trailing card is the hubless bucket, whose
     // heading is a label with no product link.
@@ -326,7 +326,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const section = el.querySelector('#powered-integrations');
     expect(section).toBeTruthy();
     expect(section!.querySelector('h2')!.textContent).toContain('Integrations it powers (0)');
-    expect(section!.querySelector('aec-product-powered-hub')).toBeNull();
+    expect(section!.querySelector('aec-integration-group-card')).toBeNull();
     expect(section!.textContent).toContain('No integrations are recorded as running');
     expect(
       section!.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync/correction"]'),

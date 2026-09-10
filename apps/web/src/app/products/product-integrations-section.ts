@@ -10,11 +10,7 @@ import {
   splitIntegrationLanes,
   type ConnectorLaneGroup,
 } from './connector-lane-grouping';
-import {
-  filterIntegrationLanes,
-  INTEGRATION_FILTER_MIN_ROWS,
-  isFilterActive,
-} from './integration-filter';
+import { filterIntegrationLanes, isFilterActive } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
 import { ProductIntegrationsTable } from './product-integrations-table';
@@ -83,9 +79,26 @@ import { ProductIntegrationsTable } from './product-integrations-table';
   selector: 'section[aec-product-integrations-section]',
   imports: [IntegrationGroupCard, IntegrationListFilter, ProductIntegrationsTable, RequestTrigger],
   template: `
-    <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
-      {{ heading() }}
-    </h2>
+    <!-- Heading row: title left, filter right. The filter lives HERE rather
+         than in a band under the heading so an idle one costs no vertical
+         space, which is what let the ten-row threshold go. -->
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+      <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
+        {{ heading() }}
+      </h2>
+      @if (showFilter()) {
+        <aec-integration-list-filter
+          inputId="integrations-filter"
+          i18n-label="@@products.detail.body.integrations.filter.label"
+          label="Search these integrations"
+          i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
+          placeholder="Filter by product name"
+          [(query)]="query"
+          [shown]="filteredLanes().rowCount"
+          [total]="lanes().rowCount"
+        />
+      }
+    </div>
 
     @if (lanes().rowCount === 0) {
       <p
@@ -105,19 +118,6 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         >.
       </p>
     } @else {
-      @if (showFilter()) {
-        <aec-integration-list-filter
-          inputId="integrations-filter"
-          i18n-label="@@products.detail.body.integrations.filter.label"
-          label="Search these integrations"
-          i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
-          placeholder="Filter by product name"
-          [(query)]="query"
-          [shown]="filteredLanes().rowCount"
-          [total]="lanes().rowCount"
-        />
-      }
-
       <!-- A page with no connector edges renders exactly what it always did:
              one unheaded table, named by the section heading. The lane structure
              appears only when there is a second lane to distinguish. -->
@@ -262,10 +262,13 @@ export class ProductIntegrationsSection {
     return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
   });
 
-  /** Below the threshold the whole list is already on one screen. */
-  protected readonly showFilter = computed(
-    () => this.lanes().rowCount >= INTEGRATION_FILTER_MIN_ROWS,
-  );
+  /**
+   * The filter renders whenever the section renders rows — there is no row
+   * threshold. See `integration-filter.ts` for why the ten-row gate went: on a
+   * connector page the two integration sections sit next to each other, and the
+   * same control appearing over one and not the other reads as a bug.
+   */
+  protected readonly showFilter = computed(() => this.lanes().rowCount > 0);
 
   protected readonly directHeading = computed(
     () => $localize`:@@products.detail.body.integrations.lane.direct:Direct integrations`,

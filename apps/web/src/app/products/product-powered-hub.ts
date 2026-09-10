@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
 
+import { RequestTrigger } from '../requests/request-trigger';
 import {
   contextDirectionLabel,
   directionLabel,
@@ -10,11 +11,7 @@ import {
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
-import {
-  filterPoweredHubView,
-  INTEGRATION_FILTER_MIN_ROWS,
-  isFilterActive,
-} from './integration-filter';
+import { filterPoweredHubView, isFilterActive } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
 
@@ -54,6 +51,19 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  * `groupPoweredIntegrations`, which also explains why the hub is chosen once
  * per product rather than per edge.
  *
+ * **Since AECI-848 it is the whole `#powered-integrations` section, not just
+ * the cards.** It
+ * owns the `<h2>`, the empty state, the filter and the catalog-scope note, and
+ * it renders through an attribute selector on the page's real `<section>` —
+ * the same shape the sibling `ProductIntegrationsSection` takes. The heading
+ * had to come down here for the filter to sit beside it in one row; once the
+ * heading moved, the empty state (which also needs it) followed, and the two
+ * sections stopped being assembled two different ways.
+ *
+ * The grouped view is still computed by the PAGE and passed in, because
+ * `showPowered()`, `leadWithPowered()` and the section-nav all read the same
+ * pair count.
+ *
  * Every row links the canonical product-PAIR page for its pair
  * (`defaultIntegrationContext` picks the context slug, matching
  * `IntegrationTile` / the `/integrations/:id` 301 target, so
@@ -67,15 +77,25 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  * saves.
  */
 @Component({
-  selector: 'aec-product-powered-hub',
-  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter],
-  // A custom element defaults to `display: inline`, so the parent section's
-  // `space-y-4` margin lands on an inline box and is silently dropped. Harmless
-  // while this was the section's last child; once the catalog-scope note
-  // (§12.7) followed it, the note sat flush against the final card.
-  host: { class: 'block' },
+  // Attribute selector on the page's real <section>, matching the sibling
+  // `ProductIntegrationsSection`. A wrapper custom element would push
+  // #powered-integrations one level deeper and demote the labelled region to a
+  // plain div, and the `aria-labelledby` on it would then name a heading in a
+  // different element.
+  // eslint-disable-next-line @angular-eslint/component-selector
+  selector: 'section[aec-product-powered-hub]',
+  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter, RequestTrigger],
   template: `
-    <div class="space-y-4">
+    <!-- Heading row: title left, filter right. The filter lives HERE rather
+         than in a band under the heading so an idle one costs no vertical
+         space, which is what let the ten-row threshold go. -->
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+      <h2
+        id="powered-integrations-title"
+        class="font-display text-2xl font-semibold text-(--text-primary)"
+      >
+        {{ heading() }}
+      </h2>
       @if (showFilter()) {
         <aec-integration-list-filter
           inputId="powers-filter"
@@ -88,7 +108,27 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
           [total]="view().pairCount"
         />
       }
+    </div>
 
+    @if (view().pairCount === 0) {
+      <p
+        class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+            bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+        i18n="@@products.detail.body.powers.empty"
+      >
+        No integrations are recorded as running on this connector yet. Vendor data is curated; if
+        you know of one,
+        <a
+          aecRequestTrigger
+          [entity]="'product'"
+          [kind]="'correction'"
+          [slug]="slug()"
+          [href]="'/products/' + slug() + '/correction'"
+          class="text-(--accent-primary) underline underline-offset-2"
+          >suggest a correction</a
+        >.
+      </p>
+    } @else {
       @for (group of filteredView().groups; track group.hub.slug) {
         <aec-integration-group-card
           [headingId]="'powers-group-' + group.hub.slug"
@@ -247,7 +287,28 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
           No connections match that search.
         </p>
       }
-    </div>
+
+      <!-- Catalog-scope note. Same boundary as the endpoint table on the same
+           page, and it bites harder here: a connector's whole value proposition
+           is breadth, so "Integrations it powers (4)" for a product that markets
+           ~14 ERP connections understates the vendor in an h2. That is the
+           mirror of the defect Addendum B closed, and an understatement is as
+           much a trust failure as an overstatement on a directory that refuses
+           pay-for-placement. Both sections carry the note, deliberately:
+           caveating one would imply the other is complete. -->
+      <p class="text-xs text-(--text-secondary)" i18n="@@products.detail.body.powers.scope">
+        Only integrations between products listed on AECi appear here. If one is missing,
+        <a
+          aecRequestTrigger
+          [entity]="'product'"
+          [kind]="'correction'"
+          [slug]="slug()"
+          [href]="'/products/' + slug() + '/correction'"
+          class="text-(--accent-primary) underline underline-offset-2"
+          >suggest a correction</a
+        >.
+      </p>
+    }
   `,
 })
 export class ProductPoweredHub {
@@ -264,6 +325,9 @@ export class ProductPoweredHub {
    */
   readonly view = input.required<PoweredHubView>();
 
+  /** This page's product slug, for the two suggest-a-correction links. */
+  readonly slug = input.required<string>();
+
   /**
    * The reader's filter text (AECI-841). Deliberately component-local and
    * deliberately NOT a route query param: `/products/:slug` is a cacheable SSR
@@ -277,10 +341,41 @@ export class ProductPoweredHub {
 
   protected readonly filteredView = computed(() => filterPoweredHubView(this.view(), this.query()));
 
-  /** Below the threshold the whole list is already on one screen. */
-  protected readonly showFilter = computed(
-    () => this.view().pairCount >= INTEGRATION_FILTER_MIN_ROWS,
-  );
+  /**
+   * "Integrations it powers (N)".
+   *
+   * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
+   * heading on the same page, because on a connector page **both sections can
+   * be populated at once** — live data has a connector carrying its own
+   * endpoint integrations *and* powered edges (NetSuite Connector by
+   * Appficiency), so the two headings have to be told apart. The former
+   * "Powers these integrations" failed at that: verb-first (breaking the
+   * `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar),
+   * "these" pointed forward at nothing, and "powers" is vendor marketing voice
+   * rather than the neutral catalog voice PRODUCT.md asks for. The pronoun in
+   * "it powers" does the disambiguating work "these" was not doing.
+   *
+   * N counts the distinct product PAIRS the section renders, not raw edges.
+   * Counting edges made the heading lie: live data carries duplicate rows for a
+   * pair (that same NetSuite connector has 4 edges over 2 pairs) and several
+   * mechanisms between one pair collapse to a single row, so a reader counting
+   * rows found fewer than the heading promised.
+   *
+   * A filter never moves it — the heading is a fact about the product, and the
+   * filter's own "Showing 3 of 12" line reports the view.
+   */
+  protected readonly heading = computed(() => {
+    const count = this.view().pairCount;
+    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
+  });
+
+  /**
+   * The filter renders whenever the section renders rows — there is no row
+   * threshold. See `integration-filter.ts` for why the ten-row gate went: this
+   * section and `#integrations` sit next to each other on a connector page, and
+   * the same control appearing over one and not the other reads as a bug.
+   */
+  protected readonly showFilter = computed(() => this.view().pairCount > 0);
 
   /**
    * "Other connections" only when there are hub cards above it to be other
