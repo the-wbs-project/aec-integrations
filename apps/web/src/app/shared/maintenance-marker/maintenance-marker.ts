@@ -15,7 +15,14 @@ export type MaintainedBy = 'aeci' | 'vendor';
  * endorsement would be a lie. A name and a date are falsifiable claims a reader
  * can hold us to; a checkmark is not. Same neutral chip tokens as
  * `products/agreement-badge.ts` (`--border-default` / `--surface-raised` /
- * `--text-secondary`), no status hue, decorative dot.
+ * `--text-secondary`), no status hue.
+ *
+ * **No leading dot.** It shipped with a 6px `--text-tertiary` dot, purely
+ * decorative and `aria-hidden`. It was removed because it read as a status light
+ * on a chip that has exactly one state and whose entire purpose is attribution
+ * WITHOUT a trust signal — the same reason there is no checkmark here. It also
+ * made this chip visibly heavier than the `RoleBadge` sitting next to it. If a
+ * dot ever comes back it has to mean something.
  *
  * ## Where the date comes from — and what it must never come from
  *
@@ -51,13 +58,11 @@ export type MaintainedBy = 'aeci' | 'vendor';
   selector: 'aec-maintenance-marker',
   template: `
     <span
-      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
+      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
         bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
         text-(--text-secondary)"
+      >{{ label() }}</span
     >
-      <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full bg-(--text-tertiary)"></span>
-      {{ label() }}
-    </span>
   `,
 })
 export class MaintenanceMarker {

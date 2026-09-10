@@ -98,7 +98,14 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
         </ol>
 
         <div slot="hero" class="space-y-5">
-          <div class="flex items-start gap-5">
+          <!-- items-center, not items-start. The logo is a 64px square and the
+               column beside it opens with a row of ~29px chips, so top-aligning
+               anchored the logo to the chip row and left it relating to nothing:
+               its optical centre landed in the gap ABOVE the name. Centring ties
+               it to the h1, which is what it belongs to. The column is always
+               taller than 64px (eyebrow + h1 clears it at every breakpoint), so
+               the logo never becomes the taller item and start-align the text. -->
+          <div class="flex items-center gap-5">
             <aec-logo-or-initial
               [src]="v.logo_url"
               [name]="v.company_name"

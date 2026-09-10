@@ -526,10 +526,26 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > marker below. This is why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
+**One chip spec (AECI-841).** Every neutral status chip is `px-2.5 py-1` / `0.75rem` /
+`font-medium` / `tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. This is a rule
+because it was broken: `RoleBadge` shipped at `px-2 py-0.5` and the product-detail hero put a 22px
+"Connector" chip next to the 29px maintenance marker in the same row. Two peers at two heights
+reads as a hierarchy that is not there, and the text was the same 12px in both. If you are writing
+a chip and reaching for different padding, you are making a second chip vocabulary.
+
+**Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
+overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
+at `0.08em` tracking, i.e. an overline in a chip's clothing, sitting two lines below a real overline
+("PRODUCT") and competing with it. Fixed in AECI-841.
+
 What actually renders today:
 
 - **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
-  `surface-raised` / `text-secondary`, decorative dot, no icon. On product detail, vendor
+  `surface-raised` / `text-secondary`, **no dot**, no icon. (It shipped with a 6px decorative
+  `text-tertiary` dot; AECI-841 removed it. On a chip with exactly one state a leading dot reads as
+  a status light, which is precisely the trust signal this component exists **not** to give — the
+  same reason there is no checkmark on it. The agreement badge's dots stay, because there the dot
+  is the only thing separating `unverified` from `single_source`.) On product detail, vendor
   detail, and the pair page. It is a **label, not a sentence, so it carries no terminal
   period**, and the date clause is joined with a middot. Four readings, all **live** since
   AECI-616: `Maintained by AEC Integrations` · `Maintained by AEC Integrations · Reviewed

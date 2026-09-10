@@ -5,10 +5,12 @@
  * vitest runner) rather than the node-only Vitest pass that excludes Angular DI
  * (see `apps/web/vitest.config.ts`).
  *
- * Scope: the hero rating/review meta line near the product name. It now renders
- * for every product — the published aggregate (`rating_overall_avg !== null`,
- * gated server-side at ≥5 reviews) when rated, and a "Not Yet Rated" label + live
- * review count below that threshold — plus the hero write-a-review CTA. The leaf
+ * Scope: the hero rating/review meta line near the product name. It renders for
+ * every product — the published aggregate (`rating_overall_avg !== null`, gated
+ * server-side at ≥5 reviews) when rated, a "Not yet rated" chip + live review
+ * count at 1–4 reviews, and the count ALONE at zero (the chip and the count said
+ * the same thing twice, so the one that explains the absence survives) — plus the
+ * hero write-a-review CTA. The leaf
  * services the page's children pull in (Analytics,
  * AuthService, AccountApi) are stubbed to neutral no-ops — their own specs cover
  * them; here we only assert the hero render branch. The product is delivered via
@@ -118,7 +120,7 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.textContent).toContain('4.2');
     expect(hero!.textContent).toContain('7 reviews');
     // A rated product shows the score, not the below-threshold label.
-    expect(hero!.textContent).not.toContain('Not Yet Rated');
+    expect(hero!.textContent).not.toContain('Not yet rated');
 
     // The count is a path-preserving jump link to the Reviews section.
     const jump = hero!.querySelector<HTMLAnchorElement>('a[href$="#reviews"]');
@@ -129,7 +131,7 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.querySelector('aec-review-cta')).toBeTruthy();
   });
 
-  it('shows "Not Yet Rated" + a linked count below the rating threshold', () => {
+  it('shows "Not yet rated" + a linked count below the rating threshold', () => {
     // 1–4 reviews: the API nulls the average, but the reviews exist — so the
     // hero shows the label + a jump-link count, with no stars and no fabricated
     // score (a single-review average is statistically misleading, §5.5).
@@ -138,7 +140,7 @@ describe('ProductDetailPage hero rating', () => {
     const hero = el.querySelector('[slot="hero"]');
     expect(hero).toBeTruthy();
     expect(hero!.querySelector('aec-review-stars')).toBeNull();
-    expect(hero!.textContent).toContain('Not Yet Rated');
+    expect(hero!.textContent).toContain('Not yet rated');
     expect(hero!.textContent).toContain('3 reviews');
 
     const jump = hero!.querySelector<HTMLAnchorElement>('a[href$="#reviews"]');
@@ -148,14 +150,17 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.querySelector('aec-review-cta')).toBeTruthy();
   });
 
-  it('shows "No reviews yet" with no jump link at zero reviews', () => {
+  it('says "No reviews yet" ONCE at zero reviews, with no rating chip and no jump link', () => {
     const { el } = setup(buildProduct({ review_count: 0, rating_overall_avg: null }));
 
     const hero = el.querySelector('[slot="hero"]');
     expect(hero).toBeTruthy();
     expect(hero!.querySelector('aec-review-stars')).toBeNull();
-    expect(hero!.textContent).toContain('Not Yet Rated');
     expect(hero!.textContent).toContain('No reviews yet');
+    // "Not yet rated · No reviews yet" said the same thing twice in two visual
+    // registers. The count explains the absence, so it is the half that stays.
+    expect(hero!.textContent).not.toContain('Not yet rated');
+    expect(hero!.querySelector('[aria-hidden="true"]')?.textContent).not.toBe('·');
     // Nothing to jump to at zero reviews, so the count is plain text, not a link.
     expect(hero!.querySelector('a[href$="#reviews"]')).toBeNull();
     // The CTA still renders — the action row shows even without a website.

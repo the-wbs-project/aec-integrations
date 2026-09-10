@@ -130,7 +130,14 @@ import { RoleBadge } from './role-badge';
         </ol>
 
         <div slot="hero" class="space-y-5">
-          <div class="flex items-start gap-5">
+          <!-- items-center, not items-start. The logo is a 64px square and the
+               column beside it opens with a row of ~29px chips, so top-aligning
+               anchored the logo to the chip row and left it relating to nothing:
+               its optical centre landed in the gap ABOVE the name. Centring ties
+               it to the h1, which is what it belongs to. The column is always
+               taller than 64px (eyebrow plus h1 clears it at every breakpoint),
+               so the logo never becomes the taller item. -->
+          <div class="flex items-center gap-5">
             <aec-logo-or-initial
               [src]="p.logo_url"
               [name]="p.name"
@@ -176,26 +183,41 @@ import { RoleBadge } from './role-badge';
 
           <!-- Rating / review meta line. Always rendered: a rated product (≥5
                approved reviews) shows the aggregate; below that §5.5 threshold the
-               API nulls the average, so we show a "Not Yet Rated" label + the live
+               API nulls the average, so we show a "Not yet rated" chip + the live
                review count instead of hiding the line. Every value derives from
-               static product fields, so this stays edge-cache-neutral (§8). -->
+               static product fields, so this stays edge-cache-neutral (§8).
+
+               ZERO reviews collapses to ONE statement. "Not yet rated · No
+               reviews yet" said the same thing twice in two different visual
+               registers, and the second half explains the first, so the count
+               line is the one that survives. At 1-4 reviews both halves carry
+               their own fact ("Not yet rated · 3 reviews") and both render.
+
+               The chip is SENTENCE CASE. It was uppercase with 0.08em tracking,
+               which is the overline role, and DESIGN.md's Sentence-Case Rule
+               allows exactly one exception to sentence case: eyebrows, kickers
+               and sidebar microheadings. A chip is none of those, and this one
+               sat two lines under a real overline ("PRODUCT"), competing with it.
+               Metrics now match RoleBadge / MaintenanceMarker so every chip on
+               this page is one height. -->
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             @if (p.rating_overall_avg !== null) {
               <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
               <span class="font-display text-xl font-semibold text-(--text-primary)">{{
                 decimal(p.rating_overall_avg)
               }}</span>
-            } @else {
+              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+            } @else if (p.review_count > 0) {
               <span
                 class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-                  bg-(--surface-raised) px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em]
+                  bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
                   text-(--text-secondary)"
                 i18n="@@products.detail.hero.notRated"
               >
-                Not Yet Rated
+                Not yet rated
               </span>
+              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
             }
-            <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
             @if (p.review_count > 0) {
               <a
                 [href]="'/products/' + p.slug + '#reviews'"
