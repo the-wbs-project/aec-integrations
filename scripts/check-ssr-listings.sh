@@ -33,6 +33,8 @@
 #       blank page is, so it is a finding, not a skip (AECI-753).
 #     - 200 carrying the "Couldn't load products" error branch.
 #     - 200 carrying zero product links.
+#   COULD NOT CHECK = no HTTP response at all. Not a FAIL — nothing was measured, so
+#     the run reports exit 2 rather than exit 1.
 #
 #   The link COUNT is informational — it varies with how much data the
 #   environment has (local dev is a thin seed; production has ~1,400 products).
@@ -124,7 +126,7 @@ for page in "${PAGES[@]}"; do
   [ -n "$code" ] || code="000"
 
   if [ "$code" = "000" ]; then
-    printf "  %-38s %14s   %s\n" "$page" "-" "FAIL (no response — DNS, timeout, or refused)"
+    printf "  %-38s %14s   %s\n" "$page" "-" "COULD NOT CHECK (no response — DNS, timeout, or refused)"
     unreachable=$((unreachable + 1))
     continue
   fi
