@@ -386,7 +386,7 @@
         "datadogMonitor": "AECi — p95 detail page render > 1.5s (10m)",
         "datadogQuery": "avg(last_10m):p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500"
       },
-      "runbook": "docs/RUNBOOKS.md — 'Detail page render slow'. Check the render-latency-distribution widget on the Traffic board first: it needs no reconstruction and cannot be wrong."
+      "runbook": "docs/RUNBOOKS.md — 'High p95 detail render'. Check the Traffic board tile 'Page speed spread — how many were fast, how many were slow' first: it needs no reconstruction and cannot be wrong."
     },
     {
       "key": "indexnow-failure-rate",

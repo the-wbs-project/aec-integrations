@@ -276,12 +276,12 @@ coverage figure is the only place it surfaces, and it degrades slowly with no al
 ### Dual-run additions (drop these once AECI-651 has run)
 
 These were the migration-window checks. AECI-651 has since closed the window, so items 8–9 are
-retained as **standing sanity checks** (the histogram-p95 reconstruction never got validated against
-the Datadog original) and 10–11 as ordinary procedure.
+retained as **standing sanity checks** and 10–11 as ordinary procedure.
 
-8. **Sanity-check the reconstructed histogram p95.** This is the one piece of arithmetic in the
-   whole PostHog plane that never got validated against the Datadog original before that plane was
-   deleted (AECI-651 ran ahead of this check). Read the insight
+8. **Sanity-check the reconstructed histogram p95.** First done 2026-09-10 against live production
+   buckets (the Datadog comparison never happened; AECI-651 ran ahead of it). It matched on every
+   hour checked, and it also showed PostHog's upper bound is strict: a reading of exactly 1500
+   means the slow pages were in the 1.0–1.5 s band and does not fire. Repeat: read the insight
    `Alert: product pages are rendering slowly` against the dashboard widget
    *Page speed spread — how many were fast, how many were slow*, which is a raw bucket read with
    no reconstruction: the alert value should land within one bucket width above where the raw
@@ -317,7 +317,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
 | Worker error rate high | > 1% / 5m | > 1% / **1 h** | raise the floor only if single failures dominate at low volume. **The cadence, not the threshold, is the thing to watch here** |
-| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥20-observation floor** | tighten if p95 settles well below. Verify the reconstruction first (§2.7) |
+| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥20-observation floor** | Reconstruction verified 2026-09-10. Prod (uncached) p95 sits in the 1.0–1.5 s band a third of all hours and crosses 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-839**), not a threshold to raise |
 | page_views write errors | > 10% / 10m | > 10% / 1 h, **≥20-write floor** | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | > 30% / 1 h, **≥5-attempt floor** | lower once sign-in volume is non-trivial. The floor already removes the "1 of 2 failed = 50%" false page |
 | Toxicity scoring outage | > 50% / 15m | > 50% / 1 h, **≥5-call floor** | lower once review volume is non-trivial |

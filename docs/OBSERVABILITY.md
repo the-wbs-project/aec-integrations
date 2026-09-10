@@ -1108,9 +1108,14 @@ alert-source queries return exactly one row on an empty table; the
 dashboard → insight → alert chain was probed end to end and then deleted. But
 **every query returns zero rows today** — `posthog.metrics` was empty on both
 projects when AECI-647 landed. Correct *shape* is proven; correct *numbers* are
-not, and the histogram-p95 reconstruction in particular has never seen a real
-histogram. That spot-check is the reason the dual-run window exists
-(`observability/posthog/README.md` manual step 2).
+not — *as of AECI-647*. Production has carried live metrics since the 2026-09-07
+promote, and the histogram-p95 reconstruction was verified against the raw bucket
+counts on 2026-09-10 (`observability/posthog/README.md` manual step 2). What the live
+data showed: PostHog's absolute upper bound is **strict**, so a reading of exactly
+`1500` does not fire and only a reading of `2500` or more does. Production's uncached
+detail renders put the 95th observation in the 1,000–1,500 ms band about a third of all
+hours and above 1,500 ms for roughly two hours a day, so the alert fires on real
+slowness rather than on a reconstruction defect. The latency itself is AECI-839.
 
 ## Alerts
 
