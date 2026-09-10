@@ -233,6 +233,49 @@ export type Env = {
    */
   TAXONOMY_KV?: KVNamespace;
   /**
+   * Cloudflare native Workers Rate Limiting bindings (AECI-773 / ADR 0026). The
+   * in-Worker layer BENEATH the two Cloudflare Pro WAF rate-limit rules, which
+   * AECI-773 left byte-for-byte unchanged (`docs/waf-rate-limits.md` §1/§6).
+   *
+   * Why they exist: Pro caps the zone at TWO rate-limit rules and both slots
+   * are spent — Rule A on `POST /api/requests/*` plus the two lead-capture
+   * POSTs, Rule B on `POST /api/reviews`. There is no third slot, so every
+   * token-redemption and vendor-portal path is covered by nothing at the edge.
+   * Pro also counts by client IP ONLY, so no WAF rule can express §15.1's
+   * "per authenticated user" at any price below Enterprise. These bindings have
+   * neither limitation: no rule cap, and the key is an arbitrary string.
+   *
+   * `TOKEN_RATE_LIMIT` (10 / 10 s, keyed by IP) guards surfaces where the caller
+   * PRESENTS a secret. `WRITE_RATE_LIMIT` (30 / 60 s, keyed by the authenticated
+   * user — by vendor only on the vendor-SHARED seat mailer) guards authenticated
+   * writes. Buckets, thresholds and the reasoning live in
+   * `src/rate-limit-middleware.ts`.
+   *
+   * **`simple.period` is a strict enum of 10 or 60.** These are BURST caps and
+   * they do NOT implement §15.1's hourly/daily intent — that stays D1-counted
+   * over a table we already have (`INVITE_DAILY_LIMIT` in
+   * `routes/vendor-seat-invites.ts`, the per-user review cap in `routes/reviews.ts`).
+   *
+   * **`ratelimits` is NOT inherited into a named environment** — wrangler's own
+   * config schema says so verbatim — so each binding is declared FIVE times in
+   * `wrangler.jsonc` (base + preview + staging + demo + production), each with
+   * its OWN `namespace_id`. Own namespace per environment for the same reason
+   * every KV / D1 / Queue / Workflow here has one, plus a sharper one: rate-limit
+   * counters are shared ACCOUNT-WIDE by `namespace_id`, across Workers — and the
+   * sibling `aec-integrations-review` app already ships this binding on the same
+   * account. A duplicated id silently merges two counters.
+   *
+   * Optional + fail-open: absent → `rateLimit()` calls `next()`, warns once per
+   * isolate, and emits `aeci.api.ratelimit{outcome:unconfigured}` so a tier that
+   * lost its binding is a non-zero series rather than silence. Fail-open because
+   * fail-closed would 429 an entire preview tier, and because the binding is
+   * legitimately absent in the plain-Node unit lane. The residual risk — a
+   * deployed tier missing a block — is removed by the lockstep test, not by the
+   * runtime.
+   */
+  TOKEN_RATE_LIMIT?: RateLimit;
+  WRITE_RATE_LIMIT?: RateLimit;
+  /**
    * Cloudflare zone ID for `aecintegrations.com`. Public value, set per
    * environment as a Wrangler secret. Consumed (as the GraphQL `zoneTag`) by the
    * hourly AECI-262 WAF firewall-event poll (`scheduled.ts` `runWafMetricsJob`,
@@ -444,7 +487,10 @@ export type Env = {
    *      reversible, so that doctrine does not transfer — keep the two lists
    *      separate concepts and do not merge them.
    *   2. Show BOTH numbers, never substitute. Every count the panel returns
-   *      carries the unfiltered figure as its primary value.
+   *      carries the ASN-unfiltered figure as its primary value. That is a claim
+   *      about THIS filter only: the primary figure on `/admin/overview` is also
+   *      post-automation (AECI-745) and net of the operator-leak match
+   *      (AECI-683). AECI-752 narrowed the operator-facing copy accordingly.
    *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
    *
    * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`

@@ -25,9 +25,13 @@
  * because its whole job is to show both figures side by side.
  *
  * Consequently `internal_filter.applied` means **"the row list was filtered"**
- * here, and the note is built from `countFilter`: `internalFilterNote`'s
- * not-applied wording ("every figure is unfiltered") would be false on this
- * endpoint, since `window_total.excluding_internal` is populated regardless.
+ * here, and the note is built from `countFilter` rather than `rowFilter`: the
+ * note describes what the COUNTS did, and the counts always ask. Building it
+ * from `rowFilter` would report the ASN filter as absent on a request whose
+ * `window_total.excluding_internal` is populated. (Before AECI-752 that mattered
+ * more than it does now — the not-applied message read "every figure is
+ * unfiltered", which was flatly false here. The message is narrowed to its own
+ * axis now, but the `countFilter` choice is still the correct one.)
  *
  * **The `/admin/*` + `/account` exclusion is not a filter.** §13 D12 makes it a
  * floor beneath the caller's filters, folded into `inWindow()` inside

@@ -269,7 +269,7 @@ Use exactly one of these. Nothing in between.
 - Missing test for new logic
 - Accessibility violation that axe-core would catch
 - Error handling gap that will silently swallow real errors
-- New endpoint missing rate limiting where the spec requires it
+- New endpoint missing rate limiting where the spec requires it (`docs/waf-rate-limits.md` §6.2 is the endpoint map, and §6.3 names the two invariants — reads are never limited, and `rateLimit()` goes after the authz guard, never globally)
 
 Below MAJOR is not reported. Don't suggest renaming variables, optimizing trivial code paths, or making style adjustments. The CI gate handles formatting.
 

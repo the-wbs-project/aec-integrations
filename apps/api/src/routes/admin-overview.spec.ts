@@ -350,7 +350,7 @@ describe('GET /api/admin/overview — the honesty envelope', () => {
 });
 
 describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () => {
-  it('is unavailable and reports only unfiltered figures when the var is unset', async () => {
+  it('applies no ASN exclusion, and says so, when the var is unset', async () => {
     await seedDay();
     const body = await overview();
     expect(body.internal_filter).toEqual({ available: false, applied: false, asns: [] });
@@ -359,7 +359,40 @@ describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () =>
     expect(codes(body)).toContain('internal_filter_unavailable');
   });
 
-  it('reports BOTH numbers when set — the unfiltered figure stays primary', async () => {
+  // AECI-752. The `message` is what a curl of this endpoint shows, and it used to
+  // read "Every figure is unfiltered." — false beside a headline the automation
+  // filter had already reduced (AECI-745) and the operator-leak match had trimmed
+  // (AECI-683). Asserting the absence rather than the new sentence means any
+  // replacement that generalises the same way trips this too.
+  it('does not claim the whole response is unfiltered when the ASN filter is off', async () => {
+    await seedDay();
+    const body = await overview();
+    const message = body.notes.find((n) => n.code === 'internal_filter_unavailable')?.message ?? '';
+    expect(message).not.toMatch(/every figure/i);
+    expect(message).toContain('ANALYTICS_INTERNAL_ASNS');
+    expect(message).toContain('company-network');
+  });
+
+  // AECI-752. The UI string for this code on /admin/overview reads "is not
+  // configured", which is only true because this route hardcodes `requested:
+  // true` — the note's other state ("configured but not requested") is
+  // unreachable here. Nothing pinned that, so a change from `true` to
+  // `query.exclude_internal` would silently make the operator-facing copy false
+  // again. This is that pin.
+  it('always requests the split, so `applied` tracks `available` exactly', async () => {
+    await seedDay();
+    const off = await overview();
+    expect(off.internal_filter.applied).toBe(off.internal_filter.available);
+
+    const on = await overview('/api/admin/overview', {
+      ...TEST_ENV,
+      ANALYTICS_INTERNAL_ASNS: 'AS23700',
+    });
+    expect(on.internal_filter.applied).toBe(on.internal_filter.available);
+    expect(on.internal_filter.applied).toBe(true);
+  });
+
+  it('reports BOTH numbers when set — the ASN-inclusive figure stays primary', async () => {
     await seedDay();
     const body = await overview('/api/admin/overview', {
       ...TEST_ENV,

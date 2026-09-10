@@ -1263,20 +1263,37 @@ export async function trafficNotes(
   return out;
 }
 
-/** The internal-filter note — one of the two always fires, so the reader is never
- *  left guessing whether a figure was filtered (§13 D10 constraint 2). */
+/**
+ * The internal-filter note — one of the two always fires, so the reader is never
+ * left guessing whether the ASN filter ran (§13 D10 constraint 2).
+ *
+ * **These messages speak for `ANALYTICS_INTERNAL_ASNS` and for nothing else.**
+ * They used to say "every figure is unfiltered" and "the unfiltered figure is
+ * always the primary one" — both true on this axis, both read as claims about
+ * the whole response. On `/api/admin/overview` that sat beside a headline the
+ * automation filter had already subtracted from (AECI-745) and the operator-leak
+ * exclusion had already trimmed (AECI-683), so the response told the operator
+ * its numbers were unfiltered while shipping a number filtered twice. AECI-752
+ * narrowed the wording to the axis it owns; the UI strings in
+ * `apps/web/src/app/admin/{admin-notes.ts,notes/admin-note-list.ts}` track these,
+ * so a `curl` and the screen still tell the same story.
+ *
+ * `message` stays operator text for curl and logs, so unlike the UI strings it
+ * keeps naming the var and keeps distinguishing "unset" from "not requested" —
+ * that is the actionable half, and `code` is the contract either way (§6).
+ */
 export function internalFilterNote(state: InternalFilterState): AdminNote {
   if (!state.applied) {
     return note(
       'internal_filter_unavailable',
       state.available
-        ? 'Internal-traffic filtering is configured but was not requested; every figure is unfiltered.'
-        : 'ANALYTICS_INTERNAL_ASNS is unset, so no internal-traffic figure is available. Every figure is unfiltered.',
+        ? 'Internal-network (ASN) filtering is configured but was not requested, so no company-network exclusion is applied to these figures. Other exclusions, where they apply, are reported in their own notes.'
+        : 'ANALYTICS_INTERNAL_ASNS is unset, so internal-network (ASN) filtering is not configured and no company-network exclusion is applied to these figures. Other exclusions, where they apply, are reported in their own notes.',
     );
   }
   return note(
     'internal_filter_applied',
-    `Figures are reported both unfiltered and excluding AS${state.asns.join(', AS')}. The unfiltered figure is always the primary one.`,
+    `Figures are reported both including and excluding AS${state.asns.join(', AS')}. The figure that includes those networks is always the primary one.`,
     { asns: state.asns.join(',') },
   );
 }

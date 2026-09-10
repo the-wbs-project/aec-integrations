@@ -92,10 +92,20 @@ export class AdminNoteList {
         return $localize`:@@admin.notes.catalogAdditions:This series counts creation events, not net totals. Rows removed later still count on the day they were added.`;
       case 'catalog_series_starts_at':
         return $localize`:@@admin.notes.catalogStartsAt:The audit log begins after this window starts, so the leading days read zero for want of data, not for want of activity.`;
+      // AECI-752. Scoped to the ASN axis, like the `AdminNotes` pair. The old
+      // wording ("only unfiltered figures are shown") read as a claim about every
+      // figure on the screen when it only ever spoke for
+      // `ANALYTICS_INTERNAL_ASNS`.
+      //
+      // State-agnostic on purpose, as the `AdminNotes` string is: this screen
+      // passes the caller's `exclude_internal` through (`admin-traffic.ts`), so
+      // it renders this code while the var IS configured and the operator simply
+      // left the toggle off. Saying WHY no exclusion ran ("not configured") is
+      // false in that state; saying only that none ran is true in all three.
       case 'internal_filter_unavailable':
-        return $localize`:@@admin.notes.internalUnavailable:Internal-traffic filtering is not configured, so only unfiltered figures are shown.`;
+        return $localize`:@@admin.notes.internalUnavailable:No internal-network (ASN) filtering is applied here, so no company-network exclusion is included in these figures.`;
       case 'internal_filter_applied':
-        return $localize`:@@admin.notes.internalApplied:Internal-traffic filtering is applied. Both the unfiltered and the filtered figure are shown.`;
+        return $localize`:@@admin.notes.internalApplied:Internal-network (ASN) filtering is applied. Each figure is shown both including and excluding those networks, and the including figure is the primary one.`;
       case 'requires_recompute':
         return $localize`:@@admin.notes.requiresRecomputeSkipped:Some status items were skipped because they need network calls. Re-request with recompute to include them.`;
       case 'algolia_credentials_absent':

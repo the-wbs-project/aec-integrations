@@ -68,6 +68,7 @@ import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
+import { rateLimit } from './rate-limit-middleware';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
@@ -253,7 +254,16 @@ phase28.post('/api/subscribe', createSubscribeHandler());
 // `/unsubscribe` page (JSON body) and the welcome email's RFC 8058 one-click
 // header (`?token=` query). No public ingress — reached via the SSR `/api/*`
 // passthrough (byte-for-byte; no geo forwarding needed).
-phase28.post('/api/unsubscribe', createUnsubscribeHandler());
+// AECI-773: the only anonymous write on this router with no WAF rule behind it —
+// Rule A's predicate matches `/api/requests/*`, `/api/subscribe` and
+// `/api/feedback`, and stops there. Every request is an unbounded D1 UPDATE
+// keyed on a token the caller supplies, so the `token` bucket bounds the read
+// cost of a scripted loop. Keyed by IP for the same reason as the invite redeem.
+//
+// Interop caveat: the RFC 8058 one-click path is POSTed automatically by mail
+// security appliances, and a 429 there reads to the mail client as a broken
+// unsubscribe. 10 per 10 s per IP sits far above any appliance's cadence.
+phase28.post('/api/unsubscribe', rateLimit('token', { by: 'ip' }), createUnsubscribeHandler());
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
 // moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified
@@ -261,6 +271,10 @@ phase28.post('/api/unsubscribe', createUnsubscribeHandler());
 // On an Issue state change it updates the matching `vendor_requests.status` and
 // records a `workflow_transitions` + `audit_log` row. Reached only over the
 // service binding like every other route. See `routes/webhooks.ts`.
+// AECI-773: deliberately NOT rate-limited. HMAC-gated from a single Linear
+// egress, and Linear RETRIES — so a 429 here drops a legitimate delivery. If a
+// blanket POST middleware is ever proposed, this route is the first thing it
+// would silently catch.
 phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
 app.route('/', phase28);
@@ -285,6 +299,12 @@ app.route('/', phase28);
 // "every rejection is in Datadog" still holds for `SLUG_CONFLICT` / `INTERNAL_ERROR`.
 const reviewPromote = new Hono<{ Bindings: Env }>();
 reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
+// AECI-773: deliberately NOT rate-limited, and `docs/REVIEW_APP_PROMOTE_API.md`
+// §6 publishes that fact to the review app's own repo. A first-party trusted
+// caller, and the connector arm is PAGED — a catalogue sync legitimately fires
+// many pages back to back, so a limiter would throttle our own ingest. The real
+// control is idempotency: the `promote_jobs` PK ledger row and the connector
+// planner's upserts keyed on the review app's record ids.
 reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteKickoffHandler());
 // Same sub-router deliberately: it inherits `requireReviewAppAuth()` and the
 // `source: 'review-app-promote'` onError, so a rejected connector page is diagnosable
@@ -315,7 +335,17 @@ app.route('/', authSpike);
 // the SSR `/auth/callback` handler calls after the PKCE code exchange.
 const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authUser.onError(errorHandler());
-authUser.post('/api/auth/profile/ensure', requireUserAuth(), createEnsureProfileHandler());
+// AECI-773: `rateLimit` AFTER the guard so the counter is keyed on the verified
+// JWT `sub` rather than on a NAT. This is a `profiles` upsert, so an unbounded
+// loop is a D1 write loop — but it is also the last hop of every sign-in, so a
+// mis-set limit here is a login outage. The `write` bucket's 30/60s is the
+// loosest in the set and one sign-in spends exactly one of them.
+authUser.post(
+  '/api/auth/profile/ensure',
+  requireUserAuth(),
+  rateLimit('write'),
+  createEnsureProfileHandler(),
+);
 app.route('/', authUser);
 
 // Phase 5.6 review-submit sub-router (AECI-197) — the first authenticated user
@@ -326,9 +356,16 @@ app.route('/', authUser);
 // Reached only over the service binding like every other route.
 const authReviews = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authReviews.onError(errorHandler());
+// AECI-773: two layers, because neither alone is what §15.1 asked for. This
+// burst cap is per AUTHENTICATED USER — the thing Pro WAF cannot express at any
+// price below Enterprise, so Rule B has only ever been a per-IP approximation of
+// it. The hourly half lives in the handler as a D1 count (`routes/reviews.ts`),
+// because `simple.period` maxes at 60 s. WAF Rule B is unchanged and stays the
+// edge brake.
 authReviews.post(
   '/api/reviews',
   requireAuth({ bannedCode: ApiErrorCode.REVIEW_BANNED }),
+  rateLimit('write'),
   createSubmitReviewHandler(),
 );
 app.route('/', authReviews);
@@ -345,7 +382,12 @@ const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
 authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
 authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
-authAccount.patch('/api/account', requireAuth(), createUpdateAccountHandler());
+authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdateAccountHandler());
+// AECI-773: `DELETE /api/account` is DELIBERATELY NOT rate-limited. Erasure is a
+// legal obligation (`docs/AUTH_AND_RLS.md` §8), the second call is a no-op, and
+// the whole abuse ceiling is one account erasing itself. A 429 must never be the
+// reason an erasure fails. The accepted cost is that a hammering loop reaches the
+// GoTrue seam and a `reviews`-touching batch; the control is `requireAuth()`.
 authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
 app.route('/', authAccount);
 
@@ -686,6 +728,15 @@ app.route('/', authAdmin);
 // each cursor reuses the scoping predicate of the endpoint it is a cursor for —
 // see the route module's header for what breaks when one drifts.
 //   - GET   /api/vendor/updates — per-scope freshness cursors + `server_time`.
+//
+// AECI-773: every WRITE below carries `rateLimit('write')`, registered after
+// `requireVendor()` so the counter is keyed on the seat rather than on the
+// office NAT. **No GET on this router is rate-limited, and none may become so.**
+// `GET /api/vendor/updates` is polled every 20 s per focused seat and one poll
+// can fan out to six scope refetches, so a limiter on it would trip inside a
+// minute — and its failure mode is silent in both directions: a permanently
+// stale portal, or a self-inflicted poll amplifier, with nothing logged either
+// way. Reads are never limited on any surface (ADR 0026).
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
@@ -695,7 +746,12 @@ authVendor.get(
   requireVendor(),
   createListVendorNotificationsHandler(),
 );
-authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
+authVendor.patch(
+  '/api/vendor/profile',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorProfileHandler(),
+);
 // Registered BEFORE `/api/vendor/products/:id` so the more specific version
 // paths are not shadowed by the product PATCH's parameterised route.
 authVendor.get(
@@ -706,30 +762,50 @@ authVendor.get(
 authVendor.post(
   '/api/vendor/products/:id/versions',
   requireVendor(),
+  rateLimit('write'),
   createProductVersionHandler(),
 );
 authVendor.patch(
   '/api/vendor/products/:id/versions/:versionId',
   requireVendor(),
+  rateLimit('write'),
   createUpdateProductVersionHandler(),
 );
 authVendor.delete(
   '/api/vendor/products/:id/versions/:versionId',
   requireVendor(),
+  rateLimit('write'),
   createDeleteProductVersionHandler(),
 );
-authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
+// This write purges cache tags via its post-commit hook, so an unbounded loop
+// here is an edge-cache purge loop — the strongest single reason the bucket exists.
+authVendor.patch(
+  '/api/vendor/products/:id',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorProductHandler(),
+);
 // AECI-301. No path overlap with the product routes above, so ordering is free.
 authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());
-authVendor.post('/api/vendor/claims', requireVendor(), createVendorClaimHandler());
+authVendor.post(
+  '/api/vendor/claims',
+  requireVendor(),
+  rateLimit('write'),
+  createVendorClaimHandler(),
+);
+// The two attestation writes are the AECI-516 OPTIMISTIC toggles: the client
+// applies locally and rolls back with a visible error on failure, so a 429 here
+// needs no new UI — the shipped behaviour already handles it correctly.
 authVendor.put(
   '/api/vendor/claims/:claimId/attestation',
   requireVendor(),
+  rateLimit('write'),
   createUpsertVendorAttestationHandler(),
 );
 authVendor.delete(
   '/api/vendor/claims/:claimId/attestation',
   requireVendor(),
+  rateLimit('write'),
   createRetractVendorAttestationHandler(),
 );
 // AECI-606. Guard only — no authority resolution and no verified gate; see the
@@ -753,17 +829,29 @@ authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandle
 //
 // The invites routes are registered BEFORE `/seats/:userId` so the literal
 // `invites` segment can never be parsed as a user id.
+// The ONE `by: 'vendor'` on this surface. Keyed per vendor rather than per seat
+// because the protected resource is vendor-SHARED outbound Resend mail — five
+// seats must not buy five times the sends. It is the burst layer BENEATH the
+// D1-counted `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h), which no
+// binding can express because `simple.period` maxes at 60 s.
 authVendor.post(
   '/api/vendor/seats/invites',
   requireVendor(),
+  rateLimit('write', { by: 'vendor' }),
   createSeatInviteHandler(getDb, sendSeatInvite),
 );
 authVendor.delete(
   '/api/vendor/seats/invites/:id',
   requireVendor(),
+  rateLimit('write'),
   createRevokeSeatInviteHandler(),
 );
-authVendor.delete('/api/vendor/seats/:userId', requireVendor(), createRemoveSeatHandler());
+authVendor.delete(
+  '/api/vendor/seats/:userId',
+  requireVendor(),
+  rateLimit('write'),
+  createRemoveSeatHandler(),
+);
 app.route('/', authVendor);
 
 // Stage 2 / AECI-664 — the INVITEE half, on its own prefix and its own router.
@@ -783,9 +871,21 @@ app.route('/', authVendor);
 const authSeatInvites = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authSeatInvites.onError(errorHandler());
 authSeatInvites.get('/api/seat-invites/:token', requireAuth(), createSeatInvitePreviewHandler());
+// AECI-773: the `token` bucket, keyed by IP — deliberately NOT by the token. The
+// token is the attacker-controlled value, so a per-token key hands every guess
+// its own fresh budget, i.e. no limit at all. Keying by IP is what makes a grind
+// cost something and makes it visible.
+//
+// The GET above is NOT limited, and this is the one place that tension is real:
+// it is the cheaper enumeration oracle of the pair. Reads stay unlimited anyway,
+// because the value of that invariant is that it has no exceptions to reason
+// about, and the token it guards is a 122-bit `crypto.randomUUID()` that no
+// achievable request rate meaningfully erodes. A grinder is visible by its 404
+// rate; make that observable rather than carving the rule.
 authSeatInvites.post(
   '/api/seat-invites/:token/accept',
   requireAuth(),
+  rateLimit('token', { by: 'ip' }),
   createAcceptSeatInviteHandler(),
 );
 app.route('/', authSeatInvites);

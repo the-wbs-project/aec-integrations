@@ -1116,13 +1116,25 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 > - **The counting window caps at 1 minute on Pro** (10 s or 1 min — not 1 hour),
 >   so *both* WAF rate-limit rules are **per-minute burst caps**, not the spec's
 >   hourly caps: `/api/requests/*` and `/api/reviews` are each **5 per IP per
->   minute**. A true hourly cap would need in-Worker KV/Durable-Object state (kept
->   out of scope). The burst caps stop scripted floods; slow-drip abuse across an
->   hour is bounded instead by the app-layer controls below.
-> - **`/api/reviews` "3 per authenticated user"** is additionally only a **per-IP**
->   approximation — Pro WAF counts by client IP only (per-user counting is an
->   Enterprise feature). The real per-user controls are the existing auth gate,
->   one-review-per-product-per-user dedup, toxicity scoring, and moderation queue.
+>   minute**. That remains true of the rules themselves. The burst caps stop
+>   scripted floods; slow-drip abuse across an hour is bounded instead by the
+>   app-layer controls below.
+> - **`/api/reviews` "3 per authenticated user"** was only a **per-IP**
+>   approximation at the edge — Pro WAF counts by client IP only (per-user counting
+>   is an Enterprise feature).
+>
+> **AECI-773 (2026-09) closed the second bullet literally, and reframed the first.**
+> This paragraph used to say a true hourly cap "would need in-Worker KV/Durable-Object
+> state (kept out of scope)". Both halves of that turned out to be wrong. Cloudflare's
+> native `ratelimits` binding needs neither KV nor a Durable Object and keys on an
+> arbitrary string, so **`POST /api/reviews` now enforces "3 per authenticated user per
+> hour" exactly as this section asks** — a per-user burst cap from the binding plus a D1
+> `count()` over `reviews` for the hour, because the binding's own window is also capped
+> (at 10 or 60 seconds). Rules A and B are **unchanged**; the new layer sits beneath them
+> in the Worker. **`/api/requests/*` 5-per-IP-per-hour stays approximated permanently**,
+> and by data shape rather than by plan: `vendor_requests` stores no client IP, and adding
+> one purely to drive a counter would put a new personal identifier inside the
+> `AUTH_AND_RLS.md` §8 erasure boundary. See ADR 0026 and `waf-rate-limits.md` §6.
 > - **magic-link "5 per email / hour"** → lives in **Supabase Auth → Rate Limits**,
 >   not Cloudflare: the magic-link request goes browser→Supabase directly and never
 >   transits our zone, so no WAF rule can see it. (Owner-managed; out of AECI-242

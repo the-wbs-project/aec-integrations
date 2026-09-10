@@ -51,7 +51,7 @@ Finally, the repo already has a house pattern for *"the server did something, te
 
 **This decision is not "no live updates".** Both §2.3 scope bullets ship: a vendor's edit reflects without a full reload, and new detector nudges appear in-portal within one poll interval. What does not ship is a **persistent socket**. Email stays the primary channel for the two cron-generated event classes, exactly as `STAGE_2_ATTESTATIONS_SPEC.md` §7.2 specifies.
 
-**No WAF exposure.** The blanket `/api/*` rate-limit rule was removed when both Pro-plan slots were spent on the two write endpoints (`docs/waf-rate-limits.md` §"2-slot trade-off"); both remaining rules are POST-only. A 20-second authenticated GET trips nothing.
+**No WAF exposure.** The blanket `/api/*` rate-limit rule was removed when both Pro-plan slots were spent on the two write endpoints (`docs/waf-rate-limits.md` §"2-slot trade-off"); both remaining rules are POST-only. A 20-second authenticated GET trips nothing. **Still true after ADR 0026** (AECI-773) added a second, in-Worker limiting layer: it is registered per route on writes only, and "reads are never rate-limited" is an exceptionless invariant there *because of* this poll.
 
 **No cache exposure.** `/vendor` and `/api/vendor/*` are private and never edge-cached — `json()` stamps `Cache-Control: private, no-store` (`apps/api/src/http.ts:17`). Nothing in this epic emits a `Cache-Tag` or enqueues a purge, and the store must not be imported by any cacheable SSR component.
 
