@@ -19,8 +19,8 @@ import { Component } from '@angular/core';
  *   - `body-lead`   — the body sections that must stay ABOVE the metadata when
  *                     the page is single-column (in practice: the About
  *                     section). Optional; absent collapses to nothing
- *   - `metadata`    — metadata sidebar. Docks into column 2 from `xl`; below
- *                     `xl` it renders between `body-lead` and `body`
+ *   - `metadata`    — metadata sidebar. Docks into column 2 from `lg`; below
+ *                     `lg` it renders between `body-lead` and `body`
  *   - `body`        — the remaining vertically stacked body sections (required)
  *
  * **Why `body-lead` exists.** The sidebar carries the facts a visitor wants
@@ -28,7 +28,7 @@ import { Component } from '@angular/core';
  * naive collapse puts it last — under Reviews, at the very bottom of a long
  * page — which is where information goes to die. Splitting the body in two lets
  * the one instance of the sidebar sit directly under About at narrow widths and
- * still dock into column 2 at `xl`, with no duplicated markup. Duplicating it
+ * still dock into column 2 at `lg`, with no duplicated markup. Duplicating it
  * (render twice, hide one per breakpoint) is not an option here: the projected
  * content labels its sections with `aria-labelledby`, so a second copy would
  * duplicate those DOM ids and break the very labels it re-renders.
@@ -83,37 +83,48 @@ import { Component } from '@angular/core';
         <ng-content select="[slot=nav]" />
 
         <!--
-          Two columns only from xl. The body column carries data tables whose own
-          minimum width is 44rem (product integrations) / 52rem (browse); at md-lg
-          a docked 1fr sidebar leaves the 2fr body under 40rem, so every table fell
-          back to horizontal scroll inside a narrow well. Below xl the page goes
-          single-column and the tables get the full content width.
+          Two columns from lg. The breakpoint is arithmetic, not taste: the body
+          column is (content - 48px gap) * 2/3, which is 608px at a 1024px
+          viewport and 778px at 1280px. A body-column table whose min-width
+          exceeds that figure does not wrap. It overflows its own
+          overflow-x-auto wrapper and scrolls inside a narrow well.
+
+          This docked at xl until AECI-853, because the product-integrations
+          table asked for 44rem (704px) and only 1280px cleared it. Folding that
+          table's Direction column into the partner cell's meta line took its
+          worst case to 545px, so 1024px now clears it with 63px to spare. The
+          vendor-detail products table was cut the same way, for the same reason.
+
+          Before lowering any body-column table's min-width ceiling, check it
+          against 608px, not against the viewport. The browse tables are NOT
+          governed by this comment. They live in BrowseLayout, whose sidebar
+          splits 1fr/3fr at md.
 
           Placement is explicit (col-start / row-start), not source order, because
-          the three children are read in two different orders: at xl the lead and
+          the three children are read in two different orders: at lg the lead and
           the rest of the body stack in column 1 with the sidebar docked alongside
-          spanning both rows; below xl the source order (lead, sidebar, body) IS the
+          spanning both rows; below lg the source order (lead, sidebar, body) IS the
           reading order. Vertical rhythm is margins rather than gap-y so that an
           absent lead collapses to exactly nothing instead of leaving a gapped
           phantom row.
         -->
-        <div class="grid xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:gap-x-12">
+        <div class="grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-12">
           <!-- Plain <div>s: the app shell (app.ts) already provides <main id="main"> wrapping
                the router outlet. Using <main> here would create a duplicate main landmark. -->
-          <div class="min-w-0 space-y-12 empty:hidden xl:col-start-1 xl:row-start-1">
+          <div class="min-w-0 space-y-12 empty:hidden lg:col-start-1 lg:row-start-1">
             <ng-content select="[slot=body-lead]" />
           </div>
 
           <aside
-            class="mt-10 min-w-0 space-y-6 empty:hidden xl:sticky xl:top-8 xl:col-start-2
-              xl:row-span-2 xl:row-start-1 xl:mt-0 xl:self-start"
+            class="mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-8 lg:col-start-2
+              lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start"
             i18n-aria-label="@@app.layouts.detail.metadata.aria"
             aria-label="Metadata"
           >
             <ng-content select="[slot=metadata]" />
           </aside>
 
-          <div class="mt-10 min-w-0 space-y-12 xl:col-start-1 xl:row-start-2 xl:mt-12">
+          <div class="mt-10 min-w-0 space-y-12 lg:col-start-1 lg:row-start-2 lg:mt-12">
             <ng-content select="[slot=body]" />
           </div>
         </div>

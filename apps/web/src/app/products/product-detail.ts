@@ -265,8 +265,8 @@ import { RoleBadge } from './role-badge';
         </div>
 
         <!--
-          One instance, two formats. At xl this is the docked sidebar: a single
-          column of stacked groups on the page background. Below xl the layout
+          One instance, two formats. At lg this is the docked sidebar: a single
+          column of stacked groups on the page background. Below lg the layout
           drops it in right under About, where a full-bleed stack of stretched
           rows read as leftovers. There it becomes a contained fact panel: groups
           pair up into two columns from sm, the vendor row and the action buttons
@@ -276,12 +276,12 @@ import { RoleBadge } from './role-badge';
         <div
           slot="metadata"
           class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
-            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 xl:block xl:space-y-6
-            xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0"
+            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 lg:block lg:space-y-6
+            lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
         >
           <section
             aria-labelledby="vendor-card-title"
-            class="space-y-3 sm:col-span-2 xl:col-span-1"
+            class="space-y-3 sm:col-span-2 lg:col-span-1"
           >
             <h2
               id="vendor-card-title"
@@ -296,7 +296,7 @@ import { RoleBadge } from './role-badge';
                 class="flex items-center gap-3 rounded-(--radius-lg) border
                   border-(--border-default) bg-(--surface-base) p-3 no-underline
                   transition-colors hover:border-(--border-strong)
-                  xl:bg-(--surface-raised) xl:p-4"
+                  lg:bg-(--surface-raised) lg:p-4"
               >
                 <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
                 <span class="flex min-w-0 items-center gap-1.5">
@@ -310,7 +310,7 @@ import { RoleBadge } from './role-badge';
               <p
                 class="rounded-(--radius-lg) border border-(--border-default)
                   bg-(--surface-base) p-3 text-(--text-secondary)
-                  xl:bg-(--surface-raised) xl:p-4"
+                  lg:bg-(--surface-raised) lg:p-4"
                 i18n="@@products.detail.vendor.none"
               >
                 No vendor listed
@@ -394,7 +394,7 @@ import { RoleBadge } from './role-badge';
             </section>
           }
 
-          <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 xl:col-span-1">
+          <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 lg:col-span-1">
             <h2
               id="actions-label"
               class="aec-overline text-(--text-secondary)"
@@ -402,7 +402,7 @@ import { RoleBadge } from './role-badge';
             >
               Actions
             </h2>
-            <div class="flex flex-wrap gap-2 xl:flex-col">
+            <div class="flex flex-wrap gap-2 lg:flex-col">
               <a
                 aecRequestTrigger
                 [entity]="'product'"
@@ -412,7 +412,7 @@ import { RoleBadge } from './role-badge';
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  xl:bg-(--surface-raised)
+                  lg:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -450,7 +450,7 @@ import { RoleBadge } from './role-badge';
                 [href]="'/products/' + p.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  xl:bg-(--surface-raised)
+                  lg:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -503,10 +503,10 @@ import { RoleBadge } from './role-badge';
         }
 
         <!--
-          About goes in the LEAD slot, not the body slot: below xl the layout
+          About goes in the LEAD slot, not the body slot: below lg the layout
           renders the metadata sidebar directly after this block, so the vendor /
           taxonomy / actions facts read as part of About instead of being dumped
-          under Reviews at the foot of the page. At xl this is simply the top of
+          under Reviews at the foot of the page. At lg this is simply the top of
           column 1, and nothing moves. See DetailLayout.
         -->
         <div slot="body-lead" class="space-y-12">

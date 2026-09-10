@@ -767,7 +767,7 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
 - **Cache-Tag purge**, post-commit via `waitUntil` → `CACHE_PURGE_QUEUE` (WC-5 / ADR 0020). Tags:
   `pairCacheTag(sourceSlug, targetSlug)` — the **same** tag the pair page emits, via
   `apps/api/src/routes/promote-pair.ts`, keep them in lockstep — plus `product:{sourceSlug}` and
-  `product:{targetSlug}` (the detail pages carry the claims-aware direction column). Best-effort:
+  `product:{targetSlug}` (the detail pages carry the claims-aware direction readout). Best-effort:
   a purge failure must never fail a committed write.
 - **No Algolia reindex.** Claims do not feed the index today; vendor edits reach search on the
   nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). **UI copy must not promise instant search.**
@@ -2022,7 +2022,7 @@ Opening the portal without a rule fails in two directions at once:
   Zapier connection it never wrote, and the tab's own summary line counts that claim as "waiting on
   your confirmation".
 - **Rendered conflicts on true facts.** An endpoint vendor denying a real connector-powered edge
-  drops the claim from the product-detail direction column (`isClaimRefuted`, §4.5) and fires the
+  drops the claim from the product-detail direction readout (`isClaimRefuted`, §4.5) and fires the
   `aeci-denied` ops signal against curation that was correct.
 
 **Acceptance:** no vendor is ever prompted to confirm or deny plumbing it did not build, and powered

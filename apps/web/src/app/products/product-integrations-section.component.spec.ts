@@ -106,6 +106,33 @@ const NINE = [
   'iSqFt',
 ].map((name) => edge(link(name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name)));
 
+// AECI-853. These two numbers are a lockstep pair with DetailLayout's dock
+// breakpoint, and nothing else couples them: the layout docks the metadata
+// sidebar at `lg`, which leaves the body column 608px wide, and a table whose
+// min-width exceeds that does not wrap -- it overflows its own overflow-x-auto
+// wrapper and scrolls inside a narrow well. Raising the floor back toward the
+// pre-853 44rem re-breaks the dock with no other failing test, which is exactly
+// why this asserts the class rather than trusting review.
+describe('ProductIntegrationsSection table shape', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('keeps every lane table at or under the 38rem the lg dock allows', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    const tables = [...el.querySelectorAll('table')];
+    expect(tables.length).toBeGreaterThan(0);
+    for (const t of tables) {
+      expect([...t.classList]).toContain('md:min-w-[34rem]');
+      expect([...t.classList].some((c) => /min-w-\[(3[89]|[4-9]\d)rem\]/.test(c))).toBe(false);
+    }
+  });
+
+  it('renders two content columns and the trailing arrow, with Direction folded away', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    const headers = [...el.querySelectorAll('thead th')].map((h) => h.textContent?.trim());
+    expect(headers).toEqual(['Integrates with', 'Connection', 'Details']);
+  });
+});
+
 describe('ProductIntegrationsSection filter box', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

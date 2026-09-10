@@ -77,6 +77,45 @@ function setup(vendor: VendorDetail) {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
+// AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
+// at `lg` and so leaves the body column 608px wide. At the old 44rem the five
+// column products table overflowed that by 96px and scrolled inside a narrow
+// well. Measured worst case with a long product name AND a long category is
+// 648px, so at 34rem the longest rows wrap one line instead of scrolling.
+// Paired with the dock assertion in detail-layout.component.spec.ts and the
+// table assertion in product-integrations-section.component.spec.ts.
+describe('VendorDetailPage products table width floor', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('keeps the products table at or under the 38rem the lg dock allows', () => {
+    const { el } = setup(
+      buildVendor({
+        products: [
+          {
+            id: '00000000-0000-4000-8000-000000020001',
+            slug: 'procore-project-management',
+            name: 'Procore Project Management',
+            logo_url: null,
+            product_role: 'application',
+            vendor: null,
+            primary_category: null,
+            integration_count: 1,
+            review_count: 0,
+            rating_overall_avg: null,
+            rating_onboarding_avg: null,
+            created_at: '2024-06-01T00:00:00.000Z',
+            updated_at: '2024-06-01T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    const table = el.querySelector('table[aria-label=Products]')!;
+    expect(table).not.toBeNull();
+    expect([...table.classList]).toContain('md:min-w-[34rem]');
+    expect([...table.classList].some((c) => /min-w-\[(3[89]|[4-9]\d)rem\]/.test(c))).toBe(false);
+  });
+});
+
 describe('VendorDetailPage claim CTA', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

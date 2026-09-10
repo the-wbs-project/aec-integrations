@@ -161,38 +161,45 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                   />
                   <span class="flex min-w-0 flex-1 flex-col">
                     <span class="truncate font-medium">{{ partner.partner.name }}</span>
-                    <!-- Below md the direction + mechanism columns collapse, so
-                         the mechanism surfaces here as a muted sublabel: the
-                         same fold ProductIntegrationRow uses. -->
-                    @if (mechanismSummary(partner); as summary) {
-                      <span class="mt-0.5 truncate text-xs text-(--text-secondary) md:hidden">{{
-                        summary
-                      }}</span>
-                    }
-                  </span>
-                  <!-- Flow relative to the HUB (this card's frame), matching how
-                       the endpoint table frames direction relative to its page
-                       product. -->
-                  <span class="hidden shrink-0 md:inline-flex md:min-w-[7.5rem] md:items-center">
-                    @if (hubDirection(partner); as d) {
-                      <span class="inline-flex items-center gap-2">
-                        <span
-                          class="font-display inline-block text-xl leading-none
-                            text-(--accent-primary) rtl:-scale-x-100"
-                          aria-hidden="true"
-                          >{{ d.glyph }}</span
+                    <!-- The meta line under the partner name. Direction sits
+                         here at every width and the mechanism joins it below md,
+                         the same fold ProductIntegrationRow uses (AECI-853).
+                         §12.3 pins this row to the endpoint table's breakpoint
+                         behaviour, so the two must move together or the same
+                         page shows direction as a column in one section and a
+                         sublabel in the other. -->
+                    <span
+                      class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-secondary)"
+                    >
+                      <!-- Flow relative to the HUB (this card's frame), matching
+                           how the endpoint table frames direction relative to
+                           its page product. The sr-only prefix replaces the
+                           labelling the dropped direction slot used to carry. -->
+                      <span class="inline-flex items-center gap-1">
+                        <span class="sr-only" i18n="@@products.detail.body.powers.direction.srLabel"
+                          >Direction:</span
                         >
-                        <span class="text-sm text-(--text-secondary)">{{ d.label }}</span>
+                        @if (hubDirection(partner); as d) {
+                          <span
+                            class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
+                            aria-hidden="true"
+                            >{{ d.glyph }}</span
+                          >
+                          <span>{{ d.label }}</span>
+                        } @else {
+                          <span
+                            i18n="@@products.detail.body.powers.direction.none"
+                            i18n-aria-label="@@products.detail.body.powers.direction.none.aria"
+                            aria-label="Direction not listed"
+                            >–</span
+                          >
+                        }
                       </span>
-                    } @else {
-                      <span
-                        class="text-sm text-(--text-secondary)"
-                        i18n="@@products.detail.body.powers.direction.none"
-                        i18n-aria-label="@@products.detail.body.powers.direction.none.aria"
-                        aria-label="Direction not listed"
-                        >–</span
-                      >
-                    }
+                      @if (mechanismSummary(partner); as summary) {
+                        <span class="md:hidden" aria-hidden="true">·</span>
+                        <span class="md:hidden">{{ summary }}</span>
+                      }
+                    </span>
                   </span>
                   @if (mechanismSummary(partner); as summary) {
                     <span

@@ -95,6 +95,38 @@ const NINE = [
 describe('ProductPoweredHub', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
+  // AECI-853 folded direction out of its own right-hand slot and into the meta
+  // line under the partner name. §12.3 pins these rows to
+  // `ProductIntegrationRow`'s breakpoint behaviour, so this section has to move
+  // with it: fold one and not the other and the same page shows direction as a
+  // column in one section and a sublabel in the other. The local seed has no
+  // powered-hub rows, so this spec is the only thing that renders them.
+  // NINE, not one partner: a hub card only forms once a product has enough
+  // degree to claim pairs. A single edge falls through to the "Other
+  // connections" pair rows, which are a different template branch and are not
+  // what AECI-853 changed.
+  it('renders the hub-relative direction inside the partner cell, not a separate slot', () => {
+    const { el } = setup(NINE);
+    const stack = el.querySelector('ul li a span.flex.min-w-0.flex-1.flex-col')!;
+    expect(stack).not.toBeNull();
+    expect(stack.textContent).toContain('Acumatica');
+    expect(stack.textContent).toContain('Outbound');
+    expect(stack.textContent).toContain('\u2192');
+  });
+
+  it('labels the direction for assistive tech now that the slot is gone', () => {
+    const { el } = setup(NINE);
+    const prefix = [...el.querySelectorAll('span.sr-only')].find((n) =>
+      n.textContent?.includes('Direction:'),
+    );
+    expect(prefix).toBeDefined();
+  });
+
+  it('drops the fixed-width direction slot that set the old row min-width', () => {
+    const { el } = setup(NINE);
+    expect(el.innerHTML).not.toContain('min-w-[7.5rem]');
+  });
+
   // There is no row threshold: a section with rows has a filter. The two
   // integration sections sit next to each other on a connector page, and the
   // same control over one and not the other reads as a bug.

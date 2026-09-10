@@ -23,19 +23,37 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * foster-parented out by the browser's HTML tree builder (same pattern as
  * `ProductCard` / `IntegrationCard` / Angular CDK's `tr[cdk-row]`).
  *
- * Three columns + a trailing affordance:
- *   1. **Direction** — leads the row (a glance conveys the relationship): a
- *      prominent accent arrow + label, context-relative to *this* page's product
- *      — `→ Outbound` (data leaves it), `← Inbound` (data arrives), `⇄ Both`.
- *      Always visible (incl. below `md`). The value is the server-precomputed,
- *      claims-aware `context_direction` (`STAGE_1_5_SPEC.md` §3.2), so it can't
- *      contradict the pair page; `–` when unknown (no claims, no stored direction).
- *   2. **Integrates with** — the *other* product (monogram via `LogoOrInitial` +
- *      a name link to that product's page). Always visible. Below `md` the
- *      Connection column collapses and the mechanism surfaces here as a muted
- *      sublabel (mirrors `ProductCard`'s vendor sublabel at the same breakpoint).
- *   3. **Connection** — the `mechanism_kind` badge (shared `mechanismKindLabel()`)
- *      plus the optional `mechanism_name`. Hidden below `md`. `–` when absent.
+ * Two columns + a trailing affordance:
+ *   1. **Integrates with** — the *other* product (monogram via `LogoOrInitial` +
+ *      a name link to that product's page), over a muted meta line carrying the
+ *      **direction** at every width and, below `md`, the mechanism as well.
+ *   2. **Connection** — the `mechanism_kind` badge (shared `mechanismKindLabel()`)
+ *      plus the optional `mechanism_name`. Hidden below `md`, where it folds into
+ *      the meta line above. `–` when absent.
+ *
+ * **Direction used to be its own leading column, and AECI-853 folded it into the
+ * meta line.** The trade is measured, not aesthetic. That column's intrinsic
+ * width was 121px — 32px padding, a 20px decorative glyph, an 8px gap, and only
+ * 61px of actual label — and it was the difference between a table that needs
+ * 44rem and one that needs 34rem. 34rem fits the 608px body column at `lg`, so
+ * removing it is what let `DetailLayout` dock the metadata sidebar at 1024px
+ * instead of 1280px (see the grid comment in `layouts/detail-layout.ts`). It is
+ * close to free vertically: rows carrying a `mechanism_name` are already two
+ * lines tall because the Connection cell stacks badge over name, so the meta
+ * line costs 0px there and 6px on badge-only rows.
+ *
+ * This **reverses** §13.3's "direction leads the row so the relationship reads
+ * at a glance" and its "Direction / Integrates with / Connection columns" list;
+ * both carry the dated amendment. What did NOT change: the value is still the
+ * server-precomputed, claims-aware `context_direction` (`STAGE_1_5_SPEC.md`
+ * §3.2), so it still cannot contradict the pair page, and `–` still means
+ * unknown (no claims, no stored direction).
+ *
+ * The meta line opens with an `sr-only` "Direction:" prefix. Removing the `<th>`
+ * removed the only thing that told a screen reader what "Outbound" was a
+ * property OF; without the prefix it reads as a bare word trailing the partner
+ * name. The mechanism half needs no such prefix — it only appears below `md`,
+ * where it sits beside a direction that is already labelled.
  *
  * Row click → the product-PAIR page `/products/:contextSlug/integrations/:other`
  * (context = *this* page's product, so the direction stays context-relative). To
@@ -52,37 +70,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   imports: [RouterLink, LogoOrInitial],
   host: {
     // `relative` anchors the stretched pair-page overlay to the whole row.
-    // `group` lets the below-`md` mechanism sublabel step tertiary→secondary
+    // `group` lets the meta line under the partner name step tertiary→secondary
     // when the row fill goes muted on hover / focus-within.
     class:
       'group relative text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
-    <!-- Direction leads the row (always visible, incl. below md): the flow
-         relative to THIS page's product, precomputed server-side as
-         context_direction (claims-aware, §3.2). Prominent accent arrow +
-         label; em-dash when unknown. The stretched row overlay (in the next
-         cell) covers this cell too, so a click here still opens the pair page. -->
-    <td class="px-4 py-3 align-middle">
-      @if (direction().token) {
-        <span class="inline-flex items-center gap-2">
-          <span
-            class="font-display inline-block text-xl leading-none text-(--accent-primary) rtl:-scale-x-100"
-            aria-hidden="true"
-            >{{ direction().glyph }}</span
-          >
-          <span class="text-(--text-secondary)">{{ direction().label }}</span>
-        </span>
-      } @else {
-        <span
-          class="text-(--text-secondary)"
-          i18n="@@products.detail.integrations.direction.none"
-          i18n-aria-label="@@products.detail.integrations.direction.none.aria"
-          aria-label="Direction not listed"
-          >–</span
-        >
-      }
-    </td>
     <!-- No "relative" on this cell: the pair-page overlay below must anchor to
          the relative <tr> host (see class doc), not this cell, so it spans the
          whole row. A relative <td> would intercept inset-0 (as the nearest
@@ -98,16 +91,50 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             class="relative z-10 w-fit rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
-          <!-- Below md the Connection <td> is hidden, so the mechanism surfaces
-               here as a muted sublabel. Tertiary at rest (4.83:1 on white);
-               group-hover / group-focus-within step it to secondary once the row
-               fill goes muted (DESIGN.md §"Tertiary": never on muted). -->
-          @if (mechanismSublabel(); as label) {
-            <span
-              class="mt-0.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary) md:hidden"
-              >{{ label }}</span
-            >
-          }
+          <!-- The meta line under the partner name. Direction lives here at
+               every width (AECI-853); the mechanism joins it only below md,
+               where the Connection <td> is hidden. Tertiary at rest (4.83:1 on
+               white); group-hover / group-focus-within step it to secondary
+               once the row fill goes muted (DESIGN.md §"Tertiary": never on
+               muted). -->
+          <span
+            class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)"
+          >
+            <!-- Direction, context-relative to THIS page's product and
+                 precomputed server-side (claims-aware, §3.2), so it can never
+                 contradict the pair page. The sr-only prefix replaces the
+                 accessible name the removed Direction <th> used to supply;
+                 without it "Outbound" reads as a bare word beside the partner
+                 name. The glyph stays accent-coloured: it is the one visual
+                 cue left now that the column is gone. -->
+            <span class="inline-flex items-center gap-1">
+              <span class="sr-only" i18n="@@products.detail.integrations.direction.srLabel"
+                >Direction:</span
+              >
+              @if (direction().token) {
+                <span
+                  class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
+                  aria-hidden="true"
+                  >{{ direction().glyph }}</span
+                >
+                <span>{{ direction().label }}</span>
+              } @else {
+                <span
+                  i18n="@@products.detail.integrations.direction.none"
+                  i18n-aria-label="@@products.detail.integrations.direction.none.aria"
+                  aria-label="Direction not listed"
+                  >–</span
+                >
+              }
+            </span>
+            <!-- Below md the Connection <td> is hidden, so the mechanism joins
+                 this same line rather than stacking a second sublabel. The
+                 separator is carried with it so it cannot orphan. -->
+            @if (mechanismSublabel(); as label) {
+              <span class="md:hidden" aria-hidden="true">·</span>
+              <span class="md:hidden">{{ label }}</span>
+            }
+          </span>
         </span>
       </span>
       <!-- Stretched overlay: the whole row navigates to the product-PAIR page.
@@ -185,8 +212,8 @@ export class ProductIntegrationRow {
     return source.map((kind) => mechanismKindLabel(kind)).filter((label) => label !== '');
   });
 
-  /** Below `md` the Connection column is hidden, so the kinds join into one
-   *  muted sublabel under the partner name. */
+  /** Below `md` the Connection column is hidden, so the kinds join the meta
+   *  line under the partner name, after the direction. */
   protected readonly mechanismSublabel = computed(() => this.mechanismKindLabels().join(' · '));
 
   protected readonly direction = computed(() => {

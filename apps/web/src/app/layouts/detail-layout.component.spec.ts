@@ -37,6 +37,31 @@ describe('DetailLayout', () => {
     expect(root.querySelector('[data-testid=body]')?.textContent).toContain('Body marker');
   });
 
+  // AECI-853 moved the dock from xl to lg, which makes 608px (not 778px) the
+  // narrowest the body column ever gets. That figure is what every body-column
+  // table's min-width is now sized against, so a silent move back to xl (or on
+  // to 2xl) would leave those tables sized for a column that no longer exists.
+  // The paired assertions live in product-integrations-table.component.spec.ts
+  // and vendor-detail.component.spec.ts; all three have to move together.
+  it('docks the metadata sidebar at lg, the width every body-column table is sized against', () => {
+    const fixture = TestBed.createComponent(DetailLayoutHost);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const grid = root.querySelector('[data-testid=body-lead]')!.closest('.grid')!;
+    const classes = [...grid.classList];
+
+    expect(classes).toContain('lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]');
+    expect(classes).toContain('lg:gap-x-12');
+    expect(classes.some((c) => c.startsWith('xl:') || c.startsWith('2xl:'))).toBe(false);
+
+    // The sidebar and the body columns have to switch on the SAME breakpoint,
+    // or the sidebar docks into a grid column that is not there yet.
+    const aside = root.querySelector('aside[aria-label=Metadata]')!;
+    expect([...aside.classList]).toContain('lg:sticky');
+    expect([...aside.classList].some((c) => c.startsWith('xl:'))).toBe(false);
+  });
+
   // The single-column reading order is the whole point of the body-lead slot: the
   // metadata sidebar carries the vendor / taxonomy / action facts, and collapsing
   // it after the full body buried them under the last section of a long page.

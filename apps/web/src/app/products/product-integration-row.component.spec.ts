@@ -104,8 +104,11 @@ describe('ProductIntegrationRow', () => {
     expect(overlay.querySelector('a')).toBeNull();
   });
 
-  // Direction leads the row now — the first cell.
-  it('renders "Outbound" in the leading Direction cell when data leaves this product', () => {
+  // AECI-853 folded Direction out of its own leading cell and into the meta line
+  // under the partner name, which is the FIRST cell. The row is now two content
+  // cells + the trailing decorative arrow, so these assertions read cells[0] for
+  // both the partner and the direction, and cells[1] for the connection.
+  it('renders "Outbound" in the partner cell meta line when data leaves this product', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
     expect(cells[0]?.textContent).toContain('Outbound');
@@ -130,11 +133,33 @@ describe('ProductIntegrationRow', () => {
     expect(cells[0]?.textContent).toContain('⇄');
   });
 
+  it('renders exactly two content cells plus the trailing arrow (no Direction column)', () => {
+    const { el } = setup();
+    expect(el.querySelectorAll('td').length).toBe(3);
+  });
+
+  it('keeps the direction in the same cell as the partner name', () => {
+    const { el } = setup();
+    const partnerCell = el.querySelector('td')!;
+    expect(partnerCell.querySelector('a[href="/products/autodesk-bim-360"]')).not.toBeNull();
+    expect(partnerCell.textContent).toContain('Outbound');
+  });
+
+  // The <th> that named this value is gone, so the sr-only prefix is the only
+  // thing left telling a screen reader what "Outbound" is a property OF.
+  it('labels the direction for assistive tech with an sr-only prefix', () => {
+    const { el } = setup();
+    const prefix = [...el.querySelectorAll('span.sr-only')].find((s) =>
+      s.textContent?.includes('Direction:'),
+    );
+    expect(prefix).toBeDefined();
+  });
+
   it('renders the mechanism_kind badge and mechanism_name in the connection cell', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
-    expect(cells[2]?.textContent).toContain('API');
-    expect(cells[2]?.textContent).toContain('REST connector');
+    expect(cells[1]?.textContent).toContain('API');
+    expect(cells[1]?.textContent).toContain('REST connector');
   });
 
   it('renders an en-dash placeholder when the context direction is unknown', () => {
