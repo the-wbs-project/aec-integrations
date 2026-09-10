@@ -124,6 +124,11 @@ export const AdminNoteCodeSchema = z.enum([
   'visitor_definition_approximate',
   'corroborated_is_a_referrer_floor',
   'operator_leak_is_an_inference',
+  // AECI-827 — the same inference's OTHER property: it is not final. An
+  // `is_operator = 1` anchor written tomorrow retro-excludes views up to 30 days
+  // behind it, so a stored day inside the trailing window can still fall. The
+  // 00:15 re-check converges it; this note covers the hours before it runs.
+  'series_within_operator_lookback',
   // AECI-745 — the automation filter, in the two states it can be in. Two codes
   // rather than one with a flag, because "it ran" and "it failed" are read by
   // different people for different reasons and must style differently.
@@ -625,6 +630,61 @@ export const ADMIN_METRIC_KEYS = [
 
 export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * The metric keys the 00:15 cron RE-CHECKS on later nights, because their value
+ * for a completed day can still change (AECI-827).
+ *
+ * `NOT_INTERNAL`'s third half is a correlated `EXISTS` anchored on each page
+ * view's OWN timestamp with a ±`OPERATOR_PAIR_LOOKBACK_DAYS` window (AECI-683,
+ * `ADMIN_PANEL_SPEC.md` §13 D15), so whether a row is the operator's depends on
+ * an `is_operator = 1` anchor that may not have been written yet. Every key
+ * below reads `page_views` through that predicate. See ADR 0027.
+ *
+ * ─── Three things this list is NOT, each of which has bitten ────────────────
+ *
+ * **It is not "the keys that can move retroactively".** `accounts.sign_ins_new`
+ * moves too — it buckets `profiles.created_at`, and `routes/account.ts`
+ * hard-deletes the row on account deletion, so an August day falls when a
+ * November user erases themselves. It is excluded anyway, for a different
+ * reason: "3 people signed in on 20 August" is a fact that does not un-happen,
+ * so the captured value is the honest record. Only the operator retro-join
+ * changes what the MEASUREMENT was rather than what happened. Do not "fix" this
+ * list by adding it.
+ *
+ * **It is not `ADMIN_SNAPSHOT_METRIC_KEYS` minus the stocks.** Re-running the
+ * snapshot for an old day would DESTROY data: the eleven stock producers ignore
+ * their `day` argument and count `COUNT(*)` as of now, so a re-run for
+ * 2026-08-20 stamps today's product total onto that day
+ * (`metrics-snapshot.spec.ts` asserts exactly this). The narrowed type below is
+ * what makes handing a stock key to the re-check a compile error rather than a
+ * comment.
+ *
+ * **It is not `metricSupportsInternalFilter()`.** That predicate yields the same
+ * three keys today and answers a different question — "can this be ASN-filtered?"
+ * — so coupling to it would silently change what gets corrected the next time
+ * the internal filter moves.
+ *
+ * `traffic.page_views_human_after_automation` is deliberately absent even though
+ * it drifts hardest. It is snapshot-only with no live series
+ * (`metricIsSnapshotOnly`), so `metricSeries` THROWS on it; the re-check handles
+ * it separately, recomputing it per day only when its raw half moved. A future
+ * `traffic.*` key that does have a live series joins this list by construction,
+ * which is intended.
+ */
+export const ADMIN_RETROACTIVE_METRIC_KEYS = ADMIN_METRIC_KEYS.filter(
+  (key): key is AdminRetroactiveMetricKey =>
+    key.startsWith('traffic.') && key !== 'traffic.page_views_human_after_automation',
+);
+
+/** One of {@link ADMIN_RETROACTIVE_METRIC_KEYS}. Written as an explicit
+ *  `Exclude<Extract<…>>` rather than inferred from the array, because a bare
+ *  `.filter()` collapses the literal union to `AdminMetricKey[]` and the
+ *  narrowing above is the whole point. */
+export type AdminRetroactiveMetricKey = Exclude<
+  Extract<AdminMetricKey, `traffic.${string}`>,
+  'traffic.page_views_human_after_automation'
+>;
 
 /**
  * Which reading of a `catalog.*` series to serve (AECI-686). **`catalog.*` only** —

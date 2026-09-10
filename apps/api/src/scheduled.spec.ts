@@ -111,6 +111,7 @@ const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 // constant drifts silently.
 const ASN_REGISTRY_CRON = '0 2 * * 2';
 const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
+const SNAPSHOT_CRON = '15 0 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -784,6 +785,11 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [ENTITLEMENT_EXPIRY_CRON, 'entitlement-expiry'],
     [ASN_REGISTRY_CRON, 'asn-registry'],
     [INDEXNOW_DRAIN_CRON, 'indexnow-drain'],
+    // AECI-827 added these two. The table listed 12 of the 14 crons, so the 00:15
+    // snapshot had NO dispatch test at all and no ADR-0022 assertion — which is
+    // how a behaviour change to it could have shipped into an untested path.
+    [ATTESTATION_NOTIFY_CRON, 'attestation-notify'],
+    [SNAPSHOT_CRON, 'metrics-snapshot'],
   ];
 
   /**
@@ -847,6 +853,26 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // Completed on exit: both fields set, whatever the outcome was.
     expect(rows[0]?.finishedAt).toEqual(expect.any(String));
     expect(rows[0]?.outcome).toEqual(expect.any(String));
+  });
+
+  it('the 00:15 snapshot records BOTH of its passes in one job_runs row', async () => {
+    // AECI-827 / ADR 0027. The re-check is the half that fails silently if it
+    // stops working, so its result must reach `detail` — and it must not displace
+    // the primary pass's twenty per-metric outcomes, which is why the summary is
+    // bounded rather than the whole result.
+    await scheduled(cronController(SNAPSHOT_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    const detail = row?.detail as {
+      job: string;
+      metrics: unknown[];
+      recheck: { status: string; corrected: number };
+    };
+    expect(detail.job).toBe('metrics-snapshot');
+    expect(detail.metrics).toHaveLength(20);
+    // An empty database has nothing to correct, and "nothing to correct" must be
+    // distinguishable from "the pass did not run".
+    expect(detail.recheck).toMatchObject({ status: 'ok', corrected: 0 });
   });
 
   it.each(AUDIT_EXEMPT_CRONS)('%s emits NO audit_log row (ADR 0022) for %s', async (cron) => {

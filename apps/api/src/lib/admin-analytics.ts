@@ -1028,6 +1028,12 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   visitor_definition_approximate: 'info',
   corroborated_is_a_referrer_floor: 'info',
   operator_leak_is_an_inference: 'info',
+  // AECI-827. `info` on the standard test: a reader who misses it still reads the
+  // figures correctly — it only explains why the last month of the chart can
+  // shift under them. Deliberately NOT a `warn`: nothing is broken, nobody can
+  // act on it, and the 00:15 re-check clears it on its own once the window rolls
+  // past. See ADR 0027.
+  series_within_operator_lookback: 'info',
   // AECI-745. `info` on the standard test: the filter WORKING is the normal case,
   // and the note only explains how the headline was reached.
   automation_filter_applied: 'info',

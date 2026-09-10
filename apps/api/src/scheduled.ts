@@ -173,8 +173,13 @@ import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
 import { shiftDay } from './lib/admin-analytics';
 import {
+  emitMetricsRecheckMetrics,
   emitMetricsSnapshotMetrics,
+  recheckFailureCount,
   runMetricsSnapshot,
+  runMetricsSnapshotRecheck,
+  summarizeRecheck,
+  type MetricsRecheckResult,
   type MetricsSnapshotResult,
   type SnapshotMetricSink,
 } from './lib/metrics-snapshot';
@@ -698,7 +703,8 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   const { db } = cronDb(env);
   // The prior complete UTC day. Running at 00:15 means "yesterday" is closed and
   // the stock sample is only minutes past its end.
-  const day = shiftDay(new Date().toISOString().slice(0, 10), -1);
+  const today = new Date().toISOString().slice(0, 10);
+  const day = shiftDay(today, -1);
 
   const started = Date.now();
   let result: MetricsSnapshotResult;
@@ -747,11 +753,64 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
     metrics_failed: failed.length,
   });
 
+  // ─── The trailing re-check (AECI-827 / ADR 0027) ──────────────────────────
+  //
+  // Deliberately LAST. The primary pass's stock metrics are unrecoverable if the
+  // day is missed (§7.1); everything the re-check touches is recomputable from
+  // `page_views` for 400 days. If the invocation is cut short, this is the half
+  // that should be lost.
+  //
+  // `runMetricsSnapshotRecheck` never throws, but the catch is not decoration:
+  // a pre-compute crash here must not cost the primary pass's per-metric record,
+  // which is already computed and is the more valuable half of `detail`.
+  const recheckStarted = Date.now();
+  let recheck: MetricsRecheckResult;
+  try {
+    recheck = await runMetricsSnapshotRecheck(db, today, new Date(), {
+      retentionDays: resolveRetentionWindows(env).page_views,
+    });
+  } catch (error) {
+    recheck = {
+      status: 'failed',
+      corrections: [],
+      refusals: [],
+      uncoveredDays: [],
+      metrics: [],
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const recheckMs = Date.now() - recheckStarted;
+  emitMetricsRecheckMetrics(metricSink(ctx, env, req), recheck, recheckMs);
+  const recheckFailed = recheckFailureCount(recheck);
+  logToPosthog(ctx, env, req, {
+    // A refusal is loud but not a fault: `skipped` means the pass declined to
+    // rewrite a permanent record on evidence it could not vouch for, and the
+    // named repair is the audited backfill. Only a real failure is an `error`.
+    level: recheckFailed > 0 ? 'error' : recheck.status === 'skipped' ? 'warn' : 'info',
+    message:
+      `aeci.metrics_snapshot.recheck status=${recheck.status} ` +
+      `corrected=${recheck.corrections.length} refused=${recheck.refusals.length}`,
+    source: 'metrics-snapshot-cron',
+    day,
+    recheck_status: recheck.status,
+    recheck_corrected: recheck.corrections.length,
+    recheck_refused: recheck.refusals.length,
+    recheck_uncovered: recheck.uncoveredDays.length,
+    ...(recheck.reason ? { reason: recheck.reason } : {}),
+  });
+
   // §7.2 (AECI-583). Any failed metric collapses `partial → failed`, in step with
   // the per-metric `outcome:failed` Datadog tag: the panel must not claim more
   // success than Datadog does for the same run.
+  //
+  // The re-check counts the same way, and that is a decision rather than an
+  // oversight: a silently-broken correction pass is the exact defect class
+  // AECI-827 exists to end, so it must not be able to hide behind a green tick.
+  // A refusal (`status: 'skipped'`) is NOT a failure — it is the guard working —
+  // and reaches the operator through the `warn` log and the emitted
+  // `recheck.run{outcome:skipped}` count instead.
   return {
-    outcome: failed.length === 0 ? 'ok' : 'failed',
+    outcome: failed.length === 0 && recheckFailed === 0 ? 'ok' : 'failed',
     detail: {
       job: 'metrics-snapshot',
       day,
@@ -759,6 +818,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
       written,
       failed: failed.length,
       metrics: result.metrics,
+      recheck: summarizeRecheck(recheck),
     },
   };
 }

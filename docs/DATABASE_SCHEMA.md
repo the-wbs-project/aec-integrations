@@ -1539,6 +1539,21 @@ The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row 
 (`apps/api/src/lib/metrics-snapshot.ts`), which captures the prior **complete**
 UTC day.
 
+**And then re-checks the trailing ~33 days (AECI-827 / ADR 0027).** A stored day is
+corrected, not final: `NOT_INTERNAL`'s retro-join (§9.1) is anchored on each page
+view's OWN timestamp with a symmetric ±30-day window, so the three raw `traffic.*`
+values below depend on `is_operator = 1` rows that may not exist yet. The same cron
+runs a second, **correction-only** pass — it never inserts a day the primary pass did
+not cover (one row would clear §7.4's prune to delete that day's `page_views` while
+every unrecoverable stock key was still missing), refuses a day whose raw
+`page_views` are gone, and refuses any *increase*, because the retro-join can only
+remove rows. `traffic.page_views_human_after_automation` is recomputed alongside its
+raw half or not at all. Two consequences for a reader of this table: **`computed_at`
+is no longer ≈ `day` + 15 minutes** on a corrected row, and a `measured` value may be
+overwritten by a later `measured` value — see the precedence note below. What does
+**not** change is `source`: the re-check writes the corrected value back under the
+row's existing label, so correcting a `reconstructed` row leaves it `reconstructed`.
+
 It exists because nothing else in D1 can answer *"how many did we have on July
 3rd"*: `stats_cache` above is overwritten daily so no history survives, and
 `audit_log` records genuine **additions** but not net totals — 827
@@ -1569,7 +1584,14 @@ day (or re-aggregated from rows that still exist); `reconstructed` means derived
 after the fact by `apps/api/scripts/backfill-metrics-daily.ts` from data that can no longer
 prove the day exactly. One precedence rule follows and both writers obey it: **a
 `measured` write always wins; a `reconstructed` write applies only over an absent
-or already-`reconstructed` row.** That is what makes the backfill re-runnable
+or already-`reconstructed` row.** ADR 0027 adds the clause the rule did not need
+until there were two *scheduled* writers: **a `measured` write may overwrite a
+`measured` row, but only where the source rows demonstrably survive.** Without it
+the nightly re-check would read a pruned or purged day as zero and write that over
+the only surviving record of it. The re-check is a *correction*, not a capture, so
+it carries each row's existing `source` through rather than stamping `measured` on
+it — otherwise one correction would promote a backfilled row and permanently lock
+the backfill out of repairing it. That is what makes the backfill re-runnable
 without ever degrading a real snapshot. `GET /api/admin/metrics/timeseries`
 surfaces it per point as `reconstructed`.
 
@@ -1589,7 +1611,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
 | `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, and **all three** `NOT_INTERNAL` clauses of §9.1 — the `/admin`+`/account` path rule, `is_operator`, and the AECI-683 retro-join. This is the **raw** count; the identically-named field on `GET /api/admin/overview` is post-automation (`ADMIN_PANEL_SPEC.md` §7.1). It counts pre-2026-09 duplicate arrivals, deliberately — see §9.1's `dedupe_key` note | measured |
-| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed |
+| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed. Since ADR 0027 the 00:15 re-check recomputes it whenever its raw half moves — the only convergence path it will ever have, and still not a backfill |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |

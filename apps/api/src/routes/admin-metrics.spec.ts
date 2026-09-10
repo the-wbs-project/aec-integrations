@@ -563,3 +563,39 @@ describe('GET /api/admin/metrics/timeseries — basis=net (AECI-686)', () => {
     expect(body.points.map((p) => p.value)).toEqual([0, 1, 0]);
   });
 });
+
+describe('the operator-lookback caveat (AECI-827 / ADR 0027)', () => {
+  const codes = (r: AdminTimeseriesResponse) => r.notes.map((n) => n.code);
+
+  it('declares the trailing window as not final on a traffic series', async () => {
+    // The retro-join is an inference and D15(b) reports it rather than applying
+    // it silently. Its non-finality is reported for the same reason: a figure
+    // that quietly moves is the failure the measurement envelope exists to stop.
+    const r = await series('metric=traffic.page_views_human&from=2026-08-01&to=2026-08-10');
+    expect(codes(r)).toContain('series_within_operator_lookback');
+    const note = r.notes.find((n) => n.code === 'series_within_operator_lookback');
+    expect(note?.severity).toBe('info');
+    expect(note?.params).toMatchObject({ days: 10, requested: 10, lookback_days: 30 });
+  });
+
+  it('counts only the days actually inside the lookback', async () => {
+    // NOW is 2026-08-11, so 2026-07-12 onward is soft and everything before is
+    // settled. A window straddling that edge must not claim the whole range.
+    const r = await series('metric=traffic.page_views_bot&from=2026-07-08&to=2026-07-14');
+    expect(note(r)).toMatchObject({ days: 3, requested: 7 });
+  });
+
+  it('stays silent on a window that closed more than the lookback ago', async () => {
+    const r = await series('metric=traffic.unique_visitors&from=2026-06-01&to=2026-06-30');
+    expect(codes(r)).not.toContain('series_within_operator_lookback');
+  });
+
+  it('stays off catalog series, which the retro-join cannot touch', async () => {
+    const r = await series('metric=catalog.products_created&from=2026-08-01&to=2026-08-10');
+    expect(codes(r)).not.toContain('series_within_operator_lookback');
+  });
+
+  function note(r: AdminTimeseriesResponse) {
+    return r.notes.find((n) => n.code === 'series_within_operator_lookback')?.params;
+  }
+});

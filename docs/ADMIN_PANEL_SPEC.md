@@ -853,6 +853,73 @@ cannot inflate, is **two days**: 2026-08-29 (2 → 1) and 2026-08-18 (4 → 3).
 `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only. Correct any figure
 quoted from a pre-2026-09 day by hand; do not correct the table.
 
+**A stored day is corrected, not final — the trailing re-check (AECI-827 / ADR 0027).** §7.1 was
+built on an assumption nobody wrote down because it was true when it shipped: the value of a
+completed day does not change. AECI-683 ended that. `NOT_INTERNAL`'s third half is a correlated
+`EXISTS` anchored on **each page view's own timestamp** with a symmetric ±`OPERATOR_PAIR_LOOKBACK_DAYS`
+window, so whether a view counts as human depends on `is_operator = 1` rows that may not exist yet — an
+operator browses across a token expiry and re-authenticates days later, and the anchor lands after the
+day was snapshotted. Measured: production 2026-08-31 stored 224 and recomputes 222, and that day
+**postdates** the fix.
+
+So the 00:15 job runs a **second pass** after the primary capture, re-checking
+`OPERATOR_PAIR_LOOKBACK_DAYS + 1 + SNAPSHOT_RECHECK_SLACK_DAYS` days back and ending at `today - 2`.
+Six properties are load-bearing; ADR 0027 carries the full reasoning.
+
+1. **Bounded because finality is computable.** An anchor reaches ±30 days and is only ever written at
+   `now`, so a day is final at `day + 31`. The minimum window has **zero** margin — the last anchor
+   that can move day `X` arrives on `X+31` — so the slack constant exists to stop one missed night
+   stranding a day forever. The exception: `scripts/ops/2026-08-operator-page-view-backfill/` sets
+   `is_operator` on *historical* rows and un-finalises days by the amount it reaches; §7.3 already
+   names its follow-up.
+2. **Three keys, and the narrowed type is the guard.** Only `traffic.page_views_human`,
+   `traffic.page_views_bot` and `traffic.unique_visitors` are diffed
+   (`ADMIN_RETROACTIVE_METRIC_KEYS`). Re-running the primary producers for an old day would **destroy
+   data** — the eleven stock producers ignore their `day` argument and count as of now — so handing
+   the pass a stock key is a compile error rather than a comment. Note `accounts.sign_ins_new` also
+   moves retroactively (a deleted profile decrements the day it was created on) and is excluded for a
+   *different* reason: "3 people signed in on 20 August" is a fact that does not un-happen.
+3. **A `measured` write may overwrite `measured`, but only where the source rows demonstrably
+   survive** — the clause Deviation 1's precedence rule did not need until there were two scheduled
+   writers. `metricSeries` returns a map that is **not** zero-filled, so `?? 0` would turn any cause of
+   data loss into a write of 0 over the only surviving record. The pass probes `page_views` with no
+   predicates and refuses days absent from it — the same rule `metrics-backfill.ts` calls its `stale`
+   arm. It also refuses any **increase** (the retro-join can only remove rows, so an increase is a
+   predicate change or an `is_bot` backfill) and refuses a diff wider than
+   `SNAPSHOT_RECHECK_MAX_CORRECTED_DAYS`, which routes a definition change to
+   `ops:backfill-metrics-daily` and its dry run. The clause does **not** license promoting a
+   row's `source`: a corrected `reconstructed` row stays `reconstructed`, or the correction
+   would drop the per-point flag the timeseries reports and lock the backfill out of that row
+   for good. A correction changes the value, never the provenance.
+4. **It never inserts**, and the reason is not "coverage is the backfill's job". §7.4's
+   `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row would
+   clear the 03:00 prune to delete that day's `page_views` while every unrecoverable stock key was
+   still missing.
+5. **The pair is written together or not at all.** Correcting the raw human count while leaving
+   `traffic.page_views_human_after_automation` stale renders a filtered series *above* the unfiltered
+   one — "222 humans, 224 after automation". The filtered key is recomputed for any day whose raw half
+   moved plus the following `SWARM_PRIOR_LOOKBACK_DAYS` (the detector's recurrence lookback is
+   backward-only), **before** either half is written, because a day left consistently stale beats one
+   left inconsistently fresh. This is also the only convergence path that snapshot-only key will ever
+   have.
+6. **`computed_at` no longer means "roughly `day` + 15 minutes".** It means what it always said — when
+   this value was computed — and on a corrected day that can be weeks later. Nothing reads it at
+   runtime; what moved and when lives in `job_runs.detail` and the
+   `aeci.metrics_snapshot.recheck.*` counters. A re-check **failure** collapses the run to `failed`
+   in step with §7.2; a **refusal** does not, because the guard working is not a fault.
+
+The read side says so too: `GET /api/admin/metrics/timeseries` emits
+`series_within_operator_lookback` on any `traffic.*` window overlapping the last
+`OPERATOR_PAIR_LOOKBACK_DAYS` days. §13 **D15(b)** reports the pair match rather than applying it
+silently because it is an inference about identity; its non-finality is reported for the same reason,
+and it covers the hours before the next re-check.
+
+**What the pass cannot reach, so it is an obligation rather than a gap:** tuning `SWARM_MIN_VIEWS`,
+`SWARM_MIN_ASN_RATIO` or the `ASN_ROTATOR_*` constants changes `flagged(X)` for every stored day with
+**no** change to any raw count, so the trigger set is empty and the stored filtered series silently
+mixes two definitions — and that key has no backfill. Recorded beside those constants in
+`POST_LAUNCH_MONITORING.md` §3.
+
 **Retention:** indefinite. This table is small and is the long memory.
 
 ### 7.2 `job_runs` — cron liveness and DQ persistence
@@ -919,7 +986,7 @@ Each of the fourteen cron handlers in `scheduled.ts` writes one row (eight at th
 | **Add `products.promoted_at`** (§13 **D6**) — **SHIPPED 2026-08-13** (AECI-581) | Future-proofs the §4 catalog series against a future un-promote → re-promote cycle. **Set-once** — `COALESCE("promoted_at", ?)` in promote's update branch, else it degrades to "last promoted". Backfill `:= created_at` (exact — see §4's correction), run per environment via `scripts/ops/backfill-products-promoted-at.sql` |
 | ~~Flag views made by a verified admin session (§13 **D13**)~~ — **DONE 2026-08-19**, `is_operator`, migration `0016` | The §9.6 path rule stops at `/admin/*`; the operator browsing the **public** site was still counted as a visitor — **368 of 2,493 human public-page views (15%)** in production, across three ASNs in two countries. `ANALYTICS_INTERNAL_ASNS` cannot substitute: pinned to the current network it misses 183 of them and over-excludes 112 rows that are not the operator. Written at ingest because the session is only knowable there. Plain additive `ALTER … ADD` — none of §3.3a's recreate machinery applies |
 | ~~Guarantee one document load writes one row~~ — **DONE 2026-09-01 (AECI-743)**, `dedupe_key` + a UNIQUE index, migration `0020` | Nothing refused a second row, and the schema had no unique constraint of any kind. Production held two byte-identical rows 83 ms apart for one arrival — both `navigation = 'arrival'` with the resolver's route pattern, so two full SSR cache-MISS renders, **not** an SSR + client double-write. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of the 2026-08-29 digest: a 100% error on the AECI-683 floor, the one figure a proxy pool cannot inflate. The key is `sha256(concrete_path \| user_agent_hash \| cf_asn \| 10s bucket)` under a UNIQUE index — a **constraint**, not a read-then-write check, because the duplicate writes race from `waitUntil`. Null (and so unconstrained) for bot rows and rows with no UA hash. Three writer-side guards ship with it: speculative `Sec-Purpose` loads, non-GET requests, and query-only SPA re-navigations no longer write. **Not backfillable** — old rows cannot distinguish a double-fire from two arrivals; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only. Plain additive `ALTER … ADD` + `CREATE UNIQUE INDEX` — none of §3.3a's recreate machinery applies |
-| ~~Run `scripts/ops/2026-08-operator-page-view-backfill/run.sh` per environment~~ (§13 **D13**) — **DONE.** Production and demo were already applied when AECI-688 checked on 2026-09-09 (10 pairs, 0 rows left to change); **staging** was still outstanding and was applied then (81 rows). **Preview was applied 2026-09-09 under AECI-828** (51 rows across 2 ASNs; human-public 125 → 93) — until then its D1 sat at migration `0015` against a repo head of `0029`, so `is_operator` did not exist there at all. This row read **PENDING** for three weeks after the work was done, which is the argument for the run log the script's README now carries | The *flag* is not backfillable (nothing on an old row implies a session), but the **`(user_agent_hash, cf_asn)` visitor pair** is: `/admin*` rows prove which pairs are the operator. Six pairs, four proven directly → **679 rows, 458 of them human public**, taking all-time human views **2,494 → ~2,036 (18%)**. Writes only over NULL, so it never overrides the live flag and `--rollback` is a true inverse. **Then re-run `ops:backfill-metrics-daily`** for the range, or the panel keeps serving the stale stored series for completed days |
+| ~~Run `scripts/ops/2026-08-operator-page-view-backfill/run.sh` per environment~~ (§13 **D13**) — **DONE.** Production and demo were already applied when AECI-688 checked on 2026-09-09 (10 pairs, 0 rows left to change); **staging** was still outstanding and was applied then (81 rows). **Preview was applied 2026-09-09 under AECI-828** (51 rows across 2 ASNs; human-public 125 → 93) — until then its D1 sat at migration `0015` against a repo head of `0029`, so `is_operator` did not exist there at all. This row read **PENDING** for three weeks after the work was done, which is the argument for the run log the script's README now carries | The *flag* is not backfillable (nothing on an old row implies a session), but the **`(user_agent_hash, cf_asn)` visitor pair** is: `/admin*` rows prove which pairs are the operator. Six pairs, four proven directly → **679 rows, 458 of them human public**, taking all-time human views **2,494 → ~2,036 (18%)**. Writes only over NULL, so it never overrides the live flag and `--rollback` is a true inverse. **Then re-run `ops:backfill-metrics-daily`** for the range, or the panel keeps serving the stale stored series for completed days. **Still required after AECI-827**, and this row is the reason its re-check cannot be trusted to cover it: the pass is bounded by "a day is final at `day + 31`", which holds only because anchors are written at `now`. Setting `is_operator` on *historical* rows is the one procedure that breaks that, and it reaches further back than any window the cron examines |
 
 **Dropping the dead columns is not symmetric, and the migration plan must say so** (AECI-585):
 
@@ -1472,7 +1539,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   **Scope note.** `NOT_INTERNAL` is deliberately kept a *static* predicate — the retro-join is a correlated subquery anchored on each row's own timestamp rather than a `notInternalFor(window)` function — so all five read surfaces (digest, swarm detectors, `/admin/overview`, `/admin/traffic` + the `metrics_daily` snapshot beneath it, and the public trending card) inherit it without any of them remembering to. It also binds a fixed two parameters regardless of pair count, which the naive JS-resolved pair list does not. **Consequence, and it was closed on 2026-09-09 (AECI-688):** `metrics_daily` rows already written kept the old definition, and `/api/admin/metrics/timeseries` serves snapshot-first, so the chart stepped at the snapshot boundary until `ops:backfill-metrics-daily` was re-run. It has been, on production, staging and demo. `lib/metrics-backfill.ts` was correct for that re-run — it had carried **only** the §9.6 path clause and no `is_operator` at all since D13 shipped.
 
-  **What the re-run also revealed, and this one does not close: a stored day is not final.** The retro-join is anchored on each row's own timestamp with a ±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so whether a given page view is internal depends on operator rows that may not exist yet. AECI-688 corrected six production days, and **one of them — 2026-08-31 — postdated the fix**: it was snapshotted correctly under the new predicate and then went stale when a later operator row retro-matched it. Every completed day inside the trailing 30 days is therefore provisional, and the 00:15 cron never revisits it because it writes only the prior day. The drift is small and self-limiting, but it does not converge on its own. Tracked in AECI-827.
+  **What the re-run also revealed, and AECI-688 did not close: a stored day is not final.** The retro-join is anchored on each row's own timestamp with a ±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so whether a given page view is internal depends on operator rows that may not exist yet. AECI-688 corrected six production days, and **one of them — 2026-08-31 — postdated the fix**: it was snapshotted correctly under the new predicate and then went stale when a later operator row retro-matched it. Every completed day inside the trailing 30 days is therefore provisional, and the 00:15 cron never revisits it because it writes only the prior day. The drift is small and self-limiting, but it does not converge on its own. **Closed on 2026-09-09 by AECI-827 / ADR 0027**: the 00:15 job now runs a second, correction-only pass over the trailing window and rewrites the days that moved, and the timeseries endpoint declares the window soft with `series_within_operator_lookback` — D15(b)'s report-the-inference rule extended to its non-finality. Three residuals stay, deliberately. A day is final at `day + 31` **only because anchors are written at `now`**, so the §7.3 operator-page-view backfill, which sets `is_operator` on historical rows, un-finalises days by the amount it reaches — its documented follow-up is already a re-run of `ops:backfill-metrics-daily`. A **definition change** is still a human decision: the pass refuses any increase and any diff wider than ten days, and routes both to that script's dry run. And a **swarm threshold change** moves `traffic.page_views_human_after_automation` for every stored day with no change to any raw count, so nothing detects it and that key has no backfill. §7.1 carries the mechanism.
 
 - **D16 — `client_verdict` decides on its own, with no view floor** (settled by AECI-744 on 2026-09-01; `POST_LAUNCH_MONITORING.md` §3, `lib/swarm-detection.ts`). D14 shipped the verdict as *corroboration* and D15 made it a *hard gate*. Both of those are readings of a GROUP, and both groups are gated on a view-count floor (`SWARM_MIN_VIEWS` / `ASN_ROTATOR_MIN_VIEWS`, both 4) checked **before any evidence is weighed** — so a low-volume automated client never reached the code that reads its verdict at all.
 

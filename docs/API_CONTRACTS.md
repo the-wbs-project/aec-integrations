@@ -2613,6 +2613,7 @@ export const AdminNoteCodeSchema = z.enum([
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
   'corroborated_is_a_referrer_floor',  // a FLOOR: stripped headers land in Direct (AECI-683)
   'operator_leak_is_an_inference',     // (hash, ASN) match, not a verified session (AECI-683)
+  'series_within_operator_lookback',   // AECI-827: the last 30 days are not final (ADR 0027)
   // AECI-745 — the automation filter, in its two states. Two codes rather than
   // one with a flag: "it ran" and "it failed" are read by different people.
   'automation_filter_applied',         // the headline is raw human views LESS flagged clients
@@ -2927,6 +2928,24 @@ export const AdminTimeseriesResponseSchema = z.object({
 was captured by the 00:15 cron, `live` when none was, `mixed` otherwise. **`mixed`
 is the normal case, not an edge** — the cron captures the prior COMPLETE UTC day,
 so any window reaching today has an uncovered day by construction.
+
+**`source: 'snapshot'` does not mean "final" (AECI-827 / ADR 0027).** `NOT_INTERNAL`'s
+operator retro-join is anchored on each page view's own timestamp with a symmetric
+±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so the three raw `traffic.*` values for a
+completed day depend on `is_operator = 1` rows that may not exist yet. The 00:15 job
+re-checks the trailing ~33 days and corrects what moved, so a stored value can fall
+between two reads of the same range — always downward, never upward, because the
+retro-join can only remove rows. Any `traffic.*` window overlapping the last
+`OPERATOR_PAIR_LOOKBACK_DAYS` days therefore carries the
+`series_within_operator_lookback` note (`info`), naming how many of the returned days
+are still soft. This is the same reason D15(b) reports `operator_leak_excluded`
+rather than applying the inference silently: a figure that quietly moves is the
+failure the measurement envelope exists to prevent. `source` and `reconstructed` are
+**preserved, not rewritten**: the re-check writes the corrected value back under the
+row's existing label, so a captured day stays `measured` and a backfilled one stays
+`reconstructed`. A correction changes the value, never the provenance — which also
+keeps `ops:backfill-metrics-daily` able to repair a reconstructed row later, since it
+may never overwrite a `measured` one.
 
 `points[].reconstructed` is a separate axis, and it is about *exactness* rather
 than storage: `true` means that day predates the snapshot and was reconstructed

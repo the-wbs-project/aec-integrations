@@ -36,6 +36,8 @@ const PARAMS_BY_CODE: Partial<Record<AdminNoteCode, AdminNote['params']>> = {
   catalog_series_is_additions_only: { metric: 'catalog.products_created' },
   catalog_series_starts_at: { earliest_day: '2026-05-01' },
   internal_filter_applied: { asns: '23700' },
+  // AECI-827 — the trailing window is not final (ADR 0027).
+  series_within_operator_lookback: { days: 10, requested: 30, lookback_days: 30 },
   // AECI-579 / P1.5 — catalog coverage.
   funnel_is_promoted_cohort_only: { promoted: 171 },
   trade_facet_sparse_by_design: { untagged: 171, universe: 171 },
