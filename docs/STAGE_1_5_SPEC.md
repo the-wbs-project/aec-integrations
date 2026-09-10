@@ -334,7 +334,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 - **`defaultIntegrationContext(a, b)`** in `packages/shared` (e.g. `packages/shared/src/integration-context.ts`) — given two product slugs, returns the canonical **context product** for the default pair URL: the **alphabetically-first slug** is the context. Deterministic, pure, shared by SSR and the 301.
 - **Nested route:** `/products/:contextSlug/integrations/:otherSlug`. The page resolves the two products, finds **all** integration rows between them (either source/target orientation), and renders one consolidated view. Multiple mechanisms → multiple rows on one page (§3.1), not multiple pages.
-- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction (`one-way`/`bidirectional`) translated to the context product's frame — `one-way` reads `outbound` when the context product is the row's `source` (else `inbound`), `bidirectional` reads `both` — *not* the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2 (that governs the `data_object` rows in Layer B, §8). Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (direction · partner · connection; **direction leads the row** so the relationship reads at a glance) rather than a card stack, one row per integration, each row a stretched link to the pair page with the *other* product linked separately. Its **Direction** column is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `one-way`/`bidirectional`, both framed to this product; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored `one-way`/`bidirectional`, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as `ProductListItem`, and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`.
+- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction (`one-way`/`bidirectional`) translated to the context product's frame — `one-way` reads `outbound` when the context product is the row's `source` (else `inbound`), `bidirectional` reads `both` — *not* the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2 (that governs the `data_object` rows in Layer B, §8). Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (partner · connection, with direction on a meta line under the partner name — **amended 2026-09-10 by AECI-853**, which superseded the original "direction · partner · connection; direction leads the row so the relationship reads at a glance"; §13.3a carries the reasoning) rather than a card stack, one row per integration, each row a stretched link to the pair page with the *other* product linked separately. Its **direction** readout is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `one-way`/`bidirectional`, both framed to this product; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored `one-way`/`bidirectional`, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as `ProductListItem`, and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`.
 - **Row order on the product-detail table: alphabetical by partner name** (2026-08-24). The `integrations_as_source` / `integrations_as_target` buckets **interleave** into one alphabetized list rather than concatenating — the split is invisible to the reader (every row shows `context_direction`, never its bucket), so concatenating would surface a distinction they cannot see as an unexplained break in the alphabet. Ties (one partner reachable by more than one mechanism) fall back to the integration name, then `id`, so the order is **total** and cannot reshuffle between renders. Before this the list carried **no** ordering at all — neither the `sourceIntegrations` / `targetIntegrations` read configs nor the client sorted — so rows arrived in D1 row order (effectively promote order) and the 20-row `@defer` cut fell at an arbitrary point. The sort lives in `product-detail.ts`, not SQL: those relations can only `ORDER BY` columns of `integrations` itself (the partner name is on the joined product), and ordering each bucket separately still would not interleave them. Contrast the sibling powered-hub section, which has always sorted (§12.3).
 
 ### 7.2 301 consolidation from the legacy route
@@ -545,10 +545,14 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   (linked to the hub product) + the group size; body = full-width partner rows carrying logo,
   partner name, **hub-relative direction** (`integrationDirectionForContext`, mirrored when the hub
   is endpoint B — the same `→ Outbound / ← Inbound / ⇄ Both` vocabulary the endpoint table frames
-  relative to *its* page product), the mechanism badge, and a chevron. Below `md` the direction and
-  mechanism columns fold and the mechanism becomes a muted sublabel — the same breakpoint behaviour
-  as `ProductIntegrationRow`. One link per row (the pair page), so no stretched-link overlay: the
-  partner's own product page is one hop further, from the pair page.
+  relative to *its* page product), the mechanism badge, and a chevron. **Amended 2026-09-10
+  (AECI-853): direction is no longer a slot on the right of the row.** It moved into a muted meta
+  line under the partner name, present at every width, with the mechanism joining that same line
+  below `md`. The mechanism badge still folds at `md`. This tracks `ProductIntegrationRow`, which
+  this row is pinned to for exactly this reason: fold one and not the other and the same page shows
+  direction as a column in one section and a sublabel in the other. §13.3a carries the measured
+  reasoning. One link per row (the pair page), so no stretched-link overlay: the partner's own
+  product page is one hop further, from the pair page.
 - **A full compatibility-matrix page archetype** (platforms × ERPs grid) was considered and is
   noted as a possible **Stage 2** evolution; the hub view is the Stage 1.5 answer.
 - **Render condition:** `product_role !== 'application' || integrations_as_connector.length > 0`.
@@ -940,8 +944,11 @@ within it.
 - **Accessibility: one `<table>` per lane**, not group-header rows interleaved into a single
   `<tbody>`. A header row inside a table body has no accessible name relationship to the rows
   beneath it, so a screen-reader user gets the grouping visually and not at all otherwise. Each
-  table keeps the existing Direction / Integrates with / Connection columns, the `md` column
-  collapse, and the per-row pair-page link.
+  table keeps the `md` column collapse and the per-row pair-page link. **Amended 2026-09-10
+  (AECI-853): the column set is Integrates with / Connection, not Direction / Integrates with /
+  Connection.** Direction moved into a muted meta line under the partner name, present at every
+  width; below `md` the mechanism joins that same line rather than stacking a second sublabel. See
+  the §13.3a note below for why.
 - **The `@defer (on viewport)` cut applies to the flattened render order**, so it still lands after
   20 visible rows rather than 20 rows into each lane.
 - **The §12.7 catalog-scope note renders once per section** on the populated branch — not once per
@@ -1019,6 +1026,64 @@ right-aligned opposite the `<h2>`, and `INTEGRATION_FILTER_MIN_ROWS` was deleted
 that renders rows renders a filter**, including the single-lane page above. Both changes and the
 reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
 same component shape there.
+
+#### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
+
+This subsection records a **reversal**. §13.3 originally required a Direction column and said
+direction should lead the row "so the relationship reads at a glance". It no longer does. The
+reason is layout arithmetic, and the numbers are recorded here so the trade is not re-litigated
+from taste.
+
+`DetailLayout` (`apps/web/src/app/layouts/detail-layout.ts`) docks the metadata sidebar in a
+`2fr / 1fr` grid. The body column is `(content - 48px gap) * 2/3`, which is **608px** at a 1024px
+viewport and **778px** at 1280px. A body-column table whose `min-width` exceeds that figure does
+not wrap — it overflows its own `overflow-x-auto` wrapper and scrolls inside a narrow well. The
+integrations table asked for `44rem` (704px), so only `xl` cleared it, and the page dropped to a
+single column at any width below 1280px.
+
+Measured intrinsic cell widths, worst-case realistic data ("Autodesk Construction Cloud" partner,
+a "Marketplace app" badge, a long `mechanism_name`):
+
+| column | width | composition |
+|---|---|---|
+| Direction | 121px | 32 padding + 20 glyph + 8 gap + 61 label ("Outbound") |
+| Integrates with | 261px | 32 padding + 32 logo + 12 gap + 185 name |
+| Connection | 258px | 32 padding + widest of badge (118) / `mechanism_name` (226) |
+| Details (the decorative `→`) | 46px | 32 padding + 14 glyph |
+
+666px total, which is where the `44rem` floor came from. Only 61 of Direction's 121px was
+information; the rest was padding and a decorative glyph.
+
+Four dispositions were measured before choosing:
+
+| variant | table width | row height w/ `mechanism_name` | row height badge-only |
+|---|---|---|---|
+| keep the column | 666px | 67px | 57px |
+| **meta line under the partner name (chosen)** | **545px** | 67px | 63px |
+| glyph inline, label `sr-only` | 577px | 67px | 57px |
+| glyph + label inline after the name | 656px | 67px | 57px |
+
+The chosen fold is close to free vertically: a row carrying a `mechanism_name` is already two lines
+tall, because the Connection cell stacks the badge over the name, so the meta line costs nothing
+there and 6px on badge-only rows. 545px fits the 608px body column with 63px of slack, which is
+what let the dock move from `xl` to **`lg`**.
+
+Three rules that come with it:
+
+- **The meta line opens with an `sr-only` "Direction:" prefix.** Removing the `<th>` removed the
+  only thing that told a screen reader what "Outbound" was a property of. Without the prefix it
+  reads as a bare word trailing the partner name. The mechanism half needs no prefix — it appears
+  only below `md`, beside a direction that is already labelled.
+- **The powered hub (§12.3) moved in lockstep.** §12.3 pins its partner rows to "the same
+  breakpoint behaviour as `ProductIntegrationRow`". Folding one and not the other would show
+  direction as a column in one section of a page and a sublabel in another.
+- **`34rem` is a ceiling, not a preference.** Raising any body-column table's `min-width` back
+  above **38rem** re-breaks the `lg` dock into a horizontal scroll. Check a new value against
+  608px, not against the viewport.
+
+Unchanged by all of this: the value is still the server-precomputed, claims-aware
+`context_direction` (§3.2), so it still cannot contradict the pair page, and `–` still means
+unknown (no claims and no stored direction).
 
 ### 13.4 Contract elements the split needs and does not have
 

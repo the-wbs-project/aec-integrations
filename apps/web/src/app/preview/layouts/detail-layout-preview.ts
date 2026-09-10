@@ -50,7 +50,7 @@ import { DetailLayout } from '../../layouts/detail-layout';
         <h2 class="font-display text-2xl font-semibold">Overview</h2>
         <p class="text-(--text-secondary)">
           Lead body sections stack vertically in the main column. The metadata sidebar sticks
-          alongside them from xl; below xl it renders immediately after this block, so the facts
+          alongside them from lg; below lg it renders immediately after this block, so the facts
           stay near the top of the page instead of landing under the last section.
         </p>
       </article>

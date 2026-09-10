@@ -24,14 +24,20 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ProductIntegrationRow],
   template: `
-    <!-- Real table (replaces the former card stack) so the partner, flow
-         direction, and connection mechanism align into scannable columns.
-         Horizontal scroll below the min width; Connection collapses at md
-         (matching ProductCard / the browse tables), with the mechanism folding
-         into the partner cell. -->
+    <!-- Real table (replaces the former card stack) so the partner and the
+         connection mechanism align into scannable columns. Connection collapses
+         at md (matching ProductCard / the browse tables), with the mechanism
+         folding into the partner cell's meta line.
+
+         The min width is 34rem, not the former 44rem: AECI-853 folded the
+         Direction column into that same meta line, which took the table's
+         worst-case intrinsic width from 666px to 545px. 34rem is what fits the
+         608px body column when DetailLayout docks the metadata sidebar at
+         lg, which is the whole point of the fold. Raising it back above 38rem
+         re-breaks that dock into a horizontal scroll. -->
     <div class="overflow-x-auto">
       <table
-        class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+        class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
         [attr.aria-label]="ariaLabel()"
         [attr.aria-labelledby]="ariaLabelledby()"
       >
@@ -40,13 +46,6 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
             font-medium tracking-wide text-(--text-secondary)"
         >
           <tr>
-            <th
-              scope="col"
-              class="px-4 py-3 text-start font-medium"
-              i18n="@@products.detail.body.integrations.col.direction"
-            >
-              Direction
-            </th>
             <th
               scope="col"
               class="px-4 py-3 text-start font-medium"
@@ -93,7 +92,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               }
             } @placeholder (minimum 100ms) {
               <tr aria-hidden="true">
-                <td colspan="4" class="px-4 py-3">
+                <td colspan="3" class="px-4 py-3">
                   <div
                     class="h-16 animate-pulse rounded-(--radius-lg)
                       border border-(--border-default) bg-(--surface-sunken)"

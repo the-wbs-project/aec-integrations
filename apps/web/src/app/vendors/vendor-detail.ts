@@ -220,7 +220,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
 
         <!--
           One instance, two formats, same contract as the product page. Docked
-          sidebar at xl; below xl the layout places it directly under About, where
+          sidebar at lg; below lg the layout places it directly under About, where
           it reads as a contained fact panel (groups pair up from sm, actions sit
           inline at their natural width) rather than a stack of full-bleed rows at
           the bottom of the page. See DetailLayout.
@@ -228,8 +228,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
         <div
           slot="metadata"
           class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
-            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 xl:block xl:space-y-6
-            xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0"
+            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 lg:block lg:space-y-6
+            lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
         >
           <section aria-labelledby="vendor-stats-title" class="space-y-3">
             <h2
@@ -242,7 +242,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             <dl
               class="grid grid-cols-2 gap-3 rounded-(--radius-lg) border
                 border-(--border-default) bg-(--surface-base) p-4
-                xl:bg-(--surface-raised)"
+                lg:bg-(--surface-raised)"
             >
               <div>
                 <dt
@@ -277,7 +277,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             >
               Actions
             </h2>
-            <div class="flex flex-wrap gap-2 xl:flex-col">
+            <div class="flex flex-wrap gap-2 lg:flex-col">
               <a
                 aecRequestTrigger
                 [entity]="'vendor'"
@@ -287,7 +287,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  xl:bg-(--surface-raised)
+                  lg:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -325,7 +325,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [href]="'/vendors/' + v.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  xl:bg-(--surface-raised)
+                  lg:bg-(--surface-raised)
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
@@ -415,13 +415,21 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             } @else {
               <!-- Real table (replaces the former card stack) mirroring the
                    integrations table on the product page, so the vendor's
-                   portfolio aligns into scannable columns. Horizontal scroll
-                   below the min width; Category + Rating collapse at md (matching
-                   ProductCard / the browse tables), the category folding into the
-                   product cell. -->
+                   portfolio aligns into scannable columns. Category + Rating
+                   collapse at md (matching ProductCard / the browse tables), the
+                   category folding into the product cell.
+
+                   The min width is 34rem, not the former 44rem. AECI-853 moved
+                   DetailLayout's sidebar dock from xl to lg, which makes 608px
+                   the narrowest this body column ever gets. At 44rem (704px) the
+                   table overflowed that by 96px and scrolled inside a narrow
+                   well. All five columns are kept: measured worst case with a
+                   long product name AND a long category is 648px, so at 608px
+                   the longest rows wrap one line (57px to 72px) rather than
+                   scrolling. Do not raise this back above 38rem. -->
               <div class="overflow-x-auto">
                 <table
-                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+                  class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
                   i18n-aria-label="@@vendors.detail.body.products.table.aria"
                   aria-label="Products"
                 >
