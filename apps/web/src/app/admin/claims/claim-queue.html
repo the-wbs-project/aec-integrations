@@ -314,8 +314,23 @@
             </div>
           </dl>
 
-          <!-- Person / LinkedIn search link (opened by the reviewer; a link only) -->
+          <!--
+            Person / LinkedIn link (opened by the reviewer; a link only).
+            AECI-847: the claimant's OWN profile when they supplied one, otherwise
+            the built name search. Never both — the search is a guess, and showing
+            it beside real evidence invites reading it as corroboration.
+          -->
           <div class="mt-3">
+            @if (r.submitter_linkedin_url) {
+            <a
+              [href]="r.submitter_linkedin_url"
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              class="inline-flex items-center gap-1.5 rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.linkedin.supplied"
+              >LinkedIn profile the claimant gave ↗</a
+            >
+            } @else {
             <a
               [href]="linkedInSearchUrl(r)"
               target="_blank"
@@ -324,6 +339,7 @@
               i18n="@@admin.claims.linkedin"
               >Search LinkedIn for this person ↗</a
             >
+            }
           </div>
         </div>
 

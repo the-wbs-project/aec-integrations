@@ -2,74 +2,81 @@
   <ng-template brnDialogContent>
     @if (drawer.target(); as t) {
     <div
-      class="aeci-drawer-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] w-full flex-col overflow-y-auto rounded-t-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:left-auto sm:max-h-[calc(100vh-3rem)] sm:w-[min(26rem,92vw)] sm:rounded-(--radius-lg)"
+      class="aeci-drawer-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-(--radius-lg) border border-(--border-default) bg-(--surface-raised) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:left-auto sm:max-h-[calc(100vh-3rem)] sm:w-[min(26rem,92vw)] sm:rounded-(--radius-lg)"
     >
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
-            @switch (t.kind) { @case ('claim') { @if (t.claimed) {
-            <ng-container i18n="@@requests.access.eyebrow">Request access</ng-container>
-            } @else {
-            <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
-            } } @case ('correction') {
-            <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
-            } }
-          </p>
-          <h2
-            brnDialogTitle
-            class="mt-1 font-display text-xl font-semibold tracking-tight text-(--text-primary)"
-          >
-            @switch (t.kind) { @case ('claim') { @if (t.claimed) {
-            <ng-container i18n="@@requests.access.title"
-              >Request access to this listing</ng-container
+      <!--
+        AECI-847: header and submit stay pinned, only the form body scrolls.
+        The panel is a flex column that clips; this block never shrinks, and the
+        sibling below owns the single scroll port.
+      -->
+      <div class="shrink-0 px-6 pt-6">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
+              @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+              <ng-container i18n="@@requests.access.eyebrow">Request access</ng-container>
+              } @else {
+              <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
+              } } @case ('correction') {
+              <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
+              } }
+            </p>
+            <h2
+              brnDialogTitle
+              class="mt-1 font-display text-xl font-semibold tracking-tight text-(--text-primary)"
             >
-            } @else {
-            <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
-            } } @case ('correction') {
-            <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
-            } }
-          </h2>
-        </div>
-        <button
-          type="button"
-          (click)="drawer.close()"
-          i18n-aria-label="@@requests.drawer.close"
-          aria-label="Close"
-          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
-        >
-          <svg
-            aria-hidden="true"
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+              @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+              <ng-container i18n="@@requests.access.title"
+                >Request access to this listing</ng-container
+              >
+              } @else {
+              <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
+              } } @case ('correction') {
+              <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
+              } }
+            </h2>
+          </div>
+          <button
+            type="button"
+            (click)="drawer.close()"
+            i18n-aria-label="@@requests.drawer.close"
+            aria-label="Close"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
           >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
-      </div>
+            <svg
+              aria-hidden="true"
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
 
-      <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
-        @switch (t.kind) { @case ('claim') { @if (t.claimed) {
-        <ng-container i18n="@@requests.access.subtitle"
-          >A verified vendor already manages this listing. Work there too? Tell us about your
-          connection and we'll review your request.</ng-container
-        >
-        } @else {
-        <ng-container i18n="@@requests.claim.subtitle"
-          >Work here? Tell us about your connection to this listing and we'll verify your
-          claim.</ng-container
-        >
-        } } @case ('correction') {
-        <ng-container i18n="@@requests.correction.subtitle"
-          >Spotted something inaccurate? Describe what's wrong and we'll review it.</ng-container
-        >
-        } }
-      </p>
+        <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
+          @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+          <ng-container i18n="@@requests.access.subtitle"
+            >A verified vendor already manages this listing. Work there too? Tell us about your
+            connection and we'll review your request.</ng-container
+          >
+          } @else {
+          <ng-container i18n="@@requests.claim.subtitle"
+            >Work here? Tell us about your connection to this listing and we'll verify your
+            claim.</ng-container
+          >
+          } } @case ('correction') {
+          <ng-container i18n="@@requests.correction.subtitle"
+            >Spotted something inaccurate? Describe what's wrong and we'll review it.</ng-container
+          >
+          } }
+        </p>
+      </div>
 
       <!--
         AECI-221: the form body pulls @angular/forms + the Claim/Correction Zod
@@ -79,7 +86,7 @@
         load, keeping the detail/browse JS budget green. No `prefetch` (idle
         prefetch would pull the chunk back into the page-load window).
       -->
-      <div class="mt-6">
+      <div class="min-h-0 flex-1 overflow-y-auto px-6 pt-6">
         @defer (when drawer.isOpen()) {
         <aec-request-form-body
           [entity]="t.entity"

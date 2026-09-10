@@ -913,6 +913,13 @@ export const vendorRequests = sqliteTable(
     submitterEmail: text('submitter_email').notNull(),
     submitterName: text('submitter_name'),
     submitterRole: text('submitter_role'),
+    // AECI-847: the claimant's own LinkedIn profile URL, an identity signal the
+    // reviewer opens during claim review (STAGE_2_VENDOR_PORTAL_SPEC.md §5). Always
+    // volunteered and always optional, so nullable; host-anchored to linkedin.com by
+    // `ClaimFormSchema` before it reaches here. Physically available to corrections
+    // too (same arrangement as `adminNotes`); the API surface is claim-only, since a
+    // correction identifies nobody.
+    submitterLinkedinUrl: text('submitter_linkedin_url'),
 
     domainMatch: text('domain_match').notNull().default('pending'),
 

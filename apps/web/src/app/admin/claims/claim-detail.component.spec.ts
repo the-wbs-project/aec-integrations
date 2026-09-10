@@ -54,6 +54,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     submitter_email: 'submitter@vendor.test',
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',
+    submitter_linkedin_url: null,
     domain_match: 'match',
     body: 'We build this product and would like to claim the listing.',
     source_url: null,
@@ -172,6 +173,47 @@ describe('ClaimDetail', () => {
       const { el } = await setup(makeApiMock(makeDetail()));
       const hrefs = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
       expect(hrefs).not.toContain('/admin/claims');
+    });
+  });
+
+  // ── AECI-847: the claimant-supplied LinkedIn profile ─────────────────────
+  describe('the LinkedIn identity signal', () => {
+    const linkedInHrefs = (el: HTMLElement) =>
+      [...el.querySelectorAll('a')]
+        .map((a) => a.getAttribute('href') ?? '')
+        .filter((h) => h.includes('linkedin.com'));
+
+    it("links the claimant's own profile when they supplied one", async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeDetail({ submitter_linkedin_url: 'https://www.linkedin.com/in/sam-submitter' }),
+        ),
+      );
+      expect(linkedInHrefs(el)).toEqual(['https://www.linkedin.com/in/sam-submitter']);
+    });
+
+    it('falls back to the name search only when nothing was supplied', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ submitter_linkedin_url: null })));
+      const hrefs = linkedInHrefs(el);
+      expect(hrefs).toHaveLength(1);
+      expect(hrefs[0]).toContain('/search/results/people/');
+      expect(hrefs[0]).toContain('Sam%20Submitter');
+    });
+
+    // A guess shown beside real evidence reads as corroboration of it. Only one
+    // person link is ever rendered.
+    it('never shows the search guess alongside a supplied profile', async () => {
+      const { el } = await setup(
+        makeApiMock(makeDetail({ submitter_linkedin_url: 'https://uk.linkedin.com/in/sam' })),
+      );
+      expect(linkedInHrefs(el).some((h) => h.includes('/search/results/'))).toBe(false);
+    });
+
+    it('searches on the email when the claimant left their name blank', async () => {
+      const { el } = await setup(
+        makeApiMock(makeDetail({ submitter_name: null, submitter_linkedin_url: null })),
+      );
+      expect(linkedInHrefs(el)[0]).toContain(encodeURIComponent('submitter@vendor.test'));
     });
   });
 

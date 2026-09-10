@@ -44,6 +44,8 @@ interface RequestModel {
   submitter_name: string;
   submitter_email: string;
   submitter_role: string;
+  /** Claim-only (AECI-847). Empty string when skipped, never `undefined`. */
+  submitter_linkedin_url: string;
   body: string;
   source_url: string;
 }
@@ -110,6 +112,7 @@ export class RequestFormBody implements OnInit {
     submitter_name: '',
     submitter_email: '',
     submitter_role: '',
+    submitter_linkedin_url: '',
     body: '',
     source_url: '',
   });
@@ -178,6 +181,7 @@ export class RequestFormBody implements OnInit {
                 submitter_name: v.submitter_name,
                 submitter_email: v.submitter_email,
                 submitter_role: v.submitter_role,
+                submitter_linkedin_url: v.submitter_linkedin_url,
                 body: v.body,
               })
             : await this.api.submitCorrection(target, {

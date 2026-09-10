@@ -51,6 +51,7 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_email: over.submitter_email ?? 'submitter@vendor.test',
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
+    submitter_linkedin_url: over.submitter_linkedin_url ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,
@@ -361,6 +362,65 @@ describe('ClaimQueue', () => {
     expect(link!.getAttribute('href')).toContain('Sam%20Submitter');
     expect(link!.getAttribute('target')).toBe('_blank');
     expect(link!.getAttribute('rel')).toContain('noopener');
+  });
+
+  // ── AECI-847: the claimant-supplied LinkedIn profile ──────────────────────
+  // Mirrors the `claim-detail.component.spec.ts` block: the built search is the
+  // FALLBACK, and the two surfaces must tell one story.
+  describe('the LinkedIn identity signal', () => {
+    const linkedInHrefs = (card: HTMLElement) =>
+      [...card.querySelectorAll('a')]
+        .map((a) => a.getAttribute('href') ?? '')
+        .filter((h) => h.includes('linkedin.com'));
+
+    it("links the claimant's own profile when they supplied one", async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({
+            id: 'c1',
+            submitter_linkedin_url: 'https://www.linkedin.com/in/sam-submitter',
+          }),
+        ]),
+      );
+      expect(linkedInHrefs(cardFor(el, 'Procore'))).toEqual([
+        'https://www.linkedin.com/in/sam-submitter',
+      ]);
+    });
+
+    // A guess shown beside real evidence reads as corroboration of it. Only one
+    // person link is ever rendered.
+    it('never shows the search guess alongside a supplied profile', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({ id: 'c1', submitter_linkedin_url: 'https://uk.linkedin.com/in/sam' }),
+        ]),
+      );
+      const hrefs = linkedInHrefs(cardFor(el, 'Procore'));
+      expect(hrefs).toHaveLength(1);
+      expect(hrefs[0]).not.toContain('/search/results/');
+    });
+
+    // Two rows in one page resolve independently — a supplied profile on one card
+    // must not suppress the fallback on the other.
+    it('resolves the link per row, not per page', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({
+            id: 'c1',
+            submitter_linkedin_url: 'https://www.linkedin.com/in/sam-submitter',
+          }),
+          makeClaim({
+            id: 'c2',
+            target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' },
+            submitter_linkedin_url: null,
+          }),
+        ]),
+      );
+      expect(linkedInHrefs(cardFor(el, 'Procore'))).toEqual([
+        'https://www.linkedin.com/in/sam-submitter',
+      ]);
+      expect(linkedInHrefs(cardFor(el, 'Bluebeam'))[0]).toContain('/search/results/people/');
+    });
   });
 
   it('refetches with the status filter', async () => {

@@ -164,6 +164,7 @@ vendor_requests
   submitter_email    text not null
   submitter_name     text
   submitter_role     text
+  submitter_linkedin_url text                      // AECI-847: claim-only identity signal, host-anchored to linkedin.com
   domain_match       enum: pending | match | no_match | manual_review
   body               text not null
   source_url         text                          // for corrections: where the discrepancy was observed

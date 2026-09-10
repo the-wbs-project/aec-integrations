@@ -65,6 +65,12 @@ export const AdminVendorRequestSchema = z.object({
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
+  /** AECI-847 identity signal, claims only. The claimant's own LinkedIn profile
+   *  URL, host-anchored to `linkedin.com` by `ClaimFormSchema` at submit. `null`
+   *  for every correction, and for any claim where the optional field was skipped
+   *  or that predates the column. `/admin/claims` renders it as the reviewer's
+   *  primary person link, falling back to the built name-search URL when null. */
+  submitter_linkedin_url: z.string().nullable(),
   domain_match: z.string(),
   body: z.string(),
   source_url: z.string().nullable(),

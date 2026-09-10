@@ -312,6 +312,8 @@ export interface LinearIssueInput {
   submitterEmail: string;
   submitterName?: string | null;
   submitterRole?: string | null;
+  /** AECI-847 identity signal (claims only): the claimant's own LinkedIn profile. */
+  submitterLinkedinUrl?: string | null;
   body: string;
   sourceUrl?: string | null;
   /** From 6.8 (§7.1); `'no_match'` adds the domain-check-pending label. */
@@ -572,6 +574,7 @@ function buildDescription(input: LinearIssueInput): string {
   ];
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
   if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
+  if (input.submitterLinkedinUrl) lines.push(`**LinkedIn:** ${input.submitterLinkedinUrl}`);
   lines.push('', input.body, '', '---', `Request: ${input.requestId}`);
   return lines.join('\n');
 }

@@ -199,6 +199,9 @@ interface RequestInsert {
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
+  /** AECI-847: claimant-supplied LinkedIn profile, an identity signal for the
+   *  reviewer. Claim-only — the correction handler always passes `null`. */
+  submitterLinkedinUrl: string | null;
   body: string;
   sourceUrl: string | null;
 }
@@ -303,6 +306,7 @@ async function createRequest(
       submitterEmail: insert.submitterEmail,
       submitterName: insert.submitterName,
       submitterRole: insert.submitterRole,
+      submitterLinkedinUrl: insert.submitterLinkedinUrl,
       body: insert.body,
       sourceUrl: insert.sourceUrl,
       // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
@@ -329,6 +333,7 @@ async function createRequest(
         submitterEmail: insert.submitterEmail,
         submitterName: insert.submitterName,
         submitterRole: insert.submitterRole,
+        submitterLinkedinUrl: insert.submitterLinkedinUrl,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
       }),
@@ -364,6 +369,7 @@ export function createCorrectionSubmitHandler(
       submitterEmail: payload.submitter_email,
       submitterName: null,
       submitterRole: null,
+      submitterLinkedinUrl: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
     });
@@ -387,6 +393,9 @@ export function createClaimSubmitHandler(
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,
       submitterRole: payload.submitter_role,
+      // Optional field: the form submits `''` when the claimant skipped it, and an
+      // empty string is not an absent signal to anything downstream. Store NULL.
+      submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
       body: payload.body,
       sourceUrl: null,
     });
