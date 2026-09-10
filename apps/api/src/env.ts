@@ -442,7 +442,10 @@ export type Env = {
    *      reversible, so that doctrine does not transfer — keep the two lists
    *      separate concepts and do not merge them.
    *   2. Show BOTH numbers, never substitute. Every count the panel returns
-   *      carries the unfiltered figure as its primary value.
+   *      carries the ASN-unfiltered figure as its primary value. That is a claim
+   *      about THIS filter only: the primary figure on `/admin/overview` is also
+   *      post-automation (AECI-745) and net of the operator-leak match
+   *      (AECI-683). AECI-752 narrowed the operator-facing copy accordingly.
    *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
    *
    * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`

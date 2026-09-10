@@ -290,6 +290,36 @@ describe('GET /api/admin/traffic/breakdown — validation and conventions', () =
     expect((await call('dimension=country&from=2026-02-30&to=2026-03-01')).status).toBe(400);
   });
 
+  // AECI-752. `admin-traffic.ts` passes the CALLER's `exclude_internal` through,
+  // which makes this the one surface that can emit `internal_filter_unavailable`
+  // while the var IS configured. That state was untested everywhere, and it is
+  // exactly why `AdminNoteList`'s copy for this code is worded differently from
+  // `AdminNotes`': "not configured" would be false here.
+  it('reports the ASN filter as not applied when the var is set but not requested', async () => {
+    await seed();
+    const body = await breakdown(`dimension=country&${RANGE}`, {
+      ...TEST_ENV,
+      ANALYTICS_INTERNAL_ASNS: '23700',
+    });
+    expect(body.internal_filter).toEqual({ available: true, applied: false, asns: [23700] });
+
+    const flag = body.notes.find((n) => n.code === 'internal_filter_unavailable');
+    expect(flag).toBeDefined();
+    // The operator can turn this one on, so the message has to say so rather
+    // than claiming the filter does not exist.
+    expect(flag?.message).toContain('was not requested');
+    expect(flag?.message).not.toMatch(/every figure/i);
+  });
+
+  it('notes the ASN filter on a plain breakdown, with no var set', async () => {
+    await seed();
+    const body = await breakdown(`dimension=country&${RANGE}`);
+    expect(body.internal_filter).toEqual({ available: false, applied: false, asns: [] });
+    const flag = body.notes.find((n) => n.code === 'internal_filter_unavailable');
+    expect(flag?.message).toContain('ANALYTICS_INTERNAL_ASNS');
+    expect(flag?.message).not.toMatch(/every figure/i);
+  });
+
   it('reports both figures when the internal filter is applied', async () => {
     await seed();
     const body = await breakdown(`dimension=country&${RANGE}&exclude_internal=1`, {

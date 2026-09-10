@@ -36,11 +36,18 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  * future ingest gap re-opens the same hole.
  *
  * **2. Both numbers, never one (§13 D10 constraint 2).** Every traffic count is
- * an {@link AdminCount} whose `total` is ALWAYS the unfiltered figure; the
- * `ANALYTICS_INTERNAL_ASNS` read-time filter only ever *adds*
- * `excluding_internal` alongside it. A filtered figure can never masquerade as
- * *the* figure. `excluding_internal` is `null` when the var is unset (the
- * shipped default) — that null is also the UI's signal to hide the toggle.
+ * an {@link AdminCount} whose `total` is ALWAYS the **ASN-unfiltered** figure;
+ * the `ANALYTICS_INTERNAL_ASNS` read-time filter only ever *adds*
+ * `excluding_internal` alongside it. A figure excluding those networks can never
+ * masquerade as *the* figure. `excluding_internal` is `null` when the var is
+ * unset (the shipped default) — that null is also the UI's signal to hide the
+ * toggle.
+ *
+ * **"Unfiltered" here means "not ASN-filtered", and nothing more** (AECI-752).
+ * It is not a claim that no filter ran: `page_views_human` is an
+ * {@link AdminCount} whose `total` has been the POST-AUTOMATION figure since
+ * AECI-745. Reading this rule as an unqualified one is how `/admin/overview`
+ * came to print "every figure here is unfiltered" above a number filtered twice.
  *
  * ─── Storage-agnostic by design ──────────────────────────────────────────────
  *
@@ -90,8 +97,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
  * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
  * | `catalog_claims_recreated_by_promote` | `basis=net` on `catalog.claims_created`: promote REPLACES an integration's claims on every push (delete + re-insert with fresh ids), so `claims.created_at` is the last promote of its integration, not when the claim first appeared. The column is a valid count of live rows and a poor arrival history (AECI-604 is the fix) |
- * | `internal_filter_unavailable` | `ANALYTICS_INTERNAL_ASNS` is unset, so `excluding_internal` is null everywhere (the shipped default) |
- * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns` |
+ * | `internal_filter_unavailable` | no ASN exclusion was applied, in any of **three** states: `ANALYTICS_INTERNAL_ASNS` is unset (the shipped default); the var is set but the request did not ask (`lib/admin-analytics.ts`); or the metric has no ASN to filter on, in which case `params.metric` names it (`routes/admin-metrics.ts`). Scoped to the ASN axis only — it is **not** a statement that the figures are otherwise unfiltered (AECI-752). A UI string for this code reports only that no ASN exclusion applied, never which of the three states caused it, because no screen can tell them apart from the code alone |
+ * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns`. The ASN-inclusive number stays primary (§13 D10 constraint 2), which is a claim about this axis and not about the headline |
  * | `requires_recompute` | an expensive status item was omitted from the default `/overview` or `/system`; re-request with `?recompute=1` |
  * | `algolia_credentials_absent` | `?recompute=1` ran but `ALGOLIA_APP_ID`/`ALGOLIA_ADMIN_KEY` are unset, so drift could not be measured |
  * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
@@ -185,12 +192,19 @@ export const AdminInternalFilterSchema = z.object({
 export type AdminInternalFilter = z.infer<typeof AdminInternalFilterSchema>;
 
 /**
- * A count that always reports the unfiltered figure first (§13 D10 constraint
- * 2). `excluding_internal` is null when the filter is unavailable or does not
- * apply to this metric (catalog/account series have no ASN to filter on).
+ * A count that always reports the ASN-unfiltered figure first (§13 D10
+ * constraint 2). `excluding_internal` is null when the filter is unavailable or
+ * does not apply to this metric (catalog/account series have no ASN to filter
+ * on).
+ *
+ * The pair is about `ANALYTICS_INTERNAL_ASNS` ONLY. Other exclusions — the
+ * AECI-745 automation filter, the AECI-683 operator-leak match — apply to
+ * `total` itself where the field's own docs say so, and are reported through
+ * their own notes and fields rather than through `excluding_internal`.
  */
 export const AdminCountSchema = z.object({
-  /** ALWAYS the unfiltered figure. Never substitute the filtered one here. */
+  /** ALWAYS the ASN-unfiltered figure. Never substitute the ASN-excluded one
+   *  here. Says nothing about any other filter — see the schema doc above. */
   total: z.number().int().nonnegative(),
   excluding_internal: z.number().int().nonnegative().nullable(),
 });

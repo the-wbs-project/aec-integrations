@@ -2576,24 +2576,39 @@ export const AdminNoteCodeSchema = z.enum([
   'referrer_source_is_unverified',     // Referer is client-supplied; a source is a CLAIM (AECI-624)
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
+  'corroborated_is_a_referrer_floor',  // a FLOOR: stripped headers land in Direct (AECI-683)
+  'operator_leak_is_an_inference',     // (hash, ASN) match, not a verified session (AECI-683)
+  // AECI-745 — the automation filter, in its two states. Two codes rather than
+  // one with a flag: "it ran" and "it failed" are read by different people.
+  'automation_filter_applied',         // the headline is raw human views LESS flagged clients
+  'automation_filter_did_not_run',     // detector failed; the headline is raw and is an upper bound
   'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
   'catalog_series_starts_at',          // basis=additions: window predates the audit log
   'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
   'catalog_claims_recreated_by_promote', // basis=net on claims: created_at is a last-promote date
-  'internal_filter_unavailable',
-  'internal_filter_applied',
+  'internal_filter_unavailable',       // no ASN exclusion ran — see the three states below
+  'internal_filter_applied',           // it ran; excluded ASNs in params.asns
   'requires_recompute',                // an expensive status item was omitted
   'algolia_credentials_absent',
   // AECI-579 / P1.5 — catalog coverage
   'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
   'trade_facet_sparse_by_design',      // untagged trades are not a backlog
   'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
+  'series_partly_reconstructed',       // pre-snapshot days, backfilled from the audit log (§4)
   // AECI-580 / P1.6 — system status
-  'cron_liveness_unavailable',         // N of 8 crons have no last-run record
-  'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere
+  'cron_liveness_unavailable',         // N of the scheduled jobs have no last-run record
+  'orphan_sweep_not_persisted',        // NO LONGER EMITTED (AECI-583); kept, removal is breaking
+  'stored_result_unreadable',          // a job_runs.detail payload would not parse (AECI-583)
   // AECI-586 / P5.1 — audience
   'utm_attribution_incomplete',        // N of M signups in the window carry no utm_source
   'audience_history_is_current_state', // a resubscribe erases the churn it is computed from
+  // AECI-722 — the connector admin surface. Structural rather than windowed:
+  // each names something the connector lane deliberately does not model, so
+  // unlike the codes above none of them retires on its own.
+  'connector_evidenced_pairs_empty',   // "not measured", not a measured zero
+  'reachable_never_counted',           // pair PAGES, never integrations
+  'publication_gate_inputs_only',      // §13.7's inputs, not its verdict
+  'stub_actions_never_fetched',        // actions IS NULL means never fetched, not none
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -2604,6 +2619,16 @@ export const AdminNoteSchema = z.object({
 });
 ```
 
+`internal_filter_unavailable` covers **three** states, not one: `ANALYTICS_INTERNAL_ASNS`
+is unset (the shipped default); the var is set but the request did not ask; or the
+metric carries no ASN, in which case `params.metric` names it. It is scoped to the ASN
+axis and is **not** a statement that the figures are otherwise unfiltered — AECI-752
+narrowed both the UI prose and the `message` after `/admin/overview` rendered "every
+figure here is unfiltered" above a headline the automation filter had already reduced.
+The UI prose reports only that no ASN exclusion applied and never which of the three
+states caused it; the `message` does name the state, since a `curl` reader is the one
+who can act on it.
+
 The bias flags are **derived by querying the window**, never keyed to a hardcoded
 date: `bot_classification_incomplete` fires because the window actually contains
 `is_bot IS NULL` rows. It duly retired itself when AECI-582 backfilled those rows
@@ -2613,13 +2638,18 @@ re-open the same hole, and callers should keep handling the code.
 
 ##### `ANALYTICS_INTERNAL_ASNS` — both numbers, never one (§13 D10)
 
-Every traffic count is an `AdminCount` whose `total` is **always the unfiltered
+Every traffic count is an `AdminCount` whose `total` is **always the ASN-unfiltered
 figure**. The read-time ASN filter only ever adds a second number beside it, so a
-filtered figure can never be reported as *the* figure.
+figure excluding those networks can never be reported as *the* figure.
+
+**"Unfiltered" here means "not ASN-filtered", and nothing wider** (AECI-752). It is not
+a claim that no filter ran: `page_views_human`'s `total` has been the post-automation
+figure since AECI-745, and is net of the AECI-683 operator-leak match. Those exclusions
+are reported through their own fields and notes, never through `excluding_internal`.
 
 ```typescript
 export const AdminCountSchema = z.object({
-  total: z.number().int().nonnegative(),                     // ALWAYS unfiltered
+  total: z.number().int().nonnegative(),                     // ALWAYS ASN-unfiltered
   excluding_internal: z.number().int().nonnegative().nullable(), // null when unavailable
 });
 
@@ -2925,7 +2955,10 @@ and a poor history of when they arrived.
 
 `exclude_internal` applies only to `traffic.*` — there is no ASN on a catalog or
 profile row — and a request that asks anyway gets `value_excluding_internal: null`
-plus an `internal_filter_unavailable` note naming the metric.
+plus an `internal_filter_unavailable` note carrying `params.metric`. That is the
+third of the code's three states (see the enum above); the note's `message` here is
+built in `routes/admin-metrics.ts` rather than by `internalFilterNote`, so it names
+the metric instead of the var.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
 reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.

@@ -655,7 +655,7 @@ behaviour.
 | Var | Tiers | Unset behaviour (today, everywhere) | Set behaviour |
 | --- | --- | --- | --- |
 | `PAGE_VIEWS_MIN_BOT_SCORE` | API Worker | Every page view is captured. Inert in practice anyway — CF **Pro** exposes no bot score, so `cf_bot_score` is null on every row. | Drops captured views below the integer floor (`STAGE_1_SPEC.md` §14.2 sampling policy, deferred until launch traffic is visible). |
-| `ANALYTICS_INTERNAL_ASNS` | API Worker | The admin panel's internal-traffic filter is **unavailable**: every figure is reported unfiltered, `excluding_internal` is null, and the UI hides the toggle. | The panel additionally reports each traffic figure with those ASNs excluded — **alongside** the unfiltered number, never instead of it. |
+| `ANALYTICS_INTERNAL_ASNS` | API Worker | The admin panel's internal-network (ASN) filter is **unavailable**: no figure excludes a company network, `excluding_internal` is null, and the UI hides the toggle. Scoped to this filter only — the overview headline is still net of the AECI-745 automation filter and the AECI-683 operator-leak match (AECI-752). | The panel additionally reports each traffic figure with those ASNs excluded — **alongside** the ASN-inclusive number, never instead of it. |
 
 `ANALYTICS_INTERNAL_ASNS` (AECI-574 / `ADMIN_PANEL_SPEC.md` §13 **D10**) is a
 comma/semicolon/whitespace-separated ASN list, `AS` prefix optional —
