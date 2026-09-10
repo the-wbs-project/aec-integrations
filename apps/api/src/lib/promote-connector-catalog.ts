@@ -27,8 +27,11 @@
  * ── WHAT THIS MODULE DELIBERATELY DOES NOT DO ───────────────────────────────
  * No count is recomputed, no index is touched, no cache tag is emitted. §13.5 is
  * categorical: *"Reachable never counts — not in the heading, not in
- * `integration_count`, not in a facet, not in the home stats."* Nothing renders this
- * data until AECI-715 / 716 / 722, and `connector_evidenced_pairs` — the delivered
+ * `integration_count`, not in a facet, not in the home stats."* The only surface that
+ * renders this data is the admin reader AECI-722 shipped (`/admin/connectors`), which is
+ * uncacheable; the public surfaces AECI-715 / 716 are still unbuilt and still own the
+ * cache-tag decision. Real rows have been here since the AECI-764 production sync of
+ * 2026-09-10, so a change to this planner now moves live data. `connector_evidenced_pairs` — the delivered
  * tier — is never written here at all: it is AECI-721's, and the review app has no
  * such table to project.
  */
