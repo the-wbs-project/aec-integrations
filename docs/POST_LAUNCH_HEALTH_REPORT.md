@@ -61,6 +61,66 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-09-09 — AECI-827: the long memory now corrects itself
+
+Scope: a **code change to the 00:15 cron**, no schema change, no new cron, no new binding. Closes the
+finding the AECI-688 entry below opened, and the one open note in `ADMIN_PANEL_SPEC.md` §13 **D15**.
+
+**The defect, restated in one line.** `NOT_INTERNAL`'s operator retro-join is a correlated `EXISTS`
+anchored on each page view's **own** timestamp with a symmetric ±30-day window, so whether a view
+counts as human depends on `is_operator = 1` rows that may not exist yet. The 00:15 job wrote only
+yesterday and never returned, so every completed day inside the trailing 30 was provisional and the
+drift did not converge. The evidence is the table in the entry below: **2026-08-31 stored 224 and
+recomputes 222, and that day postdates the AECI-683 fix.**
+
+**What shipped.** A second, correction-only pass inside the same job, running after the capture. It
+diffs the three raw `traffic.*` keys over the trailing ~33 days, writes only the days that moved, and
+recomputes `traffic.page_views_human_after_automation` alongside any day whose raw half moved.
+Steady-state cost is **seven extra reads and zero writes**. ADR 0026 carries the reasoning; the four
+things worth knowing operationally:
+
+- **A day is provably final at `day + 31`**, because anchors are only ever written at `now`. That is
+  what makes a bounded window complete rather than merely cheap. The one exception is the §7.3
+  operator-page-view backfill, which sets `is_operator` on *historical* rows — a run of it
+  un-finalises days by the amount it reaches, and its documented follow-up is already a re-run of
+  `ops:backfill-metrics-daily`.
+- **It refuses more than it writes.** No inserts (one row would clear the 03:00 prune to delete a
+  day's `page_views` while every unrecoverable stock key was missing), no day whose raw rows are gone,
+  no *increase* (the retro-join can only remove rows), and nothing at all above ten moved days. The
+  refusals are reported, not swallowed — `RUNBOOKS.md` has the triage table.
+- **A re-check failure turns the run red; a refusal does not.** A silently-broken correction pass is
+  the defect class this closes, so it cannot hide behind a green tick. The guard working is not a
+  fault.
+- **`computed_at` no longer means "roughly `day` + 15 minutes."** On a corrected row it is weeks
+  later. Nothing reads it at runtime; `job_runs.detail.recheck` and the new
+  `aeci.metrics_snapshot.recheck.*` counters are the forensic record.
+
+**The chart says so too.** `GET /api/admin/metrics/timeseries` now emits
+`series_within_operator_lookback` on any `traffic.*` window overlapping the last 30 days, naming how
+many of the returned days are still soft. D15(b) reports the pair match rather than applying it
+silently because it is an inference about identity; its non-finality is reported for the same reason.
+
+**Not closed, and stated rather than implied.** Tuning `SWARM_MIN_VIEWS`, `SWARM_MIN_ASN_RATIO` or the
+`ASN_ROTATOR_*` thresholds moves `flagged(X)` for **every** stored day with no change to any raw count,
+so the re-check's trigger set is empty and the stored
+`traffic.page_views_human_after_automation` series silently mixes two definitions. That key has no
+backfill. Recorded as an obligation beside those constants in `POST_LAUNCH_MONITORING.md` §3: before
+changing one, decide what the stored series means afterwards and date it here.
+
+**Two adjacent gaps closed while in the file.** `scheduled.spec.ts`' `ALL_CRONS` table listed **12 of
+the 14** crons — `metrics-snapshot` and `attestation-notify` were both absent, so the 00:15 job had no
+dispatch test and no ADR-0022 no-audit-row assertion, and this change would have shipped into an
+untested dispatch path. Both added. And `OBSERVABILITY.md` still said the cron writes **19** keys in
+two places (the metric-tag row and the cardinality table); it writes 20, and the AECI-688 sweep below
+missed those two. Fixed.
+
+**Verification:** 2,824 API unit tests green, including 19 new ones for the pass and its guards, plus
+a boundary test in `page-view-predicates.spec.ts` pinning the ±30-day reach the window is derived from
+— which nothing pinned before. Not yet observed against production traffic; the first real evidence
+will be a `recheck.correction` count after the next promote.
+
+**Regressions / tickets filed:** none.
+
 ## 2026-09-09 — AECI-688: re-backfilling the long memory, and what it says about the long memory
 
 Scope: an **ops run plus a doc sweep**, not a health sweep. No new instrumentation, no schema change.
@@ -92,7 +152,7 @@ production, plus 2026-09-03.
 anchored on each row's own timestamp with a ±30-day window, so whether a view counts as human depends on
 operator rows that may not exist yet. The 00:15 cron writes only the prior day and never returns. Every
 completed day inside the trailing 30 days is therefore provisional, the drift does not converge on its own,
-and nothing detects it. Filed as **AECI-827**; the options are in the issue.
+and nothing detects it. Filed as **AECI-827** — and closed the same day by the trailing re-check (ADR 0026); see the entry above.
 
 **Two stale facts found and corrected while doing it.** `ADMIN_PANEL_SPEC.md` §7.3 marked the operator
 page-view backfill **PENDING** on every tier; production and demo had in fact already been applied, and only

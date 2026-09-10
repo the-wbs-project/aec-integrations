@@ -84,6 +84,7 @@ import {
   metricSupportsInternalFilter,
   note,
   resolveInternalFilter,
+  shiftDay,
   snapshotSeries,
   toAdminInternalFilter,
   toAdminWindow,
@@ -92,6 +93,7 @@ import {
   type SnapshotPoint,
 } from '../lib/admin-analytics';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { OPERATOR_PAIR_LOOKBACK_DAYS } from '../lib/page-view-predicates';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
 // but this handler reads no auth context — so it is typed on Bindings alone,
@@ -226,6 +228,26 @@ export function createAdminTimeseriesHandler(
       notes.push(
         ...(await trafficNotes(db, w, { unique: query.metric === 'traffic.unique_visitors' })),
       );
+      // AECI-827 / ADR 0026. A stored day inside the retro-join's reach is not
+      // final: an `is_operator = 1` anchor written tomorrow retro-excludes views
+      // up to 30 days behind it. The 00:15 re-check converges those days, so this
+      // is a caveat about the hours BEFORE it next runs — and about the one case
+      // no pass can reach, a manual `is_operator` backfill over historical rows.
+      //
+      // Emitted for the same reason D15(b) reports `operator_leak_excluded` at
+      // all: the pair match is an inference, and a figure that quietly moves is
+      // the failure the whole measurement envelope exists to prevent.
+      const softFrom = shiftDay(now.toISOString().slice(0, 10), -OPERATOR_PAIR_LOOKBACK_DAYS);
+      if (w.toDay >= softFrom) {
+        const soft = days.filter((day) => day >= softFrom).length;
+        notes.push(
+          note(
+            'series_within_operator_lookback',
+            `${soft} of the ${days.length} day(s) shown are within ${OPERATOR_PAIR_LOOKBACK_DAYS} days of today and are not final. A view counts as the operator's if it shares a browser/network pair with a verified operator session within that window, and such a session may not have happened yet, so these figures can still fall. The 00:15 snapshot job re-checks and corrects them.`,
+            { days: soft, requested: days.length, lookback_days: OPERATOR_PAIR_LOOKBACK_DAYS },
+          ),
+        );
+      }
     }
     if (query.metric.startsWith('catalog.') && !net) {
       notes.push(

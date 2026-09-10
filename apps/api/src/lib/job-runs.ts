@@ -40,7 +40,7 @@ import type { IndexEntityResult } from './algolia-sync';
 import type { DataQualityCheckResult } from './data-quality';
 import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
-import type { MetricsSnapshotResult } from './metrics-snapshot';
+import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ReconcileResult } from './reconciliation-sweep';
 
 // ---------------------------------------------------------------------------
@@ -271,6 +271,9 @@ export type JobRunDetail =
       written: number;
       failed: number;
       metrics: MetricsSnapshotResult['metrics'];
+      /** The AECI-827 trailing re-check (ADR 0026), bounded — see
+       *  `RECHECK_DETAIL_MAX_ENTRIES`. Absent when the pass did not run at all. */
+      recheck?: MetricsRecheckSummary;
     }
   | { job: 'moderation-snapshot'; pendingCount: number; oldestPendingAgeHours: number }
   | ({ job: 'request-reconcile' } & ReconcileResult)

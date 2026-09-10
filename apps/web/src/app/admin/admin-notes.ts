@@ -120,6 +120,13 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   operator_leak_is_an_inference: () =>
     $localize`:@@admin.notes.operatorLeakIsAnInference:Views excluded as operator self-traffic on a lapsed session are matched by browser-and-network pair against a verified operator session nearby in time. That is an inference about who the visitor was, not a verified session.`,
 
+  // AECI-827. The same inference's other property: it is not final. Interpolates
+  // the two day counts rather than naming a fixed window, because the lookback is
+  // a documented launch tunable and a hardcoded "30" here would rot the first time
+  // it moved.
+  series_within_operator_lookback: (params) =>
+    $localize`:@@admin.notes.seriesWithinOperatorLookback:${num(params, 'days')}:days: of the ${num(params, 'requested')}:requested: day(s) shown are not final. A view counts as operator self-traffic if it shares a browser-and-network pair with a verified operator session within ${num(params, 'lookback_days')}:lookbackDays: days, and such a session may not have happened yet. These figures can still fall. The daily snapshot re-checks and corrects them.`,
+
   // AECI-745. The API's `message` carries `SWARM_THRESHOLD_NOTE` verbatim, which
   // is English and interpolates the detector's own numeric thresholds — so it is
   // a FALLBACK, not the rendered string. Localizing the exact figures would mean

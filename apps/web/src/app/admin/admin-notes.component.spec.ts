@@ -26,6 +26,11 @@ const ALL_CODES: ReadonlyArray<{ code: AdminNoteCode; params?: AdminNote['params
   { code: 'referrer_source_incomplete', params: { rows: 7 } },
   { code: 'direct_is_mixed_bucket' },
   { code: 'visitor_definition_approximate' },
+  // AECI-827 — the trailing window is not final (ADR 0026).
+  {
+    code: 'series_within_operator_lookback',
+    params: { days: 10, requested: 30, lookback_days: 30 },
+  },
   { code: 'catalog_series_is_additions_only', params: { metric: 'catalog.products_created' } },
   { code: 'catalog_series_starts_at', params: { earliest_day: '2026-05-01' } },
   { code: 'internal_filter_unavailable' },

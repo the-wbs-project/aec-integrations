@@ -336,6 +336,14 @@ numbers), and again at launch.
 > not corrected in that run — its D1 sat at migration `0015` and had no `is_operator` column. **AECI-828
 > closed that later the same day**: preview was brought to head and backfilled (51 `is_operator` rows,
 > 624 `metrics_daily` rows), and `deploy.yml`'s `migrate-preview` job now keeps the tier current.
+>
+> **And a stored day is no longer left to go stale (AECI-827 / ADR 0026, 2026-09-09).** The retro-join
+> is anchored on each row's own timestamp, so a day inside the trailing 30 can lose views to an
+> operator session that had not happened when it was snapshotted — 2026-08-31 did, *after* the fix.
+> The 00:15 job now re-checks the trailing ~33 days and corrects what moved, always downward. Two
+> consequences for anyone quoting a number out of this file: a `traffic.*` figure for a day inside
+> that window can legitimately be **lower** on a later read, and the timeseries endpoint now says so
+> per response (`series_within_operator_lookback`). Figures older than ~33 days are settled.
 
 ### Decomposing the residual — what survives the automation filter (2026-08-31, AECI-741)
 

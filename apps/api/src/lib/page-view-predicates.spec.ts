@@ -91,6 +91,33 @@ describe('OPERATOR_PAIR_MATCH — the two properties that must not be refactored
     ]);
     expect(await countWhere(and(window, HUMAN, NOT_INTERNAL))).toBe(0);
   });
+
+  it('reaches exactly OPERATOR_PAIR_LOOKBACK_DAYS back and stops one millisecond later', async () => {
+    // AECI-827's re-check window is derived from this reach, and until now
+    // nothing pinned it: the digest asserts the day-level boundary, not the
+    // instant. If this ever loosens, `recheckWindow` silently stops covering the
+    // oldest day an anchor can still move, and that day goes stale forever.
+    const anchorAt = '2026-07-23T10:00:00.000Z';
+    const shift = (ms: number) =>
+      new Date(Date.parse(anchorAt) - OPERATOR_PAIR_LOOKBACK_DAYS * 86_400_000 + ms).toISOString();
+    await t.db.insert(pageViews).values([
+      { path: '/', createdAt: anchorAt, isOperator: true, userAgentHash: 'op', cfAsn: 23700 },
+      { path: '/products/inside', createdAt: shift(1), userAgentHash: 'op', cfAsn: 23700 },
+      { path: '/products/outside', createdAt: shift(-1), userAgentHash: 'op', cfAsn: 23700 },
+    ]);
+
+    const at = (iso: string) =>
+      countWhere(
+        and(
+          gte(pageViews.createdAt, iso),
+          lt(pageViews.createdAt, new Date(Date.parse(iso) + 1).toISOString()),
+          HUMAN,
+          NOT_INTERNAL,
+        ),
+      );
+    expect(await at(shift(1))).toBe(0);
+    expect(await at(shift(-1))).toBe(1);
+  });
 });
 
 describe('HUMAN / BOT', () => {

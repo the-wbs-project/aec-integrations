@@ -963,7 +963,29 @@ prune skipping because of the gap.
 
 **What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
 `apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
-19 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+20 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+
+**Since AECI-827 the same job has a SECOND pass** (ADR 0026): after the capture it re-checks the
+trailing ~33 days and rewrites the `traffic.*` days the operator retro-join moved. It emits its own
+`aeci.metrics_snapshot.recheck.*` family, and its result lands in the same `job_runs` row under
+`detail.recheck`. **Triage the two halves separately** — `detail.metrics` is the capture,
+`detail.recheck` is the correction — and note the asymmetry that decides who to wake: a re-check
+**failure** turns the run red, but a re-check **refusal** (`detail.recheck.status = 'skipped'`) is the
+guard working and leaves the run green. The refusals and what to do about them:
+
+| `detail.recheck` says | What it means | What to do |
+|---|---|---|
+| `status: 'ok'`, `corrected: 0` | Nothing moved. The healthy steady state, most nights | Nothing |
+| `status: 'ok'`, `corrected: 1-3` | Retro-join drift converging — an operator session lapsed and its anchor has now landed | Nothing. This is the job doing its work |
+| `status: 'skipped'` with a `reason` naming the day ceiling | More than ten days moved at once. That is a definition change, an `is_bot` backfill, or data loss — not drift — and the pass wrote **nothing**. `corrected` and `corrections` here are a *preview* of what would have moved, not a record of writes, which is why no `recheck.correction` count is emitted for them | Run `ops:backfill-metrics-daily` **dry** over the same range and read `buildValueDiffProbes`' per-day report before deciding. Do not raise the ceiling to make it pass |
+| `refusals` with `reason: 'increase'` | A recomputed value came out **higher** than stored. The retro-join can only remove rows, so this cannot be convergence | Look for a recent predicate change or an `is_bot` backfill. The audited backfill is the vehicle for either |
+| `refusals` with `reason: 'raw_rows_absent'` | A stored day's `page_views` rows are gone, so the recompute would have written 0 over the only surviving record. Refused | Check `PAGE_VIEWS_RETENTION_DAYS` overrides and recent ops scripts. `metrics_daily` still holds the truth for that day — **do not** "fix" it by widening the window |
+| `uncovered` non-zero | Days in the window with no stored `traffic.page_views_human` row. The pass never inserts (see below), so it cannot see whether those days moved | Fill coverage with `ops:backfill-metrics-daily`. This is the same gap that aborts the 03:00 prune |
+
+**Why it refuses to insert a missing day**, because it looks like an easy improvement and is not:
+§7.4's `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row
+would tell the 03:00 prune that day is captured while every stock key — unrecoverable retroactively —
+is still missing, and the prune would then delete that day's `page_views` permanently.
 
 Three properties shape every response here:
 
@@ -1033,7 +1055,16 @@ by hand, or leave it; the script will keep reporting it on every dry run until y
 **Always pass `--to <yesterday>`.** With `--to` omitted the upper bound defaults to `max(day)` across
 `page_views` / `audit_log` / `products` / `profiles`, which is **today** on any tier with traffic today.
 That writes a partial UTC day into the long memory. The 00:15 cron would normally correct it the next
-morning, but it is queue-less and a missed run is never retried.
+morning — that capture is an unconditional `measured` upsert, so it overwrites the partial value — but
+the cron is queue-less and a missed run is never retried.
+
+**AECI-827's re-check does not close this hole, and cannot.** Its window ends at `today - 2`, so it
+never sees the partial day on the morning the capture would have fixed it; and once it does reach the
+day, the full recompute is **higher** than the partial value, which is exactly the shape the increase
+guard refuses (ADR 0026 — the retro-join can only remove rows, so an increase is never convergence).
+The run reports it as `refusals[].reason = 'increase'` and leaves the partial value in place. So a
+partial day is repaired only by re-running the capture for that day or the backfill with a correct
+`--to`. Pass `--to` and mean it.
 
 ## Retention prune skipped, failed, or not running
 
