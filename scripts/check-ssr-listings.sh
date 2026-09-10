@@ -54,12 +54,24 @@
 #   The environments that can answer the question are preview, staging, and prod.
 #
 # WHY IT SENDS A BROWSER USER AGENT
-#   The WAF scraper rule (docs/waf-rate-limits.md §2) Managed-Challenges tool UAs —
-#   including `curl` — on exactly the paths this script checks. Under curl's default
-#   UA every deployed run is challenged and measures the WAF instead of the question.
-#   Since AECI-753 that at least fails loudly (`FAIL (HTTP 403 …)`, exit 1) rather
-#   than passing silently, but a loud wrong answer is still a wrong answer. The UA
-#   below is what makes the probe measure crawler visibility.
+#   The WAF scraper rule (docs/waf-rate-limits.md §2) serves a Managed Challenge to
+#   tool user agents, `curl` among them. Its path list is `/products*` and `/vendors*`
+#   — so it catches the FIRST TWO pages below and none of the three taxonomy hubs.
+#
+#   That partial overlap is what made the AECI-753 bug so convincing. A UA-less run
+#   did not fail outright; it returned three confident PASS rows with real link counts
+#   beside two quiet skips, and called the whole thing PASS. Confirmed live against
+#   demo on 2026-09-10 — under `curl/8.7.1` exactly `/products` and `/products?sort=name`
+#   answer 403 while the three hubs answer 200 with 24 links each.
+#
+#   Since AECI-753 those two rows read `FAIL (HTTP 403 …)` and the run exits 1, so the
+#   gate is at least honest about what it could not see. But it is still measuring the
+#   WAF rather than crawler visibility. The UA below is what measures the question.
+#
+#   This applies to production too. AECI-753's write-up said prod carried no WAF rules,
+#   which was true when it was filed and stopped being true when AECI-659 extended the
+#   host set on 2026-09-03. Verified 2026-09-10: `curl` with its default UA gets 403 on
+#   `https://www.aecintegrations.com/products`. Nothing is incidentally protected now.
 
 set -uo pipefail
 

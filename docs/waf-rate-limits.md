@@ -365,12 +365,27 @@ Why it is shaped this way:
 
   Two failures stacked here, and only the second one is fixed by the UA. Until
   **AECI-753** the challenge was also *silent*: `curl -f` threw the 403 away, the script
-  called the empty body a SKIP, and a run with every page challenged printed
-  **"RESULT: PASS, with 2 page(s) skipped"** and exited **0** — a false negative on the
-  exact regression the script exists to catch. AECI-753 deleted that SKIP branch. A
-  challenged page is now `FAIL (HTTP 403 …)` and exit 1. So a probe that loses its UA
-  no longer goes quiet, but it still measures this rule instead of crawler visibility.
-  Keep the UA.
+  called the empty body a SKIP, and the run printed **"RESULT: PASS, with 2 page(s)
+  skipped"** and exited **0** — a false negative on the exact regression the script
+  exists to catch. AECI-753 deleted that SKIP branch. A challenged page is now
+  `FAIL (HTTP 403 …)` and exit 1. So a probe that loses its UA no longer goes quiet,
+  but it still measures this rule instead of crawler visibility. Keep the UA.
+
+  **The partial path overlap is what made it convincing, and it is worth understanding
+  before you write the next probe.** This rule's path list is `/products*` + `/vendors*`;
+  the script's other three pages are taxonomy hubs (`/categories/…`, `/audiences/…`,
+  `/phases/…`) and match nothing here. So a UA-less run never looked broken. It returned
+  three confident PASS rows carrying real link counts, next to two quiet skips. A probe
+  that fails *entirely* gets investigated; one that fails *partially* gets believed.
+  Re-verified live against `demo` on 2026-09-10 under `curl/8.7.1` — exactly `/products`
+  and `/products?sort=name` answered 403, the three hubs answered 200 with 24 links each.
+
+  **This now applies to production.** AECI-753 was filed on 2026-09-01 and reasoned that
+  its prod runs had been trustworthy because prod carried no WAF rules — explicitly
+  flagged there as incidental rather than a guarantee. The AECI-659 host-set extension
+  landed 2026-09-03 and ended it. Verified 2026-09-10: `curl` with its default UA gets
+  **403** on `https://www.aecintegrations.com/products`. Any probe of a matched path is
+  now challenged on every host in the set, prod included.
 
 ---
 
