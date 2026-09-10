@@ -631,12 +631,14 @@ grouping, counting or render-condition rules.
    discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
    holds. A drawn `arrow-up-right` glyph carries the same cue for sighted readers, who get no domain
    change to hint at it.
-4. **The section gains a name filter.** It matches partner names, and a hub whose *own* name
-   matches keeps every partner under it — typing the hub name is a request for that card, not for a
-   partner that happens to share the name. The query is **component state and never a route query
-   param**: `/products/:slug` is a cacheable SSR route keyed on path + query, so a `?q=` would mint
-   an edge-cache entry per keystroke for HTML that does not vary with it. An active filter opens
-   every surviving card, whatever the reader had closed; clearing it restores their collapsed set.
+4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
+   *Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted.*
+   It matches partner names, and a hub whose *own* name matches keeps every partner under it —
+   typing the hub name is a request for that card, not for a partner that happens to share the
+   name. The query is **component state and never a route query param**: `/products/:slug` is a
+   cacheable SSR route keyed on path + query, so a `?q=` would mint an edge-cache entry per
+   keystroke for HTML that does not vary with it. An active filter opens every surviving card,
+   whatever the reader had closed; clearing it restores their collapsed set.
 5. **The counting rule is unchanged and that is the point.** The `<h2>`'s `N` still counts the
    distinct pairs the UNFILTERED section renders, because the heading is a fact about the product
    and a filter is a reader's temporary view of it. The filter's own `role="status"` line reports
@@ -649,9 +651,11 @@ threshold, and this section became a component.** Presentation and composition o
 counting and render-condition rules above are all still in force.
 
 1. **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
-   a band beneath it. Below `sm` it drops to a full-width second line. The `role="status"` result
-   line sits immediately left of the input and is `whitespace-nowrap`, so the row never wraps
-   internally.
+   a band beneath it. Below `sm` it drops to a full-width second line. It stays right-aligned when a
+   long `<h2>` wraps it onto a second line at `sm` and above, via `sm:ms-auto` on its host — the
+   row's `justify-between` would otherwise place a lone wrapped item at flex-start. The
+   `role="status"` result line sits immediately left of the input and is `whitespace-nowrap`, so the
+   row never wraps internally.
 2. **`INTEGRATION_FILTER_MIN_ROWS` is deleted. Any section that renders rows renders a filter.**
    The ten-row gate in item 4 above was reverted on reader feedback: this section and §13.3's
    `#integrations` sit next to each other on a connector page, and the same control appearing over
@@ -997,7 +1001,8 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
 - **A page with NO connector edges is deliberately untouched**: one unheaded table, no card, no
   toggle. This subsection already rejected a "Direct integrations" heading over the only table as
   chrome over a fact the `<h2>` states, and a collapsible card would be that same chrome with a
-  button on it. It still gets the filter, which is the whole point of a single 40-row lane.
+  button on it. It **does** get the filter when it is long, which is exactly the list a filter is
+  for. *Superseded by the AECI-848 amendment below: it gets the filter whatever its length.*
 - **The filter turns the `@defer` cut off.** With a query active the cut limit becomes the filtered
   row count. A filtered list is short by construction, and a collapsed card's deferred block would
   otherwise never reach the viewport that triggers it, so a match hiding past row 20 would render

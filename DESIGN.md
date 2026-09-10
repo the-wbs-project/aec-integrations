@@ -330,16 +330,21 @@ group's rows.
 
 ### List filter
 
-`apps/web/src/app/products/integration-list-filter.ts` (AECI-841). The name filter over a section
-of groups.
+`apps/web/src/app/products/integration-list-filter.ts` (AECI-841; moved into the heading row and
+freed of its row threshold by AECI-848). The name filter over a section of groups.
 
 - **Placement:** in the section's heading row, right-aligned opposite the `<h2>`. The caller
   supplies that row (`flex flex-wrap items-center justify-between`); the filter's own host is the
   right-hand flex item. Below `sm` it goes full width and drops onto a second line under the
-  heading.
+  heading. The host also carries `sm:ms-auto`, which holds the right edge when a long `<h2>` pushes
+  it onto a second line at `sm` and above: `justify-between` puts a lone item on a wrapped line at
+  flex-start, so without the auto inline-start margin a wrapped filter would render at the start
+  edge.
 - **Shape:** a `type="search"` input (the browser supplies the clear control), `rounded.sm`, 0.5px
   `border-default`, `surface-base` fill, `text-sm`, `py-1.5` so it sits inside the heading's own
-  line box rather than growing the row, `w-56` from `sm` up.
+  line box rather than growing the row, `w-96` from `sm` up. That width is set by the placeholder
+  ("Filter by product name") reading in full rather than by the row's spare space, so the control
+  looks like somewhere to type.
 - **Label:** visually hidden. The section `<h2>` carries the visible name; a second visible label
   would be chrome.
 - **Result count:** a `role="status"` paragraph immediately left of the input, present from first

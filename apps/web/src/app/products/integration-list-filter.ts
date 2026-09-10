@@ -38,12 +38,20 @@ import { Component, computed, input, model } from '@angular/core';
   // against. `w-full` below `sm` makes it a full-width second line under the
   // heading; from `sm` up it shrinks to its content and the caller's
   // `justify-between` pushes it to the right edge.
-  host: { class: 'flex w-full items-center justify-end gap-3 sm:w-auto' },
+  //
+  // `sm:ms-auto` is what keeps it there when the row WRAPS at `sm` and above —
+  // a long `<h2>` ("Integrations it powers (10)") plus the status text plus the
+  // `w-96` input needs ~800px, and the single-column detail layout gives ~592px
+  // at a 640px viewport. `justify-between` places a lone item on a wrapped line
+  // at flex-start, so without the auto margin the filter would land on the LEFT
+  // of its own line. An auto margin absorbs the free space before
+  // `justify-content` does, so the fits-on-one-line case is unchanged.
+  host: { class: 'flex w-full items-center justify-end gap-3 sm:ms-auto sm:w-auto' },
   template: `
     <p role="status" class="shrink-0 text-xs whitespace-nowrap text-(--text-secondary)">
       {{ status() }}
     </p>
-    <div class="min-w-0 flex-1 sm:w-56 sm:flex-none">
+    <div class="min-w-0 flex-1 sm:w-96 sm:flex-none">
       <label [for]="inputId()" class="sr-only">{{ label() }}</label>
       <input
         [id]="inputId()"
