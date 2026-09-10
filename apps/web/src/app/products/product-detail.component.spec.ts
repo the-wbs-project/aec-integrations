@@ -5,10 +5,12 @@
  * vitest runner) rather than the node-only Vitest pass that excludes Angular DI
  * (see `apps/web/vitest.config.ts`).
  *
- * Scope: the hero rating/review meta line near the product name. It now renders
- * for every product — the published aggregate (`rating_overall_avg !== null`,
- * gated server-side at ≥5 reviews) when rated, and a "Not Yet Rated" label + live
- * review count below that threshold — plus the hero write-a-review CTA. The leaf
+ * Scope: the hero rating/review meta line near the product name. It renders for
+ * every product — the published aggregate (`rating_overall_avg !== null`, gated
+ * server-side at ≥5 reviews) when rated, a "Not yet rated" chip + live review
+ * count at 1–4 reviews, and the count ALONE at zero (the chip and the count said
+ * the same thing twice, so the one that explains the absence survives) — plus the
+ * hero write-a-review CTA. The leaf
  * services the page's children pull in (Analytics,
  * AuthService, AccountApi) are stubbed to neutral no-ops — their own specs cover
  * them; here we only assert the hero render branch. The product is delivered via
@@ -118,7 +120,7 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.textContent).toContain('4.2');
     expect(hero!.textContent).toContain('7 reviews');
     // A rated product shows the score, not the below-threshold label.
-    expect(hero!.textContent).not.toContain('Not Yet Rated');
+    expect(hero!.textContent).not.toContain('Not yet rated');
 
     // The count is a path-preserving jump link to the Reviews section.
     const jump = hero!.querySelector<HTMLAnchorElement>('a[href$="#reviews"]');
@@ -129,7 +131,7 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.querySelector('aec-review-cta')).toBeTruthy();
   });
 
-  it('shows "Not Yet Rated" + a linked count below the rating threshold', () => {
+  it('shows "Not yet rated" + a linked count below the rating threshold', () => {
     // 1–4 reviews: the API nulls the average, but the reviews exist — so the
     // hero shows the label + a jump-link count, with no stars and no fabricated
     // score (a single-review average is statistically misleading, §5.5).
@@ -138,7 +140,7 @@ describe('ProductDetailPage hero rating', () => {
     const hero = el.querySelector('[slot="hero"]');
     expect(hero).toBeTruthy();
     expect(hero!.querySelector('aec-review-stars')).toBeNull();
-    expect(hero!.textContent).toContain('Not Yet Rated');
+    expect(hero!.textContent).toContain('Not yet rated');
     expect(hero!.textContent).toContain('3 reviews');
 
     const jump = hero!.querySelector<HTMLAnchorElement>('a[href$="#reviews"]');
@@ -148,14 +150,17 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.querySelector('aec-review-cta')).toBeTruthy();
   });
 
-  it('shows "No reviews yet" with no jump link at zero reviews', () => {
+  it('says "No reviews yet" ONCE at zero reviews, with no rating chip and no jump link', () => {
     const { el } = setup(buildProduct({ review_count: 0, rating_overall_avg: null }));
 
     const hero = el.querySelector('[slot="hero"]');
     expect(hero).toBeTruthy();
     expect(hero!.querySelector('aec-review-stars')).toBeNull();
-    expect(hero!.textContent).toContain('Not Yet Rated');
     expect(hero!.textContent).toContain('No reviews yet');
+    // "Not yet rated · No reviews yet" said the same thing twice in two visual
+    // registers. The count explains the absence, so it is the half that stays.
+    expect(hero!.textContent).not.toContain('Not yet rated');
+    expect(hero!.querySelector('[aria-hidden="true"]')?.textContent).not.toBe('·');
     // Nothing to jump to at zero reviews, so the count is plain text, not a link.
     expect(hero!.querySelector('a[href$="#reviews"]')).toBeNull();
     // The CTA still renders — the action row shows even without a website.
@@ -236,7 +241,12 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // name — assert on the link identity, which is unambiguous.
     expect(heading.textContent).toContain('Procore');
     expect(heading.textContent).not.toContain('Connects');
-    expect(heading.querySelector('a')!.getAttribute('href')).toBe('/products/procore');
+    // AECI-841: the heading is the disclosure button now, so the hub's own page
+    // link sits beside it in the same header bar rather than inside it. A link
+    // cannot nest in a button.
+    expect(heading.querySelector('a')).toBeNull();
+    expect(heading.querySelector('button')!.getAttribute('aria-expanded')).toBe('true');
+    expect(cards[0]!.querySelector('a[href="/products/procore"]')).toBeTruthy();
     // The card header carries the group size so the count can't drift right.
     expect(cards[0]!.textContent).toContain('2 connections');
 
@@ -268,7 +278,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const cards = section.querySelectorAll('aec-product-powered-hub section');
     expect(cards).toHaveLength(1);
     // No hub cards above it, so it is simply "Connections", not "Other".
-    expect(cards[0]!.querySelector('h3')!.textContent!.trim()).toBe('Connections');
+    const hublessHeading = cards[0]!.querySelector('h3')!.textContent!;
+    expect(hublessHeading).toContain('Connections');
+    expect(hublessHeading).not.toContain('Other');
+    expect(hublessHeading).toContain('1 connection');
 
     const row = cards[0]!.querySelector<HTMLAnchorElement>('ul a')!;
     expect(row.textContent).toContain('Acumatica');
@@ -294,9 +307,14 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Hub identity by link, not heading text (the aria-hidden fallback initial
     // is part of textContent). The trailing card is the hubless bucket, whose
     // heading is a label with no product link.
-    const hubHrefs = [...cards].map((c) => c.querySelector('h3 a')?.getAttribute('href') ?? null);
+    const hubHrefs = [...cards].map(
+      (c) =>
+        c
+          .querySelector('a[href^="/products/"]:not([href*="/integrations/"])')
+          ?.getAttribute('href') ?? null,
+    );
     expect(hubHrefs).toEqual(['/products/procore', null]);
-    expect(cards[1]!.querySelector('h3')!.textContent!.trim()).toBe('Other connections');
+    expect(cards[1]!.querySelector('h3')!.textContent).toContain('Other connections');
     // Viewpoint Vista appears once as a partner under Procore, and once inside
     // the hubless pair row — never as a competing hub heading.
     expect(hubHrefs).not.toContain('/products/viewpoint-vista');
@@ -600,10 +618,20 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     const heading = el.querySelector('#integrations-via-agave-erp-sync')!;
-    expect(heading.textContent).toContain('Via');
-    const linkEl = heading.querySelector('a')!;
+    expect(heading.textContent).toContain('Via Agave ERP Sync');
+    // AECI-841: the heading became the disclosure button, so the connector link
+    // moved to the same header bar beside it. The return path survives; only
+    // the element carrying the name changed.
+    expect(heading.querySelector('a')).toBeNull();
+    const linkEl = heading.parentElement!.querySelector('a')!;
     expect(linkEl.getAttribute('href')).toBe('/products/agave-erp-sync');
-    expect(linkEl.textContent!.trim()).toBe('Agave ERP Sync');
+    // Opens in a new tab: the connector is a lookup, not a destination, and the
+    // reader has not finished with the page they are on.
+    expect(linkEl.getAttribute('target')).toBe('_blank');
+    expect(linkEl.getAttribute('rel')).toBe('noopener');
+    expect(linkEl.getAttribute('aria-label')).toBe(
+      'View product: Agave ERP Sync (opens in a new tab)',
+    );
   });
 
   it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {
@@ -618,6 +646,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     const heading = el.querySelector('#integrations-via-')!;
     expect(heading.textContent).toContain('Via a connector');
     expect(heading.querySelector('a')).toBeNull();
+    // NEVER invent a name, and never link one either.
+    expect(heading.parentElement!.querySelector('a')).toBeNull();
   });
 
   it('keeps a Convention-A self-reference in the direct lane (§13.2(a))', () => {
@@ -647,8 +677,10 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (3)');
-    expect(el.querySelector('#integrations-direct')!.textContent).toContain('(2)');
-    expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain('(1)');
+    expect(el.querySelector('#integrations-direct')!.textContent).toContain('2 integrations');
+    expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain(
+      '1 integration',
+    );
   });
 
   it('counts COLLAPSED Via rows, so the heading matches what a reader can count', () => {

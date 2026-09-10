@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext } from '@aeci/shared';
@@ -9,6 +9,15 @@ import {
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+import {
+  filterPoweredHubView,
+  INTEGRATION_FILTER_MIN_ROWS,
+  isFilterActive,
+} from './integration-filter';
+import { IntegrationGroupCard } from './integration-group-card';
+import { IntegrationListFilter } from './integration-list-filter';
+
 import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
 
 /**
@@ -33,6 +42,14 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  * the same logo + direction + mechanism vocabulary as `ProductIntegrationRow`.
  * The two sections now read as siblings, which is what they are.
  *
+ * **Since AECI-841 the card is shared and collapsible.** The shape moved into
+ * `IntegrationGroupCard`, which the endpoint section now uses too, and each card
+ * header is a disclosure control. Cards open by default: collapsing is a reader
+ * action, so the SSR HTML, the crawler and a no-JS reader all still see every
+ * row. The hub name moved off the heading and onto a compact trailing link,
+ * because a link cannot nest inside the header button — see the component's own
+ * note, and ADR 0010 for why this is not the Angular Aria accordion.
+ *
  * Pairs that share no hub land in a trailing flat card — see
  * `groupPoweredIntegrations`, which also explains why the hub is chosen once
  * per product rather than per edge.
@@ -51,7 +68,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
  */
 @Component({
   selector: 'aec-product-powered-hub',
-  imports: [RouterLink, LogoOrInitial],
+  imports: [RouterLink, LogoOrInitial, IntegrationGroupCard, IntegrationListFilter],
   // A custom element defaults to `display: inline`, so the parent section's
   // `space-y-4` margin lands on an inline box and is silently dropped. Harmless
   // while this was the section's last child; once the catalog-scope note
@@ -59,42 +76,33 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
   host: { class: 'block' },
   template: `
     <div class="space-y-4">
-      @for (group of view().groups; track group.hub.slug) {
-        <section
-          [attr.aria-labelledby]="'powers-group-' + group.hub.slug"
-          class="overflow-hidden rounded-(--radius-lg) border border-(--border-default)"
-        >
-          <!-- Card header: the hub, as a noun phrase. The tinted fill + the
-               border below it carry the grouping, so the heading no longer has
-               to shout to separate one group from the next. -->
-          <div
-            class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1
-              border-b border-(--border-default) bg-(--surface-sunken) px-4 py-3"
-          >
-            <h3 [id]="'powers-group-' + group.hub.slug" class="min-w-0">
-              <a
-                [routerLink]="['/products', group.hub.slug]"
-                class="inline-flex items-center gap-3 rounded-(--radius-sm) text-(--text-primary)
-                  transition-colors hover:text-(--accent-primary) focus-visible:outline-2
-                  focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >
-                <aec-logo-or-initial [src]="group.hub.logo_url" [name]="group.hub.name" size="sm" />
-                <!-- text-lg = 1.125rem, the Serif-Floor Rule's minimum for the
-                     display face (DESIGN.md §3). Size lives on the SPAN, not
-                     the h3: styles.css declares h3 { font-size: 1.25rem }
-                     OUTSIDE any cascade layer, and unlayered rules beat every
-                     Tailwind utility (which ship in the utilities layer), so a
-                     text-* utility on the h3 itself is silently dead. The span
-                     inherits the display face and takes its own size. See
-                     DESIGN.md §3 "The Unlayered-Heading Rule". -->
-                <span class="min-w-0 text-lg">{{ group.hub.name }}</span>
-              </a>
-            </h3>
-            <span class="text-xs text-(--text-secondary)">{{
-              connectionCountLabel(group.partners.length)
-            }}</span>
-          </div>
+      @if (showFilter()) {
+        <aec-integration-list-filter
+          inputId="powers-filter"
+          i18n-label="@@products.detail.body.powers.filter.label"
+          label="Search these connections"
+          i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
+          placeholder="Filter by product name"
+          [(query)]="query"
+          [shown]="filteredView().pairCount"
+          [total]="view().pairCount"
+        />
+      }
 
+      @for (group of filteredView().groups; track group.hub.slug) {
+        <aec-integration-group-card
+          [headingId]="'powers-group-' + group.hub.slug"
+          [heading]="group.hub.name"
+          [logoSrc]="group.hub.logo_url"
+          [logoName]="group.hub.name"
+          [countLabel]="countLabel(group.partners.length, hubTotal(group.hub.slug))"
+          [link]="'/products/' + group.hub.slug"
+          i18n-linkLabel="@@products.detail.group.link"
+          linkLabel="View product"
+          [linkAriaLabel]="productLinkAriaLabel(group.hub.name)"
+          [expanded]="isExpanded(group.hub.slug)"
+          (toggled)="toggle(group.hub.slug)"
+        >
           <ul class="m-0 list-none divide-y divide-(--border-default) p-0">
             @for (partner of group.partners; track partner.key) {
               <li>
@@ -163,37 +171,23 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               </li>
             }
           </ul>
-        </section>
+        </aec-integration-group-card>
       }
 
       <!-- Pairs with no shared hub. Rendered as whole A-to-B rows, since
            neither endpoint has earned the right to head a card. Only labelled
            "Other connections" when hub cards exist above it to be "other" than;
            on its own it is simply the list. -->
-      @if (view().others.length > 0) {
-        <section
-          aria-labelledby="powers-other"
-          class="overflow-hidden rounded-(--radius-lg) border border-(--border-default)"
+      @if (filteredView().others.length > 0) {
+        <aec-integration-group-card
+          headingId="powers-other"
+          [heading]="othersHeading()"
+          [countLabel]="countLabel(filteredView().others.length, view().others.length)"
+          [expanded]="isExpanded('powers-other')"
+          (toggled)="toggle('powers-other')"
         >
-          <div class="border-b border-(--border-default) bg-(--surface-sunken) px-4 py-3">
-            <h3 id="powers-other" class="text-(--text-primary)">
-              <!-- Size on the span, for the unlayered-h3 reason above. -->
-              <span class="text-lg">
-                @if (view().groups.length > 0) {
-                  <ng-container i18n="@@products.detail.body.powers.other"
-                    >Other connections</ng-container
-                  >
-                } @else {
-                  <ng-container i18n="@@products.detail.body.powers.connections"
-                    >Connections</ng-container
-                  >
-                }
-              </span>
-            </h3>
-          </div>
-
           <ul class="m-0 list-none divide-y divide-(--border-default) p-0">
-            @for (pair of view().others; track pair.key) {
+            @for (pair of filteredView().others; track pair.key) {
               <li>
                 <a
                   [routerLink]="pairLink(pair)"
@@ -241,7 +235,17 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               </li>
             }
           </ul>
-        </section>
+        </aec-integration-group-card>
+      }
+
+      @if (filteredView().pairCount === 0) {
+        <p
+          class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+            bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+          i18n="@@products.detail.body.powers.filter.empty"
+        >
+          No connections match that search.
+        </p>
       }
     </div>
   `,
@@ -253,8 +257,78 @@ export class ProductPoweredHub {
    * section heading's count and these rows are provably the same set — the
    * heading previously counted raw edges and over-reported against what
    * rendered.
+   *
+   * It stays the UNFILTERED view. The `<h2>` count reads it, the filter's
+   * "of N" reads it, and every group's total reads it — a filter is a reader's
+   * temporary view of the section, never a claim about the product.
    */
   readonly view = input.required<PoweredHubView>();
+
+  /**
+   * The reader's filter text (AECI-841). Deliberately component-local and
+   * deliberately NOT a route query param: `/products/:slug` is a cacheable SSR
+   * route keyed on path + query, so a `?q=` would mint an edge-cache entry per
+   * keystroke for HTML that does not vary with it.
+   */
+  protected readonly query = signal('');
+
+  /** Card keys the reader has closed. Hub slug, or `powers-other`. */
+  private readonly collapsed = signal<ReadonlySet<string>>(new Set<string>());
+
+  protected readonly filteredView = computed(() => filterPoweredHubView(this.view(), this.query()));
+
+  /** Below the threshold the whole list is already on one screen. */
+  protected readonly showFilter = computed(
+    () => this.view().pairCount >= INTEGRATION_FILTER_MIN_ROWS,
+  );
+
+  /**
+   * "Other connections" only when there are hub cards above it to be other
+   * than. Read off the FILTERED view, because a search that leaves only hubless
+   * pairs really has left a section with no hub cards in it.
+   */
+  protected readonly othersHeading = computed(() =>
+    this.filteredView().groups.length > 0
+      ? $localize`:@@products.detail.body.powers.other:Other connections`
+      : $localize`:@@products.detail.body.powers.connections:Connections`,
+  );
+
+  /**
+   * An active filter opens every surviving card, whatever the reader closed
+   * earlier. A search that silently matched rows inside a collapsed card would
+   * report "Showing 3 of 40" over an empty screen. Clearing the query restores
+   * the reader's own collapsed set rather than discarding it.
+   */
+  protected isExpanded(key: string): boolean {
+    return isFilterActive(this.query()) || !this.collapsed().has(key);
+  }
+
+  protected toggle(key: string): void {
+    this.collapsed.update((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
+
+  /** This hub's UNFILTERED partner count, for the "3 of 12" label. */
+  protected hubTotal(slug: string): number {
+    return this.view().groups.find((group) => group.hub.slug === slug)?.partners.length ?? 0;
+  }
+
+  /**
+   * Group size. Plain while the section is whole; "3 of 12" under a filter, so
+   * a reader can tell a small group from a heavily filtered large one.
+   */
+  protected countLabel(shown: number, total: number): string {
+    if (shown !== total) {
+      return $localize`:@@products.detail.group.count.filtered:${shown}:SHOWN: of ${total}:TOTAL:`;
+    }
+    if (total === 1) {
+      return $localize`:@@products.detail.body.powers.group.count.one:1 connection`;
+    }
+    return $localize`:@@products.detail.body.powers.group.count:${total}:count: connections`;
+  }
 
   /**
    * RouterLink to the canonical pair page — context slug is the alphabetically
@@ -262,6 +336,17 @@ export class ProductPoweredHub {
    * normalized through `orderedPairSlugs`, the same rule
    * `defaultIntegrationContext` applies). Routed through the shared helper
    * anyway so the two can never drift.
+   *
+   * **`routerLink`, not a plain `href`.** Angular's router has no global anchor
+   * interception — only the `RouterLink` directive handles the click — so a bare
+   * `href` here would turn every row into a full document load and app bootstrap
+   * instead of a SPA navigation. Being inside a projected `<ng-content>` changes
+   * nothing: the sibling `#integrations` section's `ProductIntegrationRow` is
+   * projected into the same `IntegrationGroupCard` panel and keeps `routerLink`
+   * too. `routerLink` still serialises a real `href` for crawlers and no-JS
+   * readers, so nothing is lost. The card's own trailing "View product" anchor is
+   * the deliberate exception — it opens a new tab, where a router navigation
+   * would be pointless.
    */
   protected pairLink(pair: PoweredConnection): readonly string[] {
     const context = defaultIntegrationContext(pair.a.slug, pair.b.slug);
@@ -316,11 +401,17 @@ export class ProductPoweredHub {
    * attribute at all in this app (see the repo note on interpolated i18n attrs),
    * which would silently leave these row links unnamed.
    */
-  protected connectionCountLabel(count: number): string {
-    return $localize`:@@products.detail.body.powers.group.count:${count}:count: connections`;
-  }
-
   protected pairAriaLabel(first: string, second: string): string {
     return $localize`:@@products.detail.body.powers.row.aria:View the ${first}:FIRST: and ${second}:SECOND: integration`;
+  }
+
+  /**
+   * Accessible name for a card's trailing "View product" link. Same reason, plus
+   * the new tab: a link that opens a new browsing context has to say so, and the
+   * name starts with the visible "View product" text so WCAG 2.5.3 Label in Name
+   * holds and speech input can target it.
+   */
+  protected productLinkAriaLabel(name: string): string {
+    return $localize`:@@products.detail.group.link.aria:View product: ${name}:NAME: (opens in a new tab)`;
   }
 }

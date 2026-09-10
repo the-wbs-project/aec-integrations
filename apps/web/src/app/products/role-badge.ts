@@ -10,8 +10,20 @@ import type { ProductRole } from '@aeci/shared';
  * hybrid stands out).
  *
  * Bordered chip, not a fill (DESIGN.md "Borders-Not-Shadows"); sentence case;
- * `--text-secondary` so it never competes with the product name. Both themes via
- * tokens. Used by the product card grid.
+ * `--text-secondary` so it never competes with the product name. Used by the
+ * product card grid and the product-detail hero.
+ *
+ * **Chip metrics are shared, not per-component.** `px-2.5 py-1` / `0.75rem` /
+ * `font-medium` / `tracking-[0.01em]` is the same spec `MaintenanceMarker`,
+ * `AgreementBadge` and `CategoryChip` use. This badge was `px-2 py-0.5` and
+ * rendered **22px tall beside the marker's 29px** in the product-detail hero, two
+ * chips in one row at two heights — which reads as "the smaller one is less
+ * important" rather than as two peers. The text was never smaller; both are 12px.
+ *
+ * **`CategoryChip` moves with this one.** The two render side by side in the same
+ * flex row in `ProductCardGrid`, so changing one alone just relocates the defect
+ * from the hero to `/products` and the taxonomy browse pages. See `DESIGN.md`
+ * §Badges → "One chip spec".
  */
 @Component({
   selector: 'aec-role-badge',
@@ -19,7 +31,7 @@ import type { ProductRole } from '@aeci/shared';
     @if (label(); as l) {
       <span
         class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-          bg-(--surface-raised) px-2 py-0.5 text-xs font-medium tracking-[0.01em]
+          bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
           text-(--text-secondary)"
         >{{ l }}</span
       >
