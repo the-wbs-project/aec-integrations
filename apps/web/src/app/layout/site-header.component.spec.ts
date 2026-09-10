@@ -31,7 +31,17 @@ describe('SiteHeader auth affordance', () => {
         provideRouter([]),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
-        { provide: SessionStatus, useValue: { signedIn } },
+        // `avatarUrl` / `fullName` feed the AECI-850 identity block inside the
+        // menu; null on both is the magic-link shape, which is the default here.
+        {
+          provide: SessionStatus,
+          useValue: {
+            signedIn,
+            email: signal<string | null>(null),
+            avatarUrl: signal<string | null>(null),
+            fullName: signal<string | null>(null),
+          },
+        },
         // The signed-in affordance is now `<aec-user-menu>`; stub its deps so the
         // header spec stays focused on which affordance renders (the menu's own
         // behaviour is covered by user-menu.component.spec.ts).

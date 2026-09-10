@@ -5,8 +5,9 @@
  * opens a CDK-overlay dropdown that is the home for site navigation on small
  * screens: Home + Products links, the four taxonomy facets as tap-to-expand
  * disclosure sections (Categories / Trades / Audiences / Phases), search, and the
- * account block (Account, the role-gated portal doors, Sign out) or the Sign-in
- * CTA. The component is hidden at `lg+` via its `lg:hidden` host class — at those
+ * account block (the AECI-850 identity block, then Account, the role-gated
+ * portal doors, Sign out) or the Sign-in CTA. The component is hidden at `lg+`
+ * via its `lg:hidden` host class — at those
  * widths the same affordances render as the inline desktop nav in
  * `site-header.ts` (with hover flyouts). Both surfaces share `NavFlyoutList` and
  * `taxonomy-nav-copy.ts`, so the link sets cannot drift. AECI-158/159 re-pointed
@@ -60,6 +61,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { AccountIdentity } from './account-identity';
 import { NavFlyoutList } from './nav-flyout-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
@@ -83,6 +85,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
     BrnPopoverTrigger,
     NavFlyoutList,
     SearchAutocomplete,
+    AccountIdentity,
   ],
   template: `
     <button
@@ -198,6 +201,12 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                  swaps to the account block after hydration (Phase 5 §4.4), and the
                  shared role probe reveals the portal doors + badge (AECI-259). -->
             @if (session.signedIn()) {
+              <!-- Same identity block as the desktop dropdown, from the same
+                   component, so the two headers cannot disagree about who is
+                   signed in (AECI-850). It sits above the destinations here for
+                   the same reason it does there. -->
+              <aec-account-identity />
+
               <a
                 routerLink="/account"
                 (click)="menu.close()"

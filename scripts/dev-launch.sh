@@ -41,6 +41,21 @@ fi
 
 echo "▶ dev:agent → SSR http://localhost:${WEB}  ·  API :${API} (proxied via http://localhost:${WEB}/api/*)"
 
+# Supabase's redirect allow-list holds only http://localhost:8788/** and
+# http://localhost:8790/**. On any other port BOTH sign-in paths still *start*
+# correctly and then land the browser on the Site URL (demo.aecintegrations.com)
+# instead of back here — so the failure looks like "sign-in did nothing" with
+# nothing logged locally and no error on screen. Warn at the one moment the port
+# is chosen, rather than leaving it to be rediscovered.
+case "$WEB" in
+  8788 | 8790) ;;
+  *)
+    echo "⚠ dev:agent — port ${WEB} is NOT in Supabase's redirect allow-list (only 8788 and 8790 are)." >&2
+    echo "  Sign-in will complete and then redirect to demo.aecintegrations.com instead of localhost." >&2
+    echo "  Free 8790, or add http://localhost:${WEB}/** in Supabase → Authentication → URL Configuration." >&2
+    ;;
+esac
+
 export AECI_WEB_PORT="$WEB"
 export AECI_API_PORT="$API"
 

@@ -567,6 +567,15 @@ project config, not a Worker secret).
 
 ## Deployed Supabase Auth: Google OAuth provider (dashboard)
 
+> **DONE — verified 2026-09-10 (AECI-850).** The Google provider **is enabled** on
+> the shared project, and Google sign-in works on staging, demo and production.
+> It also works **locally on ports 8788 and 8790**: `GET /auth/v1/authorize?provider=google`
+> returns `302 → accounts.google.com` carrying a real `client_id`, which it cannot
+> do while the provider is off. The "Unsupported provider" 400 below is history,
+> kept as the diagnosis recipe. **The one local trap that remains is the port** —
+> see the allow-list above, and the warning `scripts/dev-launch.sh` now prints when
+> `dev:agent` lands anywhere other than 8788/8790.
+
 The redirect-URL allow-list above governs where Supabase is *allowed to send the
 user back*; it is **independent** of which OAuth providers are *enabled*. Magic
 link can work perfectly while Google is off. If the Google provider is not enabled
@@ -597,6 +606,20 @@ truth. Two dashboards, done once:
    Google**:
    - Toggle **Enable Sign in with Google** on.
    - Paste the **Client ID** and **Client Secret** from step 1. **Save**.
+
+**Verifying without a browser.** The provider's enabled/disabled state is
+answerable with one request, no session and no Google account needed. A disabled
+provider returns a 400 body; an enabled one returns a 302 whose `Location` carries
+the Google `client_id`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  "https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/authorize?provider=google&redirect_to=http%3A%2F%2Flocalhost%3A8790%2Fauth%2Fcallback&apikey=$(grep '^SUPABASE_ANON_KEY=' apps/web/.dev.vars | cut -d= -f2-)"
+```
+
+Note this checks the **provider**, not the redirect allow-list: `/authorize`
+echoes back whatever `redirect_to` you hand it and only validates the value later,
+at the provider callback. So a 302 here does not prove your port is allow-listed.
 
 No Worker deploy is needed — it's project config, not a Worker secret. Verify from
 `/auth/login` on any origin already in the redirect allow-list (e.g. `localhost:8788`

@@ -2,7 +2,20 @@
  * Signed-in user menu — the desktop header's top-right account control (AECI-259).
  *
  * A dropdown with what belongs to the *person* rather than to the public site:
- * Account, the portal doors their role opens, and Sign out.
+ * who they are, Account, the portal doors their role opens, and Sign out.
+ *
+ * ── The identity block (AECI-850) ───────────────────────────────────────────
+ * The panel opens with `<aec-account-identity>` — avatar, name, email, role —
+ * above a hairline, then the destinations. Anchor reference: **Laravel Cloud**
+ * (`https://mobbin.com/screens/a7e6e8fb-309d-4fdd-b3c3-8658be5a7f52`), with the
+ * role pill from Hootsuite; both are departures from the Stripe site-chrome
+ * anchor and are recorded as such in `DESIGN.md`.
+ *
+ * The block exists because this menu is the only place the site says *which*
+ * account is signed in. Two accounts (a personal magic-link one and a Google
+ * one) look identical from a generic glyph, and on a site where role decides
+ * which portal doors exist, "signed in as who, with what standing" is the first
+ * question the menu should answer.
  *
  * ── Why the portal doors live here ───────────────────────────────────────────
  * The primary row is the *public directory's* navigation: it renders on cached,
@@ -35,7 +48,8 @@
  * trigger. We keep it a plain list of focusable controls inside the focus trap
  * (no `role="menu"`/roving tabindex) — same approach as the nav overlay.
  */
-import { Component, computed, inject, signal } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
+import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
@@ -43,12 +57,22 @@ import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
+import { SessionStatus } from '../auth/session-status';
 import { signOutAndGoHome } from '../auth/sign-out';
 import { VendorStatus } from '../vendor/vendor-status';
 
+import { AccountIdentity } from './account-identity';
+
 @Component({
   selector: 'aec-user-menu',
-  imports: [RouterLink, BrnPopover, BrnPopoverContent, BrnPopoverTrigger],
+  imports: [
+    NgOptimizedImage,
+    RouterLink,
+    BrnPopover,
+    BrnPopoverContent,
+    BrnPopoverTrigger,
+    AccountIdentity,
+  ],
   template: `
     <button
       brnPopoverTrigger
@@ -60,19 +84,47 @@ import { VendorStatus } from '../vendor/vendor-status';
       [attr.aria-describedby]="showBadge() ? 'aec-user-menu-pending' : null"
       (click)="adminStatus.ensureProbed()"
     >
-      <svg
-        aria-hidden="true"
-        class="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
+      <!-- The photo REPLACES the glyph rather than layering over it, and the
+           glyph is the base state on purpose: the photo only lands with the
+           async session snapshot, and magic-link accounts never have one, so the
+           glyph is the permanent trigger for most signed-in visitors. Swapping a
+           letter in here instead would flicker on every page load, because the
+           email is not cached the way the role is.
+
+           A dead photo URL falls back to that same glyph: user_metadata only
+           refreshes at re-authentication, so a session outlives the Google CDN
+           URL it carries, and an empty alt makes a browser collapse a broken
+           image to NOTHING rather than to a broken-image icon, leaving an empty
+           circle where the account control should be. No pre-hydration net is needed
+           here (unlike LogoOrInitial): the photo lands with the async snapshot,
+           so this image is only ever created client-side, well after the (error)
+           listener can be attached. -->
+      @if (photo(); as src) {
+        <img
+          [ngSrc]="src"
+          alt=""
+          aria-hidden="true"
+          width="36"
+          height="36"
+          referrerpolicy="no-referrer"
+          class="h-full w-full rounded-full object-cover"
+          (error)="photoFailed.set(true)"
+        />
+      } @else {
+        <svg
+          aria-hidden="true"
+          class="h-5 w-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      }
       @if (showBadge()) {
         <span
           class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--surface-base) bg-(--color-status-error)"
@@ -88,48 +140,54 @@ import { VendorStatus } from '../vendor/vendor-status';
     <brn-popover #menu="brnPopover" class="contents" align="end" [sideOffset]="8">
       <ng-template brnPopoverContent>
         <div
-          class="w-56 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="w-64 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
           i18n-aria-label="@@app.header.account.menu.aria"
           aria-label="Account menu"
         >
-          <a
-            routerLink="/account"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.header.account"
-          >
-            Account
-          </a>
+          <!-- Identity first, then the things you can do (AECI-850). The panel grew
+               to 16rem here because an email is the widest string the panel
+               carries and truncating it to ~14 characters told the reader
+               nothing. -->
+          <aec-account-identity />
 
-          <!-- The portal doors. One link each: the portal owns its own nav once
+          <!-- Destinations. The portal doors joined the Account group rather
+               than keeping a rule of their own: with the identity block above,
+               a per-door divider made a 14-rem panel read as four stacked
+               fragments. Still one link each: the portal owns its own nav once
                you are inside it, so the header never restates either IA. Only
-               one can ever show in practice (requireVendor rejects site admins),
-               but both are rendered independently rather than as an either/or,
-               so neither depends on the other's gate being correct. -->
-          @if (adminStatus.isAdmin() || vendorStatus.isVendor()) {
-            <div class="mt-1 border-t border-(--border-default) pt-1">
-              @if (adminStatus.isAdmin()) {
-                <a
-                  routerLink="/admin"
-                  (click)="menu.close()"
-                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.adminPortal"
-                >
-                  Admin portal
-                </a>
-              }
-              @if (vendorStatus.isVendor()) {
-                <a
-                  routerLink="/vendor"
-                  (click)="menu.close()"
-                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.vendorPortal"
-                >
-                  Vendor portal
-                </a>
-              }
-            </div>
-          }
+               one door can ever show in practice (requireVendor rejects site
+               admins), but both are rendered independently rather than as an
+               either/or, so neither depends on the other's gate being correct. -->
+          <div class="mt-1 border-t border-(--border-default) pt-1">
+            <a
+              routerLink="/account"
+              (click)="menu.close()"
+              class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.header.account"
+            >
+              Account
+            </a>
+            @if (adminStatus.isAdmin()) {
+              <a
+                routerLink="/admin"
+                (click)="menu.close()"
+                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.adminPortal"
+              >
+                Admin portal
+              </a>
+            }
+            @if (vendorStatus.isVendor()) {
+              <a
+                routerLink="/vendor"
+                (click)="menu.close()"
+                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.vendorPortal"
+              >
+                Vendor portal
+              </a>
+            }
+          </div>
 
           <div class="mt-1 border-t border-(--border-default) pt-1">
             <button
@@ -157,9 +215,26 @@ import { VendorStatus } from '../vendor/vendor-status';
 export class UserMenu {
   protected readonly adminStatus = inject(AdminStatus);
   protected readonly vendorStatus = inject(VendorStatus);
+  private readonly session = inject(SessionStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly auth = inject(AuthService);
   private readonly analytics = inject(Analytics);
+
+  /** The identity-provider photo for the trigger, or null — null is the normal
+   *  magic-link case and keeps the neutral glyph (AECI-850). */
+  private readonly avatarUrl = this.session.avatarUrl;
+
+  /** Flipped by the `<img>`'s `(error)` handler. `linkedSignal` re-seeds it from
+   *  `avatarUrl`, so a later snapshot carrying a fresh URL gets a fresh attempt
+   *  instead of inheriting the dead one's failure. */
+  protected readonly photoFailed = linkedSignal<string | null, boolean>({
+    source: this.avatarUrl,
+    computation: () => false,
+  });
+
+  /** The URL actually rendered: null once the photo has failed, which drops the
+   *  trigger back to the neutral person glyph rather than an empty circle. */
+  protected readonly photo = computed(() => (this.photoFailed() ? null : this.avatarUrl()));
 
   protected readonly signOutFailed = signal(false);
 

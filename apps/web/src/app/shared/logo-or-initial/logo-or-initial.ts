@@ -36,6 +36,14 @@ import {
  */
 export type LogoSize = 'lg' | 'sm';
 
+/**
+ * `rounded` is the catalog default (products, vendors — a logo is a rectangle).
+ * `circle` is for a **person**: the account-menu avatar (AECI-850), where the
+ * circle is what distinguishes "you" from the rectangular company marks the same
+ * page is full of.
+ */
+export type LogoShape = 'rounded' | 'circle';
+
 @Component({
   selector: 'aec-logo-or-initial',
   imports: [NgOptimizedImage],
@@ -49,6 +57,7 @@ export type LogoSize = 'lg' | 'sm';
         [height]="dim()"
         [priority]="priority()"
         [class]="imgClass()"
+        [attr.referrerpolicy]="referrerPolicy()"
         (error)="failed.set(true)"
       />
     } @else {
@@ -68,8 +77,18 @@ export class LogoOrInitial {
   readonly alt = input<string>('');
   /** `lg` = 64px framed hero, `sm` = 32px inline avatar. */
   readonly size = input<LogoSize>('lg');
+  /** `rounded` for a company logo, `circle` for a person's avatar. */
+  readonly shape = input<LogoShape>('rounded');
   /** Hero passes `true` (the logo is the LCP element). */
   readonly priority = input<boolean>(false);
+  /**
+   * Optional `referrerpolicy` for the `<img>`. The account avatar passes
+   * `'no-referrer'` so loading a Google-hosted profile photo does not tell Google
+   * which AECi page the signed-in visitor is on (AECI-850). Left unset — and so
+   * absent from the DOM — for catalog logos, which are already public URLs on
+   * pages a crawler can read anyway.
+   */
+  readonly referrerPolicy = input<string | null>(null);
 
   // Flipped by the `(error)` handler or the pre-hydration net below. Seeded from
   // `src` so a reused instance (the detail pages share one `LogoOrInitial` across
@@ -91,16 +110,27 @@ export class LogoOrInitial {
 
   protected readonly dim = computed(() => (this.size() === 'lg' ? 64 : 32));
 
+  /** `circle` overrides the per-size radius; a photo is cropped, not framed, so
+   *  it also takes `object-cover` rather than the logo's `object-contain`. */
+  private readonly radiusClass = computed(() => {
+    if (this.shape() === 'circle') return 'rounded-full';
+    return this.size() === 'lg' ? 'rounded-(--radius-md)' : 'rounded-(--radius-sm)';
+  });
+
+  private readonly fitClass = computed(() =>
+    this.shape() === 'circle' ? 'object-cover' : 'object-contain',
+  );
+
   protected readonly imgClass = computed(() =>
     this.size() === 'lg'
-      ? 'h-16 w-16 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) object-contain'
-      : 'h-8 w-8 rounded-(--radius-sm) object-contain',
+      ? `h-16 w-16 ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) ${this.fitClass()}`
+      : `h-8 w-8 ${this.radiusClass()} ${this.fitClass()}`,
   );
 
   protected readonly spanClass = computed(() =>
     this.size() === 'lg'
-      ? 'flex h-16 w-16 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)'
-      : 'flex h-8 w-8 items-center justify-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) font-display text-sm font-semibold text-(--text-primary)',
+      ? `flex h-16 w-16 items-center justify-center ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)`
+      : `flex h-8 w-8 items-center justify-center ${this.radiusClass()} border border-(--border-default) bg-(--surface-raised) font-display text-sm font-semibold text-(--text-primary)`,
   );
 
   constructor() {

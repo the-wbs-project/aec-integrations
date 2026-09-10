@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import { LogoOrInitial, type LogoSize } from './logo-or-initial';
+import { LogoOrInitial, type LogoShape, type LogoSize } from './logo-or-initial';
 
 // jsdom never loads images, so an `<img>` always reports `complete === true` /
 // `naturalWidth === 0`. The component's `afterNextRender` + `requestAnimationFrame`
@@ -13,13 +13,22 @@ import { LogoOrInitial, type LogoSize } from './logo-or-initial';
 
 @Component({
   imports: [LogoOrInitial],
-  template: `<aec-logo-or-initial [src]="src" [name]="name" [alt]="alt" [size]="size" />`,
+  template: `<aec-logo-or-initial
+    [src]="src"
+    [name]="name"
+    [alt]="alt"
+    [size]="size"
+    [shape]="shape"
+    [referrerPolicy]="referrerPolicy"
+  />`,
 })
 class LogoOrInitialHost {
   src: string | null = 'https://cdn.example.com/acme.png';
   name = 'Acme';
   alt = '';
   size: LogoSize = 'lg';
+  shape: LogoShape = 'rounded';
+  referrerPolicy: string | null = null;
 }
 
 // Signal-backed host for the reused-instance case, where `src` must change
@@ -150,5 +159,63 @@ describe('LogoOrInitial', () => {
     img.dispatchEvent(new Event('error'));
     errorFallback.fixture.detectChanges();
     expect(errorFallback.root.querySelector('span')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  // ── shape + referrerPolicy (AECI-850) ────────────────────────────────────
+  // Added for the account-menu avatar. A person is a circle; a company logo is
+  // a rectangle. Both branches (img and initial span) must agree, or the shape
+  // would change the instant a profile photo 404s.
+
+  it('renders the catalog default as a rounded rectangle, not a circle', () => {
+    const { root } = renderHost({ src: 'https://cdn.example.com/acme.png', size: 'sm' });
+    expect(root.querySelector('img')!.classList.contains('rounded-full')).toBe(false);
+  });
+
+  it('applies the circle shape to BOTH the image and the initial fallback', () => {
+    const withPhoto = renderHost({
+      src: 'https://lh3.googleusercontent.com/a/photo',
+      size: 'sm',
+      shape: 'circle',
+    });
+    const img = withPhoto.root.querySelector('img')!;
+    expect(img.classList.contains('rounded-full')).toBe(true);
+    // A cropped photo, not a letterboxed logo.
+    expect(img.classList.contains('object-cover')).toBe(true);
+    expect(img.classList.contains('object-contain')).toBe(false);
+
+    // The magic-link case, which is the MAJORITY of accounts: no photo at all.
+    // The circle has to survive it, or the header would show a rounded square
+    // for most signed-in visitors.
+    const noPhoto = renderHost({ src: null, size: 'sm', shape: 'circle', name: 'Chris' });
+    const span = noPhoto.root.querySelector('span[aria-hidden]')!;
+    expect(span.classList.contains('rounded-full')).toBe(true);
+    expect(span.textContent?.trim()).toBe('C');
+  });
+
+  it('keeps the circle when a profile photo fails to load', () => {
+    const { fixture, root } = renderHost({
+      src: 'https://lh3.googleusercontent.com/a/dead',
+      size: 'sm',
+      shape: 'circle',
+    });
+    root.querySelector('img')!.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span[aria-hidden]')!.classList.contains('rounded-full')).toBe(true);
+  });
+
+  it('emits referrerpolicy only when one is supplied', () => {
+    // Catalog logos are public URLs on crawlable pages, so no policy is set and
+    // the attribute must be ABSENT rather than empty.
+    const catalog = renderHost({ src: 'https://cdn.example.com/acme.png' });
+    expect(catalog.root.querySelector('img')!.hasAttribute('referrerpolicy')).toBe(false);
+
+    // The account avatar sets it so loading a Google-hosted photo does not tell
+    // Google which AECi page the signed-in visitor is on.
+    const avatar = renderHost({
+      src: 'https://lh3.googleusercontent.com/a/photo',
+      referrerPolicy: 'no-referrer',
+    });
+    expect(avatar.root.querySelector('img')!.getAttribute('referrerpolicy')).toBe('no-referrer');
   });
 });

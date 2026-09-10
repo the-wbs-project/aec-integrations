@@ -740,6 +740,67 @@ Rules that ride with it:
 
 **Nothing role-gated may reach server-rendered HTML.** Both doors are gated on the shared, browser-only role probe (`auth/role-status.ts`), which reports `null` during SSR — so no `/admin` or `/vendor` href is ever baked into the URL-keyed cached header. This is the header-side complement to `/admin/*` being non-cacheable.
 
+### The account menu's identity block (AECI-850)
+
+The account menu opens with **who you are**, then the things you can do. Source:
+`apps/web/src/app/layout/account-identity.ts`, one component rendered by **both**
+the desktop dropdown (`user-menu.ts`) and the mobile overlay (`nav-menu.ts`) — an
+identity block composes three sources and gets the wrong answer *quietly* when
+duplicated, which a link list does not.
+
+**Anchor: Laravel Cloud**, with the role pill from **Hootsuite**. Both are
+departures from the Stripe site-chrome anchor (see "The footer"), recorded here
+because the Anchor-Site Rule requires the anchor to be recorded with the surface.
+The departure is deliberate and narrow: Stripe's own account dropdown puts name +
+role in a **dim footer** below Sign out, which reads as metadata rather than as an
+answer to "which account is this?". Laravel Cloud's top block — avatar, name,
+email, hairline, destinations — states it first. Nothing else on the surface moves
+to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
+
+| Row | Content | Rule |
+|---|---|---|
+| Avatar | 32px **circle** (`LogoOrInitial` `size="sm" shape="circle"`) | A person is a circle; every company mark on the same page is a rectangle. That is the only thing distinguishing them at 32px |
+| Primary | `profiles.display_name` → provider `full_name` → the email → "Signed in" | Never empty: an empty line collapses the reserved box and the menu jumps under the cursor |
+| Secondary | The email, at `text-secondary` | **Dropped entirely** when the email is already the primary line, so the block never prints one string twice |
+| Pill | Site admin / Vendor admin / Reviewer | Rendered for **every** role including the `reviewer` default. On a review platform "Reviewer" is a standing, not an empty state, and a staff-only pill would make the block's height depend on who is looking |
+
+**Rules.**
+
+- **The initial letter is the primary design; the photo is the enhancement.** Only
+  Google sign-ins carry `user_metadata.avatar_url`, and magic-link is the majority
+  path — so "no photo" is the common case. Design the block with the letter first
+  and check the photo second, not the reverse.
+- **The avatar stays neutral, never an accent.** It inherits `LogoOrInitial`'s own
+  tokens verbatim — `text-primary` on `surface-raised` inside a `border-default`
+  ring — so it reads as quiet chrome rather than as a highlight. Only the pill may take
+  colour, and only Forest (`accent-primary-soft` fill, `accent-primary` text), and
+  only for the two roles that open a portal door. Colour is never the sole signal
+  — the label beside it names the role.
+- **`referrerpolicy="no-referrer"` on every provider photo.** Hotlinking
+  `lh3.googleusercontent.com` otherwise tells Google which AECi page a signed-in
+  visitor is on, on every page load. Trust-first positioning does not permit that
+  for a decorative 32px image. `img-src 'self' data: https:` already allows the
+  load, so no CSP change was needed.
+- **The trigger keeps its neutral glyph until a photo exists.** It does *not* swap
+  in an initial letter: the role is cached in `sessionStorage` but the email is
+  not, so a letter would flicker in on every single page load. The photo lands
+  once, with the async session snapshot, and only for Google accounts.
+- **A photo that fails to load returns to the glyph, in both places.** The panel's
+  avatar gets this from `LogoOrInitial`; the trigger has its own `(error)` handler.
+  `user_metadata` only refreshes at re-authentication, so a long-lived session
+  outlives the Google CDN URL it carries, and an empty `alt` makes a browser
+  collapse a broken image to nothing — an empty circle where the account control
+  should be. The failure is per-URL, so a fresh snapshot gets a fresh attempt.
+- **The block is not focusable and carries no `role`.** It labels the menu that
+  follows it. A link here would add a tab stop in front of "Account" for no new
+  destination.
+- **Nothing here reaches cached HTML**, by the same guarantee as the portal doors:
+  `SessionStatus` is neutral through SSR and `RoleStatus.role()` is `null` until
+  the browser-only probe resolves.
+- **The panel is `w-64`, up from `w-56`.** The email is the widest string it
+  carries; at 14rem it truncated to roughly fourteen characters and told the
+  reader nothing.
+
 ### The footer
 
 Never specified until the Overflow Rule made it load-bearing: it is now the home
