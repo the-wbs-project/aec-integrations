@@ -468,6 +468,118 @@ describe('sendStuckRequestAdminAlert', () => {
     });
     expect(lastBody(fetchSpy).subject).toBe('[AECi] 1 request stuck in the Linear pipeline');
   });
+
+  // ── AECI-854: the alert has to be actionable from the inbox ──
+
+  it('names the cause in the subject when every row shares one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(fakeContext(), {
+      to: 'ops@aecintegrations.com',
+      rows: [
+        {
+          requestId: 'req-1',
+          kind: 'claim',
+          targetType: 'product',
+          targetName: 'Procore Project Management',
+          targetSlug: 'procore-project-management',
+          ageMinutes: 62,
+          retried: true,
+          reason: 'no_api_key',
+        },
+      ],
+    });
+
+    const body = lastBody(fetchSpy);
+    // The whole triage, visible in the inbox list without opening anything.
+    expect(body.subject).toBe('[AECi] 1 request stuck in the Linear pipeline (no_api_key)');
+  });
+
+  it('carries the cause, its gloss, the age and real links in the body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      {
+        to: 'ops@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            kind: 'claim',
+            targetType: 'product',
+            targetName: 'Procore Project Management',
+            targetSlug: 'procore-project-management',
+            ageMinutes: 190,
+            retried: true,
+            reason: 'no_api_key',
+          },
+        ],
+      },
+    );
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('no_api_key');
+    expect(text).toContain('Set the secret'); // the gloss, not just the raw token
+    expect(text).toContain('3h 10m'); // not "190m"
+    expect(text).toContain('/admin/requests');
+    expect(text).toContain('/products/procore-project-management');
+    // The old wording claimed a retry it could not vouch for.
+    expect(text).not.toContain('still failing after retries');
+  });
+
+  it('says a row was NOT retried rather than claiming it was', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      {
+        to: 'ops@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            kind: 'correction',
+            targetType: 'product',
+            targetName: null,
+            targetSlug: null,
+            ageMinutes: 70,
+            retried: false,
+            reason: 'target_missing',
+          },
+        ],
+      },
+    );
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('not retried');
+    expect(text).toContain('target_missing');
+    // No listing link for a target that is gone — a dead link on an alert about a
+    // missing row would be its own small lie.
+    expect(text).not.toContain('/products/');
+  });
+
+  it('omits the subject suffix when rows disagree on the cause', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(fakeContext(), {
+      to: 'ops@aecintegrations.com',
+      rows: [
+        {
+          requestId: 'req-1',
+          kind: 'claim',
+          targetType: 'product',
+          targetName: 'A',
+          ageMinutes: 70,
+          reason: 'no_api_key',
+        },
+        {
+          requestId: 'req-2',
+          kind: 'claim',
+          targetType: 'product',
+          targetName: 'B',
+          ageMinutes: 70,
+          reason: 'timeout',
+        },
+      ],
+    });
+
+    expect(lastBody(fetchSpy).subject).toBe('[AECi] 2 requests stuck in the Linear pipeline');
+  });
 });
 
 describe('sendClaimSubmittedNotification', () => {

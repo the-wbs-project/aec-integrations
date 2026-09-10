@@ -38,6 +38,7 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 | WAF → Datadog (7.7) | `CF_ANALYTICS_API_TOKEN` | Zone Analytics: Read (AECI-262) — for `aeci.waf.ratelimit.blocked`. |
 | Toxicity (Phase 5/6 dep) | `ANTHROPIC_API_KEY_PRODUCTION` | AECI-258; fail-open null until set. |
 | Search (prod) | `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY_PRODUCTION` | **Fail-closed** on prod promote — must be set. |
+| Form→Linear pipeline (6.4/6.5) | `LINEAR_API_KEY`, `LINEAR_WEBHOOK_SIGNING_SECRET` | AECI-851. Both un-suffixed, pushed to the prod **API** Worker by `promote-to-prod.yml`, **production only** (a non-prod key files fixture claims as real issues in the shared board). `LINEAR_API_KEY` is **fail-closed** on the prod promote — its absent-key path emits no metric and no log, so a vendor claim routes to nobody and only the 60-minute reconciliation-sweep email notices. The webhook secret is warn-and-skip; without it the Linear→site status sync stops (every delivery 401s). **This row was missing from the original checklist, which is why production launched without either.** |
 
 - [ ] All required secrets set (`gh secret set …`) and a `promote-to-prod.yml` run has pushed them to the prod Workers + passed `/api/health`.
 

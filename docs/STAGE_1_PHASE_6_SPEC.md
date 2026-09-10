@@ -78,6 +78,17 @@ Per `API_CONTRACTS.md` §6.11. **HMAC-verify** the `Linear-Signature` header aga
 
 A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→queue→consumer, ADR 0013): find `open` requests with `linear_issue_id=null` older than ~N minutes → retry §6.1; alert (admin email) on persistent failures. This is the guaranteed backstop for §6.2.
 
+> **AECI-854 amendment — the alert has two channels with two cadences.** "Alert on persistent
+> failures" above is implemented as: the `aeci.linear.reconcile.persistent_failure` count plus a
+> `level:error` log on **every** sweep (unthrottled — this is the guaranteed backstop the paragraph
+> means), and the operator **email** only when a row crosses an age band (60 min, 6 h, then daily).
+> Unthrottled the email sent 96 identical messages a day per stuck row, sharing a Resend account with
+> the Supabase magic-link sender, so a long outage was a sign-in hazard. The email also now carries
+> the **cause** — `createLinearIssueForRequest` returns a reason instead of `void`, so `no_api_key`,
+> `graphql_error` and the rest reach the operator instead of "still failing after retries". That
+> wording was additionally false for a row the sweep could not rebuild, which is skipped and never
+> retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
+
 ### 6.5 Site → Linear sync
 
 When an admin resolves/rejects in `/admin/requests` (§8), push the change to the Linear issue (status transition + a comment) via GraphQL, and record a `workflow_transition`. Keeps Linear and the app DB (D1, ADR 0016) consistent regardless of where the admin acted (they may also resolve directly in Linear → the webhook §6.3 covers that direction). Wired into the resolve/reject handler's `SyncRequestToLinear` seam at the composition root (`apps/api/src/index.ts`) via `pushRequestResolutionToLinear` (AECI-220).

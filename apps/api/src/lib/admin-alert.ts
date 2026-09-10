@@ -45,8 +45,25 @@ export interface StuckRequestSummary {
   targetType: RequestTargetType;
   /** Display name if the target resolved; `null` if the target row is gone. */
   targetName: string | null;
+  /** Target slug, for the listing link. `null` when the target row is gone. */
+  targetSlug?: string | null;
   /** Whole minutes the row has been stuck (`now - created_at`). */
   ageMinutes: number;
+  /**
+   * AECI-854. Whether the sweep actually re-invoked §6.4 for this row this pass.
+   * `false` means it could not rebuild the input (target or workflow row missing),
+   * so the row was skipped, not retried. The email used to claim "still failing
+   * after retries" for these too, which was simply untrue.
+   */
+  retried?: boolean;
+  /**
+   * AECI-854. WHY it failed — `no_api_key`, `http_error`, `graphql_error`,
+   * `timeout`, `network`, `empty_response`, `db_error`, or the rebuild blocker
+   * (`target_missing` / `workflow_missing`). `null` when unknown, e.g. the retry
+   * itself threw before returning. This is the field the 2026-09-10 incident
+   * needed and did not have.
+   */
+  reason?: string | null;
 }
 
 /** A single digest covering every persistently-stuck request found this sweep. */

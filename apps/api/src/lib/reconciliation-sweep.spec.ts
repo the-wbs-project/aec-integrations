@@ -29,7 +29,15 @@ vi.mock('../posthog', () => ({
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { logToPosthog, submitCount, submitGauge } from '../posthog';
-import { RECONCILE_BATCH_CAP, runReconciliationSweep } from './reconciliation-sweep';
+import {
+  ALERT_BANDS_MINUTES,
+  ALERT_REPEAT_MINUTES,
+  crossedAlertBand,
+  RECONCILE_BATCH_CAP,
+  RECONCILE_SWEEP_INTERVAL_MINUTES,
+  runReconciliationSweep,
+} from './reconciliation-sweep';
+import { RECONCILE_CRON } from './cron-schedules';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -189,7 +197,9 @@ describe('runReconciliationSweep', () => {
   it('alerts + emails when a failing row is older than the persistent threshold', async () => {
     await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
     await seedWorkflow('wf-1', 'req-1');
-    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) }); // > 60m
+    // 65m: past the 60m persistent threshold AND crossing the AECI-854 60m alert
+    // band in this sweep's 15-minute window (previous age 50m), so the email fires.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
     const createIssue = failingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
@@ -336,7 +346,7 @@ describe('runReconciliationSweep', () => {
   it('skips an un-rebuildable row (missing workflow) and still counts it as failing/persistent', async () => {
     await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
     // No workflow instance seeded → cannot rebuild the §6.4 input.
-    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) });
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
     const createIssue = failingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
@@ -367,6 +377,146 @@ describe('runReconciliationSweep', () => {
       expect.anything(),
       expect.objectContaining({
         rows: [expect.objectContaining({ requestId: 'req-1', targetName: 'Acme Build' })],
+      }),
+    );
+  });
+});
+
+// ─── AECI-854: the email throttle ─────────────────────────────────────────────
+
+describe('crossedAlertBand', () => {
+  const SWEEP = RECONCILE_SWEEP_INTERVAL_MINUTES;
+
+  it('fires on the sweep that crosses 60m, and not on the ones around it', () => {
+    expect(crossedAlertBand(59, SWEEP)).toBe(false); // not yet persistent
+    expect(crossedAlertBand(62, SWEEP)).toBe(true); // the observed first alert
+    expect(crossedAlertBand(75, SWEEP)).toBe(false); // next sweep, already reported
+    expect(crossedAlertBand(90, SWEEP)).toBe(false);
+  });
+
+  it('fires again at the 6h band', () => {
+    expect(crossedAlertBand(345, SWEEP)).toBe(false);
+    expect(crossedAlertBand(362, SWEEP)).toBe(true);
+    expect(crossedAlertBand(375, SWEEP)).toBe(false);
+  });
+
+  it('then repeats daily, not per sweep', () => {
+    expect(crossedAlertBand(ALERT_REPEAT_MINUTES + 5, SWEEP)).toBe(true);
+    expect(crossedAlertBand(ALERT_REPEAT_MINUTES + 20, SWEEP)).toBe(false);
+    expect(crossedAlertBand(2 * ALERT_REPEAT_MINUTES + 5, SWEEP)).toBe(true);
+  });
+
+  it('sends a bounded number of emails over a week, not one per sweep', () => {
+    // The regression this exists to prevent: 96 sweeps a day x 7 days = 672 emails
+    // for a single stuck row, against a Resend account shared with the Supabase
+    // magic-link sender (docs/email.md).
+    const sweepsPerWeek = (7 * 24 * 60) / RECONCILE_SWEEP_INTERVAL_MINUTES;
+    let emails = 0;
+    for (let i = 1; i <= sweepsPerWeek; i++) {
+      if (
+        crossedAlertBand(i * RECONCILE_SWEEP_INTERVAL_MINUTES, RECONCILE_SWEEP_INTERVAL_MINUTES)
+      ) {
+        emails++;
+      }
+    }
+    // 60m + 6h, then one per day: 1440, 2880 … 10080 inclusive = 7 more.
+    const dailyRepeats = (7 * 24 * 60) / ALERT_REPEAT_MINUTES;
+    expect(sweepsPerWeek).toBe(672);
+    expect(emails).toBe(ALERT_BANDS_MINUTES.length + dailyRepeats);
+    expect(emails).toBe(9);
+  });
+
+  it('is computed from the real cron cadence', () => {
+    // The throttle tiles the timeline with windows of exactly one sweep interval.
+    // If the cron changes and this constant does not, rows either double-send or
+    // skip a band entirely, silently. Nothing else couples the two.
+    const everyNMinutes = /^\*\/(\d+) \* \* \* \*$/.exec(RECONCILE_CRON);
+    expect(everyNMinutes).not.toBeNull();
+    expect(Number(everyNMinutes?.[1])).toBe(RECONCILE_SWEEP_INTERVAL_MINUTES);
+  });
+});
+
+describe('runReconciliationSweep — AECI-854 alert throttle and cause reporting', () => {
+  it('suppresses the email between bands but never the metric or the error log', async () => {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    // 90m: persistent, but its 60m email already went out two sweeps ago.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: failingCreateIssue() as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ persistent: 1, alerted: false });
+    expect(sendAlert).not.toHaveBeenCalled();
+    // The §6.2 guaranteed backstop is untouched — this is the whole safety argument
+    // for throttling the email at all.
+    expect(submitCount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.linear.reconcile.persistent_failure',
+      1,
+      [],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'error', request_ids: ['req-1'] }),
+    );
+  });
+
+  it('carries the retrier failure reason into the alert', async () => {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+    // The exact shape the absent-key path returns — the cause that was invisible
+    // in both the email and PostHog before AECI-854 (AECI-851).
+    const createIssue = vi.fn(async () => ({ status: 'failed', reason: 'no_api_key' }) as const);
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: createIssue as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(sendAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'stuck_requests',
+        rows: [
+          expect.objectContaining({
+            requestId: 'req-1',
+            reason: 'no_api_key',
+            retried: true,
+            targetSlug: 'acme-build',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('reports an un-rebuildable row as NOT retried, with the blocker as the reason', async () => {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    // No workflow instance → the sweep skips before any retry.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: failingCreateIssue() as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(sendAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        rows: [expect.objectContaining({ retried: false, reason: 'workflow_missing' })],
       }),
     );
   });

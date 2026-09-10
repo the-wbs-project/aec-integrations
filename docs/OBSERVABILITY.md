@@ -666,6 +666,14 @@ the row then sits `open`/`linear_issue_id=null` for the §6.7 reconciliation swe
 (no `LINEAR_API_KEY`, the expected non-prod state) emits **nothing**, mirroring `aeci.toxicity.api`,
 so it never pollutes the error-rate denominator.
 
+> **That silence has a cost, and AECI-854 bought it back on a different channel.** Because the
+> absent-key path emits no metric, PostHog cannot distinguish "no key" from "no traffic" — which is
+> how production ran two months with no `LINEAR_API_KEY` and no signal anywhere (AECI-851). The
+> metric stays silent on purpose, but `createLinearIssueForRequest` now **returns**
+> `{ status:'failed', reason:'no_api_key' }`, and the §6.7 sweep puts that reason in its operator
+> email and in the `persistent_failure` error log's `reasons` array. So the cause is queryable in
+> Logs even though it is absent from Metrics. Do not "fix" the gap by emitting a metric here.
+
 `aeci.linear.reconcile.*` (AECI-214, Phase 6.7) are the §6.7 reconciliation-sweep metrics — the
 every-15-min backstop that retries those stuck rows. `aeci.linear.reconcile.stuck` is the **backlog
 gauge** (count of `open`/unlinked `vendor_requests` past the stuck threshold; 0 on a clean run, so a

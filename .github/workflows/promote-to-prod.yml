@@ -209,8 +209,21 @@ jobs:
           POSTHOG_QUERY_API_KEY_PRODUCTION: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
           POSTHOG_PROJECT_ID_PRODUCTION: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
           PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
+          # AECI-851: the Phase 6 form→Linear pipeline. Single shared (un-suffixed)
+          # keys — one Linear workspace/board backs the integration, and only
+          # production is wired to it (the push steps in deploy-prod-workers say why
+          # staging/demo deliberately are NOT). Mapped here for the same
+          # must-be-mapped reason as the block above.
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_WEBHOOK_SIGNING_SECRET: ${{ secrets.LINEAR_WEBHOOK_SIGNING_SECRET }}
           ENV_LABEL: production
-          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
+          # AECI-851: LINEAR_API_KEY is REQUIRED on production, unlike the other
+          # fail-open runtime keys. Its absence is not merely degraded, it is
+          # SILENT: createLinearIssueForRequest() returns early with no metric and
+          # no log, so a submitted vendor claim reaches nobody and the only signal
+          # is the 60-minute reconciliation-sweep email. A warn-and-skip log is
+          # exactly what left prod analytics dark for weeks in AECI-326.
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
           # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
@@ -241,7 +254,13 @@ jobs:
           # resolution 'unavailable'). Prod therefore does NOT fail closed on it. AECI-747
           # removed GOOGLE_INDEXING_SA_*: the ping only ever accepted JobPosting /
           # BroadcastEvent URLs, so it did nothing for our pages.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY'
+          # AECI-851: LINEAR_WEBHOOK_SIGNING_SECRET is recommended, not required —
+          # the opposite call from LINEAR_API_KEY one list up. It gates the INBOUND
+          # Linear→site webhook, which fails CLOSED (401 before any write) and
+          # emits aeci.webhooks.linear.hmac_failure, so its absence is loud rather
+          # than silent — and a prod webhook may not be registered in Linear at all,
+          # in which case the secret is moot and must not block a promote.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -477,6 +496,58 @@ jobs:
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env production
+
+      # AECI-851: push the two Phase 6 form→Linear pipeline secrets to the prod API
+      # Worker. Until this step existed neither had a CI push anywhere — they were
+      # manual `wrangler secret put` only, absent from `.github/workflows/` entirely,
+      # from `docs/environments.md` §Secrets, and from the launch-cutover secret
+      # table. That gap is how production ran from the 2026-07 apex cutover to
+      # 2026-09-10 with no `LINEAR_API_KEY` at all: the first real vendor claim
+      # (Procore) submitted, got its 201, and reached nobody.
+      #
+      # PRODUCTION ONLY, deliberately. The board constants in
+      # `apps/api/src/lib/linear.ts` are hardcoded to the ONE shared "Vendor
+      # Requests" project on the real AECi team, so a non-prod tier holding this key
+      # files fixture claims as real issues in the live tracker. That already
+      # happened: AECI-638 "Claim: Fixture Procore (product)" and AECI-662 came from
+      # a non-prod tier during the AECI-637 window. Do NOT copy these steps into
+      # deploy.yml / promote-to-demo.yml / pr-preview.yml until non-prod has its own
+      # Linear project and those constants become env-configurable.
+      #
+      # LINEAR_API_KEY is REQUIRED (asserted in preflight AND on the Worker below).
+      # LINEAR_WEBHOOK_SIGNING_SECRET is recommended/warn-and-skip — see the split
+      # rationale at the RECOMMENDED_SECRETS comment in pre-promotion-checks.
+      - name: Push LINEAR_API_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Single shared (un-suffixed) Linear personal API key — one workspace
+          # spans the integration, so there is no _PRODUCTION suffix.
+          LINEAR_API_KEY_VALUE: ${{ secrets.LINEAR_API_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$LINEAR_API_KEY_VALUE" ]; then
+            echo "::error::LINEAR_API_KEY not set — the form→Linear pipeline cannot create issues in production. Preflight should already have failed the run; if you are seeing this, REQUIRED_SECRETS drifted."
+            exit 1
+          fi
+          printf '%s' "$LINEAR_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put LINEAR_API_KEY --env production
+
+      - name: Push LINEAR_WEBHOOK_SIGNING_SECRET to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          LINEAR_WEBHOOK_SIGNING_SECRET_VALUE: ${{ secrets.LINEAR_WEBHOOK_SIGNING_SECRET }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$LINEAR_WEBHOOK_SIGNING_SECRET_VALUE" ]; then
+            echo "::warning::LINEAR_WEBHOOK_SIGNING_SECRET not set — skipping push. The inbound Linear→site webhook stays fail-closed (every delivery 401s), so resolving a request in Linear will not sync back to the site."
+            exit 0
+          fi
+          printf '%s' "$LINEAR_WEBHOOK_SIGNING_SECRET_VALUE" \
+            | pnpm exec wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET --env production
 
       # AECI-530: push the Supabase GoTrue service-role key to the prod API Worker so
       # the split-identity seams (lib/supabase-admin.ts — the register in
@@ -826,7 +897,12 @@ jobs:
           # AECI-139: ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY are required on prod —
           # the daily-sync cron + promote→index hook need them, and search is
           # launch-critical (fail closed if a push silently no-op'd).
-          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY'
+          # AECI-851: LINEAR_API_KEY is required here too, not just in preflight.
+          # This step reads the LIVE Worker, so it is the only check that catches a
+          # key that was never pushed, was pushed to the wrong env, or was deleted
+          # out of band. That is the exact class of miss that ran production without
+          # one from the apex cutover to 2026-09-10.
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY LINEAR_API_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
       - name: Smoke test production (API + SSR at SHA, DB healthy)

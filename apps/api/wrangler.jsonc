@@ -60,10 +60,32 @@
   //                 outside the AUTH_AND_RLS.md §8 erasure boundary.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
-  //                 `Bearer`). Optional + fail-open like ANTHROPIC_API_KEY: absent
-  //                 → issue creation is a silent no-op and the request row sits open
-  //                 for the §6.7 reconciliation sweep. Set per env via `wrangler
-  //                 secret put LINEAR_API_KEY --env <env>` when ready (no CI gate).
+  //                 `Bearer`). Fail-open at RUNTIME: absent → issue creation is a
+  //                 silent no-op and the request row sits open for the §6.7
+  //                 reconciliation sweep. But since AECI-851 it is REQUIRED at
+  //                 DEPLOY time on production — `promote-to-prod.yml` pushes it from
+  //                 the un-suffixed `LINEAR_API_KEY` GH secret, `require-secrets.sh`
+  //                 fails the promote before anything deploys when that secret is
+  //                 empty, and `verify-worker-secrets.sh` re-asserts it on the live
+  //                 Worker afterwards. Required rather than warn-and-skip because
+  //                 the absent-key path emits NO metric and NO log, so a vendor
+  //                 claim reaches nobody and the only signal is the 60-minute
+  //                 reconciliation-sweep email (that is exactly what happened
+  //                 2026-07 → 2026-09-10). PRODUCTION ONLY — staging/demo/PR
+  //                 previews deliberately get no push, because the board constants
+  //                 in `src/lib/linear.ts` point at the one shared "Vendor Requests"
+  //                 project and a non-prod tier would file fixture claims there as
+  //                 real issues. Bootstrap a new env by hand with `wrangler secret
+  //                 put LINEAR_API_KEY --env <env>`.
+  //   LINEAR_WEBHOOK_SIGNING_SECRET — HMAC-SHA256 signing secret for the inbound
+  //                 Linear webhook (AECI-212 / Phase 6.5, `POST /api/webhooks/
+  //                 linear`). Fail-CLOSED: absent → every delivery is rejected 401
+  //                 before any write and `aeci.webhooks.linear.hmac_failure` fires,
+  //                 so the Linear→site status sync stops but nothing is corrupted.
+  //                 Pushed to production by `promote-to-prod.yml` (AECI-851) as
+  //                 recommended/warn-and-skip, NOT required — a prod webhook may not
+  //                 be registered in Linear at all, and its absence is loud (it has
+  //                 its own alert) rather than silent like LINEAR_API_KEY above.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the
