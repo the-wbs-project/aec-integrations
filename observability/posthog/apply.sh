@@ -100,6 +100,20 @@ for f in "$CONFIG" "$INSIGHTS" "$ALERTS"; do
   fi
 done
 
+# PostHog caps `description` at 400 characters on dashboards and insights and rejects the
+# whole PATCH with a 400 `max_length` when it is longer. Catching it here means a
+# dry-run fails, not the live apply — a rename that half-lands is exactly the state the
+# failure ledger below exists to avoid. (First hit 2026-09-10: two insights, one board.)
+too_long="$(jq -r '
+  ((.dashboards // []) | map(select((.description // "" | length) > 400) | "dashboard\t\(.key)\t\(.description | length)")),
+  ((.insights   // []) | map(select((.description // "" | length) > 400) | "insight\t\(.key)\t\(.description | length)"))
+  | .[]' "$INSIGHTS")"
+if [ -n "$too_long" ]; then
+  echo "apply.sh: PostHog rejects descriptions longer than 400 characters. Shorten these in insights.json:" >&2
+  printf '%s\n' "$too_long" | awk -F'\t' '{ printf "  %-9s %-40s %s chars\n", $1, $2, $3 }' >&2
+  exit 2
+fi
+
 API_KEY="${POSTHOG_PERSONAL_API_KEY:-${POSTHOG_CLI_API_KEY:-}}"
 APP_HOST="$(jq -r '.hosts.management' "$CONFIG")"
 

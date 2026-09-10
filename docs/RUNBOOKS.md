@@ -64,7 +64,7 @@ survive, `observability/datadog/` having been deleted.
 | 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert — kept separate** (a user-visible vendor request is stuck; the sweep itself is healthy) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
 | 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert — kept separate, threshold unchanged** (a *successful* run with the wrong effect) | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
 | 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert — kept separate** (success-with-a-caveat; folding it into "job failed" would make that alert mushy) | [Algolia index drift](#algolia-index-drift) |
-| 10 | Detail render slow (p95 > 1.5 s, MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — p95 reconstructed from OTLP histogram buckets. ⚠️ **unverified until data flows** | [High p95 detail render](#high-p95-detail-render) |
+| 10 | Detail render slow (p95 > 1.5 s, MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — p95 reconstructed from OTLP histogram buckets, **verified 2026-09-10** against live buckets | [High p95 detail render](#high-p95-detail-render) |
 | 11 | Auth sign-in error rate | `failed/total * 100 > 30` over `last_15m` | **PostHog alert (hourly)**, threshold 30% unchanged, **≥5-attempt floor added** | [Auth sign-in error-rate spike](#auth-sign-in-error-rate-spike) |
 | 12 | Toxicity scoring outage | `failed/total * 100 > 50` over `last_15m` | **PostHog alert (hourly)**, threshold 50% unchanged, **≥5-call floor added** | [Toxicity scoring outage](#toxicity-scoring-outage) |
 | 13 | page_views write errors | `failed/total * 100 > 10` over `last_10m` | **PostHog alert (hourly)**, threshold 10% unchanged, **≥20-write floor added** | [Page-view writes failing](#page-view-writes-failing) |
@@ -186,24 +186,24 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 **Alert:** `AECi — Detail page render p95, cache MISS (1 h)`, same 1,500 ms threshold, hourly.
 **Metric:** `aeci.page.render.duration_ms{route_class:detail,cache_status:miss}` p95.
 
-> **⚠️ The PostHog successor reconstructs p95 from OTLP histogram buckets, and that
-> arithmetic has never seen real data.** It sums the bucket-count arrays element-wise,
-> finds the bucket the 95th observation falls in, and reports that bucket's **upper
-> bound** — a conservative over-estimate by at most one bucket width, which is the right
-> direction for an alert. Two guards make it correct: an `+Inf` overflow sentinel (without
-> it a p95 above 10 s indexes past the array, returns 0, and **the worst case silently
-> fails to fire**) and a 20-observation floor (under WC-8 this series is MISS-only and can
-> be very sparse; a p95 from three samples is noise).
+> **How to read the number.** PostHog stores render times as histogram buckets
+> (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms), so the
+> insight reports the **upper edge of the bucket the 95th observation fell in**, not an
+> exact p95. `1500` means the slowest 5% were between 1.0 and 1.5 s. PostHog's upper bound
+> is **strict**, so `1500` does not fire; a firing means the value read `2500` or more,
+> i.e. the true p95 is above 1.5 s. The arithmetic was verified against the raw buckets
+> on production on 2026-09-10 (`observability/posthog/README.md` manual step 2).
 >
-> **This was never validated against the Datadog original before that plane was
-> deleted (AECI-651), so treat the first firing as unproven.** Sanity checks if it
-> looks wrong: the value should land within one bucket width above the true p95
-> (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms). If it
-> reads implausibly low, or 0 while the dashboard shows traffic, check the
-> `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform
-> across points. For everyday reading prefer the dashboard widget *Traffic — SSR
-> render latency distribution (histogram buckets)*, which is a straight read of the
-> bucket counts with no reconstruction at all.
+> **Why it fires as often as it does.** Production runs with no edge cache, so every
+> detail render is a MISS and reaches this series (50–800 renders/hour). Measured
+> 2026-09-07 → 09-09: the median build is 500–1000 ms, the 95th observation lands in the
+> 1000–1500 bucket in about a third of all hours, and it crosses 1,500 ms for roughly two
+> hours a day. The alert is living next to its line because detail renders are slow, not
+> because the port is wrong. Do not raise the threshold; fix the render. The latency
+> itself is tracked as **AECI-839**.
+>
+> For everyday reading prefer the Traffic board tile *Page speed spread — how many were
+> fast, how many were slow*, which is a straight read of the bucket counts.
 
 **What it means:** Server render of detail pages on a cache MISS is slow. Scoped to
 MISS because HITs are edge-served and don't reflect render cost. Under native Workers Cache a MISS
@@ -214,8 +214,8 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
 
 1. Is the API slow? Check `p95:aeci.api.query.duration_ms by {endpoint}` for the detail
    endpoints (`/api/products/:slug`, `/api/vendors/:slug`, `/api/integrations/:id`).
-2. Supabase health: connection/latency via the logs (`service:aeci-api`) and the
-   Supabase dashboard.
+2. D1 health: the API's `db.batch` / query spans in the logs (`service:aeci-api`) and
+   the Cloudflare D1 dashboard. (Supabase is Auth-only and is not on the render path.)
 3. Recent deploy to `apps/web`? An Angular SSR regression (heavy resolver, blocking
    work) can inflate render time — correlate with `GET /api/version`.
 4. Is it global or one entity? A single slow slug points at data shape, not the platform.

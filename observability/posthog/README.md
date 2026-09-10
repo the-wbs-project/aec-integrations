@@ -36,7 +36,7 @@ threshold in this table, so re-promoting one is a config change and not archaeol
 | 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert** — kept separate | AW6 judgement, below. |
 | 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert** — kept separate, threshold unchanged | AW6 judgement, below. |
 | 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert** — kept separate | AW6 judgement, below. |
-| 10 | Detail render slow (p95 > 1.5 s MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — histogram p95 reconstructed | AW6 judgement, below. **Unverified until data flows** — manual step 2. |
+| 10 | Detail render slow (p95 > 1.5 s MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — histogram p95 reconstructed | AW6 judgement, below. **Verified 2026-09-10** — manual step 2. |
 | 11 | Auth sign-in error rate | `failed/total * 100 > 30` over `last_15m` | **PostHog alert (hourly)**, threshold 30% unchanged, **≥5-attempt floor added** | AW6 judgement, below. |
 | 12 | Toxicity scoring outage | `failed/total * 100 > 50` over `last_15m` | **PostHog alert (hourly)**, threshold 50% unchanged, **≥5-call floor added** | AW6 judgement, below. |
 | 13 | page_views write errors | `failed/total * 100 > 10` over `last_10m` | **PostHog alert (hourly)**, threshold 10% unchanged, **≥20-write floor added** | AW6 judgement, below. |
@@ -128,12 +128,24 @@ Two guards that are not optional:
 - A 20-observation floor. Under WC-8 a cache HIT skips the Worker entirely, so this
   series is MISS-only and can be very sparse; a p95 built from three samples is noise.
 
-**This is the one thing in this workstream that is unverifiable until data flows.** The
-query compiles and executes correctly against an empty table; the arithmetic has never
-seen a real histogram. Manual step 2 below is the spot-check.
+**Verified against live production data on 2026-09-10** (manual step 2, below). Three
+things the live data settled, which the pre-verification text got wrong or left open:
 
-For everyday reading, prefer the dashboard widget *Traffic — SSR render latency
-distribution (histogram buckets)*: it is a straight read of the bucket counts with no
+- **The arithmetic is right.** A by-hand cumulative sum over the raw `histogram_counts`
+  for every hour of 2026-09-09 lands in the same bucket the query reports.
+- **PostHog's absolute upper bound is strict.** The query reports a bucket *edge*, so a
+  reading of exactly `1500` means the 95th observation fell in the 1000–1500 bucket, and
+  that does **not** fire (observed: `last_value: 1500`, state `Not firing`). A firing
+  therefore means the true p95 is above 1,500 ms, which is exactly the Datadog semantics.
+- **It sits close to its line.** Production runs uncached, so every detail render is a
+  MISS and the sample is not thin (50–800 renders/hour). The median build is 500–1000 ms
+  and the 95th observation lands in the 1000–1500 bucket about a third of all hours —
+  which reads `1500` and does *not* fire. It crosses 1,500 ms for 2 hours on 09-07,
+  0 on 09-08 and 2 on 09-09, and those are the firings. That is a real latency finding,
+  not a reconstruction defect; it is tracked as **AECI-839**.
+
+For everyday reading, prefer the Traffic board tile *Page speed spread — how many were
+fast, how many were slow*: it is a straight read of the bucket counts with no
 reconstruction at all, so it cannot be wrong.
 
 ### Ratio alerts (rows 11–14) — hourly, with denominator floors
@@ -175,7 +187,7 @@ So `insights.json` now carries **four** text fields, two of which reach PostHog:
 |---|---|---|
 | `key` | as a **tag** (`aeci-key:<key>`) | The applier. The stable identity — see below. Never change one. |
 | `name` | yes | The reader. Plain English, no issue ids, no spec refs, no metric names. Short enough to survive a dashboard tile. |
-| `description` | yes | The reader. One to three sentences: what the tile shows, plus any caveat that changes how you read the number. |
+| `description` | yes | The reader. One to three sentences: what the tile shows, plus any caveat that changes how you read the number. **Hard cap 400 characters** — PostHog rejects a longer one with a `400 max_length` and the whole PATCH (name included) is lost. `apply.sh` refuses to start if any is over. |
 | `notes` | **no** | The engineer editing the query. Datadog lineage, accepted narrowings, why a query is shaped the way it is. This is the old `description` text, kept verbatim — nothing was lost in the rewrite, it moved. |
 | `previousNames` | **no** (but read by `apply.sh`) | The applier's fallback, for objects that pre-date the key tag. |
 
@@ -272,18 +284,23 @@ Verified live against project **354071** (production, read-only) and **525793**
   `bash -n` and `shellcheck` clean, no bash-4-only constructs.
 - ✅ The liveness sweep's failure path is **drilled** — see below.
 
-**Not verified, and cannot be until AECI-642 ships and data flows:**
+**Not verified at the time of writing (AECI-647), when `posthog.metrics` was empty on
+both projects.** Production has carried live metrics since the 2026-09-07 promote, so
+items settled since then are marked ✅ with their date:
 
-- ❌ Every query returns zero rows today. `posthog.metrics` is empty on both projects.
-  Correct *shape* is proven; correct *numbers* are not.
-- ❌ The histogram p95 reconstruction (manual step 2).
+- ❌ Every query returns zero rows *as of AECI-647*. Correct *shape* was proven; correct
+  *numbers* were not. Only the histogram p95 below has been re-checked against live data;
+  the other 42 queries have not.
+- ✅ The histogram p95 reconstruction — verified 2026-09-10 against live production buckets (manual step 2).
 - ❌ `search_performed` in production currently carries only
   `query` / `results_count` / `filters_applied`. The §3.9 properties
   (`status`, `duration_ms`, `results_bucket`) are on the `searchPerformed()` signature in
   source but not yet in the production taxonomy — PostHog's taxonomy warning on those
   columns is the expected pre-AW2 state, not a bug in the query.
-- ❌ Nothing was created in production (354071). `apply.sh` does that; it is operator
-  step 3 below.
+- ❌ The AECI-782 / AECI-826 rename has not been applied to production (354071). The
+  objects themselves **do** exist there — see "Live objects — BOTH projects are applied"
+  below — but both projects still carry the old titles and descriptions. `apply.sh`
+  lands the rename in place; it is operator step 3 below.
 
 ---
 
@@ -323,21 +340,20 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    their board in creation order; drag them where you want them. Layout carries no
    contract and pinning it in JSON would make every cosmetic tweak a repo change.
 
-2. **Spot-check the histogram p95 against Datadog, during the dual-run window.**
-   The one piece of arithmetic here that has never seen real data. While both vendors are
-   emitting, compare:
-   - Datadog: `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production}`
-   - PostHog: the insight `Alert: product pages are rendering slowly`
-   The PostHog number should be **≥** the Datadog p95 and within one bucket width of it
-   (bounds: `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms). If it is
-   *lower*, or 0 while Datadog shows traffic, the reconstruction is wrong — check the
-   `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform
-   across points. Do not delete the Datadog monitor (AECI-651) until this is checked.
+2. **Spot-check the histogram p95. DONE 2026-09-10.** The Datadog comparison this step
+   was written for never happened (AECI-651 deleted that plane first), so it was checked
+   the other way: against the raw bucket counts on production. Method, repeatable at any
+   time — run the alert query's `agg` CTE grouped by `toStartOfHour(m.timestamp)` over
+   24 h, cumulative-sum each hour's `counts` by hand, and confirm the bucket holding the
+   first value `>= 0.95 * n` is the one the insight reports. Every hour of 2026-09-09
+   matched; `histogram_bounds` was uniform (`uniq() = 1`) across all points. See
+   "Detail render p95 (row 10)" above for what the live numbers showed.
 
 3. **Run `apply.sh` against production.** Requires the `phx_` key (operator checklist
    below). `./observability/posthog/apply.sh --dry-run` first, then without the flag, then
-   paste the dashboard URLs into `docs/OBSERVABILITY.md` (spec §7).
-   Non-prod is already applied — the applier is idempotent by name and will skip it.
+   paste the dashboard URLs into `docs/OBSERVABILITY.md` (spec §7). Both projects were
+   applied in 2026-08 and the applier is idempotent, so this run **renames and
+   re-describes in place** rather than creating anything.
 
 4. **Consider log alerts if hourly proves too slow.** PostHog's *other* alert type
    (`POST /api/projects/:id/logs/alerts/`) supports **5/10/15/30/60-minute** windows —
