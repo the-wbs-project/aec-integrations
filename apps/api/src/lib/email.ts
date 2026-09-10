@@ -932,35 +932,109 @@ export function sendMailingListWelcomeEmail(
   });
 }
 
-/** The request→Linear "persistent failure" admin alert (deferred from AECI-214).
- *  Recipient is `ADMIN_ALERT_EMAIL`; called by `lib/admin-alert.ts`. */
+/**
+ * Human-readable gloss for a `StuckRequestSummary.reason`. The raw token is kept
+ * beside it — that is what you grep PostHog for — but a bare `no_api_key` in an
+ * inbox at 3am is not an instruction.
+ */
+const STUCK_REASON_HELP: Record<string, string> = {
+  no_api_key: 'no LINEAR_API_KEY on this Worker. Set the secret; the next sweep self-heals.',
+  http_error: 'Linear rejected the call. The key is likely revoked or under-scoped.',
+  graphql_error: 'Linear refused the call. A board, label or project id has drifted.',
+  timeout: 'Linear did not answer in time. Usually transient; check status.linear.app.',
+  network: 'The call to Linear could not be made. Usually transient.',
+  empty_response: 'Linear returned no data. Usually transient.',
+  db_error: 'Linear was fine. The D1 read or the link-back write failed.',
+  target_missing: 'The claimed product or vendor row is gone. Resolve this request by hand.',
+  workflow_missing: 'The request has no workflow_instance row. Resolve this request by hand.',
+  retry_errored: 'The retry threw before reaching Linear. See the sweep logs.',
+};
+
+/**
+ * The request→Linear "persistent failure" admin alert (deferred from AECI-214).
+ * Recipient is `ADMIN_ALERT_EMAIL`; called by `lib/admin-alert.ts`.
+ *
+ * AECI-854 rewrote this. Three things were wrong with the original:
+ *
+ *   1. It could not say WHY, because the §6.4 retrier returned `void`. "Still
+ *      failing after retries" was the most it could manage, which is why the
+ *      2026-09-10 stuck-claim incident needed a code read to diagnose.
+ *   2. That wording was also sometimes false — a row the sweep could not rebuild
+ *      is skipped, never retried, and was reported identically.
+ *   3. It was the last operator alert still on the prose format, with
+ *      `/admin/requests` as literal text rather than a link.
+ *
+ * Now: operator format (`opsSectionsText`/`opsSectionsHtml`), one table per stuck
+ * request, the cause and its gloss, and real links when `PUBLIC_SITE_URL` is set.
+ * The subject carries the reason when every row shares one, so triage can happen
+ * from the inbox list without opening anything.
+ */
 export function sendStuckRequestAdminAlert(
   c: EmailContext,
   opts: { to: string | undefined; rows: readonly StuckRequestSummary[] },
 ): Promise<EmailOutcome> {
   const { rows } = opts;
   const plural = rows.length === 1 ? '' : 's';
-  const items = rows.map(
-    (r) =>
-      `${r.kind} ${r.targetType} "${r.targetName ?? '(target removed)'}" — stuck ${r.ageMinutes}m — ${r.requestId}`,
-  );
-  const textParagraphs = [
-    `The reconciliation sweep found ${rows.length} request${plural} that failed to create a Linear issue and ${rows.length === 1 ? 'is' : 'are'} still failing after retries:`,
-    items.join('\n'),
-    'These rows are open with linear_issue_id=null. Check /admin/requests.',
-  ];
-  const htmlParagraphs = [
-    `The reconciliation sweep found ${rows.length} request${plural} that failed to create a Linear issue and ${rows.length === 1 ? 'is' : 'are'} still failing after retries:`,
-    `<ul>${items.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`,
-    'These rows are <code>open</code> with <code>linear_issue_id=null</code>. Check <code>/admin/requests</code>.',
-  ];
+  const base = siteUrl(c.env);
+
+  const sections = rows.map((r) => {
+    const name = r.targetName ?? '(target removed)';
+    const detail: Array<[string, string]> = [
+      ['Stuck', `${r.kind} ${r.targetType} "${name}"`],
+      ['Age', formatStuckAge(r.ageMinutes)],
+      ['Cause', describeStuckReason(r)],
+      ['Request id', r.requestId],
+    ];
+    if (base) {
+      detail.push(['Request queue', `${base}/admin/requests`]);
+      // Only when the target still resolves — a dead link on an alert about a
+      // missing row would be its own small lie.
+      if (r.targetSlug) {
+        const path = r.targetType === 'vendor' ? 'vendors' : 'products';
+        detail.push(['Listing', `${base}/${path}/${r.targetSlug}`]);
+      }
+    }
+    return { heading: `${name} (${r.kind})`, rows: detail as OpsRows };
+  });
+
+  const intro =
+    `The reconciliation sweep found ${rows.length} request${plural} whose Linear issue was ` +
+    `never created. ${rows.length === 1 ? 'It is' : 'They are'} open with ` +
+    `linear_issue_id=null and ${rows.length === 1 ? 'is' : 'are'} being retried every 15 minutes. ` +
+    `Nothing is lost, but nobody was notified in Linear.`;
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stuck-request-alert',
-    subject: `[AECi] ${rows.length} request${plural} stuck in the Linear pipeline`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    subject: `[AECi] ${rows.length} request${plural} stuck in the Linear pipeline${subjectReasonSuffix(rows)}`,
+    text: opsSectionsText(intro, sections),
+    html: opsSectionsHtml(intro, sections),
   });
+}
+
+/** `62m` under an hour, `3h 10m` above — a four-digit minute count is unreadable. */
+function formatStuckAge(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+/** The raw reason token, its gloss, and whether a retry actually ran. */
+function describeStuckReason(row: StuckRequestSummary): string {
+  const retryNote = row.retried === false ? ' [not retried: the sweep could not rebuild it]' : '';
+  if (!row.reason) return `unknown${retryNote}`;
+  const help = STUCK_REASON_HELP[row.reason];
+  return help ? `${row.reason}${retryNote} — ${help}` : `${row.reason}${retryNote}`;
+}
+
+/** ` (no_api_key)` when every row shares one cause, else empty. Systemic causes are
+ *  the common case, and naming one in the subject is the whole triage. */
+function subjectReasonSuffix(rows: readonly StuckRequestSummary[]): string {
+  const reasons = new Set(rows.map((r) => r.reason ?? 'unknown'));
+  if (reasons.size !== 1) return '';
+  const [only] = [...reasons];
+  return only === 'unknown' ? '' : ` (${only})`;
 }
 
 // ─── Operator lead-capture notifications (AECI-247/277) ─────────────────────────
@@ -1258,6 +1332,40 @@ function opsTable(intro: string, rows: ReadonlyArray<readonly [string, string]>)
     .map(([k, v]) => `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`)
     .join('');
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p><table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">${body}</table></body></html>`;
+}
+
+type OpsRows = ReadonlyArray<readonly [string, string]>;
+
+/** Plain-text operator notification with one `Key: value` block per section. */
+function opsSectionsText(
+  intro: string,
+  sections: ReadonlyArray<{ heading: string; rows: OpsRows }>,
+): string {
+  const blocks = sections.map(
+    ({ heading, rows }) => `${heading}\n${rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`,
+  );
+  return `${intro}\n\n${blocks.join('\n\n')}`;
+}
+
+/** HTML operator notification with one bordered table per section. Mirrors
+ *  `opsTable`'s markup; headings, keys and cell values are all escaped here. */
+function opsSectionsHtml(
+  intro: string,
+  sections: ReadonlyArray<{ heading: string; rows: OpsRows }>,
+): string {
+  const blocks = sections
+    .map(
+      ({ heading, rows }) =>
+        `<p style="margin:0 0 8px"><strong>${escapeHtml(heading)}</strong></p>` +
+        `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin:0 0 20px">${rows
+          .map(
+            ([k, v]) =>
+              `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`,
+          )
+          .join('')}</table>`,
+    )
+    .join('');
+  return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p>${blocks}</body></html>`;
 }
 
 function escapeHtml(value: string): string {

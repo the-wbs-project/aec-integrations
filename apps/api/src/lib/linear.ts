@@ -18,7 +18,11 @@
  *     `linear_issue_id=null` for the §6.7 reconciliation sweep to retry (§6.2).
  *   - **Absent key → silent no-op, no metric.** No `LINEAR_API_KEY` is the
  *     expected state in local `dev:bound` / PR previews (staging/prod only), so it
- *     must not pollute the `aeci.linear.issue` error-rate denominator.
+ *     must not pollute the `aeci.linear.issue` error-rate denominator. Since
+ *     AECI-854 it is metric-silent but no longer *caller*-silent: the function
+ *     returns `{ status:'failed', reason:'no_api_key' }` so the §6.7 sweep can name
+ *     the cause in its operator email. Production ran two months with no key and
+ *     nothing anywhere said so (AECI-851); the two channels are separate on purpose.
  *   - **Idempotent.** A read-guard skips creation once `linear_issue_id` is set, so
  *     a stray re-fire (or the §6.7 retrier running this same function) never
  *     double-creates. The persist is a compare-and-set by primary key. Full
@@ -153,6 +157,33 @@ export type LinearFailureReason =
 export type LinearGraphqlResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; reason: LinearFailureReason; message: string };
+
+/**
+ * Why an issue creation did not happen (AECI-854). Supersets `LinearFailureReason`
+ * with the two causes that are not transport failures:
+ *
+ *   - `no_api_key` — the env has no `LINEAR_API_KEY`. This is the one the sweep
+ *     could never see before, because the absent-key path returns before the first
+ *     metric. It is DELIBERATELY still metric-silent (see the file header); the
+ *     return value is a separate channel from the emitted telemetry.
+ *   - `db_error` — Linear was fine; the idempotency read or the link-back write
+ *     failed.
+ */
+export type LinearIssueFailureReason = LinearFailureReason | 'no_api_key' | 'db_error';
+
+/**
+ * What `createLinearIssueForRequest` did. It still never throws — this replaces
+ * the old `void` so the §6.7 sweep can put a CAUSE in its operator alert instead
+ * of "still failing", which is what turned the 2026-09-10 stuck-claim incident
+ * into a code read (AECI-851 / AECI-854).
+ *
+ * Both production callers may ignore it; the request handler fires this in
+ * `waitUntil` and has nothing to do with the answer.
+ */
+export type LinearIssueOutcome =
+  | { status: 'created'; issueId: string; issueUrl: string }
+  | { status: 'skipped_exists' }
+  | { status: 'failed'; reason: LinearIssueFailureReason; message?: string };
 
 /**
  * POST a GraphQL operation to Linear. **Never throws** — network/timeout/non-2xx
@@ -348,17 +379,25 @@ export interface LinearResolutionInput {
  * Create the Linear issue for a just-submitted request and link it back. Runs in
  * `ctx.waitUntil()`; never throws (see file header). On any failure the row is
  * left `open`/`linear_issue_id=null` for §6.7 to retry.
+ *
+ * Returns a `LinearIssueOutcome` (AECI-854). It used to return `void`, which meant
+ * the §6.7 sweep knew a row had failed but not WHY — so its operator email could
+ * only say "still failing after retries", and the absent-key case was invisible in
+ * both the email and PostHog. The reason is now a return value; the metric
+ * behaviour below is unchanged.
  */
 export async function createLinearIssueForRequest(
   c: LinearContext,
   store: LinearRequestStore,
   input: LinearIssueInput,
   fetchImpl: typeof fetch = fetch,
-): Promise<void> {
+): Promise<LinearIssueOutcome> {
   const apiKey = c.env.LINEAR_API_KEY;
   // Absent key is the expected non-prod state — silent no-op, no metric (it must
-  // not pollute the error-rate denominator; mirrors `toxicity.ts`).
-  if (!apiKey) return;
+  // not pollute the error-rate denominator; mirrors `toxicity.ts`). Metric-silent,
+  // NOT caller-silent: the returned reason is what lets the §6.7 sweep name this
+  // cause in its email. Do not add an `emit()` here.
+  if (!apiKey) return { status: 'failed', reason: 'no_api_key' };
 
   // Idempotency guard: skip if already linked. Covers a stray re-fire and the
   // §6.7 retrier reusing this function.
@@ -366,13 +405,14 @@ export async function createLinearIssueForRequest(
     const existingId = await store.getLinkedIssueId(input.requestId);
     if (existingId) {
       emit(c, 'skipped_exists', input.kind);
-      return;
+      return { status: 'skipped_exists' };
     }
   } catch (error) {
     // A guard read failure must not risk a duplicate — bail, leave the row open.
-    warn(c, `linear idempotency read failed: ${errMsg(error)}`);
+    const message = errMsg(error);
+    warn(c, `linear idempotency read failed: ${message}`);
     emit(c, 'failed', input.kind, 'db_error');
-    return;
+    return { status: 'failed', reason: 'db_error', message };
   }
 
   const started = Date.now();
@@ -397,11 +437,11 @@ export async function createLinearIssueForRequest(
   // `errors[]` or `success:false` (handled in `linearGraphql`/here).
   const issue = createRes.ok ? createRes.data.issueCreate.issue : null;
   if (!createRes.ok || !createRes.data.issueCreate.success || !issue) {
-    const reason = createRes.ok ? 'graphql_error' : createRes.reason;
+    const reason: LinearIssueFailureReason = createRes.ok ? 'graphql_error' : createRes.reason;
     const message = createRes.ok ? 'issueCreate success=false' : createRes.message;
     error(c, `linear issueCreate failed (${reason}): ${message}`);
     emit(c, 'failed', input.kind, reason, Date.now() - started);
-    return;
+    return { status: 'failed', reason, message };
   }
 
   // Source URL → attachment (renders as a clickable card). Best-effort: a failed
@@ -446,12 +486,14 @@ export async function createLinearIssueForRequest(
   } catch (err) {
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.
-    error(c, `linear id persist failed (issue ${issue.id}): ${errMsg(err)}`);
+    const message = errMsg(err);
+    error(c, `linear id persist failed (issue ${issue.id}): ${message}`);
     emit(c, 'failed', input.kind, 'db_error', Date.now() - started);
-    return;
+    return { status: 'failed', reason: 'db_error', message };
   }
 
   emit(c, 'ok', input.kind, undefined, Date.now() - started);
+  return { status: 'created', issueId: issue.id, issueUrl: issue.url };
 }
 
 /**

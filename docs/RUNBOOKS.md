@@ -700,8 +700,10 @@ has no reconciliation retry, so Linear silently diverges from Supabase until som
    split `aeci.linear.issue{outcome:failed}` vs `aeci.linear.sync{outcome:failed}`. Both failing → a
    shared cause (key/Linear outage). Only `sync` failing → likely a state/transition-id problem specific
    to the resolve/reject push.
-2. **Why?** Pivot the failing metric by `reason`: `http_error 401/403` → `LINEAR_API_KEY` missing/revoked/
-   over-scope (`wrangler secret list` on the Worker); `graphql_error` → a bad label/assignee/project/state
+2. **Why?** Pivot the failing metric by `reason`: `http_error 401/403` → `LINEAR_API_KEY` revoked or
+   over-scope (`wrangler secret list` on the Worker; a **missing** key produces no metric at all, and
+   since AECI-851 the prod promote fails closed on one, so 401/403 here means the key is present but
+   bad); `graphql_error` → a bad label/assignee/project/state
    id — the board constants in `lib/linear.ts` drifted from Linear; `timeout`/`network` → Linear is
    slow/down (check the Linear status page); `db_error` → the Linear call succeeded but the link-back /
    `workflow_transition` write failed. Read `service:aeci-api` logs for detail.
@@ -785,7 +787,18 @@ reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` che
 threshold (~60m) AND still failing after a retry; companion `aeci.linear.reconcile.stuck` (backlog
 gauge) and `aeci.linear.reconcile.attempt` (`outcome:cleared|still_failing`). Emitted by the
 reconciliation sweep, `lib/reconciliation-sweep.ts` (AECI-214 / Phase 6.7), every 15 min. The
-`level:error` `source:reconcile` log carries the stuck `request_ids`.
+`level:error` `source:reconcile` log carries the stuck `request_ids` **and, since AECI-854, a
+parallel `reasons` array** — read that first, it usually ends the investigation.
+
+> **AECI-854: the email and the metric now have different cadences. Read the email's absence
+> correctly.** The metric and the error log still fire on **every** sweep — they are the §6.2
+> guaranteed backstop and this alert's input, and nothing throttles them. The **email** is
+> band-throttled: one at 60 min, one at 6 h, then one a day. So `persistent_failure > 0` with no new
+> email is the normal steady state for a row already reported, **not** evidence the email seam broke.
+> Before this, one stuck row sent 96 identical messages a day, forever, against the same Resend
+> account the Supabase magic-link sender uses (`docs/email.md`) — a long outage could have burned the
+> allowance and stopped sign-in. The trade: a skipped sweep can defer a row's email to the next band,
+> which is why only the email is throttled and never the metric.
 
 **What it means:** A claim/correction was submitted but its Linear issue was never created — the §6.4
 on-submit `createLinearIssueForRequest()` failed, and the §6.7 sweep has retried it for >~1h without
@@ -803,11 +816,19 @@ never notified by Linear, so it needs a human. **Not user-facing:** the submitte
    tail`, confirm the `*/15 * * * *` trigger is present in `apps/api/wrangler.jsonc` (staging +
    production only) and the `aeci-reconcile-<env>` queue + consumer exist. A stalled sweep means stuck
    rows aren't being retried (the §6.2 backstop is down).
-2. Why is creation failing? Read the `service:aeci-api source:reconcile` error log for the
-   `request_ids`, then pivot `aeci.linear.issue{outcome:failed}` by `reason`: `http_error 401/403` →
+2. Why is creation failing? **Read the alert email first — since AECI-854 it names the cause per
+   row** (`no_api_key`, `http_error`, `graphql_error`, `timeout`, `network`, `empty_response`,
+   `db_error`, or the rebuild blockers `target_missing` / `workflow_missing`), with a one-line gloss
+   and a link to the listing. The same tokens are in the `source:reconcile` error log's `reasons`
+   array beside `request_ids`. Only if both are empty, pivot `aeci.linear.issue{outcome:failed}` by
+   `reason`: `http_error 401/403` →
    the `LINEAR_API_KEY` is missing/revoked/over-scope (a **missing** key is a silent no-op that emits
    no `aeci.linear.issue` metric, but the sweep still counts the row as stuck — confirm the secret is
-   set on the Worker); `graphql_error` → a bad label/assignee/project id (the board constants in
+   set on the Worker with `wrangler secret list --env production`. **Since AECI-851 a missing key on
+   production should be impossible**: `promote-to-prod.yml` fails the promote in preflight and
+   re-asserts the key on the live Worker after deploy. If it is genuinely absent, either the Worker
+   has not been promoted since AECI-851 or the secret was deleted out of band — both are worth
+   recording, because this exact gap ran undetected from the 2026-07 apex cutover to 2026-09-10); `graphql_error` → a bad label/assignee/project id (the board constants in
    `lib/linear.ts` drifted from Linear); `timeout`/`network` → Linear is slow/down; `db_error` → the
    issue was created but the link-back write failed (re-running links it).
 3. How many / how old? `aeci.linear.reconcile.stuck` is the backlog size; the log's `request_ids` and

@@ -521,13 +521,26 @@ export type Env = {
   ANTHROPIC_API_KEY?: string;
   /**
    * Linear personal API key for the form→Linear pipeline (AECI-211 / Phase 6.4).
-   * Set as a Wrangler secret per env. Optional and **fail-open** (mirrors
+   * Set as a Wrangler secret per env. **Fail-open at RUNTIME** (mirrors
    * `ANTHROPIC_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
-   * no-op (the expected state in local `dev:bound` / PR previews — the secret is
-   * staging/prod only), so the request still returns `201` and its row simply sits
-   * `open` with `linear_issue_id=null` for the reconciliation sweep (§6.7) to pick
-   * up. Presented raw in the `Authorization` header (no `Bearer` prefix — Linear's
-   * convention). See `lib/linear.ts` and `STAGE_1_PHASE_6_SPEC.md` §6.1/§6.2.
+   * no-op — no metric, no log — so the request still returns `201` and its row
+   * simply sits `open` with `linear_issue_id=null` for the reconciliation sweep
+   * (§6.7) to pick up. Since AECI-854 that path also **returns**
+   * `{ status:'failed', reason:'no_api_key' }`, which is how the sweep names the
+   * cause in its operator email; the metric stays silent on purpose.
+   *
+   * **Required at DEPLOY time on production, and production ONLY** (AECI-851):
+   * `promote-to-prod.yml` pushes it from the un-suffixed `LINEAR_API_KEY` GH
+   * secret, `require-secrets.sh` fails the promote when that secret is empty, and
+   * `verify-worker-secrets.sh` re-asserts it on the live Worker afterwards.
+   * Staging, demo and PR previews deliberately get **no** push — the board
+   * constants below in `lib/linear.ts` are hardcoded to the one live "Vendor
+   * Requests" project, so a non-prod tier would file fixture claims there as real
+   * issues. Absent is therefore the expected state everywhere except production.
+   *
+   * Presented raw in the `Authorization` header (no `Bearer` prefix — Linear's
+   * convention). See `lib/linear.ts`, `STAGE_1_PHASE_6_SPEC.md` §6.1/§6.2, and
+   * `apps/api/src/linear-secrets-ci.spec.ts` (the CI gate).
    */
   LINEAR_API_KEY?: string;
   /**

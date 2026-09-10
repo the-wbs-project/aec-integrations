@@ -112,6 +112,23 @@ AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
 # /api/promote request is rejected 401 (fail-closed).
 REVIEW_APP_TOKEN=
 
+# ─── Linear API key (AECI-211 / Phase 6.4) ─────────────────────────────────
+# Linear personal API key for the form→Linear pipeline: a submitted claim/
+# correction becomes an issue in the "Vendor Requests" project. Presented RAW in
+# `Authorization` (Linear's convention — no `Bearer` prefix). Create it at
+# Linear > Settings > Security & access > Personal API keys.
+#
+# Leave this EMPTY locally and on PR previews. It writes to the real shared team
+# tracker, and the board constants in src/lib/linear.ts are hardcoded to the one
+# live "Vendor Requests" project — so a key here files your test submissions as
+# real AECi issues. Absent → issue creation is a silent no-op (no metric, no log)
+# and the row sits `open`/`linear_issue_id=null` for the §6.7 sweep.
+#
+# In deployed envs it is PRODUCTION ONLY and CI-pushed: `promote-to-prod.yml`
+# reads the un-suffixed `LINEAR_API_KEY` GH secret, and the promote fails closed
+# when it is empty (AECI-851). Staging and demo deliberately get no push.
+LINEAR_API_KEY=
+
 # ─── Linear webhook signing (AECI-212 / Phase 6.5) ─────────────────────────
 # HMAC-SHA256 signing secret for the inbound Linear webhook (POST /api/webhooks/
 # linear). Copy it from the webhook's settings in Linear (Settings > API >

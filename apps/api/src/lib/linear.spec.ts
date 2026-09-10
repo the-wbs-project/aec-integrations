@@ -483,11 +483,72 @@ describe('createLinearIssueForRequest — failure handling', () => {
     const fetchImpl = mockFetch();
     const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx({ LINEAR_API_KEY: undefined }), store, INPUT, fetchImpl);
+    const outcome = await createLinearIssueForRequest(
+      ctx({ LINEAR_API_KEY: undefined }),
+      store,
+      INPUT,
+      fetchImpl,
+    );
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(submitCount).not.toHaveBeenCalled();
     expect(links).toHaveLength(0);
+    // AECI-854: metric-silent, NOT caller-silent. Production ran two months with no
+    // key and nothing anywhere named the cause (AECI-851); this return value is the
+    // only channel that does, and it must not start emitting a metric.
+    expect(outcome).toEqual({ status: 'failed', reason: 'no_api_key' });
+  });
+});
+
+// ─── AECI-854: the outcome the §6.7 sweep reads ───────────────────────────────
+
+describe('createLinearIssueForRequest — returned outcome', () => {
+  it('reports the issue id and url on success', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    const outcome = await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
+
+    expect(outcome).toMatchObject({ status: 'created' });
+  });
+
+  it('reports skipped_exists when the row is already linked', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore({ existingLinearId: 'existing-issue-id' });
+
+    const outcome = await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
+
+    expect(outcome).toEqual({ status: 'skipped_exists' });
+  });
+
+  it('reports graphql_error when Linear 200s with errors[]', async () => {
+    // The drifted-board-id shape: HTTP 200, `errors[]` in the body. The reason the
+    // sweep now surfaces is exactly what the runbook tells the operator to act on.
+    const fetchImpl = mockFetch({ issue: graphqlErrors });
+    const { store } = makeStore();
+
+    const outcome = await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
+
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'graphql_error' });
+  });
+
+  it('reports db_error when the link-back write fails', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore({ throwOnWrite: true });
+
+    const outcome = await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
+
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'db_error' });
+  });
+
+  it('reports db_error when the idempotency read fails', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore({ throwOnRead: true });
+
+    const outcome = await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
+
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'db_error' });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

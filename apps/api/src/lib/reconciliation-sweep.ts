@@ -14,9 +14,15 @@
  *      `createLinearIssueForRequest()`** (its read-guard + compare-and-set persist
  *      mean a re-fire never double-creates — §6.4's "Idempotent"), then
  *   3. for any request still failing AND older than `RECONCILE_PERSISTENT_MINUTES`,
- *      raises the §6.2 admin alert: a high-severity Datadog error log +
- *      `aeci.linear.reconcile.persistent_failure` count (the Datadog alert a
- *      monitor pages on) and the `sendAdminAlert()` email seam.
+ *      raises the §6.2 admin alert: a high-severity error log +
+ *      `aeci.linear.reconcile.persistent_failure` count (the PostHog alert an
+ *      operator pages on) and the `sendAdminAlert()` email seam.
+ *
+ * The two halves of step 3 have different cadences since AECI-854. The metric and
+ * log fire on EVERY sweep, because they are the §6.2 guaranteed backstop. The
+ * EMAIL fires only when a row crosses an age band (`crossedAlertBand`) — 60 min,
+ * 6 h, then daily. Unthrottled it sent 96 identical messages a day per stuck row,
+ * against a Resend account shared with the Supabase magic-link sender.
  *
  * Stateless + age-based — no attempt-counter column, no migration (consistent with
  * ADR 0013's "no DLQ; the cadence re-runs"). The two thresholds separate "retry
@@ -52,6 +58,58 @@ export const RECONCILE_PERSISTENT_MINUTES = 60;
  *  the next tick continues the backlog; the sweep logs a warn when it caps (no
  *  silent truncation). */
 export const RECONCILE_BATCH_CAP = 50;
+
+/** How often the sweep runs, in minutes. MUST match `RECONCILE_CRON`
+ *  (`lib/cron-schedules.ts`) — `reconciliation-sweep.spec.ts` asserts the pair,
+ *  because the email throttle below is computed from it and a silent drift would
+ *  either double-send or skip a band. */
+export const RECONCILE_SWEEP_INTERVAL_MINUTES = 15;
+
+/**
+ * Age thresholds (minutes) at which a persistently-stuck row EMAILS the operator
+ * (AECI-854). Past the last one it repeats daily.
+ *
+ * Before this, `sendAdminAlert` fired on every sweep that saw a persistent row —
+ * 96 emails a day, per row, forever, with no acknowledged state and no backoff.
+ * That is not a nuisance, it is a hazard: Supabase Auth sends magic links through
+ * the SAME Resend account over custom SMTP (`docs/email.md`), so a long outage
+ * could burn the account's allowance and stop sign-in.
+ *
+ * Stateless on purpose — no `alerted_at` column, no migration, consistent with
+ * ADR 0013. A row is emailed when a threshold falls inside the window this sweep
+ * covers, which is derivable from `created_at` and the cadence alone.
+ */
+export const ALERT_BANDS_MINUTES = [60, 360] as const;
+
+/** Repeat interval (minutes) once past the last band — one email a day. */
+export const ALERT_REPEAT_MINUTES = 1440;
+
+/**
+ * Did this row cross an alert threshold within the last `sinceMinutes`?
+ *
+ * Exported for the spec. `sinceMinutes` is the sweep cadence, so consecutive
+ * sweeps tile the timeline without overlap: each threshold is crossed in exactly
+ * one window, hence exactly one email.
+ *
+ * The trade this makes: a SKIPPED sweep (queue hiccup) can miss a band, deferring
+ * that row's email to the next one. Accepted, because only the EMAIL is throttled —
+ * `aeci.linear.reconcile.persistent_failure` and the `level:error` log still fire
+ * on every sweep, so the PostHog alert and `/admin/requests` (the §6.2 "guaranteed
+ * backstop") are completely unaffected.
+ */
+export function crossedAlertBand(ageMinutes: number, sinceMinutes: number): boolean {
+  const previousAge = ageMinutes - sinceMinutes;
+  for (const band of ALERT_BANDS_MINUTES) {
+    if (previousAge < band && ageMinutes >= band) return true;
+  }
+  // Past the last band, repeat once per `ALERT_REPEAT_MINUTES`. Guarded on the
+  // last band so a row younger than it can't be caught by the day-0 boundary.
+  const lastBand = ALERT_BANDS_MINUTES[ALERT_BANDS_MINUTES.length - 1];
+  if (ageMinutes < lastBand) return false;
+  return (
+    Math.floor(previousAge / ALERT_REPEAT_MINUTES) < Math.floor(ageMinutes / ALERT_REPEAT_MINUTES)
+  );
+}
 
 // ─── Row shape the sweep reads ───────────────────────────────────────────────
 // The subset of `vendor_requests` the sweep needs to find a stuck row and rebuild
@@ -99,7 +157,10 @@ export interface ReconcileResult {
   stillFailing: number;
   /** Still-failing rows older than `RECONCILE_PERSISTENT_MINUTES`. */
   persistent: number;
-  /** Whether the admin-alert seam was invoked. */
+  /** Whether the admin-alert EMAIL seam was invoked this sweep. Since AECI-854
+   *  this is band-throttled, so `persistent > 0 && alerted === false` is the normal
+   *  steady state for a row that has already been reported. The metric and the
+   *  error log are NOT throttled. */
   alerted: boolean;
 }
 
@@ -111,6 +172,11 @@ export interface ReconcileResult {
  * whole sweep re-runs and `createLinearIssueForRequest`'s idempotency makes that
  * safe. Per-row errors are caught (logged + skipped) so one bad row never aborts
  * the batch.
+ *
+ * Two AECI-854 changes to know: the retrier's failure REASON is now carried into
+ * the alert (it used to be discarded, so the email could only say "still failing"),
+ * and the email itself is band-throttled while the metric and error log stay
+ * per-sweep.
  */
 export async function runReconciliationSweep(
   c: AlertContext,
@@ -174,20 +240,28 @@ export async function runReconciliationSweep(
     });
   }
 
-  // Retry each, remembering the resolved target name for the alert digest.
+  // Retry each, remembering the resolved target and the failure CAUSE for the
+  // alert digest (AECI-854 — the digest used to carry neither, so its only
+  // available wording was "still failing after retries").
   const targetNames = new Map<string, string | null>();
+  const targetSlugs = new Map<string, string | null>();
+  const reasons = new Map<string, string | null>();
+  const wasRetried = new Set<string>();
   let retried = 0;
   for (const row of stuckRows) {
     try {
       const target = await resolveTargetById(db, row.targetType, row.targetId);
       targetNames.set(row.id, target?.name ?? null);
+      targetSlugs.set(row.id, target?.slug ?? null);
       const workflow = await db.query.workflowInstances.findFirst({
         columns: { id: true },
         where: eq(workflowInstances.entityId, row.id),
       });
       if (!target || !workflow) {
         // Can't rebuild the §6.4 input (target row gone, or no workflow instance) —
-        // skip; it stays counted as still-failing below.
+        // skip; it stays counted as still-failing below. NOT retried, and the
+        // digest now says so rather than claiming a retry that never ran.
+        reasons.set(row.id, !target ? 'target_missing' : 'workflow_missing');
         log(c, {
           level: 'warn',
           message: `aeci.linear.reconcile: cannot rebuild request ${row.id} (${
@@ -197,10 +271,11 @@ export async function runReconciliationSweep(
         continue;
       }
       retried++;
+      wasRetried.add(row.id);
       // Idempotent retry of §6.4 — the same function the request handler runs.
       // `drizzleLinearStore` adapts the Drizzle `db` to the ORM-neutral
       // `LinearRequestStore` seam `createLinearIssueForRequest` persists through.
-      await createIssue(c, drizzleLinearStore(db), {
+      const outcome = await createIssue(c, drizzleLinearStore(db), {
         requestId: row.id,
         workflowId: workflow.id,
         kind: row.kind,
@@ -214,9 +289,15 @@ export async function runReconciliationSweep(
         sourceUrl: row.sourceUrl,
         domainMatch: row.domainMatch,
       });
+      // `createLinearIssueForRequest` never throws, so the reason arrives here as a
+      // value. `no_api_key` is the one the old `void` signature could never surface
+      // anywhere, in the email OR in PostHog (AECI-851).
+      if (outcome?.status === 'failed') reasons.set(row.id, outcome.reason);
     } catch (error) {
       // A per-row read error must not abort the rest of the batch.
       if (!targetNames.has(row.id)) targetNames.set(row.id, null);
+      if (!targetSlugs.has(row.id)) targetSlugs.set(row.id, null);
+      reasons.set(row.id, 'retry_errored');
       log(c, {
         level: 'warn',
         message: `aeci.linear.reconcile: retry for request ${row.id} errored: ${errMsg(error)}`,
@@ -254,21 +335,41 @@ export async function runReconciliationSweep(
       kind: r.kind,
       targetType: r.targetType,
       targetName: targetNames.get(r.id) ?? null,
+      targetSlug: targetSlugs.get(r.id) ?? null,
       ageMinutes: Math.floor((nowMs - new Date(r.createdAt).getTime()) / MINUTE_MS),
+      retried: wasRetried.has(r.id),
+      reason: reasons.get(r.id) ?? null,
     }));
 
   let alerted = false;
   if (persistentRows.length > 0) {
-    // The Datadog alert: a count a monitor pages on + a high-severity log.
+    // The metric + high-severity log fire on EVERY sweep, unthrottled. They are the
+    // §6.2 guaranteed backstop and the PostHog alert's input, so the AECI-854 email
+    // throttle below must never gate them.
     count(c, 'aeci.linear.reconcile.persistent_failure', persistentRows.length, []);
     log(c, {
       level: 'error',
       message: `aeci.linear.reconcile.persistent_failure: ${persistentRows.length} request(s) stuck >${RECONCILE_PERSISTENT_MINUTES}m and still failing — Linear issue creation is not recovering`,
       request_ids: persistentRows.map((r) => r.requestId),
+      reasons: persistentRows.map((r) => r.reason ?? 'unknown'),
     });
-    const alert: AdminAlert = { kind: 'stuck_requests', rows: persistentRows };
-    await sendAlert(c, alert);
-    alerted = true;
+
+    // The EMAIL is throttled to the age bands (AECI-854). Unthrottled this sent 96
+    // identical messages a day per row, sharing a Resend account with the Supabase
+    // magic-link sender.
+    const emailRows = persistentRows.filter((r) =>
+      crossedAlertBand(r.ageMinutes, RECONCILE_SWEEP_INTERVAL_MINUTES),
+    );
+    if (emailRows.length > 0) {
+      const alert: AdminAlert = { kind: 'stuck_requests', rows: emailRows };
+      await sendAlert(c, alert);
+      alerted = true;
+    } else {
+      log(c, {
+        level: 'info',
+        message: `aeci.linear.reconcile: ${persistentRows.length} persistent row(s), none crossed an alert band this sweep — email suppressed`,
+      });
+    }
   }
 
   log(c, {
