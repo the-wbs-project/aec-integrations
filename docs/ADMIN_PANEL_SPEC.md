@@ -593,11 +593,19 @@ first read surface owns the tag set" — this is that surface, and the answer is
 stays parked with AECI-715 / 716, the first *public* reader. What AECI-722 does own, and
 discharges, is the `relations()` block.
 
-**Local data.** The sender is AECI-731 and it is unbuilt, so `connector_*` is empty in every
-environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain) seeds two
-catalogues and ~35 listings covering every state the screen draws —
+**Local data.** Production is no longer empty: AECI-764 ran the first real sync on 2026-09-10 and
+`connector_*` there now holds four catalogues (Agave ERP Sync, Trimble AppXchange, Aquifer, Kroo
+Connector) at 5 surfaces / 203 stubs / 171 mappings / 85 pairs. **Every other environment is still
+empty** — the sender pushes to one host at a time and only production has been targeted — so
+`apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain) is still how this screen gets
+drawn locally. It seeds two catalogues and ~35 listings covering every state the screen draws —
 including a high-confidence machine proposal that must **not** read as confirmed, and a
 low-confidence human decision that must.
+
+One shape the fixtures do not carry, and production now does: a `skipped[]` mapping. 68 of the 239
+mappings sent were dropped because the product they name is not promoted, so the live screen shows
+stubs with no mapping row at all. Absence renders as pending here (§5.9(2)), which means an
+unpromoted-product skip is indistinguishable from an undecided listing.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to connector catalogues" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` now names **which catalogue** (`connector_product.name`) rather than the entity type. Until the fetch resolves it shows the same fallback word the trail does, from one definition. No endpoint, query or response shape moved.
 

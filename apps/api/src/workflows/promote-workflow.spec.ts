@@ -502,8 +502,9 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
    * `loadStagedPayload` runs BEFORE the `kind === 'connector'` branch and used to
    * hard-code `PromotePayloadSchema`, so a connector page big enough to spill came back
    * out through the product schema and died on its `superRefine` as an opaque
-   * `INTERNAL_ERROR`. Latent only because the review-side sender (AECI-731) is unbuilt;
-   * a page carrying fetched `actions` blobs is what trips the 512 KiB threshold.
+   * `INTERNAL_ERROR`. Still unexercised in production as of the AECI-764 sync, because
+   * every catalogue synced so far fits in one sub-threshold page; a page carrying fetched
+   * `actions` blobs is what trips the 512 KiB threshold.
    */
   it('reads a STAGED connector page back through the connector schema, not the product one', async () => {
     kv.store.set(promotePayloadKey(JOB_ID), JSON.stringify(connectorPage()));

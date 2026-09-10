@@ -86,10 +86,14 @@ originally implied was dropped: the sweep self-optimises instead. See
 
 ### What is deliberately out of scope
 
-- **`connector_evidenced_pairs`.** Fed by the separate connector-catalog promote arm
-  (§3a), whose review-side sender (AECI-731) is unbuilt, so no data flows in any
-  environment yet. Its rows are counted and reported, never classified — auditing them
-  against `list_integrations` would report all of them, every run.
+- **`connector_evidenced_pairs`.** Its rows are counted and reported, never classified —
+  auditing them against `list_integrations` would report all of them, every run. That
+  decision stands, but the reason recorded here was wrong twice and is corrected as of
+  AECI-764 (2026-09-10). This table is **not** fed by the connector-catalog arm (§3a): it
+  is fed by the ordinary product arm routing `integrations[]` off `poweredByProduct`
+  (§3.4a), and migration `0027` moved the pre-existing powered edges into it, so it has
+  held data since AECI-721. The §3a arm writes `connector_pairs`, a different table. And
+  its sender (AECI-731) is built and ran against production on 2026-09-10.
 - **Claims and attestations as an independent axis.** `claims.integration_id` and
   `attestations.claim_id` both cascade, so a claim cannot outlive its integration.
   They are reported as cascade weight, not as a bucket.

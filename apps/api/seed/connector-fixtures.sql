@@ -2,11 +2,13 @@
 -- Connector-lane fixtures for Cloudflare D1 (AECI-722).
 --
 -- WHY THIS FILE EXISTS
---   AECI-714 landed the six connector tables and the paged sync that fills them,
---   but the SENDER is AECI-731 and it is unbuilt — so `connector_*` is empty in
---   every environment, and `/admin/connectors` would render nothing anywhere.
---   These fixtures are what make the screen developable and testable before the
---   feed exists. They are the connector-lane equivalent of phase2-fixtures.sql.
+--   AECI-714 landed the six connector tables and the paged sync that fills them.
+--   The sender (AECI-731) shipped, and AECI-764 ran the first real sync against
+--   PRODUCTION on 2026-09-10 — but no other environment has been targeted, so
+--   `connector_*` is still empty everywhere but production and `/admin/connectors`
+--   would render nothing locally. These fixtures are what make the screen
+--   developable and testable. They are the connector-lane equivalent of
+--   phase2-fixtures.sql.
 --
 --   ⚠️  TEST FIXTURES — dev / CI only. Real rows arrive exclusively through
 --   `POST /api/promote/connector-catalog` (DATABASE_SCHEMA.md §9a: "Rows arrive

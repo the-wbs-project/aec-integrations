@@ -56,10 +56,13 @@
 //   orphanChildren                Claims + attestations hanging off any stranded
 //                                 integration. Derived, reported for the cascade.
 //
-// `connector_evidenced_pairs` is DELIBERATELY OUT OF SCOPE. It is fed by the separate
-// connector-catalog promote arm (§3a), whose review-side sender (AECI-731) is unbuilt,
-// so no data flows in any environment yet; its rows are counted and reported, never
-// classified. Auditing them against `list_integrations` would report all of them.
+// `connector_evidenced_pairs` is DELIBERATELY OUT OF SCOPE: its rows are counted and
+// reported, never classified, because auditing them against `list_integrations` would
+// report all of them, every run. The reason recorded here was wrong twice and is
+// corrected as of AECI-764 (2026-09-10). This table is NOT fed by the connector-catalog
+// arm (§3a writes `connector_pairs`, a different table); it is fed by the product arm
+// routing `integrations[]` off `poweredByProduct` (§3.4a), and has held data since
+// AECI-721. The §3a sender (AECI-731) is built and ran against production on 2026-09-10.
 //
 // ONLY `--env production` IS MEANINGFUL, for the reason both sibling lanes give: the
 // review app holds PRODUCTION uuids in its `supabase*` fields — there is one curation
