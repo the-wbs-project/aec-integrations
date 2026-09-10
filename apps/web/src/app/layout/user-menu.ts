@@ -49,7 +49,7 @@
  * (no `role="menu"`/roving tabindex) — same approach as the nav overlay.
  */
 import { NgOptimizedImage } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
@@ -89,16 +89,26 @@ import { AccountIdentity } from './account-identity';
            async session snapshot, and magic-link accounts never have one, so the
            glyph is the permanent trigger for most signed-in visitors. Swapping a
            letter in here instead would flicker on every page load, because the
-           email is not cached the way the role is. -->
-      @if (avatarUrl(); as photo) {
+           email is not cached the way the role is.
+
+           A dead photo URL falls back to that same glyph: user_metadata only
+           refreshes at re-authentication, so a session outlives the Google CDN
+           URL it carries, and an empty alt makes a browser collapse a broken
+           image to NOTHING rather than to a broken-image icon, leaving an empty
+           circle where the account control should be. No pre-hydration net is needed
+           here (unlike LogoOrInitial): the photo lands with the async snapshot,
+           so this image is only ever created client-side, well after the (error)
+           listener can be attached. -->
+      @if (photo(); as src) {
         <img
-          [ngSrc]="photo"
+          [ngSrc]="src"
           alt=""
           aria-hidden="true"
           width="36"
           height="36"
           referrerpolicy="no-referrer"
           class="h-full w-full rounded-full object-cover"
+          (error)="photoFailed.set(true)"
         />
       } @else {
         <svg
@@ -212,7 +222,19 @@ export class UserMenu {
 
   /** The identity-provider photo for the trigger, or null — null is the normal
    *  magic-link case and keeps the neutral glyph (AECI-850). */
-  protected readonly avatarUrl = this.session.avatarUrl;
+  private readonly avatarUrl = this.session.avatarUrl;
+
+  /** Flipped by the `<img>`'s `(error)` handler. `linkedSignal` re-seeds it from
+   *  `avatarUrl`, so a later snapshot carrying a fresh URL gets a fresh attempt
+   *  instead of inheriting the dead one's failure. */
+  protected readonly photoFailed = linkedSignal<string | null, boolean>({
+    source: this.avatarUrl,
+    computation: () => false,
+  });
+
+  /** The URL actually rendered: null once the photo has failed, which drops the
+   *  trigger back to the neutral person glyph rather than an empty circle. */
+  protected readonly photo = computed(() => (this.photoFailed() ? null : this.avatarUrl()));
 
   protected readonly signOutFailed = signal(false);
 

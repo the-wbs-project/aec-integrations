@@ -753,7 +753,9 @@ to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
   Google sign-ins carry `user_metadata.avatar_url`, and magic-link is the majority
   path — so "no photo" is the common case. Design the block with the letter first
   and check the photo second, not the reverse.
-- **The avatar is `text-secondary`-quiet, not an accent.** Only the pill may take
+- **The avatar stays neutral, never an accent.** It inherits `LogoOrInitial`'s own
+  tokens verbatim — `text-primary` on `surface-raised` inside a `border-default`
+  ring — so it reads as quiet chrome rather than as a highlight. Only the pill may take
   colour, and only Forest (`accent-primary-soft` fill, `accent-primary` text), and
   only for the two roles that open a portal door. Colour is never the sole signal
   — the label beside it names the role.
@@ -766,6 +768,12 @@ to Laravel; composition, density and atmosphere elsewhere stay Stripe's.
   in an initial letter: the role is cached in `sessionStorage` but the email is
   not, so a letter would flicker in on every single page load. The photo lands
   once, with the async session snapshot, and only for Google accounts.
+- **A photo that fails to load returns to the glyph, in both places.** The panel's
+  avatar gets this from `LogoOrInitial`; the trigger has its own `(error)` handler.
+  `user_metadata` only refreshes at re-authentication, so a long-lived session
+  outlives the Google CDN URL it carries, and an empty `alt` makes a browser
+  collapse a broken image to nothing — an empty circle where the account control
+  should be. The failure is per-URL, so a fresh snapshot gets a fresh attempt.
 - **The block is not focusable and carries no `role`.** It labels the menu that
   follows it. A link here would add a tab stop in front of "Account" for no new
   destination.

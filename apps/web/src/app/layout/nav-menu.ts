@@ -6,7 +6,8 @@
  * screens: Home + Products links, the four taxonomy facets as tap-to-expand
  * disclosure sections (Categories / Trades / Audiences / Phases), search, and the
  * account block (the AECI-850 identity block, then Account, the role-gated
- * portal doors, Sign out) or the Sign-in CTA. The component is hidden at `lg+` via its `lg:hidden` host class — at those
+ * portal doors, Sign out) or the Sign-in CTA. The component is hidden at `lg+`
+ * via its `lg:hidden` host class — at those
  * widths the same affordances render as the inline desktop nav in
  * `site-header.ts` (with hover flyouts). Both surfaces share `NavFlyoutList` and
  * `taxonomy-nav-copy.ts`, so the link sets cannot drift. AECI-158/159 re-pointed

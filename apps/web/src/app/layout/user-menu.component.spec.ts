@@ -166,6 +166,37 @@ describe('UserMenu trigger', () => {
     expect(img.getAttribute('referrerpolicy')).toBe('no-referrer');
   });
 
+  it('falls back to the glyph when the profile photo fails to load', () => {
+    // `user_metadata` only refreshes at re-authentication, so a session outlives
+    // the Google CDN URL it carries. With `alt=""` a browser collapses a broken
+    // image to NOTHING, so without this the trigger would be an empty circle.
+    avatarUrl.set('https://lh3.googleusercontent.com/a/dead');
+    const fixture = render();
+    const el = fixture.nativeElement as HTMLElement;
+    el.querySelector('button img')!.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(el.querySelector('button img')).toBeNull();
+    expect(el.querySelector('button svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('retries the photo when a later snapshot carries a fresh url', () => {
+    // The failure is per-url, not sticky: a re-authenticated session bringing a
+    // new photo must not inherit the dead one's failure.
+    avatarUrl.set('https://lh3.googleusercontent.com/a/dead');
+    const fixture = render();
+    const el = fixture.nativeElement as HTMLElement;
+    el.querySelector('button img')!.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(el.querySelector('button img')).toBeNull();
+
+    avatarUrl.set('https://lh3.googleusercontent.com/a/fresh');
+    fixture.detectChanges();
+    expect(el.querySelector('button img')?.getAttribute('src')).toBe(
+      'https://lh3.googleusercontent.com/a/fresh',
+    );
+  });
+
   it('keeps its accessible name and popup semantics with a photo shown', () => {
     avatarUrl.set('https://lh3.googleusercontent.com/a/photo');
     const button = trigger(render().nativeElement as HTMLElement);
