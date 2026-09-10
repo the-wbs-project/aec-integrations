@@ -319,8 +319,12 @@ group's rows.
   its panel through a client-only `afterRenderEffect`, which would ship an empty card to crawlers on
   an SSR page — see ADR 0010's deviation (c). **The panel content stays in the DOM when collapsed.**
 - **A link never nests inside the header button.** When the group's subject has its own page, that
-  link sits beside the button in the same header bar as a compact "View product" anchor with a full
-  accessible name.
+  link sits beside the button in the same header bar as a compact "View product" anchor.
+- **That anchor opens in a new tab**, because it is a lookup rather than a destination: the reader
+  has not finished with the page they are on. Plain `href` (not `routerLink`) + `target="_blank"` +
+  `rel="noopener"`, a drawn Lucide `arrow-up-right` for the sighted cue, and the new tab stated in
+  the accessible name. **The accessible name begins with the visible text** ("View product: Agave
+  ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name holds and speech input can target it.
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
 

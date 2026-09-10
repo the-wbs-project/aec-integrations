@@ -23,7 +23,7 @@ import { IntegrationGroupCard } from './integration-group-card';
       countLabel="12 connections"
       [link]="link()"
       linkLabel="View product"
-      linkAriaLabel="View the Agave ERP Sync product page"
+      linkAriaLabel="View product: Agave ERP Sync (opens in a new tab)"
       [expanded]="expanded()"
       (toggled)="toggles.set(toggles() + 1)"
     >
@@ -33,7 +33,7 @@ import { IntegrationGroupCard } from './integration-group-card';
 })
 class Host {
   expanded = signal(true);
-  link = signal<readonly string[] | null>(['/products', 'agave-erp-sync']);
+  link = signal<string | null>('/products/agave-erp-sync');
   toggles = signal(0);
 }
 
@@ -96,7 +96,19 @@ describe('IntegrationGroupCard', () => {
     const anchor = el.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync"]');
     expect(anchor).not.toBeNull();
     expect(anchor!.closest('button')).toBeNull();
-    expect(anchor!.getAttribute('aria-label')).toBe('View the Agave ERP Sync product page');
+  });
+
+  it('opens the product page in a new tab, says so, and drops the opener handle', () => {
+    const { el } = setup();
+    const anchor = el.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync"]')!;
+    expect(anchor.getAttribute('target')).toBe('_blank');
+    expect(anchor.getAttribute('rel')).toBe('noopener');
+    const name = anchor.getAttribute('aria-label')!;
+    expect(name).toContain('opens in a new tab');
+    // WCAG 2.5.3 Label in Name: the accessible name starts with the visible text,
+    // so a speech-input user can say what they can read.
+    expect(anchor.textContent!.trim().startsWith('View product')).toBe(true);
+    expect(name.startsWith('View product')).toBe(true);
   });
 
   it('renders no link at all for a group with no subject page', () => {

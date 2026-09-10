@@ -1,5 +1,4 @@
 import { Component, computed, input, output } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
@@ -43,13 +42,24 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * to a compact trailing anchor in the same bar. Both targets survive; only the
  * one that carries the name changed.
  *
+ * **It opens in a new tab, deliberately.** A reader on a product page who wants
+ * to know what Agave ERP Sync is has not finished with the page they are on —
+ * the link is a lookup, not a destination, and the same reasoning the admin
+ * console's "View Page" button records. So: a plain `href` rather than
+ * `routerLink` (a router navigation is pointless once the browser is opening a
+ * new context), `rel="noopener"` because the new context would otherwise get a
+ * handle on this one, and the new tab is **announced in the accessible name**
+ * rather than left to be discovered. The name is built to START with the visible
+ * "View product" text, so it satisfies WCAG 2.5.3 Label in Name and a speech-input
+ * user can say what they can read.
+ *
  * Fully controlled: the card renders `expanded()` and emits `toggled`. The owning
  * section holds the collapsed set, because an active filter has to be able to
  * open a group the reader had closed, and only the section knows the query.
  */
 @Component({
   selector: 'aec-integration-group-card',
-  imports: [RouterLink, LogoOrInitial],
+  imports: [LogoOrInitial],
   // A custom element is `display: inline` by default, so a parent's `space-y-*`
   // margin would land on an inline box and be dropped. Same fix, same reason as
   // `ProductPoweredHub`.
@@ -101,13 +111,31 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
         </h3>
         @if (link(); as target) {
           <a
-            [routerLink]="target"
+            [href]="target"
+            target="_blank"
+            rel="noopener"
             [attr.aria-label]="linkAriaLabel()"
-            class="shrink-0 rounded-(--radius-sm) text-xs text-(--accent-primary)
-              underline underline-offset-4 focus-visible:outline-2
+            class="inline-flex shrink-0 items-center gap-1 rounded-(--radius-sm) text-xs
+              text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2
               focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >{{ linkLabel() }}</a
-          >
+            >{{ linkLabel() }}
+            <!-- Lucide arrow-up-right. Sighted readers get no domain change to
+                 hint at the new tab, so the cue has to be drawn. Screen readers
+                 hear it from the accessible name instead. -->
+            <svg
+              aria-hidden="true"
+              class="h-3 w-3 shrink-0 rtl:-scale-x-100"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M7 7h10v10" />
+              <path d="M7 17 17 7" />
+            </svg>
+          </a>
         }
       </div>
 
@@ -140,11 +168,15 @@ export class IntegrationGroupCard {
   /** Localized group size, e.g. "12 connections" or "3 of 12" under a filter.
    *  Built by the section so the i18n ids stay where the copy is. */
   readonly countLabel = input<string>('');
-  /** RouterLink commands for the subject's own page, or `null` for no link. */
-  readonly link = input<readonly string[] | null>(null);
+  /** Href for the subject's own page, or `null` for no link. A path, not
+   *  RouterLink commands: the anchor opens a new tab, so there is no in-app
+   *  navigation for the router to take part in. */
+  readonly link = input<string | null>(null);
   /** Visible link text. */
   readonly linkLabel = input<string>('');
-  /** Full accessible name for the link, since the visible text repeats per card. */
+  /** Full accessible name for the link. The visible text repeats on every card,
+   *  and the new tab has to be announced; both are the caller's to phrase, so
+   *  the i18n ids stay with the copy. Must begin with `linkLabel` (WCAG 2.5.3). */
   readonly linkAriaLabel = input<string>('');
   /** Controlled disclosure state. */
   readonly expanded = input<boolean>(true);

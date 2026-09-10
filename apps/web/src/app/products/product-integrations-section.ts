@@ -327,15 +327,20 @@ export class ProductIntegrationsSection {
     return $localize`:@@products.detail.body.integrations.lane.via.named:Via ${connector.name}:NAME:`;
   }
 
-  protected viaLink(lane: ConnectorLaneGroup): readonly string[] | null {
-    return lane.connector ? ['/products', lane.connector.slug] : null;
+  protected viaLink(lane: ConnectorLaneGroup): string | null {
+    return lane.connector ? '/products/' + lane.connector.slug : null;
   }
 
-  /** Accessible name for the trailing connector link. Built in TS because an
-   *  interpolated `i18n-*` attribute emits no attribute at all in this app. */
+  /**
+   * Accessible name for the trailing connector link. Built in TS because an
+   * interpolated `i18n-*` attribute emits no attribute at all in this app, and
+   * because the new tab has to be announced rather than discovered. The name
+   * starts with the visible "View product" text, so WCAG 2.5.3 Label in Name
+   * holds and a speech-input user can say what they can read.
+   */
   protected viaLinkAriaLabel(lane: ConnectorLaneGroup): string {
     const connector = lane.connector;
     if (!connector) return '';
-    return $localize`:@@products.detail.group.link.aria:View the ${connector.name}:NAME: product page`;
+    return $localize`:@@products.detail.group.link.aria:View product: ${connector.name}:NAME: (opens in a new tab)`;
   }
 }

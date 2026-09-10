@@ -621,7 +621,16 @@ grouping, counting or render-condition rules.
 3. **The hub link moved out of the heading and into a trailing "View product" anchor** in the same
    header bar. A link cannot nest inside a button, and the header is now the disclosure control.
    This subsection's requirement was the return path into the hub product, not the element carrying
-   it, and the return path survives one Tab away with an accessible name that repeats the hub name.
+   it, and the return path survives one Tab away with an accessible name that names the hub.
+   **That anchor opens in a new tab** (`target="_blank"` + `rel="noopener"`, a plain `href` rather
+   than a `routerLink`, since a router navigation is pointless once the browser opens a new
+   context). The reasoning is the admin console's "View Page" rule pointed at a reader: someone on a
+   product page who wants to know what Agave ERP Sync *is* has not finished with the page they are
+   on, so the link is a lookup rather than a destination. The new tab is **announced in the
+   accessible name** ("View product: {name} (opens in a new tab)") rather than left to be
+   discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
+   holds. A drawn `arrow-up-right` glyph carries the same cue for sighted readers, who get no domain
+   change to hint at it.
 4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`). It
    matches partner names, and a hub whose *own* name matches keeps every partner under it — typing
    the hub name is a request for that card, not for a partner that happens to share the name. The
@@ -954,9 +963,10 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
 - **The `<h3>` is now the disclosure button, so the connector name is no longer the link.** "Via
   {connector}" is built in TS (`@@products.detail.body.integrations.lane.via.named`) rather than as
   a template message wrapping an `<a>`, and the connector link moved to the card's trailing "View
-  product" anchor. This subsection asked for the return path into Addendum B's hub, and the return
-  path survives; only the element carrying it changed. §13.2(c)'s unnamed group still gets no link
-  and no invented name.
+  product" anchor, **which opens in a new tab** — see §12.3's amendment for why, and for the
+  accessible-name and Label-in-Name rules it carries. This subsection asked for the return path into
+  Addendum B's hub, and the return path survives; only the element carrying it changed. §13.2(c)'s
+  unnamed group still gets no link and no invented name.
 - **Group sub-counts read "2 integrations" rather than "(2)"**, and "3 of 12" while a filter is
   active. The idiom is now shared with §12.3's cards; the sum invariant is unchanged.
 - **A page with NO connector edges is deliberately untouched**: one unheaded table, no card, no

@@ -95,7 +95,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
           [logoSrc]="group.hub.logo_url"
           [logoName]="group.hub.name"
           [countLabel]="countLabel(group.partners.length, hubTotal(group.hub.slug))"
-          [link]="['/products', group.hub.slug]"
+          [link]="'/products/' + group.hub.slug"
           i18n-linkLabel="@@products.detail.group.link"
           linkLabel="View product"
           [linkAriaLabel]="productLinkAriaLabel(group.hub.name)"
@@ -398,8 +398,13 @@ export class ProductPoweredHub {
     return $localize`:@@products.detail.body.powers.row.aria:View the ${first}:FIRST: and ${second}:SECOND: integration`;
   }
 
-  /** Accessible name for a card's trailing "View product" link. Same reason. */
+  /**
+   * Accessible name for a card's trailing "View product" link. Same reason, plus
+   * the new tab: a link that opens a new browsing context has to say so, and the
+   * name starts with the visible "View product" text so WCAG 2.5.3 Label in Name
+   * holds and speech input can target it.
+   */
   protected productLinkAriaLabel(name: string): string {
-    return $localize`:@@products.detail.group.link.aria:View the ${name}:NAME: product page`;
+    return $localize`:@@products.detail.group.link.aria:View product: ${name}:NAME: (opens in a new tab)`;
   }
 }

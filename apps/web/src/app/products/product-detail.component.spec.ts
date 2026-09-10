@@ -620,7 +620,13 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     expect(heading.querySelector('a')).toBeNull();
     const linkEl = heading.parentElement!.querySelector('a')!;
     expect(linkEl.getAttribute('href')).toBe('/products/agave-erp-sync');
-    expect(linkEl.getAttribute('aria-label')).toBe('View the Agave ERP Sync product page');
+    // Opens in a new tab: the connector is a lookup, not a destination, and the
+    // reader has not finished with the page they are on.
+    expect(linkEl.getAttribute('target')).toBe('_blank');
+    expect(linkEl.getAttribute('rel')).toBe('noopener');
+    expect(linkEl.getAttribute('aria-label')).toBe(
+      'View product: Agave ERP Sync (opens in a new tab)',
+    );
   });
 
   it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {
