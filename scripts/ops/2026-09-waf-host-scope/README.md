@@ -17,7 +17,10 @@ pre-launch). The apex cutover (AECI-247/277) moved production to `www.`, which i
 - `POST /api/reviews` — no 5/min cap on production.
 - `/products`, `/vendors` + their JSON APIs — no scraper challenge on production.
 - `POST /api/subscribe` and `POST /api/feedback` — never had a rule on **any** host,
-  and the API Worker applies no rate-limiting middleware. A fresh subscribe fires two
+  and at the time the API Worker applied no rate-limiting middleware. (It does since
+  AECI-773 / ADR 0026, but that layer deliberately leaves these two on Rule A alone —
+  `docs/waf-rate-limits.md` §6.2. This paragraph is the 2026-09 record and is left
+  as it stood.) A fresh subscribe fires two
   real Resend emails (operator alert + subscriber welcome), so a scripted loop burns
   Resend quota and mails third parties from our domain.
 

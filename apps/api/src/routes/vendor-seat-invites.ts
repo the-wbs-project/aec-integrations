@@ -197,6 +197,14 @@ export function createSeatInviteHandler(
         429,
         ApiErrorCode.RATE_LIMITED,
         'Too many invites sent today. Try again tomorrow.',
+        // AECI-773: `API_CONTRACTS.md` §4.1 has promised `Retry-After` on 429
+        // since Phase 2.8 and this 429 shipped without it, because `ApiError`
+        // had no header channel until now. The window is a ROLLING 24 h, so the
+        // exact wait is until the oldest invite in the window ages out —
+        // computing it would cost a second aggregate on the same query. The
+        // full window is a correct upper bound and one read is not worth the
+        // precision, so the contract holds with no silent exception.
+        { retryAfterSeconds: 86_400 },
       );
     }
 

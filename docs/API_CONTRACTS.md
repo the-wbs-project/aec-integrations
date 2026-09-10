@@ -232,7 +232,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
-| `RATE_LIMITED` | 429 | Rate limit exceeded |
+| `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 
@@ -245,9 +245,43 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity, a write to a vendor-managed connector catalogue)
 - `413` — request body over the endpoint's hard ceiling
 - `422` — semantically valid but business rule violation
-- `429` — rate limited (with `Retry-After` header)
+- `429` — rate limited (always with a `Retry-After` header — see §4.1a)
 - `500` — unexpected server error (emits an error log the alert threshold watches)
 - `503` — dependency failure (distinguishes from generic 500s)
+
+### 4.1a `Retry-After` on 429 (AECI-773)
+
+Every `429` this API returns carries a `Retry-After` header, in whole delta-seconds
+(RFC 9110 §10.2.3), never an HTTP-date. The §3.3 envelope is unchanged — this is a
+header, not a body field — so `ApiErrorSchema` and `apps/web/src/server-api-client.ts`
+parse exactly as before. The SSR Worker returns the API response object unmodified on the
+`/api/*` passthrough, so the header reaches the browser untouched.
+
+| Source | Value |
+|---|---|
+| `rateLimit('token')` | `10` |
+| `rateLimit('write')` | `60` |
+| `POST /api/reviews` hourly cap | `3600` |
+| `POST /api/vendor/seats/invites` daily cap | `86400` |
+
+The value is the **configured window**, not a computed time-to-reset. For the binding
+that is exact enough to be honest: the window is fixed rather than sliding and a denied
+request does not advance the counter, so the full period is a correct upper bound — the
+true wait may be shorter, never longer. For the two D1 caps the window is rolling, so the
+exact wait is until the oldest row ages out; computing it would cost a second aggregate on
+the same query, and the full window is again an upper bound.
+
+Set it via `ApiErrorOptions.retryAfterSeconds`. Deliberately a single typed number rather
+than a general header bag: a general bag would let any thrown error set any response
+header, including `Vary`, which the AECI-549 lint cannot see through an object it does not
+construct.
+
+> **This was a five-phase-old contract gap, not a new feature.** §4.1 has promised
+> `Retry-After` on 429 since Phase 2.8 (AECI-54). `ApiError` had no header channel and
+> `renderApiError` called `json()` with a status and nothing else, so **no 429 this Worker
+> ever returned carried the header** — including the shipped invite-limit rejection, which
+> AECI-773 fixed in the same change. Worth remembering the next time a contract line reads
+> as settled: nothing tested it.
 
 ### 4.2 Error throwing pattern
 
@@ -947,6 +981,7 @@ Errors:
 - `REVIEW_DUPLICATE` if user already has a review for this product
 - `NOT_FOUND` if product doesn't exist
 - `VALIDATION_FAILED` for bad input
+- `RATE_LIMITED` (429) — **two caps, both raising this code** (AECI-773 / §4.1a). The §15.1 hourly per-user cap (3 per rolling hour, a D1 `count()` in the handler) answers with `Retry-After: 3600`; the `write` burst bucket in front of it answers with `Retry-After: 60`. Checked **after** the existence and duplicate gates, so a caller cannot spend the hourly budget probing for products, and **before** the toxicity call, so a rejected submission never reaches a paid Anthropic request. **Every status counts** — a rejected review still occupies a slot, or moderation would be a slot-refund machine
 
 #### `GET /api/products/:slug/reviews`
 
@@ -1062,7 +1097,7 @@ export const UpdateAccountSchema = z.object({
 });
 ```
 
-Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`.
+Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
 #### `DELETE /api/account`
 
@@ -1144,7 +1179,7 @@ export type EnsureProfileResponse = {
 };
 ```
 
-Errors: `UNAUTHENTICATED`.
+Errors: `UNAUTHENTICATED`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap keyed on the verified JWT `sub`, `Retry-After: 60`). This is the last hop of every sign-in and one sign-in spends exactly one unit of the loosest bucket in the set, so a legitimate visitor never meets it.
 
 ### 6.9 Tracking
 
@@ -4105,7 +4140,9 @@ Mailing-list opt-out, keyed on the opaque per-subscriber `unsubscribe_token`. **
 export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
 ```
 
-**Response:** `UnsubscribeResult` — `{ ok: boolean }`, always HTTP `200`. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
+**Response:** `UnsubscribeResult` — `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
+
+**One non-200: `RATE_LIMITED` (429).** Since AECI-773 the route carries the `token` burst bucket — 10 per client IP per 10 s, `Retry-After: 10` (§4.1a) — because it is the only anonymous write on this router with no WAF rule behind it, and every request is an unbounded D1 `UPDATE` keyed on a caller-supplied token. The middleware runs before the handler, so a limited request never reads the token. The RFC 8058 one-click path is POSTed automatically by mail security appliances and a 429 there reads to the mail client as a broken unsubscribe, so the ceiling sits far above any appliance's cadence.
 
 ---
 
@@ -4218,9 +4255,9 @@ The only field is the address: the vendor is the session's, the sender is the se
 
 **Any address is accepted — there is no domain gate.** The endpoint shipped restricted to the vendor's own `website` domain (a 422 `INVITE_DOMAIN_MISMATCH`, since retired along with the code); that restriction was removed, because the people who maintain a listing are routinely off-domain — an agency, a subsidiary, a parent company, a contractor — and only the owner knows which. What bounds the endpoint is unchanged and was never the domain: **owner-only**, an invited seat is never itself an owner, the redeem requires control of the invited mailbox, and the daily cap limits the mail. `computeDomainMatch` still runs, but on the **accept** path and only to set `profiles.work_email_verified` — a signal for the §5 claim reviewer, not a gate.
 
-**Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` (no KV, no new binding) → **429 `RATE_LIMITED`**. This is the only endpoint on the surface that sends mail on a customer's command.
+**Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` → **429 `RATE_LIMITED`** with `Retry-After: 86400`. It stays a D1 count rather than moving onto the AECI-773 `ratelimits` binding for a structural reason: `simple.period` is a strict enum of 10 or 60 seconds, so **no binding window reaches 24 h**. AECI-773 added the burst bucket *in front of* this check, keyed **per vendor** rather than per seat — this is still the only endpoint on the surface that sends mail on a customer's command, so five seats must not buy five times the sends.
 
-Errors: `FORBIDDEN` (403, not an owner) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429) · `VALIDATION_FAILED` (400).
+Errors: `FORBIDDEN` (403, not an owner) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429 — **two** caps now: the AECI-773 burst bucket keyed **per vendor** with `Retry-After: 60`, and the 24 h `INVITE_DAILY_LIMIT` below with `Retry-After: 86400`) · `VALIDATION_FAILED` (400).
 
 #### `DELETE /api/vendor/seats/invites/:id`
 
@@ -4258,7 +4295,7 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
-Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier).
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
 
 #### `GET /api/vendor/notifications`
 
@@ -4358,7 +4395,7 @@ export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccoun
 
 `source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
 
-Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them).
+Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
 #### `PATCH /api/vendor/products/:id`
 
@@ -4392,7 +4429,7 @@ Two consequences that do **not** follow the sibling pattern:
 - **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
-Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`). **Raised only after ownership settles**, so a non-owner still gets the flat 404.
+Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
 
 #### Product versions — `/api/vendor/products/:id/versions`
 
@@ -4456,7 +4493,7 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
-Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
 
 #### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
@@ -4591,7 +4628,7 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 **No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
-Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`.
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
 ---
 

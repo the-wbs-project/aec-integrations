@@ -21,7 +21,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { sendReviewSubmittedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createSubmitReviewHandler } from './reviews';
+import { createSubmitReviewHandler, REVIEW_HOURLY_LIMIT } from './reviews';
 
 // The §11.1 confirmation send is fire-and-forget; mock it so the route specs can
 // assert it fires with the reviewer's email without a real Resend call.
@@ -156,5 +156,67 @@ describe('POST /api/reviews', () => {
     const res = await post({ ...validBody(), reviewer_firm: 'x'.repeat(101) });
     expect(res.status).toBe(400);
     expect(await t.db.select().from(reviews)).toHaveLength(0);
+  });
+});
+
+describe('POST /api/reviews — the §15.1 hourly per-user cap (AECI-773)', () => {
+  /** Distinct products, because the dedup index caps a user at one per product. */
+  async function seedProducts(n: number) {
+    for (let i = 0; i < n; i += 1) {
+      await t.db
+        .insert(products)
+        .values({ id: u(100 + i), slug: `p${i}`, name: `P${i}`, promotionStatus: 'promoted' });
+    }
+  }
+
+  it('allows the first three and 429s the fourth, with Retry-After', async () => {
+    await seedProducts(4);
+
+    for (let i = 0; i < REVIEW_HOURLY_LIMIT; i += 1) {
+      expect((await post(validBody(u(100 + i)))).status).toBe(201);
+    }
+
+    const res = await post(validBody(u(103)));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('3600');
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('RATE_LIMITED');
+    expect(await t.db.select().from(reviews)).toHaveLength(REVIEW_HOURLY_LIMIT);
+  });
+
+  it('does not count reviews older than the window', async () => {
+    await seedProducts(4);
+    for (let i = 0; i < REVIEW_HOURLY_LIMIT; i += 1) {
+      expect((await post(validBody(u(100 + i)))).status).toBe(201);
+    }
+
+    // Age every existing row out of the rolling hour.
+    await t.db.update(reviews).set({ createdAt: new Date(Date.now() - 7_200_000).toISOString() });
+
+    expect((await post(validBody(u(103)))).status).toBe(201);
+  });
+
+  it('counts EVERY status, so moderation is not a slot-refund machine', async () => {
+    // The cap deliberately does not reuse the dedup index's `status <> archived`
+    // predicate. If a rejected review stopped counting, rejecting three would
+    // hand the submitter three fresh slots.
+    await seedProducts(4);
+    for (let i = 0; i < REVIEW_HOURLY_LIMIT; i += 1) {
+      expect((await post(validBody(u(100 + i)))).status).toBe(201);
+    }
+    await t.db.update(reviews).set({ status: 'rejected' });
+
+    expect((await post(validBody(u(103)))).status).toBe(429);
+  });
+
+  it('spends no budget on a product that does not exist', async () => {
+    // The cap is checked after the existence and duplicate gates, so a caller
+    // cannot burn their hour probing for products.
+    for (let i = 0; i < 5; i += 1) {
+      expect((await post(validBody(u(999)))).status).toBe(404);
+    }
+
+    await seedProducts(1);
+    expect((await post(validBody(u(100)))).status).toBe(201);
   });
 });

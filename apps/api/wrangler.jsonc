@@ -126,6 +126,17 @@
   //                is rejected 413 and the IDs are only fetchable while the instance
   //                lives. Keys + thresholds live in `src/lib/promote-jobs.ts`.
   //
+  // AECI-773 / ADR 0026: TOKEN_RATE_LIMIT + WRITE_RATE_LIMIT — native Workers Rate
+  // Limiting, the in-Worker layer BENEATH the two Cloudflare Pro WAF rate-limit rules.
+  // Those rules are UNCHANGED by AECI-773; the zone was not touched at all. They exist
+  // because Pro caps the zone at two rate-limit rules with both slots spent, and counts
+  // by client IP only — so no WAF rule can cover a token-redemption or vendor-portal
+  // path, nor express §15.1's "per authenticated user", at any price below Enterprise.
+  // Unlike every other binding in this file they need NO provisioning: `namespace_id`
+  // is an integer you choose and there is no `wrangler ratelimit create`. They are also
+  // NOT inherited into a named env, so the block is repeated verbatim-but-for-ids in all
+  // four env blocks. See `src/rate-limit-middleware.ts` and docs/waf-rate-limits.md §6.
+  //
   // AECI-105 → WC-5 (AECI-319): the promote handler and review moderation invalidate
   // the SSR edge cache by ENQUEUEING onto the `aeci-cache-purge-{env}` queue (producer
   // binding CACHE_PURGE_QUEUE, added to each env's `queues.producers` below); the SSR
@@ -180,6 +191,38 @@
       "binding": "PROMOTE_KV",
       "id": "30d6ca5b9f9e444ea97362e9757b21c3",
       "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+    },
+  ],
+  // AECI-773 / ADR 0026: native Workers Rate Limiting — the in-Worker layer
+  // BENEATH the two Cloudflare Pro WAF rate-limit rules, which that change left
+  // byte-for-byte unchanged. Pro caps the ZONE at two rate-limit rules and both
+  // slots are spent (docs/waf-rate-limits.md §1), so every token-redemption and
+  // vendor-portal path is covered by nothing at the edge; Pro also counts by
+  // client IP only, so no WAF rule can express §15.1's "per authenticated user".
+  // These bindings have neither limitation.
+  //
+  // This block is NOT inherited into a named environment — wrangler's own config
+  // schema says so verbatim — so it is repeated in all four env blocks below.
+  // A bucket declared only here is bound on exactly ZERO deployed Workers, which
+  // is AECI-659's "protection that covers nothing" in a different file format.
+  // `src/rate-limit-middleware.spec.ts` asserts all five blocks and their values.
+  //
+  // Every (bucket, env) pair gets its OWN namespace_id: counters are shared
+  // ACCOUNT-WIDE by namespace_id, across Workers, and the sibling
+  // aec-integrations-review app already ships this binding on the same account.
+  // The ids are AECI-773-derived (77 3x) rather than the 1001/1002 the Cloudflare
+  // docs example uses, which is what a neighbouring Worker is most likely to hold.
+  // Base mirrors preview, like kv_namespaces / workflows / d1_databases above.
+  "ratelimits": [
+    {
+      "name": "TOKEN_RATE_LIMIT",
+      "namespace_id": "7731",
+      "simple": { "limit": 10, "period": 10 },
+    },
+    {
+      "name": "WRITE_RATE_LIMIT",
+      "namespace_id": "7735",
+      "simple": { "limit": 30, "period": 60 },
     },
   ],
   // AECI-563 / ADR 0021: the promote ingest Workflow. Base config mirrors preview (bare
@@ -260,6 +303,20 @@
           "binding": "PROMOTE_KV",
           "id": "30d6ca5b9f9e444ea97362e9757b21c3",
           "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+        },
+      ],
+      // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
+      // NOT inherited from the top level, so this block must exist in every env.
+      "ratelimits": [
+        {
+          "name": "TOKEN_RATE_LIMIT",
+          "namespace_id": "7731",
+          "simple": { "limit": 10, "period": 10 },
+        },
+        {
+          "name": "WRITE_RATE_LIMIT",
+          "namespace_id": "7735",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       // AECI-563 / ADR 0021. `pnpm dev:bound` runs the API Worker with `--env preview`,
@@ -345,6 +402,20 @@
         {
           "binding": "PROMOTE_KV",
           "id": "eee38f83e62f473d8d589e08b2a99c07",
+        },
+      ],
+      // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
+      // NOT inherited from the top level, so this block must exist in every env.
+      "ratelimits": [
+        {
+          "name": "TOKEN_RATE_LIMIT",
+          "namespace_id": "7732",
+          "simple": { "limit": 10, "period": 10 },
+        },
+        {
+          "name": "WRITE_RATE_LIMIT",
+          "namespace_id": "7736",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
@@ -561,6 +632,20 @@
           "id": "bda4c6f152384073861d5ff218e0d7da",
         },
       ],
+      // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
+      // NOT inherited from the top level, so this block must exist in every env.
+      "ratelimits": [
+        {
+          "name": "TOKEN_RATE_LIMIT",
+          "namespace_id": "7733",
+          "simple": { "limit": 10, "period": 10 },
+        },
+        {
+          "name": "WRITE_RATE_LIMIT",
+          "namespace_id": "7737",
+          "simple": { "limit": 30, "period": 60 },
+        },
+      ],
       // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
       "workflows": [
         {
@@ -739,6 +824,20 @@
         {
           "binding": "PROMOTE_KV",
           "id": "9f0ce48f3a6b46f98458907baec65bf3",
+        },
+      ],
+      // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
+      // NOT inherited from the top level, so this block must exist in every env.
+      "ratelimits": [
+        {
+          "name": "TOKEN_RATE_LIMIT",
+          "namespace_id": "7734",
+          "simple": { "limit": 10, "period": 10 },
+        },
+        {
+          "name": "WRITE_RATE_LIMIT",
+          "namespace_id": "7738",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).

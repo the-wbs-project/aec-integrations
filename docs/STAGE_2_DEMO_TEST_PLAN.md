@@ -121,7 +121,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 
 - [ ] Public claim submission (`/vendors/:slug/claim`) accepts and **parks** the claim — this is
       the decided dark-window posture. Confirm it lands in the admin queue.
-- [ ] Review submission and the request forms still work (rate-limited: 5/60s per IP).
+- [ ] Review submission and the request forms still work. Two limits apply to reviews since AECI-773 and a tester who submits several in a sitting will meet the second: WAF Rule A/B at 5/60s per IP (a Cloudflare 403 page, 1 h block), and an app-level **3 per user per rolling hour** (a `429` with `Retry-After: 3600` and a `RATE_LIMITED` envelope). The 429 is correct behaviour, not a defect.
 - [ ] Mailing-list signup + unsubscribe (tokenised soft-delete, one-click header).
 - [ ] Claim-decision emails (`claim-approved` / `claim-rejected`) and seat invites send via Resend.
 - [ ] The two new crons fire without crashing. Check `job_runs`.
