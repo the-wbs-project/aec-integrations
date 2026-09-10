@@ -29,10 +29,18 @@ Two guards, and they are different in kind:
 | Guard | What it is | When it runs |
 |---|---|---|
 | `apps/web/e2e/ssr-listing-crawlability.spec.ts` | Playwright, using the **`request`** fixture (raw HTTP, no JavaScript) to assert product links exist in the server HTML | every e2e run |
-| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages; exits non-zero on any dead end | manually, against a deployed env |
+| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages. Exit **1** on any dead end, including a non-200; exit **2** if a page never answered; exit **0** only when all five were seen and all five shipped links | manually, against a deployed env |
 
 **The e2e spec must keep using `request`, never `page`.** Rewriting it onto the
 `page` fixture would make it pass unconditionally and test nothing.
+
+**A non-200 is a FAIL in both guards, and that is the point.** The spec asserts
+`response.status()` explicitly. The script did not, until AECI-753: `curl -f` collapsed
+403, 404 and 5xx into the same empty body as a network timeout, the script called that a
+SKIP, and a run with `/products` challenged by the WAF printed `RESULT: PASS` and exited
+**0**. A gate that goes green when it could not see the page converts "unknown" into
+"verified", which is worse than having no gate. Do not reintroduce a non-fatal skip in
+either guard.
 
 **Neither guard is meaningful against local `wrangler dev`** for this particular
 failure: the relative `/api/...` URL resolves to `localhost` there and works, so

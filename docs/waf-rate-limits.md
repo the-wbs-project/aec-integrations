@@ -120,7 +120,9 @@ been covered on any host). Thresholds, actions, characteristics, and block durat
 untouched. Rule A's dashboard description was rewritten in the same `PATCH`: it read
 "matches spec §15.1 exactly", which stopped being true once the lead-capture paths were
 folded in. One knock-on: `scripts/check-ssr-listings.sh` curls `/products`, so it now
-sends a browser UA rather than being silently challenged (§2). Applied with
+sends a browser UA rather than being silently challenged (§2). *(The "silently" half was
+a second, independent defect in that script, fixed later by AECI-753 — a challenge is now
+a loud `FAIL (HTTP 403 …)` and exit 1. See §2.)* Applied with
 [`scripts/ops/2026-09-waf-host-scope/`](../scripts/ops/2026-09-waf-host-scope/README.md).
 The Rule B and scraper rule ids recorded above were unrecorded here until `snapshot.mjs`
 resolved them (2026-09-03).
@@ -357,11 +359,18 @@ Why it is shaped this way:
   never challenged.
 - **One operator script does hit a matched path, and must send a browser UA.**
   `scripts/check-ssr-listings.sh` (AECI-746 crawler-visibility probe) curls `/products`.
-  Under `curl`'s default UA it is challenged, falls into its own SKIP branch, and exits
-  **0** with a reassuring "PASS, with 2 page(s) skipped" — a silent false negative on the
-  exact regression it exists to catch. It now sends a browser UA for that reason
-  (AECI-659). Any future probe of `/products` or `/vendors` needs the same treatment;
-  probes of `/api/health` / `/api/version` do not.
+  Under `curl`'s default UA it is challenged, so it sends a browser UA (AECI-659). Any
+  future probe of `/products` or `/vendors` needs the same treatment; probes of
+  `/api/health` / `/api/version` do not.
+
+  Two failures stacked here, and only the second one is fixed by the UA. Until
+  **AECI-753** the challenge was also *silent*: `curl -f` threw the 403 away, the script
+  called the empty body a SKIP, and a run with every page challenged printed
+  **"RESULT: PASS, with 2 page(s) skipped"** and exited **0** — a false negative on the
+  exact regression the script exists to catch. AECI-753 deleted that SKIP branch. A
+  challenged page is now `FAIL (HTTP 403 …)` and exit 1. So a probe that loses its UA
+  no longer goes quiet, but it still measures this rule instead of crawler visibility.
+  Keep the UA.
 
 ---
 

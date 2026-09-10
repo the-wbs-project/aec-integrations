@@ -438,6 +438,12 @@ behind it:
 > listing routes, or the SSR data path — and as a spot check when Search Console
 > coverage looks wrong.
 >
+> **A non-200 is a FAIL, not a skip (AECI-753).** A page that answers 403 — a
+> Cloudflare challenge, most often — is a dead end to a crawler exactly as a blank page
+> is, so it exits **1** naming the code. A page that never answers at all exits **2**,
+> "could not check". Only `exit 0` means all five pages were actually seen. Before
+> AECI-753 every one of those cases printed `RESULT: PASS` and exited 0.
+>
 > **Local dev cannot answer this question.** Under `wrangler dev` the relative URL
 > resolves to `http://localhost:<port>` and succeeds, so local passes with *and
 > without* the fix (verified 2026-08-31). A green local run means "no regression",
