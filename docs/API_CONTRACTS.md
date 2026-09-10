@@ -1498,8 +1498,12 @@ Signals: `domain_match` (stored verbatim), `has_auth_account` (tri-state via the
 `fetchAuthAccountsByEmail` seam — `null` when creds absent / lookup fails), `existing_seats`
 (one grouped `profiles` scan over the page's target vendors; a `product` claim resolves to its
 primary vendor), `related_requests` (other `vendor_requests` sharing the `submitter_email`,
-excluding self) + `duplicate_of_request_id`. The LinkedIn/person search link is **built
-client-side** (a link only — no claimant data leaves AECi; real enrichment is deferred, §11).
+excluding self) + `duplicate_of_request_id`, and — since AECI-847 — `submitter_linkedin_url`,
+the claimant's own volunteered profile (`null` for a correction, for a claim that skipped the
+optional field, and for any claim predating the column). The LinkedIn/person **search** link is
+still **built client-side**, and since AECI-847 it is the **fallback**, rendered only when
+`submitter_linkedin_url` is `null` — never both (a link only — no claimant data leaves AECi;
+real enrichment is deferred, §11).
 **Graceful degrade:** the two enrichment queries are fail-soft — a failure sets that field to
 `null` ("unavailable") while the row and the rest of the signals still return. No errors beyond
 the shared `requireAdmin()` 401/403.

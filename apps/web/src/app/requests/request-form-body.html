@@ -20,7 +20,7 @@
   We've received your submission and will review it. We'll follow up by email if we need anything
   else.
 </p>
-<div class="mt-8">
+<div class="mt-8" [class.pb-6]="variant() === 'drawer'">
   @if (variant() === 'page') {
   <a
     [routerLink]="backRouterLink()"
@@ -181,23 +181,43 @@
     }
   </div>
 
-  @if (submitFailed()) {
-  <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@requests.submitFailed">
-    Something went wrong. Please try again.
-  </p>
-  }
-
-  <button
-    type="submit"
-    [disabled]="form().invalid() || form().pending() || form().submitting()"
-    class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+  <!--
+    AECI-847: in the drawer the submit control is pinned to the bottom of the
+    panel so it stays reachable while the fields above scroll. The negative
+    -mx-6 bleeds it past the scroll port's px-6 to the panel edges, and its own
+    pb-6 is the port's bottom padding (the port has none, so nothing can show
+    below the pinned bar). The routed page has no scroll port, so it stays in
+    normal flow.
+  -->
+  <div
+    [class]="
+      variant() === 'drawer'
+        ? 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6'
+        : 'space-y-6'
+    "
   >
-    @if (form().submitting()) {
-    <span i18n="@@requests.submitting">Submitting…</span>
-    } @else {
-    <span i18n="@@requests.correction.submit">Send correction</span>
+    @if (submitFailed()) {
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@requests.submitFailed"
+    >
+      Something went wrong. Please try again.
+    </p>
     }
-  </button>
+
+    <button
+      type="submit"
+      [disabled]="form().invalid() || form().pending() || form().submitting()"
+      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (form().submitting()) {
+      <span i18n="@@requests.submitting">Submitting…</span>
+      } @else {
+      <span i18n="@@requests.correction.submit">Send correction</span>
+      }
+    </button>
+  </div>
 </form>
 } @case ('claim') {
 <form
@@ -281,6 +301,7 @@
       type="url"
       inputmode="url"
       autocomplete="url"
+      i18n-placeholder="@@requests.claim.linkedin.placeholder"
       placeholder="https://www.linkedin.com/in/your-profile"
       [formField]="form.submitter_linkedin_url"
       [attr.aria-invalid]="form.submitter_linkedin_url().touched() && form.submitter_linkedin_url().invalid() ? 'true' : null"
@@ -376,22 +397,42 @@
     }
   </div>
 
-  @if (submitFailed()) {
-  <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@requests.submitFailed">
-    Something went wrong. Please try again.
-  </p>
-  }
-
-  <button
-    type="submit"
-    [disabled]="form().invalid() || form().pending() || form().submitting()"
-    class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+  <!--
+    AECI-847: in the drawer the submit control is pinned to the bottom of the
+    panel so it stays reachable while the fields above scroll. The negative
+    -mx-6 bleeds it past the scroll port's px-6 to the panel edges, and its own
+    pb-6 is the port's bottom padding (the port has none, so nothing can show
+    below the pinned bar). The routed page has no scroll port, so it stays in
+    normal flow.
+  -->
+  <div
+    [class]="
+      variant() === 'drawer'
+        ? 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6'
+        : 'space-y-6'
+    "
   >
-    @if (form().submitting()) {
-    <span i18n="@@requests.submitting">Submitting…</span>
-    } @else {
-    <span i18n="@@requests.claim.submit">Send claim</span>
+    @if (submitFailed()) {
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@requests.submitFailed"
+    >
+      Something went wrong. Please try again.
+    </p>
     }
-  </button>
+
+    <button
+      type="submit"
+      [disabled]="form().invalid() || form().pending() || form().submitting()"
+      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (form().submitting()) {
+      <span i18n="@@requests.submitting">Submitting…</span>
+      } @else {
+      <span i18n="@@requests.claim.submit">Send claim</span>
+      }
+    </button>
+  </div>
 </form>
 } } }

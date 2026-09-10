@@ -105,6 +105,7 @@ describe('RequestForm', () => {
     const { el, httpMock } = setup('vendor', 'claim');
     expect(el.querySelector('#claim-name')).not.toBeNull();
     expect(el.querySelector('#claim-role')).not.toBeNull();
+    expect(el.querySelector('#claim-linkedin')).not.toBeNull();
     expect(el.querySelector('#claim-email')).not.toBeNull();
     expect(el.querySelector('#claim-body')).not.toBeNull();
     expect(el.querySelector('#correction-body')).toBeNull();
@@ -248,5 +249,81 @@ describe('RequestForm', () => {
     const [, formValue] = api.submitClaim.mock.calls[0];
     expect(formValue).toMatchObject({ submitter_email: 'dana@acme.example' });
     httpMock.verify();
+  });
+  // ── AECI-847: the optional LinkedIn profile field ─────────────────────────
+  describe('the claim LinkedIn field', () => {
+    /** Fills every REQUIRED claim field, leaving `#claim-linkedin` to the case. */
+    function fillRequiredClaimFields(fixture: ComponentFixture<unknown>) {
+      type(fixture, '#claim-name', 'Dana Reyes');
+      type(fixture, '#claim-role', 'Head of Partnerships');
+      type(fixture, '#claim-email', 'dana@acme.example');
+      type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
+    }
+
+    it('describes the field by its hint before any error', () => {
+      const { el, httpMock } = setup('vendor', 'claim');
+      expect(el.querySelector('#claim-linkedin-hint')).not.toBeNull();
+      expect(el.querySelector('#claim-linkedin')?.getAttribute('aria-describedby')).toBe(
+        'claim-linkedin-hint',
+      );
+      httpMock.verify();
+    });
+
+    // The SAME shared schema rejects this server-side (`requests.spec.ts`); this is
+    // the client half of that acceptance criterion.
+    it('rejects a non-LinkedIn URL and blocks submit', async () => {
+      const { fixture, el, api, httpMock } = setup('vendor', 'claim');
+      fillRequiredClaimFields(fixture);
+      type(fixture, '#claim-linkedin', 'https://example.com/in/dana-reyes');
+      await settle();
+      fixture.detectChanges();
+
+      const error = el.querySelector('#claim-linkedin-error');
+      expect(error).not.toBeNull();
+      expect(error?.getAttribute('role')).toBe('alert');
+      expect(el.querySelector('#claim-linkedin')?.getAttribute('aria-describedby')).toBe(
+        'claim-linkedin-hint claim-linkedin-error',
+      );
+      expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(api.submitClaim).not.toHaveBeenCalled();
+      httpMock.verify();
+    });
+
+    it('submits a supplied LinkedIn profile URL', async () => {
+      const { fixture, el, api, httpMock } = setup('vendor', 'claim');
+      fillRequiredClaimFields(fixture);
+      type(fixture, '#claim-linkedin', 'https://www.linkedin.com/in/dana-reyes');
+      await settle();
+      fixture.detectChanges();
+
+      (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.submitClaim).toHaveBeenCalledTimes(1);
+      const [, formValue] = api.submitClaim.mock.calls[0];
+      expect(formValue).toMatchObject({
+        submitter_linkedin_url: 'https://www.linkedin.com/in/dana-reyes',
+      });
+      httpMock.verify();
+    });
+
+    // The field is optional: skipping it must not block the claim, and the empty
+    // string still goes on the wire (the server stores it as NULL).
+    it('still submits when the field is left blank', async () => {
+      const { fixture, el, api, httpMock } = setup('vendor', 'claim');
+      fillRequiredClaimFields(fixture);
+      await settle();
+      fixture.detectChanges();
+
+      (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.submitClaim).toHaveBeenCalledTimes(1);
+      const [, formValue] = api.submitClaim.mock.calls[0];
+      expect(formValue).toMatchObject({ submitter_linkedin_url: '' });
+      httpMock.verify();
+    });
   });
 });
