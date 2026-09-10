@@ -604,8 +604,8 @@ low-confidence human decision that must.
 
 One shape the fixtures do not carry, and production now does: a `skipped[]` mapping. 68 of the 239
 mappings sent were dropped because the product they name is not promoted, so the live screen shows
-stubs whose mapping rows are absent rather than pending. Absence is pending on this screen
-(§5.9), which means an unpromoted-product skip is indistinguishable from an undecided listing.
+stubs with no mapping row at all. Absence renders as pending here (§5.9(2)), which means an
+unpromoted-product skip is indistinguishable from an undecided listing.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to connector catalogues" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` now names **which catalogue** (`connector_product.name`) rather than the entity type. Until the fetch resolves it shows the same fallback word the trail does, from one definition. No endpoint, query or response shape moved.
 
