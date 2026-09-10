@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { AuthService } from '../auth/auth.service';
+import { SessionStatus } from '../auth/session-status';
 import { VendorStatus } from '../vendor/vendor-status';
 
 import { UserMenu } from './user-menu';
@@ -34,15 +35,30 @@ import { UserMenu } from './user-menu';
 describe('UserMenu trigger', () => {
   let isAdmin: ReturnType<typeof signal<boolean>>;
   let isVendor: ReturnType<typeof signal<boolean>>;
+  let avatarUrl: ReturnType<typeof signal<string | null>>;
 
   beforeEach(() => {
     isAdmin = signal(false);
     isVendor = signal(false);
+    avatarUrl = signal<string | null>(null);
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: AuthService, useValue: {} },
+        // Stubbed for the same reason the two status services below are: the
+        // AECI-850 identity block inside the panel injects this, and the real
+        // SessionStatus would fire its afterNextRender probe against the empty
+        // AuthService above. Null photo + null name is the magic-link shape.
+        {
+          provide: SessionStatus,
+          useValue: {
+            signedIn: signal(true),
+            email: signal<string | null>(null),
+            avatarUrl,
+            fullName: signal<string | null>(null),
+          },
+        },
         AdminSummaryStore,
         // Stubbing the two status services (as site-header stubs SessionStatus)
         // severs the real RoleStatus → SessionStatus → AuthService probe chain,
@@ -125,5 +141,35 @@ describe('UserMenu trigger', () => {
     const button = trigger(fixture.nativeElement as HTMLElement);
     expect(button.querySelector('span[aria-hidden="true"]')).toBeNull();
     expect(button.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  // ── Trigger avatar (AECI-850) ────────────────────────────────────────────
+
+  it('keeps the neutral person glyph when the account has no profile photo', () => {
+    // The majority case: only Google sign-ins carry a photo. The glyph is the
+    // permanent trigger for a magic-link account, not a loading state.
+    const el = render().nativeElement as HTMLElement;
+    expect(el.querySelector('button img')).toBeNull();
+    expect(el.querySelector('button svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('swaps the glyph for the profile photo once the session snapshot lands', () => {
+    avatarUrl.set('https://lh3.googleusercontent.com/a/photo');
+    const el = render().nativeElement as HTMLElement;
+    const img = el.querySelector('button img')!;
+    expect(img).not.toBeNull();
+    expect(el.querySelector('button svg[stroke]')).toBeNull();
+    // Decorative: the trigger already has its own aria-label ("Account menu"),
+    // so a described photo would give the button two accessible names.
+    expect(img.getAttribute('alt')).toBe('');
+    // Must not tell Google which AECi page the signed-in visitor is on.
+    expect(img.getAttribute('referrerpolicy')).toBe('no-referrer');
+  });
+
+  it('keeps its accessible name and popup semantics with a photo shown', () => {
+    avatarUrl.set('https://lh3.googleusercontent.com/a/photo');
+    const button = trigger(render().nativeElement as HTMLElement);
+    expect(button.getAttribute('aria-label')).toBe('Account menu');
+    expect(button.getAttribute('aria-haspopup')).toBe('dialog');
   });
 });

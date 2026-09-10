@@ -45,10 +45,40 @@ export interface SessionSnapshot {
    *  the one the API Worker records as `posthogDistinctId`; the two only join if
    *  they are the same value. */
   readonly userId: string | null;
+  /** The identity-provider profile photo (`user_metadata.avatar_url`), or `null`.
+   *  Only Google sign-ins carry one — a magic-link account has no photo at all,
+   *  which is the MAJORITY case, so every consumer must render an initial-letter
+   *  fallback rather than treating the absence as an error (AECI-850). */
+  readonly avatarUrl: string | null;
+  /** The identity-provider display name (`user_metadata.full_name`/`name`), or
+   *  `null`. Distinct from `profiles.display_name`, which the user can edit on
+   *  `/account`; that one wins where both exist. */
+  readonly fullName: string | null;
 }
 
 /** The "no session" answer — also what an unconfigured env resolves to. */
-const ANONYMOUS_SNAPSHOT: SessionSnapshot = { signedIn: false, email: null, userId: null };
+const ANONYMOUS_SNAPSHOT: SessionSnapshot = {
+  signedIn: false,
+  email: null,
+  userId: null,
+  avatarUrl: null,
+  fullName: null,
+};
+
+/** Pull a string claim out of Supabase's `user_metadata`, which is typed as an
+ *  open `Record<string, any>` — the provider decides what lands in it, so every
+ *  read has to be defensive about both presence and type. Empty strings collapse
+ *  to `null` so a blank claim takes the same fallback path as a missing one. */
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  ...keys: readonly string[]
+): string | null {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'string' && value.trim() !== '') return value;
+  }
+  return null;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -74,11 +104,17 @@ export class AuthService {
   }
 
   /**
-   * Browser-only snapshot of the cookie-derived session: whether one exists and
-   * the email it carries. One `getSession()` serves both, so `SessionStatus` can
-   * reconcile the header affordance AND the signed-in email (used to prefill the
-   * claim/correction forms' email field, so a signed-in visitor never retypes an
-   * address the session already knows) without probing twice.
+   * Browser-only snapshot of the cookie-derived session: whether one exists, the
+   * email it carries, and the identity-provider profile (photo + name). One
+   * `getSession()` serves them all, so `SessionStatus` can reconcile the header
+   * affordance, the signed-in email (used to prefill the claim/correction forms'
+   * email field, so a signed-in visitor never retypes an address the session
+   * already knows) AND the account-menu identity block without probing twice.
+   *
+   * `avatarUrl`/`fullName` come from the session's `user_metadata` and therefore
+   * cost **no** extra request — the SDK is already loaded on this path. That is
+   * why the header reads them here rather than widening `GET /api/account`
+   * (AECI-850).
    *
    * Same guarantees as `isSignedIn()`: never call it during SSR (it would bake
    * visitor state into the URL-keyed edge cache; §8), it's a UI hint only — every
@@ -102,7 +138,17 @@ export class AuthService {
       data: { session },
     } = await client.auth.getSession();
     if (!session) return ANONYMOUS_SNAPSHOT;
-    return { signedIn: true, email: session.user.email ?? null, userId: session.user.id };
+    const metadata = session.user.user_metadata as Record<string, unknown> | undefined;
+    return {
+      signedIn: true,
+      email: session.user.email ?? null,
+      userId: session.user.id,
+      // Google sets `avatar_url`; some providers use `picture` instead. Reading
+      // both costs nothing and means the header does not silently lose the photo
+      // if a second provider is ever enabled.
+      avatarUrl: metadataString(metadata, 'avatar_url', 'picture'),
+      fullName: metadataString(metadata, 'full_name', 'name'),
+    };
   }
 
   /**
