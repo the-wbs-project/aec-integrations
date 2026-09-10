@@ -330,17 +330,34 @@ group's rows.
 
 ### List filter
 
-`apps/web/src/app/products/integration-list-filter.ts` (AECI-841). The name filter above a long
-list of groups.
+`apps/web/src/app/products/integration-list-filter.ts` (AECI-841; moved into the heading row and
+freed of its row threshold by AECI-848). The name filter over a section of groups.
 
+- **Placement:** in the section's heading row, right-aligned opposite the `<h2>`. The caller
+  supplies that row (`flex flex-wrap items-center justify-between`); the filter's own host is the
+  right-hand flex item. Below `sm` it goes full width and drops onto a second line under the
+  heading. The host also carries `sm:ms-auto`, which holds the right edge when a long `<h2>` pushes
+  it onto a second line at `sm` and above: `justify-between` puts a lone item on a wrapped line at
+  flex-start, so without the auto inline-start margin a wrapped filter would render at the start
+  edge.
 - **Shape:** a `type="search"` input (the browser supplies the clear control), `rounded.sm`, 0.5px
-  `border-default`, `surface-base` fill, `text-sm`, capped at `max-w-xs` from `sm` up.
+  `border-default`, `surface-base` fill, `text-sm`, `py-1.5` so it sits inside the heading's own
+  line box rather than growing the row, `w-96` from `sm` up. That width is set by the placeholder
+  ("Filter by product name") reading in full rather than by the row's spare space, so the control
+  looks like somewhere to type.
 - **Label:** visually hidden. The section `<h2>` carries the visible name; a second visible label
   would be chrome.
-- **Result count:** a `role="status"` paragraph that is present from first paint with empty text and
-  gains "Showing 3 of 12" once a query starts. A live region created at the same moment its text
-  arrives is frequently not announced at all, which is why it is not conditionally rendered.
-- **Threshold:** shown at ten or more rows. Below that the whole list is already on one screen.
+- **Result count:** a `role="status"` paragraph immediately left of the input, present from first
+  paint with empty text and gaining "Showing 3 of 12" once a query starts. A live region created at
+  the same moment its text arrives is frequently not announced at all, which is why it is not
+  conditionally rendered — and why it is never hidden with `[hidden]` or an `@if` either, both of
+  which take it out of the accessibility tree. It is `whitespace-nowrap`, so the filter row never
+  wraps internally.
+- **No row threshold.** Any section that renders rows renders a filter. AECI-841 originally gated it
+  at ten rows; that was reverted because the two integration sections sit next to each other on a
+  connector page, and one carrying the control while the other does not reads as a bug rather than
+  as restraint. Living in the heading row is what makes this free: an idle filter costs no vertical
+  space, which is the cost the threshold existed to avoid.
 
 ### Entity cards (index rows)
 

@@ -46,7 +46,9 @@ function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListI
 
 @Component({
   imports: [ProductPoweredHub],
-  template: `<aec-product-powered-hub [view]="view()" />`,
+  // Attribute selector on a real <section>, exactly as product-detail.ts
+  // places it.
+  template: `<section aec-product-powered-hub [view]="view()" slug="agave-erp-sync"></section>`,
 })
 class Host {
   view = signal<PoweredHubView>(groupPoweredIntegrations([], 'agave-erp-sync'));
@@ -93,13 +95,32 @@ const NINE = [
 describe('ProductPoweredHub', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('hides the filter below the threshold', () => {
-    const { el } = setup(NINE);
-    expect(rows(el)).toBe(9);
-    expect(filterInput(el)).toBeNull();
+  // There is no row threshold: a section with rows has a filter. The two
+  // integration sections sit next to each other on a connector page, and the
+  // same control over one and not the other reads as a bug.
+  it('shows the filter on a short section', () => {
+    const { el } = setup(['Acumatica', 'Bluebeam']);
+    expect(rows(el)).toBe(2);
+    expect(filterInput(el)).not.toBeNull();
   });
 
-  it('shows the filter at the threshold and narrows the card to matches', () => {
+  it('shows no filter on a section with no rows, which has nothing to filter', () => {
+    const { el } = setup([]);
+    expect(rows(el)).toBe(0);
+    expect(filterInput(el)).toBeNull();
+    expect(el.textContent).toContain('No integrations are recorded as running');
+  });
+
+  it('renders the heading and its unfiltered count in the section itself', () => {
+    const { fixture, el } = setup([...NINE, 'Sage 300 CRE']);
+    expect(el.querySelector('h2')!.textContent).toContain('Integrations it powers (10)');
+    // A filter is a reader's view, never a claim about the product, so the
+    // <h2> count does not move under one.
+    type(fixture, filterInput(el)!, 'sage');
+    expect(el.querySelector('h2')!.textContent).toContain('Integrations it powers (10)');
+  });
+
+  it('narrows the card to matches and reports the count it kept', () => {
     const { fixture, el } = setup([...NINE, 'Sage 300 CRE']);
     const input = filterInput(el)!;
     expect(input).not.toBeNull();

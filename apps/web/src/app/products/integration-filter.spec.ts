@@ -6,7 +6,6 @@ import { splitIntegrationLanes } from './connector-lane-grouping';
 import {
   filterIntegrationLanes,
   filterPoweredHubView,
-  INTEGRATION_FILTER_MIN_ROWS,
   isFilterActive,
   normalizeFilterText,
 } from './integration-filter';
@@ -205,11 +204,5 @@ describe('filterPoweredHubView', () => {
     expect(filtered.pairCount).toBe(
       filtered.groups.reduce((n, g) => n + g.partners.length, 0) + filtered.others.length,
     );
-  });
-});
-
-describe('INTEGRATION_FILTER_MIN_ROWS', () => {
-  it('is the documented threshold both sections gate their filter box on', () => {
-    expect(INTEGRATION_FILTER_MIN_ROWS).toBe(10);
   });
 });

@@ -22,17 +22,18 @@ import type { PoweredHubGroup, PoweredHubView } from './powered-hub-grouping';
  * route keyed on path + query (`cacheKeyFor`), so a `?q=` would mint an edge
  * cache entry per keystroke against a page whose HTML does not vary with it.
  * The query lives in component state and dies with the page.
- */
-
-/**
- * Rows a section must render before its filter box appears.
  *
- * Below this a filter is chrome: the whole list is already on one screen, and an
- * input that can only ever remove three rows costs more attention than it saves.
- * Ten is the point where the endpoint table stops fitting a laptop viewport
- * alongside the section heading and the scope note.
+ * **There is no row threshold (AECI-848), which is why this module exports no
+ * constant for one.** A section renders its filter whenever it renders any rows
+ * at all. AECI-841 shipped an `INTEGRATION_FILTER_MIN_ROWS = 10` gate on the
+ * argument that a filter over a short list is chrome; reader feedback rejected
+ * it. The two sections sit next to each other on a connector page, and the same
+ * control appearing over one and not the other reads as a bug rather than as
+ * restraint — a reader who learns the box exists on Procore should not have to
+ * relearn whether the next page earned one. The filter now lives in the section
+ * heading row, right-aligned opposite the `<h2>`, so an idle one costs no
+ * vertical space at all, which is the only cost the threshold was buying back.
  */
-export const INTEGRATION_FILTER_MIN_ROWS = 10;
 
 /**
  * Fold a display name to its comparison form: accents stripped, lowercased

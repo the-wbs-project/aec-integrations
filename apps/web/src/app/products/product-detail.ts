@@ -544,64 +544,13 @@ import { RoleBadge } from './role-badge';
                on the sections themselves. -->
           <ng-template #poweredSection>
             <section
+              aec-product-powered-hub
               id="powered-integrations"
               aria-labelledby="powered-integrations-title"
               class="scroll-mt-20 space-y-4"
-            >
-              <h2
-                id="powered-integrations-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-              >
-                {{ poweredHeading() }}
-              </h2>
-
-              @if (poweredView().pairCount === 0) {
-                <p
-                  class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-                    bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-                  i18n="@@products.detail.body.powers.empty"
-                >
-                  No integrations are recorded as running on this connector yet. Vendor data is
-                  curated; if you know of one,
-                  <a
-                    aecRequestTrigger
-                    [entity]="'product'"
-                    [kind]="'correction'"
-                    [slug]="p.slug"
-                    [href]="'/products/' + p.slug + '/correction'"
-                    class="text-(--accent-primary) underline underline-offset-2"
-                    >suggest a correction</a
-                  >.
-                </p>
-              } @else {
-                <aec-product-powered-hub [view]="poweredView()" />
-
-                <!-- Same boundary as the endpoint table above, and it bites
-                     harder here: a connector's whole value proposition is
-                     breadth, so "Integrations it powers (4)" for a product that
-                     markets ~14 ERP connections understates the vendor in an
-                     h2. That is the mirror of the defect Addendum B closed, and
-                     an understatement is as much a trust failure as an
-                     overstatement on a directory that refuses pay-for-placement.
-                     Both sections carry the note, deliberately: caveating one
-                     would imply the other is complete. -->
-                <p
-                  class="text-xs text-(--text-secondary)"
-                  i18n="@@products.detail.body.powers.scope"
-                >
-                  Only integrations between products listed on AECi appear here. If one is missing,
-                  <a
-                    aecRequestTrigger
-                    [entity]="'product'"
-                    [kind]="'correction'"
-                    [slug]="p.slug"
-                    [href]="'/products/' + p.slug + '/correction'"
-                    class="text-(--accent-primary) underline underline-offset-2"
-                    >suggest a correction</a
-                  >.
-                </p>
-              }
-            </section>
+              [view]="poweredView()"
+              [slug]="p.slug"
+            ></section>
           </ng-template>
 
           @if (leadWithPowered()) {
@@ -738,9 +687,11 @@ export class ProductDetailPage {
 
   /**
    * The Addendum B hub view, computed HERE rather than inside
-   * `ProductPoweredHub` so the heading count and the rendered rows are
-   * provably the same set (see `poweredHeading`). The page slug is the
-   * §13.4(2) self-exclusion — see `groupPoweredIntegrations`.
+   * `ProductPoweredHub` and passed down, because three page-level decisions
+   * read the same pair count: `showPowered`, `leadWithPowered` and the
+   * section-nav. The section's own `<h2>` count reads this same object, so the
+   * heading and the rendered rows are provably the same set. The page slug is
+   * the §13.4(2) self-exclusion — see `groupPoweredIntegrations`.
    */
   protected readonly poweredView = computed(() => {
     const p = this.product();
@@ -775,32 +726,6 @@ export class ProductDetailPage {
       return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AECi catalog`;
     }
     return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AECi catalog`;
-  });
-
-  /**
-   * "Integrations it powers (N)".
-   *
-   * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
-   * heading directly above it, because on a connector page **both sections can
-   * be populated at once** — live data has a connector carrying its own
-   * endpoint integrations *and* powered edges (NetSuite Connector by
-   * Appficiency), so the two headings have to be told apart. The former
-   * "Powers these integrations" failed at that: verb-first (breaking the
-   * `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar),
-   * "these" pointed forward at nothing, and "powers" is vendor marketing voice
-   * rather than the neutral catalog voice PRODUCT.md asks for. The pronoun in
-   * "it powers" does the disambiguating work "these" was not doing.
-   *
-   * N counts the distinct product PAIRS the section renders, not raw edges.
-   * Counting edges made the heading lie: live data carries duplicate rows for a
-   * pair (that same NetSuite connector has 4 edges over 2 pairs) and several
-   * mechanisms between one pair collapse to a single row, so a reader counting
-   * rows found fewer than the heading promised. Same inline-count treatment as
-   * the endpoint heading above.
-   */
-  protected readonly poweredHeading = computed(() => {
-    const count = this.poweredView().pairCount;
-    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
   });
 
   /**

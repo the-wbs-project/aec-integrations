@@ -631,19 +631,48 @@ grouping, counting or render-condition rules.
    discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
    holds. A drawn `arrow-up-right` glyph carries the same cue for sighted readers, who get no domain
    change to hint at it.
-4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`). It
-   matches partner names, and a hub whose *own* name matches keeps every partner under it — typing
-   the hub name is a request for that card, not for a partner that happens to share the name. The
-   query is **component state and never a route query param**: `/products/:slug` is a cacheable SSR
-   route keyed on path + query, so a `?q=` would mint an edge-cache entry per keystroke for HTML
-   that does not vary with it. An active filter opens every surviving card, whatever the reader had
-   closed; clearing it restores their collapsed set.
+4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
+   *Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted.*
+   It matches partner names, and a hub whose *own* name matches keeps every partner under it —
+   typing the hub name is a request for that card, not for a partner that happens to share the
+   name. The query is **component state and never a route query param**: `/products/:slug` is a
+   cacheable SSR route keyed on path + query, so a `?q=` would mint an edge-cache entry per
+   keystroke for HTML that does not vary with it. An active filter opens every surviving card,
+   whatever the reader had closed; clearing it restores their collapsed set.
 5. **The counting rule is unchanged and that is the point.** The `<h2>`'s `N` still counts the
    distinct pairs the UNFILTERED section renders, because the heading is a fact about the product
    and a filter is a reader's temporary view of it. The filter's own `role="status"` line reports
    "Showing 3 of 12", and each card's size reads as a fraction while a query is active. Filtering
    recomputes `pairCount` from the rows it kept, so §12.3's "the count and the rendered rows are
    provably the same set" holds inside the filtered view as well.
+
+⚠️ **Amended again by AECI-848 (2026-09-10): the filter moved into the heading row and lost its row
+threshold, and this section became a component.** Presentation and composition only; the grouping,
+counting and render-condition rules above are all still in force.
+
+1. **The filter sits in the section heading row, right-aligned opposite the `<h2>`**, rather than in
+   a band beneath it. Below `sm` it drops to a full-width second line. It stays right-aligned when a
+   long `<h2>` wraps it onto a second line at `sm` and above, via `sm:ms-auto` on its host — the
+   row's `justify-between` would otherwise place a lone wrapped item at flex-start. The
+   `role="status"` result line sits immediately left of the input and is `whitespace-nowrap`, so the
+   row never wraps internally.
+2. **`INTEGRATION_FILTER_MIN_ROWS` is deleted. Any section that renders rows renders a filter.**
+   The ten-row gate in item 4 above was reverted on reader feedback: this section and §13.3's
+   `#integrations` sit next to each other on a connector page, and the same control appearing over
+   one and not the other reads as a bug rather than as restraint. A reader who learns the box exists
+   on one product page should not have to relearn whether the next page earned one. The move to the
+   heading row is what makes this free — an idle filter now costs no vertical space, which is the
+   only cost the threshold was buying back. The one remaining gate is emptiness: a section with no
+   rows shows its empty state and no filter.
+3. **`ProductPoweredHub` is now the whole section**, reached through an **attribute selector on the
+   page's existing `<section>`** (`section[aec-product-powered-hub]`) — the same form §13.3's
+   endpoint section already takes. It owns the `<h2>`, the empty state, the filter, the cards and
+   §12.7's catalog-scope note. The heading had to come down into the component for the filter to sit
+   beside it in one row; the empty state needs the heading too, so it followed. The grouped view is
+   still computed by the page and passed in, because `showPowered()`, `leadWithPowered()` and the
+   section-nav all read the same pair count. The attribute form leaves the emitted DOM unchanged at
+   the section boundary, so `#powered-integrations`, its `aria-labelledby`, the section-nav entry
+   and the cache tags are all untouched.
 
 ### 12.4 Cache-tag composition
 
@@ -973,7 +1002,7 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
   toggle. This subsection already rejected a "Direct integrations" heading over the only table as
   chrome over a fact the `<h2>` states, and a collapsible card would be that same chrome with a
   button on it. It **does** get the filter when it is long, which is exactly the list a filter is
-  for.
+  for. *Superseded by the AECI-848 amendment below: it gets the filter whatever its length.*
 - **The filter turns the `@defer` cut off.** With a query active the cut limit becomes the filtered
   row count. A filtered list is short by construction, and a collapsed card's deferred block would
   otherwise never reach the viewport that triggers it, so a match hiding past row 20 would render
@@ -984,6 +1013,12 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
   `#integrations` one level deeper and demoted the labelled region to a plain div; the attribute form
   leaves the emitted DOM byte-identical at the section boundary, so the anchor, the section-nav
   entry, the sitemap and the cache tags are all unchanged.
+
+⚠️ **Amended again by AECI-848 (2026-09-10):** the filter moved into this section's heading row,
+right-aligned opposite the `<h2>`, and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
+that renders rows renders a filter**, including the single-lane page above. Both changes and the
+reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
+same component shape there.
 
 ### 13.4 Contract elements the split needs and does not have
 
