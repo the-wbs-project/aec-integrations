@@ -981,6 +981,7 @@ Errors:
 - `REVIEW_DUPLICATE` if user already has a review for this product
 - `NOT_FOUND` if product doesn't exist
 - `VALIDATION_FAILED` for bad input
+- `RATE_LIMITED` (429) — **two caps, both raising this code** (AECI-773 / §4.1a). The §15.1 hourly per-user cap (3 per rolling hour, a D1 `count()` in the handler) answers with `Retry-After: 3600`; the `write` burst bucket in front of it answers with `Retry-After: 60`. Checked **after** the existence and duplicate gates, so a caller cannot spend the hourly budget probing for products, and **before** the toxicity call, so a rejected submission never reaches a paid Anthropic request. **Every status counts** — a rejected review still occupies a slot, or moderation would be a slot-refund machine
 
 #### `GET /api/products/:slug/reviews`
 
@@ -1178,7 +1179,7 @@ export type EnsureProfileResponse = {
 };
 ```
 
-Errors: `UNAUTHENTICATED`.
+Errors: `UNAUTHENTICATED`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap keyed on the verified JWT `sub`, `Retry-After: 60`). This is the last hop of every sign-in and one sign-in spends exactly one unit of the loosest bucket in the set, so a legitimate visitor never meets it.
 
 ### 6.9 Tracking
 
@@ -4106,7 +4107,9 @@ Mailing-list opt-out, keyed on the opaque per-subscriber `unsubscribe_token`. **
 export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
 ```
 
-**Response:** `UnsubscribeResult` — `{ ok: boolean }`, always HTTP `200`. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
+**Response:** `UnsubscribeResult` — `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
+
+**One non-200: `RATE_LIMITED` (429).** Since AECI-773 the route carries the `token` burst bucket — 10 per client IP per 10 s, `Retry-After: 10` (§4.1a) — because it is the only anonymous write on this router with no WAF rule behind it, and every request is an unbounded D1 `UPDATE` keyed on a caller-supplied token. The middleware runs before the handler, so a limited request never reads the token. The RFC 8058 one-click path is POSTed automatically by mail security appliances and a 429 there reads to the mail client as a broken unsubscribe, so the ceiling sits far above any appliance's cadence.
 
 ---
 
@@ -4393,7 +4396,7 @@ Two consequences that do **not** follow the sibling pattern:
 - **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
-Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`). **Raised only after ownership settles**, so a non-owner still gets the flat 404.
+Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
 
 #### Product versions — `/api/vendor/products/:id/versions`
 
@@ -4457,7 +4460,7 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
-Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
 
 #### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
@@ -4592,7 +4595,7 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 **No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
-Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`.
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
 ---
 
