@@ -3,10 +3,12 @@
  * `cache-purge.spec.ts`: asserts the request shape and that an IndexNow failure
  * is tolerated (the §20.2 acceptance criterion — never throws).
  *
- * AECI-826 added the bounded retry. Every test here passes an injected `sleep`,
- * because the real backoff is 1 s + 4 s and a suite that actually waits it out
- * would blow the 5 s default timeout — which is exactly what happened when the
- * retry first landed. `sleeps` doubles as the assertion surface for the schedule.
+ * AECI-826 added the bounded retry; AECI-833 gated it so a bare 429 is never
+ * retried. Every test here passes an injected `sleep`, because the real backoff is
+ * 1 s + 4 s and a suite that actually waits it out would blow the 5 s default
+ * timeout — which is exactly what happened when the retry first landed. `sleeps`
+ * doubles as the assertion surface for the schedule, and an empty `sleeps` is how
+ * "this failure was not retried" is asserted.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -141,29 +143,42 @@ describe('callIndexNow', () => {
   });
 });
 
-// ─── Retry (AECI-826) ────────────────────────────────────────────────────────
+// ─── Retry (AECI-826), and its 429 gate (AECI-833) ───────────────────────────
 //
-// The retry handles an ISOLATED throttle. It is explicitly NOT the fix for the
-// burst that produced 23 consecutive 429s in production — that is the
-// `indexnow_queue` buffer plus the twenty-minute drain cron. These tests pin the
-// bound so a future change cannot quietly turn a retry into a second burst.
+// Two rules, not one. A 5xx or a transport error is retried blind on the 1 s / 4 s
+// schedule. A 429 is retried ONLY when the response names a usable `Retry-After`,
+// because re-sending inside the same rate-limit window is the burst the
+// `indexnow_queue` buffer exists to remove and the reason ADR 0025 declined a
+// Cloudflare Queue. Before AECI-833 the two were conflated, and a sustained
+// production throttle cost three guaranteed-failing requests per drain tick.
+//
+// These tests pin the bound in both directions: a retryable failure must not
+// exceed INDEXNOW_MAX_RETRIES, and a bare 429 must not retry at all.
 
 describe('callIndexNow retry', () => {
-  it('retries a 429 and succeeds on the second attempt', async () => {
+  it('retries a 429 that names a Retry-After — the server said when to come back', async () => {
     const { submission, sleeps } = withSleep();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response('{"errorCode":"TooManyRequests"}', { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response('{"errorCode":"TooManyRequests"}', {
+          status: 429,
+          headers: { 'retry-after': '2' },
+        }),
+      )
       .mockResolvedValueOnce(ok(200));
 
     const outcome = await callIndexNow(fetchMock as unknown as typeof fetch, submission);
 
     expect(outcome).toEqual({ ok: true, status: 200, attempts: 2 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(sleeps).toEqual([1_000]);
+    expect(sleeps).toEqual([2_000]);
   });
 
-  it('gives up after INDEXNOW_MAX_RETRIES and returns the last failure', async () => {
+  it('does NOT retry a bare 429 — a rate limit is not fixed by asking again inside the same window (AECI-833)', async () => {
+    // THE regression guard for AECI-833. Production measured `attempts: 3` on its
+    // first real drain tick under a sustained throttle, which is what made the
+    // channel's documented 72-requests-a-day ceiling really 216.
     const { submission, sleeps } = withSleep();
     const fetchMock = vi
       .fn()
@@ -171,8 +186,37 @@ describe('callIndexNow retry', () => {
 
     const outcome = await callIndexNow(fetchMock as unknown as typeof fetch, submission);
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ ok: false, status: 429, attempts: 1 });
+    expect(sleeps).toEqual([]);
+  });
+
+  it('does NOT retry a 429 whose Retry-After is past the ten-second cap', async () => {
+    // The composite neither `retryAfterMs` nor the gate covers alone: an over-cap
+    // header parses to `undefined`, which makes the 429 unretryable rather than
+    // merely falling back to the default schedule.
+    const { submission, sleeps } = withSleep();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('slow down', { status: 429, headers: { 'retry-after': '60' } }),
+      );
+
+    const outcome = await callIndexNow(fetchMock as unknown as typeof fetch, submission);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ status: 429, attempts: 1 });
+    expect(sleeps).toEqual([]);
+  });
+
+  it('gives up after INDEXNOW_MAX_RETRIES and returns the last failure', async () => {
+    const { submission, sleeps } = withSleep();
+    const fetchMock = vi.fn().mockResolvedValue(new Response('upstream down', { status: 503 }));
+
+    const outcome = await callIndexNow(fetchMock as unknown as typeof fetch, submission);
+
     expect(fetchMock).toHaveBeenCalledTimes(INDEXNOW_MAX_RETRIES + 1);
-    expect(outcome).toMatchObject({ ok: false, status: 429, attempts: 3 });
+    expect(outcome).toMatchObject({ ok: false, status: 503, attempts: 3 });
     expect(sleeps).toHaveLength(INDEXNOW_MAX_RETRIES);
   });
 
@@ -197,11 +241,13 @@ describe('callIndexNow retry', () => {
   });
 
   it('honours a Retry-After header over the default backoff', async () => {
+    // On a 5xx, so this proves the header beats the 1 s / 4 s schedule
+    // independently of the 429 gate above, which needs the header to retry at all.
     const { submission, sleeps } = withSleep();
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response('slow down', { status: 429, headers: { 'retry-after': '3' } }),
+        new Response('back soon', { status: 503, headers: { 'retry-after': '3' } }),
       )
       .mockResolvedValueOnce(ok(200));
 
@@ -214,8 +260,9 @@ describe('callIndexNow retry', () => {
     // The failure path reads the body for its message, and reading IS releasing.
     // Asserted because a retry loop is precisely the shape that accumulates held
     // connections: three attempts that each leave a body unread is three
-    // connections out of a budget of about six.
-    const first = new Response('{"errorCode":"TooManyRequests"}', { status: 429 });
+    // connections out of a budget of about six. On a 503, because a bare 429 no
+    // longer produces a loop at all (AECI-833).
+    const first = new Response('upstream down', { status: 503 });
     const { submission } = withSleep();
     const fetchMock = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(ok(200));
 

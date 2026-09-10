@@ -422,8 +422,9 @@
       // this stays numeric rather than "0 2 * * MON".
       // "*/20 * * * *" is the MOST FREQUENT trigger — the IndexNow submission drain
       // (AECI-826 / §20.2, queue-less): it reads the indexnow_queue buffer the
-      // promote hook writes and makes at most ONE outbound IndexNow request per
-      // tick. It exists because submitting per promote rate-limited the channel to
+      // promote hook writes and makes ONE outbound IndexNow submission per tick —
+      // exactly one request under a rate limit, because a bare 429 is not retried
+      // (AECI-833). It exists because submitting per promote rate-limited the channel to
       // a standstill — every production submission across 2026-09-07..09 returned
       // HTTP 429. It cannot be "*/15" (that belongs to the reconcile sweep, and
       // scheduled.ts switches on the exact cron string), and it is queue-less on
@@ -779,7 +780,8 @@
       // expiry_notice_sent_at. It WARNS and never lapses — never writes status, never
       // writes vendors.verified (§7.3); "*/20 * * * *" every 20 min — the IndexNow
       // submission drain (AECI-826 / §20.2, queue-less), which turns any number of
-      // buffered promotes into ONE outbound IndexNow request. Submitting per promote
+      // buffered promotes into ONE outbound IndexNow submission — one request under
+      // a rate limit, since AECI-833 gated the bare-429 retry. Submitting per promote
       // rate-limited the channel to a standstill (23 consecutive HTTP 429s,
       // 2026-09-07..09).
       // Dispatched by `controller.cron`.

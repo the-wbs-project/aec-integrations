@@ -166,7 +166,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `0 10 * * *` | §7 attestation detector sweep + nudge email (AECI-302) — four detectors over the claim/attestation spine, deduped through an `audit_log` ledger | `attestation-notify` | **today: nothing** — read `aeci.attestation.detector` (a per-detector gauge, always emitted incl. 0) and `aeci.attestation.notify.job{outcome}`. **The zero series is the liveness signal**: the detectors match nothing until vendors start attesting, so "0 findings" is the healthy steady state and no-data is the failure → **combined + sweep** |
 | `0 11 * * *` | §7 entitlement term-expiry sweep (AECI-613) — warning notices only; terms **never** auto-lapse | `entitlement-expiry` | **today: nothing** — `aeci.entitlement.expiry.job{outcome}` plus the `aeci.entitlement.expiry_due` gauge, emitted every run **including zero**. Same shape as the 10:00 sweep and for longer: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to this job, so **"0 due" is healthy and no-data is the failure** → **combined + sweep** |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data → **persistent-stuck stays its own alert**; liveness → sweep (window **relaxed 60 → 90 min**, margin for the *sweep's* lateness) |
-| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes at most **one** outbound IndexNow request per tick. Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Failure → **combined + sweep (90 min)**; a sustained refusal ratio gets its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
+| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes **one** outbound IndexNow submission per tick — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Failure → **combined + sweep (90 min)**; a sustained refusal ratio gets its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
 
 **Eight of these gain failure coverage they never had** — metrics-snapshot, analytics-digest,
@@ -358,8 +358,23 @@ Two constants govern the push channel, and both are config changes rather than r
 | `INDEXNOW_DRAIN_CRON` | `apps/api/src/lib/cron-schedules.ts` **and** the three `triggers.crons` blocks in `apps/api/wrangler.jsonc` | `*/20 * * * *` | Move both together — `cron-schedules.spec.ts` asserts they stay byte-equal, and `scheduled.ts` matches `controller.cron` by exact string, so a drift silently stops dispatching the job. **It cannot become `*/15`**: that expression belongs to the reconcile sweep and two jobs cannot share one trigger. Loosen toward `*/30` if 429s persist after the buffer lands; tighten only with evidence that discovery latency is costing something |
 | `INDEXNOW_QUEUE_MAX_AGE_DAYS` | `apps/api/src/lib/indexnow-queue.ts` | `7` | The containment bound on `indexnow_queue`, not a freshness judgement. A non-zero `aeci.indexnow.expired` means the channel was refusing submissions for a week and is a finding in its own right — fix the channel rather than widening the window |
 
-**The ceiling this buys:** 72 requests a day, and far fewer in practice because an empty buffer
-makes no request at all. The design it replaced produced eleven inside seven minutes.
+**The ceiling this buys: 72 ticks a day.** Count ticks and requests separately — conflating them
+is what AECI-833 corrected, and this line used to say "72 requests".
+
+| | Requests per tick | Requests per day |
+|---|---|---|
+| Empty buffer | 0 | 0 |
+| Normal submission | 1 | up to 72 |
+| **Sustained 429** (the state production has been in) | **1** | **up to 72** |
+| 5xx, transport error, or a 429 naming a `Retry-After` inside 10 s | up to 3 | up to 216 |
+
+So 216 a day is the absolute worst case, and it is **not** the throttled case. The throttled case
+is the one that matters, because it is the one where every request is guaranteed to fail against a
+limiter we are waiting on — before AECI-833 it cost three per tick, measured in production as
+`status: 429, attempts: 3` on the first real tick (2026-09-09 08:20:11 UTC). The retry rule lives
+in `isRetryableStatus` (`apps/api/src/lib/indexnow.ts`): a 429 is retried only when IndexNow itself
+names a time to come back. In practice the number is far lower than any row above, because an empty
+buffer makes no request at all. The design this replaced produced eleven inside seven minutes.
 
 ### Trade publication floor (AECI-539 / AECI-546)
 

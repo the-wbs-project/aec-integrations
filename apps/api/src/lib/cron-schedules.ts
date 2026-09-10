@@ -174,15 +174,26 @@ export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
  *
  * **Why 20 minutes.** The old design submitted once per promote and a bulk
  * curation session burst eleven requests inside seven minutes, every one of them
- * 429. Twenty minutes puts a hard ceiling of 72 requests a day on the whole
- * channel, and the real number is far lower because the drain makes no request at
- * all when the buffer is empty. Discovery latency of up to 20 minutes costs
- * nothing: the alternative on Bing is ordinary sitemap crawling, measured in days.
+ * 429. Twenty minutes puts a hard ceiling of **72 ticks a day** on the whole
+ * channel, and the real number of requests is far lower because the drain makes no
+ * request at all when the buffer is empty. Discovery latency of up to 20 minutes
+ * costs nothing: the alternative on Bing is ordinary sitemap crawling, measured in
+ * days.
+ *
+ * **Ticks and requests are not the same number (AECI-833).** A tick normally costs
+ * one request, and under a sustained throttle it costs exactly one, because
+ * `lib/indexnow.ts` does not retry a bare 429. A tick can cost up to three only
+ * when the aggregator returns a 5xx, the transport itself fails, or a 429 arrives
+ * carrying a `Retry-After` inside ten seconds — so 216 a day is the absolute worst
+ * case and it is not the case we are in. Before that gate every throttled tick cost
+ * three, which is what made the 72 stated here wrong by a factor of three.
  *
  * **Queue-less, and that is the point.** Every other sub-hourly job here is
- * queue-backed for native retries. A retry is exactly the wrong response to a rate
+ * queue-backed for native retries. A blind retry is the wrong response to a rate
  * limit — it re-submits inside the same window and 429s again. A failed drain
- * leaves its rows in `indexnow_queue` and the next tick is the backoff.
+ * leaves its rows in `indexnow_queue` and the next tick is the backoff. The
+ * transport now makes the same distinction rather than only asserting it: a retry
+ * it cannot justify is a retry it does not make.
  *
  * Retuning it is a config change: move this constant and the three
  * `triggers.crons` entries together (the spec keeps them honest), and record the
