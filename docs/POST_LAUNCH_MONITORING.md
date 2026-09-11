@@ -175,7 +175,7 @@ attestation-notify, entitlement-expiry, asn-registry, claim-stale-check, waf-pol
 after the Datadog monitors were written and nobody went back. **`indexnow-drain` is the one cron
 listed here that did NOT get it**: AECI-826 added its liveness heartbeat to the sweep registry but
 never added `aeci.indexnow.drain` to the combined failure alert's metric list, so a failed drain
-tick is still invisible to that alert. Tracked separately; the liveness half does work. That is the migration's largest single
+tick is still invisible to that alert. Tracked as AECI-864; the liveness half does work. That is the migration's largest single
 *improvement*, and it is worth weighing against the hourly-cadence regression rather than reading
 either in isolation.
 

@@ -91,7 +91,8 @@ Two deliberate widenings ride along:
    `claim-stale-check` did not exist until AECI-862). Four of the fifteen crons are absent
    from that query on purpose: `moderation-snapshot`, `algolia-drift` and `request-reconcile`
    heartbeat on a GAUGE with no `outcome` tag, so there is nothing to sum. `indexnow-drain`
-   is the one real gap — its heartbeat does carry `outcome`, and AECI-826 never added it.
+   is the one real gap — its heartbeat does carry `outcome`, and AECI-826 never added it
+   (AECI-864).
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
    `aeci.stats.compute` also fire on `trigger:promote`, and a promote-path failure is a
    real failure. Datadog's Algolia monitor was already trigger-agnostic; its stats monitor
