@@ -30,7 +30,7 @@ generally cannot commit across repos from a single workspace.
 
 1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue, parses its `**Spec section:** §X.Y` line, loads just that section from the spec the line names — `docs/STAGE_1_SPEC.md` by default, but Stage 1.5, the phase specs, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` and `docs/ADMIN_PANEL_SPEC.md` are all common anchors now — and follows the cross-references into the companion docs (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.). (The `§X.Y` convention is enforced by the team Linear issue templates — Linear has no custom-field feature on our plan.)
 2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing any code.** It reviews the plan against the section it just loaded and returns findings rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR — the cheap moment to catch a spec contradiction, a missing contract element, or a governing doc the plan will make stale. Issues with no `§X.Y` anchor go through the skill's n/a ladder rather than being skipped (AECI-550).
-3. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. **This table is the complete index** — the spec's own §1a "Companion Documents" list is older and incomplete.
+3. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. **This table is the complete index** — the spec's own §1a "Companion Documents" section points back here rather than keeping a second list (AECI-598).
 4. If the spec is ambiguous or wrong, raise it — don't guess. The docs are stale in known places, so check the code before treating a doc/plan divergence as a defect.
 
 ## Documents that are source of truth
@@ -56,7 +56,7 @@ generally cannot commit across repos from a single workspace.
 | `trade` controlled vocabulary — the **fourth taxonomy facet** ("what work does your company sell?", AECI-538 epic): the closed 34-term list, the trade-specific-value tagging rule, find-only promote resolution, and the publication gate | `docs/TRADES_VOCABULARY.md` (+ generated `docs/trades-vocabulary.json` mirror); facet behaviour in `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
 | Review-app → app-DB promotion push — the **async** kick-off/poll/collect protocol (`POST /api/promote` → `202 { jobId }`, `GET /api/promote/jobs/:id`, payload/response, the two idempotency keys, integration rule) — **and, since AECI-714, the second arm** `POST /api/promote/connector-catalog` (§3a: paged connector-catalogue mirror, one page = one job, a *third* idempotency key in the review record id) | `docs/REVIEW_APP_PROMOTE_API.md` (design rationale: `docs/adr/0021-async-promote-ingest-via-workflows.md`) |
-| Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
+| Database schema (D1/Drizzle; §12 is the app-layer authorization model — there are no RLS hooks on app tables) | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow (generating SQL via drizzle-kit, applying via `wrangler d1 migrations apply`) | `docs/migrations.md` §0 (D1 + drizzle-kit; the legacy Supabase-CLI sections below §0 are Auth-project history only) |
 | Local dev tracing (agent-queryable OTel traces in `wrangler dev`: Local Explorer SQL endpoint, `spans`/`logs` schema, debugging recipes) | `docs/local-tracing.md` |
 | Drizzle/D1 data layer (client, schema, `db.batch()` audit/workflow builders) | `apps/api/src/db/` + `apps/api/src/lib/{audit,drizzle-helpers,recompute-counts}.ts` (ADR 0016) |
@@ -83,7 +83,7 @@ generally cannot commit across repos from a single workspace.
 | Admin panel / operator console (traffic, audience, catalog, moderation, system health; the consent-independent read surface over `page_views` + a screen for the two cron digests) — **v1.0 build contract**; **Phase 8.3**, `main` line, epic AECI-572 integrates on the `admin-panel` branch | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
 | Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..8}_COMPLETION.md` (Phase 8 = the living post-launch checkpoint) |
-| Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
+| Auth model and authorization (the Worker request guard is the **only** layer for app tables — D1 has no PostgREST/GRANT/RLS, ADR 0016; the Postgres GRANT/RLS design is retained under banners as history; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
 | Angular / TypeScript conventions (zoneless, signals, control flow, OnPush, SSR safety, file naming, lint rules) | `ANGULAR_STYLE_GUIDE.md` (repo root) |
