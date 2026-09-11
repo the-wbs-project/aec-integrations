@@ -45,7 +45,7 @@ Build sequence (from the issue, unchanged):
 
 | Issue | What is broken | Priority |
 |---|---|---|
-| **AECI-618** | Listing pages (`/products`, category/audience/phase/trade browse) SSR an error string and **zero product links** on both public tiers — the `httpResource()` relative-path fetch fails at the edge while the resolver/service-binding path works. Hydration hides it from browsers; crawlers and LCP pay for it. Fix direction 1 (server-side service-binding path for the listing controller) is the consistent one. | High |
+| ~~**AECI-618**~~ | ~~Listing pages SSR an error string and zero product links on both public tiers.~~ **Closed 2026-09-11 as a duplicate of AECI-746, which shipped the fix.** Fix direction 1 is what landed: `apps/web/src/app/app.routes.ts` prefetches page 1 through the service binding during resolution. Locked by `apps/web/e2e/ssr-listing-crawlability.spec.ts` and by the deployed-tier probe `scripts/check-ssr-listings.sh`. **No longer Stage 2.5 work.** | — |
 | **AECI-589** | Cache-purge secrets were never provisioned — `POST /admin/purge` 401s on **every** tier, plus false "not set" warnings on `DD_*`. The manual/incident purge surface is dead. | Medium |
 | **AECI-531** | GDPR erasure: the `auth.users` delete is **silently skipped in production** with zero telemetry — the erasure flow reports success while leaving the auth record. | High |
 | **AECI-591** | §26.1 violation: the `*/15` reconcile sweep mutates `vendor_requests` + `workflow_instances` with **no audit row** — the one standing exception to "failure to log is a transactional failure". | Medium |
@@ -114,7 +114,7 @@ Three planned surfaces overlap, and without a rule they duplicate:
 ## 8. Exit criteria
 
 - [ ] Ranking changes 1 + 2 live; replicas retired; `SEARCH_RANKING.md` §3/§5/§5a/§7 match deployed settings; ranking-method page published; blocked copy released.
-- [ ] `curl` of `/products` + one page per taxonomy type on production returns product links and no error string (AECI-618 AC), locked by an e2e assertion.
+- [x] `curl` of `/products` + one page per taxonomy type on production returns product links and no error string, locked by an e2e assertion. **Met by AECI-746** (`apps/web/e2e/ssr-listing-crawlability.spec.ts` + `scripts/check-ssr-listings.sh`); AECI-618 closed as its duplicate 2026-09-11.
 - [ ] `POST /admin/purge` succeeds on every tier; GDPR erasure deletes or loudly fails; the reconcile sweep writes audit rows.
 - [ ] Procurement category live; retract semantics shipped; the invariant guard can fire.
 - [ ] The public-site screen-reader pass (AECI-244) logged — **the machine half is done** (`docs/ACCESSIBILITY_AUDIT.md`, 2026-09-09); what gates this box is the VoiceOver/NVDA run and its §4 run-log entry. The defects it found are **Stage 3** (AECI-829…832), so they do not gate 2.5. The four-doc de-stale sweep merged.
