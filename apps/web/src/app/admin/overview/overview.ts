@@ -236,16 +236,16 @@ export class AdminOverview {
   // ── Localized labels needed as strings (chart a11y names, captions) ────────
 
   protected readonly trafficSeriesLabels: readonly string[] = [
-    $localize`:@@admin.overview.chart.series.human:Human`,
+    $localize`:@@admin.overview.chart.series.unresolved:Unresolved origin`,
     $localize`:@@admin.overview.chart.series.bot:Bots and crawlers`,
   ];
 
-  protected readonly trafficChartLabel = $localize`:@@admin.overview.chart.aria:Page views per day over the last 30 UTC days, split between human and bot traffic.`;
+  protected readonly trafficChartLabel = $localize`:@@admin.overview.chart.aria2:Page views per day over the last 30 UTC days, split between requests of unresolved origin and known bot traffic.`;
   protected readonly trafficChartEmpty = $localize`:@@admin.overview.chart.empty:No page views recorded in the last 30 days.`;
   protected readonly sourcesEmpty = $localize`:@@admin.overview.sources.empty:No traffic sources recorded for this day.`;
   protected readonly productsEmpty = $localize`:@@admin.overview.products.empty:No product page views recorded for this day.`;
 
-  protected readonly pageViewsSparklineLabel = $localize`:@@admin.overview.tile.pageViews.spark:Human page views per day over the last 30 days, counted server-side with no automation filter applied`;
+  protected readonly pageViewsSparklineLabel = $localize`:@@admin.overview.tile.unresolved.spark:Page views per day over the last 30 days, counted server-side with no automation filter applied`;
   protected readonly visitorsSparklineLabel = $localize`:@@admin.overview.tile.visitors.spark:Unique visitors per day over the last 30 days`;
   protected readonly signInsSparklineLabel = $localize`:@@admin.overview.tile.signIns.spark:New sign-ins per day over the last 30 days`;
 
@@ -286,10 +286,20 @@ export class AdminOverview {
       // estimate as an upper bound would be the same class of error the AECI-658
       // hedge was added to fix, pointed the other way.
       flagged === null
-        ? $localize`:@@admin.overview.caption.pageViewsUnfiltered:UTC day ${this.windowDay()}:DAY:. The automation filter did not run for this day, so this figure is UNFILTERED and is an upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in it. It is not comparable with a day the filter ran on.`
-        : $localize`:@@admin.overview.caption.pageViewsAfterAutomation:UTC day ${this.windowDay()}:DAY:. Counted server-side: ${t?.page_views_human_raw.total ?? 0}:RAW:, less those attributed to automated clients: ${flagged}:FLAGGED:. The server-side figure is an upper bound: it counts every full-document load, so a crawler that never runs our JavaScript is in it.`,
-      $localize`:@@admin.overview.caption.corroborated:Arrivals carrying an external search or social referrer: ${t?.corroborated_views ?? 0}:VIEWS:, from distinct visitors: ${t?.corroborated_visitors ?? 0}:VISITORS:. A floor, and built on a claim the request made.`,
+        ? $localize`:@@admin.overview.caption.unresolvedUnfiltered:UTC day ${this.windowDay()}:DAY:. Requests no rule could exclude, which is not the same as people. The automation filter did not run for this day, so this figure is UNFILTERED, nothing has been subtracted at all, and it is an upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in it. It is not comparable with a day the filter ran on.`
+        : $localize`:@@admin.overview.caption.unresolvedAfterAutomation:UTC day ${this.windowDay()}:DAY:. Requests no rule could exclude, which is not the same as people. Counted server-side: ${t?.page_views_human_raw.total ?? 0}:RAW:, less those attributed to automated clients: ${flagged}:FLAGGED:. The server-side figure is an upper bound on humans: it counts every full-document load, so a crawler that never runs our JavaScript is in it.`,
+      $localize`:@@admin.overview.caption.corroboratedHuman:Arrivals carrying a named external search or social referrer, which corroborates them as human: ${t?.corroborated_views ?? 0}:VIEWS:, from distinct visitors: ${t?.corroborated_visitors ?? 0}:VISITORS:. Supporting evidence rather than a verified floor, built on a claim the request made, and a subset of the figure above.`,
     ];
+    // AECI-869. FIRST among the conditional parts, because when it applies it does
+    // not qualify the figure above it — it says the exclusions behind that figure
+    // had no input at all. The §13 D15 envelope is where it belongs for the same
+    // reason the rest of it is here: a caveat one card away from its figure is a
+    // caveat nobody reads.
+    if (t?.arrival_telemetry.degraded) {
+      parts.push(
+        $localize`:@@admin.overview.caption.arrivalTelemetryUnavailable:Arrival network telemetry was unavailable for this day; network-based exclusions did not run. Page loads carrying a network: ${t.arrival_telemetry.arrivals_with_asn}:WITH_NETWORK:, of ${t.arrival_telemetry.arrivals}:ARRIVALS:. This figure is too high by an unknown amount and this day is not comparable with a day that has telemetry.`,
+      );
+    }
     if ((t?.operator_leak_excluded ?? 0) > 0) {
       parts.push(
         $localize`:@@admin.overview.caption.operatorLeak:Excluded as operator self-traffic on a lapsed session: ${t?.operator_leak_excluded ?? 0}:VIEWS:.`,

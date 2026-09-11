@@ -231,7 +231,7 @@ than a Worker metric.
 | `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key) |
 | `aeci.metrics_snapshot.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`, from the daily 00:15 UTC snapshot cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (ok / partial / failed) — always emitted, so this doubles as the cron-liveness heartbeat |
 | `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
-| `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 20 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
+| `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 21 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
 | `aeci.metrics_snapshot.recheck.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`, the AECI-827 trailing pass) | `trigger` (cron), `outcome` (ok / skipped / failed) — a **separate family** from the primary counters on purpose: the two halves of this cron fail for different reasons and a monitor must be able to say which one broke without reading `job_runs.detail`. Always emitted, including on a quiet night, so "the pass stopped correcting" is distinguishable from "there was nothing to correct". `skipped` is a deliberate refusal (see ADR 0027), not a fault |
 | `aeci.metrics_snapshot.recheck.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron) |
 | `aeci.metrics_snapshot.recheck.correction` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric` (the `traffic.*` key rewritten). One per `(day, metric)` corrected, and **only on a run that wrote** — a `skipped` run reports what *would* have moved in `job_runs.detail.recheck.corrections` but emits no count here, so this counter never overstates the pass. Zero is the normal steady state — a handful a month is retro-join drift converging |
@@ -589,7 +589,7 @@ trigger-agnostic, so a failed *promote* refresh alerts the same as a failed cron
 `aeci.metrics_snapshot.*` (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) is the same shape one layer over:
 the daily 00:15 UTC cron that captures the prior **complete** UTC day into `metrics_daily`, the admin
 panel's long memory. A completed run emits one job-level `aeci.metrics_snapshot.run` count
-(`outcome:ok` = every one of the 20 metrics written, `partial` = some wrote + some failed, `failed` =
+(`outcome:ok` = every one of the 21 metrics written, `partial` = some wrote + some failed, `failed` =
 nothing wrote), one `aeci.metrics_snapshot.run.duration_ms` distribution, and a per-metric
 `aeci.metrics_snapshot.metric{outcome:written|failed}` so a dashboard sees *which* key failed without
 reading logs. The pre-compute crash path (a DB-client-init throw before `runMetricsSnapshot`) stays an

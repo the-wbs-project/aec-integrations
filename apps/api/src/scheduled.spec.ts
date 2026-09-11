@@ -8,7 +8,7 @@
  * `retry()`s on an unexpected throw.
  */
 
-import { AdminDataQualityStatusSchema } from '@aeci/shared';
+import { ADMIN_SNAPSHOT_METRIC_KEYS, AdminDataQualityStatusSchema } from '@aeci/shared';
 import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -870,7 +870,10 @@ describe('job_runs bookkeeping (§7.2)', () => {
       recheck: { status: string; corrected: number };
     };
     expect(detail.job).toBe('metrics-snapshot');
-    expect(detail.metrics).toHaveLength(20);
+    // Asserted against the vocabulary rather than a literal (AECI-869 made it
+    // 21): the count is a property of `ADMIN_SNAPSHOT_METRIC_KEYS`, and a literal
+    // here only ever fails the PR that legitimately adds a key.
+    expect(detail.metrics).toHaveLength(ADMIN_SNAPSHOT_METRIC_KEYS.length);
     // An empty database has nothing to correct, and "nothing to correct" must be
     // distinguishable from "the pass did not run".
     expect(detail.recheck).toMatchObject({ status: 'ok', corrected: 0 });

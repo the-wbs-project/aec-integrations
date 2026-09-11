@@ -1071,7 +1071,7 @@ prune skipping because of the gap.
 
 **What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
 `apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
-20 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+21 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
 
 **Since AECI-827 the same job has a SECOND pass** (ADR 0027): after the capture it re-checks the
 trailing ~33 days and rewrites the `traffic.*` days the operator retro-join moved. It emits its own
