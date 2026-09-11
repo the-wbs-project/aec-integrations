@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 13 PostHog alerts live in production (hourly cadence), production project only. **14 are committed** — the AECI-826 `indexnow-failure-rate` alert reaches PostHog only when `apply.sh` is re-run; see Dashboards below |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fourteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -455,7 +455,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches all **fourteen** (`observability/posthog/project-config.json`
+absence; the CI sweep watches all **fifteen** (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance).
 
 | Cron | `job_runs.job` | Its liveness signal |
@@ -608,7 +608,7 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 metrics are unrecoverable. AECI-583's `job_runs` row plus the always-emitted
 `aeci.metrics_snapshot.run{trigger:cron}` series are the only signals today. **The PostHog port
 closes it from both sides without anyone filing an issue:** `metrics-snapshot` is one of the six
-previously-unwatched crons picked up by the combined cron-failure alert, and one of the fourteen in
+previously-unwatched crons picked up by the combined cron-failure alert, and one of the fifteen in
 the CI liveness sweep's registry (26 h window). The sweep is **already running**, so its red is
 worth reading even during the dual-run.
 
@@ -1103,7 +1103,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **fourteen-cron liveness registry** the CI sweep reads. |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **fifteen-cron liveness registry** the CI sweep reads. |
 | `observability/posthog/insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
 | `observability/posthog/alerts.json` | 14 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim** — except `indexnow-failure-rate` (AECI-826), which has no Datadog predecessor because that metric was never alerted on by either plane. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
@@ -1211,7 +1211,7 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = all fourteen heartbeats fresh; **1**
+Exit codes are deliberately three-valued: **0** = all fifteen heartbeats fresh; **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no
 `POSTHOG_CLI_API_KEY`) and reports "UNCHECKED, not healthy". **"The sweep could not

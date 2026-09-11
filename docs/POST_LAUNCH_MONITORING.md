@@ -124,7 +124,7 @@ data today, with the PostHog successor in brackets.
 ### 1a. The 14 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all fourteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all fifteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -140,7 +140,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **fourteen**. It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **fifteen**. It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -166,13 +166,16 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `0 10 * * *` | §7 attestation detector sweep + nudge email (AECI-302) — four detectors over the claim/attestation spine, deduped through an `audit_log` ledger | `attestation-notify` | **today: nothing** — read `aeci.attestation.detector` (a per-detector gauge, always emitted incl. 0) and `aeci.attestation.notify.job{outcome}`. **The zero series is the liveness signal**: the detectors match nothing until vendors start attesting, so "0 findings" is the healthy steady state and no-data is the failure → **combined + sweep** |
 | `0 11 * * *` | §7 entitlement term-expiry sweep (AECI-613) — warning notices only; terms **never** auto-lapse | `entitlement-expiry` | **today: nothing** — `aeci.entitlement.expiry.job{outcome}` plus the `aeci.entitlement.expiry_due` gauge, emitted every run **including zero**. Same shape as the 10:00 sweep and for longer: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to this job, so **"0 due" is healthy and no-data is the failure** → **combined + sweep** |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data → **persistent-stuck stays its own alert**; liveness → sweep (window **relaxed 60 → 90 min**, margin for the *sweep's* lateness) |
-| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes **one** outbound IndexNow submission per tick — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Failure → **combined + sweep (90 min)**; a sustained refusal ratio gets its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
+| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes **one** outbound IndexNow submission per tick — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Liveness → **sweep (90 min)**. **Failure is NOT covered by the combined cron alert** — `aeci.indexnow.drain` was never added to that alert's metric list (see the note below this table); a sustained refusal ratio does get its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
 | `25 */6 * * *` | Claim-ticket staleness check (AECI-862 / §6.2) — reads the `claim` rows older than 24 h that already have a `linear_issue_id`, asks Linear in **one batched query** what state each of those issues is in, and emails `FOUNDER_ALERT_EMAIL` a digest naming the ones nobody has started. Queue-less and inline. **Minute 25 avoids the `*/15`, `*/20` and hourly expressions** — two jobs cannot share a cron string, because `scheduled.ts` switches on the raw value | `claim-stale-check` | **new with AECI-862.** Read `aeci.linear.claim_stale.job{outcome}` for liveness and `aeci.linear.claim_stale.stale` for the verdict. **A run that finds stale tickets is a SUCCESSFUL run** — `outcome:ok` means the check completed, not that the queue is clean. Two series need reading together: `…claim_stale.checked` is the population and `…claim_stale.stale` the finding, so "0 stale" means something different when 0 claims were eligible. `…claim_stale.read_failure` non-zero means Linear was unreadable and **nothing was asserted** — not that nothing is stale |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
 
 **Eight of these gain failure coverage they never had** — metrics-snapshot, analytics-digest,
-attestation-notify, entitlement-expiry, asn-registry, indexnow-drain, claim-stale-check, waf-poll and the per-key half of home-stats. Several shipped
-after the Datadog monitors were written and nobody went back. That is the migration's largest single
+attestation-notify, entitlement-expiry, asn-registry, claim-stale-check, waf-poll and the per-key half of home-stats. Several shipped
+after the Datadog monitors were written and nobody went back. **`indexnow-drain` is the one cron
+listed here that did NOT get it**: AECI-826 added its liveness heartbeat to the sweep registry but
+never added `aeci.indexnow.drain` to the combined failure alert's metric list, so a failed drain
+tick is still invisible to that alert. Tracked separately; the liveness half does work. That is the migration's largest single
 *improvement*, and it is worth weighing against the hourly-cadence regression rather than reading
 either in isolation.
 
