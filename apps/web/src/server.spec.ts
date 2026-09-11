@@ -1,4 +1,4 @@
-import { VersionResponseSchema } from '@aeci/shared';
+import { PAGE_VIEW_CF_HEADERS, VersionResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -1967,6 +1967,150 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     // The passthrough hands the raw request straight to the binding.
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(original);
+  });
+});
+
+// ─── AECI-868: the arrival write's CF context is request.cf, never a header ──
+//
+// Companion to the gateway `cf`-merge tests in `cache-key-url.spec.ts`. Those
+// prove the eyeball's `request.cf` survives the `ctx.exports` loopback; these
+// prove what `Renderer` then does with it — that `firePageView` derives the
+// trusted `x-aeci-cf-*` set from `request.cf` alone, so restoring the merge
+// restores real metadata rather than forgeable metadata.
+//
+// The strip is structural here, not a `headers.delete()` call: `firePageView`
+// builds a FRESH `Headers` for its subrequest and copies in only what it names
+// (`applyCfContextHeaders`, `user-agent`, `referer`, `PAGE_VIEW_CLIENT_SIGNAL_HEADERS`,
+// `cookie`). A client-supplied `x-aeci-cf-*` is in none of those sets, so it is
+// never carried. The proxied `POST /api/page-views` path is different — it clones
+// the caller's headers and therefore needs `withForwardedCfContext`'s explicit
+// delete loop (tested above). Both are asserted because they are two mechanisms.
+
+describe('SSR arrival page-view CF context (AECI-868)', () => {
+  /** A document GET the SSR Worker will render and fire one arrival write for. */
+  function documentGet(
+    url: string,
+    opts: { cf?: Record<string, unknown>; headers?: Record<string, string> } = {},
+  ): Request {
+    const request = new Request(url, { headers: opts.headers });
+    if (opts.cf) Object.defineProperty(request, 'cf', { value: opts.cf });
+    return request;
+  }
+
+  async function arrivalWrite(request: Request): Promise<Request> {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    return pv[0]!;
+  }
+
+  it('overwrites a forged x-aeci-cf-* on a document GET with the real request.cf', async () => {
+    const write = await arrivalWrite(
+      documentGet('https://www.aecintegrations.com/products', {
+        cf: { country: 'ID', asn: 23700, asOrganization: 'Biznet Networks' },
+        headers: {
+          // A scraper forging the trusted set on the DOCUMENT request, hoping the
+          // SSR Worker copies its own inbound headers onto the analytics subrequest.
+          'x-aeci-cf-asn': '15169',
+          'x-aeci-cf-country': 'SPOOF',
+          'x-aeci-cf-as-organization': 'Definitely Not A Bot Inc.',
+          'x-aeci-cf-bot-score': '99',
+          'x-aeci-cf-colo': 'SPOOF',
+          'x-aeci-cf-tls-version': 'TLSv9.9',
+          'x-aeci-cf-http-protocol': 'HTTP/9',
+        },
+      }),
+    );
+
+    // Every value is the edge's, not the client's.
+    expect(write.headers.get('x-aeci-cf-asn')).toBe('23700');
+    expect(write.headers.get('x-aeci-cf-country')).toBe('ID');
+    expect(write.headers.get('x-aeci-cf-as-organization')).toBe('Biznet Networks');
+    // And the fields `request.cf` did NOT carry are absent rather than forged —
+    // `applyCfContextHeaders` sets a header exactly when the value exists, so the
+    // API stores NULL instead of the attacker's string.
+    expect(write.headers.get('x-aeci-cf-bot-score')).toBeNull();
+    expect(write.headers.get('x-aeci-cf-colo')).toBeNull();
+    expect(write.headers.get('x-aeci-cf-tls-version')).toBeNull();
+    expect(write.headers.get('x-aeci-cf-http-protocol')).toBeNull();
+  });
+
+  it('drops a forged x-aeci-cf-* entirely when there is no request.cf to replace it', async () => {
+    const write = await arrivalWrite(
+      documentGet('https://www.aecintegrations.com/products', {
+        headers: { 'x-aeci-cf-asn': '15169', 'x-aeci-cf-country': 'SPOOF' },
+      }),
+    );
+
+    // The failure mode this guards: a strip that only *overwrote* would leave the
+    // forgery standing on a `.cf`-less request (local dev, a non-CF runtime, or a
+    // future path that loses `cf` again — which is the AECI-868 defect itself).
+    for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) {
+      expect(write.headers.get(name)).toBeNull();
+    }
+  });
+
+  // The three shapes the AECI-868 outage made indistinguishable: a named crawler,
+  // a person, and a shared-proxy pool. All three are supposed to store their ASN —
+  // `cf_asn` is an input to `DATACENTER_ASNS` classification, the swarm/rotator
+  // groupings and the §9.8 `(user_agent_hash, cf_asn)` visitor definition, and NONE
+  // of those care whether the row is a bot. A check that only covered the browser
+  // case would pass while the bot half of the split stayed blind.
+  const SHAPES = [
+    {
+      name: 'a named-bot UA',
+      ua: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      cf: { asn: 15169, country: 'US', asOrganization: 'GOOGLE' },
+      asn: '15169',
+    },
+    {
+      name: 'an ordinary browser',
+      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36',
+      cf: { asn: 23700, country: 'ID', asOrganization: 'Biznet Networks' },
+      asn: '23700',
+    },
+    {
+      name: 'a shared-proxy request',
+      ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
+      cf: { asn: 27411, country: 'LT', asOrganization: 'UAB code200' },
+      asn: '27411',
+    },
+  ] as const;
+
+  it.each(SHAPES)('stores cf_asn for $name', async ({ ua, cf, asn }) => {
+    const write = await arrivalWrite(
+      documentGet('https://www.aecintegrations.com/products', {
+        cf: cf as unknown as Record<string, unknown>,
+        headers: { 'user-agent': ua },
+      }),
+    );
+
+    expect(write.headers.get('x-aeci-cf-asn')).toBe(asn);
+    // The UA rides along too — the API hashes it, and `(user_agent_hash, cf_asn)`
+    // is only a visitor pair when BOTH halves arrive.
+    expect(write.headers.get('user-agent')).toBe(ua);
+  });
+
+  it('keeps one ASN across many user agents (the shared-proxy pool shape)', async () => {
+    // A rotating-UA pool behind one exit network: `detectAsnRotators` groups on
+    // `cf_asn` and is structurally blind to a NULL one, which is why the outage
+    // zeroed every rotator ratio rather than lowering it.
+    const uas = ['UA-alpha/1.0', 'UA-beta/2.0', 'UA-gamma/3.0'];
+    const seen: (string | null)[] = [];
+    for (const ua of uas) {
+      const write = await arrivalWrite(
+        documentGet('https://www.aecintegrations.com/products', {
+          cf: { asn: 47544, country: 'PL', asOrganization: 'Rockion LLC' },
+          headers: { 'user-agent': ua },
+        }),
+      );
+      seen.push(write.headers.get('x-aeci-cf-asn'));
+    }
+    expect(seen).toEqual(['47544', '47544', '47544']);
   });
 });
 

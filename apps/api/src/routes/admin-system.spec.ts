@@ -34,6 +34,7 @@ import type { Env } from '../env';
 import type { AlgoliaIndexDrift } from '../lib/algolia-drift';
 import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
 import { CRON_JOBS, CRON_SCHEDULES } from '../lib/cron-schedules';
+import { CHECKS as ALL_DQ_CHECKS } from '../lib/data-quality';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminSystemHandler, type AdminSystemDeps } from './admin-system';
@@ -261,7 +262,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     expect(await t.db.select().from(jobRuns)).toHaveLength(0);
   });
 
-  it('runs all eleven data-quality checks when asked', async () => {
+  it('runs all twelve data-quality checks when asked', async () => {
     const body = await system('?recompute=1');
 
     expect(body.recomputed).toBe(true);
@@ -278,6 +279,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'logo_404',
       'algolia_index_drift',
       'entitlement_mirror_drift',
+      // AECI-868 — the telemetry tripwire, last in digest order.
+      'arrival_cf_coverage',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');
   });
@@ -539,7 +542,7 @@ describe('GET /api/admin/system — data quality served from the last stored run
 
     const body = await system('?recompute=1');
     expect(body.data_quality?.source).toBe('live');
-    expect(body.data_quality?.checks).toHaveLength(11);
+    expect(body.data_quality?.checks).toHaveLength(ALL_DQ_CHECKS.length);
   });
 
   it.each([

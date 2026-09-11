@@ -58,6 +58,21 @@ Per-entrypoint config uses the wrangler `exports` block: `{ "default": { "cache"
 
 > **Update — WC-4 done (AECI-318, 2026-07-16).** Shipped as designed. `apps/web/src/server.ts` now exports a **`Renderer`** named `WorkerEntrypoint` (delegates to the existing Hono `app`, forwarding `this.env`/`this.ctx` so Hono's `waitUntil` still fires) and a **`default`** gateway (`cacheGateway` in `server-runtime.ts`) that, for GET/HEAD, computes `cacheKeyFor(url)` and forwards the *original* request via `ctx.exports.Renderer.fetch(request, { cf: { cacheKey } })` (non-GET forwards with no custom key). Per-entrypoint config landed on **preview + staging** as `exports: { "default": { "type": "worker", "cache": { "enabled": false } }, "Renderer": { "type": "worker", "cache": { "enabled": true } } }` — note the **`"type": "worker"`** field is required per entry (a delta from the shorthand sketched above); `demo`/`production` ship the same two-entrypoint code but stay uncached (no `cache`/`exports` block) until WC-5/6/8. Two intentional refinements vs. the original `cacheKeyUrl`: (1) `cacheKeyFor` is **path-relative** — a custom `cf.cacheKey` replaces path+query only, so origin is dropped (each env / Worker version is already an isolated cache namespace); and (2) it **value-sorts multi-select facet CSVs** (`MULTI_VALUE_CACHE_KEY_PARAMS`), so a raw/hand-typed/bot `?category_id=b,a` collapses onto `a,b` at the cache layer, not solely via the producer sidebar. `cloudflare:workers` was already externalized in `apps/web/angular.json`. **Redirect fallout:** because the gateway now normalizes (query-strips) the edge key for every GET, standalone 301s whose `Location` embeds the request query — the `/disciplines/* → /audiences/*` redirect and the apex→`www` canonical flip both preserve `${url.search}` — were switched from the `public`/`s-maxage` TTL to `Cache-Control: private, max-age=3600` (browser-cacheable, edge-EXCLUDED) and had their `Cache-Tag` dropped; otherwise distinct-query links would collapse onto one edge entry and be served the first-warmed `Location` (the apex case is latent today since prod is uncached, but hardened now so enabling prod caching in WC-5/6/8 can't silently mis-route the naked domain). See `docs/CACHE_STRATEGY.md` §4a. Unit coverage: `apps/web/src/cache-key-url.spec.ts` (reworked to `cacheKeyFor` + the gateway loopback), plus the redirect assertions in `server.spec.ts`. The load-bearing WC-5 consequence above still holds — purges must originate from `Renderer`.
 
+> **Amendment — the `cf` override must MERGE (AECI-868, 2026-09-11).** The form shipped above,
+> `Renderer.fetch(request, { cf: { cacheKey } })`, is **wrong** and was corrected to
+> `{ cf: { ...request.cf, cacheKey } }`. A `cf` object supplied to `Fetcher.fetch` **replaces** the
+> incoming `request.cf` on the loopback rather than merging into it, so `Renderer` received an
+> eight-field `cf` reduced to one. `applyCfContextHeaders()` derives every trusted `x-aeci-cf-*`
+> header from exactly that object, so `POST /api/page-views` stored NULL `cf_asn` / `cf_country` /
+> `cf_colo` / `cf_as_organization` / `tls_version` / `http_protocol` on every full-document arrival —
+> from this WC-4 deploy on staging + preview, and from the 2026-09-07 Stage 2 promote on production
+> (0 of 2,633 arrivals with an ASN on Sep 8, against 1,458 of 1,458 on Sep 6). `POST` took the
+> no-override branch, so browser SPA rows were unaffected and the outage looked like "fewer bots
+> detected". This ADR's decision is unchanged — the gateway pattern is still right — but the sketch
+> in §2 above and the "forwards the *original* request" phrasing in this update block both describe
+> a `cf` handoff that no longer exists. `CACHE_STRATEGY.md` §4a.1 is the rule; `cache-key-url.spec.ts`
+> pins it; the `arrival_cf_coverage` data-quality check is the deployed tripwire.
+
 ### 3. Cross-Worker purge (WC-5) — Cloudflare Queue, SSR consumer
 
 A new **Cloudflare Queue** (e.g. `aeci-cache-purge-{env}`) decouples purge producers from the SSR cache:

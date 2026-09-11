@@ -74,6 +74,34 @@ gate"):
   delivers `$exception` events — so the browser error path works; it just has no
   Error Tracking console to read it in until the toggle is on.
 
+### 0b. Is the server-side plane still *complete*? (AECI-868)
+
+**The `curl` above answers "is the browser plane injected". It cannot answer "are the
+D1 rows still carrying what they used to carry" — and that is the failure that
+actually happened.** From 2026-09-07 to 2026-09-11, production wrote every
+full-document arrival into `page_views` with NULL `cf_asn` / `cf_country` /
+`cf_colo` / `cf_as_organization` / `tls_version` / `http_protocol`. Nothing errored,
+the row count was normal, and the digest kept arriving. A cache-gateway change had
+replaced `request.cf` on the SSR loopback instead of merging into it
+(`CACHE_STRATEGY.md` §4a.1). Four days.
+
+**The precondition is now a data-quality check, not a morning command.**
+`arrival_cf_coverage` (severity `error`, `apps/api/src/lib/data-quality.ts`) runs in
+the 04:00 UTC suite and fails when full-document arrivals exist in the last 24 h and
+fewer than **95%** of them carry a `cf_asn`. It passes when there were no arrivals —
+an empty night is not a defect. Read it on **`/admin/system`** with the rest of §1
+row 5a; it needs no separate step.
+
+**Why this belongs in §0 rather than only in the checklist.** Every traffic number
+this runbook tells you to read — the human/bot split, the swarm and ASN-rotator
+groupings, the AECI-683 operator-pair retro-join, the §9.8 `(user_agent_hash,
+cf_asn)` visitor definition — takes `cf_asn` as an input and treats NULL as *no
+evidence* rather than as an error. So a failing `arrival_cf_coverage` invalidates the
+day's traffic figures rather than merely annotating them: **stop reading the numbers
+and fix the pipeline first.** A day that failed this check is not comparable with one
+that passed, and no later re-run can recover it — the columns are not reconstructable
+from D1.
+
 The rest of the outstanding operator checklist (the internal-user exclusion, running
 `apply.sh` against production, deleting the two unused `POSTHOG_KEY_*` GitHub secrets)
 is in `observability/posthog/README.md`. The `phx_` personal key is **done** —
@@ -101,7 +129,7 @@ data today, with the PostHog successor in brackets.
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) *(PostHog: prefer the **histogram-buckets** widget over the reconstructed p95 — see §2.7)* | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no alert — dashboard-only)*. ⚠️ **This signal narrows at AECI-651**: the RUM action is consent-independent, its `search_performed` successor is consented-only. Read it as a funnel from then on, not a census |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift / sync-failed / sync-not-running / orphan-cap monitors. **After the cutover:** sync-failed folds into the combined cron alert, drift becomes **dashboard-only**, liveness moves to the CI sweep, orphan-cap stays its own alert |
-| 5a | **Data quality (10 §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only |
+| 5a | **Data quality (12 §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only. **`arrival_cf_coverage` (AECI-868, `error`) is the §0b telemetry precondition and is read differently from the rest**: it says the day's traffic numbers are unusable, not that a catalog row needs fixing. Triage it before anything else on this list |
 | 6 | **Scheduled-job health (15 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors today; the **combined** cron-failure alert + the sweep after |
 | 6a | **The CI liveness sweep itself** | GitHub Actions → `posthog-liveness-sweep` (every 3 h). Read the **latest run's conclusion**, not just the alert inbox | green | **exit 1** = a heartbeat MISSING or STALE, with a `::error::` naming the cron. **exit 2** = the sweep could not run — "UNCHECKED, **not** a pass". Expect exit 2 on every run until the `phx_` key is provisioned (§0a) |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` *(PostHog: "AECi — Vendor requests and their Linear issues")* | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |

@@ -598,15 +598,28 @@ type GatewayExports = { Renderer: Fetcher };
  * Gateway entrypoint — the SSR Worker's `default` export (WC-4 / AECI-318). Its
  * own cache is DISABLED in `apps/web/wrangler.jsonc` (`exports.default`), so it
  * runs on every request: it computes the normalized cache key and forwards the
- * *original, unmodified* request to the cached `Renderer` entrypoint through the
- * `ctx.exports` loopback. Passing `cf.cacheKey` there replaces the path+query in
- * the native cache key, restoring the utm-strip / per-route allowlist /
- * canonical-order normalization WC-3 removed with the hand-rolled `caches.default`
- * pipeline. The request itself is untouched (utm_* etc. survive for the render +
+ * request to the cached `Renderer` entrypoint through the `ctx.exports` loopback.
+ * Passing `cf.cacheKey` there replaces the path+query in the native cache key,
+ * restoring the utm-strip / per-route allowlist / canonical-order normalization
+ * WC-3 removed with the hand-rolled `caches.default` pipeline. The request's URL,
+ * method, headers and body are untouched (utm_* etc. survive for the render +
  * client analytics); only the cache *lookup key* is normalized. Non-GET/HEAD
  * requests forward with no custom key — they aren't cached. `Renderer` (declared
  * in `server.ts`) wraps the Hono `app`, so all routing / SSR / `Cache-Control`
  * emission is unchanged and sits behind the cache.
+ *
+ * ⚠️ **MERGE into `request.cf`, NEVER replace it (AECI-868).** A `cf` object
+ * supplied to `Fetcher.fetch` REPLACES the incoming `request.cf` wholesale on the
+ * loopback — it is not merged by the runtime. From WC-4 until AECI-868 this branch
+ * passed a bare `{ cacheKey }`, so every GET/HEAD reached `Renderer` with an
+ * eight-field `request.cf` reduced to one. `applyCfContextHeaders()` below derives
+ * the trusted `x-aeci-cf-*` headers from exactly that object, so the API's
+ * `POST /api/page-views` writer stored NULL `cf_asn` / `cf_country` / `cf_colo` /
+ * `cf_as_organization` / `tls_version` / `http_protocol` on every full-document
+ * arrival — silently, for four days on production (2026-09-07 → the AECI-868 fix)
+ * and since 2026-07-19 on staging + preview. POST took the no-override branch, so
+ * browser SPA rows were unaffected, which is why the outage read as "fewer bots
+ * detected" rather than "telemetry missing". `docs/CACHE_STRATEGY.md` §4a.
  */
 export const cacheGateway = {
   async fetch(request: Request, _env: Bindings, ctx: ExecutionContext): Promise<Response> {
@@ -614,7 +627,16 @@ export const cacheGateway = {
     // call so this compiles independently of the generated loopback typings.
     const { Renderer } = ctx.exports as unknown as GatewayExports;
     if (request.method === 'GET' || request.method === 'HEAD') {
-      return Renderer.fetch(request, { cf: { cacheKey: cacheKeyFor(new URL(request.url)) } });
+      // Structural `CfLike` rather than the global `IncomingRequestCfProperties`,
+      // matching `applyCfContextHeaders` below — it names only the fields we read,
+      // but the SPREAD copies every field the runtime actually put there, and a
+      // `.cf`-less request (Node tests, local dev) spreads to nothing. Held in a
+      // local so the extra keys pass `RequestInitCfProperties` assignability.
+      const cf = {
+        ...(request as { cf?: CfLike }).cf,
+        cacheKey: cacheKeyFor(new URL(request.url)),
+      };
+      return Renderer.fetch(request, { cf });
     }
     return Renderer.fetch(request);
   },

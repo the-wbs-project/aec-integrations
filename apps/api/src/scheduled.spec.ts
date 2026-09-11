@@ -90,6 +90,7 @@ import { runDailySync } from './lib/algolia-sync';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { refreshAsnRegistry } from './lib/asn-registry';
+import { CHECKS } from './lib/data-quality';
 import { runHomeStats } from './lib/home-stats';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -1026,7 +1027,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
     const [row] = await jobRunRows();
     const detail = row?.detail as { job: string; checks: unknown[] };
     expect(detail.job).toBe('data-quality');
-    expect(detail.checks).toHaveLength(11);
+    expect(detail.checks).toHaveLength(CHECKS.length);
 
     // The round-trip AC: the stored payload must satisfy the SAME schema the
     // §5.6 response is validated against. This fails the day one side is

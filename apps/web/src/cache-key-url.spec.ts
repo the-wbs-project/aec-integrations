@@ -367,3 +367,96 @@ describe('cacheGateway — forwards to the Renderer entrypoint with the normaliz
     expect(rendererFetch.mock.calls[0]).toEqual([request]);
   });
 });
+
+// ─── AECI-868: the gateway MERGES into request.cf, it does not replace it ─────
+//
+// A `cf` object supplied to `Fetcher.fetch` REPLACES `request.cf` on the loopback.
+// From WC-4 until AECI-868 this branch passed a bare `{ cacheKey }`, so `Renderer`
+// saw a one-field `cf` and `applyCfContextHeaders` — which derives every trusted
+// `x-aeci-cf-*` header from exactly that object — set none of them. `page_views`
+// stored NULL asn/country/colo/asOrganization/tlsVersion/httpProtocol on EVERY
+// full-document arrival, for four days on production and two months on staging +
+// preview. The tests above assert the key and never asserted the rest survived,
+// which is precisely why it shipped. These are the ones that would have caught it.
+describe('cacheGateway — preserves the original request.cf alongside the cache key', () => {
+  const stubCtx = (rendererFetch: ReturnType<typeof vi.fn>) =>
+    ({ exports: { Renderer: { fetch: rendererFetch } } }) as unknown as ExecutionContext;
+  const env = {} as unknown as Bindings;
+
+  /** The eyeball `request.cf` shape the SSR arrival write reads (AECI-177/585/658). */
+  const EYEBALL_CF = {
+    country: 'ID',
+    colo: 'SIN',
+    asn: 23700,
+    asOrganization: 'Biznet Networks',
+    tlsVersion: 'TLSv1.3',
+    httpProtocol: 'HTTP/2',
+    botManagement: { score: 88 },
+  };
+
+  function requestWithCf(url: string, method: 'GET' | 'HEAD' = 'GET'): Request {
+    const request = new Request(url, { method });
+    Object.defineProperty(request, 'cf', { value: EYEBALL_CF });
+    return request;
+  }
+
+  it.each(['GET', 'HEAD'] as const)(
+    'passes every original cf field plus the normalized cacheKey on a %s',
+    async (method) => {
+      const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+      const request = requestWithCf(
+        'https://aeci.test/products?category_id=x&utm_source=g',
+        method,
+      );
+
+      await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+      const [, init] = rendererFetch.mock.calls[0];
+      expect(init).toEqual({
+        cf: { ...EYEBALL_CF, cacheKey: '/products?category_id=x' },
+      });
+      // Named individually too: `toEqual` on the whole object would still pass if
+      // a future edit renamed a field, and each of these is a `page_views` column.
+      const cf = (init as { cf: Record<string, unknown> }).cf;
+      expect(cf['asn']).toBe(23700);
+      expect(cf['country']).toBe('ID');
+      expect(cf['colo']).toBe('SIN');
+      expect(cf['asOrganization']).toBe('Biznet Networks');
+      expect(cf['tlsVersion']).toBe('TLSv1.3');
+      expect(cf['httpProtocol']).toBe('HTTP/2');
+      expect(cf['botManagement']).toEqual({ score: 88 });
+      expect(cf['cacheKey']).toBe('/products?category_id=x');
+    },
+  );
+
+  it('lets the normalized cacheKey win over a cacheKey already on request.cf', async () => {
+    const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+    const request = new Request('https://aeci.test/products?utm_source=g');
+    Object.defineProperty(request, 'cf', { value: { asn: 13335, cacheKey: '/stale' } });
+
+    await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+    const [, init] = rendererFetch.mock.calls[0];
+    expect(init).toEqual({ cf: { asn: 13335, cacheKey: '/products' } });
+  });
+
+  it('still forwards a bare cacheKey when request.cf is absent (Node tests / local dev)', async () => {
+    const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+
+    await cacheGateway.fetch(new Request('https://aeci.test/'), env, stubCtx(rendererFetch));
+
+    expect(rendererFetch.mock.calls[0][1]).toEqual({ cf: { cacheKey: '/' } });
+  });
+
+  it('does not add a cf override to a POST, so request.cf reaches Renderer untouched', async () => {
+    const rendererFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const request = new Request('https://aeci.test/api/page-views', { method: 'POST' });
+    Object.defineProperty(request, 'cf', { value: EYEBALL_CF });
+
+    await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+    // No second argument at all — the browser tracker's SPA rows kept their
+    // metadata throughout the outage for exactly this reason.
+    expect(rendererFetch.mock.calls[0]).toEqual([request]);
+  });
+});

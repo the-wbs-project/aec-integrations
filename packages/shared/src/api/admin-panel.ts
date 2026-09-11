@@ -386,8 +386,11 @@ export const AdminDataQualityCheckSchema = z.object({
 export type AdminDataQualityCheck = z.infer<typeof AdminDataQualityCheckSchema>;
 
 /**
- * The ten checks. `failing` counts checks with findings OR an error — a skipped
- * check (no creds) is not a failure.
+ * The twelve checks (ten at AECI-583, plus `entitlement_mirror_drift` from AECI-609
+ * and `arrival_cf_coverage` from AECI-868). `failing` counts checks with findings OR
+ * an error — a skipped check (no creds) is not a failure. `id` is deliberately a
+ * plain string rather than an enum: the suite owns the roster, and pinning it here
+ * would make every new check a two-package change for no added safety.
  *
  * Since AECI-583 these are served **from storage by default**: the 04:00 cron
  * persists its whole result set in `job_runs.detail` (§7.2), and the default

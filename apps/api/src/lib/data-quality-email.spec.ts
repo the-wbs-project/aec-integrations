@@ -73,6 +73,47 @@ describe('buildDataQualityDigest', () => {
     expect(digest.text).toContain('algolia unreachable');
   });
 
+  // AECI-868 — the coverage tripwire reports a RATIO, so its one line plus its
+  // note carry the numbers and its `count` is 1 rather than a row count. The
+  // renderer is generic, so this asserts the shape a reader will actually see
+  // (and that "…and 0 more" never appears for a one-line finding).
+  it('renders the arrival-coverage finding with its note and no overflow line', () => {
+    const digest = buildDataQualityDigest(
+      [
+        result({
+          id: 'arrival_cf_coverage',
+          label: 'Full-document arrivals missing their network metadata (`cf_asn`)',
+          severity: 'error',
+          count: 1,
+          sample: ['2633 of 2633 full-document arrivals have a NULL cf_asn — coverage 0.0%'],
+          note: '0/2633 arrivals carry cf_asn (0.0%, floor 95.0%)',
+        }),
+      ],
+      OPTS,
+    );
+    expect(digest.subject).toBe('AECi data quality (production) — 1 issue(s) across 1 check(s)');
+    expect(digest.text).toContain('floor 95.0%');
+    expect(digest.text).toContain('• 2633 of 2633 full-document arrivals have a NULL cf_asn');
+    expect(digest.text).not.toContain('…and');
+    expect(digest.html).toContain('floor 95.0%');
+  });
+
+  it('renders a passing arrival-coverage check in the Clean section, note and all', () => {
+    const digest = buildDataQualityDigest(
+      [
+        result({
+          id: 'arrival_cf_coverage',
+          label: 'Arrival coverage',
+          severity: 'error',
+          note: '1458/1458 arrivals carry cf_asn (100.0%, floor 95.0%)',
+        }),
+      ],
+      OPTS,
+    );
+    expect(digest.subject).toBe('AECi data quality (production) — all clear');
+    expect(digest.text).toContain('✓ Arrival coverage');
+  });
+
   it('html-escapes sample content', () => {
     const digest = buildDataQualityDigest(
       [result({ id: 'x', label: 'X', count: 1, sample: ['<script>'] })],
