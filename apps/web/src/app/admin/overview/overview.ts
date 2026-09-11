@@ -305,6 +305,20 @@ export class AdminOverview {
         $localize`:@@admin.overview.caption.operatorLeak:Excluded as operator self-traffic on a lapsed session: ${t?.operator_leak_excluded ?? 0}:VIEWS:.`,
       );
     }
+    // AECI-870. A SEPARATE observation on the same envelope, never summed with
+    // the figure above and never subtracted from it: it counts bundle
+    // executions, the headline counts requests, and the populations overlap.
+    // Present only after a recompute, because the read costs a PostHog query and
+    // the default load does not make one; `requires_recompute` already says so.
+    if (t?.browser_starts) {
+      parts.push(
+        $localize`:@@admin.overview.caption.browserStarts:Browser starts: ${t.browser_starts.starts}:STARTS:, of which search-referred: ${t.browser_starts.search_referred}:SEARCH:. Operator and PostHog-detected bots excluded. A separate observation, never added to or subtracted from the figure above: it counts bundle executions rather than people, and browsers running a tracker blocker never report.`,
+      );
+    } else if (t?.browser_starts_unavailable) {
+      parts.push(
+        $localize`:@@admin.overview.caption.browserStartsUnavailable:Browser starts could not be read: ${t.browser_starts_unavailable}:REASON:.`,
+      );
+    }
     // Said once, on the tile that carries both. The 7-day delta and the trend
     // line are raw where the headline is filtered, because filtering them means
     // running the detector over every day they span. That is a defensible cost
