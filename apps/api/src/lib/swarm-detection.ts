@@ -748,6 +748,38 @@ async function countFlaggedViews(
  * only flagged views came from the verdict would subtract from the headline with
  * no explanation anywhere in the email. Every subtraction gets a sentence.
  */
+/**
+ * How to say where a set of {@link NonBrowserCandidate}s came from, without
+ * counting "we do not know" as a network (AECI-869).
+ *
+ * ─── The defect this fixes ──────────────────────────────────────────────────
+ *
+ * {@link detectNonBrowserClients} groups by `cf_asn` and deliberately KEEPS the
+ * null bucket, because those views are flagged individually and dropping them
+ * would lose them from a list the operator triages from. But the note above then
+ * counted `verdictCandidates.length` as a number of networks, so one SQL NULL
+ * group rendered as "from 1 network". On 2026-09-10 all 198 request-shape
+ * exclusions carried a NULL ASN, and the email reported them as having come from
+ * one observed network. They came from an unknown number.
+ *
+ * A NULL group is not a small network, a shared network, or a network we declined
+ * to name. It is the absence of the observation entirely — under AECI-868 it was
+ * the absence of the whole `request.cf` object — and folding it into a cardinality
+ * turns missing data into a measurement. So it is reported alongside the count,
+ * with its own view total, and never inside it.
+ *
+ * `GROUP BY cf_asn` yields at most one null bucket, so there is never more than
+ * one "unknown" term to render.
+ */
+export function verdictNetworkPhrase(candidates: readonly NonBrowserCandidate[]): string {
+  const named = candidates.filter((c) => c.cfAsn !== null);
+  const unknown = candidates.find((c) => c.cfAsn === null);
+  const namedPhrase = named.length === 1 ? 'from 1 network' : `from ${named.length} networks`;
+  if (!unknown) return namedPhrase;
+  const unknownPhrase = `network unknown (${unknown.views === 1 ? '1 request' : `${unknown.views} requests`})`;
+  return named.length === 0 ? `from ${unknownPhrase}` : `${namedPhrase}, plus ${unknownPhrase}`;
+}
+
 export function swarmNote(summary: SwarmSummary): string | null {
   const { flaggedViews, totalHumanViews, uaCandidates, asnCandidates, verdictCandidates } = summary;
   if (flaggedViews === 0) return null;
@@ -772,10 +804,9 @@ export function swarmNote(summary: SwarmSummary): string | null {
   }
   if (verdictCandidates.length > 0) {
     const views = summary.verdictFlaggedViews;
-    const networks = verdictCandidates.length;
     clauses.push(
       `${views === 1 ? '1 view' : `${views} views`} arrived with request headers that ` +
-        `do not look like a browser, from ${networks === 1 ? '1 network' : `${networks} networks`}, ` +
+        `do not look like a browser, ${verdictNetworkPhrase(verdictCandidates)}, ` +
         `which is evidence about those requests themselves rather than an inference ` +
         `from how many of them there were`,
     );
