@@ -314,6 +314,19 @@ describe('AdminAudience', () => {
       expect(el.textContent).toContain('2 of the 3 subscribers active when this window opened');
     });
 
+    it('links the lifetime tiles to the roster that names the people (AECI-859)', async () => {
+      // This screen reports the list as counts and cannot be read down to a
+      // person. Without this link the only route to `/admin/subscribers` is the
+      // nav, so an operator looking at "8 people have joined" has no way from
+      // the number to the eight.
+      const { el } = await setup(populatedApi());
+
+      const link = [...el.querySelectorAll('a')].find(
+        (a) => a.getAttribute('href') === '/admin/subscribers',
+      );
+      expect(link?.textContent?.trim()).toBe('Subscribers');
+    });
+
     it('states that churn is exact rather than estimated (§5.4)', async () => {
       const { el } = await setup(populatedApi());
       expect(el.textContent).toContain('Exact, not estimated');
