@@ -39,7 +39,7 @@ Phase 2 builds on the following ground truth, all landed in Phase 1:
 - **Layout shell**: header / footer / nav with i18n + theme (AECI-32)
 - **End-to-end SSR + cache plumbing** validated by Hello World (AECI-36)
 
-The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap every string, render correctly in light and dark, RLS-aware, no public API surface (the API Worker is not a separately-exposed/documented API product and has no public ingress on its own hostname — the SSR Worker reaches it via the service binding, and its same-origin `/api/*` passthrough is the sanctioned browser read path; see §7), per-request Prisma Accelerate.
+The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap every string, render correctly in the single light theme (this line read "light and dark" until AECI-600; AECI-226 removed the dark theme and `dark:` variants are now a lint failure — see §11.4 below and `CLAUDE.md` §"Light only (Stage 1)"), RLS-aware, no public API surface (the API Worker is not a separately-exposed/documented API product and has no public ingress on its own hostname — the SSR Worker reaches it via the service binding, and its same-origin `/api/*` passthrough is the sanctioned browser read path; see §7), and a per-request database client — which at the time meant Prisma Accelerate and, since ADR 0016 / AECI-278, means Drizzle over the D1 binding via `getDb(env)`. Prisma is fully removed and its imports now fail `pnpm lint`.
 
 ---
 

@@ -4,6 +4,12 @@
 
 **Context owner:** Chris Walton
 
+**Number note (AECI-600, 2026-09-11):** this record shared the number `0010` with
+`0028-promote-purges-cloudflare-directly.md` from the day both were written (2026-06-05, 32 minutes
+apart, PRs #205 and #206). That file was renumbered to `0028`; this one keeps `0010`. A reference to
+"ADR 0010" dated before 2026-09-11 may mean either — if it is about comboboxes, listboxes, tabs, or
+Signal Forms it means this record; if it is about cache purge or promote it means ADR 0028.
+
 Spike outcome for AECI-129 ("Evaluate Angular Aria vs Spartan/CDK"), PR 6 of the Angular v22 adoption
 epic (AECI-122). **Ratified by AECI-231 (2026-06-25)** once the first real Aria-in-forms adopter landed —
 the review-submission form (`apps/web/src/app/reviews/review-form.ts`, AECI-200) — joining the Tabs pilot
@@ -202,10 +208,16 @@ untouched, including the `brn-popover`s living *inside* the ported Products pane
   already-present v22 `@angular/{core,common,cdk}`).
 
 **Validation:** borders-not-shadows preserved (2px `--accent-primary` underline on the selected tab,
-transparent otherwise); renders correctly in light and dark; covered by
-`apps/web/e2e/preview-vendor-detail-tabs.spec.ts` — the tab controls are axe-clean in both themes, and
+transparent otherwise); renders correctly in the light theme; covered by
+`apps/web/e2e/preview-vendor-detail-tabs.spec.ts` — the tab controls are axe-clean, and
 keyboard nav (arrows, Home/End, Enter/Space, pointer) is asserted to drive `aria-selected` + panel
 visibility.
+
+> **Corrected 2026-09-11 (AECI-600).** This paragraph read "renders correctly in light and dark" and
+> "axe-clean in **both themes**". Neither was ever true of the cited spec:
+> `preview-vendor-detail-tabs.spec.ts` runs a single scoped `AxeBuilder().include('[role="tablist"]')`
+> pass with no theme loop, and AECI-226 has since removed the dark theme outright. The coverage claim
+> is otherwise accurate — only the theme count was wrong.
 
 **Two findings to flag for the first adopter:**
 

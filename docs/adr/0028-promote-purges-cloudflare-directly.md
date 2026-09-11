@@ -1,4 +1,4 @@
-# ADR 0010: Promote purges Cloudflare directly (remove the web↔api binding)
+# ADR 0028: Promote purges Cloudflare directly (remove the web↔api binding)
 
 > **⚠️ Reversed (mechanism) by [ADR 0020](0020-workers-cache-and-queue-purge.md) (2026-07-12, AECI-314).** Under native Workers Cache, `ctx.cache.purge()` is **entrypoint-scoped** and the zone HTTP purge (`callCloudflarePurge`) is **inert** against a Worker's cache — so the API Worker can no longer purge the SSR Worker's cache directly. Cross-Worker invalidation moves to a **Cloudflare Queue** consumed by the SSR Worker (this ADR's own deferred **"Option C"**). `POST /api/promote` becomes a queue **producer**; `CF_PURGE_API_TOKEN` on the API Worker is retired in WC-10 (`CF_ZONE_ID` is kept — the AECI-262 WAF poll still uses it). See ADR 0020.
 
@@ -6,6 +6,7 @@
 **Date:** 2026-06-05
 **Context owner:** chrisw@thewbsproject.com
 **Supersedes (mechanism only):** the AECI-105 api→web `WEB` service-binding purge path
+**Renumbered:** from `0010` on 2026-09-11 (AECI-600). This record and `0010-angular-aria-alongside-spartan.md` were written 32 minutes apart on 2026-06-05, in back-to-back PRs (#206 and #205), and both claimed `0010`. A reference to "ADR 0010" dated before 2026-09-11 may mean either file: if it is about cache purge, promote, the Queue, or the `web↔api` binding it means **this** record; if it is about comboboxes, listboxes, tabs, or Signal Forms it means the Angular Aria one, which keeps `0010`.
 
 ---
 

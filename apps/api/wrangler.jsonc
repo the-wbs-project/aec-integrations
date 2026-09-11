@@ -162,7 +162,7 @@
   // AECI-105 → WC-5 (AECI-319): the promote handler and review moderation invalidate
   // the SSR edge cache by ENQUEUEING onto the `aeci-cache-purge-{env}` queue (producer
   // binding CACHE_PURGE_QUEUE, added to each env's `queues.producers` below); the SSR
-  // Worker consumes it and issues `ctx.cache.purge()`. This replaced the ADR 0010
+  // Worker consumes it and issues `ctx.cache.purge()`. This replaced the ADR 0028
   // direct HTTPS zone purge — that zone-level purge is INERT against native
   // Workers Cache (`ctx.cache.purge()` is entrypoint-scoped, in a different Worker).
   // There is still NO `WEB` service binding back to the SSR Worker; the coupling is

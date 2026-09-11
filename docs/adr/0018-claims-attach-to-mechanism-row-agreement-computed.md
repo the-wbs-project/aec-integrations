@@ -4,7 +4,7 @@
 - **Date:** 2026-06-30
 - **Context owner:** chrisw@thewbsproject.com
 - **Spec anchor:** `docs/STAGE_1_5_SPEC.md` §3, §6 (Stage 1.5 — Integration Redesign)
-- **Retains / interacts:** ADR 0016 (D1 app DB + Drizzle — the data layer this builds on), ADR 0008 (taxonomy as code-managed reference data — the `data_object` vocab mirrors it), ADR 0010 (promote purges Cloudflare directly — the pair-page purge path), ADR 0011 (serving-origin canonical — the pair-page canonical)
+- **Retains / interacts:** ADR 0016 (D1 app DB + Drizzle — the data layer this builds on), ADR 0008 (taxonomy as code-managed reference data — the `data_object` vocab mirrors it), ADR 0028 (promote purges Cloudflare directly — the pair-page purge path; numbered 0010 when this ADR was written), ADR 0011 (serving-origin canonical — the pair-page canonical)
 
 ---
 

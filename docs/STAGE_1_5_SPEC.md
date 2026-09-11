@@ -322,7 +322,7 @@ Extend the existing plan-then-batch promote flow (`apps/api/src/routes/promote.t
 > a dropped claim a vendor attests is converted rather than deleted. The atomicity and audit
 > bullet below is unchanged. See §3 of the attestations spec and `REVIEW_APP_PROMOTE_API.md`
 > §5.2.
-- **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0010) extended with the pair URLs (§7).
+- **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0028) extended with the pair URLs (§7).
 
 ---
 

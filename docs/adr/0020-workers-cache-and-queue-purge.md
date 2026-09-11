@@ -5,7 +5,7 @@
 **Context owner:** chrisw@thewbsproject.com
 **Epic:** AECI-314 (Workers Cache Migration) · this ADR is WC-1 / AECI-315
 **Amends:** ADR 0004 (Pro plan + purge-by-Cache-Tag) — Cache-Tag purge is **retained**; only the transport changes.
-**Reverses (mechanism only):** ADR 0010 (promote purges Cloudflare directly) — cross-Worker purge moves from a direct HTTP call to a **Cloudflare Queue** consumed by the SSR Worker (ADR 0010's own deferred "Option C").
+**Reverses (mechanism only):** ADR 0028 (promote purges Cloudflare directly; numbered 0010 when this ADR was written) — cross-Worker purge moves from a direct HTTP call to a **Cloudflare Queue** consumed by the SSR Worker (ADR 0028's own deferred "Option C").
 **Supersedes:** the design rationale formerly in the transitional `docs/workers-cache-migration-plan.md` — that file was reduced to a stub by the WC-11 docs sweep (AECI-325) and now points here; the rationale, pinned Cloudflare facts, and resolved open questions live in this ADR.
 
 ---
@@ -65,7 +65,7 @@ A new **Cloudflare Queue** (e.g. `aeci-cache-purge-{env}`) decouples purge produ
 - **Producers** — the API Worker (`POST /api/promote`, `/admin/reviews` removal) and datatool enqueue a typed purge message (`{ tags }` / `{ pathPrefixes }` / `{ purgeEverything }`).
 - **Consumer** — a `queue()` handler **on the SSR Worker** calls its own `ctx.cache.purge({ tags })` from the **`Renderer`** entrypoint. This mirrors the existing ADR 0013 cron→queue→consumer shape, and reuses the inline-fallback pattern for local/preview where no queue is bound.
 
-This is exactly ADR 0010's deferred **Option C**, now justified: `ctx.cache.purge()` is entrypoint-scoped, the zone HTTP purge is inert, and there is more than one cross-Worker producer (promote + datatool). The Queue adds retry/DLQ durability and back-pressure for bulk purges.
+This is exactly ADR 0028's deferred **Option C**, now justified: `ctx.cache.purge()` is entrypoint-scoped, the zone HTTP purge is inert, and there is more than one cross-Worker producer (promote + datatool). The Queue adds retry/DLQ durability and back-pressure for bulk purges.
 
 > **Load-bearing consequence for producers (AECI-666):** a Queue `send()` counts against the **same per-invocation connection budget as `fetch`** — a Worker invocation may hold only a bounded number of connections waiting for response headers, and `fetch`, KV, R2, Cache API, Queues and outbound WebSockets all draw on it. So a producer that enqueues more than one message must use **`queue.sendBatch()`**, not a concurrent `send()` per message; the promote's post-commit tail already sits close to the limit and is where this first bit. Today every producer sends exactly one message (`CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote's whole tag set fits in one), which makes this latent rather than active — but it stops being latent the moment that cap moves, so `purgeAfterPromote` is written with `sendBatch()` regardless. `sendBatch` itself caps at 100 messages / 256 KB per call. See ADR 0021's [2026-08-27 amendment](0021-async-promote-ingest-via-workflows.md#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for why exceeding the budget is not merely slow: past it the runtime cancels stalled responses, and a cancelled `fetch` returns a promise that never settles.
 
@@ -82,7 +82,7 @@ This is exactly ADR 0010's deferred **Option C**, now justified: `ctx.cache.purg
 | 3 | Local-dev / miniflare | **Confirmed no-op for native front-of-Worker caching.** WC-9 pins local response/handler observables and verifies HIT/MISS on each deployed PR preview. | AECI-323 verified Wrangler 4.111.0 / Miniflare 4.20260710.0 with the preview `exports` cache config: repeat localhost requests all execute the Worker and emit neither `Cf-Cache-Status` nor `Age`. Local tests cover headers/gateway/purge/noindex; `e2e/edge-cache.spec.ts` owns exact deployed `MISS → HIT`. |
 | 4 | `stale-if-error` / `stale-while-revalidate` | **Defer.** Keep the migration behavior-preserving; record SWR/SIE as a post-cutover resilience enhancement candidate for detail/index routes. | Adopting SWR/SIE changes freshness semantics and adds scope to WC-3; land the like-for-like migration first, then opt in deliberately. |
 | 5 | API Worker cache | **Stays disabled.** No `cache` block on `apps/api`; responses keep `Cache-Control: private, no-store` (`apps/api/src/http.ts`). | API responses are visitor/DB-state-specific; caching them is unsafe and out of scope. A future cache-worthy GET can opt in per-entrypoint. |
-| 6 | Queue vs service-binding for cross-Worker purge | **Queue.** The ADR explicitly rejects a direct SSR service-binding purge call. | Decoupling, retry/DLQ durability, and back-pressure for bulk purges; avoids re-introducing a synchronous web↔api coupling (the very cycle ADR 0010 removed). |
+| 6 | Queue vs service-binding for cross-Worker purge | **Queue.** The ADR explicitly rejects a direct SSR service-binding purge call. | Decoupling, retry/DLQ durability, and back-pressure for bulk purges; avoids re-introducing a synchronous web↔api coupling (the very cycle ADR 0028 removed). |
 
 ## Spike findings (WC-1)
 
@@ -98,7 +98,7 @@ Grounded in the Cloudflare Workers Cache docs (overview / configuration / cache-
 ## Rejected alternatives
 
 - **Keep the hand-rolled `caches.default` pipeline.** Rejected: the Worker runs on every request (no CPU/latency win, no request-collapsing/tiered cache), and we keep maintaining bespoke match/put + key-normalization + an out-of-band HTTP purge.
-- **Direct SSR service-binding purge call** (API → SSR RPC to trigger `ctx.cache.purge()`). Rejected (Q6): re-introduces the synchronous web↔api coupling ADR 0010 removed, with no retry/DLQ/back-pressure. The Queue gives durability and decoupling for the same job.
+- **Direct SSR service-binding purge call** (API → SSR RPC to trigger `ctx.cache.purge()`). Rejected (Q6): re-introduces the synchronous web↔api coupling ADR 0028 removed, with no retry/DLQ/back-pressure. The Queue gives durability and decoupling for the same job.
 - **Accept query-string fragmentation** (no gateway; Option B). Rejected (Q2): regresses AECI-100/143/223 — `utm_*`/facet-order would fragment the cache for query-independent and listing pages.
 - **`cross_version_cache: true` from day one.** Rejected for the initial rollout (Q1): needs a post-deploy `purgeEverything` step to avoid stale markup after template deploys; adopt once that step and hit-rate data exist.
 
@@ -109,7 +109,7 @@ Grounded in the Cloudflare Workers Cache docs (overview / configuration / cache-
 - ➕ **Purge needs no token** from inside the Worker (`ctx.cache.purge()`), and the Queue gives **retry/DLQ durability + back-pressure** for bulk purges.
 - ➕ **Optional resilience** later via `stale-if-error` / `stale-while-revalidate` (deferred, Q4).
 - ➖ **New infra:** a Cloudflare Queue (producers on API/datatool, consumer on SSR) and a **two-entrypoint** SSR Worker (gateway + `Renderer`). More moving parts than a single fetch handler.
-- ➖ **Reverses ADR 0010's "no web↔api coupling"** — reintroduces a cross-Worker dependency, but **asynchronously** via the Queue (not a binding cycle).
+- ➖ **Reverses ADR 0028's "no web↔api coupling"** — reintroduces a cross-Worker dependency, but **asynchronously** via the Queue (not a binding cycle).
 - ➖ **Purge discipline is now entrypoint-bound:** every purge must originate from the `Renderer` entrypoint or it silently no-ops. This is a new, easy-to-get-wrong invariant to test (WC-9).
 - ➖ **Producers spend the invocation's connection budget:** `queue.send()` draws on the same bounded pool as `fetch`, so a multi-message producer must batch (`sendBatch()`) — see §3 (AECI-666).
 - ➖ **Cache-warmth vs deploy-freshness tradeoff** is now an explicit knob (`cross_version_cache`); defaulting to per-version means each deploy re-warms the cache.
