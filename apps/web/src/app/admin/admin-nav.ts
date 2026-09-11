@@ -52,9 +52,15 @@ export interface AdminNavGroup {
  * The §5 IA. **This list is complete**: every route in the spec's information
  * architecture exists and appears here (`/admin/activity` shipped with AECI-577,
  * `/admin/traffic` with AECI-578, `/admin/catalog` with AECI-579, `/admin/system`
- * with AECI-580, `/admin/audience` with AECI-586). `/admin/claims` arrives from
- * Stage 2 (AECI-521) — it was a hand-rolled entry in `admin-shell.ts` on
- * `stage-2` and folded into this array at the AECI-619 reconciliation.
+ * with AECI-580, `/admin/audience` with AECI-586, `/admin/subscribers` with
+ * AECI-859). `/admin/claims` arrives from Stage 2 (AECI-521) — it was a
+ * hand-rolled entry in `admin-shell.ts` on `stage-2` and folded into this array
+ * at the AECI-619 reconciliation.
+ *
+ * "Complete" means every route in §5 is linked, NOT that the array is closed:
+ * AECI-859 added the thirteenth entry through exactly the one-array-entry
+ * mechanic described above, and `admin-shell.component.spec.ts` pins the ordered
+ * result so a later addition cannot land silently.
  */
 export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   {
@@ -65,6 +71,12 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
       { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
       { path: '/admin/audience', label: $localize`:@@admin.shell.nav.audience:Audience` },
+      // AECI-859. Sits beside Audience rather than under Operations because what
+      // it does is READ the mailing list, not administer it — there is no write
+      // on that screen at all, and the only writer of `unsubscribed_at` is the
+      // subscriber. Audience answers "how is the list doing"; Subscribers
+      // answers "who is on it", so they are neighbours by construction.
+      { path: '/admin/subscribers', label: $localize`:@@admin.shell.nav.subscribers:Subscribers` },
     ],
   },
   {

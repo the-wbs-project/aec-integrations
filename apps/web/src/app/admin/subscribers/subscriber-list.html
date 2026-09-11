@@ -1,0 +1,268 @@
+<!--
+  /admin/subscribers — §5.4. AECI-859 / Phase 8.3 P5.2.
+
+  Shape follows `user-list.html` deliberately: the same toolbar, the same
+  `aec-sort-header` columns, the same paginator. Two operator list screens that
+  do the same job should not each have their own idiom.
+
+  Every value below is subscriber-supplied and is rendered as TEXT — interpolation
+  escapes, nothing uses innerHTML, and `referrer` is printed rather than linked,
+  on the feedback inbox's reasoning: an operator-clickable link to an arbitrary
+  submitted URL buys nothing and opens a redirect surface.
+-->
+<section aria-labelledby="admin-subscribers-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h2
+      id="admin-subscribers-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.subscribers.heading"
+    >
+      Subscribers
+    </h2>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <form novalidate (submit)="$event.preventDefault(); submitSearch()" class="flex gap-2">
+        <label
+          for="admin-subscribers-search"
+          class="sr-only"
+          i18n="@@admin.subscribers.search.label"
+        >
+          Search by email address
+        </label>
+        <input
+          id="admin-subscribers-search"
+          type="search"
+          [value]="searchDraft()"
+          (input)="onSearchInput($event)"
+          i18n-placeholder="@@admin.subscribers.search.placeholder"
+          placeholder="Email, or part of one"
+          class="w-56 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        <button
+          type="submit"
+          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.subscribers.search.submit"
+        >
+          Search
+        </button>
+        @if (search()) {
+        <button
+          type="button"
+          (click)="clearSearch()"
+          class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.subscribers.search.clear"
+        >
+          Clear
+        </button>
+        }
+      </form>
+
+      <aec-select
+        i18n-label="@@admin.subscribers.filter.status.label"
+        label="Membership"
+        [options]="statusOptions"
+        [value]="status()"
+        idPrefix="admin-subscribers-status"
+        (changed)="onStatusChange($event)"
+      />
+    </div>
+  </div>
+
+  <!--
+    Says what this screen is FOR, and points at the screen that answers the other
+    half. Audience reports the list as a shape over time; this reports it as
+    people. Neither replaces the other.
+  -->
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.subscribers.intro">
+    Everyone who has ever joined the mailing list, and the day they joined. People who unsubscribed
+    stay on this list as a suppression record — they are marked, not removed. For growth, churn and
+    campaign attribution over time, see
+    <a
+      routerLink="/admin/audience"
+      class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >Audience</a
+    >.
+  </p>
+
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.subscribers.loading">
+    Loading subscribers…
+  </p>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.subscribers.error">
+      We couldn't load the subscriber list. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.subscribers.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (isEmpty()) {
+  <!--
+    Nobody has ever signed up. A state of the PRODUCT, and deliberately a
+    different sentence from the one below — telling an operator who mistyped a
+    search that the list is empty would be a lie about the business.
+  -->
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.subscribers.empty">
+    Nobody has joined the mailing list yet. Signups arrive from the form on the home page and the
+    /updates page.
+  </p>
+  } @else if (noMatches()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.subscribers.noMatches">
+    No subscribers match this search or filter.
+  </p>
+  } @else {
+  <!--
+    The lifetime stocks, quoted beside a filtered table so the two numbers cannot
+    be mistaken for each other. Same `subscriberTotals()` the Audience tiles use.
+  -->
+  <p class="mt-4 text-sm text-(--text-secondary)">
+    <span i18n="@@admin.subscribers.stocks"
+      >{{ lifetimeTotal() }} people have joined. {{ activeTotal() }} are still subscribed and {{
+      unsubscribedTotal() }} have opted out.</span
+    >
+  </p>
+
+  <div class="mt-6 overflow-x-auto">
+    <table class="w-full min-w-[56rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.subscribers.table.caption">
+        Every mailing-list subscriber, with the date they signed up, whether they are still
+        subscribed, the campaign that brought them in, and where they signed up from
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="email"
+            i18n-label="@@admin.subscribers.col.email"
+            label="Email"
+            [activeSort]="sort()"
+            [direction]="directionFor('email')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="created_at"
+            i18n-label="@@admin.subscribers.col.signedUp"
+            label="Signed up"
+            [activeSort]="sort()"
+            [direction]="directionFor('created_at')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.subscribers.col.status"
+          >
+            Status
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.subscribers.col.source"
+          >
+            Source
+          </th>
+          <th
+            scope="col"
+            class="py-2 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.subscribers.col.location"
+          >
+            Location
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (subscriber of subscribers(); track subscriber.id) {
+        <tr class="border-b border-(--border-default) align-top">
+          <th scope="row" class="py-2.5 pe-4 text-start font-bold break-all text-(--text-primary)">
+            {{ subscriber.email }}
+          </th>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            {{ subscriber.created_at | date: 'mediumDate' : 'UTC' }}
+          </td>
+
+          <td class="py-2.5 pe-4">
+            @if (subscriber.status === 'unsubscribed') {
+            <span
+              class="inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+              i18n="@@admin.subscribers.badge.unsubscribed"
+            >
+              Unsubscribed
+            </span>
+            <!--
+              The date is the disclosure that makes the badge useful: "left" is a
+              fact, "left the day after the launch email" is a finding.
+            -->
+            <span class="block text-xs text-(--text-tertiary)">
+              {{ subscriber.unsubscribed_at | date: 'mediumDate' : 'UTC' }}
+            </span>
+            } @else {
+            <span class="text-(--text-secondary)" i18n="@@admin.subscribers.badge.active"
+              >Subscribed</span
+            >
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (sourceLabel(subscriber)) { {{ sourceLabel(subscriber) }} } @else {
+            <!--
+              An organic signup with no campaign parameters is a real signup, so
+              it gets a word rather than a dash. Matches the Audience screen,
+              which surfaces the NULL bucket rather than dropping it.
+            -->
+            <span class="text-(--text-tertiary)" i18n="@@admin.subscribers.source.direct"
+              >Direct</span
+            >
+            } @if (subscriber.referrer) {
+            <span class="block text-xs break-all text-(--text-tertiary)">
+              {{ subscriber.referrer }}
+            </span>
+            }
+          </td>
+
+          <td class="py-2.5 text-(--text-secondary)">
+            @if (placeLabel(subscriber)) { {{ placeLabel(subscriber) }} } @else {
+            <span
+              class="text-(--text-tertiary)"
+              i18n-aria-label="@@admin.subscribers.location.none"
+              aria-label="No location captured"
+              >&ndash;</span
+            >
+            } @if (subscriber.as_organization) {
+            <span class="block text-xs text-(--text-tertiary)">
+              {{ subscriber.as_organization }}
+            </span>
+            }
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-6">
+    <aec-admin-paginator
+      [page]="page()"
+      [perPage]="perPage"
+      [total]="total()"
+      (pageChange)="goToPage($event)"
+    />
+  </div>
+  }
+</section>

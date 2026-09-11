@@ -3711,6 +3711,88 @@ the UI renders it as text and never as a link.
 
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, or `page < 1`.
 
+#### `GET /api/admin/subscribers` (AECI-859 / Phase 8.3 P5.2)
+
+The mailing-list roster, paginated. **This is the first endpoint anywhere that
+returns a `mailing_list` row.** `GET /api/admin/audience` above reads the same
+table in aggregate only, so until this shipped an operator could see how many
+people were on the list and not who, or when any one of them joined.
+
+```typescript
+export const AdminSubscribersSortSchema = z.enum(['created_at', 'email']).default('created_at');
+
+/** The two keys disagree, which is the point: newest first, but A before Z. */
+export const ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER = { created_at: 'desc', email: 'asc' };
+
+export const AdminSubscribersQuerySchema = PageQuerySchema.extend({   // page / perPage <= 100
+  sort: AdminSubscribersSortSchema,
+  order: SortOrderSchema.optional(),
+  search: z.string().optional(),                // escaped substring on `email`
+  status: z.enum(['active', 'unsubscribed', 'all']).default('all'),
+});
+
+export const AdminSubscriberRowSchema = z.object({
+  id: z.number().int().positive(),
+  email: z.string(),                            // IN FULL - see below
+  created_at: z.string().datetime(),
+  unsubscribed_at: z.string().datetime().nullable(),
+  status: z.enum(['active', 'unsubscribed']),   // derived from the column above
+  utm_source: …, utm_medium: …, utm_campaign: …, referrer: z.string().nullable(),
+  country: …, region: …, city: …, as_organization: z.string().nullable(),
+});
+
+export const AdminSubscribersResponseSchema =
+  paginatedResponseSchema(AdminSubscriberRowSchema)
+    .extend({
+      generated_at: …, source: z.literal('live'), notes: z.array(AdminNoteSchema),
+      subscribers: AdminAudienceSubscribersSchema,   // lifetime, UNFILTERED
+    });
+```
+
+**`total` is filtered and `subscribers` is not, and both are needed.** `total`
+counts what the current `status` and `search` actually match, because it drives
+the paginator. `subscribers` is the lifetime stock the filter chips label
+themselves with, and it comes from the same `subscriberTotals()` call
+`/api/admin/audience` makes — one implementation, so the roster and the Audience
+tiles cannot report different numbers for the same question on the same day.
+
+**No window filter**, deliberately, on the feedback inbox's reasoning: a roster is
+read end to end rather than measured over a period, and the windowed signup
+figures already ride on `/api/admin/audience` as `window_totals`.
+
+**`unsubscribe_token` is not in the projection, and that is a security property
+rather than an omission.** It is a *bearer capability*: `POST /api/unsubscribe`
+suppresses whoever presents the token, with no other credential (AECI-537). A
+response body carrying one per row would put a working opt-out link for every
+subscriber into a browser tab, a screenshot, and any log that captures a response
+body. The handler names its columns rather than selecting the row, so a column
+added to `mailing_list` later cannot leak by default, and
+`admin-subscribers.spec.ts` asserts the token appears nowhere in the
+**serialized** body — parsing first would let Zod strip the very key the test
+looks for. `asn` is omitted for a duller reason: `as_organization` is the same
+fact in a form a human can read.
+
+**`email` crosses in full**, the same call `/api/admin/feedback` makes directly
+above and the opposite of `/api/admin/page-views`' truncated `visitor_hash`. A
+page view observes someone who never identified themself; this is an address a
+person volunteered in order to be emailed.
+
+**Ordering.** `created_at DESC, id DESC` by default. `?sort=email` orders
+`COLLATE NOCASE` through `textDir` (AECI-825) — a `BINARY` order would put every
+capitalized address ahead of every lowercase one — and every ordering carries the
+`id` tiebreaker, which is load-bearing here in a way it is not on a
+`BINARY`-ordered list: `NOCASE` reports `A@x` and `a@x` as EQUAL, so without a
+unique trailing term a `LIMIT`/`OFFSET` page boundary can drop or duplicate a row.
+
+`status` is derived from `unsubscribed_at` server-side and sent anyway, so the UI
+cannot re-derive "active" a second, differently. `referrer` is printed as text and
+never linked, same rule as the inbox above. The endpoint has **no write sibling**:
+the only writer of `unsubscribed_at` is the subscriber, through the tokenized
+`POST /api/unsubscribe`.
+
+Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
+an unknown `sort` key, or an unknown `status`.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`
@@ -4111,6 +4193,11 @@ The handlers read a header when present and fall back to the body value otherwis
 #### `POST /api/subscribe`
 
 Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
+
+> **Since AECI-859 this table has a ROW-level read surface** — `GET /api/admin/subscribers`
+> (§6.10) and the `/admin/subscribers` screen. `GET /api/admin/audience` had read
+> it in aggregate since AECI-586, which answered how many but never who. The
+> roster returns no `unsubscribe_token`; see that endpoint for why.
 
 > **The reactivation path is lossy, and the admin panel says so.** Clearing
 > `unsubscribed_at` and keeping the original `created_at` means the row no longer

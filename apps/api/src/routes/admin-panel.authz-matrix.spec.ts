@@ -10,9 +10,9 @@
  * `requireAdmin()` fails here.
  *
  * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
- * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, and
- * by AECI-722 with the five `/api/admin/connector-catalogs` reads, and by
- * AECI-739 with `GET /api/admin/claims/:id`.
+ * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, by
+ * AECI-722 with the five `/api/admin/connector-catalogs` reads, by AECI-739 with
+ * `GET /api/admin/claims/:id`, and by AECI-859 with `GET /api/admin/subscribers`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -42,6 +42,7 @@ import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
+import { createAdminSubscribersHandler } from './admin-subscribers';
 import { createAdminSystemHandler } from './admin-system';
 import {
   createAdminConnectorAuditHandler,
@@ -105,6 +106,10 @@ const ROUTES = [
     url: '/api/admin/audience?from=2026-08-10&to=2026-08-10',
   },
   { name: 'GET /api/admin/feedback', url: '/api/admin/feedback' },
+  // AECI-859 — the §5.4 roster. A read like its two siblings above, and the only
+  // endpoint that returns a `mailing_list` ROW, which is why it belongs in the
+  // deny matrix rather than only in its own handler spec.
+  { name: 'GET /api/admin/subscribers', url: '/api/admin/subscribers' },
   // AECI-652 — the §5.6 vendor surface. The DELETE is covered by
   // `admin-vendors.spec.ts` instead: this file is `get()`-shaped, and a write
   // route belongs with the rest of its write semantics.
@@ -215,6 +220,11 @@ function makeApp() {
   app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   app.get('/api/admin/audience', requireAdmin(guard), createAdminAudienceHandler(t.factory, clock));
   app.get('/api/admin/feedback', requireAdmin(guard), createAdminFeedbackHandler(t.factory, clock));
+  app.get(
+    '/api/admin/subscribers',
+    requireAdmin(guard),
+    createAdminSubscribersHandler(t.factory, clock),
+  );
   // The vendor reads take no clock; the detail/audit handlers take the email seam
   // second, and its default would reach GoTrue. Stub it — this file is about the
   // gate, not the seam.
