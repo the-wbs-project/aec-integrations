@@ -58,6 +58,7 @@ import {
 import { createAdminAudienceHandler } from './routes/admin-audience';
 import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
+import { createAdminSubscribersHandler } from './routes/admin-subscribers';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -532,6 +533,14 @@ app.route('/', authAccount);
 //   - GET /api/admin/feedback           — the feedback inbox, paginated. The FIRST
 //     read surface that table has ever had; until now an operator email was the
 //     only way anyone saw a submission.
+//
+// Phase 8.3 P5.2 (AECI-859) completes the pair:
+//   - GET /api/admin/subscribers        — the mailing-list roster, paginated,
+//     filterable by membership and searchable by email. The first ROW-level read
+//     `mailing_list` has ever had: every other reader aggregates it, so an
+//     operator could see how many people were on the list and not who, or when
+//     any one of them joined. `unsubscribe_token` is excluded from the
+//     projection — it is a bearer capability, not an identifier (AECI-537).
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -667,6 +676,7 @@ authAdmin.get('/api/admin/catalog/coverage', requireAdmin(), createAdminCatalogC
 authAdmin.get('/api/admin/system', requireAdmin(), createAdminSystemHandler());
 authAdmin.get('/api/admin/audience', requireAdmin(), createAdminAudienceHandler());
 authAdmin.get('/api/admin/feedback', requireAdmin(), createAdminFeedbackHandler());
+authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHandler());
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

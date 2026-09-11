@@ -1,11 +1,17 @@
 import { z } from 'zod';
 
-import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  LinkRefSchema,
+  PageQuerySchema,
+  paginatedResponseSchema,
+  SortOrderSchema,
+  type SortOrder,
+} from './common';
 
 /**
  * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
- * P1.3, AECI-579 / P1.5, AECI-580 / P1.6, and AECI-586 / P5.1) — the endpoints
- * the rest of the operator console renders from. Source of
+ * P1.3, AECI-579 / P1.5, AECI-580 / P1.6, AECI-586 / P5.1, and AECI-859 / P5.2)
+ * — the endpoints the rest of the operator console renders from. Source of
  * truth: `docs/ADMIN_PANEL_SPEC.md` §6, `docs/API_CONTRACTS.md` §6.10.
  *
  *   GET /api/admin/overview           — the §5.1 bundle in one round trip
@@ -16,6 +22,7 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *   GET /api/admin/system             — the §5.6 bundle (AECI-580)
  *   GET /api/admin/audience           — the §5.4 bundle: subscribers, churn, UTM, geo (AECI-586)
  *   GET /api/admin/feedback           — the feedback inbox, paginated (AECI-586)
+ *   GET /api/admin/subscribers        — the mailing-list roster, row by row (AECI-859)
  *
  * All are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
  * `audit_log` row, no `Cache-Tag`, no edge caching (§6 conventions, §9.2-9.3).
@@ -1990,3 +1997,136 @@ export const AdminFeedbackResponseSchema = paginatedResponseSchema(AdminFeedback
   notes: z.array(AdminNoteSchema),
 });
 export type AdminFeedbackResponse = z.infer<typeof AdminFeedbackResponseSchema>;
+
+// ─── GET /api/admin/subscribers (AECI-859 / Phase 8.3 P5.2) ──────────────────
+
+/**
+ * Sortable columns on the subscriber roster. **D1 columns only**, same rule as
+ * {@link AdminUsersSortSchema} one file over.
+ *
+ * `unsubscribed_at` is deliberately absent. It is null for most of the table, so
+ * sorting by it would order the majority of rows arbitrarily against each other
+ * and present that as an ordering. The `status` filter answers the question a
+ * churn sort would have been reaching for.
+ */
+export const AdminSubscribersSortSchema = z.enum(['created_at', 'email']).default('created_at');
+export type AdminSubscribersSort = z.infer<typeof AdminSubscribersSortSchema>;
+
+/**
+ * A key's natural direction, used when the caller sends `sort` without `order`.
+ *
+ * They differ, and that is the point: a roster opened on signup date wants the
+ * newest subscriber first, while a roster opened on email wants A before Z. One
+ * shared default would be wrong for one of them. Same one-copy arrangement as
+ * `ADMIN_USER_SORT_DEFAULT_ORDER`.
+ */
+export const ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER: Record<AdminSubscribersSort, SortOrder> = {
+  created_at: 'desc',
+  email: 'asc',
+};
+
+/**
+ * Membership filter. `all` is the default because the screen's stated job is
+ * "who is on the list", and someone who opted out is part of that answer — the
+ * row says so per-row via {@link AdminSubscriberRowSchema.status}.
+ *
+ * An enum, never `z.coerce.boolean()`: `Boolean("false") === true` is the live
+ * AECI-691 defect, and here it would silently return *active* subscribers to a
+ * caller asking for the unsubscribed ones.
+ */
+export const AdminSubscriberStatusFilterSchema = z
+  .enum(['active', 'unsubscribed', 'all'])
+  .default('all');
+export type AdminSubscriberStatusFilter = z.infer<typeof AdminSubscriberStatusFilterSchema>;
+
+/**
+ * The roster query.
+ *
+ * `search` matches `mailing_list.email` as an **escaped substring** (`likeContains`,
+ * `apps/api/src/lib/sql-like.ts` — `%` and `_` an operator types are escaped
+ * rather than honoured). Substring, not exact: unlike `/api/admin/users`, whose
+ * email leg has to go through GoTrue and is therefore exact-only, this column is
+ * in D1 and `?search=@acme.com` is the obvious way to ask "who from this company
+ * signed up".
+ */
+export const AdminSubscribersQuerySchema = PageQuerySchema.extend({
+  sort: AdminSubscribersSortSchema,
+  order: SortOrderSchema.optional(),
+  search: z.string().optional(),
+  status: AdminSubscriberStatusFilterSchema,
+});
+export type AdminSubscribersQuery = z.infer<typeof AdminSubscribersQuerySchema>;
+
+/**
+ * One subscriber, as `POST /api/subscribe` stored them (`routes/landing-forms.ts`).
+ *
+ * **This is the first read surface `mailing_list` has ever had at row level.**
+ * `GET /api/admin/audience` (AECI-586) reads the same table in aggregate only —
+ * two timestamps for the series, the UTM triple for attribution, the geo columns
+ * for the breakdowns — and returns no row. So there is no prior projection to
+ * preserve here; the question the screen answers is "who is on the list, and
+ * when did they join", which no endpoint could answer before.
+ *
+ * **`email` crosses in full**, on {@link AdminFeedbackRowSchema}'s reasoning: a
+ * page view observes someone who never identified themself and is therefore
+ * hashed (§9.7), while this is an address a person volunteered in order to be
+ * emailed. A truncated subscriber list is not a subscriber list.
+ *
+ * **`unsubscribe_token` does NOT cross, and never should.** It is a bearer
+ * capability, not an identifier: `POST /api/unsubscribe` takes the token alone
+ * and suppresses whoever holds it (AECI-537), so putting it in an admin response
+ * body would put a working opt-out link for every subscriber into a browser tab,
+ * a screenshot, and any log that captures a response. The query names its
+ * columns rather than selecting the row for exactly this reason.
+ *
+ * `status` is derived from `unsubscribed_at`, not stored. It is sent anyway so
+ * the UI cannot re-derive it a second, differently — the same one-implementation
+ * rule that keeps the roster's counts on `subscriberTotals()`.
+ *
+ * `referrer` is a URL the subscriber's browser supplied. It is data, not a
+ * destination: the UI prints it and never links it.
+ */
+export const AdminSubscriberRowSchema = z.object({
+  id: z.number().int().positive(),
+  email: z.string(),
+  /** When they signed up. The column the whole screen exists to show. */
+  created_at: z.string().datetime(),
+  /** ISO-8601 = suppressed, `null` = active. A soft delete; nothing ever removes
+   *  a `mailing_list` row (`DATABASE_SCHEMA.md` §lead-capture). */
+  unsubscribed_at: z.string().datetime().nullable(),
+  status: z.enum(['active', 'unsubscribed']),
+  utm_source: z.string().nullable(),
+  utm_medium: z.string().nullable(),
+  utm_campaign: z.string().nullable(),
+  referrer: z.string().nullable(),
+  country: z.string().nullable(),
+  region: z.string().nullable(),
+  city: z.string().nullable(),
+  as_organization: z.string().nullable(),
+});
+export type AdminSubscriberRow = z.infer<typeof AdminSubscriberRowSchema>;
+
+/**
+ * The paginated envelope, plus the lifetime stocks the filter chips label
+ * themselves with.
+ *
+ * `total` is the count **after** `status` and `search`, so it is what the
+ * paginator needs. `subscribers` is lifetime and unfiltered, and it is the same
+ * {@link AdminAudienceSubscribersSchema} block `/api/admin/audience` returns,
+ * produced by the same `subscriberTotals()` call. Two screens reporting one
+ * stock must not be able to disagree about it, which is the rule P1.1 note 1
+ * established for `collectAnalyticsMetrics` and §5.6 re-applied to the status
+ * items.
+ *
+ * `notes` is present and normally empty, matching {@link
+ * AdminFeedbackResponseSchema}.
+ */
+export const AdminSubscribersResponseSchema = paginatedResponseSchema(
+  AdminSubscriberRowSchema,
+).extend({
+  generated_at: z.string().datetime(),
+  source: z.literal('live'),
+  notes: z.array(AdminNoteSchema),
+  subscribers: AdminAudienceSubscribersSchema,
+});
+export type AdminSubscribersResponse = z.infer<typeof AdminSubscribersResponseSchema>;

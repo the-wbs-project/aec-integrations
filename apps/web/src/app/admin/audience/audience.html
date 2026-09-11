@@ -134,6 +134,22 @@
     />
   </div>
 
+  <!--
+    AECI-859. The three tiles above are lifetime counts of PEOPLE, and this is
+    the only place on the screen where a reader can get from a count to the
+    people it counts. The link sits under the tile row rather than inside a tile
+    because `aec-stat-tile` has a closed contract (label, value, delta,
+    sparkline, and no more), and one link serves all three subscriber tiles.
+  -->
+  <p class="-mt-4 mb-8 text-sm text-(--text-secondary)" i18n="@@admin.audience.roster.link">
+    These are counts. To see who is on the list, and the day each person joined, open
+    <a
+      routerLink="/admin/subscribers"
+      class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >Subscribers</a
+    >.
+  </p>
+
   <!-- ── Subscribers over time. The page's primary chart. ──────────────── -->
   <section
     class="mb-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"

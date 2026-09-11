@@ -488,12 +488,13 @@ await db.batch([
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
 **Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
-AECI-580, and AECI-586).** Eight endpoints join the `GET /api/admin/*` row above —
-`/api/admin/overview`, `/api/admin/metrics/timeseries`,
+AECI-580, AECI-586, and AECI-859).** Nine endpoints join the `GET /api/admin/*` row
+above — `/api/admin/overview`, `/api/admin/metrics/timeseries`,
 `/api/admin/traffic/breakdown`, `/api/admin/page-views` (the §5.2 Activity feed),
 `/api/admin/catalog/coverage` (the §5.5 catalog readout), `/api/admin/system`
 (the §5.6 System bundle), `/api/admin/audience` (the §5.4 subscriber, churn, UTM
-and geography bundle), and `/api/admin/feedback` (the feedback inbox) — registered
+and geography bundle), `/api/admin/feedback` (the feedback inbox), and
+`/api/admin/subscribers` (the §5.4a mailing-list roster) — registered
 on the same `authAdmin` sub-router behind
 the same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays
 the single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
@@ -539,6 +540,20 @@ response on this route would put a volunteered address in a shared cache, which 
 one more reason `/admin/*` must remain absent from `ROUTE_CACHE_PATTERNS`.
 `/api/admin/audience` returns **aggregates only**: counts, rates and grouped
 breakdowns, never a subscriber's address or a row that identifies one.
+
+`/api/admin/subscribers` (AECI-859) is where the addresses are, and it lands on
+the feedback inbox's side of that line for the feedback inbox's reason: a
+mailing-list subscriber typed their address in order to be emailed. Two properties
+are asserted rather than reviewed (`admin-subscribers.spec.ts`). **It returns no
+`unsubscribe_token`** — the token is a *bearer capability*, since
+`POST /api/unsubscribe` suppresses whoever presents it with no other credential
+(AECI-537), so a response body carrying one per row would hand out a working
+opt-out link for every subscriber; the handler names its columns rather than
+selecting the row, and the test asserts over the **serialized** body so a future
+column cannot leak one past a parsed-object check. And it is a **read with no
+write sibling**: the console has no control that could opt a subscriber out, which
+is a deliberate absence rather than an unbuilt feature — the only writer of
+`unsubscribed_at` is the subscriber.
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the

@@ -1,11 +1,13 @@
 /**
- * The admin panel's audience read layer (AECI-586 / `ADMIN_PANEL_SPEC.md` §5.4).
+ * The admin panel's audience read layer (AECI-586, extended by AECI-859 /
+ * `ADMIN_PANEL_SPEC.md` §5.4).
  *
- * Everything `GET /api/admin/audience` and `GET /api/admin/feedback` need:
- * lifetime subscriber stocks, the day-bucketed growth/churn series, the UTM and
- * signup-geography breakdowns, and the feedback inbox. The route handlers stay
- * thin — parse the query, call in here, wrap the envelope — matching
- * `lib/admin-analytics.ts` and `lib/admin-catalog.ts`.
+ * Everything the three §5.4 endpoints need: lifetime subscriber stocks, the
+ * day-bucketed growth/churn series, the UTM and signup-geography breakdowns, the
+ * feedback inbox, and — since AECI-859 — the subscriber roster itself
+ * (`listSubscribers`). The route handlers stay thin — parse the query, call in
+ * here, wrap the envelope — matching `lib/admin-analytics.ts` and
+ * `lib/admin-catalog.ts`.
  *
  * Four things are load-bearing and easy to get wrong:
  *
@@ -41,12 +43,15 @@
  */
 
 import {
+  ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER,
   type AdminAudienceBreakdownRow,
   type AdminAudienceSeriesPoint,
   type AdminAudienceSubscribers,
   type AdminAudienceWindowTotals,
   type AdminFeedbackRow,
   type AdminNote,
+  type AdminSubscriberRow,
+  type AdminSubscribersQuery,
 } from '@aeci/shared';
 import { and, asc, count, desc, gte, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
@@ -54,7 +59,8 @@ import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '../db/client';
 import { feedback, mailingList } from '../db/schema';
 import { countAll, enumerateDays, note, type UtcWindow } from './admin-analytics';
-import { textAsc } from './collation';
+import { textAsc, textDir } from './collation';
+import { likeContains } from './sql-like';
 
 /** `sum(case when <predicate> then 1 else 0 end)` — SQLite returns NULL over an
  *  empty table, hence the coalesce. Same idiom as `lib/admin-catalog.ts`. */
@@ -379,6 +385,103 @@ export async function listFeedback(
       region: r.region,
       timezone: r.timezone,
       referrer: r.referrer,
+    })),
+  };
+}
+
+/**
+ * One page of the subscriber roster (AECI-859 / §5.4).
+ *
+ * **The first row-level read `mailing_list` has ever had.** Every other reader of
+ * this table aggregates it: the series above, `subscriberTotals`, the overview
+ * card, the 00:15 snapshot cron. So there is no prior projection to honour, and
+ * the column set is chosen rather than inherited.
+ *
+ * Three things are load-bearing.
+ *
+ * **1. The select names its columns; it is never `db.select().from(mailingList)`.**
+ * `unsubscribe_token` is a bearer capability — `POST /api/unsubscribe` suppresses
+ * whoever presents it (AECI-537) — so a wildcard select here would put a working
+ * opt-out link for every subscriber into a browser tab and any log that captures
+ * a response body. The explicit list is the mechanism, and it is why adding a
+ * column to `mailing_list` cannot leak one by default.
+ *
+ * **2. Email sorts under `NOCASE`, never `BINARY` (AECI-825).** Addresses are
+ * lowercase far more often than not, but not always, and one `Chris@…` among a
+ * page of lowercase addresses would sort ahead of every one of them under the
+ * default collation. `textDir` folds the case; `asc/desc(id)` behind it supplies
+ * the total order `NOCASE` takes away, without which a page boundary can drop or
+ * repeat a row.
+ *
+ * **3. `status` is derived here, once.** It is `unsubscribed_at IS NULL`, and the
+ * UI receives the verdict rather than the rule. Two places deciding what "active"
+ * means is how the roster and the tiles end up disagreeing.
+ */
+export async function listSubscribers(
+  db: Db,
+  query: Pick<AdminSubscribersQuery, 'page' | 'perPage' | 'sort' | 'order' | 'search' | 'status'>,
+): Promise<{ rows: AdminSubscriberRow[]; total: number }> {
+  const predicates: SQL[] = [];
+  if (query.status === 'active') predicates.push(isNull(mailingList.unsubscribedAt));
+  if (query.status === 'unsubscribed') predicates.push(isNotNull(mailingList.unsubscribedAt));
+
+  // Escaped substring: the `%` and `_` an operator types match literally rather
+  // than turning the box into an undocumented pattern language.
+  const term = query.search?.trim();
+  if (term) predicates.push(likeContains(mailingList.email, term));
+
+  const where = predicates.length > 0 ? and(...predicates) : undefined;
+
+  const ascending =
+    (query.order ?? ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER[query.sort ?? 'created_at']) === 'asc';
+  const orderBy =
+    (query.sort ?? 'created_at') === 'email'
+      ? [textDir(mailingList.email, ascending), asc(mailingList.id)]
+      : [
+          ascending ? asc(mailingList.createdAt) : desc(mailingList.createdAt),
+          ascending ? asc(mailingList.id) : desc(mailingList.id),
+        ];
+
+  const [total, rows] = await Promise.all([
+    countAll(db, mailingList, where),
+    db
+      .select({
+        id: mailingList.id,
+        email: mailingList.email,
+        createdAt: mailingList.createdAt,
+        unsubscribedAt: mailingList.unsubscribedAt,
+        utmSource: mailingList.utmSource,
+        utmMedium: mailingList.utmMedium,
+        utmCampaign: mailingList.utmCampaign,
+        referrer: mailingList.referrer,
+        country: mailingList.country,
+        region: mailingList.region,
+        city: mailingList.city,
+        asOrganization: mailingList.asOrganization,
+      })
+      .from(mailingList)
+      .where(where)
+      .orderBy(...orderBy)
+      .limit(query.perPage)
+      .offset((query.page - 1) * query.perPage),
+  ]);
+
+  return {
+    total,
+    rows: rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      created_at: r.createdAt,
+      unsubscribed_at: r.unsubscribedAt,
+      status: r.unsubscribedAt === null ? ('active' as const) : ('unsubscribed' as const),
+      utm_source: r.utmSource,
+      utm_medium: r.utmMedium,
+      utm_campaign: r.utmCampaign,
+      referrer: r.referrer,
+      country: r.country,
+      region: r.region,
+      city: r.city,
+      as_organization: r.asOrganization,
     })),
   };
 }

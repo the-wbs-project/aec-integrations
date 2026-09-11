@@ -387,6 +387,16 @@ export const routes: Routes = [
         path: 'audience',
         loadComponent: () => import('./admin/audience/audience').then((m) => m.AdminAudience),
       },
+      // AECI-859 / Phase 8.3 P5.2 — the §5.4 roster, the row-level half of the
+      // same section. Reads `GET /api/admin/subscribers`, the first endpoint that
+      // returns a `mailing_list` row at all; Audience above it reads the same
+      // table only in aggregate. Same gate, same non-cacheable branch, no
+      // resolver of its own.
+      {
+        path: 'subscribers',
+        loadComponent: () =>
+          import('./admin/subscribers/subscriber-list').then((m) => m.SubscriberList),
+      },
       // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
       // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's
       // `adminSummaryResolver` is the gate, and the screen fetches its own data
