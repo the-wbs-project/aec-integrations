@@ -1,10 +1,10 @@
 ---
 name: spec-anchor
-description: Anchor AECI-* work to its governing spec, then check the plan against it before any code exists. Fetches the Linear issue, parses its "**Spec section:** §X.Y" line (which may name the spec doc in parentheses, e.g. "§6.1 (docs/STAGE_1_5_SPEC.md)" for Stage 1.5 work — default docs/STAGE_1_SPEC.md), loads the matching section, follows cross-references into the companion docs (API_CONTRACTS.md, DATABASE_SCHEMA.md, AUTH_AND_RLS.md, CACHE_STRATEGY.md, CICD_PLAN.md, TESTING_STRATEGY.md, UNIT_TESTING_GUIDE.md, CODE_REVIEW_CHECKLIST.md, the ADR index), and — once a plan exists — reviews that plan against the loaded contract, returning findings rated CRITICAL / MAJOR / MINOR. Use whenever the user names an AECI-* issue, pastes a Linear URL, asks to "start AECI-N", writes or finishes a plan for an AECI issue, or asks you to implement/fix/review something governed by the Stage 1, Stage 1.5, or Stage 2 specs. Do not invoke for non-AECI work, doc-only edits to the spec itself, or pure config/lint tasks with no spec contract.
+description: Anchor AECI-* work to its governing spec, then check the plan against it before any code exists. Fetches the Linear issue, resolves its "**Spec section:**" line by scanning the whole line for every doc it names and every §X.Y it names, then pairing them (so "§6.2 / §6.7 (docs/STAGE_1_PHASE_6_SPEC.md)" and "docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4" both resolve; default docs/STAGE_1_SPEC.md only when no doc is named; an anchor whose heading does not exist is reported, never silently re-pointed), loads the matching section, follows cross-references into the companion docs (API_CONTRACTS.md, DATABASE_SCHEMA.md, AUTH_AND_RLS.md, CACHE_STRATEGY.md, CICD_PLAN.md, TESTING_STRATEGY.md, UNIT_TESTING_GUIDE.md, CODE_REVIEW_CHECKLIST.md, the ADR index), and — once a plan exists — reviews that plan against the loaded contract, returning findings rated CRITICAL / MAJOR / MINOR. Use whenever the user names an AECI-* issue, pastes a Linear URL, asks to "start AECI-N", writes or finishes a plan for an AECI issue, or asks you to implement/fix/review something governed by the Stage 1, Stage 1.5, or Stage 2 specs. Do not invoke for non-AECI work, doc-only edits to the spec itself, or pure config/lint tasks with no spec contract.
 argument-hint: "[AECI-N]"
 user-invocable: true
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   type: project-procedure
 ---
 
@@ -40,16 +40,63 @@ mcp__claude_ai_Linear__get_issue(issueId: "AECI-N")
 
 **Resolving the issue ID when the user didn't give one:** read it from the branch with `(?i)(?:^|/)aeci-(\d+)`. The leading-segment match is required — real branches carry an author prefix (`chris/aeci-550-…`), not just the documented `aeci-{N}-…` form.
 
-From the returned `description`, extract the first line matching:
+From the returned `description`, take the first line beginning `**Spec section:**` and resolve it with a **two-pass scan of the whole line**. One regex cannot do this job: the forms in real use put the doc name somewhere a single anchored pattern can't reach, and a partial match that still *succeeds* is how the anchor silently resolved to the wrong document.
+
+**Pass A — collect every doc named on the line.**
 
 ```
-\*\*Spec section:\*\*\s*§?(\d+[a-z]?(?:\.\d+)*)\s*(?:\(([^)]*\.md)[^)]*\))?
+(?:docs\/)?[A-Za-z0-9_.\-\/]*[A-Za-z0-9_\-]\.md
 ```
 
-- **Group 1** is the section anchor — e.g. `9.3`, `2a`, `6`, `24.2`.
-- **Group 2** (optional) is the **spec doc the issue anchors against**, when the line names one in parentheses — e.g. `§6.1 (docs/STAGE_1_5_SPEC.md)`. When group 2 is absent, the spec doc defaults to **`docs/STAGE_1_SPEC.md`**. (A bare path without `docs/` still resolves under `docs/`.)
+Run it `g`-globally. `CLAUDE.md`, `DESIGN.md`, `PRODUCT.md` and `ANGULAR_STYLE_GUIDE.md` resolve at the repo root; every other bare name resolves under `docs/`.
 
-**If the line is missing or reads `n/a`, do not stop — go to the n/a ladder in step 4.5a.** Roughly 40% of recent AECi issues carry no `**Spec section:**` line (several use `**Repo:**` / `**Base branch:**` instead, and some belong to the review app), so a hard stop here blocks the majority case. Mention once that the issue skipped the template, then proceed via the ladder.
+**Pass B — collect every section anchor on the line.**
+
+```
+§\s*(\d+[a-z]?(?:\.\d+)*)
+```
+
+Also `g`-global. `9.3`, `2a`, `6`, `24.2`, `13` all match. A `§` followed by a non-digit (`§"Where to start"`) is a *named* anchor — keep it, but match it as `§"([^"]+)"` rather than here.
+
+**Pairing rule.**
+
+| Docs found | Anchors found | Resolution |
+|---|---|---|
+| 0 | ≥1 | Default to **`docs/STAGE_1_SPEC.md`**, as before |
+| 1 | ≥1 | **Every anchor belongs to that doc**, wherever on the line it sits |
+| 1 | 0 | Whole document — read its table of contents, then the sections the issue body actually discusses |
+| ≥2 | any | Split the line on `;`, `+` and `·`. Anchors in a segment belong to the doc named in that segment; a segment naming no doc inherits the previous segment's. Load at most **two** docs, and name any you skipped |
+| 0 | 0 | Not an anchor — go to the n/a ladder in step 4.5a |
+
+The one-doc row is the load-bearing one. It makes all of these resolve identically and correctly:
+
+```
+**Spec section:** §5.4 (docs/ADMIN_PANEL_SPEC.md)
+**Spec section:** §6.2 / §6.7 (docs/STAGE_1_PHASE_6_SPEC.md)
+**Spec section:** §9.6 / §9.8 (docs/ADMIN_PANEL_SPEC.md, the visitor definition)
+**Spec section:** docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4
+**Spec section:** the whole of `docs/ADMIN_PANEL_SPEC.md`
+```
+
+**Then verify the heading exists. This step is the point of the scan.**
+
+Confirm each resolved anchor is really in its resolved doc. **Resolve the parent section first, then narrow** — the sub-anchor is not always a heading, and three conventions are live:
+
+| Form | Example | Where |
+|---|---|---|
+| Bare numbered heading | `## 9. Caching Strategy` / `### 9.3 Invalidation` | most docs |
+| `§`-prefixed heading | `## §3 AECi-specific overrides` / `### §3.4 Alert model` | `POSTHOG_MIGRATION_SPEC.md` (all 31), `PERFORMANCE_AUDIT.md` (mixed) |
+| Numbered **list item** under a heading | `## 9. Non-functional requirements` → `6. **No self-pollution…**` is §9.6 | `ADMIN_PANEL_SPEC.md`, the most-anchored doc there is |
+
+So the check is: **does `^#{1,4}\s+§?<parent>[.\s)]` exist?** If yes, the anchor resolves — narrow to the `###` or the list item, and if the sub-number is absent inside a parent that does exist, say "§X.Y not found inside §X" and review against the parent rather than bailing. Only when the **parent** heading is missing:
+
+> Print `**Spec anchor:** §X.Y (docs/A.md) — heading not found` and drop to the n/a ladder in step 4.5a.
+
+**Never substitute a same-numbered section from a different doc.** That was the old behaviour and it was silent: a failed doc capture fell through to `docs/STAGE_1_SPEC.md`, which has a plausible-looking section at almost every number, so the check printed a confident header over an unrelated contract. Two measured cases, both from the 24 issues created 2026-09-10/11: AECI-862 (`§6.2, §6.7 (docs/STAGE_1_PHASE_6_SPEC.md)`, the request-reconciliation sweep) resolved to `STAGE_1_SPEC.md` **§6.2 Internal consumption pattern**; AECI-871 (`§9.6, §9.8 (docs/ADMIN_PANEL_SPEC.md)`, traffic classification) resolved to `STAGE_1_SPEC.md` **§9 Caching Strategy**. Six of the twenty-one human-authored issues resolved that way. An anchor that will not resolve is a **reportable state**, not a fallback.
+
+**If the line is missing, reads `n/a`, or fails the heading check, do not stop — go to the n/a ladder in step 4.5a.** As of 2026-09-11 only 2 of the 21 most recent human-authored issues carry no line at all, down from the 40% that prompted AECI-601, so the ladder is no longer the majority path. Mis-resolution is now the larger risk, which is why the heading check above is mandatory rather than advisory. Machine-authored tickets (the `Claim:` / `Correction:` issues written by `buildDescription()` in `apps/api/src/lib/linear.ts`) never carry a line by design — recognise them by their `Request: <uuid>` trailer and use the ladder without remarking on it.
+
+The grammar issue authors are asked to write is `docs/linear-issue-conventions.md`. If you meet a line this scan cannot resolve, that doc is where the fix goes — not a widened regex here.
 
 **If the named doc isn't in the worktree, check the other branches before declaring it missing:**
 
@@ -73,6 +120,8 @@ Read the **spec doc resolved in step 1** — the `.md` named in the Spec-section
 ## 9a. Stage 2 Carve-Outs
 ## 26. Audit Trail & Workflows
 ```
+
+**Two heading conventions are in use, and the heading check in step 1 must accept both.** Most docs number bare (`## 9.`, `### 9.3`). `docs/POSTHOG_MIGRATION_SPEC.md` puts the section mark *in* the heading (`## §3 AECi-specific overrides`, `### §3.4 Alert model`) for all 31 of its headings, and `docs/PERFORMANCE_AUDIT.md` mixes the two. Match `^#{1,4}\s+§?<anchor>[.\s)]?` — treating the `§` as absent would report `heading not found` on a section that is plainly there, which is the same silent-wrongness this skill exists to prevent, just inverted.
 
 `docs/STAGE_1_5_SPEC.md` is self-contained (§1–§10) and its subsection numbers (e.g. `§4.1`, `§5.2`, `§6.1`) are what the 1.5 issues cite; when an anchor resolves there, read that doc, not `STAGE_1_SPEC.md`. The same holds for the phase specs and `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`.
 
@@ -102,13 +151,26 @@ Within the loaded section, look for explicit pointers and load whichever apply. 
 | Phase 2 / 5 / 6 scope | `docs/STAGE_1_PHASE_{2,5,6}_SPEC.md` |
 | Integration pair page, claims, attestations | `docs/STAGE_1_5_SPEC.md` |
 | Vendor portal, claiming, verified badges | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
-| Admin panel surfaces | `docs/ADMIN_PANEL_SPEC.md` (on `origin/main` — see step 1) |
+| Admin panel surfaces, operator console, traffic/audience reporting | `docs/ADMIN_PANEL_SPEC.md` |
 | Visual tokens, palette, typography, components | `DESIGN.md` (repo root) and `docs/BRAND_GUIDELINES.md` |
 | Audience, voice, anti-references, principles | `PRODUCT.md` (repo root) |
+| Paid tiers, entitlements, the ranking firewall | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
+| Attestations, agreement state, product versions | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
+| Vendor-portal live updates, the freshness cursor, polling | `docs/STAGE_2_REALTIME_SPEC.md` |
+| Vendor-activation window, dark launch, seat granting | `docs/STAGE_2_1_SPEC.md` |
+| Hardening punch list, live-defect fixes, `/methodology` | `docs/STAGE_2_5_SPEC.md` |
+| Trust ladder, pSEO, rebrand handling | `docs/STAGE_3_SPEC.md` |
+| Metric catalogue, dashboards, alerts, the live plane | `docs/OBSERVABILITY.md` |
+| Event catalogue, consent tiers, activation funnel, identity | `docs/ANALYTICS.md` |
+| The PostHog swap, liveness sweep, alert model | `docs/POSTHOG_MIGRATION_SPEC.md` |
+| Daily/weekly operate-and-tune, launch-tunable thresholds | `docs/POST_LAUNCH_MONITORING.md` |
+| Algolia index settings, custom ranking, tie-breakers | `docs/SEARCH_RANKING.md` |
+| WAF zone rules, bot settings, the in-Worker limiter | `docs/waf-rate-limits.md` |
+| Promote payload, the async job protocol, connector pages | `docs/REVIEW_APP_PROMOTE_API.md` |
 
 Treat companion docs as authoritative for their topic. If the spec section and a companion doc disagree, the companion doc wins for its topic — but flag the conflict to the user (CLAUDE.md: "if the spec contradicts itself, raise it, don't silently work around").
 
-Don't load more than four companion docs. If the section seems to pull in more, the anchor is probably too broad — say so.
+This table is a lookup, not a reading list. **Don't load more than four companion docs.** If the section seems to pull in more, the anchor is probably too broad — say so. When a doc you need isn't here, the `CLAUDE.md` source-of-truth table is the complete index and this is a convenience subset of it.
 
 ### 4. Summarize the contract
 
@@ -138,7 +200,9 @@ The docs in this repo are not uniformly current. Resolve which source actually g
 
 **Supersession pre-check.** Scan the loaded slice for `Supersed` / `stale` / `~~strikethrough~~` markers and cross-check the source-of-truth table. `STAGE_1_SPEC.md` carries fifteen such markers. If the anchor lands in a superseded block, **re-anchor to the superseding doc and say so in the header** — don't review the plan against a section the repo has already retired.
 
-Known traps: §9.1 / §9.2 / §9.3 → `CACHE_STRATEGY.md` · §16 Phase 2/5/6 → the phase specs · §3.1 route row, §4.4, §7.5 → `STAGE_1_5_SPEC.md` · `STAGE_2_SPEC.md` §2.1 → `STAGE_2_VENDOR_PORTAL_SPEC.md` · §12 / §18.1 n8n → `STAGE_1_PHASE_6_SPEC.md` (n8n dropped, no Slack) · §18 Stage 2 forward-compat → `STAGE_2_SPEC.md`.
+Known traps: §9.1 / §9.2 / §9.3 → `CACHE_STRATEGY.md` · §16 Phase 2/5/6 → the phase specs · §3.1 route row, §4.4, §7.5 → `STAGE_1_5_SPEC.md` · §12 / §18.1 n8n → `STAGE_1_PHASE_6_SPEC.md` (n8n dropped, no Slack) · §18 Stage 2 forward-compat → `STAGE_2_SPEC.md`.
+
+`STAGE_2_SPEC.md` is itself a kickoff draft, not a build contract, and **four of its sections have been superseded by build specs**: §2.1 → `STAGE_2_VENDOR_PORTAL_SPEC.md` · §2.2 + the first two §8.2 open items → `STAGE_2_PAID_TIERS_SPEC.md` · §2.3 + the third §8.2 open item → `STAGE_2_REALTIME_SPEC.md` (which also **corrects** §4(5) and the §7 epic table — they say "Durable Objects"; ADR 0023 declined them) · §2.4 → `STAGE_2_ATTESTATIONS_SPEC.md`. An anchor into `STAGE_2_SPEC.md` §2.x is a superseded-anchor finding unless it is §2.5 or later.
 
 #### Verify before you flag
 
@@ -182,11 +246,11 @@ Two limits on it. The deferral must be named **in the plan under review** — a 
 2. **Spec contradiction.** The plan does something the governing section forbids or specifies differently. Quote the sentence; never paraphrase.
 3. **Missing contract element.** Zod schema and error code; audit row in the same batch; `Cache-Tag`; queue purge; a migration for a schema change; a new locale in both registries.
 4. **Superseded-anchor trap.** The plan builds on a section that has been superseded (see the trap list above).
-5. **Scope, phase, and base branch.** The plan exceeds or misses the issue's stated scope; Stage 2 work inside a Stage 1 issue (`CLAUDE.md` §"What's NOT in scope"); base branch wrong per ADR 0019 — production-destined work and hotfixes go to `main`, Stage 2 work to `stage-2`.
+5. **Scope, phase, and base branch.** The plan exceeds or misses the issue's stated scope; Stage 2 work inside a Stage 1 issue (`CLAUDE.md` §"What's NOT in scope"); base branch wrong per ADR 0019 — **`main` is the only line.** `stage-2` merged into `main` and was deleted on 2026-09-03 (ADR 0019's 2026-09-03 amendment), so branch everything from `main` and merge back to `main`. The one surviving long-lived branch is `admin-panel`, and it is Phase 8.3 admin-panel work only. A plan that names `stage-2` as its base is citing a branch that does not exist.
 
-   **Then check the base branch is actually gated. A correct base is not a tested base.** `branches:` on a `pull_request` trigger filters by **base** branch, so a workflow pinned to `main` runs *nothing* on a PR into `stage-2`, `admin-panel`, or an epic branch — and it fails **green**: the checks are absent rather than red, so nothing looks wrong. **Open every `.github/workflows/*.yml` and read its `on: pull_request:` block against the base the plan states.** Do not substitute `docs/CICD_PLAN.md` for this. If the plan states no base branch, resolve it from the current branch's upstream, and failing that from ADR 0019 (Stage 2 work → `stage-2`) — then say which you assumed. A plan that omits its base is the case most likely to inherit an ungated one silently, so this is exactly when not to skip the check. That is precisely how it was missed on the 13,591-line AECI-513 epic: `CICD_PLAN.md` §3.1 was titled "On every PR push" and ADR 0019 asserted "No CI/CD workflow changes", while `deploy.yml` and `integration-db-tests.yml` both carried `branches: [main]` on their `pull_request` trigger. The doc was confidently wrong and only the YAML disproved it. (Cite the trigger block, not a line number — that filter was removed in `fd994483`, and a stale line number in this file would be the same failure it warns about.)
+   **Then check the base branch is actually gated. A correct base is not a tested base.** `branches:` on a `pull_request` trigger filters by **base** branch, so a workflow pinned to `main` runs *nothing* on a PR into `stage-2`, `admin-panel`, or an epic branch — and it fails **green**: the checks are absent rather than red, so nothing looks wrong. **Open every `.github/workflows/*.yml` and read its `on: pull_request:` block against the base the plan states.** Do not substitute `docs/CICD_PLAN.md` for this. If the plan states no base branch, resolve it from the current branch's upstream, and failing that assume `main` — then say which you assumed. (The `stage-2` and epic-branch names in this paragraph are the historical case the rule was learned from; `admin-panel` is the only one still live, and it is the worst of them — it runs **no** PR tests at all.) A plan that omits its base is the case most likely to inherit an ungated one silently, so this is exactly when not to skip the check. That is precisely how it was missed on the 13,591-line AECI-513 epic: `CICD_PLAN.md` §3.1 was titled "On every PR push" and ADR 0019 asserted "No CI/CD workflow changes", while `deploy.yml` and `integration-db-tests.yml` both carried `branches: [main]` on their `pull_request` trigger. The doc was confidently wrong and only the YAML disproved it. (Cite the trigger block, not a line number — that filter was removed in `fd994483`, and a stale line number in this file would be the same failure it warns about.)
 
-   Every lane in the plan's test story that won't fire on this base is 🟡 **MAJOR**. **Escalate to 🔴 CRITICAL only when this plan owns the gap** — when it is the first to open the ungated base, or when it is an epic/kickoff plan whose sub-issues will all inherit it. If the base was already ungated before this plan, report it once as MAJOR, name the tracking issue if one exists (say "untracked" if not — and that absence is itself worth a sentence), and do not re-terminate on it: the plan is correct and the fix isn't in its scope. **Scope the severity to the plan, not to the branch** — `stage-2` is permanently long-lived, so a branch-scoped CRITICAL would fire on every Stage 2 PR forever, which is a standing alarm rather than a finding. Where the two pull against each other, **the epic/kickoff clause wins**: a plan whose sub-issues will each inherit the gap owns it, even though the branch outlives the plan. Name the workflow, the trigger block, and the fix in either case.
+   Every lane in the plan's test story that won't fire on this base is 🟡 **MAJOR**. **Escalate to 🔴 CRITICAL only when this plan owns the gap** — when it is the first to open the ungated base, or when it is an epic/kickoff plan whose sub-issues will all inherit it. If the base was already ungated before this plan, report it once as MAJOR, name the tracking issue if one exists (say "untracked" if not — and that absence is itself worth a sentence), and do not re-terminate on it: the plan is correct and the fix isn't in its scope. **Scope the severity to the plan, not to the branch** — `admin-panel` outlives any one plan, so a branch-scoped CRITICAL would fire on every PR into it forever, which is a standing alarm rather than a finding. Where the two pull against each other, **the epic/kickoff clause wins**: a plan whose sub-issues will each inherit the gap owns it, even though the branch outlives the plan. Name the workflow, the trigger block, and the fix in either case.
 6. **Test plan and undocumented decisions.** A new logic path with no named test; the wrong test lane per `TESTING_STRATEGY.md`; an ADR-worthy choice made silently (the bar is `docs/adr/README.md`'s own: "could this surprise someone six months from now?").
 
 **Out of scope here** — it belongs to `docs/CODE_REVIEW_CHECKLIST.md`, which reviews the diff: file-level security review, accessibility specifics, performance micro-analysis, AI-authored-code red flags.
@@ -203,7 +267,9 @@ Don't dispatch a subagent. The load-bearing checks are evidentiary (`Grep` for a
 
 When step 1 found no `**Spec section:**` line, or it reads `n/a`, resolve the governing docs with this ladder. Stop at the first rung that yields at least one document.
 
-1. **Parse `Governing docs:` from the same line.** The convention is already in use — AECI-550's own line reads `n/a — dev tooling. Governing docs: CLAUDE.md §"Where to start", .agents/skills/spec-anchor/`. Match `Governing docs?:\s*(.+)$`, then pull the backticked paths and any `§"…"` or `§X.Y` anchors. Keep writing issues this way.
+1. **Re-run step 1's Pass A over the rest of the line.** Harvest every `.md` path, plus every `§X.Y` and `§"…"` anchor beside it, **regardless of the lead-in phrase.** The canonical form is `n/a — <reason>. Governing docs: \`docs/A.md\` §X` — AECI-550's own line reads `n/a — dev tooling. Governing docs: CLAUDE.md §"Where to start", .agents/skills/spec-anchor/` — but do not key on the colon. Requiring a literal `Governing docs:` is what made this rung fire on **zero** of the five `n/a` issues in the 2026-09-10/11 sample: they wrote "Governing docs **are**", "Governing **context** today is", and "**governed by**". Those are the same statement. Read them all.
+
+   A path outside `docs/` counts — `.agents/skills/spec-anchor/`, `apps/api/src/lib/email.ts`, `DESIGN.md` at the root. A bare directory means "the thing that governs is this code"; load its entry point and say so.
 2. **Map the plan's touched paths against the `CLAUDE.md` source-of-truth table.** `apps/api/src/db/**` → `DATABASE_SCHEMA.md` + ADR 0016 · `.github/workflows/**` → `CICD_PLAN.md` · `apps/web/src/server*` → `CACHE_STRATEGY.md` · `.agents/skills/**` → `CLAUDE.md` §Skills.
 3. **Always add `CLAUDE.md` §"Constraints that aren't negotiable".** These bind every plan regardless of anchor. This rung never fails, but on its own it supports CRITICAL-tier checks only.
 
@@ -249,7 +315,7 @@ Before posting, self-check: you actually read the section rather than recalling 
 Once the contract is on screen, the plan check is clean (or its findings are folded in), and the user hasn't redirected:
 
 - For UI-touching work, fold in the "Design checklist" from `CLAUDE.md` (critique → anchor reference → craft/refine → polish → impeccable detect → axe). Stage 1 is **light theme only** — no `dark:` variants, no toggle (AECI-226).
-- For write paths, the §26.1 invariant from `CLAUDE.md`: every state-changing write emits its `audit_log` (and `workflow_transitions`) row into the **same** `db.batch([...])` as the mutation, via the `auditInsert` / `workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`. D1 has no interactive transactions, so a separate statement is not atomic. Datadog forwarding runs post-commit in `ctx.waitUntil`.
+- For write paths, the §26.1 invariant from `CLAUDE.md`: every state-changing write emits its `audit_log` (and `workflow_transitions`) row into the **same** `db.batch([...])` as the mutation, via the `auditInsert` / `workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`. D1 has no interactive transactions, so a separate statement is not atomic. The §26.5 forward runs post-commit in `ctx.waitUntil`, to **PostHog Logs** — Datadog was deleted in AECI-651 (ADR 0024).
 - For writes that affect cached pages, invalidation is a post-commit `CACHE_PURGE_QUEUE` enqueue inside `ctx.waitUntil`; the SSR consumer delegates `ctx.cache.purge()` into the cached `Renderer` entrypoint (`CACHE_STRATEGY.md` §5, ADR 0020).
 - For DB code, ADR 0016 applies: Drizzle over the D1 `DB` binding via `getDb(env)`. No Prisma, no Accelerate, no pg adapter, no `DATABASE_URL` — Prisma was fully removed in AECI-278.
 
@@ -261,5 +327,6 @@ Then proceed with the task normally. Don't re-run steps 1–4 on the same anchor
 - **Don't load every companion doc.** Only the ones the section actually pulls in, four at most.
 - **Don't proceed past step 4 with open questions.** "I'll assume…" is exactly the failure CLAUDE.md tells you to avoid.
 - **Don't flag a plan for contradicting a doc without checking the code.** The docs are stale in known places; a doc-only citation is a MINOR stale-doc finding, never a blocker.
-- **Don't treat a missing `**Spec section:**` line as a dead end.** Use the n/a ladder. Most recent issues need it.
+- **Don't treat a missing `**Spec section:**` line as a dead end.** Use the n/a ladder. It is no longer the majority path, but it is still the right one.
+- **Don't let a resolution succeed silently against the wrong doc.** This is the failure the step-1 scan exists to stop. The old single regex could match the section number and *miss* the doc name, and a missed doc fell through to `docs/STAGE_1_SPEC.md` — which has its own §6.2, §9.6 and §4, so the check printed a confident header over an unrelated contract. Six of twenty-one recent issues resolved that way (AECI-601). **An anchor that will not resolve is a reportable state, not a fallback.** Print `heading not found` and use the ladder.
 - **Don't run for AECI work that's just lint/format/dep-bump churn** — beyond the category-5 base-branch gating check, which is a grep across `.github/workflows/` and applies to every plan. That noise dilutes the signal when you do run it.
