@@ -53,10 +53,10 @@ Run it `g`-globally. `CLAUDE.md`, `DESIGN.md`, `PRODUCT.md` and `ANGULAR_STYLE_G
 **Pass B — collect every section anchor on the line.**
 
 ```
-§\s*(\d+[a-z]?(?:\.\d+)*)
+§\s*(\d+[a-z]?(?:\.\d+[a-z]?)*)
 ```
 
-Also `g`-global. `9.3`, `2a`, `6`, `24.2`, `13` all match. A `§` followed by a non-digit (`§"Where to start"`) is a *named* anchor — keep it, but match it as `§"([^"]+)"` rather than here.
+Also `g`-global. `9.3`, `2a`, `6`, `24.2`, `13` all match — and so do the letter-suffixed sub-anchors (`5.4a`, `6.4a`, `9.1b`), which is why the trailing `[a-z]?` repeats inside the group. Dropping it is not a near-miss: `§6.4a` would capture `6.4`, and `### 6.4` exists, so the heading check would pass on the wrong section. Twenty-plus live headings across fifteen docs take that form. A `§` followed by a non-digit (`§"Where to start"`) is a *named* anchor — keep it, but match it as `§"([^"]+)"` rather than here.
 
 **Pairing rule.**
 

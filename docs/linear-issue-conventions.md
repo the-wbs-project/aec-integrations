@@ -34,7 +34,7 @@ Real examples, all of which resolve:
 
 ```
 **Spec section:** §5.4 (docs/ADMIN_PANEL_SPEC.md)
-**Spec section:** §6.2, §6.7 (docs/STAGE_1_PHASE_6_SPEC.md)
+**Spec section:** §6.2, §6.4a (docs/STAGE_1_PHASE_6_SPEC.md)
 **Spec section:** §4a (docs/CACHE_STRATEGY.md, cache key normalization / WC-4)
 **Spec section:** §3 (docs/POST_LAUNCH_MONITORING.md); §13 (docs/ADMIN_PANEL_SPEC.md)
 **Spec section:** n/a — process / tooling. Governing docs: `CLAUDE.md` §"Where to start"
@@ -51,7 +51,8 @@ Real examples, all of which resolve:
    many existing issues use them. Prefer the canonical punctuation in new issues.
 4. **A parenthetical may carry prose after the path** — `(docs/ADMIN_PANEL_SPEC.md, the visitor
    definition)` is fine and useful.
-5. **`§` is optional but expected.** `§9.3` and `9.3` both parse.
+5. **`§` is optional but expected.** `§9.3` and `9.3` both parse. Keep a letter suffix attached —
+   `§6.4a` is a different section from `§6.4`, and both exist.
 6. **Free-text after the line is fine.** Cite an ADR, note a supersession, link a sibling issue.
 
 ### The `n/a` form
