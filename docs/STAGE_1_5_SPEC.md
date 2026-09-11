@@ -1306,8 +1306,10 @@ mid-flight will make a local decision about a cross-cutting contract.
   15. `apps/api/src/lib/algolia-drift-deps.ts` — **`drizzlePromotedIds`**, the 09:00 orphan sweep's
       injected `PromotedIdProvider`. It ran with `apply: true`, so for the whole window between
       AECI-721 and AECI-789 any environment whose `<env>_integrations` index held connector-evidenced
-      pairs would have lost them at 09:00, had them re-added by the 08:00 sync, and reported `+19`
-      drift every day. It was a private function in `apps/api/src/scheduled.ts`; AECI-789 moved it
+      pairs would have lost them at 09:00 — permanently, because the watermark-windowed 08:00 sync
+      never re-adds a row whose `updated_at` an Algolia delete did not touch. The gauge would have
+      read `+19` every day until an operator rebuilt the index. It was a private function in
+      `apps/api/src/scheduled.ts`; AECI-789 moved it
       beside item 13 so the count and the set cannot be edited apart.
   16. `apps/api/scripts/reconcile-algolia-drift.ts` — **`INTEGRATION_IDS_SQL`**, the same set as raw
       SQL for the operator CLI, whose `--apply` deletes against a deployed index. Unlike the raw-SQL

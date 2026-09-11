@@ -184,8 +184,10 @@ describe('integration_count lockstep — the sixteen sites (AECI-721, AECI-789 /
    * Site C above counts. These two enumerate, and that difference is the whole
    * point: `sweepAlgoliaOrphans` DELETES every object in the `integrations` index
    * whose id is absent from this set. A single-table set does not report a wrong
-   * number, it removes records — the 09:00 sweep deletes every evidenced pair, the
-   * 08:00 sync re-adds them, and the drift gauge reads `+19` every day forever.
+   * number, it removes records — the 09:00 sweep deletes every evidenced pair and
+   * the watermark-windowed 08:00 sync never puts them back (deleting an Algolia
+   * object does not bump the D1 row's `updated_at`), so the loss is permanent and
+   * the drift gauge reads `+19` every day until the index is rebuilt.
    *
    * Both cases therefore assert the set holds BOTH ids. A union, never a swap.
    */

@@ -336,9 +336,10 @@ runs.** Repairing that needs a full index rebuild, or a write that bumps the row
   note this replaces was stale — it shipped.)
 
   **Before rebuilding the `integrations` index, confirm the deploy carries AECI-789.** The 09:00
-  orphan sweep's membership id-set was single-table until then, so on a pre-AECI-789 Worker a
-  rebuild would re-add the `connector_evidenced_pairs` objects at 08:00 and the sweep would delete
-  them again at 09:00, every day.
+  orphan sweep's membership id-set was single-table until then, so on a pre-AECI-789 Worker the
+  09:00 sweep deletes every `connector_evidenced_pairs` object the rebuild just wrote, and the
+  watermark-windowed 08:00 sync does not put them back — the rebuild is undone within a day and
+  has to be repeated after the fix ships.
 
 To re-check (dry-run, deletes nothing) on demand without waiting for the 09:00 UTC (= 04:00 EST)
 cron:

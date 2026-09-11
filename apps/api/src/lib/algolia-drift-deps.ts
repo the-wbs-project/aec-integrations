@@ -125,8 +125,10 @@ export function drizzleDriftCounter(db: Db): DriftCount {
  * single-table for the whole of AECI-721 — the counter gained its
  * `connector_evidenced_pairs` arm and this did not, so any env whose
  * `<env>_integrations` index held evidenced pairs would have lost them at the next
- * 09:00 sweep, had them re-added by the 08:00 sync, and reported `+19` drift every
- * day. Change one arm here and the other is on screen.
+ * 09:00 sweep — permanently. The 08:00 sync would NOT have put them back: it is
+ * watermark-windowed, a delete from Algolia does not touch the D1 row's
+ * `updated_at`, so the pairs stay missing and the gauge reads `+19` every day until
+ * someone rebuilds the index. Change one arm here and the other is on screen.
  *
  * Takes a `Db` rather than an `Env` for the same reason `drizzleDriftCounter` does:
  * the cron already has a client, and specs can pass the in-memory D1 harness.
