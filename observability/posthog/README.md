@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fourteen-cron **liveness registry** the CI sweep reads. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fifteen-cron **liveness registry** the CI sweep reads. |
 | `insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 14 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -84,11 +84,15 @@ with one place to tune.
 
 Two deliberate widenings ride along:
 
-1. **Six more crons gain failure coverage.** Datadog watched four; the alert watches ten
-   metrics covering all fourteen crons (metrics-snapshot, asn-registry, analytics-digest,
-   attestation-notify, entitlement-expiry, indexnow-drain, waf-poll and the per-key half of
-   home-stats were previously unwatched — several shipped after the Datadog monitors were
-   written, and `indexnow-drain` did not exist until AECI-826).
+1. **Six more crons gain failure coverage.** Datadog watched four; the alert watches twelve
+   metrics (metrics-snapshot, asn-registry, analytics-digest, attestation-notify,
+   entitlement-expiry, claim-stale-check, waf-poll and the per-key half of home-stats were
+   previously unwatched — several shipped after the Datadog monitors were written, and
+   `claim-stale-check` did not exist until AECI-862). Four of the fifteen crons are absent
+   from that query on purpose: `moderation-snapshot`, `algolia-drift` and `request-reconcile`
+   heartbeat on a GAUGE with no `outcome` tag, so there is nothing to sum. `indexnow-drain`
+   is the one real gap — its heartbeat does carry `outcome`, and AECI-826 never added it
+   (AECI-864).
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
    `aeci.stats.compute` also fire on `trigger:promote`, and a promote-path failure is a
    real failure. Datadog's Algolia monitor was already trigger-agnostic; its stats monitor

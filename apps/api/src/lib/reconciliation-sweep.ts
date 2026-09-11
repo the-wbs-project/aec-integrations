@@ -33,13 +33,16 @@
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 import { and, asc, count as countRows, eq, inArray, isNull, lt } from 'drizzle-orm';
 
+import { crossedBand } from './alert-bands';
 import {
   sendAdminAlert,
   type AdminAlert,
   type AlertContext,
   type StuckRequestSummary,
 } from './admin-alert';
+import { sendClaimSubmittedNotification } from './email';
 import { createLinearIssueForRequest, drizzleLinearStore } from './linear';
+import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount, submitGauge } from '../posthog';
@@ -98,17 +101,9 @@ export const ALERT_REPEAT_MINUTES = 1440;
  * backstop") are completely unaffected.
  */
 export function crossedAlertBand(ageMinutes: number, sinceMinutes: number): boolean {
-  const previousAge = ageMinutes - sinceMinutes;
-  for (const band of ALERT_BANDS_MINUTES) {
-    if (previousAge < band && ageMinutes >= band) return true;
-  }
-  // Past the last band, repeat once per `ALERT_REPEAT_MINUTES`. Guarded on the
-  // last band so a row younger than it can't be caught by the day-0 boundary.
-  const lastBand = ALERT_BANDS_MINUTES[ALERT_BANDS_MINUTES.length - 1];
-  if (ageMinutes < lastBand) return false;
-  return (
-    Math.floor(previousAge / ALERT_REPEAT_MINUTES) < Math.floor(ageMinutes / ALERT_REPEAT_MINUTES)
-  );
+  // The arithmetic moved to `lib/alert-bands.ts` under AECI-862, which needed the
+  // same throttle with different bands. This signature and its spec are unchanged.
+  return crossedBand(ageMinutes, sinceMinutes, ALERT_BANDS_MINUTES, ALERT_REPEAT_MINUTES);
 }
 
 // ─── Row shape the sweep reads ───────────────────────────────────────────────
@@ -124,9 +119,17 @@ type StuckRow = {
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
+  /** AECI-861: needed by the recovery email, and by the rebuilt §6.4 issue, which
+   *  silently dropped the AECI-847 LinkedIn row when the sweep created it rather
+   *  than the request handler. */
+  submitterLinkedinUrl: string | null;
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
+  /** AECI-861: read for the recovery email only. Passing it to `createIssue` would
+   *  also post the §7.2 duplicate note, which is a separate decision — the email
+   *  merely must not claim "no duplicate" about a row that has one. */
+  duplicateOfRequestId: string | null;
   createdAt: string;
 };
 
@@ -139,6 +142,9 @@ export interface ReconcileDeps {
   /** The §6.2 admin-alert email seam. Injected so tests can assert it fires on a
    *  persistent failure (the issue's "persistent failure emails" criterion). */
   sendAlert?: typeof sendAdminAlert;
+  /** AECI-861: the claim-intake operator alert, re-sent when this sweep is what
+   *  finally created the issue. Injected for the same reason as `sendAlert`. */
+  sendClaimAlert?: typeof sendClaimSubmittedNotification;
   /** `now` for deterministic age math (mirrors `runDailySync(…, new Date())`). */
   now?: Date;
 }
@@ -185,6 +191,7 @@ export async function runReconciliationSweep(
 ): Promise<ReconcileResult> {
   const createIssue = deps.createIssue ?? createLinearIssueForRequest;
   const sendAlert = deps.sendAlert ?? sendAdminAlert;
+  const sendClaimAlert = deps.sendClaimAlert ?? sendClaimSubmittedNotification;
   const now = deps.now ?? new Date();
   const nowMs = now.getTime();
   // `created_at` is ISO-8601 TEXT, which sorts/compares lexically, so the cutoff is
@@ -206,9 +213,11 @@ export async function runReconciliationSweep(
       submitterEmail: true,
       submitterName: true,
       submitterRole: true,
+      submitterLinkedinUrl: true,
       body: true,
       sourceUrl: true,
       domainMatch: true,
+      duplicateOfRequestId: true,
       createdAt: true,
     },
     where: stuckWhere,
@@ -285,6 +294,7 @@ export async function runReconciliationSweep(
         submitterEmail: row.submitterEmail,
         submitterName: row.submitterName,
         submitterRole: row.submitterRole,
+        submitterLinkedinUrl: row.submitterLinkedinUrl,
         body: row.body,
         sourceUrl: row.sourceUrl,
         domainMatch: row.domainMatch,
@@ -293,6 +303,29 @@ export async function runReconciliationSweep(
       // value. `no_api_key` is the one the old `void` signature could never surface
       // anywhere, in the email OR in PostHog (AECI-851).
       if (outcome?.status === 'failed') reasons.set(row.id, outcome.reason);
+
+      // AECI-861: a claim RESCUED here notified nobody. The submit-time operator
+      // alert fires off the handler's create; when that create failed, the alert
+      // carried no issue link, and the successful retry minutes later was silent.
+      // So the sweep sends the same mail on the late success — the operator learns
+      // about the claim exactly once either way. Fail-open and awaited inside the
+      // per-row `try`, so a mail error is caught like any other and never aborts
+      // the batch.
+      if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
+        await sendClaimAlert(c, {
+          requestId: row.id,
+          targetName: target.name,
+          targetType: row.targetType,
+          slug: target.slug,
+          submitterEmail: row.submitterEmail,
+          submitterName: row.submitterName,
+          submitterRole: row.submitterRole,
+          submitterLinkedinUrl: row.submitterLinkedinUrl,
+          domainMatch: row.domainMatch,
+          duplicateOfRequestId: row.duplicateOfRequestId,
+          linearIssueUrl: outcome.issueUrl,
+        });
+      }
     } catch (error) {
       // A per-row read error must not abort the rest of the batch.
       if (!targetNames.has(row.id)) targetNames.set(row.id, null);

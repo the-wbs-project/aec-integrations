@@ -277,6 +277,20 @@ export type JobRunDetail =
     }
   | { job: 'moderation-snapshot'; pendingCount: number; oldestPendingAgeHours: number }
   | ({ job: 'request-reconcile' } & ReconcileResult)
+  /** The 6-hourly AECI-862 staleness check. `stale` is the headline, but `checked`
+   *  has to sit beside it: "0 stale" means something different when 0 claims were
+   *  eligible than when 40 were. `readFailure` is present only when the Linear
+   *  read itself failed, in which case `stale` is 0 because nothing was asserted,
+   *  not because nothing is stale — the §5.6 System screen needs that distinction
+   *  to avoid reporting an unreadable board as a clean one. */
+  | {
+      job: 'claim-stale-check';
+      checked: number;
+      stale: number;
+      drifted: number;
+      alerted: boolean;
+      readFailure?: string;
+    }
   | {
       job: 'data-quality';
       durationMs: number;

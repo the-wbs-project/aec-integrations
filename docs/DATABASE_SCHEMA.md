@@ -1671,12 +1671,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the fourteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, and the fourteenth is the `*/20` IndexNow drain, AECI-826). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the fifteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the `*/20` IndexNow drain, AECI-826, and the fifteenth is the `25 */6` claim-staleness check, AECI-862). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the fourteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the fifteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null

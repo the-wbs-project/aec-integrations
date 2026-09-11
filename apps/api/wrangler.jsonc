@@ -401,6 +401,11 @@
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        // AECI-862: the founder escalation for a claim ticket nobody has
+        // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
+        // means the pipeline broke, CLAIM_ALERT_EMAIL means a claim arrived,
+        // this means a vendor has been waiting a day for a human.
+        "FOUNDER_ALERT_EMAIL": "founders@thewbsproject.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
         // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
         // Resend-verified sending domain, which is `aecintegrations.com` (see
@@ -539,6 +544,9 @@
           "*/15 * * * *",
           "*/20 * * * *",
           "0 * * * *",
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
+          // hourly expressions above — two jobs cannot share one expression.
+          "25 */6 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -637,6 +645,11 @@
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        // AECI-862: the founder escalation for a claim ticket nobody has
+        // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
+        // means the pipeline broke, CLAIM_ALERT_EMAIL means a claim arrived,
+        // this means a vendor has been waiting a day for a human.
+        "FOUNDER_ALERT_EMAIL": "founders@thewbsproject.com",
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
@@ -687,7 +700,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same fourteen crons as staging/production (see staging note — incl. the hourly
+      // Same fifteen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -715,6 +728,9 @@
           "*/15 * * * *",
           "*/20 * * * *",
           "0 * * * *",
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
+          // hourly expressions above — two jobs cannot share one expression.
+          "25 */6 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -807,6 +823,11 @@
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        // AECI-862: the founder escalation for a claim ticket nobody has
+        // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
+        // means the pipeline broke, CLAIM_ALERT_EMAIL means a claim arrived,
+        // this means a vendor has been waiting a day for a human.
+        "FOUNDER_ALERT_EMAIL": "founders@thewbsproject.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
         // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
         // Resend-verified sending domain, which is `aecintegrations.com` (see
@@ -922,6 +943,9 @@
           "*/15 * * * *",
           "*/20 * * * *",
           "0 * * * *",
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
+          // hourly expressions above — two jobs cannot share one expression.
+          "25 */6 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

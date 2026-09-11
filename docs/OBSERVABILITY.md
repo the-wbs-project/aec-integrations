@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 13 PostHog alerts live in production (hourly cadence), production project only. **14 are committed** — the AECI-826 `indexnow-failure-rate` alert reaches PostHog only when `apply.sh` is re-run; see Dashboards below |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fourteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -209,6 +209,12 @@ than a Worker metric.
 | `aeci.indexnow.pending` | gauge | `apps/api/src/scheduled.ts` (`runIndexNowDrainJob`, AECI-826) | `trigger` (`cron`). `indexnow_queue` depth **after** each run, counted rather than assumed. `0` on a clean drain; a small non-zero is normal (a promote buffered mid-run). **A number that climbs across days is the stuck-channel signal** — the one that was missing when every submission was failing and the only evidence was a warn log |
 | `aeci.indexnow.queued` | count | `apps/api/src/routes/promote.ts` (`bufferIndexNowAfterPromote`, AECI-826) | `source` (`promote`). URLs a promote appended to the buffer, **after dedupe** — the value is the number of rows actually inserted, so a re-promote of an already-queued product contributes 0. Not emitted when the promote touched no public URL or the creds are absent |
 | `aeci.indexnow.expired` | count | `apps/api/src/lib/indexnow-drain.ts` (`drainIndexNowQueue`, AECI-826) | `trigger` (`cron`). URLs dropped unsent for exceeding `INDEXNOW_QUEUE_MAX_AGE_DAYS` (7). **Non-zero is always a finding**: it means the channel was refusing submissions for a week. The sweep exists so a prolonged outage cannot grow the table without limit, not because stale URLs are harmful |
+| `aeci.linear.claim_stale.job` | count | `apps/api/src/scheduled.ts` (`runClaimStaleCheckJob`, AECI-862) — the `25 */6` cron | `trigger` (`cron`), `outcome` (`ok` / `failed`). **`outcome` is the RUN, not the verdict.** A run that finds ten stale tickets is `ok`; only a crash is `failed`. Reading it the other way makes the founder escalation look like an infrastructure alarm, which is the exact conflation the separate recipient exists to avoid |
+| `aeci.linear.claim_stale.checked` | gauge | `apps/api/src/lib/claim-stale-check.ts` (AECI-862) | The eligible population — `claim` rows past 24 h with a `linear_issue_id`. Emitted on **every** run including 0, so absence means the cron did not run. Must be read beside `…stale` below: "0 stale" out of 0 checked and "0 stale" out of 40 checked are different facts |
+| `aeci.linear.claim_stale.stale` | gauge | `apps/api/src/lib/claim-stale-check.ts` (AECI-862) | Of the checked population, the ones Linear reports as still `triage` / `backlog` / `unstarted`. Non-zero is a **business-response** finding, not a system fault — the pipeline worked and nobody picked the ticket up. Forced to 0 when the Linear read failed, which is why `…read_failure` has to be checked before this number is believed |
+| `aeci.linear.claim_stale.read_failure` | count | `apps/api/src/lib/claim-stale-check.ts` (AECI-862) | `reason` (`no_api_key` / `http_error` / `graphql_error` / `timeout` / `network` / `empty_response`). The job sent **no warning** this run. `reason:no_api_key` is the expected steady state on any non-production tier, since AECI-851 provisions `LINEAR_API_KEY` on production only — it logs at `info` there, not `warn` |
+| `aeci.linear.claim_stale.webhook_drift` | count | `apps/api/src/lib/claim-stale-check.ts` (AECI-862) | Claims where Linear reports `started`/`completed`/`canceled` but `vendor_requests.status` is still `open`. **This is the only instrument that can see §6.3 inbound-webhook failure at all**, and it exists as a side effect of the staleness check holding both answers. Sustained non-zero means the Linear→site webhook is not delivering: check `LINEAR_WEBHOOK_SIGNING_SECRET` on the Worker and whether a webhook is registered in Linear (still the open operator action on AECI-851). The job reports it and never repairs it — see `docs/RUNBOOKS.md` |
+| `aeci.linear.claim_stale.email` | count | `apps/api/src/lib/claim-stale-check.ts` (AECI-862) | `outcome` (`sent` / `failed` / `skipped`). Band-throttled (24 h, then daily), so `stale > 0` with **no** email count is the normal steady state for a ticket already reported. `skipped` means `FOUNDER_ALERT_EMAIL` or `RESEND_API_KEY` is unset |
 | `aeci.cache.purge` | count | `apps/web/src/server/cache-purge-queue.ts` (WC-5 queue consumer — `promote`/`moderation`); `apps/web/src/server/routes/admin-purge.ts` (native `ctx.cache.purge()` since WC-6 / AECI-320 — `manual`/`ci-taxonomy-seed`) | `source` (promote / moderation / **vendor** — a vendor-portal self-service edit, AECI-520, kept distinct from AECi-initiated `moderation` / datatool / manual / ci-taxonomy-seed / future webhook), `outcome` (consumer: `ok` / `purge_failed` / `no_cache` / `noop`; `/admin/purge`: `ok` / `failed` / `skipped`, where `skipped` = native cache disabled on the tier), `mode` (`tags` / `path_prefixes` / `combined` / `everything`; `/admin/purge` only) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.api.vendor.updates` | count | `apps/api/src/routes/vendor-updates.ts` (`GET /api/vendor/updates`, AECI-627) | `changed` (`none` / `some`). The endpoint is **stateless** — it does not know what the caller last saw — so `some` means "a cursor moved within one poll interval (`VENDOR_UPDATES_CHANGE_WINDOW_MS`, 60 s = the longest shipped cadence) of this response", not "changed since your last poll". Read the `some` ratio as an **upper bound**: a 20 s focused client can be tagged `some` on three consecutive polls for one write. This is the series ADR 0023's re-open trigger names — a high `none` ratio is the evidence for lengthening the poll interval; a sustained high `some` ratio, plus request volume exceeding the cost of a hibernating Durable Object, is the evidence for revisiting the transport |
@@ -449,7 +455,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches all **fourteen** (`observability/posthog/project-config.json`
+absence; the CI sweep watches all **fifteen** (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance).
 
 | Cron | `job_runs.job` | Its liveness signal |
@@ -467,6 +473,7 @@ holds the registry, one row per cron with its own staleness allowance).
 | 11:00 entitlement term expiry | `entitlement-expiry` | `aeci.entitlement.expiry.job` (`outcome:ok\|failed`) — plus the `aeci.entitlement.expiry_due` gauge, emitted every run including zero. As with the 10:00 sweep the zero series is the real liveness signal, and for a longer time: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to the partial expiry index, so "0 due" is healthy and no-data is the failure. Added by AECI-613 |
 | `*/15` request reconcile | `request-reconcile` | `aeci.linear.reconcile.stuck` (gauge) |
 | `*/20` IndexNow drain | `indexnow-drain` | `aeci.indexnow.drain` (`outcome:ok\|failed\|skipped`) — emitted on **every** tick including the ones that make no outbound request (empty buffer, no creds). That is the whole point: `aeci.indexnow.submit` is emitted only when a submission is attempted, so a quiet twenty minutes would look identical to a dead cron. Staleness allowance 90 min, mirroring `request-reconcile` — the margin is for the *sweep's* lateness, not the job's. Added by AECI-826 |
+| `25 */6` claim staleness | `claim-stale-check` | `aeci.linear.claim_stale.job` (`outcome:ok\|failed`) — emitted on **every** run, including the ones that find nothing and the ones where the Linear read failed. Staleness allowance 8 h (one cadence plus margin). Added by AECI-862 |
 | hourly WAF poll | `waf-poll` | `aeci.waf.poll` (`outcome:ok`) |
 
 Two vocabularies meet here on purpose: the dispatcher's internal `ScheduledJob` ids
@@ -609,7 +616,7 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 metrics are unrecoverable. AECI-583's `job_runs` row plus the always-emitted
 `aeci.metrics_snapshot.run{trigger:cron}` series are the only signals today. **The PostHog port
 closes it from both sides without anyone filing an issue:** `metrics-snapshot` is one of the six
-previously-unwatched crons picked up by the combined cron-failure alert, and one of the fourteen in
+previously-unwatched crons picked up by the combined cron-failure alert, and one of the fifteen in
 the CI liveness sweep's registry (26 h window). The sweep is **already running**, so its red is
 worth reading even during the dual-run.
 
@@ -1104,7 +1111,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **fourteen-cron liveness registry** the CI sweep reads. |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **fifteen-cron liveness registry** the CI sweep reads. |
 | `observability/posthog/insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
 | `observability/posthog/alerts.json` | 14 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim** — except `indexnow-failure-rate` (AECI-826), which has no Datadog predecessor because that metric was never alerted on by either plane. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
@@ -1212,7 +1219,7 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = all fourteen heartbeats fresh; **1**
+Exit codes are deliberately three-valued: **0** = all fifteen heartbeats fresh; **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no
 `POSTHOG_CLI_API_KEY`) and reports "UNCHECKED, not healthy". **"The sweep could not

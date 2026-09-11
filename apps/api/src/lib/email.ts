@@ -34,12 +34,13 @@
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
-import { orderedPairSlugs, type RequestTargetType } from '@aeci/shared';
+import { orderedPairSlugs, type RequestKind, type RequestTargetType } from '@aeci/shared';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
+import { adminRequestUrl, environmentHost } from './request-links';
 
 /**
  * Minimal context a send needs: env (key + sender) plus the telemetry logging triple
@@ -90,6 +91,12 @@ export type EmailTemplate =
   // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
   // time by design — the only claimant-facing mail is the decision pair above.
   | 'claim-submitted-alert'
+  // Founder escalation: a claim ticket that EXISTS in Linear and that nobody has
+  // started after 24h (AECI-862). Recipient is `FOUNDER_ALERT_EMAIL`, a third
+  // address on purpose — `stuck-request-alert` means the pipeline is broken and
+  // goes to whoever fixes it, this means the pipeline worked and the humans did
+  // not. Sent by the 6-hourly `claim-stale-check` cron.
+  | 'stale-claim-ticket-alert'
   // Stage 2 attestation detector nudges (AECI-302 /
   // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
   // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
@@ -1028,6 +1035,76 @@ function describeStuckReason(row: StuckRequestSummary): string {
   return help ? `${row.reason}${retryNote} — ${help}` : `${row.reason}${retryNote}`;
 }
 
+/** One un-started claim ticket, summarised for the founder digest (AECI-862). */
+export interface StaleClaimSummary {
+  requestId: string;
+  kind: RequestKind;
+  /** The human ticket key, e.g. `AECI-662`. */
+  identifier: string;
+  title: string;
+  issueUrl: string | null;
+  adminUrl: string | null;
+  /** The workspace's display name for the state it is stuck in, e.g. "Backlog". */
+  stateName: string | null;
+  submitterEmail: string;
+  targetName: string | null;
+  ageMinutes: number;
+}
+
+/**
+ * Founder escalation: claim tickets that exist in Linear and that nobody has
+ * started (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2).
+ *
+ * A sibling of `sendStuckRequestAdminAlert` above, and deliberately a SEPARATE
+ * message with a separate recipient. That one means the pipeline is broken and
+ * goes to the operator who can fix it. This one means the pipeline worked and the
+ * humans did not, so it goes to `FOUNDER_ALERT_EMAIL`. Merging them would bury a
+ * business-response problem inside an infrastructure alert.
+ *
+ * Band-throttled by the caller, not here (`lib/alert-bands.ts`): first as the
+ * ticket crosses 24 hours, then once a day. Absent `FOUNDER_ALERT_EMAIL` or
+ * `RESEND_API_KEY` yields `'skipped'`, like every send in this file.
+ *
+ * Every row carries both links, because the two answer different questions: the
+ * Linear URL is where you accept the work, the admin URL is where you see the
+ * claimant's evidence.
+ */
+export function sendStaleClaimTicketAlert(
+  c: EmailContext,
+  opts: { to: string | undefined; rows: readonly StaleClaimSummary[] },
+): Promise<EmailOutcome> {
+  const { rows } = opts;
+  const plural = rows.length === 1 ? '' : 's';
+
+  const sections = rows.map((r) => {
+    const name = r.targetName ?? '(target removed)';
+    const detail: Array<[string, string]> = [
+      ['Ticket', `${r.identifier} — ${r.title}`],
+      ['Waiting', formatStuckAge(r.ageMinutes)],
+      ['Still in', r.stateName ?? 'an un-started state'],
+      ['Claimant', r.submitterEmail],
+      ['Request id', r.requestId],
+    ];
+    if (r.issueUrl) detail.push(['Linear', r.issueUrl]);
+    if (r.adminUrl) detail.push(['Administer', r.adminUrl]);
+    return { heading: `${name} (${r.kind})`, rows: detail as OpsRows };
+  });
+
+  const intro =
+    `${rows.length} claim ticket${plural} ${rows.length === 1 ? 'has' : 'have'} been open for more ` +
+    `than 24 hours without anyone starting ${rows.length === 1 ? 'it' : 'them'}. ` +
+    `The ticket${plural} exist${rows.length === 1 ? 's' : ''} in Linear and nothing is broken. ` +
+    `${rows.length === 1 ? 'A vendor is' : 'Vendors are'} waiting on a reply.`;
+
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'stale-claim-ticket-alert',
+    subject: `[AECi] ${rows.length} claim ticket${plural} un-started after 24h`,
+    text: opsSectionsText(intro, sections),
+    html: opsSectionsHtml(intro, sections),
+  });
+}
+
 /** ` (no_api_key)` when every row shares one cause, else empty. Systemic causes are
  *  the common case, and naming one in the subject is the whole triage. */
 function subjectReasonSuffix(rows: readonly StuckRequestSummary[]): string {
@@ -1086,6 +1163,18 @@ export function sendLandingSignupNotification(
  * failure can never roll back an accepted claim or delay the `201` — same posture as
  * every other send here. Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
  *
+ * **It is sequenced after the Linear issue, not beside it (AECI-861).** Until then
+ * `createRequest` fired this in a `waitUntil` that raced
+ * `createLinearIssueForRequest`, so the mail could not name the issue it was
+ * telling you about — the operator got "a claim landed" and then went hunting the
+ * board for it. The send site now chains off the create's `LinearIssueOutcome`, so
+ * `linearIssueUrl` is populated on the happy path and `null` when creation failed,
+ * which the body reports as a pending retry rather than omitting.
+ *
+ * The `environment` + `adminUrl` pair comes from `lib/request-links.ts`, the same
+ * source the Linear description uses (AECI-860), so the ticket and the email can
+ * never disagree about which deployment this was.
+ *
  * Corrections (`POST /api/requests/correction`) deliberately do NOT alert: they share
  * `createRequest`, but a correction is a low-stakes data fix while a claim asserts
  * control of a listing and starts the verification path. Both still create a Linear
@@ -1114,9 +1203,15 @@ export function sendClaimSubmittedNotification(
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
     duplicateOfRequestId: string | null;
+    /** AECI-861: the created issue's web permalink, or `null` when creation failed
+     *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
+     *  itself the thing the operator needs to know. */
+    linearIssueUrl?: string | null;
   },
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const adminUrl = adminRequestUrl(c.env, 'claim', opts.requestId);
   const rows: Array<[string, string]> = [
     ['Claimed', `${opts.targetName} (${opts.targetType})`],
     ['Submitter', opts.submitterEmail],
@@ -1127,6 +1222,12 @@ export function sendClaimSubmittedNotification(
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
     ['Request id', opts.requestId],
   ];
+  if (host) rows.push(['Environment', host]);
+  rows.push([
+    'Linear issue',
+    opts.linearIssueUrl ?? 'not created yet — the reconciliation sweep will retry',
+  ]);
+  if (adminUrl) rows.push(['Administer', adminUrl]);
   if (base) {
     rows.push(['Review queue', `${base}/admin/claims`]);
     const path = opts.targetType === 'vendor' ? 'vendors' : 'products';

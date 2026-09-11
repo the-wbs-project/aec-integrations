@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the fourteen cron expressions and is asserted byte-equal to",
+      "truth for the fifteen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -113,7 +113,12 @@
       "no-creds ones \u2014 a quiet twenty minutes legitimately produces no SUBMISSION, so",
       "aeci.indexnow.submit could never serve as the heartbeat. maxAgeMinutes is 90,",
       "mirroring request-reconcile: the floor is set by the SWEEP's own lateness, not by",
-      "the job's cadence."
+      "the job's cadence.",
+      "",
+      "AECI-862 added claim-stale-check, the fifteenth cron. It is the only one here that",
+      "escalates a HUMAN-response problem rather than a system one, so read its absence the",
+      "same way as any other: a missing heartbeat means the CHECK stopped running, not that",
+      "the claim queue is clean. maxAgeMinutes is 480 \u2014 one 6-hour cadence plus margin."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -234,6 +239,15 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-826. Never had a Datadog monitor \u2014 the cron did not exist. 90 min = 4.5 missed ticks, mirroring request-reconcile's 90 over a 15-minute job: GitHub Actions cron delivery routinely runs several minutes late, and the window has to absorb the SWEEP's lateness rather than only the job's. The heartbeat fires on every tick including the empty and no-creds ones, which is the property that makes its absence mean something."
+      },
+      {
+        "job": "claim-stale-check",
+        "cron": "25 */6 * * *",
+        "metric": "aeci.linear.claim_stale.job",
+        "maxAgeMinutes": 480,
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-862. Never had a Datadog monitor \u2014 the cron did not exist. 480 min = one 6-hour cadence plus two hours of margin for the SWEEP's own lateness, the same reasoning as indexnow-drain's 90 over a 20-minute job. The heartbeat is emitted on EVERY run, including the ones that find nothing stale and the ones where the Linear read failed \u2014 aeci.linear.claim_stale.stale could never serve, because a clean board legitimately reports 0 and a failed read is forced to 0."
       }
     ]
   }

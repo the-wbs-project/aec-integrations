@@ -116,6 +116,97 @@ function failingCreateIssue() {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('runReconciliationSweep', () => {
+  it('sends the claim operator alert when the sweep is what finally created the issue (AECI-861)', async () => {
+    // Before this, a claim rescued here notified nobody: the submit-time alert had
+    // already gone out with no issue link, and the successful retry was silent.
+    await seedProductTarget('tgt-1', 'Procore', 'procore');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({
+      id: 'req-1',
+      kind: 'claim',
+      targetId: 'tgt-1',
+      createdAt: minsAgo(30),
+    });
+    const sendClaimAlert = vi.fn(async () => 'sent' as const);
+    const createIssue = vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
+      await t.db
+        .update(vendorRequests)
+        .set({ linearIssueId: `iss-${input.requestId}` })
+        .where(eq(vendorRequests.id, input.requestId));
+      return {
+        status: 'created' as const,
+        issueId: 'iss-req-1',
+        issueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
+      };
+    });
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: createIssue as never,
+      sendAlert: vi.fn(async () => 'skipped' as const) as never,
+      sendClaimAlert: sendClaimAlert as never,
+      now: NOW,
+    });
+
+    expect(sendClaimAlert).toHaveBeenCalledOnce();
+    const [, payload] = sendClaimAlert.mock.calls[0] as unknown as [
+      unknown,
+      { requestId: string; linearIssueUrl: string | null; targetName: string },
+    ];
+    expect(payload).toMatchObject({
+      requestId: 'req-1',
+      targetName: 'Procore',
+      linearIssueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
+    });
+  });
+
+  it('does NOT send the claim alert for a recovered CORRECTION', async () => {
+    // Same scope rule as the submit path: `NOTIFIED_REQUEST_KINDS` is claims only.
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) });
+    const sendClaimAlert = vi.fn(async () => 'sent' as const);
+    const createIssue = vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
+      await t.db
+        .update(vendorRequests)
+        .set({ linearIssueId: `iss-${input.requestId}` })
+        .where(eq(vendorRequests.id, input.requestId));
+      return { status: 'created' as const, issueId: 'i', issueUrl: 'https://linear.app/x' };
+    });
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: createIssue as never,
+      sendAlert: vi.fn(async () => 'skipped' as const) as never,
+      sendClaimAlert: sendClaimAlert as never,
+      now: NOW,
+    });
+
+    expect(sendClaimAlert).not.toHaveBeenCalled();
+  });
+
+  it('does NOT send the claim alert when the retry failed again', async () => {
+    await seedProductTarget('tgt-1', 'Procore', 'procore');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({
+      id: 'req-1',
+      kind: 'claim',
+      targetId: 'tgt-1',
+      createdAt: minsAgo(30),
+    });
+    const sendClaimAlert = vi.fn(async () => 'sent' as const);
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: vi.fn(async () => ({
+        status: 'failed' as const,
+        reason: 'no_api_key' as const,
+      })) as never,
+      sendAlert: vi.fn(async () => 'skipped' as const) as never,
+      sendClaimAlert: sendClaimAlert as never,
+      now: NOW,
+    });
+
+    expect(sendClaimAlert).not.toHaveBeenCalled();
+  });
+
   it('retries a stuck row with the rebuilt §6.4 input and clears it on success', async () => {
     await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
     await seedWorkflow('wf-1', 'req-1');

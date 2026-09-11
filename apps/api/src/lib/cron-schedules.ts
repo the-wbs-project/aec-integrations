@@ -1,5 +1,5 @@
 /**
- * The fourteen cron expressions the API Worker is triggered on, in one place.
+ * The fifteen cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * fourteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * fifteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -202,6 +202,36 @@ export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 export const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
 
 /**
+ * Claim-ticket staleness check (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2).
+ * **Every six hours at minute 25** — 00:25, 06:25, 12:25, 18:25 UTC.
+ *
+ * ⚠️ **Minute 25 is load-bearing, not arbitrary.** `scheduled.ts` `switch`es on the
+ * raw `controller.cron` string, so two jobs cannot share an expression — and an
+ * every-6-hours job at minute 0 would collide three ways at once: with the
+ * `*` `/15` reconcile sweep (:00/:15/:30/:45), with the `*` `/20` IndexNow drain
+ * (:00/:20/:40), and with the hourly WAF poll (:00). Minute 25 is clear of all
+ * three and of every daily job (all at minute 0, except the 00:15 snapshot).
+ * `cron-schedules.spec.ts` enforces uniqueness arithmetically.
+ *
+ * (The split backticks above are not a typo — an unescaped `*` followed by `/`
+ * closes this very comment. `INDEXNOW_DRAIN_CRON` writes it the same way.)
+ *
+ * Six hours rather than hourly because the threshold it tests is 24 hours: a
+ * finer cadence would not detect anything sooner, it would only re-evaluate the
+ * same unchanged rows. The email is separately band-throttled
+ * (`lib/alert-bands.ts`), so the cadence sets detection latency, not mail volume.
+ *
+ * Queue-less and inline, following the 06:00 moderation-snapshot and hourly
+ * WAF-poll precedent (`queueForJob` returns `undefined`): one indexed read, one
+ * batched Linear query and one fail-open email do not justify a
+ * `aeci-claim-stale-{env}` queue, three `wrangler.jsonc` blocks and a
+ * `wrangler queues create` step in two deploy workflows. A missed run costs at
+ * most six hours of warning latency, and the next run re-derives everything from
+ * `created_at`.
+ */
+export const CLAIM_STALE_CRON = '25 */6 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -221,6 +251,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'attestation-notify': ATTESTATION_NOTIFY_CRON,
   'entitlement-expiry': ENTITLEMENT_EXPIRY_CRON,
   'indexnow-drain': INDEXNOW_DRAIN_CRON,
+  'claim-stale-check': CLAIM_STALE_CRON,
 };
 
 /**
@@ -248,6 +279,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   attestation_notify: 'attestation-notify',
   entitlement_expiry: 'entitlement-expiry',
   indexnow_drain: 'indexnow-drain',
+  claim_stale_check: 'claim-stale-check',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -270,4 +302,5 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'request-reconcile',
   'waf-poll',
   'indexnow-drain',
+  'claim-stale-check',
 ];
