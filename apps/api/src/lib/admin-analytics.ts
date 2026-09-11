@@ -1027,6 +1027,10 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   direct_is_mixed_bucket: 'info',
   visitor_definition_approximate: 'info',
   corroborated_is_a_referrer_floor: 'info',
+  // `info` on the standard test: the exclusion already happened and the figure
+  // beside it is correct — the note only says how the rows were identified.
+  // Unlike every standing caveat above it, this one is COUNT-GATED (AECI-836):
+  // it never fires on a window where nothing was excluded.
   operator_leak_is_an_inference: 'info',
   // AECI-827. `info` on the standard test: a reader who misses it still reads the
   // figures correctly — it only explains why the last month of the chart can
@@ -1140,8 +1144,17 @@ export async function earliestAuditDay(db: Db): Promise<string | null> {
   return row?.day ?? null;
 }
 
-/** The three notes every `page_views`-derived response owes its reader, derived
- *  from the window's actual contents. */
+/** The caveats every `page_views`-derived response owes its reader, derived from
+ *  the window's actual contents and from the figures the caller is reporting.
+ *
+ *  Two kinds live here and the distinction is load-bearing. A **standing**
+ *  caveat explains what a permanently-present figure MEANS, so it fires whether
+ *  or not the window contains anything (`referrer_source_is_unverified`,
+ *  `corroborated_is_a_referrer_floor`). A **gated** caveat describes something
+ *  that may not have happened, so it is conditioned on the count it qualifies
+ *  (`bot_classification_incomplete`, `referrer_source_incomplete`,
+ *  `operator_leak_is_an_inference`). A gated note emitted at zero has no
+ *  referent on the screen, which is what AECI-836 fixed. */
 export async function trafficNotes(
   db: Db,
   w: UtcWindow,
@@ -1150,8 +1163,16 @@ export async function trafficNotes(
     sources?: boolean;
     /** Emit the caveats for the AECI-683 corroborated-human figure. */
     corroborated?: boolean;
-    /** Emit the caveat for the AECI-683 operator-pair retro-join. */
-    operatorLeak?: boolean;
+    /**
+     * Views the AECI-683 operator-pair retro-join removed from this window — a
+     * COUNT, not a boolean (AECI-836).
+     *
+     * Pass the same number the response reports as `operator_leak_excluded`, so
+     * the note and the figure can never disagree. `0` or omitted emits nothing:
+     * the note describes an exclusion that may not have happened, and on a
+     * window where none did there is no figure on the screen for it to qualify.
+     */
+    operatorLeakViews?: number;
     /**
      * The window's automation filter (AECI-745). Pass it — as `null` when the
      * detector did not run — on any response whose headline is post-automation.
@@ -1227,11 +1248,27 @@ export async function trafficNotes(
     );
   }
 
-  if (opts.operatorLeak) {
+  // GATED on the figure, unlike the standing caveats above it (AECI-836). It
+  // used to fire whenever the caller asked for it, so on a day where nothing
+  // leaked the operator read an explanation of how an exclusion was inferred
+  // with no exclusion anywhere on the screen and no number beside it. The tile
+  // caption (`apps/web/src/app/admin/overview/overview.ts`) and all three of the
+  // digest's renderings already suppressed themselves at zero; this was the one
+  // surface of four that did not.
+  //
+  // The test that decides which camp a note belongs in: gate it when the thing
+  // it describes MAY NOT HAVE HAPPENED; leave it standing when it describes what
+  // a permanently-present figure means. `corroborated_is_a_referrer_floor` stays
+  // ungated for exactly that reason — §13 D15(d) requires it, the figure is
+  // always rendered, and "a number this small reads as precise" whether it is
+  // zero or not.
+  const operatorLeak = opts.operatorLeakViews ?? 0;
+  if (operatorLeak > 0) {
     out.push(
       note(
         'operator_leak_is_an_inference',
         'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
+        { rows: operatorLeak },
       ),
     );
   }

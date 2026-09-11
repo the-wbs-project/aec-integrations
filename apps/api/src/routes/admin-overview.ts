@@ -189,7 +189,11 @@ export function createAdminOverviewHandler(
         unique: true,
         sources: true,
         corroborated: true,
-        operatorLeak: true,
+        // The COUNT, not a flag (AECI-836). This is the identical value the
+        // response returns as `traffic.operator_leak_excluded` below, so the
+        // note and the figure it qualifies cannot drift apart — and on a day
+        // where nothing leaked, neither one appears.
+        operatorLeakViews: metrics.operatorLeakViews,
         // Explicitly passed, `null` included: this response's headline IS the
         // post-automation figure, so it owes the reader either the thresholds
         // behind it or the warning that the filter did not run.
