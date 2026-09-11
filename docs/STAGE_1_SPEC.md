@@ -1700,7 +1700,7 @@ The existing Airtable staging layer remains the curator workspace; Supabase is t
   - Vendor Requests specific: `claim`, `correction`, `domain-check-pending`
   - Vendor Requests label group (replaces a custom `Domain Match` select field): `domain-match:yes`, `domain-match:no`, `domain-match:pending`
 - **Issue conventions** (in place of native custom fields — Linear has no generic custom-field feature on any plan tier; verified against the live workspace UI and the public GraphQL schema):
-  - Every issue description opens with `**Spec section:** §X.Y` and `**Plan file:** \`.context/plans/NN-…md\``, enforced by team issue templates (`Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`)
+  - Every issue description opens with `**Spec section:** §X.Y (docs/SPEC_NAME.md)`. **Superseded — the grammar, the `n/a` form and the current template set are `docs/linear-issue-conventions.md` (AECI-601).** Two of the four templates named here were retired on 2026-09-11: `Vendor Claim Template` and `Correction Request Template`, both superseded by the Phase 6.4 form→Linear pipeline, which authors those tickets from code. `Build Issue Template` and `Bug Template` survive. The `**Plan file:**` line is no longer written — plans live in the Conductor workspace, not `.context/plans/`
   - Acceptance criteria captured in issue description as markdown checklist (Linear-native)
   - Dependencies captured via Linear's native issue relations (blocks/blocked by)
 - **Vendor Requests intake fields** (written by n8n into the issue, not Linear custom fields):
