@@ -64,10 +64,14 @@ This is what real users see and where the connector lane made structural changes
 - [ ] `RoleBadge` self-hides for `application` — an ordinary product shows **no** role chip. Absence is the signal.
 
 ### 3.3 `integration_count` lockstep — the highest-value check
-AECI-721 unioned two tables across **fourteen** call sites (the spec's own list named ten). A
-drift here is silent and user-visible.
+AECI-721 unioned two tables across fourteen call sites (the spec's own list named ten), and
+AECI-789 found two more — **sixteen**. A drift here is silent and user-visible.
 - [ ] Product card count == product detail count == taxonomy index count == search facet count, for the same product.
 - [ ] Check at least one endpoint product, one connector, one hybrid.
+- [ ] **After any `integrations` index rebuild, re-check the count the NEXT morning.** Sites 15 and
+      16 are the orphan sweep's id sets (AECI-789); before that fix the 09:00 sweep deleted every
+      connector-evidenced pair from the index overnight and nothing put them back, so a same-day
+      check reads clean and the damage shows up a day later as `+19` drift that then persists.
 
 ### 3.4 Pair pages
 - [ ] Agreement states render: `confirmed`, `single_source`, `unverified`, conflict.

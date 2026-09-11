@@ -69,7 +69,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §13.2 / §13.3 | AECI-713 *(done)* | Endpoint Integrations split — direct lane + "Via {connector}" groups |
 | §13.4(1) / §13.4(3) | AECI-713 *(done)* | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
 | §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
-| §13.5 | AECI-721 | Count invariants — §12.5 resolved as B; the ten-site lockstep |
+| §13.5 | AECI-721, AECI-789 | Count invariants — §12.5 resolved as B; the sixteen-site lockstep |
 | §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
 | §13.7 | AECI-715 / AECI-716 | Connector coverage surface + reachable-lane publication boundary |
 
@@ -1232,10 +1232,11 @@ mid-flight will make a local decision about a cross-cutting contract.
     the lockstep tests holding the vocabulary's **six** spellings together — the three TS lists in
     `@aeci/shared`, `VALID_MECHANISM_KINDS`, `MECHANISM_ORDER`, and the D1 CHECK — because two of
     the six degrade silently on drift.
-- **The lockstep set is FOURTEEN sites** (was ten — corrected by AECI-721 PR-A, which found four
-  more while implementing). Migrating powered edges out of `integrations` without moving every one
-  of them silently drops the edges and re-ranks the catalog as a side effect of a data migration.
-  Enumerated so it cannot be half-done. The rule each site expresses, post-AECI-721:
+- **The lockstep set is SIXTEEN sites** (was ten; AECI-721 PR-A found four more while
+  implementing, and AECI-789 found the last two after they had already gone wrong in production).
+  Migrating powered edges out of `integrations` without moving every one of them silently drops the
+  edges and re-ranks the catalog as a side effect of a data migration. Enumerated so it cannot be
+  half-done. The rule each site expresses, post-AECI-721:
 
   ```
   product: count(integrations WHERE src=p OR tgt=p)
@@ -1295,6 +1296,26 @@ mid-flight will make a local decision about a cross-cutting contract.
       `apps/api/src/routes/admin-vendors.ts` (vendor detail). Item 6 names only the two
       Algolia copies; there are five, and connector vendors' counts collapse on all five.
 
+  **Two further sites, found by AECI-789 — and these two have DELETE authority.** Items 1-14 are
+  counts and reads: getting one wrong produces a wrong number. These two express the identical
+  membership rule as an id **SET**, and `sweepAlgoliaOrphans` removes every object in the
+  `integrations` index whose id is absent from the set. An omission here is not a wrong number, it
+  is a deleted record. Both were still single-table after AECI-721 shipped, because item 13 (the
+  count) lived in `lib/` and the set lived elsewhere — which is why they now share a file.
+
+  15. `apps/api/src/lib/algolia-drift-deps.ts` — **`drizzlePromotedIds`**, the 09:00 orphan sweep's
+      injected `PromotedIdProvider`. It ran with `apply: true`, so for the whole window between
+      AECI-721 and AECI-789 any environment whose `<env>_integrations` index held connector-evidenced
+      pairs would have lost them at 09:00 — permanently, because the watermark-windowed 08:00 sync
+      never re-adds a row whose `updated_at` an Algolia delete did not touch. The gauge would have
+      read `+19` every day until an operator rebuilt the index. It was a private function in
+      `apps/api/src/scheduled.ts`; AECI-789 moved it
+      beside item 13 so the count and the set cannot be edited apart.
+  16. `apps/api/scripts/reconcile-algolia-drift.ts` — **`INTEGRATION_IDS_SQL`**, the same set as raw
+      SQL for the operator CLI, whose `--apply` deletes against a deployed index. Unlike the raw-SQL
+      twins at items 2 and 3, this one is **executed** by the lockstep spec rather than trusted to a
+      comment.
+
   Plus two things that are not `integration_count` but move with it: the rendered section heading
   (computed from the payload, not the stored column — §13.3), and the Algolia settings themselves —
   custom ranking on both indices, the numeric facet, both sort replicas
@@ -1302,7 +1323,11 @@ mid-flight will make a local decision about a cross-cutting contract.
 
   **The lockstep is regression-tested, not just enumerated.** `apps/api/src/lib/count-lockstep.spec.ts`
   seeds `connector_evidenced_pairs` and leaves `integrations` untouched, then asserts each
-  expression returns direct + evidenced. That shape is deliberate: `stage-2` is not the production
+  expression returns direct + evidenced. Sites 15 and 16 are covered as **site E** (the Drizzle set)
+  and **site F** (the raw SQL, run against the test D1), and site E is asserted in both directions:
+  a promoted pair is IN the set, and a pair with an unpromoted endpoint is OUT of it. The second
+  half is what pins the set to `algolia-sync`'s delete arm rather than letting it drift into a
+  harmless superset. That shape is deliberate: `stage-2` is not the production
   line, so the two AECI-721 PRs reach prod D1 **together** at the `stage-2` → `main` promote, and at
   that boundary count-neutrality stops being a deployment-order property and becomes a code
   property. The spec is the artifact that survives the promote.
@@ -1480,8 +1505,8 @@ the `integration_count` lockstep sites of §13.5. That split is what kept the de
 recreate to **one** migration, and it is why `0021` is `CREATE TABLE` / `CREATE INDEX` only.
 
 **AECI-721 landed 2026-08-31, in two PRs.** The split is expand→contract (`docs/migrations.md`
-§3.2): PR-A is additive and inert — every read surface and all fourteen count sites read the union
-of both tables, so PR-B could not move a number — and PR-B is the single destructive migration
+§3.2): PR-A is additive and inert — every read surface and all fourteen count sites known at the
+time read the union of both tables, so PR-B could not move a number — and PR-B is the single destructive migration
 `0027_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
 itself. Three things worth carrying forward:
 
@@ -1493,7 +1518,10 @@ itself. Three things worth carrying forward:
   population that structurally cannot drain), and `partner` is the only sequenced follow-up left,
   gated on AECI-712.
 - **The lockstep is fourteen sites, not ten** (§13.5), and it is regression-tested rather than
-  only enumerated.
+  only enumerated. **Corrected again by AECI-789 (2026-09-11): sixteen.** The two it missed express
+  the membership rule as an id SET rather than a count, so they are not reachable by grepping for
+  `integration_count` — and both hold delete authority, which is why the miss was a live defect and
+  not a reporting bug.
 
 **Every read surface now unions the two delivered-tier tables.** AECI-721 covered all but one:
 the ENDPOINT product-detail read still saw only `integrations`, so the migrated edges vanished from

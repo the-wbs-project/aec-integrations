@@ -14,7 +14,9 @@
  * Delete-only by design. It fixes NEGATIVE drift (orphans / extra objects). It
  * deliberately does NOT re-upsert to fix positive drift (records missing from the
  * index) — that stays owned by the incremental sync's epoch/window upsert
- * (`./algolia-sync`). Keeping it delete-only means it needs only D1 ID SETS, never
+ * (`./algolia-sync`), which reaches only rows inside its watermark window; an
+ * older missing record needs a full rebuild, not another sync (AECI-789).
+ * Keeping it delete-only means it needs only D1 ID SETS, never
  * the rich Drizzle relational configs + record transforms — so it stays
  * dependency-free and ADR-0016-safe (no duplicated query/transform logic).
  *
@@ -50,9 +52,13 @@ import {
 /**
  * The authoritative D1 membership id-sets, one per entity. Mirrors the shape of
  * `DriftCount` (`./algolia-drift`) but returns id SETS rather than counts.
- * `integrationIds` is the transitive set — integrations whose BOTH endpoints are
- * promoted (the same membership `./algolia-sync` indexes on). Injected so the lib
- * stays ORM-agnostic; the Worker wires a Drizzle adapter, the CLI a wrangler one.
+ * `integrationIds` is the transitive set — rows whose BOTH endpoints are promoted,
+ * across BOTH tables behind the `integrations` index (`integrations` and
+ * `connector_evidenced_pairs`; AECI-721 / §13.5). That is the same membership
+ * `./algolia-sync` indexes on, and it must stay so: every id this set omits is an
+ * object the sweep classifies as an orphan and DELETES. Injected so the lib stays
+ * ORM-agnostic; the Worker wires a Drizzle adapter (`drizzlePromotedIds` in
+ * `./algolia-drift-deps`), the CLI a wrangler one.
  */
 export type PromotedIdProvider = {
   productIds(): Promise<Set<string>>;

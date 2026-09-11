@@ -1647,9 +1647,17 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > structurally can't see to delete). The sweep is **delete-only and safety-capped** (≤50 objects
 > and ≤20% of an index per pass; a larger purge is refused and surfaced via
 > `aeci.algolia.orphans_skipped_cap` for an operator to confirm with
-> `db:reconcile-algolia-drift --apply --force`). It heals **negative** drift only; **positive**
-> drift (records missing from the index) stays repaired by the 08:00 incremental sync. The
-> AECI-138 bulk sync this note once pointed to as the repair path never landed.
+> `db:reconcile-algolia-drift --apply --force`). It heals **negative** drift only.
+>
+> **Positive drift (records missing from the index) is only partly repaired by the 08:00
+> incremental sync** — corrected by AECI-789. That sync is watermark-windowed, so a row last
+> touched before the watermark is never re-pushed; the repair is a full rebuild via the datatool's
+> `POST /api/reindex` (`docs/RUNBOOKS.md` "Algolia index drift"). The AECI-138 bulk sync this note
+> once pointed to as the repair path never landed.
+>
+> **The sweep's authoritative id-set spans both delivered-tier tables** (`integrations` and
+> `connector_evidenced_pairs`) since AECI-789 — `STAGE_1_5_SPEC.md` §13.5 sites 15 and 16. Every id
+> that set omits is an object the sweep deletes.
 
 ### 23.2 Duplicate detection on submission
 
