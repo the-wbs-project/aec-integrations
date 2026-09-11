@@ -239,6 +239,70 @@ describe('createLinearIssueForRequest — issue creation', () => {
     expect(sent.variables.input.description).not.toContain('**LinkedIn:**');
   });
 
+  it('names the deployment and deep-links the admin row (AECI-860)', async () => {
+    // The gap this closes: a demo ticket used to be indistinguishable from a
+    // production one, which is why LINEAR_API_KEY is production-only (AECI-851).
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx({ PUBLIC_SITE_URL: 'https://demo.aecintegrations.com' }),
+      store,
+      { ...INPUT, kind: 'claim', domainMatch: 'match' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    const description = String(sent.variables.input.description);
+    expect(description).toContain('**Environment:** demo.aecintegrations.com');
+    expect(description).toContain(
+      `**Admin:** https://demo.aecintegrations.com/admin/claims/${REQUEST_ID}`,
+    );
+    expect(description).toContain('**Domain match:** match');
+  });
+
+  it('deep-links a correction to the queue, which is the only route it has', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      store,
+      { ...INPUT, kind: 'correction' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(String(sent.variables.input.description)).toContain(
+      '**Admin:** https://www.aecintegrations.com/admin/requests',
+    );
+  });
+
+  it('omits both URL rows when PUBLIC_SITE_URL is unset, rather than faking them', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx({ PUBLIC_SITE_URL: undefined }),
+      store,
+      { ...INPUT, kind: 'claim' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    const description = String(sent.variables.input.description);
+    expect(description).not.toContain('**Environment:**');
+    expect(description).not.toContain('**Admin:**');
+    // The non-URL row still renders — it does not depend on the site var.
+    expect(description).toContain('**Domain match:**');
+  });
+
   it('adds the domain-check-pending label when domainMatch is no_match (§7.1)', async () => {
     const fetchImpl = mockFetch();
     const { store } = makeStore();

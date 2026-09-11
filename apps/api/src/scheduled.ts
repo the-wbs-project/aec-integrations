@@ -141,6 +141,7 @@ import {
   ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
   ENTITLEMENT_EXPIRY_CRON,
+  CLAIM_STALE_CRON,
   INDEXNOW_DRAIN_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
@@ -149,6 +150,7 @@ import {
   STATS_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
+import { runClaimStaleCheck } from './lib/claim-stale-check';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   drainIndexNowQueue,
@@ -263,7 +265,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The fourteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The fifteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // `*/20` IndexNow drain in AECI-826) so
@@ -314,6 +316,11 @@ const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
 /** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
  *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
  *  the RECORDER, not the job — see docs/OBSERVABILITY.md. */
+/** AECI-862 claim-staleness check. `outcome:ok|failed` is the run, not the
+ *  verdict — a run that finds stale tickets is a SUCCESSFUL run. */
+const CLAIM_STALE_JOB_METRIC = 'aeci.linear.claim_stale.job';
+const CLAIM_STALE_DURATION_METRIC = 'aeci.linear.claim_stale.job.duration_ms';
+
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
 /** Synthetic request so the telemetry helpers can derive a `host` tag (the cron
@@ -1413,6 +1420,70 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
 }
 
 /**
+ * Claim-ticket staleness check (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2) — the
+ * only cron here that escalates a HUMAN-response problem rather than a system one.
+ *
+ * Everything load-bearing is in `./lib/claim-stale-check`; this is the shell that
+ * supplies the clock, the DB and the PostHog sink. Two things specific to it:
+ *
+ *   - **A run that finds stale tickets is a SUCCESSFUL run.** `outcome:ok` means
+ *     the check completed, not that the queue is clean. Only the catch below is a
+ *     failure. Reading it the other way round would make the founder escalation
+ *     look like an infrastructure alarm, which is exactly the conflation the
+ *     separate recipient exists to avoid.
+ *   - **A failed Linear read sends nothing and is still `ok`.** `failedReason` is
+ *     carried into `job_runs.detail` so the §5.6 System screen can show it. The
+ *     sweep must never guess: an unreadable board is not evidence that anyone is
+ *     ignoring anything.
+ */
+async function runClaimStaleCheckJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/claim-stale-check');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runClaimStaleCheck({ env, executionCtx: ctx, req: { raw: req } }, db);
+    submitCount(ctx, env, req, CLAIM_STALE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitDistribution(ctx, env, req, CLAIM_STALE_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: result.stale > 0 ? 'warn' : 'info',
+      message: `aeci.linear.claim_stale checked=${result.checked} stale=${result.stale} drifted=${result.drifted} alerted=${result.alerted}${
+        result.failedReason ? ` read_failure=${result.failedReason}` : ''
+      }`,
+      source: 'claim-stale-check-cron',
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'claim-stale-check',
+        checked: result.checked,
+        stale: result.stale,
+        drifted: result.drifted,
+        alerted: result.alerted,
+        ...(result.failedReason ? { readFailure: result.failedReason } : {}),
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, CLAIM_STALE_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.linear.claim_stale.crashed',
+      source: 'claim-stale-check-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'claim-stale-check',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
  * Refresh `asn_registry` from PeeringDB (AECI-624 / §7.6) — the weekly job, and
  * the only one here whose output is *annotation* rather than measurement.
  *
@@ -1724,6 +1795,13 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
       // be a regression.
       return undefined;
+    case 'claim_stale_check':
+      // Queue-less like `moderation` / `waf` (AECI-862): one indexed read, one
+      // batched Linear query and one fail-open email. A failed run costs at most
+      // six hours of warning latency and the next tick re-derives everything from
+      // `created_at`, so a retry buys nothing a re-run does not. No
+      // `CLAIM_STALE_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -1826,6 +1904,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'indexnow-drain-cron',
     };
   }
+  if (job === 'claim_stale_check') {
+    // Unreachable for the same reason as `indexnow_drain` above — queue-less, so
+    // `queue.send` is never called. Kept so the mapping stays total.
+    return {
+      path: '/cron/claim-stale-check',
+      message: 'aeci.linear.claim_stale.enqueue_failed',
+      source: 'claim-stale-check-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -1908,6 +1995,8 @@ async function dispatchScheduledJob(
       return runAsnRegistryJob(env, ctx);
     case 'indexnow_drain':
       return runIndexNowDrainJob(env, ctx);
+    case 'claim_stale_check':
+      return runClaimStaleCheckJob(env, ctx);
   }
 }
 
@@ -1984,6 +2073,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case INDEXNOW_DRAIN_CRON:
       await enqueueOrRun(env, ctx, 'indexnow_drain');
+      return;
+    case CLAIM_STALE_CRON:
+      await enqueueOrRun(env, ctx, 'claim_stale_check');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare

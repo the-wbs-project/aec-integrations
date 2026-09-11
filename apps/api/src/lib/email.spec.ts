@@ -34,6 +34,7 @@ import {
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendReviewSubmittedEmail,
+  sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
   sendTransactionalEmail,
   type EmailContext,
@@ -417,6 +418,77 @@ describe('sendMailingListWelcomeEmail', () => {
   it('skips when the subscriber email is undefined', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await sendMailingListWelcomeEmail(fakeContext(), { to: undefined })).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendStaleClaimTicketAlert', () => {
+  const row = {
+    requestId: 'req-1',
+    kind: 'claim' as const,
+    identifier: 'AECI-900',
+    title: 'Claim: Procore (product)',
+    issueUrl: 'https://linear.app/aec/issue/AECI-900/claim',
+    adminUrl: 'https://www.aecintegrations.com/admin/claims/req-1',
+    stateName: 'Backlog',
+    submitterEmail: 'vendor@example.com',
+    targetName: 'Procore',
+    ageMinutes: 1500,
+  };
+
+  it('carries both links, because they answer different questions', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [row],
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('founders@thewbsproject.com');
+    expect(body.subject).toBe('[AECi] 1 claim ticket un-started after 24h');
+    const text = String(body.text);
+    // Linear is where you accept the work; admin is where the evidence is.
+    expect(text).toContain('https://linear.app/aec/issue/AECI-900/claim');
+    expect(text).toContain('https://www.aecintegrations.com/admin/claims/req-1');
+    expect(text).toContain('AECI-900');
+    expect(text).toContain('Backlog');
+    expect(text).toContain('Procore');
+  });
+
+  it('pluralizes and says nothing is broken, because nothing is', async () => {
+    // The wording matters: this is not an infrastructure alarm, and reading it as
+    // one is what the separate recipient exists to prevent.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [row, { ...row, requestId: 'req-2', identifier: 'AECI-901' }],
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('[AECi] 2 claim tickets un-started after 24h');
+    expect(String(body.text)).toContain('nothing is broken');
+  });
+
+  it('renders a removed target without a dead link', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [{ ...row, targetName: null, issueUrl: null, adminUrl: null }],
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('(target removed)');
+    expect(text).not.toContain('Linear:');
+    expect(text).not.toContain('Administer:');
+  });
+
+  it('skips without a recipient', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendStaleClaimTicketAlert(fakeContext(), {
+      to: undefined,
+      rows: [row],
+    });
+    expect(outcome).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

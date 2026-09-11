@@ -74,7 +74,8 @@ export type ScheduledJob =
   | 'retention'
   | 'entitlement_expiry'
   | 'asn_registry'
-  | 'indexnow_drain';
+  | 'indexnow_drain'
+  | 'claim_stale_check';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -552,6 +553,22 @@ export type Env = {
    * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
    */
   ADMIN_ALERT_EMAIL?: string;
+
+  /**
+   * Founder escalation recipient for the AECI-862 claim-staleness check — the
+   * 6-hourly job that warns when a claim ticket exists in Linear and nobody has
+   * started it after 24 hours.
+   *
+   * A THIRD address beside `ADMIN_ALERT_EMAIL` and `CLAIM_ALERT_EMAIL`, and that
+   * is the point: those two say "the pipeline is broken" and "a claim arrived",
+   * both addressed to whoever operates the system. This one says a vendor has been
+   * waiting a day for a human reply, which is a business-response problem and
+   * wants different eyes. Folding it into either of the others would bury it.
+   *
+   * Absent → the digest is `'skipped'` and the job still emits its metric and log,
+   * so the signal survives an unset var (the §6.2 backstop posture).
+   */
+  FOUNDER_ALERT_EMAIL?: string;
   /**
    * Recipient for the operator "new vendor claim" alert — sent post-commit from
    * `POST /api/requests/claim` (`routes/requests.ts`). A SINGLE address, like

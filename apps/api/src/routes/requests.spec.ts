@@ -519,6 +519,85 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     expect(sent.text).toContain('dana@acme.com');
   });
 
+  it('carries the Linear permalink and the admin deep link (AECI-861)', async () => {
+    // The sequencing this issue exists for: the email is composed AFTER the issue
+    // is created, so it can name it. Previously both ran as parallel `waitUntil`s
+    // and the mail could only say "a claim landed".
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+      calls.push({ url: href, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (href.includes('linear.app')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              issueCreate: {
+                success: true,
+                issue: {
+                  id: 'iss-1',
+                  identifier: 'AECI-900',
+                  url: 'https://linear.app/aec/issue/AECI-900/claim',
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('{"id":"re_1"}', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      {
+        ...ENV_WITH_ALERT,
+        LINEAR_API_KEY: 'lin_test',
+        PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
+      },
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    // Ordering is the assertion: Linear first, Resend second.
+    const linearIdx = calls.findIndex((c) => c.url.includes('linear.app'));
+    const resendIdx = calls.findIndex((c) => c.url.includes('resend'));
+    expect(linearIdx).toBeGreaterThanOrEqual(0);
+    expect(resendIdx).toBeGreaterThan(linearIdx);
+
+    const mail = calls[resendIdx]!.body as { text: string };
+    expect(mail.text).toContain('https://linear.app/aec/issue/AECI-900/claim');
+    expect(mail.text).toContain('demo.aecintegrations.com');
+    expect(mail.text).toContain('/admin/claims/');
+  });
+
+  it('still emails when the Linear create fails, and says the retry is pending', async () => {
+    // Fail-open: a broken Linear must not cost the operator the notification. The
+    // §6.7 sweep owns the retry, and the mail says so rather than omitting the row.
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    // No LINEAR_API_KEY → `createLinearIssueForRequest` returns `no_api_key`.
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      ENV_WITH_ALERT,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      text: string;
+    };
+    expect(sent.text).toContain('not created yet');
+  });
+
   it('does NOT alert on a correction — claims only', async () => {
     const fetchMock = resendOkFetch();
     await seedProduct({ slug: 'acme-build' });

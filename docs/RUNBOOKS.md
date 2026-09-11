@@ -768,6 +768,52 @@ point (`docs/OBSERVABILITY.md`).
 
 ---
 
+## Claim ticket un-started after 24 hours
+
+**Email:** `[AECi] N claim tickets un-started after 24h` → `FOUNDER_ALERT_EMAIL`
+(`founders@thewbsproject.com`). Emitted by the `25 */6` `claim-stale-check` cron
+(`apps/api/src/lib/claim-stale-check.ts`, AECI-862).
+
+**Nothing is broken.** That is the whole point of this being a separate message to a separate
+address. `stuck-request-alert` below means the pipeline failed and the operator must fix it. This
+one means the pipeline worked, the ticket exists in Linear, and no human has picked it up. The
+action is to triage the ticket, not to restart a job.
+
+**Metrics:** `aeci.linear.claim_stale.stale` (gauge, the finding) and
+`aeci.linear.claim_stale.checked` (gauge, the population). Read them **together** — "0 stale" out of
+0 eligible and "0 stale" out of 40 eligible are different facts. `aeci.linear.claim_stale.job`
+(`outcome:ok|failed`) is liveness only: **a run that finds ten stale tickets is `outcome:ok`.**
+
+### Triage
+
+1. Open each ticket from the **Linear** link in the email. Move it to In Progress, Done or Canceled.
+   Any of the three silences it, because the check tests `state.type` for
+   `started` / `completed` / `canceled`, not for a specific state name.
+2. If the claim needs evidence rather than a decision, open the **Administer** link
+   (`/admin/claims/:id`) — that is where the claimant's LinkedIn profile, the `domain_match` signal
+   and the operator note live.
+3. To park a claim deliberately (the §5.2 pure-connector case in
+   `STAGE_2_VENDOR_PORTAL_SPEC.md`), write the operator note AND move the Linear ticket out of
+   Backlog. Leaving it in Backlog is what keeps the warning firing.
+
+### If the numbers look wrong
+
+| Symptom | Cause | Action |
+|---|---|---|
+| `read_failure{reason:no_api_key}` on a non-prod tier | Expected. AECI-851 provisions `LINEAR_API_KEY` on production only | None. It logs at `info` there, not `warn` |
+| `read_failure` with a transport reason in production | Linear was unreachable this run. **No warning was sent, and `stale` is 0 because nothing was asserted** — not because nothing is stale | Check Linear's status. The next run re-derives everything; no state is lost |
+| `webhook_drift` sustained non-zero | Linear reports the ticket started or closed, but `vendor_requests.status` is still `open`. The §6.3 inbound webhook is not delivering | Check `LINEAR_WEBHOOK_SIGNING_SECRET` on the production API Worker and whether a webhook is registered in Linear at `POST /api/webhooks/linear` — still the open operator action on AECI-851. **This job never repairs the row**, by design |
+| `stale > 0` but no email arrived | Band throttling, working as intended: one email as the ticket crosses 24 h, then one a day | None. Unthrottled this would send four a day per ticket, against the Resend account that also carries Supabase magic links |
+| A ticket you already closed is still listed | The digest was composed from the state at run time | It drops out of the next run |
+
+### Tuning
+
+`STALE_THRESHOLD_HOURS` (24) is a **business-response** threshold, not a system one. Lower it if
+vendors complain about reply latency; raise it if founders are being paged for tickets that are
+deliberately parked. `STALE_CHECK_INTERVAL_MINUTES` **must** stay equal to `CLAIM_STALE_CRON` —
+`claim-stale-check.spec.ts` asserts the pair, because the email bands are computed from the cadence
+and a silent drift would either double-send or skip a band with nothing failing.
+
 ## Linear reconciliation — stuck requests
 
 **Alert:** `AECi — Linear reconciliation: persistent stuck requests` (PostHog, hourly). Two
@@ -967,7 +1013,7 @@ prune skipping because of the gap.
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
 > `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
-> heartbeat is in the query, and the `label_column` names it), **and** it is one of the fourteen crons
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the fifteen crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
 > `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the

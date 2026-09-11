@@ -51,6 +51,7 @@ import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
+import { adminRequestUrl, environmentHost } from './request-links';
 
 // ─── Verified Linear board constants ─────────────────────────────────────────
 // Queried live (2026-06-13). Hardcoded rather than env-configured because they
@@ -128,6 +129,28 @@ mutation CommentOnRequestIssue($input: CommentCreateInput!) {
   }
 }`;
 
+/**
+ * Read the current workflow state of a batch of issues (AECI-862).
+ *
+ * **One query for every id, never a query per id.** A per-issue fan-out is the
+ * AECI-666 defect class: a Worker invocation may hold only ~6 connections waiting
+ * on response headers, and past that the runtime cancels stalled responses into
+ * promises that never settle — no `catch`, no log, a hung invocation. Linear's
+ * `id: { in: [...] }` filter makes the batched form available, so the bounded
+ * `mapWithConcurrency` fallback is not needed here.
+ *
+ * `first: 250` is a ceiling, not a page size. The caller only ever passes ids for
+ * claims already past the 24-hour threshold; if that set ever exceeded 250 the
+ * backlog itself is the incident, and the truncation is visible because the caller
+ * compares the returned ids against the ids it asked for.
+ */
+const ISSUE_STATES_QUERY = `
+query RequestIssueStates($ids: [ID!]) {
+  issues(filter: { id: { in: $ids } }, first: 250) {
+    nodes { id identifier url title state { id name type } }
+  }
+}`;
+
 type IssueCreatePayload = {
   issueCreate: { success: boolean; issue: { id: string; identifier: string; url: string } | null };
 };
@@ -144,6 +167,31 @@ type IssueUpdatePayload = {
 type CommentCreatePayload = {
   commentCreate: { success: boolean; comment: { id: string } | null };
 };
+type IssueStatesPayload = {
+  issues: {
+    nodes: Array<{
+      id: string;
+      identifier: string;
+      url: string;
+      title: string;
+      state: IssueState | null;
+    }>;
+  };
+};
+
+/** One issue as the §6.2 staleness check sees it (AECI-862). */
+export interface LinearIssueSnapshot {
+  id: string;
+  /** The human ticket key, e.g. `AECI-662` — what an operator recognises. */
+  identifier: string;
+  url: string;
+  title: string;
+  /** Linear's stable workflow CATEGORY: `triage` | `backlog` | `unstarted` |
+   *  `started` | `completed` | `canceled`. Null when Linear omitted the state. */
+  stateType: string | null;
+  /** The workspace's display name for that state, e.g. "In Progress". */
+  stateName: string | null;
+}
 
 // ─── Transport ───────────────────────────────────────────────────────────────
 
@@ -425,7 +473,7 @@ export async function createLinearIssueForRequest(
         teamId: AECI_TEAM_ID,
         projectId: VENDOR_REQUESTS_PROJECT_ID,
         title: buildTitle(input),
-        description: buildDescription(input),
+        description: buildDescription(c.env, input),
         labelIds: labelIdsFor(input.kind, input.domainMatch),
         ...(assigneeId ? { assigneeId } : {}),
       },
@@ -601,6 +649,62 @@ export async function pushRequestResolutionToLinear(
   emitSync(c, 'ok', input.kind, input.toStatus, undefined, Date.now() - started);
 }
 
+/**
+ * Current state of the given Linear issues, as a Map keyed by issue node id
+ * (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2).
+ *
+ * **Never throws**, matching every other function in this module: a transport
+ * failure, an absent key, or a `200` carrying `errors[]` all resolve to
+ * `{ ok:false }`. The caller (`lib/claim-stale-check.ts`) is a cron that must not
+ * be able to take the Worker down, and a failed read is never grounds to send a
+ * warning — silence beats a false alarm.
+ *
+ * **Why read Linear rather than `vendor_requests.status`.** The local status only
+ * advances past `open` if the §6.3 inbound webhook is delivering, which needs
+ * `LINEAR_WEBHOOK_SIGNING_SECRET` on the Worker AND a webhook registered in Linear
+ * pointing at production. Neither is confirmed — it is still the open operator
+ * action on AECI-851. If the webhook is dark, every ticket looks `open` forever
+ * and a D1-only staleness check would warn about every ticket the operator had
+ * already picked up. Four queries a day is a cheap price for an answer that cannot
+ * be wrong in that direction.
+ *
+ * Issues Linear does not return (deleted, or outside the key's scope) are simply
+ * absent from the Map. The caller treats an absent id as "cannot tell", not as
+ * "stale" — an issue we cannot see is not evidence that nobody is working it.
+ */
+export async function fetchLinearIssueStates(
+  env: Env,
+  issueIds: readonly string[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true; issues: Map<string, LinearIssueSnapshot> } | { ok: false; reason: string }> {
+  if (issueIds.length === 0) return { ok: true, issues: new Map() };
+  const apiKey = env.LINEAR_API_KEY;
+  // Same posture as `createLinearIssueForRequest`: an absent key is the expected
+  // non-prod state, so it is a reported non-answer rather than an error.
+  if (!apiKey) return { ok: false, reason: 'no_api_key' };
+
+  const res = await linearGraphql<IssueStatesPayload>(
+    apiKey,
+    ISSUE_STATES_QUERY,
+    { ids: [...issueIds] },
+    fetchImpl,
+  );
+  if (!res.ok) return { ok: false, reason: res.reason };
+
+  const issues = new Map<string, LinearIssueSnapshot>();
+  for (const node of res.data.issues?.nodes ?? []) {
+    issues.set(node.id, {
+      id: node.id,
+      identifier: node.identifier,
+      url: node.url,
+      title: node.title,
+      stateType: node.state?.type ?? null,
+      stateName: node.state?.name ?? null,
+    });
+  }
+  return { ok: true, issues };
+}
+
 // ─── Issue content ───────────────────────────────────────────────────────────
 
 function buildTitle(input: LinearIssueInput): string {
@@ -608,7 +712,24 @@ function buildTitle(input: LinearIssueInput): string {
   return `${verb}: ${input.targetName} (${input.targetType})`;
 }
 
-function buildDescription(input: LinearIssueInput): string {
+/**
+ * The issue body (AECI-860 widened it).
+ *
+ * `env` is threaded in for the two deployment-derived rows. **Environment** is the
+ * host of `PUBLIC_SITE_URL`, which is what makes a demo ticket recognisable as a
+ * demo ticket rather than a real vendor claim — the gap that blocked rehearsing
+ * the claim flow off production (AECI-851). **Admin** is the deep link to the row,
+ * so a reviewer does not hand-assemble a URL from the bare id at the bottom.
+ *
+ * **Domain match** was computed at submit time (AECI-215 / §6.8) and persisted
+ * from the start, but until now it only ever chose a label. Rendering the value
+ * costs nothing and saves the reviewer a lookup; `pending` means the target had no
+ * website to compare against, not that a check is still running.
+ *
+ * Both URL-derived rows are omitted rather than faked when `PUBLIC_SITE_URL` is
+ * unset (local `dev:bound`, PR previews).
+ */
+function buildDescription(env: Env, input: LinearIssueInput): string {
   const lines = [
     `**Type:** ${input.kind}`,
     `**Target:** ${input.targetName} (${input.targetType}, \`${input.slug}\`)`,
@@ -617,6 +738,13 @@ function buildDescription(input: LinearIssueInput): string {
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
   if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
   if (input.submitterLinkedinUrl) lines.push(`**LinkedIn:** ${input.submitterLinkedinUrl}`);
+  lines.push(`**Domain match:** ${input.domainMatch ?? 'pending'}`);
+
+  const host = environmentHost(env);
+  if (host) lines.push(`**Environment:** ${host}`);
+  const adminUrl = adminRequestUrl(env, input.kind, input.requestId);
+  if (adminUrl) lines.push(`**Admin:** ${adminUrl}`);
+
   lines.push('', input.body, '', '---', `Request: ${input.requestId}`);
   return lines.join('\n');
 }

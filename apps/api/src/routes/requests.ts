@@ -61,6 +61,7 @@ import { computeDomainMatch } from '../lib/domain-match';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
+import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -295,37 +296,44 @@ async function createRequest(
   // the 201. `createLinearIssueForRequest` never throws (it logs + meters every
   // failure and leaves the row `open`/`linear_issue_id=null` for the §6.7
   // reconciliation sweep), so `waitUntil` never sees a rejection.
-  c.executionCtx.waitUntil(
-    createLinearIssueForRequest(c, drizzleLinearStore(db), {
-      requestId,
-      workflowId,
-      kind,
-      targetType: insert.targetType,
-      targetName,
-      slug,
-      submitterEmail: insert.submitterEmail,
-      submitterName: insert.submitterName,
-      submitterRole: insert.submitterRole,
-      submitterLinkedinUrl: insert.submitterLinkedinUrl,
-      body: insert.body,
-      sourceUrl: insert.sourceUrl,
-      // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
-      // label; a duplicate adds an informational note on the issue (§7.1/§7.2).
-      domainMatch,
-      duplicateOfRequestId: duplicate?.id ?? null,
-      duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
-    }),
-  );
+  //
+  // AECI-861: the claim operator alert is SEQUENCED AFTER this, not fired beside
+  // it. Both used to be independent `waitUntil`s, which meant the mail was composed
+  // while the issue was still being created and could never name it. Chaining costs
+  // nothing — both already ran off-request — and buys the operator a working link.
+  // One `waitUntil`, so the two together stay inside a single extension window.
+  const linearDone = createLinearIssueForRequest(c, drizzleLinearStore(db), {
+    requestId,
+    workflowId,
+    kind,
+    targetType: insert.targetType,
+    targetName,
+    slug,
+    submitterEmail: insert.submitterEmail,
+    submitterName: insert.submitterName,
+    submitterRole: insert.submitterRole,
+    submitterLinkedinUrl: insert.submitterLinkedinUrl,
+    body: insert.body,
+    sourceUrl: insert.sourceUrl,
+    // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
+    // label; a duplicate adds an informational note on the issue (§7.1/§7.2).
+    domainMatch,
+    duplicateOfRequestId: duplicate?.id ?? null,
+    duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
+  });
 
-  // Operator alert on claim INTAKE — the support inbox learns a claim landed without
-  // waiting for someone to read Linear. CLAIMS ONLY: a correction is a low-stakes data
-  // fix, a claim asserts control of a listing. Fire-and-forget after the commit and
-  // fail-open (absent `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can
-  // never delay or fail the 201. The claimant still gets no submit-time mail by
-  // design; their only mail is the decision pair from `PATCH /api/admin/claims/:id`.
-  if (kind === 'claim') {
-    c.executionCtx.waitUntil(
-      sendClaimSubmittedNotification(c, {
+  // Operator alert on claim INTAKE — the support inbox learns a claim landed and gets
+  // the ticket link in the same message. CLAIMS ONLY: a correction is a low-stakes
+  // data fix, a claim asserts control of a listing. `kind` is the gate rather than a
+  // separate claim-only code path, so admitting corrections later is a predicate
+  // change here and nothing else. Fail-open (absent
+  // `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
+  // fail the 201. The claimant still gets no submit-time mail by design; their only
+  // mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  c.executionCtx.waitUntil(
+    linearDone.then((outcome) => {
+      if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
+      return sendClaimSubmittedNotification(c, {
         requestId,
         targetName,
         targetType: insert.targetType,
@@ -336,9 +344,10 @@ async function createRequest(
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
-      }),
-    );
-  }
+        linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
+      }).then(() => undefined);
+    }),
+  );
 
   const body: RequestSubmitResponse = {
     request_id: requestId,

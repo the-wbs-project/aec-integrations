@@ -66,6 +66,27 @@ Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied c
 
 Extend the AECI-128 request handler: after the `vendor_requests` insert, create a Linear issue in the **"Vendor Requests" project** via the Linear GraphQL API — claim/correction template, body from the form fields, **`Source URL` as a Linear attachment** (renders as a clickable card), labels (`claim`|`correction`, plus `domain-check-pending` on a domain mismatch — §7.1), assignee **round-robin Chris/Bill**. Store the returned issue id on `vendor_requests.linear_issue_id` + the `workflow_instance`. **Idempotent** (never double-create for one request). Runs via `ctx.waitUntil()` so it never blocks the `201`. Secret: `LINEAR_API_KEY`.
 
+> **AECI-860/861 amendment — what the issue carries, and when the email goes out.**
+> §6.1's "body from the form fields" now includes three rows the form does not supply:
+> **Environment** (the host of `PUBLIC_SITE_URL`), **Admin** (the `/admin/claims/:id` deep link, or
+> `/admin/requests` for a correction, which has no detail route), and **Domain match** (the §7.1
+> signal, which until now only ever chose a label and was never shown). All three come from
+> `apps/api/src/lib/request-links.ts`, so the issue and the operator email cannot disagree about
+> which deployment a request came from. The two URL rows are omitted, never faked, when
+> `PUBLIC_SITE_URL` is unset.
+>
+> The Environment row is what makes a demo ticket recognisable as a demo ticket. That was the live
+> blocker to rehearsing the claim flow off production, and the reason AECI-851 provisions
+> `LINEAR_API_KEY` on production only: the board constants target the one real project, so a non-prod
+> key files fixture claims as real issues.
+>
+> **The `claim-submitted-alert` email is now sequenced AFTER this call, not fired beside it.** Both
+> used to be independent `ctx.waitUntil` calls, so the mail was composed while the issue was still
+> being created and could not name it. It now chains off the returned `LinearIssueOutcome` and
+> carries the permalink. The §6.4 sweep sends the same mail when IT is what finally created the
+> issue — otherwise a rescued claim notifies nobody, which is the same silent gap AECI-851 fixed one
+> layer down. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
+
 ### 6.2 Failure handling
 
 If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, an error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: **Resend** — wired in AECI-240 / Phase 7.5, `docs/email.md`; fail-open, so the stuck-row visibility in `/admin/requests` + the pipeline-failure alert remain the guaranteed backstop — that alert is the Datadog monitor today and ports to a PostHog alert at **hourly** cadence under ADR 0024.)
@@ -88,6 +109,37 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > `graphql_error` and the rest reach the operator instead of "still failing after retries". That
 > wording was additionally false for a row the sweep could not rebuild, which is skipped and never
 > retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
+
+### 6.4a Claim-ticket staleness check (AECI-862)
+
+The §6.4 sweep covers exactly one failure: an issue that was **never created**. Once the issue
+exists the pipeline considers itself finished, so a ticket can sit in Backlog indefinitely with no
+signal to anyone. A scheduled job closes that gap: every six hours (`25 */6 * * *`), read the
+`claim` rows older than **24 hours** that already carry a `linear_issue_id`, ask Linear what state
+those issues are in, and email `FOUNDER_ALERT_EMAIL` one digest naming the ones still in a
+`triage` / `backlog` / `unstarted` state. Implementation: `apps/api/src/lib/claim-stale-check.ts`.
+
+Four decisions are load-bearing:
+
+1. **It reads Linear, not `vendor_requests.status`.** The local status advances past `open` only if
+   the §6.3 webhook is delivering, which needs `LINEAR_WEBHOOK_SIGNING_SECRET` on the Worker **and**
+   a webhook registered in Linear — still the open operator action on AECI-851. If the webhook is
+   dark, every row reads `open` forever and a D1-only check would warn about every ticket the
+   operator had already picked up. Four batched GraphQL queries a day buy an answer that cannot be
+   wrong in that direction.
+2. **A failed read sends nothing.** An unreadable board is not evidence that anybody is ignoring
+   anything, and neither is an issue Linear did not return. Both are reported, never warned on.
+3. **The email is band-throttled, the metric and log are not** — 24 h, then daily, via
+   `lib/alert-bands.ts` (the AECI-854 arithmetic, generalised). Unthrottled a single stale ticket
+   would email four times a day forever.
+4. **Webhook drift is reported, never repaired.** Holding both answers makes this the only
+   instrument that can see §6.3 failure at all (`aeci.linear.claim_stale.webhook_drift`). Writing
+   `vendor_requests.status` from here would be a domain write needing its own `audit_log` row in the
+   same batch (§26.1) and a decision about which side wins. That is its own issue.
+
+Minute 25 is not cosmetic: `scheduled.ts` switches on the raw `controller.cron` string, so two jobs
+cannot share an expression, and minute 0 would collide with the `*/15` sweep, the `*/20` IndexNow
+drain and the hourly WAF poll at once.
 
 ### 6.5 Site → Linear sync
 
