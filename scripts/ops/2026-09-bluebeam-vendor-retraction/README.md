@@ -1,16 +1,45 @@
 # 2026-09 Bluebeam vendor retraction (AECI-685 / AECI-792)
 
-**Status: D1 APPLIED 2026-09-07 — Algolia / cache / upstream still outstanding.** Update
-this line at each step; the AECI-593 precedent shows how easily a "decided" op is mistaken
-for a done one.
+**Status: COMPLETE — verified 2026-09-11; step 4 was a no-op, not an action.** Update
+this line at each step; the AECI-593 precedent shows how easily a "decided" op is
+mistaken for a done one.
 
 | Step | State |
 |---|---|
 | 1. Deploy gate (`5a7af578` live) | done — prod at `44aba9cf` |
 | 2. `apply.sql` against `aeci-app-production` | **done 2026-09-07** — verified `0 / 0 / 3 / 0 / 1` |
-| 3. Algolia object purge | outstanding |
-| 4. Cache purge | outstanding |
-| 5. Upstream `supabase_vendor_id` clear + record delete | outstanding |
+| 3. Algolia object purge | **done** — by the nightly sweep, not by hand; verified 2026-09-11 |
+| 4. Cache purge | **n/a** — production runs `cache.enabled` off, so there was nothing to purge |
+| 5. Upstream `supabase_vendor_id` clear + record delete | **done** — verified 2026-09-11 |
+
+### Close-out verification, 2026-09-11 (prod at `c9f18886`)
+
+| Check | Result |
+|---|---|
+| `/vendors/bluebeam` | 301 → `/vendors/nemetschek-group` |
+| `sitemap.xml` | `bluebeam` absent, `nemetschek-group` present |
+| `production_vendors` object `b52e0001-…` | absent — `ops:purge-algolia-orphans` dry run reports `0/1 target(s) present` |
+| Upstream record `recyPyhW3fe9p73Qe` | deleted — `get_vendor` returns `Vendor not found` |
+
+**Step 3 completed itself, and that is worth understanding rather than filing away.** Once
+`apply.sql` deleted the D1 row on 2026-09-07, the `production_vendors` object had no
+promoted D1 row behind it and became an ordinary orphan. The 09:00 sweep deletes those
+automatically. One orphan against ~165 vendors is 0.6%, comfortably inside both halves of
+`DEFAULT_SAFETY_CAP` (50 absolute, 20% fractional), so the pass was never refused.
+
+Do not read that as "the Algolia step is always automatic". It held here because the
+orphan count was small. A larger retraction can exceed the cap, at which point the sweep
+refuses **that index's** deletes wholesale — all of them, not just the excess — while the
+other two indexes sweep normally (the cap is evaluated per entity index, in `sweepEntity`).
+The refusal surfaces three ways, none of which page anyone: a `console.warn`, the
+`aeci.algolia.orphans_skipped_cap` gauge, and a warn-level PostHog log line from the cron
+naming how many indexes were refused. See AECI-865, where 277 orphaned `integrations`
+objects were refused for three consecutive nights and nothing escalated. Run the dry run
+rather than assuming either outcome:
+
+```
+pnpm --filter @aeci/api ops:purge-algolia-orphans -- --env production --ids vendors:b52e0001-8b9e-40c5-87fc-953c2e0dd843
+```
 
 ## What this removes
 
