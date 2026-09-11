@@ -126,7 +126,10 @@ design has to respect — Trimble Unity is row 2, not row 1:
   Unlike every other redirect in `server-runtime.ts` this map is **mutable**, so it needs its own
   `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retires the
   Bluebeam hardcode. Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
-  typed query.
+  typed query. **Ownership note:** the in-code comment at `apps/web/src/server-runtime.ts:1374` still
+  assigns this map to "AECI-595's retract path", which is stale — AECI-595 closed 2026-09-07 and its
+  remainder is the retraction-feed consumer (AECI-811), not a redirect table. Whoever builds B updates
+  that comment to point here.
 - **C — Algolia one-way synonyms (old → new).** Rejected on the existing precedent:
   `docs/SEARCH_RANKING.md:113` already declined synonyms for the alias job because they are index-level
   configuration outside code lockstep. Adopting them now would split alias handling across two
@@ -192,6 +195,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 2. **Rung-2 operating cost.** AECi-verified is human work; decide the weekly verification budget and whether the queue surfaces in the admin panel (relates to the admin-panel track, AECI-572).
 3. **Stack-aware discovery: Stage 3 stretch or Stage 4 anchor?** It is the largest net-new surface on the list and the only one needing a reader-side account model beyond reviews.
 4. **Linear mechanics.** Proposed: a **"Stage 2.1 Vendor Activation"** project (`STAGE_2_1_SPEC.md`), a **"Stage 2.5 Hardening"** project (the §3 moves) and a **"Stage 3"** project seeded with epic parents per pillar; the pSEO project either folds in or gains a Stage 3 label and stays standalone. Epic branches per the Stage 2 convention only where a pillar carries a companion spec.
+5. **Branch model.** Does Stage 3 reuse the long-lived `stage-2`-style integration branch (ADR 0019 pattern → a `stage-3` branch after the Stage 2 merge), or move to trunk-ish now that prod promotes by SHA? Default: repeat ADR 0019 with `stage-3`.
 6. **Rebrand handling: which mechanism, and does consolidation count as in-scope?** §2.6 is a
    **bookmarked survey, not a design.** Four things must close before it can be decomposed
    (**AECI-863**): (a) pick the mechanism set — A alone, A+B, or A+B+D; (b) decide whether N:1
@@ -200,8 +204,6 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
    admin action, noting that `products.name` is promote-only today; (d) confirm the `former_names`
    shape (flat string list vs. dated entries), because D needs dates and A does not, and choosing the
    flat list first makes D a migration. Until (a)–(d) are answered, **do not seed sub-issues.**
-
-5. **Branch model.** Does Stage 3 reuse the long-lived `stage-2`-style integration branch (ADR 0019 pattern → a `stage-3` branch after the Stage 2 merge), or move to trunk-ish now that prod promotes by SHA? Default: repeat ADR 0019 with `stage-3`.
 
 ---
 
