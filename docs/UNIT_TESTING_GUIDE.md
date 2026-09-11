@@ -115,7 +115,6 @@ Cover:
 - User interactions: simulate the interaction, assert the resulting state change or emitted output
 - Form validators: dispatch the input, assert the error state
 - Output emissions: spy on the output, trigger the action, assert it emitted with the right value
-- Both themes: if the component has theme-dependent behavior, test both light and dark
 
 Prefer semantic queries (`querySelector('main[aria-label]')`, `getByRole` if `@testing-library/angular` is in use) over CSS class selectors or `data-testid` — fall back to `data-testid` only when no semantic anchor exists (e.g. projected slot markers in a host fixture).
 

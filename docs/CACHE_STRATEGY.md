@@ -1,7 +1,7 @@
 # AEC Integrations — Edge Cache Strategy
 
 **Status:** Active — source of truth for AECi edge caching
-**Model:** Native Cloudflare Workers Cache (a cache HIT skips the SSR Worker). Design & rationale in [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0010](adr/0010-promote-purges-cloudflare-directly.md)).
+**Model:** Native Cloudflare Workers Cache (a cache HIT skips the SSR Worker). Design & rationale in [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0028](adr/0028-promote-purges-cloudflare-directly.md)).
 **Supersedes (for caching specifics):** `STAGE_1_SPEC.md` §9.1 / §9.2 / §9.3
 **Established by:** Phase 2 (`STAGE_1_PHASE_2_SPEC.md` §8); migrated to native Workers Cache by the AECI-314 epic (WC-1…WC-11 / AECI-315…325)
 **Companion docs:** `STAGE_1_SPEC.md`, `STAGE_1_PHASE_2_SPEC.md`, `API_CONTRACTS.md`, `CICD_PLAN.md`, `OBSERVABILITY.md`
@@ -175,7 +175,7 @@ Callers of `/admin/purge`:
 - CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
+**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
 **(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
 /api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
@@ -299,7 +299,7 @@ The home page's `index:home` tag is the one deliberate exception: it is **not** 
 > purge by tag manually via `POST /admin/purge` rather than assuming the promote did
 > it.
 
-Automated callers beyond promote/moderation (e.g. a Supabase webhook on row update) are Phase 4+. The Cloudflare Queue fronting cross-Worker purge — the "Option C" ADR 0010 deferred — **landed in WC-5**.
+Automated callers beyond promote/moderation (e.g. a Supabase webhook on row update) are Phase 4+. The Cloudflare Queue fronting cross-Worker purge — the "Option C" ADR 0028 deferred — **landed in WC-5**.
 
 Implementation of the endpoint shape, rate-limit handling, and telemetry wiring landed in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10); the promote→purge wiring in [AECI-105](https://linear.app/aec-integrations/issue/AECI-105); the cross-Worker queue purge in [AECI-319](https://linear.app/aec-integrations/issue/AECI-319) (WC-5).
 
@@ -405,7 +405,7 @@ The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-
 
 ## 8. Cross-references
 
-- [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) — the decision record for the native Workers Cache + gateway + Cloudflare-Queue-purge model this doc describes (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0010](adr/0010-promote-purges-cloudflare-directly.md)). The migration shipped across the AECI-314 epic, **WC-1…WC-11 / AECI-315…325**.
+- [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) — the decision record for the native Workers Cache + gateway + Cloudflare-Queue-purge model this doc describes (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0028](adr/0028-promote-purges-cloudflare-directly.md)). The migration shipped across the AECI-314 epic, **WC-1…WC-11 / AECI-315…325**.
 - `STAGE_1_SPEC.md` — overall Stage 1 contract; **§9.1a / §9.1b** remain authoritative for the visitor-state-neutral rule and the pinned-404 trap. §9.1's original hand-rolled cache code block is **superseded** by §4a/§5 here (see the banner on §9.1); §9.2/§9.3 were already superseded.
 - `STAGE_1_PHASE_2_SPEC.md` §8 — originating section. Now superseded by this doc for caching specifics; the Phase 2 Spec keeps §8 as the historical record of why Phase 2 adopted the tag-based model (its §8.4 carries a superseded banner pointing here for the current invalidation transport).
 - `API_CONTRACTS.md` — response envelope shapes (the response objects this doc adds headers to).

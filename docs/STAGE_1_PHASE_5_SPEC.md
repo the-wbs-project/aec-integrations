@@ -124,7 +124,7 @@ Per `STAGE_1_SPEC.md` §4.7. Unauthenticated → redirect to `/auth/login?return
 Fields → `SubmitReviewSchema` (`API_CONTRACTS.md` §6.6, shared Zod): overall rating (1–5, required), onboarding rating (1–5, required), title (5–100), body (50–2000), role at company (optional enum), years using (optional 0–50), would recommend (optional yes/no/maybe). **Locale captured** from the served locale.
 
 - Built with **Signal Forms** (ADR 0009) reusing the shared Zod schema as the single validation source.
-- Star ratings (radio group) and the role-at-company **select** are the **first Angular Aria controls** — this issue satisfies **AECI-133** (ADR 0010): bound via `[formField]`, token-styled, both themes, axe-clean, full keyboard support.
+- Star ratings (radio group) and the role-at-company **select** are the **first Angular Aria controls** — this issue satisfies **AECI-133** (ADR 0010): token-styled, axe-clean, full keyboard support. They are realised as Aria **listbox / combobox stand-ins** (Aria@22 ships no `radio`/`select`) and bridge into Signal Forms via `[(value)]`+`(valueChange)`, **not** `[formField]` — the two deviations already recorded in §2 above. (This line read "bound via `[formField]`" and "both themes" until **AECI-600**; `apps/web/src/app/reviews/review-form.html` has always used `ngListbox`/`ngCombobox` + `(valueChange)`, and AECI-226 removed the dark theme. ADR 0010's "Companion docs hardened" note claimed this file was corrected in AECI-231; these two lines were missed.)
 - On submit → `POST /api/reviews` → confirmation: "Thanks — your review will appear once moderated (usually within 24 hours)."
 
 ### 5.2 `POST /api/reviews` (Phase 5.6)
@@ -190,7 +190,7 @@ Per `API_CONTRACTS.md` §6.10:
 
 ### 7.3 `/admin/reviews` queue UI (Phase 5.14)
 
-Per `STAGE_1_SPEC.md` §22.1: pending list (product, reviewer email, timestamp, queue age, full content, toxicity score), one-click approve/reject, **required** rejection-reason field, sortable by queue age/product/reviewer, pending-count badge. No Slack (Phase 6). Signal Forms + Aria; both themes; axe-clean.
+Per `STAGE_1_SPEC.md` §22.1: pending list (product, reviewer email, timestamp, queue age, full content, toxicity score), one-click approve/reject, **required** rejection-reason field, sortable by queue age/product/reviewer, pending-count badge. No Slack (Phase 6). Signal Forms + Aria; the sole light theme (AECI-226 — this read "both themes" until AECI-600); axe-clean.
 
 ---
 

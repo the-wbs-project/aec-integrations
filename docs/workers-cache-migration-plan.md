@@ -4,7 +4,7 @@
 > WC-1…WC-11 / **AECI-315…325** — is complete, and this planning doc has been reduced to a stub.
 > Where its content went:
 >
-> - **Decision & rationale** → **[ADR 0020 — Native Workers Cache + cross-Worker purge via Queue](adr/0020-workers-cache-and-queue-purge.md)** (amends ADR 0004; reverses ADR 0010's mechanism). The pinned Cloudflare facts, code touch-points, sequencing, and resolved open questions this file used to carry now live there.
+> - **Decision & rationale** → **[ADR 0020 — Native Workers Cache + cross-Worker purge via Queue](adr/0020-workers-cache-and-queue-purge.md)** (amends ADR 0004; reverses ADR 0028's mechanism). The pinned Cloudflare facts, code touch-points, sequencing, and resolved open questions this file used to carry now live there.
 > - **Current cache model** (tag vocabulary, TTLs, key normalization, invalidation, cookie hygiene, SEO/`noindex`, observability, local-dev) → **[`docs/CACHE_STRATEGY.md`](CACHE_STRATEGY.md)** — the source of truth.
 > - **Per-issue Context / Scope / Acceptance Criteria** → **Linear**, see the WC-N → AECI-N map below.
 >

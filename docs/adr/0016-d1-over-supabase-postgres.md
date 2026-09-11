@@ -198,7 +198,7 @@ filter by the authenticated user. A no-leakage test matrix is the acceptance gat
   request→Linear reconcile) keep the **cron → queue → consumer** topology
   (ADR 0013); only their reads/writes move to Drizzle. The watermark stays in
   `stats_cache`.
-- Cache-Tag purge (ADR 0010) is **DB-independent** and unchanged.
+- Cache-Tag purge (ADR 0028) is **DB-independent** and unchanged.
 
 ### 6. Environments & local dev
 
@@ -253,7 +253,7 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
    drizzle-team/drizzle-orm #2226/#4522, is still open). The inbound/outbound
    `x-d1-bookmark` round-trip is threaded API-Worker-only (write handlers ↔
    `bookmark-middleware.ts`); cross-client public-render freshness stays owned by
-   cache-tag purge (ADR 0010) + sub-second replica lag, and a global server-side
+   cache-tag purge (ADR 0028) + sub-second replica lag, and a global server-side
    bookmark store is a deferred follow-up. Read replication is still a Cloudflare
    **public beta** (no GA as of 2026-06) and must be enabled per-database
    (dashboard/REST `read_replication:{mode:"auto"}`) for the win to appear; the
@@ -268,7 +268,7 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
 - ADR 0002 (Prisma Accelerate) — **retired for the DB path** by this ADR.
 - ADR 0007 (Supabase CLI migrations) — **superseded** by drizzle-kit + `wrangler d1`.
 - ADR 0015 (Supabase Auth on Workers) — **retained, unchanged**.
-- ADR 0013 (Algolia jobs via queue), ADR 0010 (promote purges Cloudflare directly),
+- ADR 0013 (Algolia jobs via queue), ADR 0028 (promote purges Cloudflare directly),
   ADR 0008 (taxonomy reference data) — topology unchanged; reads move to Drizzle.
 - `docs/migrations.md` (rewritten), `docs/prisma.md` (deleted, AECI-278),
   `docs/AUTH_AND_RLS.md` (rewritten), `docs/REVIEW_APP_PROMOTE_API.md` (updated).

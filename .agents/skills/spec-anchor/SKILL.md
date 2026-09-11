@@ -131,7 +131,7 @@ Runs once a plan exists — after step 4, before any file is edited. If there's 
 The docs in this repo are not uniformly current. Resolve which source actually governs, in this order, before judging anything:
 
 1. **`CLAUDE.md` §"Constraints that aren't negotiable"** — the live constraint list.
-2. **`docs/adr/`** — the dated decision record, including reversals (ADR 0020 reverses ADR 0010's mechanism; ADR 0016 retires Prisma).
+2. **`docs/adr/`** — the dated decision record, including reversals (ADR 0020 reverses ADR 0028's mechanism; ADR 0016 retires Prisma).
 3. **The superseding doc named in the `CLAUDE.md` source-of-truth table** — the phase specs, `STAGE_1_5_SPEC.md`, `STAGE_2_VENDOR_PORTAL_SPEC.md`, `CACHE_STRATEGY.md`.
 4. **The companion doc for its topic** (the spec's own §1a rule).
 5. **`docs/STAGE_1_SPEC.md` §X.Y — last**, and only where nothing above contradicts it.

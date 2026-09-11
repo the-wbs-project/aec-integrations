@@ -646,7 +646,7 @@ jobs:
           fi
 
       # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
-      # used to ride along with CF_PURGE_API_TOKEN for the ADR 0010 zone purge;
+      # used to ride along with CF_PURGE_API_TOKEN for the ADR 0028 zone purge;
       # WC-10 (AECI-324) retired that transport (promote enqueues onto
       # `aeci-cache-purge-{env}` instead), so the zone id is pushed on its own
       # account. Warn-and-skip.

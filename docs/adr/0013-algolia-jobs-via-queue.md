@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-09
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-139 (incremental sync), AECI-140 (index-drift reconcile); revisits the "Cloudflare Queue deferred" posture of ADR 0010
+**Relates to:** AECI-139 (incremental sync), AECI-140 (index-drift reconcile); revisits the "Cloudflare Queue deferred" posture of ADR 0028 (numbered 0010 when this ADR was written)
 
 ---
 
@@ -16,7 +16,7 @@ The API Worker runs two daily Algolia jobs, registered as cron triggers in `apps
 
 Originally the `scheduled()` handler ran the work **inline**: `controller.cron` selected the function and awaited it in the cron invocation. That works, but couples scheduling to execution — the cron tick is the only producer, there is no separate retry surface, and forcing a run on demand has no natural entry point.
 
-The decision owner's stated preference is that recurring jobs be structured as **cron → enqueue → consume**: the cron is only a scheduler that drops a message; a queue consumer does the work. This is a deliberate revisit of ADR 0010's "a Cloudflare Queue is the deferred evolution" note — adopted here for the Algolia jobs specifically (not the promote-purge path, which stays direct).
+The decision owner's stated preference is that recurring jobs be structured as **cron → enqueue → consume**: the cron is only a scheduler that drops a message; a queue consumer does the work. This is a deliberate revisit of ADR 0028's "a Cloudflare Queue is the deferred evolution" note — adopted here for the Algolia jobs specifically (not the promote-purge path, which stays direct).
 
 ## Decision
 
@@ -38,4 +38,4 @@ The decision owner's stated preference is that recurring jobs be structured as *
 - ➖ No dead-letter queue yet: after `max_retries` a message is dropped. Acceptable because the daily cadence re-runs the job and the drift monitor (`aeci.algolia.index_drift`) catches a missed sync independently. Add a DLQ if that proves insufficient.
 - ↔ The `aeci.algolia.sync` / `aeci.algolia.index_drift` metrics are emitted from the consumer now instead of the cron invocation; tag values (`trigger:cron`) are unchanged, so dashboards/monitors are unaffected.
 
-This narrows ADR 0010's deferral: a Queue is now used for the Algolia jobs. The promote→purge path remains a direct Cloudflare call (ADR 0010 Option B) — unchanged.
+This narrows ADR 0028's deferral: a Queue is now used for the Algolia jobs. The promote→purge path remains a direct Cloudflare call (ADR 0028 Option B) — unchanged.
