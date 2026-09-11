@@ -57,6 +57,48 @@ curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'
   valid, and `/admin/audience` (AECI-586) keeps signup volume, churn and campaign
   attribution readable regardless.
 
+### 0a-bis. `app_started` is the browser-side liveness precondition (AECI-870)
+
+**The `curl` in §0 answers "is the PostHog snippet injected". It cannot answer "did
+the bundle actually execute in a real browser".** `app_started` does, and since
+AECI-870 the 05:00 digest reads it back and prints it as **"browser starts"** beside
+the consented `$pageview` figure.
+
+**The rule: zero browser starts on a day that had full-document arrivals is a
+defect, not a quiet site.** D1 counts an arrival when the SSR Worker serves the
+document; `app_started` fires only when the JavaScript bundle boots. The two
+disagreeing in that direction means one of three things, in rough order of
+likelihood:
+
+1. **A broken or unshipped bundle** — a deploy regression in the browser entry
+   point. Check `GET /_version` against `/api/version` first (AECI-92); a stale SSR
+   Worker is the usual cause.
+2. **A blocked collector** — the client posts straight to `us.i.posthog.com` with
+   no reverse proxy, so anything that blocks that host silences every browser.
+   Verify from a clean profile before blaming the code.
+3. **Genuinely no browser traffic at all**, i.e. every arrival that day was a
+   crawler or a proxy pool. That is a real and reportable finding, and it is the
+   reading the digest exists to make visible.
+
+**What a non-zero number does and does not license.** It licenses "the bundle
+runs". It does **not** license a person count — Tier 2 uses memory persistence, so
+persons ≈ starts — and it does not license "these were humans", because a real
+headless browser produces a start. Never subtract it from, or add it to, the
+unresolved-origin headline: the populations overlap and one of them is not
+consent-gated.
+
+**Two boundaries to hold when reading the series.** The event has **zero
+production rows before 2026-09-07** (it arrived with the Stage 2 promote), so any
+comparison across that date measures the deploy rather than the traffic. And the
+figure is silenced entirely by a tracker blocker, so it is a floor with an
+unmeasured gap rather than a census.
+
+If the digest prints *"Browser starts: unavailable"* instead of a number, the read
+itself failed and the reason is in the parentheses — `posthog_credentials_missing`
+(the `phx_` `POSTHOG_QUERY_API_KEY`), `posthog_http_*` (a vendor outage), or
+`admin_lookup_failed` (D1). That is a missing check, not a passing one, and it is
+the same fail-open posture as the `$pageview` join beside it.
+
 ### 0a. Two operator toggles gate PostHog signals that the code cannot
 
 **Neither is a code problem and neither will be fixed by a deploy.** Until they are

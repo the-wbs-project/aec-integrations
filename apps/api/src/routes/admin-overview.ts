@@ -97,6 +97,8 @@ import {
   windowsForDay,
 } from '../lib/analytics-digest';
 import { HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from '../lib/page-view-predicates';
+import { readPosthogBrowserStarts, type BrowserStartsWindow } from '../lib/posthog-browser-starts';
+import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -115,6 +117,20 @@ const WEEK_DAYS = 7;
  *  Production defaults are the real ones. */
 export interface AdminOverviewDeps extends ExpensiveStatusDeps {
   now?: () => Date;
+  /**
+   * The AECI-870 browser-start read, injected so specs never reach PostHog.
+   *
+   * A seam of its own rather than a reuse of `ExpensiveStatusDeps.fetchImpl`:
+   * that one is threaded into the data-quality logo probe, and a spec that
+   * stubbed it to assert on logo URLs would silently start answering PostHog
+   * queries too. Production default is the module's own implementation, shared
+   * verbatim with the 05:00 digest so the two surfaces cannot diverge.
+   */
+  readBrowserStarts?: (
+    env: Env,
+    db: Db,
+    window: BrowserStartsWindow,
+  ) => Promise<PosthogBrowserStartsOutcome>;
 }
 
 export function createAdminOverviewHandler(
@@ -181,6 +197,7 @@ export function createAdminOverviewHandler(
       catalog,
       freshness,
       notes,
+      browserStarts,
     ] = await Promise.all([
       countViewsExcludingInternal(db, dayW, 'human', filter),
       countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
@@ -212,6 +229,15 @@ export function createAdminOverviewHandler(
         arrivalCoverage: metrics.arrivalCoverage,
         degradedDays: { degraded: degradedDays.size, requested: chartW.days },
       }),
+      // AECI-870. The ONE network read in this fan-out, and it is gated on
+      // `?recompute=1` alongside the other two network-dependent items (§13 D8) —
+      // a default dashboard load must not query an external vendor. It sits here,
+      // among the D1 reads, rather than beside `runExpensiveStatusItems` below,
+      // so its single connection is released before the logo probe and the
+      // Algolia queries open theirs (AECI-666's ~6-connection budget).
+      query.recompute
+        ? (deps.readBrowserStarts ?? readPosthogBrowserStarts)(c.env, db, digestWindow)
+        : Promise.resolve(null),
     ]);
 
     const allNotes: AdminNote[] = [...notes, internalFilterNote(filter)];
@@ -287,6 +313,20 @@ export function createAdminOverviewHandler(
           coverage: metrics.arrivalCoverage.coverage,
           degraded: arrivalTelemetryDegraded(metrics.arrivalCoverage),
         },
+        // AECI-870. Null in TWO states that the panel renders identically and
+        // that `browser_starts_unavailable` tells apart: the read was not asked
+        // for (the default load, already covered by `requires_recompute`), or it
+        // ran and failed. Never a zero — zero starts is a real and alarming
+        // value, so it must not be the shape a failure takes.
+        browser_starts: browserStarts?.ok
+          ? {
+              starts_all: browserStarts.starts.startsAll,
+              starts: browserStarts.starts.starts,
+              search_referred: browserStarts.starts.searchReferred,
+            }
+          : null,
+        browser_starts_unavailable:
+          browserStarts && !browserStarts.ok ? browserStarts.reason : null,
       },
       audience: {
         new_sign_ins: computeDelta(metrics.newUsers),
