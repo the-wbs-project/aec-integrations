@@ -32,6 +32,9 @@ const PARAMS_BY_CODE: Partial<Record<AdminNoteCode, AdminNote['params']>> = {
   partial_day: { day: '2026-08-13' },
   bot_classification_incomplete: { rows: 42, window_from: '2026-08-12', window_to: '2026-08-13' },
   referrer_source_incomplete: { rows: 7 },
+  // AECI-836 — the note is count-gated now, so its presence already means a
+  // non-zero, and it carries the figure for a `curl` reader.
+  operator_leak_is_an_inference: { rows: 22 },
   automation_filter_applied: { flagged: 163 },
   catalog_series_is_additions_only: { metric: 'catalog.products_created' },
   catalog_series_starts_at: { earliest_day: '2026-05-01' },

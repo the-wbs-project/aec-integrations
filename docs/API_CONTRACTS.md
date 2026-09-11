@@ -2627,7 +2627,8 @@ export const AdminNoteCodeSchema = z.enum([
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
   'corroborated_is_a_referrer_floor',  // a FLOOR: stripped headers land in Direct (AECI-683)
-  'operator_leak_is_an_inference',     // (hash, ASN) match, not a verified session (AECI-683)
+  'operator_leak_is_an_inference',     // (hash, ASN) match, not a verified session (AECI-683).
+                                       // GATED: only when operator_leak_excluded > 0 (AECI-836)
   'series_within_operator_lookback',   // AECI-827: the last 30 days are not final (ADR 0027)
   // AECI-745 — the automation filter, in its two states. Two codes rather than
   // one with a flag: "it ran" and "it failed" are read by different people.

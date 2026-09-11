@@ -703,7 +703,10 @@ excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operat
   and are excluded silently. This one is a judgement about identity, so the digest prints
   `operatorLeakViews`, `job_runs` records it, and `/admin/overview` returns
   `operator_leak_excluded` with an `operator_leak_is_an_inference` note. Silence here would be the
-  same failure the headline number itself was guilty of.
+  same failure the headline number itself was guilty of. **All three suppress themselves when the
+  figure is zero** (AECI-836 brought the note into line with the other two): there is no inference
+  to disclose on a day the retro-join removed nothing, and a caveat with no number beside it
+  teaches the reader to skip the ones that have one.
 - **It does not reach every leaked row, by design.** On 2026-08-26 the decomposition put ~26 views on
   the operator; the rule recovers **22**. The other four sit on UA hashes that never carried an
   `is_operator = 1` row of their own, so no pair proves them. Recovering those would mean widening to
