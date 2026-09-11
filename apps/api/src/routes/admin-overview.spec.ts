@@ -347,6 +347,48 @@ describe('GET /api/admin/overview — the honesty envelope', () => {
     expect(codes(body)).toContain('direct_is_mixed_bucket');
     expect(codes(body)).toContain('visitor_definition_approximate');
   });
+
+  // AECI-836. The note explains how an exclusion was INFERRED, so it owes the
+  // reader a figure to attach to. These two pin the note to `operator_leak_excluded`
+  // in both directions rather than to a literal count — the invariant is that the
+  // two agree, which is what the emit site can no longer break.
+  it('omits the operator-leak note entirely when nothing was excluded', async () => {
+    // `seedDay()` writes no `is_operator = 1` row, so no pair can match and the
+    // figure is 0. The note used to fire here anyway, with no exclusion anywhere
+    // on the screen and no number beside it.
+    await seedDay();
+    const body = await overview();
+    expect(body.traffic.operator_leak_excluded).toBe(0);
+    expect(codes(body)).not.toContain('operator_leak_is_an_inference');
+  });
+
+  it('emits the operator-leak note, carrying the count, when a pair matched', async () => {
+    await seedDay();
+    // One verified operator row on the same (user_agent_hash, cf_asn) pair as the
+    // two Procore views above. `is_operator` fails open on an expired token, so
+    // those two are indistinguishable from a visitor on the row itself — only the
+    // pair identifies them, which is the inference the note discloses. The anchor
+    // sits on `/admin`, a path §9.6 already excludes, so it adds no counted view.
+    await t.db.insert(pageViews).values({
+      path: '/admin',
+      isBot: false,
+      cfAsn: 23700,
+      cfCountry: 'ID',
+      userAgentHash: 'hash-a',
+      isOperator: true,
+      createdAt: `${DAY}T00:30:00.000Z`,
+    });
+
+    const body = await overview();
+    expect(body.traffic.operator_leak_excluded).toBe(2);
+
+    const leak = body.notes.find((n) => n.code === 'operator_leak_is_an_inference');
+    expect(leak).toBeDefined();
+    expect(leak?.severity).toBe('info');
+    // The note's own number IS the reported figure. A future change that gates
+    // the note on one value and reports another trips here.
+    expect(leak?.params?.rows).toBe(body.traffic.operator_leak_excluded);
+  });
 });
 
 describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () => {
