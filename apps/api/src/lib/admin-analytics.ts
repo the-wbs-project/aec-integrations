@@ -1280,9 +1280,10 @@ export async function trafficNotes(
  * automation filter had already subtracted from (AECI-745) and the operator-leak
  * exclusion had already trimmed (AECI-683), so the response told the operator
  * its numbers were unfiltered while shipping a number filtered twice. AECI-752
- * narrowed the wording to the axis it owns; the UI strings in
- * `apps/web/src/app/admin/{admin-notes.ts,notes/admin-note-list.ts}` track these,
- * so a `curl` and the screen still tell the same story.
+ * narrowed the wording to the axis it owns; the UI string in
+ * `apps/web/src/app/admin/admin-notes.ts` tracks these, so a `curl` and the
+ * screen still tell the same story. There is ONE UI string since AECI-835 — the
+ * second copy lived in `notes/admin-note-list.ts`, which is deleted.
  *
  * `message` stays operator text for curl and logs, so unlike the UI strings it
  * keeps naming the var and keeps distinguishing "unset" from "not requested" —

@@ -9,13 +9,24 @@ import type { AdminNote, AdminNoteCode } from '@aeci/shared';
  *
  * The `code` is the contract and the `params` are its data; `message` is a plain
  * English operator fallback for curl and logs and is deliberately **untranslated**
- * on the wire. So this component localizes from `code` + `params` and never renders
- * `message` — which is how "machine-readable notes rather than the UI hardcoding
- * prose" coexists with CLAUDE.md's unconditional i18n rule (§9.4).
+ * on the wire. So this component localizes from `code` + `params`, and renders
+ * `message` only for a code it has no prose for — which is how "machine-readable
+ * notes rather than the UI hardcoding prose" coexists with CLAUDE.md's
+ * unconditional i18n rule (§9.4).
  *
  * {@link NOTE_PROSE} is typed `Record<AdminNoteCode, …>`, so adding a code to the
  * shared enum is a **compile error here** rather than a note that silently
  * disappears from the UI. That is the whole point of the map being exhaustive.
+ * It is a compile-time guarantee, so {@link NOTE_PROSE_LOOKUP} adds the runtime
+ * half beside it: a `code` from an API newer than this build renders the wire
+ * `message` rather than throwing.
+ *
+ * **This is the panel's only note renderer** — AECI-835 folded in `AdminNoteList`
+ * (`notes/admin-note-list.ts`, a 15-of-32 `switch` on /admin/traffic and
+ * /admin/audience) and `system-status.ts`'s five-case `noteText`. Both carried
+ * their own `@@` ids and their own wording for codes this map already covered,
+ * so the same caveat read differently depending on which screen you were on.
+ * Add a string HERE, once. There is nowhere else to add it.
  *
  * `warn` notes take the Bone/Clay treatment already used by the requests queue's
  * duplicate + domain-mismatch chips (the console inherits the queues' visual
@@ -71,7 +82,7 @@ export class AdminNotes {
     this.notes().map((n, i) => ({
       key: `${n.code}-${i}`,
       warn: n.severity === 'warn',
-      text: NOTE_PROSE[n.code](n.params ?? {}),
+      text: NOTE_PROSE_LOOKUP[n.code]?.(n.params ?? {}) ?? n.message,
     })),
   );
 }
@@ -171,20 +182,32 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   //      `/admin/catalog` renders this component over
   //      `GET /api/admin/metrics/timeseries` notes (`catalog-coverage.ts`,
   //      `additions-table.ts`), and `admin-metrics.ts` passes the CALLER's
-  //      `exclude_internal`, which neither catalog caller sends.
+  //      `exclude_internal`, which neither catalog caller sends. `/admin/traffic`
+  //      reaches it the same way through `admin-traffic.ts`, and is the surface
+  //      where an operator can reach it with the var SET by leaving the toggle
+  //      off — which is why "is not configured" would be a false sentence.
   //   3. The metric carries no ASN — `admin-metrics.ts` builds its own message for
   //      that one, but the code, and so this string, is the same.
   //
-  // `AdminNoteList` renders the same code on /admin/traffic and /admin/audience
-  // and is state-agnostic for the same reason, in its own words.
+  // AECI-835 folded `AdminNoteList`'s separate string for this code into this
+  // one. It was state-agnostic for the same reason, in its own words.
   internal_filter_unavailable: () =>
     $localize`:@@admin.notes.internalFilterUnavailable:No internal-network (ASN) filtering is applied here, so these figures include any company-network traffic. Automation and operator self-traffic exclusions are applied where noted.`,
 
   internal_filter_applied: (p) =>
     $localize`:@@admin.notes.internalFilterApplied:Figures are reported both including and excluding these networks: ${str(p, 'asns')}:ASNS:. The figure that includes them is always the primary one.`,
 
+  // AECI-835. TWO screens receive this code, and the string has to be true on
+  // both: `runExpensiveStatusItems` (`apps/api/src/lib/admin-status.ts`) is
+  // called from `admin-system.ts` AND from `admin-overview.ts`, which merges its
+  // notes into the envelope on every default (`recompute=false`) load. Their
+  // controls are named differently — `/admin/system` renders "Run data-quality
+  // checks", `/admin/overview` renders "Recompute" — and only `/admin/system`
+  // renders the checks as a list, so the string names neither the button nor a
+  // direction. It says WHAT is stale and WHERE to refresh it, and nothing else.
+  // The pre-merge wordings each named a control the other screen lacks.
   requires_recompute: () =>
-    $localize`:@@admin.notes.requiresRecompute:Algolia drift is left out of this view because it needs network calls, and the data-quality checks shown are the last stored scheduled run. Use Recompute to run both live.`,
+    $localize`:@@admin.notes.requiresRecompute:Algolia drift isn't measured on load, and the data-quality checks shown are the last stored scheduled run. Use the recompute control on this page to run both live.`,
 
   algolia_credentials_absent: () =>
     $localize`:@@admin.notes.algoliaCredentialsAbsent:Algolia credentials are not configured in this environment, so index drift could not be measured.`,
@@ -241,3 +264,27 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   stub_actions_never_fetched: (p) =>
     $localize`:@@admin.notes.connectorStubActionsNeverFetched:${num(p, 'never_fetched')}:NEVER_FETCHED: of ${num(p, 'total')}:TOTAL: listings on this page have never had their action inventory fetched. That is not the same as having no actions: the inventory is fetched on demand, so most listings never carry one.`,
 };
+
+/**
+ * The same map, seen as partial. AECI-835.
+ *
+ * This is an ASSIGNMENT, not a cast: `Record<K, V>` is assignable to
+ * `Partial<Record<K, V>>`, so nothing is asserted and the declaration above is
+ * NOT weakened. {@link NOTE_PROSE} stays total over `AdminNoteCode`, which is
+ * the whole reason this component exists.
+ *
+ * What the alias buys is a lookup the compiler agrees may miss, which is the
+ * runtime truth: the admin clients are `http.get<T>()`-typed and never Zod-parse
+ * the response, so a `code` from an API newer than this build reaches
+ * {@link AdminNotes.rendered} as a key the map does not have. The fallback lives
+ * BESIDE the exhaustive map, never instead of it. Untranslated beats swallowed,
+ * and a caveat that silently disappears is the exact failure §1.1 exists to
+ * prevent.
+ *
+ * Do NOT "simplify" this by retyping `NOTE_PROSE` itself as `Partial`. That
+ * deletes the compile error, and it fails silently: the fallback would swallow
+ * the missing string into untranslated English and every test would stay green
+ * except the exhaustive sweep in `admin-notes.component.spec.ts`.
+ */
+const NOTE_PROSE_LOOKUP: Partial<Record<AdminNoteCode, (params: NoteParams) => string>> =
+  NOTE_PROSE;

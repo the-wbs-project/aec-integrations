@@ -293,8 +293,10 @@ describe('GET /api/admin/traffic/breakdown — validation and conventions', () =
   // AECI-752. `admin-traffic.ts` passes the CALLER's `exclude_internal` through,
   // which makes this the one surface that can emit `internal_filter_unavailable`
   // while the var IS configured. That state was untested everywhere, and it is
-  // exactly why `AdminNoteList`'s copy for this code is worded differently from
-  // `AdminNotes`': "not configured" would be false here.
+  // why the UI string for this code is state-agnostic: "not configured" would be
+  // false here. AECI-835 merged the two divergent UI strings into the one in
+  // `apps/web/src/app/admin/admin-notes.ts`, which is state-agnostic for exactly
+  // this reason.
   it('reports the ASN filter as not applied when the var is set but not requested', async () => {
     await seed();
     const body = await breakdown(`dimension=country&${RANGE}`, {

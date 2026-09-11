@@ -13,7 +13,7 @@ import { HorizontalBarChart } from '../charts/horizontal-bar-chart';
 import { LineChart } from '../charts/line-chart';
 import { StackedSeriesChart } from '../charts/stacked-series-chart';
 import { StatTile } from '../charts/stat-tile';
-import { AdminNoteList } from '../notes/admin-note-list';
+import { AdminNotes } from '../admin-notes';
 import { AdminTrafficApi } from './admin-traffic-api';
 import { dayKeyParts, formatInstant, formatThousands, type DisplayZone } from '../charts/format';
 import type { ChartCategory, ChartSeries } from '../charts/chart-types';
@@ -71,7 +71,7 @@ const BREAKDOWN_ROWS = 8;
  */
 @Component({
   selector: 'aec-admin-traffic',
-  imports: [AdminNoteList, HorizontalBarChart, LineChart, StackedSeriesChart, StatTile],
+  imports: [AdminNotes, HorizontalBarChart, LineChart, StackedSeriesChart, StatTile],
   templateUrl: './traffic.html',
   host: { class: 'aec-charts block' },
 })

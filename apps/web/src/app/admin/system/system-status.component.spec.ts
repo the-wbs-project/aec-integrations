@@ -29,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminCronRun,
   AdminDataQualityCheck,
+  AdminNoteCode,
   AdminSystemResponse,
   VersionResponse,
 } from '@aeci/shared';
@@ -542,11 +543,16 @@ describe('SystemStatus — cron liveness (AC 3)', () => {
     expect(row.textContent).not.toContain('Succeeded');
   });
 
+  // AECI-835. This fixture used to send `partial_day`, which was never an UNKNOWN
+  // code — it was a real code this screen's five-case switch happened not to
+  // cover, and that gap IS the divergence AECI-835 removed. Under the panel's one
+  // renderer it localizes, so the test only measured the bug it was meant to
+  // outlive. An unknown code is one the type system has never heard of.
   it('falls back to the API message for a note code it does not recognize', async () => {
     const system = makeSystem({
       notes: [
         {
-          code: 'partial_day' as const,
+          code: 'a_code_from_a_newer_api' as unknown as AdminNoteCode,
           severity: 'info',
           message: 'A brand new caveat the UI has no string for.',
         },

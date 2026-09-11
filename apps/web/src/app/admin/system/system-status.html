@@ -618,17 +618,10 @@
     >
       What this page can't tell you
     </h3>
-    <!-- Tracked by index, not by `code`: the API is free to attach two notes with
-         the same code and a duplicate track key is a runtime error (NG0955). -->
-    <ul role="list" class="space-y-2">
-      @for (n of notes(); track $index) {
-      <li
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-3 text-sm text-(--text-secondary)"
-      >
-        {{ noteText(n) }}
-      </li>
-      }
-    </ul>
+    <!-- AECI-835: the panel's one note renderer. It tracks `${code}-${index}`, so
+         the API staying free to attach two notes with the same code does not trip
+         a duplicate track key (NG0955). -->
+    <aec-admin-notes [notes]="notes()" />
   </section>
   }
 

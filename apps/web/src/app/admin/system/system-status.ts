@@ -5,11 +5,11 @@ import type {
   AdminCronRun,
   AdminDataQualityCheck,
   AdminNote,
-  AdminNoteCode,
   AdminSystemResponse,
   VersionResponse,
 } from '@aeci/shared';
 
+import { AdminNotes } from '../admin-notes';
 import { AdminSystemApi } from './admin-system-api';
 
 /** The sentinel both version endpoints return when `COMMIT_SHA` was never
@@ -42,8 +42,17 @@ const UNKNOWN_SHA = 'unknown';
  *
  * **3. Hardcode the API's prose.** Notes cross the wire as `code` + `params`;
  * `message` is an untranslated operator fallback for curl and logs (§6, §9.4).
- * The UI localizes from the code — {@link noteText} is that mapping, and an
- * unrecognized code degrades to the server's `message` rather than vanishing.
+ * The UI localizes from the code, and since AECI-835 it does so in ONE place for
+ * the whole panel: `AdminNotes` (`../admin-notes.ts`), whose map is exhaustive
+ * over `AdminNoteCode` and whose fallback still degrades an unrecognized code to
+ * the server's `message` rather than letting it vanish. This screen used to carry
+ * its own five-case `noteText` with its own `@@admin.system.note.*` ids, which is
+ * how the same caveat came to read differently here than on /admin/overview.
+ * Neither screen's `requires_recompute` wording survived the merge: this one
+ * named the "Run data-quality checks" button below, `AdminNotes`' named a
+ * "Recompute" control, and `runExpensiveStatusItems` feeds BOTH screens, so each
+ * sentence was false on the other. The merged string names no control by label
+ * and no direction.
  *
  * The ten data-quality checks are opt-in (§13 **D8** / §6): the default load
  * omits them because check #9 HTTP-probes logo URLs and check #10 costs three
@@ -53,7 +62,7 @@ const UNKNOWN_SHA = 'unknown';
  */
 @Component({
   selector: 'aec-system-status',
-  imports: [DatePipe, DecimalPipe],
+  imports: [DatePipe, DecimalPipe, AdminNotes],
   templateUrl: './system-status.html',
 })
 export class SystemStatus {
@@ -216,29 +225,6 @@ export class SystemStatus {
         return $localize`:@@admin.system.cron.outcome.failed:Failed`;
       case 'skipped':
         return $localize`:@@admin.system.cron.outcome.skipped:Skipped`;
-    }
-  }
-
-  /** Localized prose for a note, keyed off `code` (§9.4). An unrecognized code
-   *  falls back to the server's untranslated `message` so a newly-added code is
-   *  never silently swallowed. */
-  protected noteText(note: AdminNote): string {
-    const p = note.params ?? {};
-    switch (note.code as AdminNoteCode) {
-      case 'requires_recompute':
-        return $localize`:@@admin.system.note.requiresRecompute:Algolia drift isn't measured on load, and the data-quality checks below are the last stored scheduled run. Use "Run data-quality checks" above to run both live.`;
-      case 'algolia_credentials_absent':
-        return $localize`:@@admin.system.note.algoliaCredentialsAbsent:Algolia credentials are not configured on this environment, so index drift could not be measured.`;
-      case 'cron_liveness_unavailable':
-        return $localize`:@@admin.system.note.cronLivenessUnavailable:${p['unknown'] ?? ''}:unknown: of ${p['total'] ?? ''}:total: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. The scheduled liveness sweep is what detects a job that stopped firing altogether.`;
-      case 'stored_result_unreadable':
-        return $localize`:@@admin.system.note.storedResultUnreadable:A stored result from the ${p['job'] ?? ''}:job: job couldn't be read, so it's left out rather than shown in part.`;
-      // No longer emitted (the sweep is stored now), but kept so an older cached
-      // response still renders localized prose rather than the raw API message.
-      case 'orphan_sweep_not_persisted':
-        return $localize`:@@admin.system.note.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to PostHog. Its result is not stored, so it cannot be shown here.`;
-      default:
-        return note.message;
     }
   }
 

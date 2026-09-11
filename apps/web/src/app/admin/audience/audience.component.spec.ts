@@ -500,6 +500,9 @@ describe('AdminAudience', () => {
 
     expect(el.textContent).toContain('resubscribing clears that timestamp');
     expect(el.textContent).not.toContain('RAW OPERATOR TEXT');
+    // AECI-835 repointed this screen from `AdminNoteList` to the panel's one
+    // renderer. Nothing else here would notice if that were reverted.
+    expect(el.querySelectorAll('aec-admin-notes li')).toHaveLength(1);
   });
 
   it('interpolates the attribution note from its params, not from `rows`', async () => {

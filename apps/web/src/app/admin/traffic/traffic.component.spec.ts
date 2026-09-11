@@ -312,7 +312,11 @@ describe('AdminTraffic', () => {
     const { el } = await setup(
       makeApi({ timeseries: vi.fn(async () => makeTimeseries({ notes })) }),
     );
-    expect(el.textContent).toContain('42 views in this window have no bot classification');
+    // AECI-835 folded `AdminNoteList` into `AdminNotes`, whose string for this
+    // code names page views and says what happened to them.
+    expect(el.textContent).toContain(
+      '42 page views in this window were captured before bot classification',
+    );
     expect(el.textContent).not.toContain('RAW OPERATOR TEXT');
   });
 
@@ -328,7 +332,7 @@ describe('AdminTraffic', () => {
         breakdown: vi.fn(async () => makeBreakdown({ notes: [note] })),
       }),
     );
-    const rendered = el.querySelectorAll('aec-admin-note-list li');
+    const rendered = el.querySelectorAll('aec-admin-notes li');
     expect(rendered).toHaveLength(1);
   });
 
@@ -344,7 +348,9 @@ describe('AdminTraffic', () => {
       makeApi({ timeseries: vi.fn(async () => makeTimeseries({ notes })) }),
     );
     // Untranslated beats swallowed: a caveat that silently vanishes is the exact
-    // failure the honesty envelope exists to prevent.
+    // failure the honesty envelope exists to prevent. Since AECI-835 this is the
+    // caller-level guard for `AdminNotes`' own `?? n.message` fallback — before
+    // that component gained one, this repoint would have thrown here.
     expect(el.textContent).toContain('A caveat from a newer API.');
   });
 
