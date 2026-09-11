@@ -1453,6 +1453,30 @@ export const pageViews = sqliteTable(
     // server-side union.
     clientVerdict: text('client_verdict'),
 
+    // Which of our two writers originated this row: 'ssr-arrival' (the SSR
+    // Worker's post-render capture) or 'browser-spa' (the browser tracker's POST,
+    // proxied through the SSR `/api/*` passthrough). AECI-871 / §13 D18.
+    //
+    // WRITTEN FROM A TRUSTED HEADER ONLY — `PAGE_VIEW_WRITER_HEADER` in
+    // `@aeci/shared`, which the SSR Worker sets after stripping any client-supplied
+    // copy, exactly as it does for the `x-aeci-cf-*` set. It is NOT a copy of the
+    // body's `navigation` field and must never be derived from one. That is the
+    // whole point: `navigation` is client-controlled, and until AECI-871 a body
+    // saying `'spa'` was handed `client_verdict = 'browser'` with every header check
+    // skipped — the strongest verdict the system issues, on the one column built to
+    // catch the traffic that would forge it. `navigation` stays, as the writer's
+    // CLAIM; this is the trusted fact beside it.
+    //
+    // Null = no trusted statement, read as NO EVIDENCE — the §13 D16 rule for a
+    // null `client_verdict`, applied here for the same reason. Null on every row
+    // written before AECI-871 and not backfillable: nothing stored on an older row
+    // says which writer produced it (`navigation` is the claim, not the fact).
+    //
+    // No CHECK constraint, for the two reasons `client_verdict` above records: a
+    // log table must not drop a row on a constraint violation, and on D1 a CHECK
+    // edit triggers drizzle-kit's destructive table recreate.
+    writerProvenance: text('writer_provenance'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session
