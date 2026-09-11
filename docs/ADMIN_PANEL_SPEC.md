@@ -751,11 +751,11 @@ Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag
 3. **The UA hash is truncated in SQL**, not in the template (`substr(user_agent_hash, 1, 8)`). §9.7 permits a truncated pseudonymous id and forbids correlation beyond it; truncating at the query makes that a property of the contract instead of a habit of the UI, and the full hash never crosses the wire.
 4. **The feed's `source` / `country` dropdowns are fed by `traffic/breakdown`**, not by a duplicated vocabulary. The options are then exactly the values present in the selected window, the NULL bucket arrives as a real `key: null` group, and no list exists in two places waiting to drift. `ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) is how that bucket is selected, since a query string cannot carry a null.
 
-The UI half also lands three shared pieces under `apps/web/src/app/admin/` that P1.2/P1.4–P1.6 reuse: `AdminNotes` (the first rendering of `AdminNote` codes as localized prose), `AdminPaginator` (the panel's first real pagination — the moderation queues load one capped page), and `AdminSelect` (an Angular Aria combobox + listbox per ADR 0010 — **promoted to `apps/web/src/app/shared/aec-select/aec-select.ts` as `AecSelect` by AECI-606**, which needed the same control on the vendor dashboard; the move was behaviour-neutral and added only optional inputs).
+The UI half also lands three shared pieces under `apps/web/src/app/admin/` that P1.2/P1.4–P1.6 reuse: `AdminNotes` (the first rendering of `AdminNote` codes as localized prose, and since **AECI-835** the panel's only one — P1.4's `AdminNoteList` and P1.6's inline `noteText` switch were folded into it, so the "P1.4–P1.6 reuse this" claim above is now true rather than aspirational; see §14.3), `AdminPaginator` (the panel's first real pagination — the moderation queues load one capped page), and `AdminSelect` (an Angular Aria combobox + listbox per ADR 0010 — **promoted to `apps/web/src/app/shared/aec-select/aec-select.ts` as `AecSelect` by AECI-606**, which needed the same control on the vendor dashboard; the move was behaviour-neutral and added only optional inputs).
 
 **P1.5 implementation notes (AECI-579).** Contracts extend the same
 `packages/shared/src/api/admin-panel.ts`; handler in `apps/api/src/routes/admin-catalog.ts`
-over `apps/api/src/lib/admin-catalog.ts`. It renders `AdminNote` codes through the shared `AdminNotes` component landed by P1.3. Four choices are worth knowing before extending them:
+over `apps/api/src/lib/admin-catalog.ts`. It renders `AdminNote` codes through the shared `AdminNotes` component landed by P1.3, which since AECI-835 is the panel's sole note renderer. Four choices are worth knowing before extending them:
 
 1. **Coverage carries no `window`, and that is the point.** The three P1.1 endpoints aggregate over a UTC range. Coverage describes *current state* — "how many products have no logo" has no time range — so it reports `generated_at` / `source` / `notes` and nothing else from the envelope. Inventing a window would be the false precision §1.1 exists to prevent.
 2. **The catalog time series stayed on `/metrics/timeseries`.** The screen makes five reads on arrival: one coverage call plus four `catalog.*_created` series. Widening the coverage response to carry them would have put a second implementation of the same number behind the same screen, which is the failure mode P1.1's note 1 already guards against for the digest.
@@ -1680,24 +1680,54 @@ added 2026-09-11, is the same root cause reaching *behaviour*.
   *"Internal-traffic filtering is not available, so every figure here is unfiltered."* That
   sentence was true of the ASN filter and false of the screen, and it sat directly above a
   headline filtered twice. **Fixed 2026-09-09 by AECI-752**, which narrowed every one of the five
-  affected strings — two in `AdminNotes`, two in `AdminNoteList`, and the wire `message` in
+  affected strings — two in `AdminNotes`, two in `AdminNoteList` (deleted by AECI-835; `AdminNotes`' pair is what survives), and the wire `message` in
   `internalFilterNote` — to the ASN axis. No linter can catch prose going stale; what the fix
   leaves behind instead is UI prose that depends on no state at all.
   `internal_filter_unavailable` fires in three states — the var is unset; it is set but the
-  request did not ask; the metric carries no ASN — so both UI strings now report only that no
+  request did not ask; the metric carries no ASN — so the UI string now reports only that no
   ASN exclusion was applied, never why. *"Is not configured"* is false in the second state, and
   `/admin/catalog` reaches that state through `GET /api/admin/metrics/timeseries`, which passes
   the caller's `exclude_internal`. The wire `message` is the deliberate exception: it names the
   var and distinguishes the states, because a `curl` reader is the person who can act on it.
   The tests pin the ABSENCE of the over-broad phrasing rather than today's sentence.
-- **§6's P1.3 note (this doc) says there is one shared note renderer. There are three.**
-  `AdminNotes` (`admin-notes.ts`) is the exhaustive one it describes; `AdminNoteList`
-  (`notes/admin-note-list.ts`) renders the same codes on `/admin/traffic` and `/admin/audience`
-  with different `@@` ids and divergent wording; and `system/system-status.ts` carries a partial
-  map for the five system codes. AECI-752 corrected the copy in the first two and did not merge
-  them — consolidating is a real change, not a copy fix. **Still open**, and untracked at the
-  time of writing. Until it closes, a note-string change has to be made in up to three places,
-  which is the same failure mode as the bullet above with a shorter fuse.
+- ~~**§6's P1.3 note (this doc) says there is one shared note renderer. There are three.**~~
+  **Closed 2026-09-11 by AECI-835.** There is now exactly one: `AdminNotes` (`admin-notes.ts`),
+  whose `NOTE_PROSE` is an exhaustive `Record<AdminNoteCode, …>`, so a code added to the shared
+  enum is a compile error rather than a note that silently vanishes. `AdminNoteList`
+  (`notes/admin-note-list.ts`, a 15-of-32 `switch`) and `system-status.ts`'s five-case `noteText`
+  were deleted and their call sites repointed, so `/admin/traffic`, `/admin/audience` and
+  `/admin/system` now render the same component as the other six surfaces. Twenty-two duplicate
+  `@@` ids went with them; there was no translation cost, because `apps/web/src/locale/messages.xlf`
+  carries no `admin.*` id and is deliberately stale.
+
+  Three things are worth knowing before touching it. **The unknown-code fallback was kept**, and
+  now sits BESIDE the exhaustive map rather than instead of it: `NOTE_PROSE_LOOKUP` is a
+  `Partial<Record<…>>` *alias* of the same object, so the lookup may miss at runtime and the
+  declaration's totality is not weakened to buy that. Retyping `NOTE_PROSE` itself as `Partial`
+  would delete the compile error the component exists for, and would fail **silently** — the
+  fallback would swallow the missing string into untranslated English and every test would stay
+  green except the exhaustive sweep in `admin-notes.component.spec.ts`. **One string names no
+  control, deliberately:** `requires_recompute` reaches TWO screens, not one.
+  `runExpensiveStatusItems` (`apps/api/src/lib/admin-status.ts`) is called from
+  `admin-system.ts` *and* from `admin-overview.ts`, which merges its notes into the envelope on
+  every default (`recompute=false`) load, so `/admin/overview` renders the code too. Their
+  controls are labelled differently — `/admin/system` has "Run data-quality checks",
+  `/admin/overview` has "Recompute" — and only `/admin/system` renders the checks as a list
+  below the note. Each pre-merge wording named the other screen's missing button, so neither
+  survived: the merged string says what is stale and points at "the recompute control on this
+  page", naming no label and no direction. The test pins the ABSENCE of both old phrasings
+  rather than today's sentence. And **the merge fixed a live defect the issue had not counted**:
+  five codes — `automation_filter_applied`, `automation_filter_did_not_run`,
+  `operator_leak_is_an_inference`, `corroborated_is_a_referrer_floor` and
+  `series_within_operator_lookback` — fell through `AdminNoteList`'s `default:` to the wire
+  `message`, which is English by contract (§6 item 3), so `/admin/traffic` was shipping
+  untranslated caveats. `series_within_operator_lookback` is emitted on the default view.
+
+  What the consolidation deliberately did NOT do is unify *placement*. The eleven call sites,
+  across seven screens, still differ — notes above the figures on Overview and Catalog, mid-page
+  on Activity, per-section on Connectors (four sites on `/admin/connectors/:id` alone), a closing
+  section on Traffic / Audience / System — and only three carry a heading of their own. That is a
+  caller-side design decision per screen, not a property of the renderer.
 - **A note's EMIT CONDITION has no mechanical link to the figure it qualifies either — fixed
   2026-09-11 by AECI-836.** The two bullets above are about prose going stale. This is the same gap one
   level down, and it is worse because it is behaviour rather than wording.

@@ -13,7 +13,7 @@ import { HorizontalBarChart } from '../charts/horizontal-bar-chart';
 import { LineChart } from '../charts/line-chart';
 import { StackedSeriesChart } from '../charts/stacked-series-chart';
 import { StatTile } from '../charts/stat-tile';
-import { AdminNoteList } from '../notes/admin-note-list';
+import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
 import { AdminAudienceApi } from './admin-audience-api';
 import {
@@ -97,7 +97,7 @@ const MONTHS = [
 @Component({
   selector: 'aec-admin-audience',
   imports: [
-    AdminNoteList,
+    AdminNotes,
     AdminPaginator,
     HorizontalBarChart,
     LineChart,

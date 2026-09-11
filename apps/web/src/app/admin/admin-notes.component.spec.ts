@@ -95,6 +95,11 @@ describe('AdminNotes', () => {
 
     const items = el.querySelectorAll('li');
     expect(items).toHaveLength(ALL_CODES.length);
+    // AECI-835 gave this component a `?? n.message` fallback, so this assertion
+    // now does double duty: it is the only thing proving the fallback is not
+    // MASKING a hole in `NOTE_PROSE`. Retyping that map as `Partial` would delete
+    // the compile error the component exists for, and every other test here would
+    // stay green. Do not weaken this line.
     expect(el.textContent).not.toContain(OPERATOR_FALLBACK);
     for (const li of items) {
       // Each row is a severity chip plus real prose — never an empty cell.
@@ -167,11 +172,63 @@ describe('AdminNotes', () => {
     expect(el.querySelectorAll('li')).toHaveLength(2);
   });
 
+  // ── AECI-835 — the forward-compatible fallback ────────────────────────────
+  // `NOTE_PROSE` is total over `AdminNoteCode`, so the ONLY way to reach the
+  // fallback is a code the type system has never heard of: an API newer than this
+  // build. That is a real state — the admin clients are `http.get<T>()`-typed and
+  // never Zod-parse the response — and before AECI-835 it threw, taking the host
+  // view with it. Untranslated beats swallowed, and swallowed beats nothing, but
+  // a blank screen is worst of all.
+  const FUTURE_CODE = 'a_code_from_a_newer_api' as unknown as AdminNoteCode;
+
+  it('renders the wire message for a code this build predates, rather than throwing', () => {
+    let el!: HTMLElement;
+    expect(() => {
+      el = render([makeNote({ code: FUTURE_CODE, message: 'A caveat from a newer API.' })]);
+    }).not.toThrow();
+    expect(el.querySelectorAll('li')).toHaveLength(1);
+    expect(el.textContent).toContain('A caveat from a newer API.');
+  });
+
+  it('still carries the severity chip on a code it has no prose for', () => {
+    // Severity is server-assigned and orthogonal to the prose map, so losing the
+    // string must not also lose the "this one changes your reading" signal.
+    const el = render([makeNote({ code: FUTURE_CODE, severity: 'warn', message: 'Newer.' })]);
+    expect(el.querySelector('li span:first-child')?.textContent?.trim()).toBe('Caveat');
+  });
+
+  it('puts the fallback beside the exhaustive map, not instead of it', () => {
+    const el = render([
+      makeNote({ code: FUTURE_CODE, message: 'A caveat from a newer API.' }),
+      makeNote({ code: 'algolia_credentials_absent' }),
+    ]);
+    expect(el.textContent).toContain('A caveat from a newer API.');
+    expect(el.textContent).toContain('Algolia credentials are not configured');
+  });
+
+  it('names no screen-specific control when it tells the operator to recompute', () => {
+    // AECI-835. TWO screens receive this code — `runExpensiveStatusItems` is called
+    // from `admin-system.ts` and from `admin-overview.ts`, which merges its notes in
+    // on every default load — and their controls are named differently:
+    // `system-status.html` renders "Run data-quality checks", `overview.html` renders
+    // "Recompute". Each pre-merge wording named the other screen's missing button.
+    // Pins the ABSENCE of both, not today's sentence.
+    const el = render([makeNote({ code: 'requires_recompute' })]);
+    expect(el.textContent).not.toContain('Run data-quality checks');
+    expect(el.textContent).not.toContain('Use Recompute');
+    expect(el.textContent).not.toContain('below');
+    expect(el.textContent).toContain('recompute control on this page');
+  });
+
   describe('accessibility (structural)', () => {
     it('is a named list, adds no headings, and introduces no nested landmark', () => {
       const el = render([makeNote({ code: 'requires_recompute' })]);
       const list = el.querySelector('ul[role="list"]');
       expect(list?.getAttribute('aria-label')).toBeTruthy();
+      // Still true after AECI-835 pointed /admin/traffic, /admin/audience and
+      // /admin/system at this component: their <section aria-labelledby> and <h3>
+      // live in the CALLER's template, so the component still contributes no
+      // heading and no landmark of its own.
       expect(el.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
       // An <aside> here nests a `complementary` landmark inside <main>, which
       // axe flags (landmark-complementary-is-top-level). The list carries the
