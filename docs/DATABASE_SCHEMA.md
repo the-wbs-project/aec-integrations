@@ -2353,7 +2353,7 @@ Production starts empty at launch. Initial bulk migration from Airtable happens 
 
 ## 15. Backups and retention
 
-Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNBOOKS.md`, pending). Defaults:
+Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)

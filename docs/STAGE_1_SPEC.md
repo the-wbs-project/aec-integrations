@@ -1,8 +1,8 @@
 # AEC Integrations — Stage 1 Specification
 
 **Version:** 1.7
-**Date:** May 2026
-**Status:** Draft for build
+**Date:** September 2026
+**Status:** Shipped — Stage 1 is live in production (apex cutover 2026-07, AECI-247/277). This document is retained as the build contract and as the record of what was built. Where a later document supersedes a section, the section says so; the `CLAUDE.md` source-of-truth table is the index.
 
 ---
 
@@ -26,26 +26,13 @@ Stage 1 is a public, read-only directory of AEC software products, vendors, and 
 
 ## 1a. Companion Documents
 
-This spec is the master document. Detailed content for the following areas lives in dedicated companion documents, all in the repo root alongside this one.
+**The index is the `CLAUDE.md` "Documents that are source of truth" table.** It has one row per topic and is kept current as documents are added, which is why `CLAUDE.md` calls it the complete index.
 
-| Document | Covers | Status |
-|---|---|---|
-| `DATABASE_SCHEMA.md` | All Supabase tables, columns, indexes, relationships, Airtable migration plan | Complete |
-| `API_CONTRACTS.md` | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules | Complete |
-| `AUTH_AND_RLS.md` | Authorization model, role definitions, RLS policies per table (GRANTs/RLS/helpers ship as numbered migrations — AECI-87) | Complete |
-| `CICD_PLAN.md` | GitHub Actions pipeline, environments, deployments, rollback, secrets | Complete |
-| `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
-| `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
-| `STAGE_1_5_SPEC.md` | **Stage 1.5 — Integration Redesign**: product-PAIR page + claim/attestation model (supersedes the integration portions of §3.1 / §4.4 / §7.5) | Complete |
-| `DATA_OBJECT_VOCABULARY.md` | The frozen, closed `data_object` controlled vocabulary (+ generated `data-object-vocabulary.json` mirror) both apps seed from | Complete |
-| `TRADES_VOCABULARY.md` | The closed `trade` controlled vocabulary — the fourth taxonomy facet (§5.5a) — plus its tagging rule, publication gate, and generated `trades-vocabulary.json` mirror | Proposed (AECI-539) |
-| `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
-| `BRAND_GUIDELINES.md` | Canonical brand colors (light; dark variants documented but not shipped in Stage 1 — AECI-226), Bone reclassification, Clay restriction, visual principles | Complete |
-| `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
-| `OPERATIONAL_RUNBOOKS.md` | Incident response, vendor dispute handling, recovery procedures | Pending (closer to launch) |
-| `STACK_VALIDATION_TEST.md` | Foundation stack test plan and results | Complete |
+A second index used to live here, and it drifted. It listed 13 of the 59 documents in `docs/`, marked `SEARCH_RANKING.md` "Pending" long after it shipped, and pointed at an `OPERATIONAL_RUNBOOKS.md` that was never created under that name — it shipped as `docs/RUNBOOKS.md`. Maintaining two indexes of the same set is what produced that, so this section now points at the one that is maintained instead of repeating it.
 
-When a section of this spec references one of these documents, the companion document is the source of truth for that area. This spec describes the architecture and intent; companion documents describe the implementation detail.
+Companion documents live in `docs/`, with three exceptions: `PRODUCT.md`, `DESIGN.md` and `ANGULAR_STYLE_GUIDE.md` sit at the repo root beside `CLAUDE.md`, and the logo construction spec sits at `branding/logo-construction.md`. Architecture Decision Records are indexed separately in `docs/adr/README.md`.
+
+When a section of this spec references one of these documents, the companion document is the source of truth for that area. This spec describes the architecture and intent; companion documents describe the implementation detail. Where the two disagree, the companion document is right — and where a later document supersedes a section of this spec outright, the section says so inline.
 
 ---
 
@@ -69,7 +56,7 @@ When a section of this spec references one of these documents, the companion doc
 | AI development | Claude Code (manual, against Linear issues) |
 | Vendor request routing | Linear via n8n native Linear node |
 | Product analytics | PostHog |
-| Performance, errors, logs | **Migrating Datadog → PostHog** (ADR 0024, dual-run). Datadog RUM + Logs is what alerts on production **today**; PostHog (OTLP logs + metrics, error tracking, web vitals) ships beside it and the Datadog leg is deleted at AECI-651 |
+| Performance, errors, logs | **PostHog only** (ADR 0024) — OTLP logs + metrics, error tracking, web vitals, and the §26.5 audit-log forward. The AECI-639 dual-run against Datadog ended when **AECI-651** deleted the Datadog leg; `docs/OBSERVABILITY.md` is canonical for the live plane |
 | Monorepo structure | `apps/web/`, `apps/api/`, `packages/shared/` |
 
 ---
@@ -412,13 +399,13 @@ Both submit to a Cloudflare Worker endpoint, which posts to an n8n webhook, whic
 
 ## 5. Data Model
 
-**The complete database schema lives in `DATABASE_SCHEMA.md`** — that document is the source of truth for all tables, columns, indexes, constraints, and the Airtable-to-Supabase migration plan.
+**The complete database schema lives in `DATABASE_SCHEMA.md`** — that document is the source of truth for all tables, columns, indexes, constraints, and the promotion pipeline that fills them.
 
-Supabase is empty at the start of Stage 1. The production data currently lives in Airtable (base `appy81IdGJY6Fngf9`) as the staging/research layer. Phase 2 of the build (see Section 16) includes:
+The application database is **Cloudflare D1**, reached from the API Worker through its native `DB` binding via Drizzle (ADR 0016). Supabase is retained for **Auth only**. The catalog is curated upstream in the review app and pushed into D1 by the promote protocol; it is never edited here directly. Phase 2 of the build (see Section 16) delivered:
 
-- Applying the full schema to a fresh Supabase project
-- Migrating curator-promoted records from Airtable to Supabase
-- Establishing the ongoing promotion pipeline
+- The D1 schema (`apps/api/src/db/schema.ts`), applied by drizzle-kit migrations
+- The first promote of curator-approved records into D1
+- The ongoing promotion pipeline (`docs/REVIEW_APP_PROMOTE_API.md`)
 
 ### 5.1 High-level domain map
 
@@ -434,15 +421,15 @@ The schema is organized into seven domains, all defined in `DATABASE_SCHEMA.md`:
 | Analytics and caching | `page_views`, `stats_cache` |
 | Future-ready | `translations` |
 
-### 5.2 Migration from Airtable
+### 5.2 Promotion from the review app
 
-The Airtable base remains the **curator workspace**. Supabase is the **production read store**. Curators flip `promotion_status` in Airtable to trigger one-way sync to Supabase. Full migration approach is documented in `DATABASE_SCHEMA.md` §13.
+The **review app** (`aec-integrations-review`, on its own Cloudflare D1 since AECI-655) is the **curator workspace**. This app's **D1 is the production read store**. Curators flip `promotion_status` in the review app, which pushes the record one way into D1 via `POST /api/promote` — async, kick-off/poll/collect (ADR 0021). The payload, idempotency keys and integration rule are in `docs/REVIEW_APP_PROMOTE_API.md`; the data-migration history is `DATABASE_SCHEMA.md` §13.
 
-### 5.3 RLS policies
+### 5.3 Authorization — app-layer, no RLS
 
-Row-level security is enabled on every table. Policy definitions are maintained in **`AUTH_AND_RLS.md`** — the source of truth for the authorization model.
+**D1 has no row-level security, no PostgREST and no GRANTs**, so the API Worker's request guard (`requireAuth()` / `requireAdmin()` in `apps/api/src/lib/authz.ts`) is the **only** authorization layer for app tables (ADR 0016). Every read carries its own ownership/visibility filter and there is no database backstop if one is forgotten; the no-leakage authz-matrix specs are what hold the line. **`AUTH_AND_RLS.md` (Layer 1) is the source of truth** for who can read and write what, and `DATABASE_SCHEMA.md` §12 says the same. §16 Phase 1 and §26.7 restate it.
 
-High-level intent:
+High-level intent, now Worker-enforced rather than policy-enforced:
 - Public read on directory tables (products, vendors, integrations, taxonomy) and approved reviews
 - Authenticated insert on reviews, with `reviewer_id` matching the auth UID
 - Owners can update their own pending reviews
@@ -461,7 +448,7 @@ This satisfies right-to-erasure while preserving the directory's content integri
 
 ### 5.5 Taxonomy facets (Categories, Audiences, Phases, Trades)
 
-The directory has **four independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql` (and `apps/api/seed/trades.sql`), applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+The directory has **four independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql` (and `apps/api/seed/trades.sql`), applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** curated content promoted from the review app.
 
 | Facet | Question it answers | Table | Browse route | Examples |
 |---|---|---|---|---|
@@ -504,7 +491,7 @@ The control is **client-side and stateless**: the whole vocabulary is already re
 
 Two consequences follow, and both are load-bearing:
 
-1. **The names must match the review app exactly.** Audiences resolve **find-or-create** in the promote flow (unlike trades, §5.5a), so a curation-side label that slugifies differently — "Mechanical Engineers" → `mechanical-engineers` — mints a *second*, near-duplicate term rather than matching the seeded one. The Airtable `Audiences` vocabulary must gain these six options under exactly these names.
+1. **The names must match the review app exactly.** Audiences resolve **find-or-create** in the promote flow (unlike trades, §5.5a), so a curation-side label that slugifies differently — "Mechanical Engineers" → `mechanical-engineers` — mints a *second*, near-duplicate term rather than matching the seeded one. The review app's `Audiences` vocabulary must gain these six options under exactly these names.
 2. **They start empty.** The seed writes `taxonomy_audiences` only, never the `product_*` joins (ADR 0008); tagging arrives through promote. The Audience facet has **no publication floor**, so until the review app tags products, each new term renders as a real but zero-count card on `/audiences`.
 
 **Coverage note.** The remaining discipline labels an AEC firm might name are already present under the facet's discipline-noun convention rather than a plural-people one: *Architects* → **Architecture**, *Civil/Structural Engineers* → **Civil / Structural Engineering**, *Landscape Arch.* → **Landscape Architecture**, *Interior Designers* → **Interior Design**, *Surveyors* → **Surveying/Geomatics**, *Construction* → **Construction Management** + **General Contracting**, *Business/Accounting* → **Accounting & Finance** + **Business Development**, *Marketing* → **Marketing & Communications**. Renaming the facet to plural-people labels was **not** done: `slug` is permanent public-URL identity, so the names would desync from the URLs they already own.
@@ -576,7 +563,7 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `POST /api/requests/correction`
 - `POST /api/track/pageview`
 
-**Admin (role-restricted via RLS):**
+**Admin (role-restricted by the Worker guard — `requireAdmin()`, §5.3):**
 - `GET /api/admin/reviews` — pending reviews queue
 - `PATCH /api/admin/reviews/:id` — approve or reject
 - `GET /api/admin/requests` — vendor requests queue
@@ -688,8 +675,8 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 ### 7.4 Sync strategy
 
 - **Initial bulk import**: a one-off `apps/api` CLI (AECI-138) that reuses the AECI-137 Drizzle/D1 transform (`apps/api/src/lib/algolia-transforms.ts`) to read **promoted** rows from D1 (via `wrangler d1 execute --remote`), transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
-- **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
-- **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
+- **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads D1 changes since the last watermark in `stats_cache`, pushes incremental updates to Algolia
+- **Write-through on promote**: the promote post-commit hooks upsert the affected records directly, so a promoted change reaches Algolia without waiting for the daily pass (ADR 0021)
 
 ### 7.5 InstantSearch integration
 
@@ -798,8 +785,8 @@ Angular's per-locale build emits a single `server.mjs` Worker entry that dispatc
 
 ### 8.2 Admin role
 
-- Set `profiles.role = 'admin'` manually in Supabase dashboard for Chris and Bill
-- Admin routes check `profiles.role === 'admin'` via Supabase RLS or middleware
+- `profiles` lives in **D1**, keyed to the Supabase Auth user id. Grant admin by setting `profiles.role = 'admin'` on that row — `wrangler d1 execute` against the target environment, or `apps/api/scripts/grant-local-admin.mjs` locally. The procedure is `AUTH_AND_RLS.md` §3.3
+- Admin routes check `profiles.role === 'admin'` in the **API Worker request guard** — `requireAdmin()` in `apps/api/src/lib/authz.ts`. There is no RLS behind it (§5.3)
 - No admin UI for granting admin in Stage 1 — manual SQL only
 
 ### 8.3 Stage 2 readiness
@@ -940,7 +927,7 @@ Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails
 
 **Bidirectional sync (audit trail):**
 
-Linear issue state changes (status, comments, assignees) post webhooks back to a Worker endpoint at `/api/webhooks/linear`. The Worker writes corresponding entries to `workflow_transitions` (see Section 26) so the audit trail captures the full workflow lifecycle in Supabase regardless of where the action originated.
+Linear issue state changes (status, comments, assignees) post webhooks back to a Worker endpoint at `/api/webhooks/linear`. The Worker writes corresponding entries to `workflow_transitions` (see Section 26) so the audit trail captures the full workflow lifecycle in D1 regardless of where the action originated.
 
 ---
 
@@ -965,10 +952,11 @@ Initial drafts produced from templates and reviewed by counsel before launch.
 
 Three layers, each with a specific job. They overlap intentionally where redundancy is useful (audit data also flows to the log plane, §26.5) but otherwise serve distinct purposes.
 
-> **Vendor state (ADR 0024, in flight).** The observability layer is migrating from **Datadog**
-> to **PostHog** as a **dual-run**: PostHog is where this is going, **Datadog is what is alerting
-> on production today**, and the Datadog half is deleted only by **AECI-651**. During an incident,
-> the console that pages you is still Datadog. Contract: `docs/POSTHOG_MIGRATION_SPEC.md`.
+> **Vendor state (ADR 0024) — one vendor: PostHog.** The observability layer moved from Datadog
+> to PostHog. The AECI-639 dual-run verified the swap against live traffic, **AECI-651** then
+> deleted the Datadog leg, and the 2026-09-03 Stage 2 merge carried that onto `main`. During an
+> incident, the console that pages you is PostHog. `docs/POSTHOG_MIGRATION_SPEC.md` is now the
+> build record of how the swap was done; `docs/OBSERVABILITY.md` is canonical for the live plane.
 >
 > Two companion docs now own the detail this section sketches pre-launch:
 > **`docs/ANALYTICS.md`** is the source of truth for the product event catalogue, naming rules,
@@ -987,14 +975,14 @@ Tracks what authenticated and anonymous users do on the site from the browser. B
 | **2 — operational** | **every visitor, including DNT/GPC browsers** | exception capture, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie |
 | **3 — product analytics** | consented visitors only; the banner **and** DNT/GPC are a hard deny | `$pageview` + the custom event catalogue, `identify`, vendor groups | localStorage |
 
-Tier 2 preserves the exact posture Datadog RUM has today (consent-independent, replay off) rather than narrowing error coverage to the consenting minority. Because it writes no identifier, each page load is a fresh anonymous id — error counts are **occurrence** counts, not affected-visitor counts. On consent grant the same client upgrades in place to Tier 3.
+Tier 2 preserves the exact posture Datadog RUM held before the swap (consent-independent, replay off) rather than narrowing error coverage to the consenting minority. Because it writes no identifier, each page load is a fresh anonymous id — error counts are **occurrence** counts, not affected-visitor counts. On consent grant the same client upgrades in place to Tier 3.
 
 **Session replay is off** (ADR 0024 D6/D5) — enabling it is a separate privacy review, not a config toggle. There is therefore no "RUM session" concept on this side.
 
 Client-side initialization in Angular app:
 - Pageview tracking automatic — **Tier 3 only**
 - Custom events (**the live catalogue is `docs/ANALYTICS.md` §4**; this list is the pre-launch sketch):
-  - `search_performed` — query, results count, filters applied, plus `status` / `duration_ms` / `results_bucket`, which absorbed the retiring `aeci.search.query` Datadog RUM action (§3.9). **Accepted narrowing:** search latency becomes a consented-slice number where the RUM action saw every search
+  - `search_performed` — query, results count, filters applied, plus `status` / `duration_ms` / `results_bucket`, which absorbed the retired `aeci.search.query` Datadog RUM action (§3.9). **Accepted narrowing:** search latency becomes a consented-slice number where the RUM action saw every search
   - `product_viewed` — product_id, source (search / browse / direct)
   - `integration_viewed` — integration_id
   - `review_submitted` — product_id
@@ -1006,7 +994,7 @@ Client-side initialization in Angular app:
 
 **PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context, **and Tier 3 sees only consented visitors**. The `page_views` table fills both gaps (Section 14.2) and is the consent-independent, authoritative count. Rule of thumb: when someone asks "how many", answer from `page_views`; when they ask "how many **converted**", answer from PostHog.
 
-### 14.2 Server-side page_views (Supabase)
+### 14.2 Server-side page_views (D1)
 
 A lean server-side log captured by the SSR Worker on every cacheable page request. Stores dimensions PostHog cannot see directly. Schema is defined in Section 5.1 — includes `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score`, hashed user agent, locale, theme, and denormalized profile role.
 
@@ -1031,17 +1019,17 @@ A lean server-side log captured by the SSR Worker on every cacheable page reques
 
 Single platform for performance, error tracking, logs, and audit-log forwarding.
 
-> **Two vendors, one plane, for now.** **Datadog is live and operating production** — ~50 custom
-> metrics, 26 applied monitors, 5 dashboards, and the runbooks on top (`docs/RUNBOOKS.md`,
-> `docs/POST_LAUNCH_MONITORING.md`). **PostHog is what it is migrating to** under ADR 0024, shipping
-> beside it (fan-out inside the per-Worker adapters) and deleting the Datadog leg only at
-> **AECI-651**. `docs/OBSERVABILITY.md` is canonical for the live plane while the migration is in
-> flight.
+> **One vendor: PostHog.** Datadog ran this plane through launch — ~50 custom metrics, 26 applied
+> monitors, 5 dashboards, and the runbooks on top. **AECI-651 deleted it**: both Worker adapters,
+> `@datadog/browser-rum`, `observability/datadog/`, every `DD_*` var and the CSP grants to the
+> intake hosts are gone, and the 2026-09-03 Stage 2 merge carried that onto `main`.
+> `docs/OBSERVABILITY.md` is canonical for the live plane, and `docs/RUNBOOKS.md` holds the only
+> surviving record of the 26 retired monitors' thresholds.
 
 **Frontend:** the **two-mode PostHog client** of §14.1 — exception capture (via an Angular
 `ErrorHandler`, because Angular swallows app errors before `window.onerror`), Core Web Vitals, and
-`app_started`, all on the anonymous Tier 2 slice. **Datadog Browser RUM stays live alongside it**
-until AECI-651. Session replay is off on both.
+`app_started`, all on the anonymous Tier 2 slice. Datadog Browser RUM ran beside it until
+AECI-651 removed it. Session replay is off.
 
 **Backend (both SSR Worker and API Worker):** a shared transport with thin per-Worker adapters
 pinning service identity. Structured JSON logs plus a curated `aeci.*` metric catalogue. Every
@@ -1066,7 +1054,7 @@ dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
 **Alerts:**
 - **Not to Slack.** Slack was dropped from the project entirely — alerts go to the operator by email, and the failure/threshold set with its live thresholds is the table in `docs/RUNBOOKS.md`
 - First occurrence of new error class
-- Error rate > 1% over 5 minutes *(Datadog cadence today; **hourly** once ported to a PostHog alert — a real, accepted loss, ADR 0024)*
+- Error rate > 1% over 5 minutes *(the Datadog cadence; PostHog alerts evaluate **hourly**, which is the largest accepted degradation in the swap — ADR 0024)*
 - p95 latency > 2s
 - **Absence** ("the cron never ran") is a separate mechanism, not a threshold alert: PostHog has **no `notify_no_data` equivalent at any tier**, so the 8 no-data monitors are replaced by **one external scheduled-CI liveness sweep** (AECI-647) that runs outside the Worker — which is precisely what lets it report on a Worker that never started, and which adds a dependency on GitHub Actions availability that `notify_no_data` did not have
 
@@ -1168,9 +1156,9 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 
 API Worker remains private via Cloudflare service binding (per existing architecture): it has no public ingress on its own hostname. The SSR Worker is the only public ingress — and it re-proxies `/api/*` same-origin to the API Worker (the path hydrated browser code and the `/api/health` / `/api/version` checks use; ADR 0001 §Consequences). Read GETs are public through that passthrough by construction; write routes (`/api/promote`, `/admin/purge`, …) carry per-endpoint auth.
 
-### 15.3 Supabase RLS
+### 15.3 App-table authorization (no RLS)
 
-All tables have RLS enabled. Policies enforce:
+**There is no row-level security on app tables** — D1 has no PostgREST, no GRANTs and no RLS (ADR 0016). The API Worker request guard is the only authorization layer; see §5.3 for the full statement and `AUTH_AND_RLS.md` (Layer 1) for the model. Every read carries its own filter, and the authz-matrix specs are the acceptance gate. What the guards enforce:
 - Public read on `products`, `vendors`, `integrations`, taxonomy tables, approved reviews
 - Authenticated insert on `reviews`
 - Owner update on own pending reviews
@@ -1181,6 +1169,8 @@ All tables have RLS enabled. Policies enforce:
 ## 16. Build Order
 
 Phased to deliver working software at each step. Each phase ends with a deployable state.
+
+> **The checkboxes below are the original plan, not a live status board.** Stage 1 shipped; Phases 1–7 are complete and Phase 8 is the open post-launch phase. Per-phase completion is tracked in `docs/PHASE_{2..8}_COMPLETION.md`, which is the authority on what landed. Read this section for the intended build order and for the inline notes that record what changed along the way.
 
 ### Phase 1: Foundation (Week 1–2)
 - [ ] Linear workspace and projects configured per Section 24.1
@@ -1199,7 +1189,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Cloudflare D1 access via Drizzle in `apps/api/` using the per-request `getDb(env)` client over the native `DB` binding (`apps/api/src/db/client.ts`; no Prisma, no Accelerate, no `DATABASE_URL`/`DIRECT_URL` — ADR 0016). See `DATABASE_SCHEMA.md` §1a.
 - [ ] App-table authorization is **app-layer only** — D1 has no PostgREST/GRANT/RLS; the Worker request guard (`apps/api/src/lib/authz.ts`) is the only authorization layer, gated by the no-leakage authz-matrix specs (see `AUTH_AND_RLS.md` Layer 1)
 - [ ] Service binding between SSR Worker and API Worker
-- [ ] Browser + Worker telemetry installed and reporting *(shipped as Datadog RUM + Worker SDK, AECI-31; migrating to PostHog under ADR 0024)*
+- [ ] Browser + Worker telemetry installed and reporting *(shipped as Datadog RUM + Worker SDK, AECI-31; migrated to PostHog under ADR 0024, with the Datadog leg deleted at AECI-651)*
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)
 - [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror the frozen probe `spikes/stack-test`)
 - [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/web/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
@@ -1207,7 +1197,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 
 ### Phase 2: Core data display (Week 3–4)
 - [ ] Data model additions (profiles, reviews, stats_cache, page_views with CF enrichment, vendor_requests, translations, audit_log, workflow_instances, workflow_transitions)
-- [ ] `appendAuditLog()` helper with post-commit log forwarding (Section 26.5)
+- [ ] `auditInsert()` / `workflowTransitionInsert()` batch builders (`apps/api/src/lib/audit.ts`) with post-commit log forwarding (Section 26.5)
 - [ ] Slug generation for products and vendors (backfill existing, append vendor name on collision)
 - [ ] Pre-launch slug collision audit and resolution
 - [ ] Product detail page with tab routing (`/products/:slug`, `/products/:slug/integrations`, `/products/:slug/reviews`, `/products/:slug/details`)
@@ -1247,7 +1237,7 @@ Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` an
 
 ### Phase 5: Auth & reviews (Week 7)
 
-Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.16, planned 2026-06-10). The data layer already exists (profiles, reviews + all moderation columns, RLS, workflow tables, audit log, `handle_new_user`, `is_admin()`/`is_active_user()`) — Phase 5 is app code, ~zero migrations. **Moderation boundary:** Phase 5 ships *functional* review moderation (queue, approve/reject, toxicity-flag, ban enforcement on submit); the workflow-FSM, Slack alerts, Linear sync, and ban-management UI move to **Phase 6** (Phase-5 spec §3.2).
+Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.16, planned 2026-06-10). The data layer already exists (profiles, reviews + all moderation columns, workflow tables, audit log) — Phase 5 is app code, ~zero migrations. The Postgres-era pieces that used to appear in this list — RLS policies, the `handle_new_user` trigger, `is_admin()`/`is_active_user()` — have no D1 equivalent and were re-expressed as app-layer guards plus `POST /api/auth/profile/ensure` (ADR 0016; §5.3). **Moderation boundary:** Phase 5 ships *functional* review moderation (queue, approve/reject, toxicity-flag, ban enforcement on submit); the workflow-FSM, Slack alerts, Linear sync, and ban-management UI move to **Phase 6** (Phase-5 spec §3.2).
 
 - [ ] Supabase Auth (magic link + Google OAuth): `/auth/login`, `/auth/callback`, SSR session read, sign-out
 - [ ] API Worker authz middleware (JWT verify + role/ban; `AUTH_AND_RLS.md` §4)
@@ -1361,14 +1351,14 @@ No schema migrations required for the Stage 2 **vendor portal** — only new end
 | AECi | AEC Integrations, the platform (short form / nickname) |
 | AEC | Architecture, Engineering, and Construction |
 | SSR | Server-side rendering |
-| RLS | Row-level security (Supabase/Postgres) |
+| RLS | Row-level security (a Postgres feature). **Not used on app tables** — those live in D1, which has none; authorization is app-layer (ADR 0016, §5.3) |
 | WAF | Web Application Firewall |
 | Edge | Cloudflare's global network of POPs |
 | InstantSearch | Algolia's frontend search library |
 | Spartan UI | Angular component library, shadcn/ui-inspired |
 | n8n | Workflow automation tool, used for Linear integration |
-| RUM | Real User Monitoring (Datadog's frontend tracking product; live until AECI-651, then replaced by PostHog's Tier 2 browser slice — errors + web vitals with **no session concept**, since replay is off and no identifier is written) |
-| APM | Application Performance Monitoring (Datadog backend tracing). **Never used here** and PostHog has no equivalent — nothing is lost at cutover |
+| RUM | Real User Monitoring (Datadog's frontend tracking product; removed at AECI-651 and replaced by PostHog's Tier 2 browser slice — errors + web vitals with **no session concept**, since replay is off and no identifier is written) |
+| APM | Application Performance Monitoring (Datadog backend tracing). **Never used here** and PostHog has no equivalent — nothing was lost at cutover |
 | BCP 47 | Locale tag standard (e.g. `en-US`, `es-ES`) |
 
 ---
@@ -1626,7 +1616,7 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Duplicate vendor candidates (same `company_name` ignoring case and whitespace)
 - Duplicate product candidates (same `name` within the same vendor)
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
-- Algolia index drift (record count mismatch with Supabase)
+- Algolia index drift (record count mismatch with D1)
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 
@@ -1671,13 +1661,14 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 - Vendor data changes are not versioned in Stage 1 — added in Stage 2 when vendors edit their own data
 - Admin actions (review approval, ban application) logged with admin user ID and timestamp
 
-### 23.4 Reconciliation between Airtable and Supabase
+### 23.4 Reconciliation between the review app and D1
 
-The existing Airtable staging layer remains the curator workspace; Supabase is the production read store. Reconciliation:
+The **review app** is the curator workspace; **D1** is the production read store. Reconciliation:
 
-- Promotion from Airtable to Supabase is a manual curator action (status flip to `promotion_status='promoted'`) triggering a one-way sync
-- Daily reconciliation job compares Airtable counts to Supabase counts and reports drift
-- No automatic Airtable → Supabase sync; curators control promotion timing
+- Promotion from the review app into D1 is a manual curator action (status flip to `promotion_status='promoted'`) that pushes one way through `POST /api/promote`
+- A daily 09:00 UTC GitHub Actions job (`.github/workflows/promote-strand-audit.yml`, AECI-796) reads the review app over its MCP and reports rows that promoted into D1 under an id the review app no longer resolves. It is **fail-closed** — a missing `AECI_MCP_TOKEN` exits 2 and goes red
+- The broader count-drift check in the §23.1 data-quality job is **not built**. The only drift check running today is Algolia-vs-D1 (§23.1, AECI-140/266)
+- No automatic sync in the other direction; curators control promotion timing
 
 ---
 
@@ -1933,7 +1924,7 @@ Stage 1 workflows that have documented state machines.
 | `review_moderation` | submitted → auto_screened → in_moderation → approved / rejected | Review submission | approved, rejected |
 | `correction_request` | submitted → triaged → applied / rejected | Correction form submission | applied, rejected |
 
-Each workflow type has a documented state machine in the codebase. Invalid transitions throw at the API layer.
+Each workflow type has a documented state machine. **It is documentation, not enforcement** — `workflow_transitions` is an append-only history and nothing validates that `from_state`/`to_state` form a legal edge (`packages/shared/src/workflow-transition.ts`). The relaxation below is the standing Stage 1 decision, not a temporary one.
 
 > **Stage-1 relaxation (Phase 6, 2026-06-10):** Stage 1 ships **lean** workflow tracking — moderation is driven off the entities' `status` columns and `workflow_transitions` is an append-only history; the guarded state machine (enforced/throwing transitions) is **deferred** given low request volume. See `STAGE_1_PHASE_6_SPEC.md` §5.
 
@@ -1948,12 +1939,12 @@ This ensures the audit trail is complete regardless of where the action originat
 
 ### 26.5 Audit-log forwarding
 
-> **Vendor (ADR 0024).** This forward targets **PostHog Logs**. It ran as a dual-run beside
-> Datadog until **AECI-651** deleted the Datadog leg (2026-08-28, on the `stage-2` line — `main`
-> still carries the Datadog-only code until the branches merge). The build contract is
-> `docs/POSTHOG_MIGRATION_SPEC.md` §3.7.
+> **Vendor (ADR 0024).** This forward targets **PostHog Logs**, and only PostHog. It ran as a
+> dual-run beside Datadog until **AECI-651** deleted the Datadog leg (2026-08-28), which reached
+> `main` with the 2026-09-03 Stage 2 merge. `docs/POSTHOG_MIGRATION_SPEC.md` §3.7 is the build
+> record.
 
-Every `audit_log` and `workflow_transitions` entry is **also** forwarded to the observability plane as a structured log event. This enables:
+An `audit_log` or `workflow_transitions` entry is **also** forwarded to the observability plane as a structured log event. This is best-effort and opt-in per call site: the handler builds a forwarder, and `forwardAuditLog` no-ops when it gets none — which is what happens when `POSTHOG_PROJECT_KEY` is unset, and on the write paths (several cron and vendor-portal ones) that audit without forwarding. **The forward is a copy for querying, never the record.** Where it does run it enables:
 
 - Unified observability — audit data sits alongside performance and error data in one console
 - Ad-hoc querying — log search and metric tools work across the full event stream
@@ -1964,22 +1955,15 @@ Every `audit_log` and `workflow_transitions` entry is **also** forwarded to the 
 
 **Batch the forwards when a single write produces many entries (AECI-666).** A promote commits one `audit_log` row per created/updated entity, and the post-commit tail used to issue one observability request *per row*, all dispatched simultaneously. A Worker invocation may hold only a bounded number of open connections, so a fat bundle exhausted that budget; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
 
-Use `logBatchToPosthog` (`@aeci/shared/posthog`) for any caller with N related entries: the logs intake accepts an array, so N entries cost **one** request. Never loop `logToPosthog` over a collection. Every transport must also release its response body — see the `CLAUDE.md` constraint and `packages/shared/src/response-drain.ts`.
+Use `logBatchToPosthog` (`apps/api/src/posthog.ts`) for any caller with N related entries: the logs intake accepts an array, so N entries cost **one** request. Never loop `logToPosthog` over a collection — the four callers with a collection (`routes/promote.ts`, `routes/promote-connector.ts`, `lib/attestation-notify.ts`, `routes/vendor-shared.ts`) are the whole population, and each is batched. Every transport must also release its response body — see the `CLAUDE.md` constraint, `packages/shared/src/response-drain.ts`, and ADR 0021's 2026-08-27 amendment.
 
-**Log structure:**
-
-**Implementation.** `forwardAuditLog()` / `forwardWorkflowTransition()` (`packages/shared/src/audit-log.ts`) take an **injected forwarder**, so they were already transport-agnostic before this migration — re-targeting them is a wiring change at the injection site, not a rewrite of the audit path. That injected seam is the only thing AECI-642 touches here.
-
-**Batch the forwards when a single write produces many entries (AECI-666).** One forward is one request is one **open connection**, and during the dual-run it is *two* — one per vendor. A Worker invocation may hold only a bounded number of connections waiting for response headers, so a promote (one `audit_log` row per created/updated entity, forwarded in a loop) exhausted that budget on a fat bundle; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
-
-Use **`logBatchToPosthog`** (`apps/api/src/posthog.ts`, which fans out to `logBatchToDatadog` for the dual-run window) for any caller with N related entries: OTLP's `logRecords` and Datadog's v2 logs intake both accept an array, so N entries cost **one** request per vendor. Never loop the single-event helper over a collection — the three callers that did (`routes/promote.ts`, `lib/attestation-notify.ts`, `routes/vendor-shared.ts`) are the whole population, and each is now batched. Every transport must also release its response body; see the `CLAUDE.md` constraint, `packages/shared/src/response-drain.ts`, and ADR 0021's 2026-08-27 amendment.
+**Implementation.** `forwardAuditLog()` (`packages/shared/src/audit-log.ts`) and `forwardWorkflowTransition()` (`packages/shared/src/workflow-transition.ts`) take an **injected forwarder**, so they were already transport-agnostic before this migration — re-targeting them was a wiring change at the injection site, not a rewrite of the audit path. Each route builds its own forwarder, which returns `undefined` when `POSTHOG_PROJECT_KEY` is unset.
 
 **Log structure.** The payload fields are unchanged; what changes is the envelope. PostHog ingests over **OTLP/HTTP JSON** to `{host}/i/v1/logs`, where the shared tag vocabulary (`env` · `app:aeci` · `service` · `worker` · `version` · `locale` · `host`) rides as **resource attributes** — in particular `service.name`, because the Logs explorer's service filter reads only that. Severity is an OTLP number (`debug:5` / `info:9` / `warn:13` / `error:17`), and timestamps are nanoseconds as a **string**. There is no `ddsource` / `ddtags` / `@field` syntax on this side; a saved query filters on attribute names.
 
 ```jsonc
-// The forwarded entry (vendor-neutral shape).
-// PostHog: resource attributes carry service.name/env/version; severity_number 9 = INFO.
-// Datadog (dual-run, until AECI-651): the same body with `service` + `ddsource: "audit_log"`.
+// The forwarded entry. Resource attributes carry service.name/env/version;
+// severity_number 9 = INFO.
 {
   "service": "aeci-api",
   "source": "audit_log",
@@ -1996,7 +1980,7 @@ Use **`logBatchToPosthog`** (`apps/api/src/posthog.ts`, which fans out to `logBa
 }
 ```
 
-**Verifying it locally** — the `ctx.waitUntil` forward shows up in `wrangler dev` tracing as an outbound `fetch` span to `us.i.posthog.com` (and, during the dual-run, to the Datadog intake hosts). That is the cheapest proof the forward actually fired; see `docs/local-tracing.md` §7.
+**Verifying it locally** — the `ctx.waitUntil` forward shows up in `wrangler dev` tracing as an outbound `fetch` span to `us.i.posthog.com`. That is the cheapest proof the forward actually fired; see `docs/local-tracing.md` §7.
 
 ### 26.6 Retention policy
 

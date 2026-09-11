@@ -135,7 +135,7 @@ Use the `offset` + `limit` parameters of `Read` once you know the line range —
 
 ### 3. Follow cross-references into companion docs
 
-Within the loaded section, look for explicit pointers and load whichever apply. The canonical companion docs (per the `CLAUDE.md` source-of-truth table, which is the complete index — the spec's own §1a list is incomplete) are:
+Within the loaded section, look for explicit pointers and load whichever apply. The canonical companion docs (per the `CLAUDE.md` source-of-truth table, which is the complete index — the spec's own §1a points back at it) are:
 
 | Topic in section | Load |
 |---|---|

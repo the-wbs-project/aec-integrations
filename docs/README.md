@@ -5,7 +5,7 @@ This directory holds the planning, architecture, and operational documentation f
 ## Reading order for new contributors
 
 1. **`STAGE_1_SPEC.md`** — master spec for the Stage 1 launch. Start here. Other documents are referenced from this one.
-2. **`DATABASE_SCHEMA.md`** — full Supabase schema and Airtable migration plan.
+2. **`DATABASE_SCHEMA.md`** — full Cloudflare D1 schema and the promotion pipeline that fills it.
 3. **`API_CONTRACTS.md`** — Zod schemas, error codes, and TypeScript types for every API endpoint.
 4. **`CICD_PLAN.md`** — GitHub Actions pipeline, environments, deployment, and rollback strategy.
 5. **`TESTING_STRATEGY.md`** — high-level testing philosophy and tooling.
@@ -20,11 +20,11 @@ This directory holds the planning, architecture, and operational documentation f
 |---|---|---|
 | [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) | Active | Master specification for the Stage 1 launch. References every other document. |
 | [`STAGE_1_PHASE_2_SPEC.md`](./STAGE_1_PHASE_2_SPEC.md) | Active | Phase 2 scope and specification. Supersedes §16 Phase 2 of the Stage 1 spec. |
-| [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete application-database (Cloudflare D1) schema: all tables, columns, indexes, RLS hooks, and Airtable migration plan. |
+| [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete application-database (Cloudflare D1) schema: all tables, columns, indexes, constraints, and the promote-side data migration. §12 is the app-layer authorization model — D1 has no RLS. |
 | [`migrations.md`](./migrations.md) | Active | Migration workflow — generating SQL via drizzle-kit and applying via `wrangler d1 migrations apply` (D1 app DB). The legacy Supabase-CLI body is retained as auth-project-only history. |
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |
 | [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → D1 promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
-| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | Authorization model and Row-Level Security policies — the complete authorization source of truth (3-layer authz, GRANTs, RLS, GDPR erasure). |
+| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | The complete authorization source of truth. The API Worker request guard is the only layer for app tables (ADR 0016); the historical Postgres GRANT/RLS design is retained under banners. Includes GDPR erasure. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
 | [`environments.md`](./environments.md) | Active | Environment topology, promotion model, PR-preview lifecycle, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
@@ -104,9 +104,9 @@ A simple admin UI for legal page editing may be built in Stage 2+ if this become
 ## Related external resources
 
 - **Linear workspace:** issues, sprints, vendor requests
-- **Airtable base** `appy81IdGJY6Fngf9`: curator workspace for vendor and product research (pre-promotion to Supabase)
+- **Review app** (`aec-integrations-review`, on its own Cloudflare D1): curator workspace for vendor and product research, upstream of `POST /api/promote`
 - **Figma:** design system, page layouts, marketing assets
 - **PostHog:** Worker logs + metrics, browser errors and web vitals, audit-log
   forwarding, and product analytics — one vendor for all of it (ADR 0024)
-- **Datadog:** the same performance/error/audit surface, still live and still
-  alerting on production for the AECI-639 dual-run window. Removed by AECI-651.
+- **Datadog:** retired. It carried the performance/error/audit surface through
+  launch and the AECI-639 dual-run; **AECI-651** removed it.
