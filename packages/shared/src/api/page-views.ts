@@ -114,6 +114,80 @@ export const PAGE_VIEW_CLIENT_SIGNAL_HEADERS = [
 ] as const;
 
 /**
+ * The trusted writer-provenance header (AECI-871).
+ *
+ * ─── What it fixes ───────────────────────────────────────────────────────────
+ *
+ * `client-signals.ts` used to return the strongest verdict it issues — `browser` —
+ * for any body whose `navigation` said `'spa'`, reasoning that reaching that code
+ * path meant JavaScript had run. `navigation` is a **body field**, so it is
+ * client-controlled: any HTTP client could POST `{ route, navigation: 'spa' }`
+ * through the SSR `/api/*` passthrough and be handed `browser` while skipping every
+ * arrival-shape check. Since AECI-744 (`ADMIN_PANEL_SPEC.md` §13 D16) a non-browser
+ * verdict flags a row on its own, so the column is load-bearing for the digest
+ * headline and the free upgrade mattered.
+ *
+ * This header carries the same fact, on a channel the client cannot reach. It is
+ * the exact pattern {@link PAGE_VIEW_CF_HEADERS} already uses: the SSR Worker is
+ * the **sole writer**, it strips any client-supplied copy before setting its own,
+ * and the API Worker trusts it only because it has no public ingress (service
+ * binding only).
+ *
+ * ─── Why it is NOT in {@link PAGE_VIEW_CLIENT_SIGNAL_HEADERS} ────────────────
+ *
+ * That list is deliberately unstripped and deliberately untrusted — it is the
+ * browser's own headers, forgeable by anyone, and its docblock says so. This one is
+ * the opposite on both counts, which is why it is a separate constant with its own
+ * strip step rather than a seventh entry there. Do not merge the two.
+ *
+ * ─── What it does NOT prove ──────────────────────────────────────────────────
+ *
+ * That a *browser* made the request, only that **our** SSR Worker originated the
+ * write and which of its two writers did. A real headless browser driving the site
+ * produces a genuine `browser-spa` write with a complete header set and earns
+ * `browser`, correctly: the verdict names evidence about a request, never an
+ * identity (`ADMIN_PANEL_SPEC.md` §13 D18).
+ */
+export const PAGE_VIEW_WRITER_HEADER = 'x-aeci-writer';
+
+/**
+ * The two page-view writers, as the closed vocabulary the header carries.
+ *
+ * - `ssr-arrival` — the SSR Worker's own post-render `firePageView`, i.e. a
+ *   full-document load. Judged by the document-arrival rules.
+ * - `browser-spa` — the browser tracker's `POST`, proxied through the SSR Worker's
+ *   `/api/*` passthrough. Judged as a same-origin `fetch`.
+ *
+ * Stored verbatim in `page_views.writer_provenance`. Deliberately NOT a copy of the
+ * body's `navigation` enum even though the two correlate: `navigation` records what
+ * the writer *said*, this records which writer it *was*.
+ */
+export const PAGE_VIEW_WRITERS = {
+  ssrArrival: 'ssr-arrival',
+  browserSpa: 'browser-spa',
+} as const;
+
+export type PageViewWriter = (typeof PAGE_VIEW_WRITERS)[keyof typeof PAGE_VIEW_WRITERS];
+
+const PAGE_VIEW_WRITER_VALUES: readonly string[] = Object.values(PAGE_VIEW_WRITERS);
+
+/**
+ * Read the provenance header, accepting only the closed vocabulary above.
+ *
+ * Returns `null` for an absent header **and** for an unrecognized value, which are
+ * the same thing to every caller: no trusted statement about the writer. An unknown
+ * value must never fall through as "some writer" — that would hand a forged
+ * `x-aeci-writer: anything` the benefit of the doubt on any path the SSR strip ever
+ * failed to cover.
+ */
+export function readPageViewWriter(headers: Headers): PageViewWriter | null {
+  const value = headers.get(PAGE_VIEW_WRITER_HEADER);
+  return value !== null && PAGE_VIEW_WRITER_VALUES.includes(value)
+    ? (value as PageViewWriter)
+    : null;
+}
+
+/**
  * Route prefixes that are never recorded in `page_views` (AECI-575 /
  * `docs/ADMIN_PANEL_SPEC.md` §9.6 "No self-pollution").
  *

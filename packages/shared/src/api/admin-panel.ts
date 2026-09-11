@@ -1803,6 +1803,20 @@ export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
   /** Substring match on `path`. `%` and `_` are escaped server-side, so operator
    *  input is matched literally rather than as a LIKE pattern. */
   path_contains: z.string().min(1).max(200).optional(),
+  /**
+   * Exact `writer_provenance` match (`ssr-arrival` / `browser-spa`), or
+   * {@link ADMIN_PAGE_VIEW_NULL_FILTER} for the rows that carry none (AECI-871).
+   *
+   * Typed as a bounded string rather than a `z.enum` on purpose, so the sentinel
+   * and the two writers ride one parameter — the same shape `source` uses, and the
+   * same reason: a query string cannot carry a null. Deliberately unvalidated
+   * against the writer vocabulary, so an unknown value returns an empty page rather
+   * than a `400`; a filter is not a contract about what values exist.
+   *
+   * The null bucket is the interesting one and will be most of the table for a
+   * while. It means "written before AECI-871", not "written by nobody".
+   */
+  writer: z.string().min(1).max(32).optional(),
   exclude_internal: z
     .enum(['0', '1'])
     .default('0')
@@ -1878,6 +1892,21 @@ export const AdminPageViewRowSchema = z.object({
   referrer_source: z.string().nullable(),
   /** External referrer HOST only, never the path or query (AECI-526 / §9.7). */
   referrer: z.string().nullable(),
+
+  /**
+   * Which of our two writers produced this row — `ssr-arrival` or `browser-spa`
+   * (AECI-871 / §13 D18). The exact opposite of `referrer_source` above: that is
+   * what the request CLAIMED, this is what our own SSR Worker STAMPED, on a header
+   * it strips a client copy of before setting.
+   *
+   * `null` = written before AECI-871, or written by a path that carried no trusted
+   * provenance. Read it as no evidence, never as "no writer" — the §13 D16 rule for
+   * a null `client_verdict`, which is the column this one now gates.
+   *
+   * Typed as a nullable string rather than an enum so a future writer does not
+   * break response validation on rows already in the table.
+   */
+  writer_provenance: z.string().nullable(),
 
   /**
    * What the ASN registry says about `cf_asn` (AECI-624 / §7.6) — an annotation

@@ -40,6 +40,14 @@
  * visitors, so there is no false-positive class to disclose and no "N excluded"
  * line to render.
  *
+ * **`writer` filters on a fact, not a claim (AECI-871).** Every other column filter
+ * here selects something the request asserted — `source` comes from `Referer`,
+ * which §9.7 records a confirmed production forgery of. `writer_provenance` is
+ * stamped by our own SSR Worker on a header it strips a client copy of first, so it
+ * is the one axis in this feed a visitor cannot set. Its NULL bucket
+ * (`writer=__none__`) means "written before AECI-871" and will be most of the table
+ * for a while; it is selectable for the same reason the `source` NULL bucket is.
+ *
  * **Every caveat the window earns travels with it.** `trafficNotes(..., {
  * sources: true, unique: true })` emits all four the feed owes its reader:
  * unclassified rows counted as human, missing `referrer_source` (null reads as

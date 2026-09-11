@@ -1238,14 +1238,29 @@ It is deliberately **not** a payload field and **not** a header. A client-settab
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
 | `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
 | `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+| `x-aeci-writer` | *(not `request.cf` — see below)* | `writer_provenance` |
 
 `x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
 
-**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and there is **no anti-spoof boundary** to defend — nothing is trusted on their strength, they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
+**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and **no single one of them is trusted on its own** — they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
+
+They are, however, **load-bearing on the proxy path since AECI-871**: an in-app hop now needs them *alongside* the provenance header below before it earns `browser`. A change that dropped them from the rebuilt request would silently downgrade every SPA row to `unknown`, so `server.spec.ts` pins that they survive `withForwardedCfContext`.
+
+**Writer provenance (AECI-871 / `ADMIN_PANEL_SPEC.md` §13 D18).** `x-aeci-writer` is the one trusted header here that does **not** come from `request.cf`. The SSR Worker stamps which of its two writers originated the write — `ssr-arrival` on its own post-render `firePageView`, `browser-spa` on the proxied browser POST — and it is stripped-then-set on the proxy path exactly like the CF set. Values are the closed vocabulary `PAGE_VIEW_WRITERS` in `@aeci/shared`; anything else reads as absent.
+
+It exists because the API used to take that fact **from the body**. `navigation: 'spa'` alone returned `client_verdict: 'browser'` — the strongest verdict the system issues — skipping every arrival-shape check, so any HTTP client could POST it through this passthrough and collect the label. Since AECI-744 a `browser` verdict is also what keeps a row out of the digest's automation exclusion, which put a client-settable field in front of the headline figure.
+
+Three behaviours are contractual, and they mirror `is_operator`'s:
+
+- **The body can never write the column.** `writer_provenance` is populated from the header or not at all. `navigation` is unchanged and still stored — it is the writer's *claim*, kept for the arrival-vs-hop breakdown it was added for — but it can no longer grant a verdict, only withhold one.
+- **A `browser-spa` write must still look like a same-origin `fetch`** to earn `browser`: `Sec-Fetch-Site: same-origin`, plus `Sec-Fetch-Dest: empty` **or** `Sec-Fetch-Mode: cors`, plus `Accept-Language`. Provenance says our Worker proxied a POST; it does not say a browser issued one.
+- **A failed check is `unknown`, never `non-browser`.** A body claiming `'spa'` with no provenance, and a provenanced write missing those headers, both land on `unknown` — we were told nothing we can act on, which is not the same as being told it is automation. `unknown` is not in `NON_BROWSER_VERDICTS`, so no row is newly flagged by this change.
+
+**What it cannot do, stated because the column reads stronger than it is.** A real headless browser passes every check on both paths, because it genuinely is a browser. `client_verdict` names **evidence about a request, never an identity**; what it catches is the cheap client that does not bother, which is the majority.
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
-The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
+The SSR Worker is the **sole writer** of these headers — the `x-aeci-cf-*` set and `x-aeci-writer` alike: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting fresh values. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
 **Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. The client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
 
@@ -3522,6 +3537,7 @@ export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
   source: z.string().min(1).max(64).optional(),         // exact, or '__none__'
   country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
   path_contains: z.string().min(1).max(200).optional(),
+  writer: z.string().min(1).max(32).optional(),         // AECI-871 — exact, or '__none__'
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
@@ -3539,6 +3555,7 @@ export const AdminPageViewRowSchema = z.object({
   entity: LinkRefSchema.nullable(),
   referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
+  writer_provenance: z.string().nullable(),// AECI-871 — 'ssr-arrival' | 'browser-spa' | null
   asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
 });
 
@@ -3576,6 +3593,21 @@ rather than merely visible. It is not a value either column can legitimately hol
 **`path_contains` matches literally.** `%` and `_` are escaped server-side and the
 `LIKE` carries an explicit `ESCAPE '\'`, so operator input is never a pattern
 language.
+
+**`writer` / `writer_provenance` is the one axis here a visitor cannot set
+(AECI-871).** Every other column in this feed reports something the request
+asserted — `referrer_source` above is explicitly "a CLAIM, never verified", and
+production holds a confirmed forgery of it. `writer_provenance` is stamped by our
+own SSR Worker on a header it strips a client copy of first (§6.9), so it says
+which of our two writers really produced the row. `?writer=__none__` selects the
+NULL bucket, which means "written before AECI-871" and will be most of the table
+for a while — the column starts on 2026-09-11 and is not backfillable. An
+unrecognized value returns an empty page rather than a `400`: a filter is not a
+contract about which values exist.
+
+**The row field is API-side only today.** The Activity feed UI does not render
+`client_verdict` either, so there is no existing request-shape column for this to
+sit beside; adding one is a UI follow-up, not part of this contract.
 
 **The internal-ASN filter behaves differently here, deliberately.** §13 D10
 constraint 2 is "show both numbers, never substitute"; on a count endpoint that
