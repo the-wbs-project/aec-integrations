@@ -273,6 +273,8 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 - **Dropdown / Popover** (`box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)`): for menu panes, autocomplete dropdowns, tooltips with body content.
 - **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state — never `outline: none` without a replacement.
 
+> **`rgb(0 0 0 / α)` is the one color function lint allows** (AECI-597). The AECI-597 guard bans `rgb()`, `hsl()` and `oklch()` everywhere in `apps/web`, with a carve-out for all-zero RGB channels precisely so these two recipes keep working — including the underscore spelling Tailwind arbitrary values use, `shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18)]`. A tinted shadow will fail `pnpm lint`. If one is ever wanted, change it here first and widen the carve-out in `eslint.color-patterns.mjs` in the same PR.
+
 ### Named Rules
 
 **The Borders-Not-Shadows Rule.** Cards, buttons, badges, inputs, and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on these elements are forbidden — they are an AI-design tell ("rounded rectangle with generic drop shadow") and do not match the editorial posture of the system.
@@ -659,7 +661,10 @@ validate the palette with a script rather than by eye.
 hues are declared under `.aec-charts` in `apps/web/src/styles.css`, deliberately
 **outside `@theme inline`** so they never become Tailwind colour utilities and
 cannot drift onto a public surface. They encode *data-series identity* on an
-operator screen. **Forest remains the sole brand primary** under the
+operator screen. They are also the reason `styles.css` is one of the two files
+allow-listed from the AECI-597 colour-literal lint rule — it is the token
+definition site, so it is the one place allowed to spell a hex value. Declare a
+new series hue **there**; writing one into a component will fail `pnpm lint`. **Forest remains the sole brand primary** under the
 Forest-Anchor Rule above; nothing here is a second primary, and none of these
 hues may appear outside `/admin`.
 

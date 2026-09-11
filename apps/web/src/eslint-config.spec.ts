@@ -75,6 +75,13 @@ const CONSTRAINT = {
   vary: 'Only `Vary: Accept-Language` is permitted',
   mirror: 'is a denormalized mirror of',
   registryZod: 'The capability registry must import no zod',
+  // AECI-597. All four share a prefix, so each is identified by its
+  // parenthetical suffix — that is what makes "the palette rule survived but the
+  // hex rule was dropped" a detectable regression rather than a silent one.
+  colorHex: '(hex literal)',
+  colorFunction: '(rgb/hsl/oklch',
+  colorPalette: '(raw Tailwind palette class)',
+  colorNamed: '(named color class',
 } as const;
 
 /** Only the two core rules — a bare Linter cannot resolve plugin rules. */
@@ -119,10 +126,30 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
   // fixture (seo-headers.spec.ts constructs `Vary: Cookie` upstream responses
   // in order to assert the middleware strips them).
   const SOURCE_TIER = [CONSTRAINT.darkVariant, CONSTRAINT.themeDark, CONSTRAINT.vary];
+  // AECI-597 colours live in `angularBase`, not in a `tsBase` tier, so they are
+  // apps/web-only BY CONSTRUCTION. Kept as a separate list because that scoping
+  // is a decision, not an accident: `apps/api` holds 13 hex literals in
+  // transactional email HTML that are CORRECT (email clients do not support CSS
+  // custom properties), and `apps/datatool` holds 28 more in an internal ops
+  // Worker with no design system. Moving these into CONSTRAINT_SYNTAX_SOURCE_ONLY
+  // would need 41 exemptions on day one; the `apiSource` assertion below is what
+  // fails if someone tries.
+  const WEB_COLOR_TIER = [
+    CONSTRAINT.colorHex,
+    CONSTRAINT.colorFunction,
+    CONSTRAINT.colorPalette,
+    CONSTRAINT.colorNamed,
+  ];
 
   it('apps/web source carries the Angular guards AND both constraint tiers', () => {
     const messages = syntaxMessages('webSource');
-    for (const fragment of [CONSTRAINT.inject, CONSTRAINT.emDash, ...ALL_TIER, ...SOURCE_TIER]) {
+    for (const fragment of [
+      CONSTRAINT.inject,
+      CONSTRAINT.emDash,
+      ...ALL_TIER,
+      ...SOURCE_TIER,
+      ...WEB_COLOR_TIER,
+    ]) {
       expect(messages, `apps/web source is missing: ${fragment}`).toContain(fragment);
     }
   });
@@ -132,7 +159,7 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
     for (const fragment of [CONSTRAINT.inject, ...ALL_TIER]) {
       expect(messages, `apps/web spec is missing: ${fragment}`).toContain(fragment);
     }
-    for (const fragment of [CONSTRAINT.emDash, ...SOURCE_TIER]) {
+    for (const fragment of [CONSTRAINT.emDash, ...SOURCE_TIER, ...WEB_COLOR_TIER]) {
       expect(messages, `apps/web spec should exempt: ${fragment}`).not.toContain(fragment);
     }
   });
@@ -143,6 +170,14 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
       expect(messages, `apps/api source is missing: ${fragment}`).toContain(fragment);
     }
     expect(messages).not.toContain(CONSTRAINT.inject);
+  });
+
+  it('the colour rules are apps/web only — apps/api email HTML is legitimately hex', () => {
+    const messages = syntaxMessages('apiSource');
+    for (const fragment of WEB_COLOR_TIER) {
+      expect(messages, `apps/api should not carry: ${fragment}`).not.toContain(fragment);
+    }
+    expect(syntaxMessages('sharedRegistry')).not.toContain(CONSTRAINT.colorHex);
   });
 
   it('apps/api tests keep the all-files tier but drop the value bans', () => {
@@ -260,6 +295,57 @@ describe('constraint rules fire on deliberate violations', () => {
       lint('apiSource', 'db.insert(vendors).values({ id, slug, verified: true });').join(),
     ).toContain(CONSTRAINT.mirror);
   });
+
+  // ── AECI-597: colour literals ───────────────────────────────────────────────
+  // These run through the REAL resolved config, which is what proves the
+  // esquery selectors parse — the patterns carry lookaheads, a lookbehind, and
+  // an escaped `/`, any of which could be mangled on the way into a selector
+  // string and would otherwise fail silently as a rule that never matches.
+
+  it('rejects hex colours in strings and in inline templates', () => {
+    expect(lint('webSource', 'const c = "color: #1E3A2F";').join()).toContain(CONSTRAINT.colorHex);
+    expect(lint('webSource', 'const c = "#fff";').join()).toContain(CONSTRAINT.colorHex);
+    expect(lint('webSource', 'const t = `<svg fill="#EA4335"></svg>`;').join()).toContain(
+      CONSTRAINT.colorHex,
+    );
+    // Eight-digit #RRGGBBAA is in scope; four-digit #RGBA deliberately is not.
+    expect(lint('webSource', 'const c = "#1E3A2FCC";').join()).toContain(CONSTRAINT.colorHex);
+  });
+
+  it('rejects rgb/hsl/oklch that is not pure black', () => {
+    expect(lint('webSource', 'const c = "color: rgb(255 0 0)";').join()).toContain(
+      CONSTRAINT.colorFunction,
+    );
+    expect(lint('webSource', 'const c = "oklch(31.92% 0.0436 152.32)";').join()).toContain(
+      CONSTRAINT.colorFunction,
+    );
+    expect(lint('webSource', 'const c = "hsl(210 40% 50%)";').join()).toContain(
+      CONSTRAINT.colorFunction,
+    );
+    // The Tailwind arbitrary-value form, where spaces are underscores. This is
+    // the case a `\b` anchor would have missed: the preceding `_` is a word
+    // character, so the rule would have silently exempted every arbitrary shadow.
+    expect(lint('webSource', 'const c = "shadow-[0_4px_8px_rgb(255_0_0)]";').join()).toContain(
+      CONSTRAINT.colorFunction,
+    );
+  });
+
+  it('rejects raw Tailwind palette classes and named colour classes', () => {
+    expect(lint('webSource', 'const c = "p-4 bg-zinc-100";').join()).toContain(
+      CONSTRAINT.colorPalette,
+    );
+    expect(lint('webSource', 'const c = "hover:text-slate-500";').join()).toContain(
+      CONSTRAINT.colorPalette,
+    );
+    expect(lint('webSource', 'const c = "border-gray-200 ring-red-950";').join()).toContain(
+      CONSTRAINT.colorPalette,
+    );
+    expect(lint('webSource', 'const c = "bg-(--accent-primary) text-white";').join()).toContain(
+      CONSTRAINT.colorNamed,
+    );
+    // The opacity-modifier form stays in scope — `/` is not in the trailing guard.
+    expect(lint('webSource', 'const c = "text-white/80";').join()).toContain(CONSTRAINT.colorNamed);
+  });
 });
 
 describe('the capability registry is zod-free by lint (AECI-610)', () => {
@@ -346,5 +432,69 @@ describe('constraint rules do not fire on legitimate code', () => {
     expect(
       lint('apiMirrorWriter', 'db.update(vendors).set({ verified: true, updatedAt: now });'),
     ).toEqual([]);
+  });
+
+  // ── AECI-597: the near-misses that deferred this rule for a year ────────────
+  // Every string below is lifted from the tree as it stood when the rule landed.
+  // They are the reason AECI-549 recorded the rule as "feasible but not yet
+  // false-positive-free"; each one is now defeated by a specific guard.
+
+  it('permits id selectors whose name happens to be hex — the `#aec-` namespace', () => {
+    // `a`, `e` and `c` are all hex digits and every id in this app is namespaced
+    // `aec-`, so `#aec` matches any word-boundary pattern. The trailing
+    // `(?![0-9a-zA-Z_-])` guard is what rejects it.
+    expect(lint('webSource', 'const el = root.querySelector("#aec-facet-panel");')).toEqual([]);
+    expect(lint('webSource', 'const el = root.querySelector("#aec-user-menu-pending");')).toEqual(
+      [],
+    );
+  });
+
+  it('permits four-digit references — purchase orders, issues, PRs', () => {
+    // Dropping the `#RGBA` branch is what makes this work: the three-digit branch
+    // tries `#447`, and the guard rejects it because `1` is itself a hex digit.
+    expect(lint('webSource', 'const n = { notes: "PO #4471, USD 5k/yr" };')).toEqual([]);
+    expect(lint('webSource', 'const s = "drizzle-team/drizzle-orm #2226 and #4522";')).toEqual([]);
+  });
+
+  it('permits HTML numeric entities', () => {
+    // `&#10003;` is the checkmark used in vendor-products-menu.ts. `#100` is
+    // followed by `0`, a hex digit, so no branch can complete.
+    expect(lint('webSource', 'const t = `<span aria-hidden="true">&#10003;</span>`;')).toEqual([]);
+    // The three-digit ones need the leading `(?<!&)` guard instead: the trailing
+    // guard excludes hex digits but not `;`, so `#160` completes on its own.
+    expect(lint('webSource', 'const t = `<span>10&#160;&#215;&#160;4&#169;</span>`;')).toEqual([]);
+  });
+
+  it('permits the DESIGN.md pure-black shadow recipe in both spellings', () => {
+    // DESIGN.md §Shadows specifies rgb(0 0 0 / a) as the canonical dialog shadow.
+    // Underscore form is what Tailwind arbitrary values actually ship.
+    expect(lint('webSource', 'const c = "background-color: rgb(0 0 0 / 0.5)";')).toEqual([]);
+    expect(
+      lint(
+        'webSource',
+        'const c = "shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]";',
+      ),
+    ).toEqual([]);
+  });
+
+  it('permits the sanctioned token vocabulary and the transparent keywords', () => {
+    expect(lint('webSource', 'const c = "bg-(--surface-raised) text-(--text-secondary)";')).toEqual(
+      [],
+    );
+    expect(lint('webSource', 'const c = "text-(--surface-base)/80";')).toEqual([]);
+    expect(lint('webSource', 'const c = "border border-transparent bg-transparent";')).toEqual([]);
+    expect(lint('webSource', 'const t = `<svg stroke="currentColor" fill="none"></svg>`;')).toEqual(
+      [],
+    );
+    // Non-colour utilities that share a prefix with a banned one.
+    expect(lint('webSource', 'const c = "text-3xl outline-2 rounded-(--radius-sm)";')).toEqual([]);
+    expect(lint('webSource', 'const t = `<a href="#main">Skip</a>`;')).toEqual([]);
+  });
+
+  it('lets tests assert a colour literal, which is why login.component.spec.ts is clean', () => {
+    // That spec pins the four Google brand fills; recolouring the mark to
+    // currentColor would breach the Sign-in-with-Google branding guidelines.
+    expect(lint('webTest', 'const fills = ["#EA4335", "#4285F4"];')).toEqual([]);
+    expect(lint('webTest', 'const c = "bg-zinc-100 text-white";')).toEqual([]);
   });
 });

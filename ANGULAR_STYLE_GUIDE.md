@@ -297,11 +297,17 @@ No hardcoded colors in templates or component styles. Use the semantic tokens de
 - Tailwind paren-shortcut utilities: `bg-(--surface-base)`, `text-(--text-primary)`, `border-(--border-default)`, `hover:bg-(--accent-primary-hover)`.
 - Inline styles: `[style.background]="'var(--accent-primary)'"`.
 
-**Banned:** `bg-green-900`, `#1E3A2F`, `oklch(...)`, `rgb(...)`, named Tailwind color classes, hex literals in `style="..."`.
+**Banned:** `bg-green-900`, `#1E3A2F`, `oklch(...)`, `rgb(...)`, `text-white` / `bg-black`, named Tailwind color classes, hex literals in `style="..."`.
+
+**Three deliberate allowances**, so you know where the edges are:
+
+- `rgb(0 0 0 / α)` — pure black only, for the `DESIGN.md` §Shadows recipe and the CDK backdrop. Any other channel value is banned. The underscore form Tailwind arbitrary values use (`rgb(0_0_0/0.18)`) is equally allowed.
+- `bg-transparent` / `border-transparent` — keywords with no token equivalent. `white` and `black` are NOT in this category: `--surface-base` is pure white, and `text-(--surface-base)` is what the app uses in 64 places.
+- Two files may spell a color literal: `apps/web/src/styles.css`, because it is the token definition site, and `apps/web/src/app/auth/login.html`, because the Google "G" mark's four fills are fixed by the Sign-in-with-Google branding guidelines.
 
 For the canonical token list see `DESIGN.md`. For the v0 → token translation table see `docs/design/v0-porting-rules.md` §1. Don't restate either here.
 
-Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcement").
+Lint: ✅ (AECI-597). Enforced two ways, split by file type the same way the light-only rule is: `no-restricted-syntax` covers `.ts` including inline templates, and `apps/web/scripts/check-source-constraints.mjs` covers external `.html` and `.css`. Both read their patterns from `eslint.color-patterns.mjs`, which is the single definition — and which explains why `#RGBA` is excluded and why the pure-black carve-out is mandatory rather than convenient. **apps/web only**: `apps/api`'s transactional email HTML is correctly hex (email clients don't support custom properties) and `apps/datatool` is an internal ops Worker with no design system.
 
 ---
 
@@ -371,7 +377,13 @@ Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters w
 3. **Package-local file-scoped blocks** (e.g. `packages/shared/eslint.config.mjs`) — a rule that applies to one file, not a tier. See "Package-local guards" below.
 4. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
 
+A constraint that spans layers 1 and 4 keeps its patterns in a **shared leaf module** rather than spelling them twice. `eslint.color-patterns.mjs` (repo root, zero dependencies) is the worked example: the `dark:` rule predates the convention and *is* spelled twice, which is exactly the drift the connector-lane vocabulary hit before AECI-735 had to add lockstep tests. Root and dependency-free are both load-bearing — the scanner walks `apps/web/src` and each package lints from its own basePath, so a root file is outside every scanned tree and cannot flag its own source; and the scanner runs as a bare `node` process, so importing `eslint.config.base.mjs` would drag in typescript-eslint for four regexes.
+
 **Two traps when editing the config.** First, flat config *replaces* a rule's options per file rather than merging them, and `apps/web` spreads `angularBase` after `tsBase` — so both `angularBase` TypeScript blocks must restate every `no-restricted-syntax` selector or they silently drop the ones `tsBase` set. Second, the `tsBase` rules object has no `files` key, so it also applies to the `.html` files `apps/web` lints; ESTree selectors belong in a `files`-scoped block. `apps/web/src/eslint-config.spec.ts` asserts the resolved config for both packages in both tiers, so either regression fails a test rather than quietly disabling a constraint.
+
+**A third trap, if your pattern is non-trivial.** Selectors are built by interpolating a pattern into an esquery string (`Literal[value=/${PATTERN}/]`), so a `/` in the pattern must be escaped or it terminates the regex early, and a literal backtick cannot appear inside the `String.raw` template that builds the source (write `\x60`). Both failures are silent — you get a rule that never matches, not an error. The AECI-597 patterns carry a lookahead, a lookbehind and an escaped `/`; `eslint-config.spec.ts` runs them through the *real* resolved config for that reason.
+
+**A fourth, if your rule is about Tailwind classes: your test fixtures ship.** Tailwind v4 auto-detects sources, `.spec.ts` included, and cannot tell a class named in a fixture string from a class a component uses. A spec asserting that a banned utility is caught therefore *generates* that utility into the production stylesheet — the AECI-597 specs put seven of them there, 1,591 bytes, each with zero non-spec references. `apps/web/src/styles.css` now carries `@source not` for `'./**/*.spec.ts'`, its `.harness.ts` twin, `'../e2e'` and `'../scripts'` — the globs resolve relative to the stylesheet, so `src/`-anchored entries do not reach the sibling trees, and both of those leak too. `scripts/check-source-constraints.mjs` spells `text-left` / `text-right` as part of the RTL rule's own pattern, which is how `.text-right` came to ship in the bundle: a utility that same rule bans. Component specs lose nothing: the classes they render are declared in the component `.ts`, which is still scanned. Check the built CSS when you add a class-shaped fixture — and note that a *pattern* naming a class counts, not just a fixture.
 
 ### TypeScript files (`**/*.ts`)
 
@@ -397,8 +409,11 @@ Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters w
 | `@angular-eslint/no-async-lifecycle-method` | error | §15 |
 | `@angular-eslint/use-injectable-provided-in` | error | §17 |
 | `no-restricted-syntax` (em dash in copy) | error | `PRODUCT.md` / `DESIGN.md` |
+| `no-restricted-syntax` (color literals — hex, `rgb()`/`hsl()`/`oklch()`, Tailwind palette, `white`/`black`) | error | §20 |
 
-Scope note: the em-dash guard is shipped-source only (`**/*.spec.ts`, `**/*.harness.ts`, and `e2e/**` are exempt) because `describe()` / `it()` titles and assertion messages are developer-facing, not rendered copy.
+Scope note: the em-dash guard is shipped-source only (`**/*.spec.ts`, `**/*.harness.ts`, and `e2e/**` are exempt) because `describe()` / `it()` titles and assertion messages are developer-facing, not rendered copy. The AECI-597 color guard shares that exemption for the same reason, and it is load-bearing: `login.component.spec.ts` pins the four Google brand fills as a fixture.
+
+Scope note on colors: they sit in `angularBase` rather than in a `tsBase` tier, which is the entire **apps/web-only** scoping mechanism. That is a decision, not an oversight. `apps/api/src/lib/{email,analytics-digest}.ts` hold 13 hex literals that are *correct* — email clients do not support CSS custom properties — and `apps/datatool/src/ui.ts` holds 28 more in an internal ops Worker with no design system to migrate to. Promoting these to `CONSTRAINT_SYNTAX_SOURCE_ONLY` would need 41 exemptions on day one. `eslint-config.spec.ts` asserts the rules are ABSENT on `apiSource`, so that promotion fails a test rather than landing quietly.
 
 ### Cross-cutting constraint guards (`**/*.ts`, all packages — AECI-549)
 
@@ -435,15 +450,25 @@ Two things about them generalize to any future file-scoped rule here:
 
 ### Line-scanner guards (`check-source-constraints.mjs`)
 
-ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme rules so they never double-report against the selectors above.
+ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme and color rules so they never double-report against the selectors above — and for colors that exclusion does a second job, since this scanner does not strip comments and two files document a token's hex in JSDoc.
 
 | Rule | Scans | Bans | Constraint |
 |---|---|---|---|
 | `logical-properties` | `.ts`, `.html` | `ml-*`, `mr-*`, `pl-*`, `pr-*`, `text-left`, `text-right` | RTL readiness (AECI-153) |
 | `no-dark-variant` | `.html`, `.css` | `dark:` Tailwind variants | Light only (AECI-226) |
 | `no-dark-theme-css` | `.css`, `.html` | `.theme-dark`, `@custom-variant dark`, `prefers-color-scheme: dark`, `[data-theme=…]` | Light only (AECI-226) |
+| `no-hex-color` | `.html`, `.css` | `#RGB`, `#RRGGBB`, `#RRGGBBAA` | Tokens, not literals (AECI-597, §20) |
+| `no-color-function` | `.html`, `.css` | `rgb()`, `hsl()`, `oklch()`, `oklab()` — except pure black | Tokens, not literals (AECI-597, §20) |
+| `no-tailwind-palette` | `.html`, `.css` | `bg-zinc-100` and every other palette-with-shade class | Tokens, not literals (AECI-597, §20) |
+| `no-named-color-class` | `.html`, `.css` | `text-white`, `bg-black`, … — not `-transparent` | Tokens, not literals (AECI-597, §20) |
 
-Escape hatch: `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment that legitimately *names* a banned pattern (documenting why it is banned) does not make the file uneditable.
+**Two escape hatches, and they are not interchangeable.**
+
+A rule may carry an `allow` array of repo-relative paths. It is per-RULE, not per-file, on purpose: `styles.css` is exempt from the color rules because it is the token definition site, yet stays fully covered by both dark-theme rules — the one stylesheet most able to reintroduce a second theme. A file-level skip would have silently dropped that. Two entries exist, both declared in `eslint.color-patterns.mjs`, and `source-constraints.spec.ts` asserts each allow-listed file still *contains* what it is exempted for, so an exemption cannot outlive its reason.
+
+For a one-off line, `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment or a test fixture that legitimately *names* a banned pattern does not make the file uneditable. Its first real uses are in `source-constraints.spec.ts`, where the fixture proving `text-left` is caught has to contain `text-left`.
+
+The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.ts`), which also back-filled coverage for the three rules above that had none. That matters because every failure mode here is silent: a pattern that stops matching still exits 0 and still prints "rules clean".
 
 ### Template files (`**/*.html`)
 
@@ -471,13 +496,13 @@ Escape hatch: `constraints-guard-allow-next-line` in a comment on the preceding 
 | SSR-safety patterns (`isPlatformBrowser`, `afterNextRender`, dynamic `import()`) | §16 |
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |
-| Token usage; no hex / oklch literals (AECI-597) | §20 |
+| Which token is the *right* one (Clay ≤5% of a screen, Bone never a page background, contrast pairings) — the literal ban itself is `Lint: ✅` as of AECI-597 | §20, `DESIGN.md` |
 | i18n string wrapping; `Cache-Tag` emission; `db.batch([...])` atomicity; no pay-for-placement | §22 |
 
 ### Future enforcement (deferred)
 
 - `@angular-eslint/prefer-signals` and `@angular-eslint/no-uncalled-signals` — both require typed linting (`parserOptions.project`), which isn't yet wired in this workspace. Enabling typed linting is a separate scope-expanding change (slower lint, broader rule surface) and is tracked as a follow-up. Until then, signal usage is review-only.
-- Custom regex / processor rule banning hex / oklch / named Tailwind colors in templates and inline styles (§20). Tracked as AECI-597 — measured during AECI-549 as feasible but not yet false-positive-free (CSS id selectors whose name is accidentally hex, e.g. `#aec-facet-panel`; and legitimately hardcoded hex in transactional email HTML, where custom properties don't work).
+- ~~Custom regex / processor rule banning hex / oklch / named Tailwind colors (§20).~~ **BUILT 2026-09-11 (AECI-597)** — see the color rows in the two tables above. Both deferral reasons turned out to be solvable. The id-selector class (`#aec-facet-panel`) dies to a trailing `(?![0-9a-zA-Z_-])` guard, and the four-digit issue/PO class (`PO #4471`) dies to *omitting* the `#RGBA` branch, which has zero usage here. The email-HTML problem was solved by scoping rather than by exemption: the rule lives in `angularBase`, so it never reaches `apps/api`. Measured false positives on the base branch: zero.
 - Custom rule banning template-driven `[(ngModel)]` outside a `<form>` context (§13).
 - `no-restricted-syntax` banning a one-argument `localeCompare` (§20a, AECI-825). Structurally
   trivial to write, and it would have caught the whole defect class. Deferred because it cannot tell
