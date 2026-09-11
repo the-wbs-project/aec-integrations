@@ -2,6 +2,34 @@
 @import '@spartan-ng/brain/hlm-tailwind-preset.css';
 
 /*
+ * Keep test fixtures out of the shipped stylesheet (AECI-597).
+ *
+ * Tailwind v4 auto-detects sources across the project, which includes `.spec.ts`.
+ * A spec that names a utility class in a STRING — to assert a lint rule catches
+ * it, or to build a DOM fixture — is indistinguishable from a component using
+ * it, so Tailwind generates the utility and ships it to every visitor.
+ *
+ * That was not hypothetical. The AECI-597 colour-literal guard's own specs put
+ * seven banned utilities into the production bundle, each with zero references
+ * outside a spec: the rule that bans a raw palette class was itself the reason
+ * that class existed in the CSS. Excluding specs removed 1,591 bytes.
+ *
+ * Component specs lose nothing — they render components whose classes are
+ * declared in the component `.ts`, which is still scanned.
+ *
+ * The globs resolve relative to THIS FILE, so the first two reach `src/` only.
+ * The sibling trees need their own entries and are not hypothetical either:
+ * `scripts/check-source-constraints.mjs` spells `text-left` / `text-right` as
+ * part of the RTL rule's own pattern, and an `e2e/` spec names them in a
+ * comment — which is how `.text-right` came to ship in the bundle, a utility
+ * that same rule bans. Excluding both trees removed a further 347 bytes.
+ */
+@source not './**/*.spec.ts';
+@source not './**/*.harness.ts';
+@source not '../e2e';
+@source not '../scripts';
+
+/*
  * Global styles for apps/web.
  *
  * Wires Tailwind v4 to the §2a.2 theme tokens (see docs/STAGE_1_SPEC.md) and to

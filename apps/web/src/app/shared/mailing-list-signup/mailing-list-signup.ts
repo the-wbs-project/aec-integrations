@@ -196,7 +196,7 @@ export class MailingListSignup {
   protected readonly buttonClass = computed(() =>
     this.subscribed()
       ? `${BTN_BASE} border border-(--accent-primary) bg-(--accent-primary-soft) text-(--accent-primary)`
-      : `${BTN_BASE} bg-(--accent-primary) text-white hover:bg-(--accent-primary-hover) disabled:opacity-60`,
+      : `${BTN_BASE} bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover) disabled:opacity-60`,
   );
 
   protected async onSubmit(event: Event): Promise<void> {

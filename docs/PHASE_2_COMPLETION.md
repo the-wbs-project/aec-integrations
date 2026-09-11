@@ -52,7 +52,7 @@ duplicate-id fix (§15.14) and the DESIGN.md component definitions (§15.16). Se
 | 14 | `xliff` extraction succeeds with no missing-translations marker | ✅ | `ng extract-i18n` → **299 messages, exit 0, zero warnings** after the duplicate-id fix in §4.1. Re-verified clean. |
 | 15 | No new console warnings or errors on any page type | ⚠️ | Console capture asserted on **`/` only** (`smoke.spec.ts:46-64`, "AECI-36 AC #6"). The crawler and per-page Phase 2 specs do **not** assert console-clean. **See §3.F3.** |
 | 16 | DESIGN.md updated with new component definitions | ✅ | Done in this issue (§4.2): `ProductCard`/`VendorCard`/`IntegrationCard` added; `EntityTable` reconciled; layouts + `TaxonomyBadge` already present. |
-| 17 | No hard-coded color literals anywhere (lint clean) | ✅ | `pnpm lint` clean across all 4 workspaces + Prettier + logical-properties; `npx impeccable detect` on the Phase 2 components reports **0 findings**. *(Mechanism note — §5, note C: there is no dedicated ESLint color rule; enforcement is `impeccable detect` + review, not lint as §11.4 implies.)* |
+| 17 | No hard-coded color literals anywhere (lint clean) | ✅ | `pnpm lint` clean across all 4 workspaces + Prettier + logical-properties; `npx impeccable detect` on the Phase 2 components reports **0 findings**. *(Mechanism note — §5, note C: at Phase 2 there was no dedicated ESLint color rule and enforcement was `impeccable detect` + review, not lint as §11.4 implied. **AECI-597 built the rule on 2026-09-11**, so this row is now literally true as written.)* |
 
 **Score: 14 ✅ / 2 ⚠️ / 1 ❌** — the three non-green items are Phase 7 (Lighthouse) and operational/test-coverage follow-ups, not Phase 2 build defects.
 
@@ -104,7 +104,7 @@ full e2e stack (`dev:bound` + seeded data) to verify it passes; shipping an unve
 assertion risks a red CI. **Created:** see hand-off — "Extend console-error/warning
 capture to every Phase 2 page type (crawler)."
 
-### F4 — (Optional) Color-literal enforcement mechanism → **RESOLVED 2026-08-14 (AECI-549)**
+### F4 — (Optional) Color-literal enforcement mechanism → **FULLY CLOSED 2026-09-11 (AECI-549 + AECI-597)**
 
 §11.4 / the AECI-67 AC say a "lint rule (Phase 1) catches" hard-coded color literals. In
 reality **no dedicated ESLint color rule exists** (the base config enforces the inject
@@ -124,6 +124,25 @@ legitimately hardcoded hex in transactional email HTML, where CSS custom propert
 work. AECI-549 did build the machinery it would slot into (the constraint tiers in
 `eslint.config.base.mjs` and the table-driven `check-source-constraints.mjs`), so the
 follow-up is a table entry plus a spec case rather than new infrastructure.
+
+**Option (a) shipped 2026-09-11 (AECI-597).** Both deferral reasons turned out to be
+solvable, and neither needed the comment-stripping the issue anticipated:
+
+- The **id-selector class** dies to a trailing `(?![0-9a-zA-Z_-])` guard. A companion
+  class the deferral note never spotted — four-digit issue and purchase-order references
+  like `PO #4471` and `drizzle-orm #2226` — dies to *omitting* the `#RGBA` branch
+  entirely. `#RGBA` has zero occurrences in the repo and is exactly that shape, so the
+  omission costs nothing and removes the whole class.
+- The **email-HTML class** was solved by scoping, not by exemption. The rule lives in
+  `angularBase`, which only `apps/web/eslint.config.mjs` consumes, so it never reaches
+  `apps/api` — where a second file (`analytics-digest.ts`, 9 more hex literals) would
+  otherwise have needed carving out too.
+
+Measured false positives on the base branch: **zero**. Two files are allow-listed with
+cause — `styles.css` as the token definition site, `auth/login.html` for the Google brand
+mark — and the guard now has its first unit test, which back-filled coverage for the three
+pre-existing rules as well. The one real cost was eight `text-white` sites migrated to
+`text-(--surface-base)`, a value-identical swap. See `ANGULAR_STYLE_GUIDE.md` §20 and §24.
 
 ---
 
@@ -172,7 +191,8 @@ All 8 named Phase 2 components (§11.1–11.2) are now defined in DESIGN.md.
 - **Note C — color enforcement.** See §3.F4: no dedicated color lint rule exists; the
   spec wording overstates the automation. Components are clean via `impeccable detect`.
   **Resolved 2026-08-14 (AECI-549):** the spec wording was corrected and the real rule is
-  tracked as AECI-597.
+  tracked as AECI-597. **Closed 2026-09-11 (AECI-597):** the rule is built and the §11.4
+  wording is accurate as written — `Lint: ✅` in `ANGULAR_STYLE_GUIDE.md` §20.
 - **Latent debt — `--text-tertiary` contrast.** The card empty-state en-dash (`–`)
   placeholders use `--text-tertiary` (≈ 2.6:1 on white, below WCAG AA for normal text).
   They are short non-essential placeholders carrying `aria-label`s and the page-type axe

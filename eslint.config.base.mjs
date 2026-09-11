@@ -4,6 +4,13 @@ import angular from 'angular-eslint';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
+import {
+  COLOR_FUNCTION,
+  HEX_COLOR,
+  NAMED_COLOR_CLASS,
+  TAILWIND_PALETTE,
+} from './eslint.color-patterns.mjs';
+
 export const ignores = {
   ignores: [
     '**/node_modules/**',
@@ -382,6 +389,49 @@ const NO_EM_DASH_IN_COPY = [
   },
 ];
 
+/**
+ * Tokens, not literals (AECI-597; ANGULAR_STYLE_GUIDE.md §20). The `.ts` half of
+ * the color ban — string literals and template literals, which is where inline
+ * component templates live. `check-source-constraints.mjs` owns external
+ * `.html` and `.css` and deliberately does NOT read `.ts`, so nothing
+ * double-reports; that is the same split as the `dark:` rules above.
+ *
+ * Lives in `angularBase`, NOT in `CONSTRAINT_SYNTAX_SOURCE_ONLY`, because
+ * `angularBase` is consumed only by `apps/web/eslint.config.mjs`. That is the
+ * whole apps/web-only scoping mechanism — see the SCOPE note in
+ * `eslint.color-patterns.mjs` for the 41 exemptions it avoids.
+ *
+ * Comments are not AST nodes, so this costs nothing on the two files that
+ * document a token's hex in JSDoc (`reviews/review-stars.ts`,
+ * `home/home-hero.ts`). The `apps/web/src/styles.css` and `auth/login.html`
+ * exemptions are the scanner's problem, not this rule's — neither is a `.ts`.
+ *
+ * The patterns are shared source strings rather than RegExp literals so the two
+ * layers cannot drift. Details, including why `#RGBA` is excluded and why the
+ * pure-black `rgb()` carve-out is mandatory, are in that file.
+ */
+const COLOR_LITERAL_MESSAGE =
+  'No hardcoded colors. Use the semantic tokens — bg-(--surface-base), text-(--text-primary), border-(--border-default). See ANGULAR_STYLE_GUIDE.md §20 and DESIGN.md.';
+
+const NO_COLOR_LITERALS = [
+  {
+    selector: `Literal[value=/${HEX_COLOR}/], TemplateElement[value.raw=/${HEX_COLOR}/]`,
+    message: `${COLOR_LITERAL_MESSAGE} (hex literal)`,
+  },
+  {
+    selector: `Literal[value=/${COLOR_FUNCTION}/], TemplateElement[value.raw=/${COLOR_FUNCTION}/]`,
+    message: `${COLOR_LITERAL_MESSAGE} (rgb/hsl/oklch — only pure-black rgb(0 0 0 / a) is allowed, for the DESIGN.md shadow recipe)`,
+  },
+  {
+    selector: `Literal[value=/${TAILWIND_PALETTE}/], TemplateElement[value.raw=/${TAILWIND_PALETTE}/]`,
+    message: `${COLOR_LITERAL_MESSAGE} (raw Tailwind palette class)`,
+  },
+  {
+    selector: `Literal[value=/${NAMED_COLOR_CLASS}/], TemplateElement[value.raw=/${NAMED_COLOR_CLASS}/]`,
+    message: `${COLOR_LITERAL_MESSAGE} (named color class — --surface-base IS pure white; bg-transparent and border-transparent stay allowed)`,
+  },
+];
+
 export const angularBase = [
   {
     files: ['**/*.ts'],
@@ -443,6 +493,11 @@ export const angularBase = [
         // apps/web has no sole-writer file, and adding them would over-exempt.
         ...CONSTRAINT_SYNTAX_MIRROR,
         ...NO_EM_DASH_IN_COPY,
+        // Colors belong in this test-exempt block, not the one above: a spec
+        // legitimately asserts a color literal as a fixture. `login.component.spec.ts`
+        // pins the four Google brand fills for exactly that reason, and this rule's
+        // own spec builds violations to prove they are caught.
+        ...NO_COLOR_LITERALS,
       ],
     },
   },

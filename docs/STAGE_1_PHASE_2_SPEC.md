@@ -615,6 +615,8 @@ Every visible string i18n-wrapped from day one (per AECI-23). English-only at la
 Every component uses the AECI-25 / AECI-41 semantic tokens. No hard-coded color literals.
 
 > **Corrected 2026-08-14 (AECI-549).** This section previously read "renders correctly in light and dark" and "Lint rule (Phase 1) catches violations." Both were wrong. Dark was removed for Stage 1 (AECI-226 — light only), and **no color lint rule has ever existed**; `docs/PHASE_2_COMPLETION.md` §3.F4 flagged the discrepancy at the time. Color literals are enforced by `npx impeccable detect` and code review; a real lint rule is tracked as **AECI-597**. What *is* mechanically enforced as of AECI-549 is the light-only constraint itself — `dark:` variants, `.theme-dark`, `@custom-variant dark`, `prefers-color-scheme: dark`, and `[data-theme=…]` all fail `pnpm lint`.
+>
+> **Closed 2026-09-11 (AECI-597).** The color rule now exists, so the original claim is true for the first time — though by a different mechanism than "Phase 1" implied, and one phase-set later. Hex, `rgb()`/`hsl()`/`oklch()`, raw Tailwind palette classes, and `text-white`/`bg-black` all fail `pnpm lint` across `apps/web`, enforced by `no-restricted-syntax` on `.ts` and `apps/web/scripts/check-source-constraints.mjs` on `.html`/`.css`. Two files are allow-listed with cause: `styles.css` (the token definition site) and `auth/login.html` (the Google brand mark). Contract and rationale: `ANGULAR_STYLE_GUIDE.md` §20 and §24.
 
 ---
 
@@ -693,7 +695,7 @@ Phase 2 is **Done** when:
 - [ ] `xliff` extraction succeeds with no missing translations marker
 - [ ] No new console warnings or errors on any page type
 - [ ] DESIGN.md updated with new component definitions
-- [ ] No hard-coded color literals anywhere (lint clean)
+- [ ] No hard-coded color literals anywhere (lint clean — genuinely lint-enforced since AECI-597; see §11.4)
 
 ---
 
