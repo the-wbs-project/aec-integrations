@@ -50,8 +50,10 @@
  * §23.1): compare promoted-row counts to Algolia object counts per entity and emit
  * the `aeci.algolia.index_drift` gauge (the Datadog-monitored alert), THEN heal the
  * negative-drift case — sweep orphan objects (in the index, no promoted D1 row) the
- * incremental sync can't see to delete. The sweep is delete-only + safety-capped;
- * positive drift (records MISSING from the index) stays repaired by the 08:00 sync.
+ * incremental sync can't see to delete. The sweep is delete-only + safety-capped.
+ * Positive drift (records MISSING from the index) is repaired by the 08:00 sync
+ * only while the row's own `updated_at` is inside that run's watermark window —
+ * an older row needs a rebuild (AECI-789).
  * Every 15 minutes (the one sub-hourly trigger; see `RECONCILE_CRON`) —
  * request→Linear reconciliation sweep (`./lib/reconciliation-sweep`, AECI-214 /
  * Phase 6.7 / §6.2/§6.4): retry `vendor_requests` stuck
@@ -94,11 +96,11 @@
  */
 
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 
 import { getDb } from './db/client';
 import type { Db } from './db/client';
-import { integrations, products, reviews, vendors } from './db/schema';
+import { reviews } from './db/schema';
 import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
@@ -107,7 +109,12 @@ import {
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
 } from './lib/algolia-drift';
-import { algoliaEnvFor, createDriftRunner, drizzleDriftCounter } from './lib/algolia-drift-deps';
+import {
+  algoliaEnvFor,
+  createDriftRunner,
+  drizzleDriftCounter,
+  drizzlePromotedIds,
+} from './lib/algolia-drift-deps';
 import { runDailySync } from './lib/algolia-sync';
 import {
   createAlgoliaDeleteClient,
@@ -115,7 +122,6 @@ import {
   DEFAULT_SAFETY_CAP,
   sweepAlgoliaOrphans,
   type EntityOrphanResult,
-  type PromotedIdProvider,
 } from './lib/algolia-orphans';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
 import {
@@ -283,10 +289,6 @@ const DRIFT_METRIC = 'aeci.algolia.index_drift';
 const ORPHANS_REMOVED_METRIC = 'aeci.algolia.orphans_removed';
 const ORPHANS_SKIPPED_CAP_METRIC = 'aeci.algolia.orphans_skipped_cap';
 
-/** `promotion_status` value marking a row live (the value `POST /api/promote`
- *  writes). The orphan sweep's authoritative-membership filter. */
-const PROMOTED = 'promoted';
-
 /** Metric names for the daily data-quality job (AECI-241; see docs/OBSERVABILITY.md). */
 const DQ_JOB_METRIC = 'aeci.data_quality.job';
 const DQ_DURATION_METRIC = 'aeci.data_quality.job.duration_ms';
@@ -321,51 +323,6 @@ const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
  *  back to the worker slug). */
 function cronRequest(path: string): Request {
   return new Request(`https://aeci-api${path}`);
-}
-
-/** A Drizzle-backed `PromotedIdProvider` (the orphan sweep's injected
- *  authoritative-membership id-sets). Returns the promoted product/vendor ids and
- *  the integration ids whose BOTH endpoints are promoted — the same membership
- *  `drizzleDriftCounter` counts and `algolia-sync` indexes on, but as id SETS (no
- *  transforms). algolia-orphans stays ORM-agnostic; only this adapter knows D1. */
-function drizzlePromotedIds(env: Env): PromotedIdProvider {
-  const { db } = cronDb(env);
-  return {
-    productIds: async () =>
-      new Set(
-        (
-          await db
-            .select({ id: products.id })
-            .from(products)
-            .where(eq(products.promotionStatus, PROMOTED))
-        ).map((r) => r.id),
-      ),
-    vendorIds: async () =>
-      new Set(
-        (
-          await db
-            .select({ id: vendors.id })
-            .from(vendors)
-            .where(eq(vendors.promotionStatus, PROMOTED))
-        ).map((r) => r.id),
-      ),
-    integrationIds: async () => {
-      const promoted = db
-        .select({ id: products.id })
-        .from(products)
-        .where(eq(products.promotionStatus, PROMOTED));
-      const rows = await db
-        .select({ id: integrations.id })
-        .from(integrations)
-        .where(
-          and(
-            inArray(integrations.sourceProductId, promoted),
-            inArray(integrations.targetProductId, promoted),
-          ),
-        );
-      return new Set(rows.map((r) => r.id));
-    },
-  };
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
@@ -525,7 +482,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
               .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
               .join(
                 ', ',
-              )} (negative drift = orphans, auto-healed by the sweep below; positive drift = records missing from the index, repaired by the incremental sync)`,
+              )} (negative drift = orphans, auto-healed by the sweep below; positive drift = records missing from the index — the 08:00 sync repairs those only while their updated_at is inside its watermark window, otherwise rebuild)`,
             source: 'algolia-drift-cron',
             drift: drifted,
           }),
@@ -558,7 +515,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   try {
     const swept = await sweepAlgoliaOrphans(
       {
-        ids: drizzlePromotedIds(env),
+        ids: drizzlePromotedIds(cronDb(env).db),
         browse: createAlgoliaObjectIdClient(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY),
         remove: createAlgoliaDeleteClient({
           appId: env.ALGOLIA_APP_ID,

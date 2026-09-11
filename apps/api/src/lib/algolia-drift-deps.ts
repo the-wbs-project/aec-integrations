@@ -1,5 +1,10 @@
 /**
- * D1 adapters for the Algolia index-drift check (`lib/algolia-drift.ts`).
+ * D1 adapters for the Algolia index-drift check (`lib/algolia-drift.ts`) and its
+ * remediation half, the orphan sweep (`lib/algolia-orphans.ts`).
+ *
+ * Both membership expressions live here together — the COUNT
+ * (`drizzleDriftCounter`) and the id SET (`drizzlePromotedIds`). They are one
+ * rule, and AECI-789 is what happens when they are written in two files.
  *
  * `algolia-drift` is deliberately ORM- and platform-agnostic — it takes an
  * injected `DriftCount` read surface and an injected `AlgoliaCountClient` so it
@@ -26,6 +31,13 @@ import {
   type AlgoliaIndexDrift,
   type DriftCount,
 } from './algolia-drift';
+import type { PromotedIdProvider } from './algolia-orphans';
+
+/**
+ * The `promotion_status` value that marks a row live on the public site. Same
+ * constant `./algolia-drift`, `./algolia-orphans` and `./algolia-sync` filter on.
+ */
+const PROMOTED = 'promoted';
 
 /** Map the Worker `ENV` var to the Algolia env (unset → `development`, which
  *  folds onto the preview index set — same convention as `/api/version`). */
@@ -94,6 +106,79 @@ export function drizzleDriftCounter(db: Db): DriftCount {
           );
         return (direct?.value ?? 0) + (evidenced?.value ?? 0);
       },
+    },
+  };
+}
+
+/**
+ * A Drizzle-backed `PromotedIdProvider` — the orphan sweep's injected
+ * authoritative-membership id SETS (`./algolia-orphans`). Returns the promoted
+ * product/vendor ids and the integration ids whose BOTH endpoints are promoted:
+ * the same membership `drizzleDriftCounter` counts above and `algolia-sync`
+ * indexes on, expressed as id sets with no transforms. `algolia-orphans` stays
+ * ORM-agnostic; only this adapter knows D1.
+ *
+ * **It lives in this file, beside the counter, on purpose (AECI-789).** The count
+ * and the set are ONE rule with two shapes, and the set is the dangerous half: the
+ * sweep DELETES every index object whose id it omits. It was previously a private
+ * function in `scheduled.ts`, and that distance is exactly how it stayed
+ * single-table for the whole of AECI-721 — the counter gained its
+ * `connector_evidenced_pairs` arm and this did not, so any env whose
+ * `<env>_integrations` index held evidenced pairs would have lost them at the next
+ * 09:00 sweep, had them re-added by the 08:00 sync, and reported `+19` drift every
+ * day. Change one arm here and the other is on screen.
+ *
+ * Takes a `Db` rather than an `Env` for the same reason `drizzleDriftCounter` does:
+ * the cron already has a client, and specs can pass the in-memory D1 harness.
+ */
+export function drizzlePromotedIds(db: Db): PromotedIdProvider {
+  return {
+    productIds: async () =>
+      new Set(
+        (
+          await db
+            .select({ id: products.id })
+            .from(products)
+            .where(eq(products.promotionStatus, PROMOTED))
+        ).map((r) => r.id),
+      ),
+    vendorIds: async () =>
+      new Set(
+        (
+          await db
+            .select({ id: vendors.id })
+            .from(vendors)
+            .where(eq(vendors.promotionStatus, PROMOTED))
+        ).map((r) => r.id),
+      ),
+    // Both tables behind the `integrations` index (AECI-721 / §13.5 site 15).
+    // The connector's own promotion is deliberately NOT part of membership —
+    // `algolia-sync.ts` records why, and this set must match that rule byte for
+    // byte or the difference between them is a deletion.
+    integrationIds: async () => {
+      const promoted = db
+        .select({ id: products.id })
+        .from(products)
+        .where(eq(products.promotionStatus, PROMOTED));
+      const direct = await db
+        .select({ id: integrations.id })
+        .from(integrations)
+        .where(
+          and(
+            inArray(integrations.sourceProductId, promoted),
+            inArray(integrations.targetProductId, promoted),
+          ),
+        );
+      const evidenced = await db
+        .select({ id: connectorEvidencedPairs.id })
+        .from(connectorEvidencedPairs)
+        .where(
+          and(
+            inArray(connectorEvidencedPairs.productAId, promoted),
+            inArray(connectorEvidencedPairs.productBId, promoted),
+          ),
+        );
+      return new Set([...direct, ...evidenced].map((r) => r.id));
     },
   };
 }

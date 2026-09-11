@@ -518,7 +518,8 @@ difference (`supabase − algolia`) between the promoted-row count per entity in
 and the object count of the matching Algolia index. It is **emitted every run, including
 when clean (value 0)** — one gauge point per `entity`/`index` — so the monitor below can
 tell "ran clean" from "didn't run". Positive = the index is missing rows; negative =
-orphans. Report-only: re-run the AECI-138 bulk sync to repair. Emitted as a **gauge** (a
+orphans. Report-only: repair a positive drift with a full rebuild via the datatool's
+`POST /api/reindex` (the AECI-138 bulk sync this line named never landed). Emitted as a **gauge** (a
 level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it alongside
 `submitCount`); the daily 09:00 UTC (= 04:00 EST) run is the API Worker cron (`apps/api/src/scheduled.ts`),
 and the deploy-staging hook + manual triage reuse the same comparison via
@@ -534,9 +535,16 @@ can't see to delete). `orphans_removed` is a per-`entity`/`index` gauge (0 on a 
 index per pass) refuses an unexpectedly large purge — the `AECi — Algolia orphan sweep capped`
 alert (PostHog — "Algolia orphan sweep capped") pages on a non-zero
 value, and the operator runs `db:reconcile-algolia-drift --apply --force` after confirming it's
-intended. The sweep is delete-only; **positive** drift (records missing from the index) stays
-repaired by the 08:00 incremental sync, not here. The next day's `index_drift` reads 0 once
-the orphans are gone.
+intended. The sweep is delete-only; **positive** drift (records missing from the index) is not
+repaired here. The 08:00 incremental sync fixes it only for rows whose own `updated_at` is still
+inside that run's watermark window — anything older needs a full rebuild (AECI-789; see
+`RUNBOOKS.md` "Algolia index drift"). The next day's `index_drift` reads 0 once the orphans are
+gone.
+
+**The sweep's authoritative promoted-id set spans both delivered-tier tables** — `integrations`
+and `connector_evidenced_pairs` — since AECI-789 (`STAGE_1_5_SPEC.md` §13.5 sites 15 and 16). It
+was single-table for the window between AECI-721 and that fix, which would have deleted every
+connector-evidenced pair from any `<env>_integrations` index that held them.
 
 `aeci.algolia.sync.records` and `aeci.algolia.sync.duration_ms` (AECI-141) round out the
 sync-health picture the `aeci.algolia.sync` outcome count only hinted at. Both are emitted for

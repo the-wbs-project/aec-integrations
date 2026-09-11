@@ -338,7 +338,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-137](https://linear.app/aec-integrations/issue/AECI-137) — index settings + record shapes as code (Phase 3.2).
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
-- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the fourteen-site `integration_count` lockstep §4.2 and §5 follow from.
+- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the sixteen-site `integration_count` lockstep §4.2 and §5 follow from. Sites 15 and 16 (AECI-789) are the Algolia **membership** id-sets behind the orphan sweep, not counts; they decide which objects stay in the `integrations` index.
 - [AECI-698](https://linear.app/aec-integrations/issue/AECI-698) — the mechanism vocabulary revision that introduces `integrator` (§4.1).
 - [AECI-721](https://linear.app/aec-integrations/issue/AECI-721) — the powered-edge migration: `integrator` in the enum, the pinned evidenced-pair rank (§4.2), and the `integration_count` semantics change (§5).
 - [AECI-735](https://linear.app/aec-integrations/issue/AECI-735) — settled that `iPaaS` is retained permanently, re-gated the `partner` retirement on [AECI-712](https://linear.app/aec-integrations/issue/AECI-712), and added the six-way vocabulary lockstep tests (§4.3).

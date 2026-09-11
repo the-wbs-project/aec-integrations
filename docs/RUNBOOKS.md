@@ -278,8 +278,14 @@ half-failed). **Negative** = the index holds *orphans* (objects with no promoted
 hard-deleted/stranded rows the incremental sync structurally can't see to delete). The gauge
 captures the **pre-heal** state: right after this report the same 09:00 UTC cron runs the orphan
 sweep (`apps/api/src/lib/algolia-orphans.ts`), which deletes the orphans — so **negative drift
-self-heals** (AECI-266) and the next day's run reads 0. **Positive** drift is *not* auto-repaired;
-it is fixed by the 08:00 incremental sync.
+self-heals** (AECI-266) and the next day's run reads 0.
+
+**Positive** drift is *not* auto-repaired, and the 08:00 incremental sync is only a partial fix
+(corrected by AECI-789 — this runbook previously said the sync repaired it outright). That sync is
+watermark-windowed: it re-upserts only rows whose own `updated_at` falls in `(watermark, cutoff]`,
+and the watermark advances on every successful run. **A record missing from the index whose row was
+last touched before the watermark will never be re-pushed by the cron, no matter how many times it
+runs.** Repairing that needs a full index rebuild, or a write that bumps the row's `updated_at`.
 
 **First checks**
 
@@ -312,10 +318,27 @@ it is fixed by the 08:00 incremental sync.
   ```
 
   (production also requires `--allow-production`.)
-- **Positive drift (missing rows):** repaired by the 08:00 incremental sync — a row updated
-  within the watermark window is re-upserted on the next run; a record stuck outside the window
-  re-syncs when it is next touched (e.g. re-promoted). The Node bulk-reindex CLI was retired under
-  D1 (ADR 0016); a Worker-triggered full re-sync is a tracked follow-up.
+- **Positive drift (missing rows):** the 08:00 incremental sync repairs only what is still inside
+  its watermark window. A row updated within the window is re-upserted on the next run; a record
+  stuck outside it re-syncs only when something next touches it (e.g. a re-promote). **Waiting for
+  another sync is not a repair for anything older than the watermark.**
+
+  The real repair is a full index rebuild via the Access-gated `apps/datatool` Worker, which
+  rebuilds from D1 and purges edge cache afterwards. It covers all four tiers, `demo` included —
+  the drift CLI above does not (`--env` accepts `staging|production` only):
+
+  ```
+  POST /api/reindex   { "target": "demo", "entities": ["integrations"] }
+  ```
+
+  Omit `entities` to rebuild all three indexes. (The Node bulk-reindex CLI referenced here before
+  was retired under D1, ADR 0016, and the "Worker-triggered full re-sync is a tracked follow-up"
+  note this replaces was stale — it shipped.)
+
+  **Before rebuilding the `integrations` index, confirm the deploy carries AECI-789.** The 09:00
+  orphan sweep's membership id-set was single-table until then, so on a pre-AECI-789 Worker a
+  rebuild would re-add the `connector_evidenced_pairs` objects at 08:00 and the sweep would delete
+  them again at 09:00, every day.
 
 To re-check (dry-run, deletes nothing) on demand without waiting for the 09:00 UTC (= 04:00 EST)
 cron:

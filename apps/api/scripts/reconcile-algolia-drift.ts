@@ -12,7 +12,10 @@
  *
  * Drift (per entity) = promoted-rows(D1) − objects(Algolia). Negative drift =
  * orphans → this removes them. Positive drift = records MISSING from the index →
- * NOT this tool's job (re-run the 08:00 incremental sync); the report surfaces it.
+ * NOT this tool's job; the report surfaces it. The 08:00 incremental sync repairs
+ * those only while the row's own `updated_at` is inside that run's watermark
+ * window, so an older record needs a full rebuild (the datatool's
+ * `POST /api/reindex`) rather than another sync (AECI-789).
  *
  * Default is a DRY-RUN (report only, delete nothing). `--apply` removes orphans;
  * the core's safety cap refuses an unexpectedly large purge unless `--force`.
@@ -53,11 +56,32 @@ import {
 // Plain `SELECT id` — only the membership rule, no transforms (that's what keeps
 // the orphan path ADR-0016-safe). The integration query reproduces the
 // both-endpoints-promoted filter `algolia-sync` / `drizzleDriftCounter` use.
-const PRODUCT_IDS_SQL = `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted';`;
-const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion_status" = 'promoted';`;
-const INTEGRATION_IDS_SQL = `SELECT i."id" AS id FROM "integrations" i
+export const PRODUCT_IDS_SQL = `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted';`;
+export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion_status" = 'promoted';`;
+
+/**
+ * The `integrations` INDEX is fed by TWO tables (AECI-721 / §13.5 site 16), so this
+ * set unions both arms. `UNION ALL`, not `UNION`: the ids are distinct by
+ * construction (separate tables, uuid primary keys), and `UNION` would only buy a
+ * needless sort.
+ *
+ * **Omitting an arm here is not a wrong number, it is a deletion.** This set is the
+ * CLI's authoritative membership and `--apply` removes every index object outside
+ * it — which is what AECI-789 fixed. Keep it byte-for-byte the rule
+ * `drizzlePromotedIds` (`src/lib/algolia-drift-deps.ts`) and `buildIntegrationRequests`
+ * (`src/lib/algolia-sync.ts`) apply; `src/lib/count-lockstep.spec.ts` runs this
+ * exact string against the test D1 to hold the three together.
+ *
+ * Exported for that spec. The connector's own promotion is deliberately not a
+ * condition — see `algolia-sync.ts` for why.
+ */
+export const INTEGRATION_IDS_SQL = `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted');`;
+    AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+UNION ALL
+SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
+  WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+    AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted');`;
 
 // ─── Arg + target resolution ─────────────────────────────────────────────────
 
