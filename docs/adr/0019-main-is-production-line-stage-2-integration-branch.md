@@ -1,6 +1,8 @@
 # 0019 — `main` is the production line; Stage 2 develops on a long-lived `stage-2` integration branch
 
-- **Status:** Accepted (2026-07-05)
+- **Status:** Accepted (2026-07-05) — **discharged 2026-09-03.** The decision ran to its own
+  terminal condition: `stage-2` merged into `main` and was deleted. Everything below the
+  2026-09-03 amendment is a record of how Stage 2 was built, **not live guidance.**
 - **Date:** 2026-07-05
 - **Context owner:** chrisw@thewbsproject.com
 - **Spec anchor:** `docs/CICD_PLAN.md` §10, `docs/environments.md` (Promotion model)
@@ -138,3 +140,35 @@ forward-only D1 migrations.
 At Stage 2 launch, merge `stage-2 → main`, promote, and either reset `stage-2` off the new
 `main` for Stage 3 work or retire it — at which point the trunk model (§10 original) can
 resume if no further parallel-stage work is outstanding.
+
+---
+
+> **Amendment (2026-09-03) — `stage-2` is MERGED and RETIRED. `main` is the only line again.**
+>
+> This ADR reached the terminal condition its own Implementation section named ("At Stage 2 launch,
+> merge `stage-2 → main` … or retire it"). It happened on **2026-09-03**: `stage-2` merged into
+> `main` as a true merge commit — which needed a one-time `required_linear_history` toggle on `main`,
+> restored immediately after — and the branch was then deleted. `origin/stage-2` no longer resolves.
+>
+> **Three instructions in the text above are now unperformable. Do not follow them:**
+>
+> | Reads above | Actually |
+> |---|---|
+> | "Merge `main → stage-2` regularly (after every hotfix, at least weekly)" (Decision) | There is nothing to merge into. |
+> | "Stage 2 workspaces branch from `stage-2`. Agents must pick the base branch by the nature of the work." (Consequences) | **Branch everything from `main` and merge back to `main`.** There is no base-branch question left, only a scope question — see `CLAUDE.md` §Scope. |
+> | "Before merging `stage-2 → main`, re-run `db:generate` and reconcile the Drizzle journal" (Consequences) | Done once, at the merge. Not a standing step. |
+>
+> **What survives.** `main` HEAD must stay always-promotable; staging auto-tracks it and it is the
+> only source for a prod promote. `main` requires linear history, so squash or rebase — the merge
+> commit was a one-off. Release tags still cut from `main`.
+>
+> **`admin-panel` is the one surviving long-lived branch**, and the Consequences bullet about it is
+> still live and still unresolved: it is unprotected, and its PRs run **no tests at all**, because a
+> `push`-triggered run uses the pushed branch's own workflow copy and `admin-panel` is not descended
+> from current `main`. That is the only branch-model hazard left in this repo.
+>
+> **Do not resurrect `stage-2`.** All of its history is in `main`. Merged PRs dated 2026-07-05 →
+> 2026-09-03 carry a non-`main` base for this reason; that is expected when reading old issues.
+>
+> Surfaced by AECI-601, which found `.agents/skills/spec-anchor/SKILL.md` still citing this ADR to
+> route Stage 2 work onto the deleted branch.

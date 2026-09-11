@@ -26,7 +26,7 @@ The deciding observation: enumerate every event that can change a vendor's porta
 
 ### 1.1 Issue map & critical path
 
-This doc is the contract for the AECI-516 sub-issues. Each opens with `**Spec section:** docs/STAGE_2_REALTIME_SPEC.md §X` per the `spec-anchor` convention. **The subsection numbering below is load-bearing — do not renumber without updating the issues.**
+This doc is the contract for the AECI-516 sub-issues. Each opens with `**Spec section:** §X (docs/STAGE_2_REALTIME_SPEC.md)` — the canonical form in `docs/linear-issue-conventions.md`. (The older doc-name-first spelling survives in existing issues and still resolves; write new ones this way.) **The subsection numbering below is load-bearing — do not renumber without updating the issues.**
 
 | Anchor | Issue | Surface | Status |
 |---|---|---|---|
