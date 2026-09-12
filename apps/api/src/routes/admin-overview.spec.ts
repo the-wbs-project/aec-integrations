@@ -39,6 +39,8 @@ import {
 import { CHECKS } from '../lib/data-quality';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
+
 import { createAdminOverviewHandler, type AdminOverviewDeps } from './admin-overview';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -755,5 +757,118 @@ describe('GET /api/admin/overview — arrival telemetry health (AECI-869)', () =
     const body = await overview();
     expect(codes(body)).not.toContain('series_spans_degraded_days');
     expect(body.traffic.series_30d.every((p) => !p.degraded)).toBe(true);
+  });
+});
+
+describe('GET /api/admin/overview — browser starts (AECI-870)', () => {
+  const HEALTHY: PosthogBrowserStartsOutcome = {
+    ok: true,
+    starts: { startsAll: 21, starts: 13, searchReferred: 7 },
+  };
+
+  /** A `readBrowserStarts` seam that records its arguments. Specs never reach
+   *  PostHog; the transport itself is covered in `posthog-query.spec.ts`. */
+  const startsSeam = (outcome: PosthogBrowserStartsOutcome) =>
+    vi.fn<NonNullable<AdminOverviewDeps['readBrowserStarts']>>(async () => outcome);
+
+  /** The two expensive status items, stubbed so `?recompute=1` touches no network. */
+  const noNetwork = {
+    driftRunnerFor: () => undefined,
+    fetchImpl: vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch,
+  };
+
+  it('does NOT query PostHog on a default load, and reports null rather than zero', async () => {
+    // The read costs an external request, so it is gated on `?recompute=1` beside
+    // the other two network-dependent items (§13 D8). A zero here would be a
+    // fabricated number sitting next to a real residual.
+    await seedDay();
+    const seam = startsSeam(HEALTHY);
+    const body = await overview('/api/admin/overview', TEST_ENV, { readBrowserStarts: seam });
+
+    expect(seam).not.toHaveBeenCalled();
+    expect(body.traffic.browser_starts).toBeNull();
+    expect(body.traffic.browser_starts_unavailable).toBeNull();
+    // The existing note already tells the operator an expensive item was skipped.
+    expect(codes(body)).toContain('requires_recompute');
+  });
+
+  it('?recompute=1 returns all three counts, over the digest window', async () => {
+    await seedDay();
+    const seam = startsSeam(HEALTHY);
+    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: seam,
+      ...noNetwork,
+    });
+
+    expect(body.traffic.browser_starts).toEqual({
+      starts_all: 21,
+      starts: 13,
+      search_referred: 7,
+    });
+    expect(body.traffic.browser_starts_unavailable).toBeNull();
+    // The same window the 05:00 email reports, so the two surfaces describe one day.
+    const window = seam.mock.calls[0][2] as unknown as { startIso: string };
+    expect(window.startIso).toBe(`${DAY}T00:00:00.000Z`);
+  });
+
+  it('is exactly ONE extra read per recompute', async () => {
+    await seedDay();
+    const seam = startsSeam(HEALTHY);
+    await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: seam,
+      ...noNetwork,
+    });
+    expect(seam).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the reason when the read ran and failed, and still returns null counts', async () => {
+    await seedDay();
+    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: startsSeam({ ok: false, reason: 'posthog_http_503' }),
+      ...noNetwork,
+    });
+    expect(body.traffic.browser_starts).toBeNull();
+    expect(body.traffic.browser_starts_unavailable).toBe('posthog_http_503');
+  });
+
+  it('reports a real zero as a zero, because zero starts is a finding', async () => {
+    await seedDay();
+    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: startsSeam({
+        ok: true,
+        starts: { startsAll: 0, starts: 0, searchReferred: 0 },
+      }),
+      ...noNetwork,
+    });
+    expect(body.traffic.browser_starts).toEqual({
+      starts_all: 0,
+      starts: 0,
+      search_referred: 0,
+    });
+    expect(body.traffic.browser_starts_unavailable).toBeNull();
+  });
+
+  it('never folds starts into any D1 figure', async () => {
+    // The two populations overlap and one of them is not consent-gated, so the
+    // headline, the raw count and the corroborated floor must all be exactly what
+    // they were before this field existed.
+    await seedDay();
+    const before = await overview();
+    const after = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: startsSeam(HEALTHY),
+      ...noNetwork,
+    });
+    expect(after.traffic.page_views_human).toEqual(before.traffic.page_views_human);
+    expect(after.traffic.page_views_human_raw).toEqual(before.traffic.page_views_human_raw);
+    expect(after.traffic.corroborated_views).toBe(before.traffic.corroborated_views);
+  });
+
+  it('writes no audit_log row for the extra read', async () => {
+    await seedDay();
+    await overview('/api/admin/overview?recompute=1', TEST_ENV, {
+      readBrowserStarts: startsSeam(HEALTHY),
+      ...noNetwork,
+    });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 });

@@ -156,6 +156,25 @@ roughly an order of magnitude too high:
     a lower bound — its HogQL filters event, date and host only, and `uniq(person_id)` is an
     identity count, so twice in August its "1 person" was the operator. The email now says
     outright that no figure may be added to or subtracted from another.
+- **AECI-870** — a **browser-starts line**, from the `app_started` Tier 2 beacon that has
+  fired for every visitor since AECI-643 and that nothing read back until now. It is a
+  **second PostHog query** on the same run (two per digest, never more), and it prints as
+  *"Browser starts: N (M search-referred)"* beside the `$pageview` line, in the subject-free
+  body and the HTML tile. Four things travel with it, all stated on the figure itself:
+  - the **operator is excluded**, via a `$identify` retro-join on the admins' Supabase user
+    ids — necessary because `$is_identified` is FALSE on the operator's own start rows, and
+    the operator was 41 of 109 starts over Sep 7–10;
+  - **PostHog-detected bots are excluded** (`$virt_traffic_type`), which is their verdict and
+    not ours;
+  - it counts **bundle executions, not people** (memory persistence mints a fresh anonymous
+    id per page load), and a tracker blocker silences it entirely, so it is a floor with an
+    unmeasured gap;
+  - it is **never summed** with anything. A `0` renders as `0`, because zero starts on a day
+    with arrivals is a broken bundle or a blocked collector rather than a quiet day; a failed
+    read prints *"unavailable"* with the reason, never a fabricated zero.
+
+  The event has **no production rows before 2026-09-07**, so it is not charted, not delta'd
+  and carries no `metrics_daily` key. `ADMIN_PANEL_SPEC.md` §13 **D21**.
 
 **Read the RAW server-side count as an upper bound** regardless: the ASN half of the classifier
 is a hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". And read

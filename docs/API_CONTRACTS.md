@@ -2764,6 +2764,14 @@ export const AdminOverviewResponseSchema = z.object({
       coverage: z.number().min(0).max(1),                // 1 when arrivals = 0
       degraded: z.boolean(),                             // arrivals > 0 && coverage < MIN
     }),
+    // AECI-870. PostHog `app_started` — successful browser-bundle executions.
+    // `?recompute=1` ONLY; null on a default load (see `requires_recompute`).
+    browser_starts: z.object({
+      starts_all: z.number().int().nonnegative(),        // raw event count
+      starts: z.number().int().nonnegative(),            // less operator + PostHog-flagged bots
+      search_referred: z.number().int().nonnegative(),   // of `starts`, non-empty $search_engine
+    }).nullable(),
+    browser_starts_unavailable: z.string().nullable(),   // reason when the read ran and FAILED
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -2844,6 +2852,30 @@ up holding three thresholds. `coverage` is deliberately un-rounded: the bar is
 0.95. `AdminTrafficPoint.degraded` is derived the same way, from the stored
 `quality.arrival_cf_coverage` ratio — and a day with **no stored row is `false`**,
 meaning *not assessed* rather than *blind*.
+
+⚠️ **`browser_starts` is a count of BUNDLE EXECUTIONS, not of people (AECI-870).**
+The Tier 2 `app_started` beacon runs with `persistence: 'memory'`, so every full
+page load mints a fresh anonymous distinct id and PostHog resolves a fresh person
+behind it — persons ≈ starts. The object therefore carries **no people or session
+field**, deliberately, and no client may synthesise one. It is also not a human
+count: a real headless browser produces a start. `starts` has the operator removed
+via a `$identify` retro-join on the admins' Supabase user ids (`$is_identified` is
+FALSE on the operator's own start rows, so nothing else works) and PostHog's own
+`$virt_traffic_type` bots removed. **Never sum it with `page_views_human`,
+`page_views_human_raw` or `corroborated_views`** — the populations overlap and one
+of them is not consent-gated.
+
+**Null means "not measured", in two states, and never means zero.** The read costs
+one external request, so it is gated on `?recompute=1` beside the other two
+network-dependent items (§13 D8): a default load returns null with the standing
+`requires_recompute` note. On a recompute that failed,
+`browser_starts_unavailable` names the transport reason (`posthog_http_503`,
+`posthog_credentials_missing`, `admin_lookup_failed`) and the counts stay null. A
+`starts` of **0 is a real value and a real finding** — zero bundle executions on a
+day with arrivals is a broken deploy or a blocked collector — so a failure must
+never be rendered as one. Finally, the event has **no production rows before
+2026-09-07**; it is not charted, not delta'd and has no `metrics_daily` key, for
+exactly that reason.
 
 `AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
 and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by

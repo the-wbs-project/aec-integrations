@@ -98,7 +98,37 @@ here** — see §7.
 | `$pageview` | automatic (`capture_pageview: 'history_change'`) | PostHog defaults + the two super-properties | Covers SPA navigations, because the Angular Router drives `history.pushState`. Consented visitors only. |
 | `$identify` | automatic, on `identify(user.id)` after consented sign-in (AECI-649) | PostHog defaults | The Supabase user id and nothing else — **never** the email (§2). Consent-gated: a signed-in visitor who declined, or who sends DNT/GPC, stays anonymous. |
 | `$groupidentify` | automatic, on `group('vendor', vendor_id, { name })` at vendor-dashboard entry | `vendor_id`, `name` | The B2B piece — it is what makes "how many **vendors** activated" answerable. One vendor with four seats is one activated vendor. |
-| `app_started` | app bootstrap (AECI-643) | the two dimensions | **Tier 2** — fires for *every* visitor, consented or not. A liveness beacon: it is how you tell "nobody visited" from "the bundle is broken". |
+| `app_started` | app bootstrap (AECI-643) | the two dimensions | **Tier 2** — fires for *every* visitor, consented or not. A liveness beacon: it is how you tell "nobody visited" from "the bundle is broken". **Read back by the 05:00 digest and `/admin/overview?recompute=1` since AECI-870** — see the note below. |
+
+**`app_started` is now read, and what it means is narrower than it looks (AECI-870).**
+`apps/api/src/lib/posthog-query.ts` counts it for the digest's UTC day and this
+environment's `$host`, and both the email and the `/admin/overview` measurement
+envelope print it as **"browser starts"**, beside the `$pageview` figure and never
+summed with it.
+
+- **What it means.** A successful execution of the browser bundle. A `curl`, a
+  headless fetch or a proxy pool that never runs JavaScript cannot produce one,
+  which is what makes it the only client-side figure a request-shaped residual
+  cannot be inflated into.
+- **What it does not mean.** It is **not a person count** and no surface may turn
+  it into one. Tier 2 runs `persistence: 'memory'`, so every full page load mints
+  a fresh anonymous distinct id and PostHog resolves a fresh person behind it —
+  measured over Sep 7–10 2026, persons ≈ starts. It is also **not proof of
+  humanity**: a real headless browser produces a start, and about one start a day
+  is tagged `AI Agent` by PostHog's own `$virt_traffic_type`.
+- **It has a blocker-shaped hole.** The client posts straight to
+  `us.i.posthog.com` with no reverse proxy, so any browser running a tracker
+  blocker emits nothing at all. Treat it as a floor with an unmeasured gap, never
+  as a census.
+- **It exists in production only from 2026-09-07.** The event reached prod with
+  the Stage 2 promote; there are zero production rows before that date. A
+  year-over-year or month-over-month comparison across that boundary is not a
+  trend, it is the deploy.
+- **The numbers it started at.** Sep 7: 24 · Sep 8: 21 · Sep 9: 34 · Sep 10: 21,
+  on `www.aecintegrations.com`. The D1 unresolved residual on Sep 8/9/10 was
+  364 / 699 / 680, so non-operator bundle executions were 2–5% of the headline.
+  That gap is the finding, and it is why the two are printed as separate
+  observations with no arithmetic between them.
 | `search_performed` | `search-controller.ts`, once per distinct non-empty query when the root stats settle | `query`, `results_count`, `results_products`, `results_vendors`, `filters_applied[]`, `status`, `duration_ms`, `results_bucket` | The empty initial `/search` load is skipped. `status` / `duration_ms` / `results_bucket` arrived in AECI-643, absorbing the `aeci.search.query` Datadog RUM action (§3.9), which AECI-651 then deleted — so this event is the only carrier, and search *latency* is now a consented-slice number where RUM saw every search. **The header autocomplete is not covered by this event and is currently unmeasured (AECI-717).** `results_products` / `results_vendors` split the federated total, because 8 hits being 8 products or 8 vendors are different demand signals. Only two indexes: `/search` does not search integrations. |
 | `product_viewed` | `products/product-detail.ts` (`afterNextRender`) | `product_id`, `source` | `source` is `search` / `browse` / `direct`, derived from the previous in-app route. |
 | `integration_viewed` | `integrations/integration-detail.ts` | `integration_id` | |
@@ -223,6 +253,27 @@ retrofitted (§3.10).
   demo all report to `aec-integrations-dev` (525793) and production is
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**
   that change carry mixed tiers — filter by `$host` when reading history.
+- **The digest excludes the operator itself, with a `$identify` retro-join
+  (AECI-870).** The project-level "filter internal and test users" setting above
+  governs the PostHog UI; it does not govern a HogQL read through the query API.
+  So `fetchPosthogBrowserStarts` does the exclusion in the query: it resolves the
+  PostHog persons behind the Supabase user ids of every `profiles` row with
+  `role = 'admin'`, from their `$identify` events over a 30-day trailing window,
+  and excludes those persons from the count. That is the PostHog analogue of the
+  D1 `NOT_INTERNAL` exclusion, and it is not optional decoration — measured over
+  Sep 7–10 2026 the operator was **41 of 109 starts**.
+
+  **It has to be a retro-join, and this is the trap.** On the operator's own
+  `app_started` rows `$is_identified` is **FALSE**: the Tier 2 beacon fires at
+  bootstrap and the `$identify` merge happens later in the same session. An
+  exclusion keyed on `$is_identified`, or on country, or on a `distinct_id`
+  match against the raw event would exclude **nothing** and look like it worked.
+  Where there are no admin rows at all the subquery is omitted entirely rather
+  than emitted as `NOT IN ()`, and the count is honestly unfiltered.
+- **PostHog's own bot verdict is applied too.** `$virt_traffic_type = 'Regular'`
+  removes the clients PostHog flagged (`AI Agent` is the value seen here). It is
+  their classification, not ours, and it narrows the population without ever
+  making the result a human count.
 
 ## 10. Feature flags
 
