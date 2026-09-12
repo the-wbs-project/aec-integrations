@@ -798,6 +798,12 @@ point (`docs/OBSERVABILITY.md`).
 (`founders@thewbsproject.com`). Emitted by the `25 */6` `claim-stale-check` cron
 (`apps/api/src/lib/claim-stale-check.ts`, AECI-862).
 
+**Staging and production only.** `FOUNDER_ALERT_EMAIL` is unset on demo, so the digest
+fail-open skips there. The demo cron still runs and still emits every metric, so a demo
+claim left un-started is visible in `aeci.linear.claim_stale.stale` without mailing anyone.
+If this alert arrives carrying a `demo.aecintegrations.com` admin link, the var has been
+re-added to the demo block in `apps/api/wrangler.jsonc`.
+
 **Nothing is broken.** That is the whole point of this being a separate message to a separate
 address. `stuck-request-alert` below means the pipeline failed and the operator must fix it. This
 one means the pipeline worked, the ticket exists in Linear, and no human has picked it up. The
