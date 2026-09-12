@@ -1427,6 +1427,40 @@ create table page_views (
                                 -- deliberately: this is a log table where a constraint violation would silently
                                 -- drop the row, and on D1 a CHECK edit triggers drizzle-kit's destructive table
                                 -- recreate. The value comes from a closed server-side union.
+                                -- SINCE AECI-871 the SPA branch of that union is gated on writer_provenance
+                                -- below, NOT on the body's `navigation` field -- see §13 D18.
+
+  -- ─── Writer provenance (AECI-871, migration 0031) ─────────────────────────────
+  -- Which of our two writers produced this row: 'ssr-arrival' (the SSR Worker's
+  -- post-render capture) or 'browser-spa' (the browser tracker's POST, proxied through
+  -- the SSR /api/* passthrough).
+  --
+  -- WRITTEN FROM A TRUSTED HEADER ONLY -- PAGE_VIEW_WRITER_HEADER (`x-aeci-writer`) in
+  -- @aeci/shared, which the SSR Worker sets after stripping any client-supplied copy,
+  -- exactly as it does for the x-aeci-cf-* set. It is NOT a copy of `navigation` and
+  -- must never be derived from one, which is the entire reason it exists: `navigation`
+  -- is a BODY field, so until AECI-871 any HTTP client could POST {navigation:'spa'}
+  -- through the passthrough and collect client_verdict = 'browser' -- the strongest
+  -- verdict the system issues -- with every header check skipped. Since AECI-744 that
+  -- verdict is also what keeps a row OUT of the digest's automation exclusion, so the
+  -- free upgrade landed on the one column built to catch the traffic that would forge it.
+  --
+  -- `navigation` stays, as the writer's CLAIM. This is the trusted fact beside it, and
+  -- the two are the same split as referrer_source (claimed) vs is_operator (verified).
+  --
+  -- Null = no trusted statement, read as NO EVIDENCE -- the §13 D16 rule for a null
+  -- client_verdict, applied here for the same reason. Null on every row written before
+  -- 2026-09-11 and NOT backfillable: nothing stored on an older row says which writer
+  -- produced it. No read predicate keys off this column today; it is an annotation and
+  -- an admin filter axis (GET /api/admin/page-views `?writer=`), nothing more.
+  --
+  -- What it does NOT prove: that a BROWSER made the request, only that our SSR Worker
+  -- originated the write and which writer did. A real headless browser earns
+  -- 'browser-spa' and a full header set and is classified 'browser', correctly --
+  -- client_verdict names evidence about a request, never an identity.
+  --
+  -- No CHECK constraint, for the two reasons client_verdict above records.
+  writer_provenance text,
 
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce

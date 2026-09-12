@@ -8,6 +8,7 @@
  * those two browsers get explicit tests rather than being assumed.
  */
 
+import { PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS } from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
 
 import { claimsChromium, classifyClientSignals } from './client-signals';
@@ -38,6 +39,24 @@ function navigationHeaders(extra: Record<string, string> = {}): Record<string, s
     'accept-language': 'en-US,en;q=0.9',
     accept: HTML_ACCEPT,
     'sec-ch-ua': '"Chromium";v="128", "Not(A:Brand";v="24"',
+    ...extra,
+  };
+}
+
+/**
+ * The header set the browser tracker's POST arrives with, after the SSR Worker's
+ * passthrough has stamped provenance on it (AECI-871). Angular's `HttpClient` sends
+ * a JSON `Accept`, deliberately unlike the document `Accept` above.
+ */
+function spaHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'user-agent': CHROME_UA,
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'accept-language': 'en-US,en;q=0.9',
+    accept: 'application/json, text/plain, */*',
+    [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.browserSpa,
     ...extra,
   };
 }
@@ -117,23 +136,116 @@ describe('classifyClientSignals — automation', () => {
   });
 });
 
-describe('classifyClientSignals — navigation awareness', () => {
-  it('treats an SPA hop as a browser without applying arrival rules', () => {
+describe('classifyClientSignals — writer awareness (AECI-871)', () => {
+  it('treats a PROVENANCED SPA hop as a browser without applying arrival rules', () => {
     // The tracker's own fetch: `Sec-Fetch-Dest: empty`, no HTML `Accept`. Judged
-    // by arrival rules it would fail every check, yet reaching this code path at
-    // all means our JavaScript ran.
+    // by arrival rules it would fail every check — so the same-origin shape, plus
+    // the SSR Worker's own stamp, is what earns the verdict instead.
+    const result = classifyClientSignals(headers(spaHeaders()), CHROME_UA, 'spa');
+    expect(result.verdict).toBe('browser');
+    expect(result.secFetchDest).toBe('empty');
+    expect(result.writerProvenance).toBe('browser-spa');
+  });
+
+  it('does NOT trust the body: navigation spa with no provenance is unknown', () => {
+    // THE defect AECI-871 closes. `navigation` is a body field, so any HTTP client
+    // could POST it and collect the strongest verdict the system issues while
+    // skipping every header check. `unknown`, not `non-browser`: we were told
+    // nothing we can act on, which is not the same as being told it is a bot.
+    const h = spaHeaders();
+    delete h[PAGE_VIEW_WRITER_HEADER];
+    const result = classifyClientSignals(headers(h), CHROME_UA, 'spa');
+    expect(result.verdict).toBe('unknown');
+    expect(result.writerProvenance).toBeNull();
+  });
+
+  it('refuses a provenance value outside the closed vocabulary', () => {
+    // A forged header that survived some future hole in the strip must not read as
+    // "some writer". Unknown value and absent header are the same statement.
     const result = classifyClientSignals(
+      headers(spaHeaders({ [PAGE_VIEW_WRITER_HEADER]: 'browser-spa-but-trust-me' })),
+      CHROME_UA,
+      'spa',
+    );
+    expect(result.verdict).toBe('unknown');
+    expect(result.writerProvenance).toBeNull();
+  });
+
+  it('requires the same-origin fetch headers, not provenance alone', () => {
+    // Provenance says our Worker proxied a POST. It does not say a browser issued
+    // one — `curl` through the passthrough gets the stamp too.
+    const bare = classifyClientSignals(
       headers({
         'user-agent': CHROME_UA,
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        accept: '*/*',
+        [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.browserSpa,
       }),
       CHROME_UA,
       'spa',
     );
+    expect(bare.verdict).toBe('unknown');
+    expect(bare.writerProvenance).toBe('browser-spa');
+  });
+
+  it.each([
+    ['a cross-site Sec-Fetch-Site', { 'sec-fetch-site': 'cross-site' }],
+    ['no Accept-Language', { 'accept-language': undefined }],
+    [
+      'neither a fetch dest nor a cors mode',
+      { 'sec-fetch-dest': undefined, 'sec-fetch-mode': undefined },
+    ],
+  ])('downgrades a provenanced hop with %s to unknown', (_name, patch) => {
+    const h = spaHeaders();
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete h[k];
+      else h[k] = v;
+    }
+    expect(classifyClientSignals(headers(h), CHROME_UA, 'spa').verdict).toBe('unknown');
+  });
+
+  it('accepts either half of the fetch shape — dest empty OR mode cors', () => {
+    const destOnly = spaHeaders();
+    delete destOnly['sec-fetch-mode'];
+    expect(classifyClientSignals(headers(destOnly), CHROME_UA, 'spa').verdict).toBe('browser');
+
+    const modeOnly = spaHeaders();
+    delete modeOnly['sec-fetch-dest'];
+    expect(classifyClientSignals(headers(modeOnly), CHROME_UA, 'spa').verdict).toBe('browser');
+  });
+
+  it('never judges a provenanced hop non-browser or inconsistent', () => {
+    // The two disqualifying verdicts (AECI-744 / §13 D16) must stay out of reach on
+    // this path: an in-app hop that lost its headers is an absence of evidence.
+    const result = classifyClientSignals(
+      headers({ [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.browserSpa }),
+      null,
+      'spa',
+    );
+    expect(result.verdict).toBe('unknown');
+  });
+
+  it('leaves the arrival rules untouched under ssr-arrival provenance', () => {
+    const good = navigationHeaders({
+      [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.ssrArrival,
+    });
+    expect(classifyClientSignals(headers(good), CHROME_UA, 'arrival').verdict).toBe('browser');
+    expect(classifyClientSignals(headers(good), CHROME_UA, 'arrival').writerProvenance).toBe(
+      'ssr-arrival',
+    );
+
+    const bad = { ...good };
+    delete bad['accept-language'];
+    expect(classifyClientSignals(headers(bad), CHROME_UA, 'arrival').verdict).toBe('inconsistent');
+  });
+
+  it('applies the arrival rules to an ssr-arrival write even if the body says spa', () => {
+    // Cannot happen today — `firePageView` stamps both — but the trusted header is
+    // the authority, so a contradicting body must not redirect the rule set.
+    const result = classifyClientSignals(
+      headers(navigationHeaders({ [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.ssrArrival })),
+      CHROME_UA,
+      'spa',
+    );
     expect(result.verdict).toBe('browser');
-    expect(result.secFetchDest).toBe('empty');
   });
 
   it('treats a null navigation as an arrival', () => {

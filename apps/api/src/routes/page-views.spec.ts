@@ -4,6 +4,7 @@
  * settling execution context.
  */
 
+import { PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS } from '@aeci/shared';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,6 +22,10 @@ import { buildAppWithHandler, TEST_ENV } from '../test/helpers';
 import { createPageViewsHandler } from './page-views';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+/** A real Chrome 128 UA — enough to be classified human by `classifyTraffic`. */
+const CHROME_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 let t: TestDb;
 beforeEach(async () => {
@@ -481,6 +486,148 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
  * table in that day's digest. The guard is a `dedupe_key` carrying a floored time
  * bucket, backed by a UNIQUE index.
  */
+describe('writer provenance (AECI-871 / \u00a713 D18)', () => {
+  /** What the browser tracker's POST looks like once the SSR passthrough has
+   *  stamped it: the browser's own same-origin fetch headers plus our stamp. */
+  const SPA_WRITE = {
+    'user-agent': CHROME_UA,
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'accept-language': 'en-US,en;q=0.9',
+    accept: 'application/json, text/plain, */*',
+    [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.browserSpa,
+  };
+
+  const oneRow = async () => {
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  };
+
+  it('stores the provenance the SSR Worker stamped, on both writers', async () => {
+    const spa = post({ route: '/products/revit', navigation: 'spa' }, SPA_WRITE);
+    expect((await spa.res).status).toBe(204);
+    await spa.settle();
+    expect((await oneRow()).writerProvenance).toBe('browser-spa');
+  });
+
+  it('leaves provenance null when no trusted header arrives', async () => {
+    // Every row written before this shipped, and any caller reaching the API by
+    // some path the SSR Worker does not stamp. Null = no evidence, never "no
+    // writer" — the \u00a713 D16 rule for a null `client_verdict`, which this gates.
+    const { res, settle } = post({ route: '/products/revit', navigation: 'spa' });
+    expect((await res).status).toBe(204);
+    await settle();
+    expect((await oneRow()).writerProvenance).toBeNull();
+  });
+
+  it('never takes provenance from the body — only the header writes the column', async () => {
+    // The body is client-controlled, which is the whole defect. A payload that
+    // names a writer must reach the column through nothing.
+    const { res, settle } = post({
+      route: '/products/revit',
+      navigation: 'spa',
+      writer_provenance: 'browser-spa',
+      writer: 'browser-spa',
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+    expect((await oneRow()).writerProvenance).toBeNull();
+  });
+
+  it('refuses a body-claimed SPA hop the strongest verdict (the AECI-871 defect)', async () => {
+    // Before this issue the row below read `client_verdict: 'browser'` — the
+    // strongest verdict the system issues, from a body field, with every header
+    // check skipped. `unknown` keeps it counted (AECI-744 flags only
+    // `inconsistent` / `non-browser`) while granting it no standing.
+    const { res, settle } = post(
+      { route: '/products/revit', navigation: 'spa' },
+      { 'user-agent': CHROME_UA },
+    );
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const row = await oneRow();
+    expect(row.clientVerdict).toBe('unknown');
+    expect(row.writerProvenance).toBeNull();
+  });
+
+  it('earns browser only when provenance AND the same-origin headers are both there', async () => {
+    const good = post({ route: '/products/revit', navigation: 'spa' }, SPA_WRITE);
+    await good.res;
+    await good.settle();
+    expect((await oneRow()).clientVerdict).toBe('browser');
+  });
+
+  it('downgrades a provenanced write with no same-origin headers to unknown', async () => {
+    const { res, settle } = post(
+      { route: '/products/revit', navigation: 'spa' },
+      { 'user-agent': CHROME_UA, [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.browserSpa },
+    );
+    await res;
+    await settle();
+
+    const row = await oneRow();
+    expect(row.clientVerdict).toBe('unknown');
+    // The provenance still stored: it IS true that our Worker proxied this write.
+    expect(row.writerProvenance).toBe('browser-spa');
+  });
+
+  it('keeps the arrival rules under ssr-arrival provenance', async () => {
+    const { res, settle } = post(
+      { route: '/products/:slug', path: '/products/revit', navigation: 'arrival' },
+      {
+        'user-agent': CHROME_UA,
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'accept-language': 'en-US,en;q=0.9',
+        accept: 'text/html,application/xhtml+xml',
+        'sec-ch-ua': '"Chromium";v="128"',
+        [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.ssrArrival,
+      },
+    );
+    await res;
+    await settle();
+
+    const row = await oneRow();
+    expect(row.clientVerdict).toBe('browser');
+    expect(row.writerProvenance).toBe('ssr-arrival');
+  });
+
+  it('leaves is_bot untouched — provenance is an annotation, like the verdict', async () => {
+    const { res, settle } = post({ route: '/products/revit', navigation: 'spa' }, SPA_WRITE);
+    await res;
+    await settle();
+    // \u00a713 D14(a): nothing in this family may move `is_bot`.
+    expect((await oneRow()).isBot).toBe(false);
+  });
+
+  it('cannot mint a second browser row by replaying the same POST (AECI-743)', async () => {
+    // The dedupe key is (concrete_path, user_agent_hash, cf_asn, 10s bucket) and
+    // does NOT include `navigation` or provenance, so a replay inside the window
+    // collapses into the row already written rather than adding a second
+    // `browser`-verdict row to the count.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const headers = { ...SPA_WRITE, 'x-aeci-cf-asn': '22773' };
+
+    const first = post({ route: '/products/revit', navigation: 'spa' }, headers);
+    await first.res;
+    await first.settle();
+
+    now.mockReturnValue(1_000_120);
+    const replay = post({ route: '/products/revit', navigation: 'spa' }, headers);
+    expect((await replay.res).status).toBe(204);
+    await replay.settle();
+
+    const row = await oneRow();
+    expect(row.clientVerdict).toBe('browser');
+    expect(row.dedupeKey).not.toBeNull();
+    vi.restoreAllMocks();
+  });
+});
+
 describe('duplicate suppression (AECI-743)', () => {
   const BROWSER_UA =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
