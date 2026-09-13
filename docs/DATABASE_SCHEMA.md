@@ -1427,6 +1427,40 @@ create table page_views (
                                 -- deliberately: this is a log table where a constraint violation would silently
                                 -- drop the row, and on D1 a CHECK edit triggers drizzle-kit's destructive table
                                 -- recreate. The value comes from a closed server-side union.
+                                -- SINCE AECI-871 the SPA branch of that union is gated on writer_provenance
+                                -- below, NOT on the body's `navigation` field -- see §13 D18.
+
+  -- ─── Writer provenance (AECI-871, migration 0031) ─────────────────────────────
+  -- Which of our two writers produced this row: 'ssr-arrival' (the SSR Worker's
+  -- post-render capture) or 'browser-spa' (the browser tracker's POST, proxied through
+  -- the SSR /api/* passthrough).
+  --
+  -- WRITTEN FROM A TRUSTED HEADER ONLY -- PAGE_VIEW_WRITER_HEADER (`x-aeci-writer`) in
+  -- @aeci/shared, which the SSR Worker sets after stripping any client-supplied copy,
+  -- exactly as it does for the x-aeci-cf-* set. It is NOT a copy of `navigation` and
+  -- must never be derived from one, which is the entire reason it exists: `navigation`
+  -- is a BODY field, so until AECI-871 any HTTP client could POST {navigation:'spa'}
+  -- through the passthrough and collect client_verdict = 'browser' -- the strongest
+  -- verdict the system issues -- with every header check skipped. Since AECI-744 that
+  -- verdict is also what keeps a row OUT of the digest's automation exclusion, so the
+  -- free upgrade landed on the one column built to catch the traffic that would forge it.
+  --
+  -- `navigation` stays, as the writer's CLAIM. This is the trusted fact beside it, and
+  -- the two are the same split as referrer_source (claimed) vs is_operator (verified).
+  --
+  -- Null = no trusted statement, read as NO EVIDENCE -- the §13 D16 rule for a null
+  -- client_verdict, applied here for the same reason. Null on every row written before
+  -- 2026-09-11 and NOT backfillable: nothing stored on an older row says which writer
+  -- produced it. No read predicate keys off this column today; it is an annotation and
+  -- an admin filter axis (GET /api/admin/page-views `?writer=`), nothing more.
+  --
+  -- What it does NOT prove: that a BROWSER made the request, only that our SSR Worker
+  -- originated the write and which writer did. A real headless browser earns
+  -- 'browser-spa' and a full header set and is classified 'browser', correctly --
+  -- client_verdict names evidence about a request, never an identity.
+  --
+  -- No CHECK constraint, for the two reasons client_verdict above records.
+  writer_provenance text,
 
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
@@ -1614,8 +1648,10 @@ against rows deliberately older than every cutoff, so "untouched" means the prun
 considered and rejected them rather than finding nothing old enough.
 
 Metric vocabulary — **flows** count events inside the day; **stocks** are an
-instantaneous sample. Only the flows are backfillable, and only the flows are
-readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
+instantaneous sample; and since AECI-869 one **quality** key measures whether the
+day's own telemetry arrived. Flows and the quality key are backfillable; only the
+flows are readable through the timeseries endpoint today (the stocks await
+§5.4/§5.5, and the quality key is read as a per-day predicate rather than charted):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
@@ -1628,6 +1664,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
 | `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** — and **inflated before 2026-08-18**: promote re-created the claim spine on every push, so pre-AECI-604 counts are re-assertions, not additions. From that date `claim.created` fires only on a genuinely new identity triple, and `claim.deleted` / `claim.converted` (AECI-604) make net movement derivable. |
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
+| `quality.arrival_cf_coverage` | quality | `page_views` where `navigation = 'arrival'`: `count(cf_asn IS NOT NULL) / count(*)`, in `[0, 1]`. **No population filter** — bot rows, operator rows and internal paths all count, because this asks about the *pipeline* rather than the audience, and filtering would shrink the denominator enough to hide a partial outage. `1` on a day with no arrivals: an empty day is not a defect | measured — the same `page_views` rows `readArrivalCfCoverage` reads. **Not zero-filled** (`BackfillSeries.zeroFill`): `0` is this ratio's worst value, not its empty one, so a day with no arrivals gets NO row and reads as *not assessed*. Stored as the ratio and never as a `degraded` boolean, so a later `ARRIVAL_CF_COVERAGE_MIN` retune re-decides every past day (`ADMIN_PANEL_SPEC.md` §13 **D20**) |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
 | `catalog.integrations_total` | stock | `integrations` **+ `connector_evidenced_pairs`** (AECI-721 — see below) | not backfilled, and **no backfill needed** |
@@ -1811,6 +1848,133 @@ removes nothing writes no row.
 and the drain (`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only — no public
 or admin surface queries it; its state is visible as the `aeci.indexnow.pending` gauge and
 the `job_runs` row for `indexnow-drain`.
+
+---
+
+### 9.7 `page_view_classifications` — **PROPOSED (AECI-872), not yet agreed**
+
+> **PROPOSED (AECI-872), not yet agreed.** This table does not exist. There is no migration, no
+> Drizzle model and no code. It is the storage half of `ADMIN_PANEL_SPEC.md` §13 **D19**, written
+> here so the shape can be argued before anything is generated. **No `pnpm db:generate` until D19 is
+> agreed.**
+
+The versioned classification record. One row says: *this page view was placed in this class, by this
+version of the classifier, for these reasons, looking at this window of evidence, at this time.*
+Today none of that is stored anywhere — `page_views.is_bot` is a bare boolean decided once at ingest
+(§9.1), and the automation exclusion is recomputed on every read and persisted only as a count
+(`job_runs.detail`, §9.4). The whole point of a separate table is that a **classification is not a
+property of the request**: the request's facts are immutable, the judgement about them is not.
+
+```sql
+-- PROPOSED. Not generated, not applied.
+create table page_view_classifications (
+  id integer primary key autoincrement,
+
+  -- The observation this judges. `page_views.id` is the real FK; see the two
+  -- hazards below before settling on the ON DELETE action.
+  page_view_id integer not null references page_views(id) on delete cascade,
+
+  -- The D19(b) reporting class. Closed server-side vocabulary:
+  --   'identified_automation' | 'suspected_automation'
+  --   | 'browser_with_human_evidence' | 'unresolved'
+  -- NO CHECK constraint, for the two reasons page_views.client_verdict carries
+  -- none (§9.1): this is a log-class table where a constraint violation silently
+  -- drops the row, and on D1 a CHECK edit triggers drizzle-kit's destructive
+  -- table recreate.
+  class text not null,
+
+  -- Short, STABLE codes, as a JSON array: '["ua_named_crawler","asn_hosting"]'.
+  -- Stable because they are read back months later and compared across versions;
+  -- renaming one is a data migration, not a refactor. The same code vocabulary the
+  -- admin note codes use (API_CONTRACTS.md §6.10) — machine-readable, never prose.
+  reason_codes text not null,
+
+  -- Which classifier produced this. The column D19 exists for. Opaque to SQL and
+  -- ordered by the release that set it, never parsed for meaning.
+  classifier_version text not null,
+
+  -- When the judgement was made, NOT when the view happened.
+  evaluated_at text not null,
+
+  -- The evidence window the classifier looked at, inclusive/exclusive UTC ISO.
+  -- A recurrence prior (SWARM_PRIOR_LOOKBACK_DAYS) means the judgement rests on
+  -- rows outside the reported day, and without this the finding is unre-readable.
+  evidence_from text not null,
+  evidence_to text not null,
+
+  -- Denormalized UTC date of the page view (`substr(page_views.created_at,1,10)`).
+  -- See "Indexes" below — this is the one field the reviewer should push back on.
+  view_day text not null,
+
+  created_at text not null default (datetime('now'))
+);
+
+-- One judgement per (view, version). A re-run of the same version is an upsert,
+-- not a second row; a NEW version writes a second row beside the first, which is
+-- what makes D19(c)'s "flagged, never blended" checkable in the data.
+create unique index page_view_classifications_view_version_idx
+  on page_view_classifications(page_view_id, classifier_version);
+
+-- The digest's read: one day, grouped by class, for one version.
+create index page_view_classifications_day_idx
+  on page_view_classifications(view_day, classifier_version, class);
+```
+
+**`unresolved` is a class, not a null.** It is the single most important column value in the table
+and the reason the class is `not null`. Today an unmatched row silently becomes a human; here it is
+placed explicitly, so "we could not tell" is a countable population instead of an absence. A row
+that is classified but has no evidence still gets a row, with `class = 'unresolved'` and reason codes
+naming what was missing.
+
+**Indexes: the `view_day` denormalization is the one live question.** Without it, every digest read
+joins back to `page_views` to reach `created_at`, and the day filter cannot be served from this table
+at all. With it, the day is duplicated — which is safe only because `page_views.created_at` is
+immutable, and that is the argument, not a convenience. **Alternative for the reviewer:** drop
+`view_day`, join on the `page_view_id` leading column of the unique index, and accept a join on every
+breakdown. Do not add any index beyond the two above speculatively: §9.1's rule applies here in
+spirit — indexes are billed as rows written, and this table's write volume tracks `page_views`.
+
+**Two hazards on the foreign key, and they pull in opposite directions.**
+
+1. **A `page_views` table recreate DROPs the table and fires the cascade.** drizzle-kit rebuilds a
+   SQLite table for any CHECK or column-type change, and `PRAGMA defer_foreign_keys` does not defer
+   cascade *actions* — migration `0027` lost 1,697 claims and 1,697 attestations to exactly this, and
+   `src/test/migration-0027.spec.ts` exists to catch it. Adding a cascading child to the hottest
+   table in the app widens that blast radius. Any future migration touching `page_views` must be
+   reviewed against that lesson.
+2. **A cascade delete is invisible to the prune's own row count.** §7.4's retention prune deletes
+   `page_views` in chunks by `id` and reports `rowsDeleted`. If these rows disappear by cascade, the
+   number it reports and audits is wrong for this table by omission.
+
+**Recommended resolution, for the reviewer to accept or reject:** keep the FK for integrity, and have
+the §7.4 prune delete from this table **explicitly and first**, in the same run and the same window,
+so the cascade is never the thing that does the work.
+
+**Retention: 400 days, aligned with `page_views` §9.1 — not independent.** A classification of a row
+that no longer exists is unreadable, so there is no case for keeping it longer, and keeping it
+shorter would silently empty historical breakdowns. Same whole-UTC-day, chunked-by-`id` mechanism as
+every other §7.4 table.
+
+**`audit_log`: the writes are exempt, the scheduled delete is not.** Under **ADR 0022** these rows
+are derived and log-class on all three conjunctive tests — computed entirely from data already in
+the database, invisible on every public surface, and reproducible by re-running the classifier — so
+they carry **no `audit_log` row**, exactly like `metrics_daily` §9.3, `job_runs` §9.4 and
+`asn_registry` §9.5. The prune above is a *scheduled* `DELETE`, which ADR 0022 never exempts, so it
+emits one summary row per run in the same `db.batch`: `action='retention.pruned'`,
+`entity_type='page_view_classifications'`. A run that removes nothing writes no row.
+
+**It is purely ADDITIVE. `page_views` does not change.** No new column, no altered CHECK, no altered
+index on that table — so §17's workflow produces a `create table` plus two `create index` statements
+and nothing else, and drizzle-kit has no reason to emit a recreate. That is the property to verify in
+the generated SQL before it is ever applied: **if the generated migration contains
+`__new_page_views`, stop.** The additive-only rule is also what makes D19 introducible without the
+one-way backfill of `is_bot` that D14 argued against.
+
+**Would be written by** the classifier run (proposed: alongside the 00:15 snapshot cron, so a day is
+classified once it is complete) and by any shadow-mode run under a distinct `classifier_version`.
+**Would be read by** the daily digest, `GET /api/admin/overview`, `GET /api/admin/traffic/breakdown`
+and `GET /api/admin/page-views` (`API_CONTRACTS.md` §6.10). No public surface reads it, and none
+should — D19(g) forbids a new public surface.
 
 ---
 

@@ -1238,14 +1238,29 @@ It is deliberately **not** a payload field and **not** a header. A client-settab
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
 | `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
 | `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+| `x-aeci-writer` | *(not `request.cf` — see below)* | `writer_provenance` |
 
 `x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
 
-**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and there is **no anti-spoof boundary** to defend — nothing is trusted on their strength, they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
+**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and **no single one of them is trusted on its own** — they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
+
+They are, however, **load-bearing on the proxy path since AECI-871**: an in-app hop now needs them *alongside* the provenance header below before it earns `browser`. A change that dropped them from the rebuilt request would silently downgrade every SPA row to `unknown`, so `server.spec.ts` pins that they survive `withForwardedCfContext`.
+
+**Writer provenance (AECI-871 / `ADMIN_PANEL_SPEC.md` §13 D18).** `x-aeci-writer` is the one trusted header here that does **not** come from `request.cf`. The SSR Worker stamps which of its two writers originated the write — `ssr-arrival` on its own post-render `firePageView`, `browser-spa` on the proxied browser POST — and it is stripped-then-set on the proxy path exactly like the CF set. Values are the closed vocabulary `PAGE_VIEW_WRITERS` in `@aeci/shared`; anything else reads as absent.
+
+It exists because the API used to take that fact **from the body**. `navigation: 'spa'` alone returned `client_verdict: 'browser'` — the strongest verdict the system issues — skipping every arrival-shape check, so any HTTP client could POST it through this passthrough and collect the label. Since AECI-744 a `browser` verdict is also what keeps a row out of the digest's automation exclusion, which put a client-settable field in front of the headline figure.
+
+Three behaviours are contractual, and they mirror `is_operator`'s:
+
+- **The body can never write the column.** `writer_provenance` is populated from the header or not at all. `navigation` is unchanged and still stored — it is the writer's *claim*, kept for the arrival-vs-hop breakdown it was added for — but it can no longer grant a verdict, only withhold one.
+- **A `browser-spa` write must still look like a same-origin `fetch`** to earn `browser`: `Sec-Fetch-Site: same-origin`, plus `Sec-Fetch-Dest: empty` **or** `Sec-Fetch-Mode: cors`, plus `Accept-Language`. Provenance says our Worker proxied a POST; it does not say a browser issued one.
+- **A failed check is `unknown`, never `non-browser`.** A body claiming `'spa'` with no provenance, and a provenanced write missing those headers, both land on `unknown` — we were told nothing we can act on, which is not the same as being told it is automation. `unknown` is not in `NON_BROWSER_VERDICTS`, so no row is newly flagged by this change.
+
+**What it cannot do, stated because the column reads stronger than it is.** A real headless browser passes every check on both paths, because it genuinely is a browser. `client_verdict` names **evidence about a request, never an identity**; what it catches is the cheap client that does not bother, which is the majority.
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
-The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
+The SSR Worker is the **sole writer** of these headers — the `x-aeci-cf-*` set and `x-aeci-writer` alike: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting fresh values. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
 **Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. The client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
 
@@ -1274,7 +1289,7 @@ That split is exactly what `navigation` records, and each writer states its own 
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
-**No audit log.** §26.1 scopes `appendAuditLog()` to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written.
+**No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built — the name survives in older docs only.)
 
 ### 6.10 Admin endpoints
 
@@ -2634,6 +2649,10 @@ export const AdminNoteCodeSchema = z.enum([
   // one with a flag: "it ran" and "it failed" are read by different people.
   'automation_filter_applied',         // the headline is raw human views LESS flagged clients
   'automation_filter_did_not_run',     // detector failed; the headline is raw and is an upper bound
+  // AECI-869 — the telemetry-health pair. `warn` on both. The first is about THIS
+  // window; the second is about the days a chart or a multi-day delta reaches over.
+  'arrival_telemetry_unavailable',     // < ARRIVAL_CF_COVERAGE_MIN of arrivals carried a cf_asn
+  'series_spans_degraded_days',        // N of the days behind series_30d / delta_7d were blind
   'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
   'catalog_series_starts_at',          // basis=additions: window predates the audit log
   'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
@@ -2745,13 +2764,29 @@ export const AdminOverviewResponseSchema = z.object({
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
     delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
     delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
-    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot } — RAW
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot, degraded } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
     // AECI-683. All three come straight off `collectAnalyticsMetrics`.
     corroborated_views: z.number().int().nonnegative(),
     corroborated_visitors: z.number().int().nonnegative(),
     operator_leak_excluded: z.number().int().nonnegative(),
+    // AECI-869. Whether the day's network metadata actually arrived — not a caveat
+    // about a figure, a statement about whether the INPUT to half the figures existed.
+    arrival_telemetry: z.object({
+      arrivals: z.number().int().nonnegative(),          // navigation = 'arrival' rows
+      arrivals_with_asn: z.number().int().nonnegative(),
+      coverage: z.number().min(0).max(1),                // 1 when arrivals = 0
+      degraded: z.boolean(),                             // arrivals > 0 && coverage < MIN
+    }),
+    // AECI-870. PostHog `app_started` — successful browser-bundle executions.
+    // `?recompute=1` ONLY; null on a default load (see `requires_recompute`).
+    browser_starts: z.object({
+      starts_all: z.number().int().nonnegative(),        // raw event count
+      starts: z.number().int().nonnegative(),            // less operator + PostHog-flagged bots
+      search_referred: z.number().int().nonnegative(),   // of `starts`, non-empty $search_engine
+    }).nullable(),
+    browser_starts_unavailable: z.string().nullable(),   // reason when the read ran and FAILED
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -2814,6 +2849,48 @@ per request. The panel labels that difference rather than hiding it.
 clean day; null is an outage in which the headline is unfiltered, and the response
 carries an `automation_filter_did_not_run` warning to say so. The failure is
 caught in the collector and degrades both surfaces rather than 500-ing either.
+
+⚠️ **`page_views_human` was RENAMED in prose, not on the wire (AECI-869).** Both
+surfaces now label it **"requests of unresolved origin"**. The field name, the
+arithmetic and the `traffic.page_views_human_after_automation` metric key behind
+the chart are all unchanged — the key is `metrics_daily.metric` verbatim and
+renaming it would orphan every stored row. What changed is the claim: passing the
+crawler list, the header checks and the swarm thresholds is the absence of a bot
+match, not evidence of a person, and AECI-868 showed how far that can drift when
+the thresholds have no `cf_asn` to evaluate. `corroborated_views` is now the only
+figure on this response that any surface calls human.
+
+`arrival_telemetry.degraded` is decided **server-side**, from
+`ARRIVAL_CF_COVERAGE_MIN` in `apps/api/src/lib/arrival-coverage.ts`, so the panel,
+the 05:00 email and the nightly `arrival_cf_coverage` data-quality check cannot end
+up holding three thresholds. `coverage` is deliberately un-rounded: the bar is
+0.95. `AdminTrafficPoint.degraded` is derived the same way, from the stored
+`quality.arrival_cf_coverage` ratio — and a day with **no stored row is `false`**,
+meaning *not assessed* rather than *blind*.
+
+⚠️ **`browser_starts` is a count of BUNDLE EXECUTIONS, not of people (AECI-870).**
+The Tier 2 `app_started` beacon runs with `persistence: 'memory'`, so every full
+page load mints a fresh anonymous distinct id and PostHog resolves a fresh person
+behind it — persons ≈ starts. The object therefore carries **no people or session
+field**, deliberately, and no client may synthesise one. It is also not a human
+count: a real headless browser produces a start. `starts` has the operator removed
+via a `$identify` retro-join on the admins' Supabase user ids (`$is_identified` is
+FALSE on the operator's own start rows, so nothing else works) and PostHog's own
+`$virt_traffic_type` bots removed. **Never sum it with `page_views_human`,
+`page_views_human_raw` or `corroborated_views`** — the populations overlap and one
+of them is not consent-gated.
+
+**Null means "not measured", in two states, and never means zero.** The read costs
+one external request, so it is gated on `?recompute=1` beside the other two
+network-dependent items (§13 D8): a default load returns null with the standing
+`requires_recompute` note. On a recompute that failed,
+`browser_starts_unavailable` names the transport reason (`posthog_http_503`,
+`posthog_credentials_missing`, `admin_lookup_failed`) and the counts stay null. A
+`starts` of **0 is a real value and a real finding** — zero bundle executions on a
+day with arrivals is a broken deploy or a blocked collector — so a failure must
+never be rendered as one. Finally, the event has **no production rows before
+2026-09-07**; it is not charted, not delta'd and has no `metrics_daily` key, for
+exactly that reason.
 
 `AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
 and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by
@@ -3460,6 +3537,7 @@ export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
   source: z.string().min(1).max(64).optional(),         // exact, or '__none__'
   country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
   path_contains: z.string().min(1).max(200).optional(),
+  writer: z.string().min(1).max(32).optional(),         // AECI-871 — exact, or '__none__'
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
@@ -3477,6 +3555,7 @@ export const AdminPageViewRowSchema = z.object({
   entity: LinkRefSchema.nullable(),
   referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
+  writer_provenance: z.string().nullable(),// AECI-871 — 'ssr-arrival' | 'browser-spa' | null
   asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
 });
 
@@ -3514,6 +3593,21 @@ rather than merely visible. It is not a value either column can legitimately hol
 **`path_contains` matches literally.** `%` and `_` are escaped server-side and the
 `LIKE` carries an explicit `ESCAPE '\'`, so operator input is never a pattern
 language.
+
+**`writer` / `writer_provenance` is the one axis here a visitor cannot set
+(AECI-871).** Every other column in this feed reports something the request
+asserted — `referrer_source` above is explicitly "a CLAIM, never verified", and
+production holds a confirmed forgery of it. `writer_provenance` is stamped by our
+own SSR Worker on a header it strips a client copy of first (§6.9), so it says
+which of our two writers really produced the row. `?writer=__none__` selects the
+NULL bucket, which means "written before AECI-871" and will be most of the table
+for a while — the column starts on 2026-09-11 and is not backfillable. An
+unrecognized value returns an empty page rather than a `400`: a filter is not a
+contract about which values exist.
+
+**The row field is API-side only today.** The Activity feed UI does not render
+`client_verdict` either, so there is no existing request-shape column for this to
+sit beside; adding one is a UI follow-up, not part of this contract.
 
 **The internal-ASN filter behaves differently here, deliberately.** §13 D10
 constraint 2 is "show both numbers, never substitute"; on a count endpoint that
@@ -3793,6 +3887,117 @@ the only writer of `unsubscribed_at` is the subscriber, through the tokenized
 
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
 an unknown `sort` key, or an unknown `status`.
+
+#### Traffic classification classes on the admin read surface — **PROPOSED (AECI-872), not yet agreed**
+
+> **PROPOSED (AECI-872), not yet agreed.** None of the fields below exist. This is the wire half of
+> `ADMIN_PANEL_SPEC.md` §13 **D19** and the read side of `DATABASE_SCHEMA.md` §9.7, written so the
+> shapes can be argued before any schema or handler is touched. Nothing here is implemented and
+> nothing in `packages/shared/src/api/admin-panel.ts` changes until D19 is agreed.
+
+Scope is deliberately narrow: **shapes only**. Which classifier runs, when, and how it decides are
+D19's business and §3c's; this section says what the operator's surfaces would return.
+
+**1. The four classes are additive on `GET /api/admin/overview`, not a replacement for `traffic`.**
+`page_views_human`, `page_views_human_raw` and `automation_flagged` keep their current meanings
+(AECI-745 redefined `page_views_human` once already, and redefining it a second time would be the
+same silent semantic change this doc had to write out in prose the first time). The classes arrive
+as a sibling object, so a reader can see both answers and the delta between them during the
+shadow-mode window §3c requires.
+
+```typescript
+// PROPOSED. Added to AdminOverviewResponseSchema alongside `traffic`.
+export const AdminTrafficClassSchema = z.enum([
+  'identified_automation',
+  'suspected_automation',
+  'browser_with_human_evidence',
+  'unresolved',
+]);
+
+export const AdminClassificationSummarySchema = z.object({
+  // Which classifier produced every count in this object. Null = the classifier
+  // did not run for this window, which is NOT the same as "no rows" — the
+  // automation_filter_did_not_run precedent (§6.10) applies verbatim.
+  classifier_version: z.string().min(1).nullable(),
+
+  // One entry per class, ALWAYS all four, zeros included. An absent class would
+  // read as "not measured" and a measured zero is a different fact.
+  counts: z.array(z.object({
+    class: AdminTrafficClassSchema,
+    views: z.number().int().nonnegative(),
+    visitors: z.number().int().nonnegative(),   // §9.8 (user_agent_hash, cf_asn) pairs
+  })).length(4),
+
+  // Internal traffic is reported BESIDE the classes, never inside one (D19(b)).
+  // It is excluded by identity, not judged by evidence.
+  internal_excluded: z.object({
+    views: z.number().int().nonnegative(),
+    operator_leak_inferred: z.number().int().nonnegative(),  // the D15(b) figure, unchanged
+  }),
+
+  // The D19(a) rule, on the wire rather than only in the caption: name which of
+  // the three questions each figure answers.
+  basis: z.enum(['requests', 'browser_executions']),
+
+  // Non-null when the window spans a classifier version change (D19(c)). Days are
+  // FLAGGED, never blended, so the reader is told rather than shown an average.
+  version_seam: z.object({
+    from_version: z.string().min(1),
+    to_version: z.string().min(1),
+    changed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).nullable(),
+});
+```
+
+**2. Three new note codes, following the existing conventions exactly.** They join
+`AdminNoteCodeSchema`; `code` is the contract and `message` stays untranslated operator text.
+
+| Code | Severity | Gated? |
+|---|---|---|
+| `classification_unresolved_share` | `warn` | **Gated** on the unresolved share exceeding its threshold. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
+| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. |
+| `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d)). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. |
+
+**3. A per-row classification on `GET /api/admin/page-views`.** One nullable object on
+`AdminPageViewRowSchema`, beside `asn_registry` and read the same way — a read-time annotation that
+never alters `is_bot`.
+
+```typescript
+// PROPOSED. Added to AdminPageViewRowSchema.
+export const AdminPageViewClassificationSchema = z.object({
+  class: AdminTrafficClassSchema,
+  // Short, stable machine codes — never prose, and never localized. The UI renders
+  // from these; `DATABASE_SCHEMA.md` §9.7 stores the same array.
+  reason_codes: z.array(z.string().min(1)).max(8),
+  classifier_version: z.string().min(1),
+  evaluated_at: z.string().datetime(),
+  evidence_window: AdminWindowSchema,   // may be WIDER than the row's own day
+  // D19(e): did this row have the inputs the classifier needed? The field that
+  // would have distinguished "less automation" from "blind detector" across
+  // 2026-09-08..11, when an arrival with no `request.cf` wrote `cf_asn = NULL`
+  // and read as clean human traffic on every surface.
+  evidence_complete: z.boolean(),
+});
+```
+
+**Three properties of that row shape are load-bearing.**
+
+- **`null` means "not classified", never "human".** A row written before the classifier existed, or
+  on a day it did not run, returns `classification: null`. Rendering that as any class would be the
+  `is_bot IS NULL` reads-as-human defect (§9.1) recreated in a new field.
+- **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page;
+  closed because the codes are compared across versions months later, so renaming one is a data
+  migration rather than a refactor.
+- **Privacy is unchanged and is enforced by the contract.** No field here carries identity.
+  `visitor_hash` stays `substr(user_agent_hash, 1, 8)` computed in SQL, and `user_id` /
+  `session_id` / `profile_role` remain unselectable (§13 D7). A classification is a judgement about
+  a request, not about a person.
+
+**Filtering by class is deliberately NOT proposed here.** `AdminPageViewsQuerySchema` gains no
+`class=` parameter in this draft. The §13 D10 constraint-2 problem would arrive with it — a row
+filter needs its counts computed both ways or the operator gets a smaller number with nothing to
+compare it against — and that is a decision for whoever builds the screen, not one to settle in a
+spec draft.
 
 ### 6.11 Webhooks
 

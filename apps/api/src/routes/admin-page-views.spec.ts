@@ -75,6 +75,8 @@ async function seed(): Promise<void> {
       cfColo: 'CGK',
       cfAsn: 23700,
       userAgentHash: HASH_A,
+      // AECI-871 — the SSR Worker's own arrival capture.
+      writerProvenance: 'ssr-arrival',
       createdAt: '2026-08-10T01:00:00.000Z',
     },
     // 2 — vendor view, genuine external arrival.
@@ -88,6 +90,8 @@ async function seed(): Promise<void> {
       cfColo: 'IAD',
       cfAsn: 7922,
       userAgentHash: HASH_B,
+      // AECI-871 — the browser tracker's POST, proxied and stamped.
+      writerProvenance: 'browser-spa',
       createdAt: '2026-08-10T02:00:00.000Z',
     },
     // 3 — taxonomy route: no entity FK to hydrate, unclassified, unattributed.
@@ -170,6 +174,7 @@ describe('GET /api/admin/page-views — the feed', () => {
       entity: { id: u(1), name: 'Procore', slug: 'procore' },
       referrer_source: 'Direct',
       referrer: null,
+      writer_provenance: 'ssr-arrival',
     });
   });
 
@@ -283,6 +288,32 @@ describe('GET /api/admin/page-views — filters', () => {
     ]);
     // Same filters, wrong country → nothing.
     expect((await feed(`${RANGE}&country=US&source=Direct`)).total).toBe(0);
+  });
+
+  it('filters by writer provenance, including the NULL bucket via the sentinel', async () => {
+    // The one filter axis in this feed a visitor cannot set: `writer_provenance`
+    // is stamped by our SSR Worker on a header it strips a client copy of, unlike
+    // `source`, which is whatever the request claimed (§9.7 / AECI-871).
+    expect(paths(await feed(`${RANGE}&writer=ssr-arrival`))).toEqual(['/products/:slug']);
+    expect(paths(await feed(`${RANGE}&writer=browser-spa`))).toEqual(['/vendors/:slug']);
+    // The NULL bucket means "written before AECI-871", not "written by nobody",
+    // and is most of the table until the column has been live for a while.
+    expect(paths(await feed(`${RANGE}&writer=${ADMIN_PAGE_VIEW_NULL_FILTER}`))).toEqual([
+      '/administrators',
+      '/categories/:slug',
+    ]);
+  });
+
+  it('returns an empty page for an unrecognized writer rather than a 400', async () => {
+    // A filter is not a contract about which values exist, so an unknown writer is
+    // a miss, not a validation failure.
+    expect(await feed(`${RANGE}&writer=carrier-pigeon`)).toMatchObject({ total: 0, data: [] });
+  });
+
+  it('reconciles the writer filter with the window counts, not just the rows', async () => {
+    const body = await feed(`${RANGE}&writer=browser-spa`);
+    expect(body.total).toBe(1);
+    expect(body.window_total.total).toBe(1);
   });
 
   it('narrows the window to the requested UTC days', async () => {

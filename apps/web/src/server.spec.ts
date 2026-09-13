@@ -2114,6 +2114,107 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
   });
 });
 
+// ─── AECI-871: trusted writer provenance across the SSR→API binding ──────────
+// `client_verdict` used to hand any body saying `navigation: 'spa'` the strongest
+// verdict the system issues. `navigation` is client-controlled, so the SSR Worker
+// now stamps WHICH of its two writers originated each write, on the same
+// sole-writer / strip-then-set footing as `x-aeci-cf-*`.
+
+describe('writer provenance for page-views (AECI-871)', () => {
+  const postPageView = (headers: Record<string, string>) =>
+    new Request('https://www.aecintegrations.com/api/page-views', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ route: '/products/procore', navigation: 'spa' }),
+    });
+
+  async function proxied(headers: Record<string, string> = {}) {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+    await app.fetch(postPageView(headers), binding as unknown as Bindings, fakeExecutionContext());
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    return pv[0]!;
+  }
+
+  it('stamps browser-spa on the proxied browser POST', async () => {
+    expect((await proxied()).headers.get('x-aeci-writer')).toBe('browser-spa');
+  });
+
+  it('strips a client-supplied provenance header before setting its own', async () => {
+    // The anti-spoof half. Without the strip a forged `ssr-arrival` would be judged
+    // by the document-arrival rules instead of the same-origin fetch rules.
+    const forwarded = await proxied({ 'x-aeci-writer': 'ssr-arrival' });
+    expect(forwarded.headers.get('x-aeci-writer')).toBe('browser-spa');
+  });
+
+  it('preserves the browser request-shape headers the API now requires', async () => {
+    // Load-bearing, and the reason this assertion exists at all: since AECI-871 a
+    // `browser` verdict on an in-app hop needs BOTH the stamp and these headers. If
+    // the passthrough ever stopped forwarding them, every SPA row would silently
+    // drop to `unknown` with no test failing.
+    const forwarded = await proxied({
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'accept-language': 'en-US,en;q=0.9',
+    });
+    expect(forwarded.headers.get('sec-fetch-site')).toBe('same-origin');
+    expect(forwarded.headers.get('sec-fetch-dest')).toBe('empty');
+    expect(forwarded.headers.get('sec-fetch-mode')).toBe('cors');
+    expect(forwarded.headers.get('accept-language')).toBe('en-US,en;q=0.9');
+  });
+
+  it('leaves the body untouched — navigation is still stored, just no longer trusted', async () => {
+    expect(await (await proxied()).clone().json()).toEqual({
+      route: '/products/procore',
+      navigation: 'spa',
+    });
+  });
+
+  it('stamps ssr-arrival on the SSR Worker own arrival capture', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('x-aeci-writer')).toBe('ssr-arrival');
+  });
+
+  it('cannot have an eyeball provenance header reach the SSR arrival write', async () => {
+    // This path builds a fresh `Headers` rather than copying the eyeball's, and the
+    // client-signal copy loop enumerates a closed list this name is not in — so the
+    // forgery has no route in. Pinned because that is a property of the code, not a
+    // guarantee of the header name.
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products', {
+        headers: { 'x-aeci-writer': 'browser-spa', 'sec-fetch-dest': 'document' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('x-aeci-writer')).toBe('ssr-arrival');
+    // The eyeball's own request-shape headers still ride along, unrenamed.
+    expect(pv[0]!.headers.get('sec-fetch-dest')).toBe('document');
+  });
+});
+
 // ─── AECI-200 review-route auth gate ───────────────────────────────────────
 
 describe('isReviewPath (AECI-200)', () => {

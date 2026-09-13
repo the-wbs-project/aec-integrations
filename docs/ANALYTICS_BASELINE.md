@@ -688,6 +688,39 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > the rest of the suite; `POST_LAUNCH_MONITORING.md` §0b is the procedure. The reason it did not
 > exist before is worth stating plainly: **every check in this system watched the catalog, and none
 > watched the pipe that feeds the traffic numbers.**
+>
+> **AECI-869 addendum to the addendum (2026-09-11) — how the numbers in this file are now
+> PRESENTED.** The check above tells an operator who opens `/admin/system`. It does nothing for the
+> operator reading the 05:00 email, which is how four blind days were read as a good week. So the
+> presentation changed too, on both surfaces, and every figure quoted in this file inherits it:
+>
+> - **The headline is "N requests of unresolved origin"**, not "human page views after automation".
+>   Same figure, same subtraction — the name was the thing that was wrong. Surviving the crawler
+>   list, the AECI-658 header checks and the swarm thresholds is the *absence of a bot match*. On
+>   2026-09-08/09/10 that residual was **364 / 699 / 680** and not one of those days had an ASN to
+>   evaluate a threshold against.
+> - **"Human" now appears on the corroborated line alone**, because that line names its evidence in
+>   the same sentence. It is supporting evidence, a floor, built on an unverified claim, and a
+>   **subset** of the headline rather than an addend to it.
+> - **A telemetry-health line** fires on both surfaces below `ARRIVAL_CF_COVERAGE_MIN`, in the email
+>   **subject** as well as the body: *"Arrival network telemetry unavailable for this day;
+>   network-based exclusions did not run."* Absent when healthy; absent on a day with no arrivals.
+> - **Day-over-day deltas are suppressed across the boundary**, not hedged. A blind day over-reports,
+>   so the morning the pipeline breaks prints growth and the morning it is fixed prints a collapse —
+>   a hedged number would still be the number that got quoted.
+> - **A NULL `cf_asn` group is labelled, never counted.** It used to render as "from 1 network"; on
+>   2026-09-10 that described all 198 request-shape exclusions. It now reads *"network unknown (198
+>   requests)"* and never enters a network count.
+> - **PostHog is a separate observation.** Its HogQL filters event, date and host only, so it counts
+>   operators and any script that runs JavaScript, and `uniq(person_id)` is an identity count. The
+>   "20 pageviews / 2 identities" style figure quoted anywhere in this file is **not** a floor under
+>   the server-side one, and no figure here may be added to or subtracted from another.
+>
+> **The window itself is now recorded in data, not only in prose.** `metrics_daily` carries
+> `quality.arrival_cf_coverage` per day (`DATABASE_SCHEMA.md` §9.3). The `cf_asn` values stay gone,
+> but the NULLs are still in `page_views`, so a later `ops:backfill-metrics-daily` over
+> 2026-09-07 → the fix day marks those days **from the rows themselves**. That backfill is a queued
+> data operation and had not been run when this addendum was written.
 
 > **AECI-590 addendum (2026-09-13) — how much real browser traffic there is, and why that closed the
 > reverse-proxy question.** AECI-590's acceptance criterion was to measure the blocker-lost delta
@@ -707,8 +740,18 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > | …from **one** person firing 41 times | 41 |
 > | …from persons firing **exactly once** | **80** |
 > | D1 corroborated human floor (`corroboratedViews`, AECI-683) | 27 |
-> | D1 `page_views` human arrivals | 3,396 |
-> | D1 human arrivals net automation | 2,338 |
+> | D1 `page_views` arrivals surviving bot classification | 3,396 |
+> | D1 requests of unresolved origin (the headline, net automation) | 2,338 |
+>
+> The two D1 labels follow the **AECI-869** naming above, not the naming in use when the query was
+> run: "human" belongs to the corroborated line alone, and the residual is *unresolved origin*
+> rather than *human page views after automation*.
+>
+> **This is 121 where `ADMIN_PANEL_SPEC.md` §13 D21 says 109, and both are right.** D21's figure was
+> pulled on 2026-09-11 with that day still in flight and no host filter; this one was pulled on
+> 2026-09-13 over the complete window, scoped to `$host = 'www.aecintegrations.com'`. The operator's
+> 41 is identical in both, which is the part either number is used for. Prefer this row for volume
+> and D21 for the operator share.
 >
 > Tier 2 uses `persistence: 'memory'`, so an anonymous visitor mints a **fresh id every page load**.
 > A person firing exactly once is therefore one browser page load. The 41-event outlier is the
@@ -718,8 +761,11 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > identifies anyone.
 >
 > **The comparison that matters runs the other way from the one AECI-590 expected.** PostHog's
-> anonymous Tier 2 beacon records **about 3× the corroborated human floor** (80 vs 27). The floor is
-> this file's most conservative human estimator. A large blocker-hidden population would have to be
+> anonymous Tier 2 beacon records **about 3× the corroborated human floor** (80 vs 27). Per AECI-869
+> and §13 **D21** that is a **ratio between two independent observations, not an arithmetic
+> relation** — `app_started` counts bundle executions and the D1 figures count requests, so neither
+> is a floor or a ceiling under the other and they are never added or subtracted.
+> The floor is this file's most conservative human estimator. A large blocker-hidden population would have to be
 > invisible to *both* — and it is not visible to the first-party side either: `navigation = 'spa'`
 > rows, which prove the Angular client booted because the browser tracker POSTed them to our own
 > origin, come from **1–3 distinct visitors a day**. A blocked visitor's SPA rows would still arrive.
@@ -738,6 +784,9 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > **Re-open trigger, named so this is a decision and not a drift:** re-run this measurement when
 > `app_started` sustains **200+ page loads a day** for a week, or immediately after the first paid or
 > outbound marketing campaign lands. The scale, not the mechanism, is what makes the proxy worth it.
+> Watching that no longer needs a manual pull: since **AECI-870** the digest and the `/admin/overview`
+> lead tile print a browser-start line from the same `app_started` beacon (§13 **D21**), so the
+> trigger is readable off the 05:00 email.
 > The build was fully scoped before it was declined and the findings are worth keeping: the browser's
 > PostHog surface is **three** endpoints, not one (`/e/` capture, `POST /flags/?v=2`, and
 > `GET /array/{token}/config`), and a first-party `api_host` collapses all three onto one prefix

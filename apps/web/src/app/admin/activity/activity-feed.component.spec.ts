@@ -42,6 +42,7 @@ function makeRow(over: Partial<AdminPageViewRow> & { id: number }): AdminPageVie
     cf_asn: 'cf_asn' in over ? (over.cf_asn ?? null) : 23700,
     cf_country: 'cf_country' in over ? (over.cf_country ?? null) : 'ID',
     cf_colo: 'cf_colo' in over ? (over.cf_colo ?? null) : 'CGK',
+    writer_provenance: over.writer_provenance ?? null,
     path: over.path ?? '/',
     entity_type: over.entity_type ?? null,
     entity: over.entity ?? null,

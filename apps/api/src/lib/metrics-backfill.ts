@@ -57,12 +57,16 @@
 
 import {
   ADMIN_METRIC_KEYS,
+  ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS,
+  ARRIVAL_COVERAGE_METRIC,
   UNTRACKED_ROUTE_PREFIXES,
   type AdminMetricKey,
+  type AdminSnapshotMetricKey,
   type AdminSnapshotSource,
 } from '@aeci/shared';
 
 import { shiftDay } from './admin-analytics';
+import { ARRIVAL_NAVIGATION } from './arrival-coverage';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 
 /** Rows per multi-VALUES `INSERT`. Small enough to keep each statement well
@@ -150,13 +154,41 @@ function populationSql(population: 'human' | 'bot'): string {
 }
 
 export interface BackfillSeries {
-  metric: AdminMetricKey;
+  /**
+   * Widened from `AdminMetricKey` to `AdminSnapshotMetricKey` by AECI-869.
+   *
+   * `AdminMetricKey` is the *endpoint's* vocabulary; this module's job is the
+   * *snapshot's*, and the two stopped being the same set when
+   * `quality.arrival_cf_coverage` was added as a per-day measurement the
+   * timeseries endpoint deliberately does not serve. The stock keys are still
+   * excluded, but by the honesty argument in this file's header rather than by
+   * the type.
+   */
+  metric: AdminSnapshotMetricKey;
   source: AdminSnapshotSource;
   /** Why this series carries that source — surfaced by the script's dry run so an
    *  operator sees the honesty call before applying it. */
   rationale: string;
   /** `SELECT <day>, <value>` grouped by day over the range. */
   select(range: BackfillRange): string;
+  /**
+   * Whether a day with no `src` row gets a placeholder `0` (AECI-869).
+   *
+   * Defaults to true, which is right for every count: "we looked and there was
+   * nothing" IS zero, and the zero-fill is what stops a quiet day blocking the
+   * §7.4 prune forever.
+   *
+   * **A RATIO must opt out.** `0` is not "no data" for a coverage ratio, it is
+   * *total outage* — the single worst value it can take — so zero-filling would
+   * write "this day was completely blind" into permanent history for every day
+   * that simply had no arrivals. The honest answer there is an absent row, which
+   * `readDegradedArrivalDays` reads as "not assessed" rather than as degraded.
+   *
+   * Skipping one series does not re-open the prune hazard: the prune probes
+   * whether the DAY is captured, and the eight count series still fill it edge to
+   * edge.
+   */
+  zeroFill?: boolean;
 }
 
 function pageViewsSeries(
@@ -278,7 +310,55 @@ export const BACKFILL_SERIES: readonly BackfillSeries[] = [
     'measured',
     'profiles.created_at is a durable per-row stamp',
   ),
+  arrivalCoverageSeries(),
 ];
+
+/**
+ * `quality.arrival_cf_coverage` — the share of a day's full-document arrivals
+ * that carried a `cf_asn` (AECI-869).
+ *
+ * **This is the series that makes the AECI-868 window legible after the fact.**
+ * Production wrote four days of arrivals with a NULL `cf_asn` and nothing stored
+ * recorded that those days' exclusions had lost their input, so a later reader of
+ * `metrics_daily` cannot tell 2026-09-08 from 2026-09-06. Re-running the backfill
+ * over that range marks them **from the rows themselves** — the `cf_asn` column is
+ * still there, still NULL, and still countable.
+ *
+ * Three properties differ from every count series above, each for the same
+ * underlying reason (it is a ratio, not a tally):
+ *
+ * - **`measured`.** It re-aggregates the same `page_views` rows the live check
+ *   reads. Nothing is inferred, so labelling it `reconstructed` would be false.
+ * - **No `NOT_INTERNAL`, no bot filter.** Matching `readArrivalCfCoverage`
+ *   exactly: this asks about the *pipeline*, not the audience. Filtering would
+ *   shrink the denominator enough to hide a partial outage, and an outage that
+ *   spared humans and blinded the bot half would still be an outage.
+ * - **No zero-fill.** See {@link BackfillSeries.zeroFill}: `0` is the worst
+ *   value this metric can take, not its empty value.
+ *
+ * `* 1.0` forces REAL division — SQLite integer-divides two integers, so without
+ * it every day would store 0 or 1 and a 94% day would round to "healthy".
+ */
+function arrivalCoverageSeries(): BackfillSeries {
+  return {
+    metric: ARRIVAL_COVERAGE_METRIC,
+    source: 'measured',
+    rationale:
+      'the same page_views arrivals readArrivalCfCoverage counts; no population filter, by design',
+    zeroFill: false,
+    select: (range) => {
+      const { startIso, endIso } = isoBounds(range);
+      return (
+        `SELECT substr("created_at", 1, 10) AS day, ` +
+        `sum(case when "cf_asn" is not null then 1 else 0 end) * 1.0 / count(*) AS value ` +
+        `FROM page_views ` +
+        `WHERE "created_at" >= ${q(startIso)} AND "created_at" < ${q(endIso)} ` +
+        `AND "navigation" = ${q(ARRIVAL_NAVIGATION)} ` +
+        `GROUP BY 1`
+      );
+    },
+  };
+}
 
 /**
  * Flow metrics with no SQL-reconstructable form, excluded from the guard below.
@@ -289,17 +369,31 @@ export const BACKFILL_SERIES: readonly BackfillSeries[] = [
  */
 const NOT_BACKFILLABLE: readonly AdminMetricKey[] = ['traffic.page_views_human_after_automation'];
 
+/**
+ * Every key this module is REQUIRED to cover.
+ *
+ * `ADMIN_METRIC_KEYS` (the endpoint's flows) plus
+ * `ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS` (AECI-869), and deliberately NOT the
+ * stocks — §4 shows a past total is unrecoverable, so a reconstructed stock would
+ * not be an approximation, it would be wrong. The quality keys belong here for
+ * the opposite reason: they re-aggregate rows that are still in the table, which
+ * is the same argument the `traffic.*` series are `measured` on.
+ */
+const BACKFILLABLE_KEYS = [...ADMIN_METRIC_KEYS, ...ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS] as const;
+
 /* c8 ignore start -- a compile-time completeness guard, not a runtime branch. */
 {
-  const expected = ADMIN_METRIC_KEYS.length - NOT_BACKFILLABLE.length;
+  const expected = BACKFILLABLE_KEYS.length - NOT_BACKFILLABLE.length;
   if (BACKFILL_SERIES.length !== expected) {
     throw new Error(
       `BACKFILL_SERIES covers ${BACKFILL_SERIES.length} of ${expected} backfillable flow metrics ` +
-        `(${ADMIN_METRIC_KEYS.length} total, ${NOT_BACKFILLABLE.length} excluded: ${NOT_BACKFILLABLE.join(', ')})`,
+        `(${BACKFILLABLE_KEYS.length} total, ${NOT_BACKFILLABLE.length} excluded: ${NOT_BACKFILLABLE.join(', ')})`,
     );
   }
-  const covered = new Set(BACKFILL_SERIES.map((s) => s.metric));
-  const missing = ADMIN_METRIC_KEYS.filter((k) => !covered.has(k) && !NOT_BACKFILLABLE.includes(k));
+  const covered = new Set<string>(BACKFILL_SERIES.map((s) => s.metric));
+  const missing = BACKFILLABLE_KEYS.filter(
+    (k) => !covered.has(k) && !NOT_BACKFILLABLE.includes(k as AdminMetricKey),
+  );
   if (missing.length > 0) {
     throw new Error(`BACKFILL_SERIES is missing: ${missing.join(', ')}`);
   }
@@ -318,6 +412,7 @@ export function buildZeroFillStatements(range: BackfillRange): string[] {
   const rows: string[] = [];
   for (const day of daysInRange(range)) {
     for (const series of BACKFILL_SERIES) {
+      if (series.zeroFill === false) continue;
       rows.push(`(${q(day)}, ${q(series.metric)}, 0, ${q(series.source)}, ${q(range.computedAt)})`);
     }
   }
@@ -397,7 +492,7 @@ export function buildMetricsBackfillStatements(range: BackfillRange): string[] {
 export type ValueDiffKind = 'rewrite' | 'stale';
 
 export interface ValueDiffProbe {
-  metric: AdminMetricKey;
+  metric: AdminSnapshotMetricKey;
   /** `SELECT kind, day, stored, recomputed` — one row per day this run rewrites
    *  (`kind = 'rewrite'`) or leaves stale (`kind = 'stale'`). */
   sql: string;

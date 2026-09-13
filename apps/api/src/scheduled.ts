@@ -135,9 +135,10 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
   type DigestWindow,
-  humanViewsAfterAutomation,
+  unresolvedRequests,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
+import { readPosthogBrowserStarts } from './lib/posthog-browser-starts';
 import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
 import {
   ADMIN_CRON_JOB,
@@ -1122,9 +1123,16 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // The PostHog half of that old rationale still stands and is why this read
     // stays out here: it reaches the NETWORK, which the D1-only collector has
     // never done and should not start doing.
-    const [metrics, posthog] = await Promise.all([
+    //
+    // AECI-870 adds a SECOND network read on the same leg: `app_started`, the
+    // Tier 2 browser-start beacon. Two PostHog requests per run, not more — each
+    // read is exactly one HogQL query, and both share the transport's
+    // timeout/drain discipline, because a Worker invocation holds only ~6
+    // connections waiting for headers (AECI-666).
+    const [metrics, posthog, browserStarts] = await Promise.all([
       collectAnalyticsMetrics(db, window),
       readPosthogFloor(env, window),
+      readPosthogBrowserStarts(env, db, window),
     ]);
     const swarm = metrics.swarm;
 
@@ -1134,6 +1142,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       generatedAt: new Date(),
       posthog: posthog.ok ? posthog.traffic : null,
       posthogUnavailable: posthog.ok ? null : posthog.reason,
+      browserStarts: browserStarts.ok ? browserStarts.starts : null,
+      browserStartsUnavailable: browserStarts.ok ? null : browserStarts.reason,
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
@@ -1211,9 +1221,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           // the exact failure AECI-745 closed everywhere else. Null when the
           // detector did not run — the raw count IS the headline on such a day,
           // but recording it under this key would assert a filter that never ran.
-          pageViewsHumanNetAutomation: metrics.automation
-            ? humanViewsAfterAutomation(metrics).day
-            : null,
+          pageViewsHumanNetAutomation: metrics.automation ? unresolvedRequests(metrics).day : null,
           // AECI-683. Recorded beside the headline so a leak that starts growing
           // (or a pair rule that starts over-reaching) is visible in `job_runs`
           // history rather than only in one morning's email.

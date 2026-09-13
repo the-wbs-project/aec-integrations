@@ -78,6 +78,8 @@ import {
   LANDING_CF_HEADERS,
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
+  PAGE_VIEW_WRITER_HEADER,
+  PAGE_VIEW_WRITERS,
 } from '@aeci/shared';
 import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
@@ -791,11 +793,27 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
  * client-supplied copies are stripped first (anti-spoof) before we set fresh
  * values from `request.cf`. Body / method / other headers (incl. `user-agent`,
  * which the API hashes) pass through unchanged.
+ *
+ * AECI-871 adds a second trusted header on exactly the same footing:
+ * `PAGE_VIEW_WRITER_HEADER`, stamped `browser-spa` because reaching this function
+ * means the write came through the browser's own `POST` to the passthrough. It is
+ * stripped before it is set, for the same anti-spoof reason the CF set is — the
+ * API's `client_verdict` now reads *this* rather than the body's `navigation`
+ * field, which any HTTP client can set to `'spa'` and used to be handed a `browser`
+ * verdict for.
+ *
+ * What deliberately passes through untouched is the browser's own request-shape
+ * header set (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`: `sec-fetch-*`, `accept-language`,
+ * …). The API requires those *alongside* the provenance header before it will issue
+ * `browser` for an in-app hop, so this function silently losing them would downgrade
+ * every SPA row to `unknown`. `server.spec.ts` pins that.
  */
 export function withForwardedCfContext(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) headers.delete(name);
+  headers.delete(PAGE_VIEW_WRITER_HEADER);
   applyCfContextHeaders(headers, request);
+  headers.set(PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS.browserSpa);
   return new Request(request, { headers });
 }
 
@@ -924,6 +942,13 @@ function firePageView(
   }
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
+  // AECI-871 — trusted writer provenance. Every write through this function is the
+  // SSR Worker's own post-render arrival capture, so the value is a property of the
+  // function exactly as `navigation: 'arrival'` below is. No strip step is needed
+  // here (unlike the proxy path): these headers are built from an empty `Headers`
+  // rather than copied from the eyeball, and the client-signal copy loop below
+  // enumerates a closed list this name is not in.
+  headers.set(PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS.ssrArrival);
   const userAgent = sourceRequest.headers.get('user-agent');
   if (userAgent) headers.set('user-agent', userAgent);
   // Forward the eyeball's `Referer` so the API can classify the traffic source
@@ -1223,7 +1248,10 @@ export function createApp(options: {
   // Two enriched POST exceptions rebuild the request with trusted Cloudflare
   // request-context headers (request.cf doesn't survive the binding) after
   // stripping any client-supplied copies (anti-spoof):
-  //   - `POST /api/page-views` (AECI-177) → `PAGE_VIEW_CF_HEADERS`.
+  //   - `POST /api/page-views` (AECI-177) → `PAGE_VIEW_CF_HEADERS`, plus the
+  //     `PAGE_VIEW_WRITER_HEADER` provenance stamp (AECI-871) that tells the API
+  //     this write really did come from a browser POST rather than from a body
+  //     field claiming so.
   //   - `POST /api/subscribe` + `/api/feedback` (AECI-275) → `LANDING_CF_HEADERS`,
   //     the closing-CTA island's lead-capture geo. UTM + referrer still ride the
   //     body; only geo is header-forwarded.
