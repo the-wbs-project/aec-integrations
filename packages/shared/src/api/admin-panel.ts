@@ -386,8 +386,9 @@ export const AdminDataQualityCheckSchema = z.object({
 export type AdminDataQualityCheck = z.infer<typeof AdminDataQualityCheckSchema>;
 
 /**
- * The twelve checks (ten at AECI-583, plus `entitlement_mirror_drift` from AECI-609
- * and `arrival_cf_coverage` from AECI-868). `failing` counts checks with findings OR
+ * The eleven checks (ten at AECI-583, plus `entitlement_mirror_drift` from AECI-609
+ * and `arrival_cf_coverage` from AECI-868, less the two AECI-592 folded into one).
+ * `failing` counts checks with findings OR
  * an error — a skipped check (no creds) is not a failure. `id` is deliberately a
  * plain string rather than an enum: the suite owns the roster, and pinning it here
  * would make every new check a two-package change for no added safety.
@@ -1064,7 +1065,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
 // ─── GET /api/admin/system (AECI-580 / P1.6) ─────────────────────────────────
 
 /**
- * The §5.6 bundle: deploy identity, cron liveness, the ten data-quality checks,
+ * The §5.6 bundle: deploy identity, cron liveness, the data-quality checks,
  * Algolia state, and D1 size + row counts — "effectively the daily procedure in
  * `POST_LAUNCH_MONITORING.md` turned into one screen".
  *
@@ -1300,7 +1301,7 @@ export const AdminDatabaseStatusSchema = z.object({
 export type AdminDatabaseStatus = z.infer<typeof AdminDatabaseStatusSchema>;
 
 /**
- * `?recompute=1` (§13 **D8**) re-runs the ten §23.1 checks and the drift count
+ * `?recompute=1` (§13 **D8**) re-runs the §23.1 checks and the drift count
  * live. Pure read — it writes nothing, sends no email, and carries no
  * `audit_log` obligation, which is what keeps §6's "all endpoints are GET,
  * read-only" unconditionally true. The side-effecting

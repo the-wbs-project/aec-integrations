@@ -336,9 +336,12 @@ export type AdminVendorProductsQuery = z.infer<typeof AdminVendorProductsQuerySc
  * column is what `recompute-counts.ts` maintains, so an operator comparing this
  * table against the public product page sees the same number.
  *
- * `promotion_status` is a plain string for the reason `maintained_by` is: it
- * carries no CHECK, and a value this screen has never seen must render as
- * itself rather than 500 the tab.
+ * `promotion_status` is a plain string for the reason `maintained_by` is — a value
+ * this screen has never seen must render as itself rather than 500 the tab. Note the
+ * column DOES carry a CHECK (an earlier note here said otherwise, corrected by
+ * AECI-592); the point is that widening that CHECK must not break a reader. In D1 the
+ * column holds exactly one value, `'promoted'`, which the `promotion_status_invariant`
+ * data-quality check asserts nightly.
  */
 export const AdminVendorProductRowSchema = z.object({
   id: z.string().uuid(),

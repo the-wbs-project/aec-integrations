@@ -1927,7 +1927,7 @@ export const AdminVendorProductRowSchema = z.object({
   id, slug, name,
   product_role: ProductRoleSchema,        // closed enum — the §5.2 payer test reads it
   is_primary: z.boolean(),                // is this vendor the product's primary owner?
-  promotion_status: z.string(),           // no CHECK on the column, so a plain string
+  promotion_status: z.string(),           // deliberately not an enum — see the note below
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),   // withheld below the §5.5 review floor
@@ -1937,6 +1937,14 @@ export const AdminVendorProductRowSchema = z.object({
 export const AdminVendorProductsResponseSchema =
   paginatedResponseSchema(AdminVendorProductRowSchema);
 ```
+
+> **Why `promotion_status` is `z.string()` and not an enum (corrected AECI-592).** An earlier
+> note here said "no CHECK on the column". That is false — both `products` and `vendors` carry
+> `CHECK (promotion_status IN ('pending','ready','promoted','retracted','rejected'))`
+> (`apps/api/src/db/schema.ts`, `DATABASE_SCHEMA.md` §2). The real reason is that this is a
+> **response** schema: a tolerant reader must not start rejecting rows the moment the CHECK
+> vocabulary is widened. In practice D1 holds one value — `'promoted'` — which is what the
+> `promotion_status_invariant` data-quality check asserts nightly (`STAGE_1_SPEC.md` §23.1).
 
 **Ownership is every `product_vendors` row, not just the primary one** — the same rule
 `product_roles` counts by, because §8.8(1) asks what the vendor *owns*, not what it owns
@@ -2841,7 +2849,7 @@ note, and `?recompute=1` runs them live:
 | `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
 | `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
 | `moderation` | pending reviews + open `vendor_requests` | ✅ | ✅ |
-| `data_quality` | all ten §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
+| `data_quality` | all §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
 | `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
 
 `?recompute=1` is still a **pure read**: both jobs are already read-only, so it
@@ -3099,7 +3107,7 @@ range, an over-long window, or `perPage > 100`.
 
 #### `GET /api/admin/system` (AECI-580 / Phase 8.3 P1.6)
 
-The §5.6 bundle — deploy identity, cron liveness, the ten data-quality checks,
+The §5.6 bundle — deploy identity, cron liveness, the data-quality checks,
 Algolia state, and the D1 footprint — in one round trip. Same conventions as the
 three above (read-only, no `audit_log`, no `Cache-Tag`, `private, no-store`).
 Handler: `apps/api/src/routes/admin-system.ts`.
@@ -3245,7 +3253,7 @@ is where the answer can be **read** from, not what it costs to compute:
   rows, but serving them here would put two differently-aged drift numbers on one
   screen. Left to the recompute.
 
-`?recompute=1` runs the ten §23.1 checks and the drift count live, tagged
+`?recompute=1` runs the §23.1 checks and the drift count live, tagged
 `source: 'live'`. Still a **pure read** — writes nothing (including no `job_runs`
 row), sends nothing, no `audit_log` obligation; what makes it opt-in is network cost
 (check #9 HTTP-probes a sample of logo URLs, drift costs three Algolia queries), not

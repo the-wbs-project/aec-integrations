@@ -488,8 +488,8 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
           email: 'sent',
           checks: [
             {
-              id: 'broken_integration_refs',
-              label: 'Broken refs',
+              id: 'promotion_status_invariant',
+              label: "Catalog rows not at promotion_status='promoted'",
               severity: 'error',
               count: 3,
               sample: ['a'],

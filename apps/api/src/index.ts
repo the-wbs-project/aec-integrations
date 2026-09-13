@@ -500,7 +500,7 @@ app.route('/', authAccount);
 // `ROUTE_CACHE_PATTERNS` in the SSR Worker, §9.2):
 //   - GET /api/admin/overview           — the §5.1 bundle; `?day=` picks a UTC
 //     day (default: the digest's prior complete day), `?recompute=1` additionally
-//     runs the ten data-quality checks + the Algolia drift count (§13 D8 — still
+//     runs the data-quality checks + the Algolia drift count (§13 D8 — still
 //     a pure read: writes nothing, sends nothing).
 //   - GET /api/admin/metrics/timeseries — one metric, day-bucketed, live
 //     aggregation (P2.1 swaps in `metrics_daily` behind the same contract).
@@ -522,7 +522,7 @@ app.route('/', authAccount);
 //     NOT the same as "not running" — Datadog no-data monitors own absence.
 //     Plus the Algolia watermark, D1 size + per-table row counts,
 //     and — behind the same `?recompute=1` flag, sharing `/overview`'s
-//     implementation — the ten data-quality checks and the drift count.
+//     implementation — the data-quality checks and the drift count.
 // Phase 8.3 P5.1 (AECI-586) adds the Audience pair on the same terms:
 //   - GET /api/admin/audience           — the §5.4 bundle: lifetime subscriber
 //     stocks, the day-bucketed growth/churn series, UTM + signup geography, and

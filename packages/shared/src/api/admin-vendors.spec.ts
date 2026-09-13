@@ -390,7 +390,7 @@ describe('AdminVendorProductRowSchema', () => {
     );
   });
 
-  it('accepts an unrecognised promotion_status — the column carries no CHECK', () => {
+  it('accepts an unrecognised promotion_status — a reader must survive a widened CHECK', () => {
     expect(
       AdminVendorProductRowSchema.safeParse({ ...row, promotion_status: 'something_new' }).success,
     ).toBe(true);

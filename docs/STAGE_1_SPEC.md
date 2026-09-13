@@ -1608,8 +1608,9 @@ Brand tokens validated against WCAG AA contrast ratios:
 Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 
 - Products with no associated vendor
-- Products with `promotion_status='ready'` for >30 days without promotion to live
-- Integrations with broken source or target product references
+- ~~Products with `promotion_status='ready'` for >30 days without promotion to live~~ **Replaced 2026-09-13 (AECI-592)** — see the amendment below
+- ~~Integrations with broken source or target product references~~ **Replaced 2026-09-13 (AECI-592)** — see the amendment below
+- Every `products` and `vendors` row reads `promotion_status='promoted'` (AECI-592, severity `error`)
 - Vendors with no products
 - Reviews with `reviewer_id=null` but no `anonymized_at` timestamp (data integrity check)
 - Stale `stats_cache` rows (older than 48 hours, indicating stats pipeline failure)
@@ -1617,6 +1618,31 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Duplicate product candidates (same `name` within the same vendor)
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
 - Algolia index drift (record count mismatch with D1)
+- Vendors whose `verified` flag disagrees with their entitlement (AECI-609, severity `error`)
+- Full-document arrivals missing their network metadata `cf_asn` (AECI-868, severity `error`)
+
+> **Amendment (AECI-592, 2026-09-13) — two checks retired, one invariant guard added.**
+> The two struck lines above were **unreachable**, and had returned zero rows on every run
+> since they shipped. `POST /api/promote` is D1's only INSERT path into `products` and
+> `vendors`, and it hard-codes `promotion_status='promoted'` on all four of its branches;
+> the promote payload carries no status field, so a caller cannot supply one; and retraction
+> is a hard `DELETE` (`apps/api/src/lib/retract-product.ts`), not a status transition. So
+> `'ready'`, `'retracted'` and `'rejected'` are review-app lifecycle stages that never cross
+> the promote boundary, and no predicate keyed on them can ever match. A check that cannot
+> fail reads as coverage, which is worse than a gap.
+>
+> They are replaced by **one** check that asserts the invariant which made them dead:
+> `promotion_status_invariant`, severity `error`, covering both tables. Four shipped code
+> paths reason from that invariant and every one of them fails *silently* without it —
+> `ADMIN_PANEL_SPEC.md` §13 D6 (`products.created_at` as the exact first-promote timestamp),
+> `lib/metrics-snapshot.ts`, `lib/metrics-backfill.ts`, and the `promotedAt` set-once
+> rationale in `db/schema.ts`. The deliberate trade: the guard names the offending catalog
+> row, not the integrations pointing at it — once a product is off-`promoted`, finding its
+> edges is a follow-up query, not a second daily check.
+>
+> The roster is **eleven** checks as of this amendment. `ADMIN_PANEL_SPEC.md` §14.1 is the
+> enumerated inventory; prose elsewhere deliberately does not restate the number, which had
+> drifted across nineteen sites in two months.
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 

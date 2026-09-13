@@ -148,8 +148,8 @@ describe('detail', () => {
   it('deep round-trips a real data-quality result set', async () => {
     const checks: DataQualityCheckResult[] = [
       {
-        id: 'broken_integration_refs',
-        label: 'Broken refs',
+        id: 'promotion_status_invariant',
+        label: "Catalog rows not at promotion_status='promoted'",
         severity: 'error',
         count: 2,
         sample: ['a', 'b'],

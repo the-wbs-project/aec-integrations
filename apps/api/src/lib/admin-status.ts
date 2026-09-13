@@ -44,7 +44,7 @@
  *
  * ─── One drift call, two consumers ───────────────────────────────────────────
  *
- * Data-quality check #10 **is** the Algolia drift check, and the status strip
+ * The `algolia_index_drift` data-quality check **is** the drift check, and the status strip
  * wants the same numbers. Memoizing at the PROMISE (not the resolved value) lets
  * the suite and the strip share a single set of Algolia round trips even though
  * they consume it concurrently.
@@ -241,9 +241,9 @@ export async function runExpensiveStatusItems(
   const notes: AdminNote[] = [];
   const runDrift = (deps.driftRunnerFor ?? createDriftRunner)(env, db);
 
-  // Memoize at the PROMISE, not the value: data-quality check #10 IS the Algolia
-  // drift check, so the suite and the caller's own drift panel both want this
-  // result and neither should pay for a second set of Algolia round trips.
+  // Memoize at the PROMISE, not the value: the `algolia_index_drift` data-quality
+  // check IS the drift check, so the suite and the caller's own drift panel both
+  // want this result and neither should pay for a second set of Algolia round trips.
   let driftPromise: Promise<AlgoliaIndexDrift[]> | undefined;
   const sharedDrift = runDrift ? () => (driftPromise ??= runDrift()) : undefined;
 

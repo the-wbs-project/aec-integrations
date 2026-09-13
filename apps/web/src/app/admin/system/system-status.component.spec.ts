@@ -254,11 +254,11 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
         failing: 1,
         checks: [
           makeCheck({
-            id: 'broken_integration_refs',
-            label: 'Integrations referencing a pulled product',
+            id: 'promotion_status_invariant',
+            label: "Catalog rows not at promotion_status='promoted'",
             severity: 'error',
             count: 2,
-            sample: ['int-1: source "A" (retracted)', 'int-2: target "B" (rejected)'],
+            sample: ['product "A" (a) — retracted', 'vendor "B" (b) — pending'],
           }),
         ],
       },
@@ -266,12 +266,12 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
     const { el } = await setup(makeApiMock(system));
 
     const item = [...el.querySelectorAll('li')].find((li) =>
-      li.textContent?.includes('Integrations referencing a pulled product'),
+      li.textContent?.includes("Catalog rows not at promotion_status='promoted'"),
     );
     expect(item?.textContent).toContain('Needs attention');
     expect(item?.textContent).toContain('error');
     expect(item?.querySelector('details')).toBeTruthy();
-    expect(item?.textContent).toContain('int-1: source "A" (retracted)');
+    expect(item?.textContent).toContain('product "A" (a) — retracted');
   });
 
   it('distinguishes a skipped check and an errored check from a finding', async () => {

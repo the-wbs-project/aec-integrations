@@ -58,7 +58,7 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 **Surfaced but not fixed here**
 
 - The `*/15` reconciliation sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). Under this ADR that is unambiguously **domain state** and therefore a genuine §26.1 violation — not bookkeeping, and more serious than anything the admin-panel epic introduces. Tracked as **AECI-591**; this ADR deliberately does not legitimize it.
-- `data-quality.ts` check #2 (`ready_products_unpromoted`) is structurally unreachable — nothing in the repo writes `'ready'` to D1 — so it has been silently passing since it shipped. Unrelated to the audit invariant, but found in the same sweep. Tracked as **AECI-592**.
+- ~~`data-quality.ts` check #2 (`ready_products_unpromoted`) is structurally unreachable — nothing in the repo writes `'ready'` to D1 — so it has been silently passing since it shipped. Unrelated to the audit invariant, but found in the same sweep. Tracked as **AECI-592**.~~ **Fixed 2026-09-13 by AECI-592**, which replaced it with `promotion_status_invariant` (severity `error`, `products` + `vendors`) and folded in `broken_integration_refs`, dead for the same reason. `STAGE_1_SPEC.md` §23.1 carries the amendment.
 
 ## Alternatives not taken
 

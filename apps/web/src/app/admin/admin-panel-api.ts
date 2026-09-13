@@ -36,7 +36,7 @@ export class AdminPanelApi {
    *
    * `day` omitted reports the prior COMPLETE UTC day, the same window the 05:00
    * digest gets. `recompute` additionally runs the two network-dependent status
-   * items (the ten data-quality checks and the Algolia drift count) which the
+   * items (the data-quality checks and the Algolia drift count) which the
    * default response returns as `null` plus a `requires_recompute` note.
    */
   getOverview(opts: { day?: string; recompute?: boolean } = {}): Promise<AdminOverviewResponse> {
