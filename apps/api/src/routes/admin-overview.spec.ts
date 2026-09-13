@@ -14,17 +14,26 @@
 
 import {
   AdminOverviewResponseSchema,
+  ARRIVAL_COVERAGE_METRIC,
   type AdminOverviewResponse,
   type AdminNoteCode,
 } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, mailingList, pageViews, products, profiles, statsCache } from '../db/schema';
+import {
+  auditLog,
+  mailingList,
+  metricsDaily,
+  pageViews,
+  products,
+  profiles,
+  statsCache,
+} from '../db/schema';
 import type { Env } from '../env';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
-  humanViewsAfterAutomation,
+  unresolvedRequests,
   windowsForDay,
 } from '../lib/analytics-digest';
 import { CHECKS } from '../lib/data-quality';
@@ -182,7 +191,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     // coincide — which is why the test below seeds a client it DOES flag. Both
     // are needed: this one pins the fields to the collector, that one proves the
     // panel is reading the filtered one.
-    expect(body.traffic.page_views_human.total).toBe(humanViewsAfterAutomation(metrics).day);
+    expect(body.traffic.page_views_human.total).toBe(unresolvedRequests(metrics).day);
     expect(body.traffic.page_views_human_raw.total).toBe(metrics.pageViews.day);
     expect(body.traffic.automation_flagged).toBe(metrics.automation?.flagged.day ?? null);
 
@@ -190,7 +199,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     // views + one Google arrival) plus the unclassified row = 4, 1 crawler.
     expect(metrics.pageViews.day).toBe(4);
     expect(metrics.botPageViews.day).toBe(1);
-    expect(email.subject).toContain('4 human views');
+    expect(email.subject).toContain('4 requests of unresolved origin');
   });
 
   it('leads with the SAME post-automation figure the email leads with (AECI-745)', async () => {
@@ -227,7 +236,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
 
     // …and the panel leads with the filtered one, which is the whole issue.
     expect(body.traffic.page_views_human.total).toBe(4);
-    expect(email.subject).toContain('4 human views after automation (8 raw)');
+    expect(email.subject).toContain('4 requests of unresolved origin (8 raw)');
 
     // The day-over-day delta is filtered on BOTH sides (AECI-741). The prior day
     // flags nothing, so its filtered count is its raw count of 2.
@@ -257,8 +266,13 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     expect(body.traffic.page_views_human.total).toBe(4);
     expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
     expect(body.traffic.delta_day.prior).toBe(metrics.pageViews.prior);
-    expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1 });
-    expect(body.traffic.series_30d.at(-2)).toEqual({ day: '2026-08-09', human: 2, bot: 0 });
+    expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1, degraded: false });
+    expect(body.traffic.series_30d.at(-2)).toEqual({
+      day: '2026-08-09',
+      human: 2,
+      bot: 0,
+      degraded: false,
+    });
     // `/administrators` would be a false match for a naive prefix filter — but
     // there is no such row here; the point is the four console rows above vanish.
   });
@@ -318,9 +332,22 @@ describe('GET /api/admin/overview — window', () => {
     const body = await overview();
     expect(body.traffic.series_30d).toHaveLength(30);
     expect(body.traffic.series_30d.at(0)?.day).toBe('2026-07-12');
-    expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1 });
-    expect(body.traffic.series_30d.at(-2)).toEqual({ day: '2026-08-09', human: 2, bot: 0 });
-    expect(body.traffic.series_30d.at(0)).toEqual({ day: '2026-07-12', human: 0, bot: 0 });
+    expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1, degraded: false });
+    expect(body.traffic.series_30d.at(-2)).toEqual({
+      day: '2026-08-09',
+      human: 2,
+      bot: 0,
+      degraded: false,
+    });
+    expect(body.traffic.series_30d.at(0)).toEqual({
+      day: '2026-07-12',
+      human: 0,
+      bot: 0,
+      // AECI-869: no stored coverage row for that day, so it is `false` — "not
+      // assessed", never "blind". Painting an unmeasured day red is the one
+      // failure mode a telemetry marker must not have.
+      degraded: false,
+    });
   });
 });
 
@@ -631,5 +658,102 @@ describe('GET /api/admin/overview — catalog, audience, and the read-only invar
     const res = await call('/api/admin/overview');
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(res.headers.get('Cache-Tag')).toBeNull();
+  });
+});
+
+describe('GET /api/admin/overview — arrival telemetry health (AECI-869)', () => {
+  /** Full-document arrivals on `day`, `withAsn` of which carried a network. */
+  async function seedArrivals(day: string, total: number, withAsn: number): Promise<void> {
+    await t.db.insert(pageViews).values(
+      Array.from({ length: total }, (_, i) => ({
+        path: '/',
+        isBot: false,
+        navigation: 'arrival',
+        cfAsn: i < withAsn ? 13335 : null,
+        createdAt: `${day}T${String(i % 24).padStart(2, '0')}:30:00.000Z`,
+      })),
+    );
+  }
+
+  it('reports the measurement and the verdict, and warns when the day was blind', async () => {
+    await seedDay();
+    await seedArrivals(DAY, 8, 1); // 0.125 — well under the 0.95 bar
+
+    const body = await overview();
+    expect(body.traffic.arrival_telemetry).toEqual({
+      arrivals: 8,
+      arrivals_with_asn: 1,
+      coverage: 0.125,
+      degraded: true,
+    });
+    // The §13 D15 envelope carries it, above the automation notes whose figures
+    // it invalidates — the cause has to sit above the effect.
+    expect(codes(body)).toContain('arrival_telemetry_unavailable');
+    const note = body.notes.find((n) => n.code === 'arrival_telemetry_unavailable');
+    expect(note?.severity).toBe('warn');
+    expect(note?.params).toEqual({ arrivals: 8, arrivals_with_asn: 1 });
+    expect(codes(body).indexOf('arrival_telemetry_unavailable')).toBeLessThan(
+      codes(body).indexOf('automation_filter_applied'),
+    );
+  });
+
+  it('says nothing when telemetry is healthy', async () => {
+    await seedDay();
+    await seedArrivals(DAY, 8, 8);
+
+    const body = await overview();
+    expect(body.traffic.arrival_telemetry.degraded).toBe(false);
+    expect(codes(body)).not.toContain('arrival_telemetry_unavailable');
+  });
+
+  it('treats a day with no arrivals as healthy rather than as a total outage', async () => {
+    await seedDay(); // seeds page views, but none carry `navigation = 'arrival'`
+    const body = await overview();
+    expect(body.traffic.arrival_telemetry).toEqual({
+      arrivals: 0,
+      arrivals_with_asn: 0,
+      coverage: 1,
+      degraded: false,
+    });
+    expect(codes(body)).not.toContain('arrival_telemetry_unavailable');
+  });
+
+  it('marks the chart days a stored coverage row shows were blind', async () => {
+    await seedDay();
+    // Written by the 00:15 snapshot, or by `ops:backfill-metrics-daily` over the
+    // AECI-868 window. The endpoint reads the RATIO and applies the threshold
+    // itself, so a later retune re-decides every past day.
+    await t.db.insert(metricsDaily).values([
+      { day: DAY, metric: ARRIVAL_COVERAGE_METRIC, value: 0, computedAt: NOW.toISOString() },
+      {
+        day: '2026-08-09',
+        metric: ARRIVAL_COVERAGE_METRIC,
+        value: 0.99,
+        computedAt: NOW.toISOString(),
+      },
+    ]);
+
+    const body = await overview();
+    expect(body.traffic.series_30d.at(-1)?.degraded).toBe(true);
+    expect(body.traffic.series_30d.at(-2)?.degraded).toBe(false);
+    // A day with no stored row is `false` — "not assessed", never "blind".
+    expect(body.traffic.series_30d.at(0)?.degraded).toBe(false);
+
+    const note = body.notes.find((n) => n.code === 'series_spans_degraded_days');
+    expect(note?.severity).toBe('warn');
+    expect(note?.params).toEqual({ degraded_days: 1, requested: 30 });
+  });
+
+  it('omits the series note entirely when every stored day passed', async () => {
+    await seedDay();
+    await t.db.insert(metricsDaily).values({
+      day: DAY,
+      metric: ARRIVAL_COVERAGE_METRIC,
+      value: 1,
+      computedAt: NOW.toISOString(),
+    });
+    const body = await overview();
+    expect(codes(body)).not.toContain('series_spans_degraded_days');
+    expect(body.traffic.series_30d.every((p) => !p.degraded)).toBe(true);
   });
 });

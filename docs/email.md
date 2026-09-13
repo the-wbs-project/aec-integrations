@@ -106,8 +106,9 @@ read**: it writes no row and, in particular, **sends no email** (§13 **D8** dra
 effects, not manual-ness). Running a digest *for real* stays deferred.
 
 The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
-(with a plain-text fallback): **human** page views + top products (`page_views` where
-`is_bot IS NOT 1`), a **Traffic sources** breakdown (human arrivals grouped by
+(with a plain-text fallback). Its headline is **"N requests of unresolved origin"** — page
+views that no rule could exclude (`is_bot IS NOT 1`, minus the operator halves, minus the
+automation filter) — plus top products, a **Traffic sources** breakdown (human arrivals grouped by
 `referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
 Other), new sign-ins (`profiles` created) + total registered users, the live
 pending-moderation depth (`reviews` where `status='pending'`), and a **Crawler
@@ -140,9 +141,26 @@ roughly an order of magnitude too high:
   `operatorLeakViews` reports the rows a *lapsed* admin session left unflagged, which the
   `is_operator` flag alone cannot see. The corroborated figure is the only one of the three
   a rotating-proxy pool cannot inflate — a proxy sends no `Referer` at all.
+- **AECI-869** — the headline **stopped calling itself human**. Subject and primary stat read
+  "N requests of unresolved origin"; the word *human* now appears on the corroborated line
+  alone, which names its own evidence. Three further changes travel with it, all in
+  `lib/analytics-digest.ts` and all mirrored on `/admin/overview`
+  (`ADMIN_PANEL_SPEC.md` §13 **D20**):
+  - a **telemetry-health line** in the subject, the body and the HTML tile when fewer than
+    `ARRIVAL_CF_COVERAGE_MIN` of the day's full-document arrivals carried a `cf_asn` —
+    *"Arrival network telemetry unavailable for this day; network-based exclusions did not
+    run."* Absent when healthy, and absent on a day with no arrivals;
+  - the **day-over-day delta is suppressed, not hedged**, when either day was blind. Sign-ins
+    are exempt: `profiles.created_at` reads no network column;
+  - the **PostHog and referrer lines are separate observations**. PostHog is no longer called
+    a lower bound — its HogQL filters event, date and host only, and `uniq(person_id)` is an
+    identity count, so twice in August its "1 person" was the operator. The email now says
+    outright that no figure may be added to or subtracted from another.
 
-**Read the human count as an upper bound** regardless: the ASN half of the classifier is a
-hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". See
+**Read the RAW server-side count as an upper bound** regardless: the ASN half of the classifier
+is a hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". And read
+the headline as a **residual** — the absence of a bot match is not evidence of a person, which is
+the whole of AECI-869. See
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
 §3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the

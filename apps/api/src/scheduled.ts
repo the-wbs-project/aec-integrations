@@ -135,7 +135,7 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
   type DigestWindow,
-  humanViewsAfterAutomation,
+  unresolvedRequests,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
@@ -1211,9 +1211,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           // the exact failure AECI-745 closed everywhere else. Null when the
           // detector did not run — the raw count IS the headline on such a day,
           // but recording it under this key would assert a filter that never ran.
-          pageViewsHumanNetAutomation: metrics.automation
-            ? humanViewsAfterAutomation(metrics).day
-            : null,
+          pageViewsHumanNetAutomation: metrics.automation ? unresolvedRequests(metrics).day : null,
           // AECI-683. Recorded beside the headline so a leak that starts growing
           // (or a pair rule that starts over-reaching) is visible in `job_runs`
           // history rather than only in one morning's email.

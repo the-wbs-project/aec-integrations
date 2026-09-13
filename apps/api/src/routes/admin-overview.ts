@@ -71,6 +71,7 @@ import {
   internalFilterNote,
   isPartial,
   note,
+  readDegradedArrivalDays,
   resolveInternalFilter,
   shiftDay,
   toAdminInternalFilter,
@@ -87,11 +88,12 @@ import {
   type ExpensiveStatusDeps,
 } from '../lib/admin-status';
 import {
+  arrivalTelemetryDegraded,
   automationExclusionFor,
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
-  humanViewsAfterAutomation,
+  unresolvedRequests,
   windowsForDay,
 } from '../lib/analytics-digest';
 import { HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from '../lib/page-view-predicates';
@@ -158,7 +160,13 @@ export function createAdminOverviewHandler(
     // the price of the panel and the 05:00 email leading with one number.
     const metrics = await collectAnalyticsMetrics(db, digestWindow);
     const exclusion = automationExclusionFor(metrics.swarm);
-    const net = humanViewsAfterAutomation(metrics);
+    const net = unresolvedRequests(metrics);
+    // AECI-869. One `metrics_daily` read covering the chart window, which also
+    // contains the 7-day delta's newer half. Awaited here with the metrics rather
+    // than in the fan-out because both `trafficSeries` and `trafficNotes` below
+    // consume it, and a second read for the second consumer is how a chart ends
+    // up marking days the note did not count.
+    const degradedDays = await readDegradedArrivalDays(db, chartW);
 
     const [
       humanExcl,
@@ -178,7 +186,7 @@ export function createAdminOverviewHandler(
       countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
       countViewsExcludingInternal(db, dayW, 'bot', filter),
       countUniqueVisitorsBoth(db, dayW, 'human', filter),
-      trafficSeries(db, chartW),
+      trafficSeries(db, chartW, degradedDays),
       countHumanViews(db, weekW),
       countHumanViews(db, priorWeekW),
       countAll(db, mailingList, isNull(mailingList.unsubscribedAt)),
@@ -198,6 +206,11 @@ export function createAdminOverviewHandler(
         // post-automation figure, so it owes the reader either the thresholds
         // behind it or the warning that the filter did not run.
         automation: metrics.automation,
+        // AECI-869. The reported day's own telemetry, and the trailing window's.
+        // Both, because a healthy day can sit on top of a blind month and the two
+        // are different statements — see the note codes' own docblocks.
+        arrivalCoverage: metrics.arrivalCoverage,
+        degradedDays: { degraded: degradedDays.size, requested: chartW.days },
       }),
     ]);
 
@@ -230,7 +243,7 @@ export function createAdminOverviewHandler(
       internal_filter: toAdminInternalFilter(filter),
       traffic: {
         // The headline, and the same one the 05:00 email leads with (AECI-745).
-        // Through `humanViewsAfterAutomation` rather than an inline subtraction
+        // Through `unresolvedRequests` rather than an inline subtraction
         // so the two surfaces cannot grow separate definitions of it — the same
         // reason the AECI-683 figures below come straight off the collector.
         page_views_human: { total: net.day, excluding_internal: humanExclNet },
@@ -265,6 +278,15 @@ export function createAdminOverviewHandler(
         corroborated_views: metrics.corroboratedViews.day,
         corroborated_visitors: metrics.corroboratedVisitors,
         operator_leak_excluded: metrics.operatorLeakViews,
+        // Straight off the collector, like every figure above it. `degraded` is
+        // decided server-side so the panel, the email and the nightly
+        // data-quality check cannot end up holding three thresholds (AECI-869).
+        arrival_telemetry: {
+          arrivals: metrics.arrivalCoverage.arrivals,
+          arrivals_with_asn: metrics.arrivalCoverage.arrivalsWithAsn,
+          coverage: metrics.arrivalCoverage.coverage,
+          degraded: arrivalTelemetryDegraded(metrics.arrivalCoverage),
+        },
       },
       audience: {
         new_sign_ins: computeDelta(metrics.newUsers),

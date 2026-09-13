@@ -32,7 +32,12 @@ function dayAt(index: number): string {
 }
 
 function series30d(): AdminOverviewResponse['traffic']['series_30d'] {
-  return Array.from({ length: 30 }, (_, i) => ({ day: dayAt(i), human: i, bot: i * 2 }));
+  return Array.from({ length: 30 }, (_, i) => ({
+    day: dayAt(i),
+    human: i,
+    bot: i * 2,
+    degraded: false,
+  }));
 }
 
 function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewResponse {
@@ -72,6 +77,13 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
       corroborated_views: 9,
       corroborated_visitors: 6,
       operator_leak_excluded: 26,
+      // Healthy by default (AECI-869); the blind case is seeded per test.
+      arrival_telemetry: {
+        arrivals: 900,
+        arrivals_with_asn: 900,
+        coverage: 1,
+        degraded: false,
+      },
     },
     audience: {
       new_sign_ins: { current: 3, prior: 1, diff: 2, pct: 200 },
@@ -297,16 +309,16 @@ describe('AdminOverview', () => {
       expect(el.textContent).toContain('No change vs the prior day');
     });
 
-    it('carries the measurement envelope on the human page-views tile (AECI-683)', async () => {
+    it('carries the measurement envelope on the headline tile (AECI-683)', async () => {
       // The figures that qualify the headline sit ON the headline's tile, the way
       // the 05:00 email prints them beside its own. A separate tile would put the
       // caveat somewhere the number is not.
       const { el } = await setup(makeApiMock());
       const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Human page views'),
+        t.textContent?.includes('Requests of unresolved origin'),
       )!;
       expect(tile.textContent).toContain('upper bound');
-      expect(tile.textContent).toContain('external search or social referrer: 9');
+      expect(tile.textContent).toContain('corroborates them as human: 9');
       expect(tile.textContent).toContain('distinct visitors: 6');
       expect(tile.textContent).toContain('lapsed session: 26');
     });
@@ -317,9 +329,12 @@ describe('AdminOverview', () => {
       // visible minuend is a figure nobody can check.
       const { el } = await setup(makeApiMock());
       const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Human page views'),
+        t.textContent?.includes('Requests of unresolved origin'),
       )!;
-      expect(tile.textContent).toContain('Human page views after automation');
+      expect(tile.textContent).toContain('Requests of unresolved origin');
+      // AECI-869: the tile no longer claims the population it reports.
+      expect(tile.textContent).not.toContain('Human page views');
+      expect(tile.textContent).toContain('which is not the same as people');
       expect(tile.textContent).toContain('74');
       expect(tile.textContent).toContain('Counted server-side: 92');
       expect(tile.textContent).toContain('attributed to automated clients: 18');
@@ -341,7 +356,7 @@ describe('AdminOverview', () => {
         }),
       );
       const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Human page views'),
+        t.textContent?.includes('Requests of unresolved origin'),
       )!;
       expect(tile.textContent).toContain('automation filter did not run');
       expect(tile.textContent).toContain('UNFILTERED');
@@ -383,6 +398,84 @@ describe('AdminOverview', () => {
       expect(failed.el.textContent).toContain('automation filter did not run for this window');
     });
 
+    it('puts the telemetry-health line in the measurement envelope (AECI-869)', async () => {
+      // A four-day outage read as a good week because no surface said the
+      // exclusions had lost their input. This sits on the tile, above every other
+      // caveat, because it does not qualify the number — it invalidates it.
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({
+          ...base,
+          traffic: {
+            ...base.traffic,
+            arrival_telemetry: {
+              arrivals: 2736,
+              arrivals_with_asn: 0,
+              coverage: 0,
+              degraded: true,
+            },
+          },
+        }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).toContain('Arrival network telemetry was unavailable for this day');
+      expect(tile.textContent).toContain('network-based exclusions did not run');
+      expect(tile.textContent).toContain('Page loads carrying a network: 0');
+      expect(tile.textContent).toContain('of 2736');
+      expect(tile.textContent).toContain('not comparable with a day that has telemetry');
+    });
+
+    it('omits it entirely when telemetry is healthy', async () => {
+      const { el } = await setup(makeApiMock());
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).not.toContain('Arrival network telemetry');
+    });
+
+    it('renders the two AECI-869 notes in the honesty envelope', async () => {
+      const base = makeOverview();
+      const blind = await setup(
+        makeApiMock({
+          ...base,
+          notes: [
+            {
+              code: 'arrival_telemetry_unavailable',
+              severity: 'warn',
+              message: 'server fallback text',
+              params: { arrivals: 2736, arrivals_with_asn: 0 },
+            },
+          ],
+        }),
+      );
+      expect(blind.el.textContent).toContain(
+        'Network information was missing from most page loads',
+      );
+      expect(blind.el.textContent).toContain('0');
+      expect(blind.el.textContent).toContain('2736');
+      // Localized prose replaces the server's English fallback rather than
+      // appearing beside it (§9.4).
+      expect(blind.el.textContent).not.toContain('server fallback text');
+
+      const spans = await setup(
+        makeApiMock({
+          ...base,
+          notes: [
+            {
+              code: 'series_spans_degraded_days',
+              severity: 'warn',
+              message: 'server fallback text',
+              params: { degraded_days: 4, requested: 30 },
+            },
+          ],
+        }),
+      );
+      expect(spans.el.textContent).toContain('were missing network information');
+      expect(spans.el.textContent).toContain('Do not read a step across those days');
+    });
+
     it('omits the operator-leak sentence entirely when nothing leaked', async () => {
       // Zero is the healthy state, and "excluded: 0" reads like a finding.
       const base = makeOverview();
@@ -390,10 +483,10 @@ describe('AdminOverview', () => {
         makeApiMock({ ...base, traffic: { ...base.traffic, operator_leak_excluded: 0 } }),
       );
       const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Human page views'),
+        t.textContent?.includes('Requests of unresolved origin'),
       )!;
       expect(tile.textContent).not.toContain('lapsed session');
-      expect(tile.textContent).toContain('external search or social referrer: 9');
+      expect(tile.textContent).toContain('corroborates them as human: 9');
     });
 
     it('renders the two AECI-683 caveats in the honesty envelope', async () => {

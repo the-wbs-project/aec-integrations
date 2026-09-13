@@ -1614,8 +1614,10 @@ against rows deliberately older than every cutoff, so "untouched" means the prun
 considered and rejected them rather than finding nothing old enough.
 
 Metric vocabulary — **flows** count events inside the day; **stocks** are an
-instantaneous sample. Only the flows are backfillable, and only the flows are
-readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
+instantaneous sample; and since AECI-869 one **quality** key measures whether the
+day's own telemetry arrived. Flows and the quality key are backfillable; only the
+flows are readable through the timeseries endpoint today (the stocks await
+§5.4/§5.5, and the quality key is read as a per-day predicate rather than charted):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
@@ -1628,6 +1630,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
 | `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** — and **inflated before 2026-08-18**: promote re-created the claim spine on every push, so pre-AECI-604 counts are re-assertions, not additions. From that date `claim.created` fires only on a genuinely new identity triple, and `claim.deleted` / `claim.converted` (AECI-604) make net movement derivable. |
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
+| `quality.arrival_cf_coverage` | quality | `page_views` where `navigation = 'arrival'`: `count(cf_asn IS NOT NULL) / count(*)`, in `[0, 1]`. **No population filter** — bot rows, operator rows and internal paths all count, because this asks about the *pipeline* rather than the audience, and filtering would shrink the denominator enough to hide a partial outage. `1` on a day with no arrivals: an empty day is not a defect | measured — the same `page_views` rows `readArrivalCfCoverage` reads. **Not zero-filled** (`BackfillSeries.zeroFill`): `0` is this ratio's worst value, not its empty one, so a day with no arrivals gets NO row and reads as *not assessed*. Stored as the ratio and never as a `degraded` boolean, so a later `ARRIVAL_CF_COVERAGE_MIN` retune re-decides every past day (`ADMIN_PANEL_SPEC.md` §13 **D20**) |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
 | `catalog.integrations_total` | stock | `integrations` **+ `connector_evidenced_pairs`** (AECI-721 — see below) | not backfilled, and **no backfill needed** |

@@ -688,3 +688,36 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > the rest of the suite; `POST_LAUNCH_MONITORING.md` §0b is the procedure. The reason it did not
 > exist before is worth stating plainly: **every check in this system watched the catalog, and none
 > watched the pipe that feeds the traffic numbers.**
+>
+> **AECI-869 addendum to the addendum (2026-09-11) — how the numbers in this file are now
+> PRESENTED.** The check above tells an operator who opens `/admin/system`. It does nothing for the
+> operator reading the 05:00 email, which is how four blind days were read as a good week. So the
+> presentation changed too, on both surfaces, and every figure quoted in this file inherits it:
+>
+> - **The headline is "N requests of unresolved origin"**, not "human page views after automation".
+>   Same figure, same subtraction — the name was the thing that was wrong. Surviving the crawler
+>   list, the AECI-658 header checks and the swarm thresholds is the *absence of a bot match*. On
+>   2026-09-08/09/10 that residual was **364 / 699 / 680** and not one of those days had an ASN to
+>   evaluate a threshold against.
+> - **"Human" now appears on the corroborated line alone**, because that line names its evidence in
+>   the same sentence. It is supporting evidence, a floor, built on an unverified claim, and a
+>   **subset** of the headline rather than an addend to it.
+> - **A telemetry-health line** fires on both surfaces below `ARRIVAL_CF_COVERAGE_MIN`, in the email
+>   **subject** as well as the body: *"Arrival network telemetry unavailable for this day;
+>   network-based exclusions did not run."* Absent when healthy; absent on a day with no arrivals.
+> - **Day-over-day deltas are suppressed across the boundary**, not hedged. A blind day over-reports,
+>   so the morning the pipeline breaks prints growth and the morning it is fixed prints a collapse —
+>   a hedged number would still be the number that got quoted.
+> - **A NULL `cf_asn` group is labelled, never counted.** It used to render as "from 1 network"; on
+>   2026-09-10 that described all 198 request-shape exclusions. It now reads *"network unknown (198
+>   requests)"* and never enters a network count.
+> - **PostHog is a separate observation.** Its HogQL filters event, date and host only, so it counts
+>   operators and any script that runs JavaScript, and `uniq(person_id)` is an identity count. The
+>   "20 pageviews / 2 identities" style figure quoted anywhere in this file is **not** a floor under
+>   the server-side one, and no figure here may be added to or subtracted from another.
+>
+> **The window itself is now recorded in data, not only in prose.** `metrics_daily` carries
+> `quality.arrival_cf_coverage` per day (`DATABASE_SCHEMA.md` §9.3). The `cf_asn` values stay gone,
+> but the NULLs are still in `page_views`, so a later `ops:backfill-metrics-daily` over
+> 2026-09-07 → the fix day marks those days **from the rows themselves**. That backfill is a queued
+> data operation and had not been run when this addendum was written.

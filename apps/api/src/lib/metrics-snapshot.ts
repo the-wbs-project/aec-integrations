@@ -59,6 +59,7 @@ import {
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
+import { readArrivalCfCoverage } from './arrival-coverage';
 import {
   claims,
   connectorEvidencedPairs,
@@ -85,11 +86,7 @@ import {
   type SnapshotPoint,
   type UtcWindow,
 } from './admin-analytics';
-import {
-  collectAnalyticsMetrics,
-  humanViewsAfterAutomation,
-  windowsForDay,
-} from './analytics-digest';
+import { collectAnalyticsMetrics, unresolvedRequests, windowsForDay } from './analytics-digest';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
@@ -139,7 +136,7 @@ export async function computeFlowMetric(
  * digest's headline and `/admin/overview`'s tile perform, stored so the chart can
  * plot the filtered series.
  *
- * Written through `collectAnalyticsMetrics` + `humanViewsAfterAutomation` rather
+ * Written through `collectAnalyticsMetrics` + `unresolvedRequests` rather
  * than as its own `humanViews − detectSwarms(...)` expression, because an
  * open-coded subtraction here would be a third definition of the headline and the
  * whole point of AECI-745 was to get to one.
@@ -156,7 +153,35 @@ export async function computeHumanViewsAfterAutomation(db: Db, day: string): Pro
   if (!metrics.automation) {
     throw new Error(`automation detector did not run for ${day}; refusing to store a raw count`);
   }
-  return humanViewsAfterAutomation(metrics).day;
+  return unresolvedRequests(metrics).day;
+}
+
+/**
+ * The share of `day`'s full-document arrivals that carried a `cf_asn` (AECI-869),
+ * stored so a later reader can tell which past days were blind.
+ *
+ * **Stored as the RATIO, never as a `degraded` boolean.**
+ * `ARRIVAL_CF_COVERAGE_MIN` is a documented launch tunable
+ * (`POST_LAUNCH_MONITORING.md` §3), and `metrics_daily` is retained indefinitely:
+ * a boolean would freeze today's threshold into a permanent record that a later
+ * tuning could not re-decide, and there is no backfill for a judgement. The ratio
+ * is the measurement; "degraded" is a reading of it, taken fresh every time.
+ *
+ * Unlike `computeHumanViewsAfterAutomation` this never throws and never skips a
+ * day. `readArrivalCfCoverage` returns `1` for a window with no arrivals, which
+ * is the honest answer — an empty night is not a telemetry defect — so a quiet
+ * day writes a passing row rather than a gap. The one state that must not be
+ * confused with a measurement is "not measured at all", and that is an ABSENT
+ * row, which is exactly what a failed key produces.
+ *
+ * Written through the same `readArrivalCfCoverage` the 04:00 data-quality check
+ * and the digest call, so the stored history and the live alarm can never end up
+ * measuring different things.
+ */
+export async function computeArrivalCfCoverage(db: Db, day: string): Promise<number> {
+  const w = utcDayWindow(day);
+  const { coverage } = await readArrivalCfCoverage(db, w.startIso, w.endIso);
+  return coverage;
 }
 
 /** Reviews the public surfaces count — `approved` only, matching the review APIs
@@ -223,6 +248,13 @@ const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   'audience.feedback_total': (db) => countAll(db, feedback),
   'queue.reviews_pending': (db) => countAll(db, reviews, PENDING_REVIEWS),
   'queue.requests_open': (db) => countAll(db, vendorRequests, OPEN_REQUESTS),
+
+  // ── Data quality ─────────────────────────────────────────────────────────
+  // Neither a flow nor a stock: a per-day RATIO measuring whether the day's own
+  // telemetry arrived (AECI-869). It is in the vocabulary at all because the
+  // AECI-868 outage ran four days and no stored row anywhere recorded that the
+  // numbers of those days had lost their input.
+  'quality.arrival_cf_coverage': computeArrivalCfCoverage,
 };
 
 // ---------------------------------------------------------------------------

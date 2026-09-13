@@ -100,6 +100,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session. **Emitted only when `operator_leak_excluded` is non-zero** (AECI-836), and `params.rows` repeats that figure. Unlike the two standing caveats above it, this note describes an exclusion that MAY NOT HAVE HAPPENED — at zero it would explain an inference the response never made |
  * | `automation_filter_applied` | the headline is `page_views_human_raw` less the views the swarm detector attributed to automated clients (AECI-745). `message` carries the published thresholds (`SWARM_THRESHOLD_NOTE`) and, when the day flagged anything, that day's own `swarmNote(...)` sentence |
  * | `automation_filter_did_not_run` | the detector failed for this window, so `page_views_human` is UNFILTERED and `automation_flagged` is null. A `warn`: unlike the standing caveats this is a real, clearable condition, and a reader who misses it reads a raw count as a filtered one |
+ * | `arrival_telemetry_unavailable` | fewer than `ARRIVAL_CF_COVERAGE_MIN` of this window's full-document arrivals carry a `cf_asn` (AECI-868/AECI-869), so every network-based exclusion — `DATACENTER_ASNS`, both swarm groupings, the ASN rotator, the §13 D15 operator retro-join — had no input and could not fire. A `warn`, and the strongest one on the screen: it does not qualify the figures, it **invalidates** them against any other day. `params` repeat `arrivals` / `arrivals_with_asn` |
+ * | `series_spans_degraded_days` | `params.degraded_days` of the days behind `series_30d` (and behind `delta_7d`) failed that same coverage bar, so the chart mixes measured days with blind ones. Separate from the code above because a healthy reported day can still sit on top of a blind month, and telling that reader "telemetry unavailable for this day" would be false |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
  * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
@@ -131,6 +133,13 @@ export const AdminNoteCodeSchema = z.enum([
   'visitor_definition_approximate',
   'corroborated_is_a_referrer_floor',
   'operator_leak_is_an_inference',
+  // AECI-869 — the two telemetry-health codes. `arrival_telemetry_unavailable`
+  // is about THIS window; `series_spans_degraded_days` is about the days a chart
+  // or a multi-day delta reaches back over. Two codes rather than one, because a
+  // healthy day whose 30-day chart contains a blind week needs the second and
+  // must not be told the first.
+  'arrival_telemetry_unavailable',
+  'series_spans_degraded_days',
   // AECI-827 — the same inference's OTHER property: it is not final. An
   // `is_operator = 1` anchor written tomorrow retro-excludes views up to 30 days
   // behind it, so a stored day inside the trailing window can still fall. The
@@ -284,6 +293,21 @@ export const AdminTrafficPointSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   human: z.number().int().nonnegative(),
   bot: z.number().int().nonnegative(),
+  /**
+   * This day's full-document arrivals mostly carried no network metadata, so its
+   * human/bot split had no ASN to classify on (AECI-869).
+   *
+   * Derived at read time from the stored `quality.arrival_cf_coverage` ratio
+   * against `ARRIVAL_CF_COVERAGE_MIN`, never stored as a boolean: a threshold
+   * that moves must re-decide every past day, and a frozen flag could not.
+   *
+   * **`false` also means "not measured".** A day with no stored coverage row
+   * cannot be shown to be degraded, and defaulting to `true` would paint every
+   * pre-AECI-869 day on the chart as blind. The `series_spans_degraded_days`
+   * note counts the days that ARE flagged, so a reader can tell "none" from
+   * "none found".
+   */
+  degraded: z.boolean(),
 });
 export type AdminTrafficPoint = z.infer<typeof AdminTrafficPointSchema>;
 
@@ -446,15 +470,52 @@ export const AdminStatusStripSchema = z.object({
 });
 export type AdminStatusStrip = z.infer<typeof AdminStatusStripSchema>;
 
+/**
+ * Arrival network-metadata coverage for one window (AECI-869), from the AECI-868
+ * tripwire (`apps/api/src/lib/arrival-coverage.ts`).
+ *
+ * `coverage` is `arrivals_with_asn / arrivals`, and **1 when `arrivals` is 0** —
+ * an empty window is not a telemetry defect. `degraded` is the server's own
+ * reading of that ratio against `ARRIVAL_CF_COVERAGE_MIN`, returned rather than
+ * left to the client so the panel, the email and the data-quality check cannot
+ * end up with three thresholds.
+ */
+export const AdminArrivalTelemetrySchema = z.object({
+  /** Full-document (`navigation = 'arrival'`) rows in the window. */
+  arrivals: z.number().int().nonnegative(),
+  /** How many of those carry a non-null `cf_asn`. */
+  arrivals_with_asn: z.number().int().nonnegative(),
+  /** The ratio in `[0, 1]`. Deliberately NOT rounded to an integer percentage:
+   *  the threshold it is compared against is 0.95. */
+  coverage: z.number().min(0).max(1),
+  /** `arrivals > 0 && coverage < ARRIVAL_CF_COVERAGE_MIN`. False on an empty
+   *  window, by the same rule the nightly check uses. */
+  degraded: z.boolean(),
+});
+export type AdminArrivalTelemetry = z.infer<typeof AdminArrivalTelemetrySchema>;
+
 /** Traffic block. `page_views_human` / `delta_day` / `top_sources` /
  *  `top_products` are the digest's own numbers (via `collectAnalyticsMetrics`);
  *  the rest are panel-only additions. */
 export const AdminOverviewTrafficSchema = z.object({
   /**
-   * **Human page views AFTER the automation filter** — the digest's headline, and
-   * since AECI-745 the panel's too.
+   * **Requests of unresolved origin** — the digest's headline, and since AECI-745
+   * the panel's too. Human-classified page views less the views the automation
+   * filter attributed to automated clients.
    *
-   * ⚠️ **This field was REDEFINED.** Through AECI-744 it carried the raw
+   * ⚠️ **The FIGURE is unchanged; what it is CALLED changed (AECI-869).** This
+   * field was labelled "human page views after automation" until 2026-09-11, and
+   * both surfaces led with the word *human*. They should not have. Surviving the
+   * crawler list, the AECI-658 header checks and the swarm thresholds is the
+   * **absence of a bot match**, not evidence of a person — and AECI-868 proved
+   * how far that can drift: for four days every arrival carried a NULL `cf_asn`,
+   * so `countDistinct(cf_asn)` was zero, neither grouping could fire, and the
+   * residual inflated with nothing in the email or the panel saying so. The
+   * arithmetic and the wire name both stay; only the label moves. The word
+   * "human" now appears on {@link AdminOverviewTrafficSchema.shape.corroborated_views}
+   * alone, which is the one figure that names its own evidence.
+   *
+   * ⚠️ **This field was also REDEFINED once before.** Through AECI-744 it carried the raw
    * server-side count; AECI-741 made the filtered figure the email's headline and
    * left the panel on the raw one, so the two surfaces answered "how many humans?"
    * with different numbers (14 vs 70 on 2026-08-30). Rather than add a second
@@ -545,6 +606,17 @@ export const AdminOverviewTrafficSchema = z.object({
    * panel and the email report the same figure.
    */
   operator_leak_excluded: z.number().int().nonnegative(),
+  /**
+   * Whether this day's network metadata actually arrived (AECI-868 / AECI-869).
+   *
+   * Not a caveat about a figure — a statement about whether the INPUT to half the
+   * figures existed. `page_views.cf_asn` is written only on full-document
+   * arrivals, from `request.cf`, and when it is absent every network-based
+   * exclusion silently does nothing: a blind day looks like a quiet one. That is
+   * the failure this block exists to make visible, and it is why it sits in the
+   * §13 D15 measurement envelope rather than beside the status strip.
+   */
+  arrival_telemetry: AdminArrivalTelemetrySchema,
 });
 export type AdminOverviewTraffic = z.infer<typeof AdminOverviewTrafficSchema>;
 
@@ -801,9 +873,62 @@ export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
  * added to the endpoint that the cron does not write is impossible by
  * construction, rather than caught by a reviewer.
  */
+/**
+ * The **data-quality** half of the `metrics_daily` vocabulary (AECI-869): a
+ * per-day measurement of whether the day's own telemetry arrived, as against the
+ * flows (events inside a day) and the stocks (an instantaneous sample).
+ *
+ * ─── Why this is a third list and not a `traffic.*` key ─────────────────────
+ *
+ * Four properties of {@link ADMIN_METRIC_KEYS} are wrong for it, and every one of
+ * them is derived from the `traffic.` prefix rather than declared:
+ *
+ * 1. **It is a RATIO, not a count.** `snapshotSeries` rounds a stored value to an
+ *    integer for the wire, which would turn 0.94 into 1 — i.e. turn a failing day
+ *    into a passing one. `metrics_daily.value` is REAL precisely so a ratio can
+ *    live there; the *endpoint* is what cannot carry one.
+ * 2. **It is not retroactive.** {@link ADMIN_RETROACTIVE_METRIC_KEYS} is every
+ *    `traffic.*` key with a live series, because all of them read `page_views`
+ *    through the operator retro-join and can therefore still move. `cf_asn` on a
+ *    written row never changes, so a nightly re-check of this key would be pure
+ *    cost with no possible correction.
+ * 3. **It cannot be ASN-filtered.** `metricSupportsInternalFilter` admits every
+ *    `traffic.*` key; excluding internal networks from a measurement OF network
+ *    metadata is incoherent.
+ * 4. **Nothing charts it.** It is read as a per-day predicate — "was this day
+ *    blind?" — by the digest and `/admin/overview`, not plotted as a series.
+ *
+ * So it is written by the snapshot, backfilled by `ops:backfill-metrics-daily`,
+ * and absent from `AdminMetricKeySchema`, which stays the *endpoint's*
+ * vocabulary. Read it through `readArrivalCoverageSnapshots`
+ * (`apps/api/src/lib/admin-analytics.ts`).
+ *
+ * **Stored as the ratio, never as a boolean.** `ARRIVAL_CF_COVERAGE_MIN` is a
+ * documented launch tunable (`POST_LAUNCH_MONITORING.md` §3), and a stored
+ * `degraded` flag would freeze today's threshold into a permanent record that a
+ * later tuning could not re-decide. The reader compares; the row remembers.
+ */
+export const ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS = [
+  /** Share of the day's full-document arrivals carrying a `cf_asn`, in `[0, 1]`.
+   *  `1` on a day with no arrivals — an empty day is not a defect (AECI-868). */
+  'quality.arrival_cf_coverage',
+] as const;
+
+/**
+ * {@link ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS}'s one member, named.
+ *
+ * Three call sites need this exact string — the snapshot producer, the
+ * `ops:backfill-metrics-daily` SQL builder, and `readDegradedArrivalDays` — and it
+ * is `metrics_daily.metric` verbatim, so a typo in any one of them would write or
+ * read a key nothing else touches and fail by returning nothing rather than by
+ * erroring. A const makes that a compile error.
+ */
+export const ARRIVAL_COVERAGE_METRIC = ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS[0];
+
 export const ADMIN_SNAPSHOT_METRIC_KEYS = [
   ...ADMIN_METRIC_KEYS,
   ...ADMIN_SNAPSHOT_STOCK_METRIC_KEYS,
+  ...ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS,
 ] as const;
 
 export const AdminSnapshotMetricKeySchema = z.enum(ADMIN_SNAPSHOT_METRIC_KEYS);

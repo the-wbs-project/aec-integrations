@@ -33,6 +33,7 @@
 import {
   ADMIN_METRICS_MAX_DAYS,
   ADMIN_PAGE_VIEW_NULL_FILTER,
+  ARRIVAL_COVERAGE_METRIC,
   type AdminBreakdownDimension,
   type AdminBreakdownRow,
   type AdminCount,
@@ -76,6 +77,13 @@ import {
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { AutomationFilter } from './analytics-digest';
+// VALUE imports in the same direction, and safe for the same reason the
+// `SWARM_THRESHOLD_NOTE` import below is: `analytics-digest` imports neither this
+// module nor `arrival-coverage`'s consumers, so no cycle closes. The threshold
+// predicate is imported rather than restated so the panel note and the email's
+// own health line cannot end up reading one ratio two ways (AECI-869).
+import { ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE, arrivalTelemetryDegraded } from './analytics-digest';
+import { ARRIVAL_CF_COVERAGE_MIN, type ArrivalCfCoverage } from './arrival-coverage';
 import {
   type AutomationExclusion,
   BOT,
@@ -467,7 +475,17 @@ async function profilesPerDay(db: Db, w: UtcWindow): Promise<Map<string, number>
 }
 
 /** The human-vs-bot chart series, zero-filled across the whole window. */
-export async function trafficSeries(db: Db, w: UtcWindow): Promise<AdminTrafficPoint[]> {
+export async function trafficSeries(
+  db: Db,
+  w: UtcWindow,
+  /**
+   * Days whose arrival network telemetry was missing (AECI-869), from
+   * {@link readDegradedArrivalDays}. A day outside the set renders `degraded:
+   * false` — which covers both "measured and fine" and "no stored coverage row",
+   * because a day we cannot assess must not be painted as blind.
+   */
+  degradedDays: ReadonlySet<string> = new Set(),
+): Promise<AdminTrafficPoint[]> {
   const window = inWindow(pageViews.createdAt, w);
   const [human, bot] = await Promise.all([
     pageViewsPerDay(db, and(window, HUMAN)),
@@ -477,7 +495,42 @@ export async function trafficSeries(db: Db, w: UtcWindow): Promise<AdminTrafficP
     day,
     human: human.get(day) ?? 0,
     bot: bot.get(day) ?? 0,
+    degraded: degradedDays.has(day),
   }));
+}
+
+/**
+ * The days in `w` whose stored `quality.arrival_cf_coverage` is below
+ * `ARRIVAL_CF_COVERAGE_MIN` (AECI-869).
+ *
+ * Reads `metrics_daily` directly rather than through {@link snapshotSeries},
+ * which rounds a stored value to an integer for the wire — that would turn 0.94
+ * into 1 and silently pass every failing day. The key is deliberately outside
+ * `AdminMetricKeySchema` for this reason among others; see
+ * `ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS`.
+ *
+ * **A day with no stored row is absent from the result, not degraded.** The
+ * snapshot only started writing this key on the day AECI-869 shipped, and
+ * `ops:backfill-metrics-daily` fills history on demand; treating an uncovered day
+ * as blind would paint the whole chart red the first time it rendered. The caller
+ * reports how many days it FOUND, so "none degraded" and "nothing to check" stay
+ * distinguishable to the reader.
+ */
+export async function readDegradedArrivalDays(db: Db, w: UtcWindow): Promise<ReadonlySet<string>> {
+  const rows = await db
+    .select({ day: metricsDaily.day, value: metricsDaily.value })
+    .from(metricsDaily)
+    .where(
+      and(
+        eq(metricsDaily.metric, ARRIVAL_COVERAGE_METRIC),
+        gte(metricsDaily.day, w.fromDay),
+        lte(metricsDaily.day, w.toDay),
+        // Filtered in SQL, so a 400-day window never streams rows the caller
+        // discards. The comparison is on the stored REAL, never on a rounded one.
+        lt(metricsDaily.value, ARRIVAL_CF_COVERAGE_MIN),
+      ),
+    );
+  return new Set(rows.map((r) => r.day));
 }
 
 // ─── The metric vocabulary ───────────────────────────────────────────────────
@@ -1046,6 +1099,17 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // the exact confusion the whole issue was opened to end. Unlike the standing
   // caveats around it, this one is a real condition that clears on its own.
   automation_filter_did_not_run: 'warn',
+  // AECI-869. `warn`, and it is the strongest reading of the standard test on
+  // this map: a reader who misses this does not merely misread a figure, they
+  // trust one that had no input. Every network-based exclusion treats a NULL
+  // `cf_asn` as "no evidence", so a telemetry outage removes exclusions rather
+  // than erroring, and the day reads as quiet. Gated on the coverage ratio, so it
+  // clears on its own the moment the pipe is fixed.
+  arrival_telemetry_unavailable: 'warn',
+  // Also `warn`, and for the same reason one step removed: the chart and the
+  // 7-day delta silently mix measured days with blind ones, so a reader who
+  // misses it reads an artifact of missing input as a change in traffic.
+  series_spans_degraded_days: 'warn',
   catalog_series_is_additions_only: 'warn',
   catalog_series_starts_at: 'info',
   // AECI-686. `info`: under `basis=net` the figures ARE the live catalog, so a
@@ -1183,6 +1247,24 @@ export async function trafficNotes(
      * this is not a boolean.
      */
     automation?: AutomationFilter | null;
+    /**
+     * This window's arrival network-metadata coverage (AECI-869). Omitted means
+     * "this response does not report it" and emits nothing.
+     *
+     * Passed already-measured rather than queried here, so the note, the digest's
+     * own health line and the `arrival_telemetry` block the response returns all
+     * come from one `readArrivalCfCoverage` call. Two reads of the same ratio is
+     * how a note ends up disagreeing with the figure beside it.
+     */
+    arrivalCoverage?: ArrivalCfCoverage;
+    /**
+     * Days inside a multi-day series or delta on this response whose stored
+     * coverage was below the bar, and how many days were asked for (AECI-869).
+     *
+     * Emits nothing at zero: a note that fires on a clean window has no referent,
+     * which is the gated/standing distinction this function's docblock draws.
+     */
+    degradedDays?: { degraded: number; requested: number };
   } = {},
 ): Promise<AdminNote[]> {
   const out: AdminNote[] = [];
@@ -1269,6 +1351,35 @@ export async function trafficNotes(
         'operator_leak_is_an_inference',
         'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
         { rows: operatorLeak },
+      ),
+    );
+  }
+
+  // AECI-869. Emitted BEFORE the automation notes, because when it fires it is
+  // the reason those notes' figures cannot be trusted: the groupings they
+  // describe key off `cf_asn`, and with no ASN they could not fire at all. The
+  // response's `notes` array is rendered in order, so position is the only thing
+  // that puts the cause above the effect.
+  if (opts.arrivalCoverage && arrivalTelemetryDegraded(opts.arrivalCoverage)) {
+    const { arrivals, arrivalsWithAsn } = opts.arrivalCoverage;
+    out.push(
+      note(
+        'arrival_telemetry_unavailable',
+        `${ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE} Only ${arrivalsWithAsn} of ${arrivals} full-document arrivals in this window carried a cf_asn, so the datacentre classification, both automation groupings and the operator retro-join had no input. This window is not comparable with one that has telemetry.`,
+        { arrivals, arrivals_with_asn: arrivalsWithAsn },
+      ),
+    );
+  }
+
+  // GATED on the count, like `operator_leak_is_an_inference`: on a window whose
+  // days were all measured there is nothing on the screen for it to qualify.
+  if (opts.degradedDays && opts.degradedDays.degraded > 0) {
+    const { degraded, requested } = opts.degradedDays;
+    out.push(
+      note(
+        'series_spans_degraded_days',
+        `${degraded} of the ${requested} day(s) behind the trend line and the 7-day change had no arrival network telemetry, so their figures are inflated by an unknown amount. Do not read a step across those days as a change in traffic.`,
+        { degraded_days: degraded, requested },
       ),
     );
   }

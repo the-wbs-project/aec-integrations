@@ -24,6 +24,7 @@ import {
   isCorroboratedByRequestShape,
   NON_BROWSER_VERDICTS,
   swarmNote,
+  verdictNetworkPhrase,
   SWARM_MAX_CANDIDATES,
   SWARM_MIN_ASN_RATIO,
   SWARM_MIN_VIEWS,
@@ -31,6 +32,7 @@ import {
   SWARM_PRIOR_MIN_FLAGGED_DAYS,
   SWARM_RECURRING_ASN_RATIO,
   SWARM_RECURRING_MIN_VIEWS,
+  type NonBrowserCandidate,
   type SwarmCandidate,
   type SwarmSummary,
 } from './swarm-detection';
@@ -1053,5 +1055,70 @@ describe('thresholds', () => {
     // vocabulary to build the complement of the flagged predicate, so a value
     // added here without being added there would leak rows back into the tables.
     expect([...NON_BROWSER_VERDICTS]).toEqual(['inconsistent', 'non-browser']);
+  });
+});
+
+describe('verdictNetworkPhrase — a NULL ASN is not a network (AECI-869)', () => {
+  const named = (cfAsn: number, views: number): NonBrowserCandidate => ({
+    cfAsn,
+    asOrganization: `AS${cfAsn}`,
+    views,
+    distinctUaHashes: 1,
+    distinctCountries: 1,
+    distinctPaths: 1,
+  });
+  const unknown = (views: number): NonBrowserCandidate => ({
+    cfAsn: null,
+    asOrganization: null,
+    views,
+    distinctUaHashes: 1,
+    distinctCountries: 1,
+    distinctPaths: 1,
+  });
+
+  it('counts only the groups that carried an ASN', () => {
+    expect(verdictNetworkPhrase([named(20115, 1), named(199737, 2)])).toBe('from 2 networks');
+    expect(verdictNetworkPhrase([named(23724, 1)])).toBe('from 1 network');
+  });
+
+  /**
+   * The 2026-09-10 shape, and the defect this function exists for.
+   *
+   * All 198 request-shape exclusions that day carried a NULL `cf_asn` (AECI-868),
+   * and the note reported them as "from 1 network". One SQL NULL group is not an
+   * observed network — it is the absence of the observation entirely — and
+   * counting it turns missing data into a measurement.
+   */
+  it('reports a lone NULL group as an unknown network, never as one network', () => {
+    expect(verdictNetworkPhrase([unknown(198)])).toBe('from network unknown (198 requests)');
+    expect(verdictNetworkPhrase([unknown(198)])).not.toContain('1 network,');
+    expect(verdictNetworkPhrase([unknown(1)])).toBe('from network unknown (1 request)');
+  });
+
+  it('keeps the NULL group beside the count rather than inside it', () => {
+    // Two real networks and an unknown bucket is "2", not "3": the third group
+    // could be one network or two hundred and nothing on the rows says which.
+    expect(verdictNetworkPhrase([named(20115, 4), named(199737, 2), unknown(198)])).toBe(
+      'from 2 networks, plus network unknown (198 requests)',
+    );
+  });
+
+  it('carries through swarmNote, which is what the email and the panel render', () => {
+    const note = swarmNote({
+      uaCandidates: [],
+      asnCandidates: [],
+      verdictCandidates: [unknown(198)],
+      verdictFlaggedViews: 198,
+      truncated: false,
+      flaggedViews: 198,
+      totalHumanViews: 878,
+    });
+    expect(note).toContain('198 of 878');
+    expect(note).toContain('network unknown (198 requests)');
+    // The panel's `automation_filter_applied` note embeds this string verbatim,
+    // so fixing it here fixes both surfaces — there is no second copy to update.
+    expect(note).not.toContain('from 1 network,');
+    // eslint-disable-next-line no-control-regex
+    expect(note).toMatch(/^[\x00-\x7F]*$/);
   });
 });

@@ -1274,7 +1274,7 @@ That split is exactly what `navigation` records, and each writer states its own 
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
-**No audit log.** §26.1 scopes `appendAuditLog()` to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written.
+**No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built — the name survives in older docs only.)
 
 ### 6.10 Admin endpoints
 
@@ -2634,6 +2634,10 @@ export const AdminNoteCodeSchema = z.enum([
   // one with a flag: "it ran" and "it failed" are read by different people.
   'automation_filter_applied',         // the headline is raw human views LESS flagged clients
   'automation_filter_did_not_run',     // detector failed; the headline is raw and is an upper bound
+  // AECI-869 — the telemetry-health pair. `warn` on both. The first is about THIS
+  // window; the second is about the days a chart or a multi-day delta reaches over.
+  'arrival_telemetry_unavailable',     // < ARRIVAL_CF_COVERAGE_MIN of arrivals carried a cf_asn
+  'series_spans_degraded_days',        // N of the days behind series_30d / delta_7d were blind
   'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
   'catalog_series_starts_at',          // basis=additions: window predates the audit log
   'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
@@ -2745,13 +2749,21 @@ export const AdminOverviewResponseSchema = z.object({
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
     delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
     delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
-    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot } — RAW
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot, degraded } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
     // AECI-683. All three come straight off `collectAnalyticsMetrics`.
     corroborated_views: z.number().int().nonnegative(),
     corroborated_visitors: z.number().int().nonnegative(),
     operator_leak_excluded: z.number().int().nonnegative(),
+    // AECI-869. Whether the day's network metadata actually arrived — not a caveat
+    // about a figure, a statement about whether the INPUT to half the figures existed.
+    arrival_telemetry: z.object({
+      arrivals: z.number().int().nonnegative(),          // navigation = 'arrival' rows
+      arrivals_with_asn: z.number().int().nonnegative(),
+      coverage: z.number().min(0).max(1),                // 1 when arrivals = 0
+      degraded: z.boolean(),                             // arrivals > 0 && coverage < MIN
+    }),
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -2814,6 +2826,24 @@ per request. The panel labels that difference rather than hiding it.
 clean day; null is an outage in which the headline is unfiltered, and the response
 carries an `automation_filter_did_not_run` warning to say so. The failure is
 caught in the collector and degrades both surfaces rather than 500-ing either.
+
+⚠️ **`page_views_human` was RENAMED in prose, not on the wire (AECI-869).** Both
+surfaces now label it **"requests of unresolved origin"**. The field name, the
+arithmetic and the `traffic.page_views_human_after_automation` metric key behind
+the chart are all unchanged — the key is `metrics_daily.metric` verbatim and
+renaming it would orphan every stored row. What changed is the claim: passing the
+crawler list, the header checks and the swarm thresholds is the absence of a bot
+match, not evidence of a person, and AECI-868 showed how far that can drift when
+the thresholds have no `cf_asn` to evaluate. `corroborated_views` is now the only
+figure on this response that any surface calls human.
+
+`arrival_telemetry.degraded` is decided **server-side**, from
+`ARRIVAL_CF_COVERAGE_MIN` in `apps/api/src/lib/arrival-coverage.ts`, so the panel,
+the 05:00 email and the nightly `arrival_cf_coverage` data-quality check cannot end
+up holding three thresholds. `coverage` is deliberately un-rounded: the bar is
+0.95. `AdminTrafficPoint.degraded` is derived the same way, from the stored
+`quality.arrival_cf_coverage` ratio — and a day with **no stored row is `false`**,
+meaning *not assessed* rather than *blind*.
 
 `AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
 and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by

@@ -83,11 +83,17 @@
     <!-- Leads with the POST-AUTOMATION figure (AECI-745) — the same number the
          05:00 email leads with. The raw server-side count it was subtracted from
          is in the caption, where the subtraction is legible, rather than in a
-         tile of its own: two tiles both labelled "human page views" is how a
-         reader ends up quoting whichever one they saw first. -->
+         tile of its own: two tiles both labelled the same thing is how a reader
+         ends up quoting whichever one they saw first.
+
+         AECI-869 renamed the class. The tile said "Human page views after
+         automation" and led the screen with a claim the evidence does not
+         support: surviving the crawler list, the header checks and the swarm
+         thresholds is the absence of a bot match. A new message id, not an edited
+         string, because the meaning changed and a translator must re-read it. -->
     <aec-stat-tile
-      i18n-label="@@admin.overview.tile.pageViewsAfterAutomation"
-      label="Human page views after automation"
+      i18n-label="@@admin.overview.tile.unresolvedRequests"
+      label="Requests of unresolved origin"
       [value]="o.traffic.page_views_human.total"
       [caption]="pageViewsCaption()"
       [deltas]="pageViewDeltas()"
