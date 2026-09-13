@@ -1609,9 +1609,10 @@ read. The audit itself has no `--apply` and never writes. Two things worth repea
 **Root cause, and why this job exists:** promote can create and update but **never delete**
 (`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an upstream record therefore always
 strands the D1 row, and destroys the only pointer that could have found it. Nothing in the promote
-path can guard that, so this scheduled audit is the backstop. AECI-811 will add the other half —
-the review app's `list_retractions` feed, which says *why* a record went away — but a feed only
-journals forward, so this stock check stays.
+path can guard that, so this scheduled audit is the backstop. The other half shipped in
+**AECI-882** — the review app's `list_retractions` feed, which says *why* a record went away — and
+it runs as this job's seventh bucket rather than as a separate job. A feed only journals forward,
+so this stock check stays; see the next section for what a non-zero `pendingRetractions` means.
 
 **Escalation:** a stranded row with no recorded ruling and no obvious curator action is a real unknown
 — do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
@@ -1631,6 +1632,65 @@ answer *is* the ruling. Three things make it safe to act on:
 - **Adoption is the riskier exit when there is no note.** Creating an upstream record to justify
   a live row whose only evidence is that it exists gets the direction backwards.
 
+
+---
+
+## `pendingRetractions` is non-zero
+
+**Signal:** the daily `promote-strand-audit` is red and the `pendingRetractions` bucket is the
+non-zero one. Every other bucket may be clean; this is a different class of finding.
+
+**What it means:** a curator deleted a record upstream, and the public row it produced is still
+live here. Promote cannot remove it (§5.1), so the only way it goes is the consumer.
+
+**This bucket is the exception to "never delete a row to make this job green".** That rule exists
+because a stranded row might be correct and you cannot tell without a ruling. Here the ruling
+**already exists** — it is on the journal entry, in the curator's own words, and the run prints
+it. You are executing a decision, not making one.
+
+**Triage:**
+
+1. Read the entry's `reason` in the audit output. If it does not justify a delete, stop and raise
+   it — a retraction with an unconvincing reason is an upstream problem, not a D1 one.
+1a. Check the entry's `entity`. The consumer handles **`integration` only** and parks everything
+   else, so a `product` entry will never clear through it — that one goes through
+   `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
+   bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
+   refuses the upstream delete while a supabase id is attached.
+2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
+   prints the plan, the cascade, the affected products and the rollback path.
+   ```
+   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+   ```
+3. If the plan looks right, execute it with the count the dry run reported:
+   ```
+   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count <N>
+   ```
+4. Afterwards: `db:reconcile-algolia-drift -- --env production` to measure orphans (purge with
+   `--apply --allow-production`), then `db:reconcile-counts -- --fix --allow-production` as an
+   independent check on the count repair.
+
+**Three things to know before you run it:**
+
+- **Never confirm an entry you have not deleted.** `confirm_retractions` stamps `synced_at` and
+  the entry leaves the feed, which holds the only copy of the row's `supabaseId`. Confirming
+  early loses a live public row permanently. The script enforces the order; do not route around
+  it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
+- **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
+  with their reason and do not fail the run. If the job is red, something *new* arrived.
+- **A parked entry is not a consumer job.** Anything whose `entity` is not `integration` is
+  reported and then left alone — never deleted, never confirmed. That is deliberate: a `product`
+  entry resolves against neither delivered-tier table, so to the consumer it is indistinguishable
+  from an edge that is already gone, and confirming it would discard the curator's ruling while
+  the live row stayed. Leaving it pending is the harmless direction.
+- **A refusal is the script working.** It stops rather than adapting when the resolved shape
+  differs from the recorded ruling, when the cascade exceeds its ceiling, when a held id has
+  vanished, when an id is in both tables, or when the sentinel edge moves. Re-establish the
+  ruling before editing a constant to make it proceed.
+
+**Residue that is normal:** `stats_cache` reads high until the 07:00 cron, and `metrics_daily`
+history keeps the pre-delete totals (ADR 0027 — a snapshot is corrected, not final). A retracted
+pair leaves a **noindexed empty pair page, not a 404**.
 
 ---
 

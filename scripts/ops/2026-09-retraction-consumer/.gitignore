@@ -1,0 +1,15 @@
+# Generated per run. Both hold PRODUCTION catalog content — row bodies, uuids, curator
+# rulings — which is why they stay out of the repo, the same reason
+# scripts/ops/2026-09-stranded-row-audit/ gitignores its report and id list.
+#
+# The earlier one-row retraction lanes DO commit their rollback.sql, and that was right for
+# a lane that ran once against three rows. This one is re-runnable and its rollback carries
+# the whole feed, so the same choice would mean committing a few hundred KB of catalog rows
+# on every run.
+#
+# KEEP THE ROLLBACK SOMEWHERE. It is the statement-level undo and it is not in git. The
+# database-level backstop is Cloudflare D1 Time Travel (30 days, whole database); attach the
+# file to the issue, or record its Time Travel bookmark, before the window closes. See the
+# README's account of the run that lost one.
+preflight-*.json
+rollback-*.sql

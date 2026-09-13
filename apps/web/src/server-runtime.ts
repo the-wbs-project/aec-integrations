@@ -1421,8 +1421,12 @@ export function createApp(options: {
   // every other one here is a whole route class — and one entity does not justify
   // a redirect subsystem. The general case (a mutable slug→slug map, which would
   // need a `Cache-Tag` handle precisely because it is NOT immutable like the
-  // mappings above) belongs to AECI-595's retract path. If a second entry ever
-  // lands here, build that instead of adding a third.
+  // mappings above) has no owner today. It does NOT belong to the retraction path:
+  // AECI-595 closed 2026-09-07 upstream, and its remainder shipped as AECI-882 —
+  // a consumer that DELETES rows, which leaves a noindexed empty page rather than a
+  // redirect, and mints no slug mapping at all. The redirect table is option B of
+  // `docs/STAGE_3_SPEC.md` §2.6 (rebrand handling), whose mechanism is still
+  // unchosen. If a second entry ever lands here, build that instead of adding a third.
   //
   // Registered BEFORE the SSR catch-all so it wins, and it wins whether or not
   // the vendor row still exists — which is why it can be deployed ahead of the

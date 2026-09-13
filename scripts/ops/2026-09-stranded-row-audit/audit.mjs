@@ -55,6 +55,13 @@
 //                                 powered_by resolves to a row stranded above.
 //   orphanChildren                Claims + attestations hanging off any stranded
 //                                 integration. Derived, reported for the cascade.
+//   pendingRetractions            A record DELETED upstream whose public row this repo
+//                                 has not removed yet (AECI-882). Not a stranded row —
+//                                 the ruling already exists; the consumer has not run.
+//                                 This is the only bucket that can see a retracted
+//                                 `connector_evidenced_pairs` row, because the six above
+//                                 exclude that table. Entries on HELD_RETRACTIONS are
+//                                 reported but do NOT make the run dirty.
 //
 // `connector_evidenced_pairs` is DELIBERATELY OUT OF SCOPE: its rows are counted and
 // reported, never classified, because auditing them against `list_integrations` would
@@ -120,7 +127,38 @@ const BUCKETS = [
   'vendorSourceGone',
   'integrationSourceGone',
   'integrationEndpointStranded',
+  // AECI-882. NOT a stranded-row class — this one is an unconsumed RETRACTION: a record
+  // the curator deleted whose public row this repo has not yet removed. It is in BUCKETS
+  // so it flows through the summary table, the report and the exit code like any other
+  // finding, but its repair is a different tool (see the id-list header below).
+  //
+  // It belongs here rather than in a second workflow because the two checks answer
+  // different questions over the same catalog and are cheapest read together. This sweep
+  // is a STOCK check: it compares what exists on both sides today, so it catches a row
+  // however long ago it was stranded, but it can only infer THAT something went missing.
+  // The feed is an EVENT check: it says what was deleted and WHY, in the curator's own
+  // words, but journals forward only. `docs/REVIEW_APP_PROMOTE_API.md` §5.1 argues for
+  // running them alongside each other, and this is what that looks like.
+  'pendingRetractions',
 ];
+
+/**
+ * Pending retractions that are held on a RECORDED decision, keyed by `supabaseId`.
+ *
+ * These are reported every run and excluded from the dirty verdict. Without this the job
+ * would be red every day for as long as the hold lasts, and a permanently red guard is
+ * one nobody reads — which would hide the NEXT retraction behind the two we already know
+ * about. That is the failure mode, not the noise.
+ *
+ * A hold is not an exemption in perpetuity. Each entry names the issue that clears it, and
+ * when that issue ships the entry is deleted from here and the consumer run takes the row.
+ * If you are adding one, the bar is the same as `docs/CODE_REVIEW_EXEMPTIONS.md`: a written
+ * reason and a named way out.
+ */
+const HELD_RETRACTIONS = {
+  'a96bb827-c0e2-4842-ad54-f25e40b04c81': 'AECI-891 — Agave pair carrying 9 claims',
+  'a3eb9e45-4c06-409c-a95d-caa91e15f0bd': 'AECI-891 — Agave pair carrying 12 claims',
+};
 
 // Read concurrency against the review app. get_product responses are large (~75KB),
 // and the server rate-limits: eight in flight tripped a 429 partway through the first
@@ -786,9 +824,50 @@ for (const entry of strandedProducts) {
   };
 }
 
+// ─── pending retractions (AECI-882) ──────────────────────────────────────────
+//
+// Read the feed on the session this sweep already holds. Every entry is a public row
+// that upstream has deleted and this repo still serves, whichever table holds it — which
+// is the half `integrationSourceGone` structurally cannot see, because
+// `connector_evidenced_pairs` is out of scope for the classification above.
+//
+// `url` is deliberately left unset. The endpoint slugs are not on a journal entry, so
+// this sweep cannot resolve a public URL for one without a lookup it has no budget for,
+// and guessing would overstate `publiclyReachable`. The consumer resolves the row and
+// reports the real cascade; this check only has to say the count is not zero.
+{
+  const { rows: pending } = await listAll(session, 'list_retractions', {});
+  for (const e of pending) {
+    buckets.pendingRetractions.push({
+      id: e.supabaseId,
+      name: e.name,
+      // Which repair applies. The consumer handles `integration` only and parks the rest;
+      // a `product` entry goes through `ops:retract-product` instead. `vendor` never
+      // appears — AECI-685 refuses the upstream delete while a supabase id is attached.
+      entity: e.entity ?? null,
+      journalEntry: e.id,
+      upstreamRecord: e.rowId,
+      deletedAt: e.deletedAt,
+      reason: e.reason,
+      held: HELD_RETRACTIONS[e.supabaseId] ?? null,
+    });
+  }
+  const held = buckets.pendingRetractions.filter((e) => e.held);
+  if (held.length) {
+    console.log(`\npendingRetractions: ${held.length} held on a recorded decision (not dirty):`);
+    for (const e of held) console.log(`  ${e.id}  ${e.held}`);
+  }
+}
+
 // ─── report ──────────────────────────────────────────────────────────────────
 
-const dirty = BUCKETS.some((b) => buckets[b].length > 0);
+// Held retractions are reported but do not make the run dirty — see HELD_RETRACTIONS.
+// Everything else in every bucket does.
+const dirty = BUCKETS.some((b) =>
+  b === 'pendingRetractions'
+    ? buckets[b].some((e) => !HELD_RETRACTIONS[e.id])
+    : buckets[b].length > 0,
+);
 
 // Every D1 product must be either claimed upstream or in a stranded bucket. If this
 // fails a class of row is being dropped on the floor and a clean verdict cannot be
@@ -802,7 +881,7 @@ const report = {
   env,
   database: `aeci-app-${env}`,
   source:
-    'review-app MCP (list_products + get_product + get_vendor + list_integrations + find_product)',
+    'review-app MCP (list_products + get_product + get_vendor + list_integrations + find_product + list_retractions)',
   // Stamped by the caller's clock, not by anything in the data — this is a snapshot.
   measuredAt: new Date().toISOString(),
   cohort: allStatuses ? 'all listed statuses' : [...RESOLVABLE_STATUSES].join(' | '),
@@ -915,6 +994,9 @@ const idLines = [
   '# READ-ONLY OUTPUT. Retraction is a separate authorized action:',
   '#   products     → pnpm --filter @aeci/api ops:retract-product',
   '#   integrations → the datatool POST /api/prune-integrations',
+  '# pendingRetractions is a DIFFERENT class with a different repair — those ids are not',
+  '# stranded rows to rule on, they are deletions already ruled on upstream:',
+  '#   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production',
   ...BUCKETS.flatMap((b) =>
     buckets[b].length === 0
       ? []

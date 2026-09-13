@@ -38,3 +38,9 @@ scripts/ops/**/snapshot-*.json
 # the repo.
 scripts/ops/**/report-*.json
 scripts/ops/**/.upstream-cache.json
+
+# Retraction-consumer preflight (AECI-882) — gitignored operator output written by
+# scripts/ops/2026-09-retraction-consumer/consume.mjs on every run, dry or applied.
+# Third instance of the same trap as the two entries above. The lane's rollback-*.sql
+# needs no entry: Prettier has no SQL parser and skips it.
+scripts/ops/**/preflight-*.json
