@@ -148,7 +148,17 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     $localize`:@@admin.notes.automationFilterApplied:The headline is human page views less those attributed to automated clients: one browser fingerprint appearing across many networks, one network serving a new fingerprint almost every request, or a request whose own headers do not look like a browser. It is an estimate, not a census.`,
 
   automation_filter_did_not_run: () =>
-    $localize`:@@admin.notes.automationFilterDidNotRun:The automation filter did not run for this window, so the human page-view figure is unfiltered and is an upper bound only. It is not comparable with a day the filter ran on.`,
+    $localize`:@@admin.notes.automationFilterDidNotRun:The automation filter did not run for this window, so the headline figure is unfiltered and is an upper bound only. It is not comparable with a day the filter ran on.`,
+
+  // AECI-869. The loudest note this component renders, and the one place the
+  // panel says a number had no input rather than that it has a caveat. Phrased
+  // around the consequence: an operator does not need to know that a cache
+  // gateway replaced `request.cf`, they need to know the exclusions did not run.
+  arrival_telemetry_unavailable: (p) =>
+    $localize`:@@admin.notes.arrivalTelemetryUnavailable:Network information was missing from most page loads on this day: ${num(p, 'arrivals_with_asn')}:WITH_NETWORK: of ${num(p, 'arrivals')}:ARRIVALS: carried one. Every check that works by network could not run, so nothing was excluded on those grounds and the headline is too high by an unknown amount. This day cannot be compared with a day that has network information.`,
+
+  series_spans_degraded_days: (p) =>
+    $localize`:@@admin.notes.seriesSpansDegradedDays:${num(p, 'degraded_days')}:DEGRADED: of the ${num(p, 'requested')}:REQUESTED: days behind the trend line and the 7-day change were missing network information, so their figures are too high by an unknown amount. Do not read a step across those days as a change in traffic.`,
 
   catalog_series_is_additions_only: () =>
     $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,

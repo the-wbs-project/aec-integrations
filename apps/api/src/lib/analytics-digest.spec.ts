@@ -11,14 +11,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pageViews, products, profiles, reviews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
+  arrivalTelemetryDegraded,
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
-  humanViewsAfterAutomation,
+  trafficDaysNotComparable,
+  unresolvedRequests,
   windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
+import type { ArrivalCfCoverage } from './arrival-coverage';
+
+/** A day whose arrival network telemetry arrived intact — the state every
+ *  formatter fixture below assumes unless it is testing the other one. */
+const HEALTHY_COVERAGE: ArrivalCfCoverage = { arrivals: 900, arrivalsWithAsn: 900, coverage: 1 };
+
+/** The AECI-868 shape: arrivals landed, none of them carried a network. */
+const BLIND_COVERAGE: ArrivalCfCoverage = { arrivals: 2736, arrivalsWithAsn: 0, coverage: 0 };
 
 describe('windowsForDay (AECI-574 — the arbitrary-day window the panel shares)', () => {
   it('produces the same window `dailyWindows` does for the day it reports', () => {
@@ -696,7 +706,7 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     // Headline is `raw - flagged` (6 - 4 = 2); the table rows must sum to no more
     // than that. If the negation ever stops matching `countFlaggedViews`, this is
     // where it shows up.
-    const net = humanViewsAfterAutomation(m);
+    const net = unresolvedRequests(m);
     const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
     expect(m.pageViews.day).toBe(6);
     expect(net.day).toBe(2);
@@ -720,7 +730,7 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     const m = await collectAnalyticsMetrics(t.db, window);
 
     expect(m.automation).toEqual({ flagged: { day: 4, prior: 4 }, note: expect.any(String) });
-    expect(humanViewsAfterAutomation(m)).toEqual({ day: 0, prior: 0 });
+    expect(unresolvedRequests(m)).toEqual({ day: 0, prior: 0 });
   });
 
   it('degrades to an UNFILTERED report when the detector throws, rather than failing', async () => {
@@ -753,7 +763,7 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
       // The headline falls back to the raw count — NOT to zero, and not to a
       // partially-filtered figure.
       expect(m.pageViews.day).toBe(5);
-      expect(digest.humanViewsAfterAutomation(m).day).toBe(5);
+      expect(digest.unresolvedRequests(m).day).toBe(5);
       // And the tables are unfiltered to match it: a filtered table under an
       // unfiltered headline is the AECI-747 defect, and it is just as wrong when
       // the cause is a failure as when the cause is a forgotten argument.
@@ -799,6 +809,8 @@ describe('buildAnalyticsDigest', () => {
     // baseline cases have always exercised.
     automation: null,
     swarm: null,
+    arrivalCoverage: HEALTHY_COVERAGE,
+    priorArrivalCoverage: HEALTHY_COVERAGE,
   };
   const opts = {
     env: 'production',
@@ -809,14 +821,16 @@ describe('buildAnalyticsDigest', () => {
   it('summarizes humans + top product + crawl count in the subject', () => {
     const d = buildAnalyticsDigest(base, opts);
     expect(d.subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: up to 512 human views, 8 new users · top: Revit · 260 crawls',
+      'AECi daily digest (production) — 2026-07-23: 512 requests of unresolved origin (UNFILTERED), 8 new users · top: Revit · 260 crawls',
     );
   });
 
   it('renders human counts, deltas, and the human top-product list in the text body', () => {
     const { text } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain('== Traffic (humans) ==');
-    expect(text).toContain('Page views: 512 (+112 (+28%) vs 400 prior day)  [upper bound]');
+    expect(text).toContain('== Traffic (unresolved origin) ==');
+    expect(text).toContain(
+      'Requests of unresolved origin: 512 (+112 (+28%) vs 400 prior day)  [upper bound]',
+    );
     expect(text).toContain('(260 bot/crawler views excluded — see Crawler activity)');
     expect(text).toContain('New sign-ins (new accounts): 8 (+3 (+60%) vs 5 prior day)');
     expect(text).toContain('Total sign-ins (registered users): 143');
@@ -827,12 +841,12 @@ describe('buildAnalyticsDigest', () => {
 
   it('lists human traffic sources in the Traffic sources section', () => {
     const { text, html } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain('== Traffic sources (humans) ==');
+    expect(text).toContain('== Traffic sources (unresolved) ==');
     expect(text).toContain('1. Direct — 300 views');
     expect(text).toContain('2. Google — 120 views');
     expect(text).toContain('3. LinkedIn — 60 views');
     expect(text).toContain('4. Twitter/X — 32 views');
-    expect(html).toContain('Traffic sources (humans)');
+    expect(html).toContain('Traffic sources (unresolved)');
     expect(html).toContain('LinkedIn');
     expect(html).toContain('Twitter/X');
   });
@@ -852,7 +866,7 @@ describe('buildAnalyticsDigest', () => {
     const { html } = buildAnalyticsDigest(base, opts);
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('AECi daily analytics digest');
-    expect(html).toContain('Traffic (humans)');
+    expect(html).toContain('Traffic (unresolved origin)');
     expect(html).toContain('Crawler activity');
     expect(html).toContain('Bingbot');
     expect(html).toContain('Datacenter (AWS)');
@@ -863,7 +877,7 @@ describe('buildAnalyticsDigest', () => {
       { ...base, pageViews: { day: 5, prior: 0 }, newUsers: { day: 3, prior: 10 } },
       opts,
     );
-    expect(text).toContain('Page views: 5 (+5 vs 0 prior day)');
+    expect(text).toContain('Requests of unresolved origin: 5 (+5 vs 0 prior day)');
     expect(text).toContain('New sign-ins (new accounts): 3 (-7 (-70%) vs 10 prior day)');
   });
 
@@ -883,15 +897,17 @@ describe('buildAnalyticsDigest', () => {
         operatorLeakViews: 0,
         automation: null,
         swarm: null,
+        arrivalCoverage: HEALTHY_COVERAGE,
+        priorArrivalCoverage: HEALTHY_COVERAGE,
       },
       opts,
     );
     expect(subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: up to 40 human views, 0 new users',
+      'AECi daily digest (production) — 2026-07-23: 40 requests of unresolved origin (UNFILTERED), 0 new users',
     );
-    expect(text).toContain('Page views: 40 (no change vs prior day)');
+    expect(text).toContain('Requests of unresolved origin: 40 (no change vs prior day)');
     expect(text).not.toContain('bot/crawler views excluded');
-    expect(text).toContain('Most viewed product: (no human product page views)');
+    expect(text).toContain('Most viewed product: (no unresolved product page views)');
     expect(text).toContain('(no referrer data yet)');
     expect(text).toContain('Reviews awaiting moderation: 0');
     expect(text).toContain('No bot/crawler activity.');
@@ -915,6 +931,8 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     operatorLeakViews: 0,
     automation: null,
     swarm: null,
+    arrivalCoverage: HEALTHY_COVERAGE,
+    priorArrivalCoverage: HEALTHY_COVERAGE,
   };
   const opts = {
     env: 'production',
@@ -925,14 +943,21 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
   it('qualifies the headline number in the subject line', () => {
     // The subject is what the operator actually reads. For weeks it asserted a
     // figure that was an order of magnitude high with nothing to qualify it.
+    //
+    // AECI-869 replaced the AECI-658 "up to" hedge rather than adding to it. The
+    // hedge existed to soften the word "human"; with the claim itself gone, the
+    // subject names the class and the filter state, and never says "human".
     const { subject } = buildAnalyticsDigest(metrics, opts);
-    expect(subject).toContain('up to 48 human views');
+    expect(subject).toContain('48 requests of unresolved origin (UNFILTERED)');
+    expect(subject).not.toContain('human');
   });
 
   it('labels the server-side count as an upper bound in both renderings', () => {
     const { text, html } = buildAnalyticsDigest(metrics, opts);
     expect(text).toContain('[upper bound]');
-    expect(text).toContain('UPPER bound on humans');
+    // The upper-bound label belongs to the RAW server-side count, and says what
+    // it bounds. The headline is a residual and is never described that way.
+    expect(text).toContain('any crawler that does not run JavaScript is in the number');
     expect(html).toContain('upper bound');
   });
 
@@ -941,12 +966,16 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
       ...opts,
       posthog: { pageviews: 5, people: 1 },
     });
-    // The real 2026-08-23 numbers: 48 server-side, 5 client-side from 1 person.
-    expect(text).toContain('PostHog page views: 5 from 1 person  [lower bound]');
-    expect(text).toContain('a LOWER bound');
-    expect(html).toContain('lower bound');
-    expect(html).toContain('PostHog page views from');
-    expect(html).toContain('</strong> person (client-side, consented only)');
+    // The real 2026-08-23 numbers: 48 server-side, 5 client-side from 1 identity
+    // — and that identity WAS the operator, which is why AECI-869 stopped calling
+    // it a bound on anything.
+    expect(text).toContain('PostHog page views: 5 from 1 identity  [separate observation]');
+    expect(text).toContain('That is a different population, not a floor under the headline');
+    expect(html).toContain('separate observation');
+    // No arithmetic between the two populations, in either rendering.
+    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
+    expect(text).not.toContain('LOWER bound');
+    expect(html).not.toContain('lower bound');
   });
 
   it('pluralizes people correctly', () => {
@@ -954,7 +983,7 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
       ...opts,
       posthog: { pageviews: 12, people: 4 },
     });
-    expect(text).toContain('PostHog page views: 12 from 4 people  [lower bound]');
+    expect(text).toContain('PostHog page views: 12 from 4 identities  [separate observation]');
     expect(text).not.toContain('persons');
   });
 
@@ -965,7 +994,7 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
       ...opts,
       posthogUnavailable: 'posthog_credentials_missing',
     });
-    expect(text).toContain('PostHog lower bound unavailable (posthog_credentials_missing)');
+    expect(text).toContain('PostHog client-side figure unavailable (posthog_credentials_missing)');
     expect(text).not.toContain('PostHog page views: 0');
     expect(html).toContain('unavailable');
   });
@@ -1019,6 +1048,8 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
     // construction instead of by both callers remembering to pass it.
     automation: { flagged: { day: 56, prior: 64 }, note: '56 of 70 may not be people.' },
     swarm: null,
+    arrivalCoverage: HEALTHY_COVERAGE,
+    priorArrivalCoverage: HEALTHY_COVERAGE,
   };
   const opts = {
     env: 'production',
@@ -1028,25 +1059,27 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
 
   it('leads the subject with the filtered figure and keeps the raw one in parentheses', () => {
     const { subject } = buildAnalyticsDigest(metrics, opts);
-    expect(subject).toContain('14 human views after automation (70 raw)');
+    expect(subject).toContain('14 requests of unresolved origin (70 raw)');
     expect(subject).not.toContain('up to 70');
   });
 
   it('makes the filtered count the primary stat in both renderings', () => {
     const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('Human page views after automation: 14');
+    expect(text).toContain('Requests of unresolved origin: 14');
     expect(text).toContain('from 70 counted server-side');
     expect(text).toContain('less 56 views flagged as automation  [upper bound]');
     // The big number in the HTML tile is 14, not 70.
     expect(html).toContain('>14</span> <span style="font-size:14px;color:#71717a">');
-    expect(html).toContain('human page views after automation');
+    expect(html).toContain('requests of unresolved origin');
+    // AECI-869: the word appears on the corroborated line and nowhere else.
+    expect(text).not.toContain('human page views');
   });
 
   it('computes the delta filtered-against-filtered, never filtered-against-raw', () => {
     // 14 vs 23 is -9 (-39%). Against the raw prior day of 87 it would read
     // -73 (-84%) — a fabricated collapse, every single morning.
     const { text } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('Human page views after automation: 14 (-9 (-39%) vs 23 prior day)');
+    expect(text).toContain('Requests of unresolved origin: 14 (-9 (-39%) vs 23 prior day)');
     expect(text).not.toContain('vs 87 prior day)  [headline]');
   });
 
@@ -1058,17 +1091,20 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
 
   it('describes the raw figure as the upper bound and the headline as an estimate', () => {
     const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('The raw server-side figure is an');
-    expect(text).toContain('headline is an estimate');
-    expect(html).toContain('<strong>upper bound</strong>');
-    expect(html).toContain('heuristic estimate, not a census');
+    expect(text).toContain('The raw');
+    expect(text).toContain('server-side figure is an UPPER bound on humans');
+    expect(text).toContain('Read it as a RESIDUAL, not as people');
+    expect(html).toContain('<strong>upper bound</strong> on humans');
+    expect(html).toContain('what no rule could exclude, which is not the same as a person');
   });
 
   it('falls back to the raw count and SAYS SO when the detector did not run', () => {
     // A failed detector must not be able to look like a clean day.
     const { subject, text, html } = buildAnalyticsDigest({ ...metrics, automation: null }, opts);
-    expect(subject).toContain('up to 70 human views');
-    expect(text).toContain('Page views: 70 (-17 (-20%) vs 87 prior day)  [upper bound]');
+    expect(subject).toContain('70 requests of unresolved origin (UNFILTERED)');
+    expect(text).toContain(
+      'Requests of unresolved origin: 70 (-17 (-20%) vs 87 prior day)  [upper bound]',
+    );
     expect(text).toContain('automation filter did not run this day');
     expect(text).toContain('this figure is UNFILTERED');
     expect(html).toContain('The automation filter did not run for this day');
@@ -1080,7 +1116,7 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
       opts,
     );
     // Ran and found nothing: headline equals raw, with no outage warning.
-    expect(text).toContain('Human page views after automation: 70');
+    expect(text).toContain('Requests of unresolved origin: 70');
     expect(text).not.toContain('did not run');
   });
 
@@ -1089,7 +1125,191 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
       { ...metrics, automation: { flagged: { day: 999, prior: 999 }, note: null } },
       opts,
     );
-    expect(text).toContain('Human page views after automation: 0');
+    expect(text).toContain('Requests of unresolved origin: 0');
     expect(text).not.toContain('-929');
+  });
+});
+
+describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => {
+  /**
+   * **2026-09-10 as it actually was**, which is the whole point of this block.
+   *
+   * That morning's email led with "680 human page views after automation" and
+   * gave the operator no way to know that every one of the day's 2,736
+   * full-document arrivals had stored a NULL `cf_asn` (AECI-868). With no ASN,
+   * `countDistinct(cf_asn)` is zero, so both swarm ratios and the ASN-rotator
+   * grouping structurally cannot fire, and the AECI-683 operator-pair retro-join
+   * cannot match. 1,851 crawls were still caught by name, which is exactly why
+   * four blind days read as a good week rather than as an outage.
+   *
+   * The rest of this file tests the pieces; this one asserts the whole email a
+   * reader would have received, so the honest version is reproducible rather than
+   * asserted piecemeal.
+   */
+  const SEP10: AnalyticsMetrics = {
+    pageViews: { day: 878, prior: 900 },
+    botPageViews: { day: 1851, prior: 1700 },
+    newUsers: { day: 0, prior: 0 },
+    totalUsers: 143,
+    pendingModeration: 0,
+    topProducts: [{ name: 'Procore', slug: 'procore', views: 40 }],
+    referrers: [{ source: 'Direct', views: 640 }],
+    botActivity: [{ name: 'Googlebot', crawls: 1851 }],
+    corroboratedViews: { day: 3, prior: 4 },
+    corroboratedVisitors: 3,
+    operatorLeakViews: 0,
+    // 198 flagged by request shape alone — the only detector that still worked,
+    // because `client_verdict` is read per row and needs no network.
+    automation: {
+      flagged: { day: 198, prior: 150 },
+      note: '198 of 878 may not be people: 198 views arrived with request headers that do not look like a browser, from network unknown (198 requests), which is evidence about those requests themselves rather than an inference from how many of them there were.',
+    },
+    swarm: null,
+    arrivalCoverage: BLIND_COVERAGE,
+    priorArrivalCoverage: BLIND_COVERAGE,
+  };
+  const opts = {
+    env: 'production',
+    dayLabel: '2026-09-10',
+    generatedAt: new Date('2026-09-11T05:00:00.000Z'),
+    posthog: { pageviews: 20, people: 2 },
+  };
+
+  it('reports 2026-09-10 honestly: unresolved, telemetry missing, no arithmetic', () => {
+    const { subject, text, html } = buildAnalyticsDigest(SEP10, opts);
+
+    // 1. The headline is the residual, under its own name, and the figure is the
+    //    one the day actually produced.
+    expect(subject).toContain('680 requests of unresolved origin (878 raw)');
+    expect(text).toContain('Requests of unresolved origin: 680');
+    expect(html).toContain('>680</span>');
+
+    // 2. "Human" appears ONLY on the corroborated line, and that line says what
+    //    corroborated it.
+    expect(text).toContain('Corroborated as human by an external referrer: 3');
+    expect(text).toContain('That referrer is what corroborates them as human');
+    expect(text).not.toContain('human page views');
+    expect(text).not.toContain('human views');
+    expect(html).not.toContain('human page view');
+
+    // 3. The exclusions that DID run are still listed beside the headline.
+    expect(text).toContain('less 198 views flagged as automation');
+    expect(text).toContain('Bot/crawler page views: 1851');
+
+    // 4. The telemetry outage is unmissable: subject, body, and HTML.
+    expect(subject).toContain('NO NETWORK TELEMETRY');
+    expect(text).toContain(
+      'Arrival network telemetry unavailable for this day; network-based exclusions did not run.',
+    );
+    expect(text).toContain('0 of 2736 arrivals carried a network (ASN)');
+    expect(html).toContain('Arrival network telemetry unavailable for this day');
+
+    // 5. PostHog is a separate observation with its own caveat, and the email
+    //    forbids the arithmetic rather than merely omitting it.
+    expect(text).toContain('PostHog page views: 20 from 2 identities  [separate observation]');
+    expect(text).toContain('That is a different population, not a floor under the headline');
+    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
+    expect(text).not.toContain('lower bound');
+    expect(text).not.toContain('The truth is between');
+
+    // 6. The referrer line is supporting evidence and a SUBSET, never an addend.
+    expect(text).toContain('supporting evidence, not a verified floor');
+    expect(text).toContain('It is a SUBSET of the headline, never an addend to it.');
+
+    // 7. And the NULL-ASN group is labelled rather than counted as a network.
+    expect(text).toContain('network unknown (198 requests)');
+    expect(text).not.toContain('from 1 network,');
+  });
+
+  it('suppresses the day-over-day arithmetic across a telemetry boundary', () => {
+    // Both days blind here, but the rule is EITHER: a measured day beside a blind
+    // one is the case that actually misleads, because the blind day over-reports.
+    const { text } = buildAnalyticsDigest(SEP10, opts);
+    expect(text).toContain(
+      'not comparable with the prior day (arrival network telemetry was unavailable)',
+    );
+    // The number that would have been printed is absent, not merely hedged.
+    expect(text).not.toContain('vs 900 prior day');
+  });
+
+  it('suppresses it when only the PRIOR day was blind', () => {
+    const { text } = buildAnalyticsDigest({ ...SEP10, arrivalCoverage: HEALTHY_COVERAGE }, opts);
+    expect(text).toContain('not comparable with the prior day');
+    // …and the health line is gone, because the reported day itself is fine.
+    expect(text).not.toContain('Arrival network telemetry unavailable for this day');
+  });
+
+  it('leaves the sign-in delta alone: it reads no network column', () => {
+    const { text } = buildAnalyticsDigest({ ...SEP10, newUsers: { day: 8, prior: 5 } }, opts);
+    expect(text).toContain('New sign-ins (new accounts): 8 (+3 (+60%) vs 5 prior day)');
+  });
+
+  it('says nothing at all when telemetry is healthy', () => {
+    const { subject, text, html } = buildAnalyticsDigest(
+      { ...SEP10, arrivalCoverage: HEALTHY_COVERAGE, priorArrivalCoverage: HEALTHY_COVERAGE },
+      opts,
+    );
+    expect(subject).not.toContain('NO NETWORK TELEMETRY');
+    expect(text).not.toContain('Arrival network telemetry unavailable');
+    expect(html).not.toContain('Arrival network telemetry unavailable');
+    // And the delta is a real comparison again.
+    expect(text).not.toContain('not comparable with the prior day');
+  });
+
+  it('stays silent on a quiet day, where coverage is 1 over zero arrivals', () => {
+    // `readArrivalCfCoverage` returns 1 for an empty window on purpose. Reporting
+    // an outage every quiet night is how a warning stops being read.
+    const { text } = buildAnalyticsDigest(
+      {
+        ...SEP10,
+        arrivalCoverage: { arrivals: 0, arrivalsWithAsn: 0, coverage: 1 },
+        priorArrivalCoverage: { arrivals: 0, arrivalsWithAsn: 0, coverage: 1 },
+      },
+      opts,
+    );
+    expect(text).not.toContain('Arrival network telemetry unavailable');
+  });
+});
+
+describe('collectAnalyticsMetrics — arrival telemetry coverage (AECI-869)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  const window = dailyWindows(new Date('2026-09-11T05:00:00.000Z')); // reports 2026-09-10
+
+  it('measures BOTH days, so the delta rule has a baseline to check', async () => {
+    await t.db.insert(pageViews).values([
+      // The reported day, blind: four arrivals, one kept its ASN → 0.25.
+      ...[1, 2, 3].map((n) => ({
+        path: '/',
+        navigation: 'arrival',
+        createdAt: `2026-09-10T0${n}:00:00.000Z`,
+      })),
+      { path: '/', navigation: 'arrival', cfAsn: 13335, createdAt: '2026-09-10T04:00:00.000Z' },
+      // An `spa` row on the same day: never in scope, because the browser tracker
+      // POSTs its own request and was unaffected by AECI-868.
+      { path: '/', navigation: 'spa', createdAt: '2026-09-10T05:00:00.000Z' },
+      // The prior day, healthy.
+      { path: '/', navigation: 'arrival', cfAsn: 13335, createdAt: '2026-09-09T01:00:00.000Z' },
+      { path: '/', navigation: 'arrival', cfAsn: 7922, createdAt: '2026-09-09T02:00:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+    expect(m.arrivalCoverage).toEqual({ arrivals: 4, arrivalsWithAsn: 1, coverage: 0.25 });
+    expect(m.priorArrivalCoverage).toEqual({ arrivals: 2, arrivalsWithAsn: 2, coverage: 1 });
+    expect(arrivalTelemetryDegraded(m.arrivalCoverage)).toBe(true);
+    expect(arrivalTelemetryDegraded(m.priorArrivalCoverage)).toBe(false);
+    // Either day degraded is enough — the mixed case is the one that misleads.
+    expect(trafficDaysNotComparable(m)).toBe(true);
+  });
+
+  it('treats a day with no arrivals as healthy, not as blind', async () => {
+    const m = await collectAnalyticsMetrics(t.db, window);
+    expect(m.arrivalCoverage).toEqual({ arrivals: 0, arrivalsWithAsn: 0, coverage: 1 });
+    expect(arrivalTelemetryDegraded(m.arrivalCoverage)).toBe(false);
+    expect(trafficDaysNotComparable(m)).toBe(false);
   });
 });

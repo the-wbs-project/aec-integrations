@@ -11,6 +11,7 @@
 
 import {
   ADMIN_SNAPSHOT_METRIC_KEYS,
+  ARRIVAL_COVERAGE_METRIC,
   ADMIN_SNAPSHOT_STOCK_METRIC_KEYS,
   PAGE_VIEWS_RETENTION_DAYS,
 } from '@aeci/shared';
@@ -141,7 +142,14 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
     // captured, so a quiet day must still produce a full row set.
     await runMetricsSnapshot(t.db, DAY, NOW);
     const rows = await stored();
-    expect([...rows.values()].every((v) => v === 0)).toBe(true);
+    const counts = [...rows.entries()].filter(([k]) => k !== ARRIVAL_COVERAGE_METRIC);
+    expect(counts.every(([, v]) => v === 0)).toBe(true);
+    // The one key that is NOT zero on an empty day, and must not be (AECI-869):
+    // it is a RATIO, and 0 is its worst value rather than its empty one. A day
+    // with no arrivals has full coverage of nothing, which is what
+    // `readArrivalCfCoverage` returns and what the nightly check passes on. Zero
+    // here would report a total telemetry outage on every quiet night.
+    expect(rows.get(ARRIVAL_COVERAGE_METRIC)).toBe(1);
   });
 
   it('running twice for the same day leaves one row per (day, metric), with the later computed_at', async () => {

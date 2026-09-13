@@ -9,14 +9,35 @@
  *   - `collectAnalyticsMetrics(db, window)` — the read-only D1 aggregation.
  *   - `buildAnalyticsDigest(metrics, opts)` — a pure formatter → `{ subject, text, html }`.
  *
- * Human vs. bot (AECI-526 follow-up): the digest's headline "Page views" and "Most
- * viewed products" report HUMANS ONLY (`is_bot IS NOT 1`), and a "Crawler activity"
+ * Human vs. bot (AECI-526 follow-up): the digest's headline and "Most viewed
+ * products" exclude known bots (`is_bot IS NOT 1`), and a "Crawler activity"
  * section lists every bot/crawler and its crawl count for the day (`is_bot = 1`,
  * grouped by `bot_name`). The `is_bot` / `bot_name` classification is written at
  * ingest by `lib/bot-classification.ts` (`page_views` route). Rows captured before
  * that column existed have `is_bot = NULL` and read as human until the one-time ASN
  * backfill runs — a safe degradation (matches the pre-split behavior) rather than
  * silently dropping rows.
+ *
+ * ─── What the headline is CALLED, and why (AECI-869) ────────────────────────
+ *
+ * It is **"requests of unresolved origin"**, not "human page views". The figure is
+ * unchanged — see {@link unresolvedRequests} — but the name it carried until
+ * 2026-09-11 asserted something the evidence never supported. Every exclusion
+ * behind it is a *negative* test: not on the crawler list, not failing the
+ * AECI-658 header checks, not over a swarm threshold. None of that is evidence of
+ * a person, and AECI-868 showed how far the gap can open: for four days the cache
+ * gateway replaced `request.cf` on the SSR loopback, every full-document arrival
+ * stored a NULL `cf_asn`, `countDistinct(cf_asn)` was therefore zero, and neither
+ * automation grouping nor the operator retro-join could fire over a population of
+ * any size. The residual read 364 / 699 / 680 and the email called all of it
+ * human.
+ *
+ * Two consequences are built into this module rather than left to the reader:
+ * **{@link arrivalTelemetryDegraded}** puts the outage in the subject line and at
+ * the top of the tile, so a blind day can never again look like a quiet one; and
+ * **{@link trafficDaysNotComparable}** suppresses the delta arithmetic outright
+ * across a telemetry boundary rather than hedging it. The word "human" survives in
+ * exactly one place, {@link corroboratedLines}, which names its own evidence.
  *
  * Internal traffic (AECI-575): every `page_views` read here excludes the
  * operator-only paths in `UNTRACKED_ROUTE_PREFIXES` (`/admin/*`, `/account`). The
@@ -43,6 +64,11 @@ import { and, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+import {
+  ARRIVAL_CF_COVERAGE_MIN,
+  readArrivalCfCoverage,
+  type ArrivalCfCoverage,
+} from './arrival-coverage';
 // The population predicates live in their own module (AECI-745) so that BOTH this
 // file and `swarm-detection.ts` can import them and neither has to import the
 // other. That is what lets the collector below run the detector itself instead of
@@ -205,9 +231,94 @@ export interface AnalyticsMetrics {
    * `automation.flagged.prior`.
    */
   swarm: SwarmSummary | null;
+  /**
+   * Whether the reported day's full-document arrivals actually carried network
+   * metadata (AECI-868 / AECI-869).
+   *
+   * This is not a caveat about a number — it is whether the INPUT to half the
+   * numbers existed. Every network-based exclusion reads `cf_asn` and treats NULL
+   * as *no evidence* rather than as an error, so when the column stops arriving
+   * the exclusions quietly stop excluding and the residual grows. On production
+   * that ran for four days and read as a good week.
+   *
+   * Collected here rather than in either surface because both must say the same
+   * thing (AECI-745): the email prints it beside the headline and
+   * `/admin/overview` prints it in the §13 D15 envelope.
+   */
+  arrivalCoverage: ArrivalCfCoverage;
+  /**
+   * The same measurement for the PRIOR day — the delta baseline.
+   *
+   * Present for one reason: a day-over-day comparison between a measured day and
+   * a blind one is not a comparison, and {@link deltaText} has to be able to say
+   * so. Same argument as {@link AutomationFilter.flagged}'s `prior`, which exists
+   * because comparing a filtered day against an unfiltered one manufactures a
+   * fake delta. Here the manufactured delta points the other way — a blind day
+   * over-reports, so the morning after the pipeline breaks reads as growth.
+   */
+  priorArrivalCoverage: ArrivalCfCoverage;
 }
 
 const TOP_PRODUCTS_LIMIT = 5;
+
+/**
+ * Is this window's arrival telemetry too sparse for the network-based exclusions
+ * to have meant anything (AECI-869)?
+ *
+ * `arrivals > 0` first, and it is not defensive: {@link readArrivalCfCoverage}
+ * returns coverage 1 for an empty window, so the guard is really about intent —
+ * a day with no arrivals has nothing to be blind about, and reporting an outage
+ * on a quiet night is how a warning stops being read.
+ *
+ * One predicate, exported, so the email, the panel note and the tile caption
+ * cannot end up with three readings of one ratio.
+ */
+export function arrivalTelemetryDegraded(coverage: ArrivalCfCoverage): boolean {
+  return coverage.arrivals > 0 && coverage.coverage < ARRIVAL_CF_COVERAGE_MIN;
+}
+
+/**
+ * The sentence both renderings of the email print when {@link arrivalTelemetryDegraded}
+ * is true, and the panel's `arrival_telemetry_unavailable` note restates.
+ *
+ * It names the consequence rather than the cause. An operator does not need to
+ * know that a cache gateway replaced `request.cf`; they need to know that the
+ * exclusions they are reading the output of did not run.
+ */
+export const ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE =
+  'Arrival network telemetry unavailable for this day; network-based exclusions did not run.';
+
+/**
+ * The headline's label, inflected (AECI-869).
+ *
+ * A helper rather than {@link plural}, which appends an `s` to the last word and
+ * would produce "requests of unresolved origins". Named and exported so the
+ * subject, the plain-text body and the HTML tile cannot drift — the whole point
+ * of the rename is that one class of number has one name everywhere.
+ */
+export function unresolvedLabel(n: number): string {
+  return n === 1 ? 'request of unresolved origin' : 'requests of unresolved origin';
+}
+
+/**
+ * Is a day-over-day comparison of this window's `page_views` figures meaningless
+ * because one of the two days was blind (AECI-869)?
+ *
+ * **Either** day, not both. A measured day beside a blind one is the case that
+ * actually misleads: the blind day over-reports, so the morning the pipeline
+ * breaks prints growth and the morning it is fixed prints a collapse. Two blind
+ * days are also incomparable, but at least consistently so.
+ *
+ * Scoped to the page-view family. `newUsers` buckets `profiles.created_at` and
+ * reads no network column at all, so its delta stays a real comparison on a blind
+ * day and suppressing it would be a false alarm.
+ */
+export function trafficDaysNotComparable(metrics: AnalyticsMetrics): boolean {
+  return (
+    arrivalTelemetryDegraded(metrics.arrivalCoverage) ||
+    arrivalTelemetryDegraded(metrics.priorArrivalCoverage)
+  );
+}
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
@@ -409,6 +520,8 @@ export async function collectAnalyticsMetrics(
     corroboratedPrior,
     corroboratedVisitors,
     operatorLeakViews,
+    arrivalCoverage,
+    priorArrivalCoverage,
   ] = await Promise.all([
     countPageViews(db, window.startIso, window.endIso, 'human'),
     countPageViews(db, window.priorStartIso, window.startIso, 'human'),
@@ -425,6 +538,12 @@ export async function collectAnalyticsMetrics(
     countCorroboratedViews(db, window.priorStartIso, window.startIso),
     countCorroboratedVisitors(db, window.startIso, window.endIso),
     countOperatorLeakViews(db, window.startIso, window.endIso),
+    // AECI-869. Both days, for the reason `runAutomationFilter` reads both days:
+    // the headline's delta compares them, and a comparison across a telemetry
+    // boundary is not one. Two cheap single-row aggregates, in the existing
+    // fan-out rather than after it.
+    readArrivalCfCoverage(db, window.startIso, window.endIso),
+    readArrivalCfCoverage(db, window.priorStartIso, window.startIso),
   ]);
   return {
     pageViews: { day: humanViewsDay, prior: humanViewsPrior },
@@ -440,6 +559,8 @@ export async function collectAnalyticsMetrics(
     operatorLeakViews,
     automation,
     swarm,
+    arrivalCoverage,
+    priorArrivalCoverage,
   };
 }
 
@@ -542,7 +663,7 @@ export interface AnalyticsDigestOptions {
   // NOTE: there is deliberately no `automation` option here any more (AECI-745).
   // The filter now arrives on `AnalyticsMetrics.automation`, computed by the same
   // call that produced every other number in the email. An option would be a
-  // SECOND source for the one figure `humanViewsAfterAutomation` exists to keep
+  // SECOND source for the one figure `unresolvedRequests` exists to keep
   // single-sourced, and an option a caller can pass is an option a caller can
   // pass differently from the one the panel reads.
 }
@@ -576,8 +697,22 @@ export interface AutomationFilter {
 }
 
 /**
- * The digest's HEADLINE population: human page views left after the automation
- * filter, for the reported day and the prior day.
+ * The digest's HEADLINE population: **requests of unresolved origin** — page
+ * views left after the crawler classification and the automation filter, for the
+ * reported day and the prior day.
+ *
+ * ─── The arithmetic is AECI-745's; the name is AECI-869's ───────────────────
+ *
+ * This was `unresolvedRequests` until 2026-09-11 and nothing about what it
+ * computes has changed. What changed is the claim the name made. Passing the
+ * crawler list, the AECI-658 header checks and the swarm thresholds is the
+ * **absence of a bot match**; it is not evidence of a person, and the two are
+ * only close when the detectors have inputs. AECI-868 removed those inputs for
+ * four days — every arrival stored a NULL `cf_asn`, so `countDistinct(cf_asn)`
+ * was zero and neither grouping could fire over a population of any size — and
+ * the residual inflated to 364 / 699 / 680 with nothing anywhere saying the
+ * exclusions had stopped working. A number called "humans" cannot report that
+ * about itself; a number called "unresolved" can.
  *
  * Exported so the admin panel can lead with the same figure rather than
  * re-deriving the subtraction — the §6.10 parity guarantee is only structural
@@ -585,13 +720,19 @@ export interface AutomationFilter {
  * ALONE, because the filter now lives on them: passing the filter separately
  * would let a caller subtract one day's flagged count from another day's total.
  *
+ * The wire field is still `page_views_human` and the stored series is still
+ * `traffic.page_views_human_after_automation`. Neither was renamed: the metric
+ * key is `metrics_daily.metric` verbatim and renaming it would orphan every
+ * stored row, and the wire field was already redefined once ten days earlier.
+ * Both carry the explanation in their own docblocks instead.
+ *
  * Clamped at zero defensively. `flagged` is a subset of the same
  * `HUMAN`+`NOT_INTERNAL` population `pageViews` counts, computed from the same
  * predicates over the same window, so it cannot legitimately exceed it — but a
  * negative headline would be a far worse failure than a zero one if that ever
  * stopped being true.
  */
-export function humanViewsAfterAutomation(metrics: AnalyticsMetrics): DailyCount {
+export function unresolvedRequests(metrics: AnalyticsMetrics): DailyCount {
   const automation = metrics.automation;
   if (!automation) return metrics.pageViews;
   return {
@@ -648,10 +789,26 @@ export function computeDelta(c: DailyCount): Delta {
   return { current: c.day, prior: c.prior, diff, pct };
 }
 
-/** Human day-over-day delta, e.g. `+8 (+18%) vs 45 prior day`, `-3 (-7%) vs 45 prior
- *  day`, or `no change vs prior day`. Percentages are omitted when the prior day was 0
- *  (division would be meaningless). ASCII only, so it renders cleanly in plain text. */
-function deltaText(c: DailyCount): string {
+/**
+ * Human day-over-day delta, e.g. `+8 (+18%) vs 45 prior day`, `-3 (-7%) vs 45 prior
+ * day`, or `no change vs prior day`. Percentages are omitted when the prior day was 0
+ * (division would be meaningless). ASCII only, so it renders cleanly in plain text.
+ *
+ * **`notComparable` suppresses the arithmetic entirely (AECI-869)**, rather than
+ * printing it with a caveat attached. A delta is a single claim — "this moved by
+ * N" — and a claim qualified underneath itself is still read as the claim; the
+ * figure is what gets quoted. When one of the two days had no arrival network
+ * telemetry, its exclusions did not run and its count is inflated by an unknown
+ * amount, so the difference is not a measurement of anything. The correct output
+ * is not a hedged number, it is no number.
+ *
+ * Passed by the caller rather than derived here because this function takes a
+ * {@link DailyCount} and a count does not know which days it spans.
+ */
+function deltaText(c: DailyCount, opts: { notComparable?: boolean } = {}): string {
+  if (opts.notComparable) {
+    return 'not comparable with the prior day (arrival network telemetry was unavailable)';
+  }
   const { diff, pct } = computeDelta(c);
   if (diff === 0) return 'no change vs prior day';
   const magnitude = Math.abs(diff);
@@ -674,73 +831,111 @@ export function buildAnalyticsDigest(
 function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, topProducts } = metrics;
   const topName = topProducts[0]?.name;
-  const net = humanViewsAfterAutomation(metrics);
+  const net = unresolvedRequests(metrics);
   // The subject line is the number the operator actually reads, so it carries
   // the filtered figure with the raw one in parentheses (AECI-741) rather than
-  // the reverse. Without the filter it keeps the AECI-658 "up to" hedge: for
-  // weeks the subject asserted a figure that was an order of magnitude high with
-  // nothing to qualify it. ASCII, not a "<=" glyph, so it survives every mail
-  // client's subject rendering.
+  // the reverse. ASCII, not a "<=" glyph, so it survives every mail client's
+  // subject rendering.
+  //
+  // AECI-869 renamed the class. The old subject read "N human views after
+  // automation", and "after automation" was doing the work of a disclaimer that
+  // the word before it cancelled out. "Unresolved" carries the same information
+  // without the claim, so the qualifier is no longer load-bearing and the raw
+  // count keeps its parenthesis. Without the filter the AECI-658 hedge is now
+  // redundant for the same reason — "up to N unresolved" says nothing "N
+  // unresolved (UNFILTERED)" does not, and UNFILTERED names the actual defect.
   const headline = metrics.automation
-    ? `${plural(net.day, 'human view')} after automation (${pv.day} raw)`
-    : `up to ${plural(pv.day, 'human view')}`;
+    ? `${net.day} ${unresolvedLabel(net.day)} (${pv.day} raw)`
+    : `${pv.day} ${unresolvedLabel(pv.day)} (UNFILTERED)`;
+  // The telemetry outage goes in the SUBJECT, not only the body. A four-day
+  // outage read as a good week because every surface that could have reported it
+  // was one the operator had to open first.
+  const blind = arrivalTelemetryDegraded(metrics.arrivalCoverage) ? ' · NO NETWORK TELEMETRY' : '';
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
     `${headline}, ${plural(newUsers.day, 'new user')}` +
     (topName ? ` · top: ${topName}` : '') +
-    (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '')
+    (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '') +
+    blind
   );
 }
 
 // ── plain text ──
 
 /**
- * The two bounds, as one plain-text block.
+ * What the headline is, and what sits beside it, as one plain-text block.
  *
  * Shared by the text and HTML builders so the wording cannot drift between the
- * two renderings of the same email — the pair only helps if both halves say the
- * same thing.
+ * two renderings of the same email — an explanation only helps if both halves say
+ * the same thing.
  *
- * The framing is deliberate. `page_views` is written server-side on every
- * full-document load including cache hits, so a crawler that never runs
- * JavaScript still counts: an UPPER bound. PostHog fires only when JS runs and
- * the visitor consented, so a real person who declines is invisible: a LOWER
- * bound. `POST_LAUNCH_MONITORING.md` §3 has instructed reading the server figure
- * as an upper bound since launch; until AECI-658 the email never said so, which
- * is how a number that was ~10x high read as authoritative for weeks.
+ * ─── Three figures, three populations, NO arithmetic between them (AECI-869) ──
  *
- * Since AECI-741 the RAW server-side figure is no longer the headline, so these
- * lines have to say which number they are bounding. Describing the headline as
- * an upper bound when it is a filtered estimate would be the same class of error
- * in the opposite direction.
+ * The block used to read as one bracket: a server-side upper bound, a PostHog
+ * lower bound, and the headline "our best estimate inside that range". Two of
+ * those three claims were wrong.
+ *
+ * - **The headline is not a count of humans.** It is what no rule excluded. The
+ *   rules are a crawler list, a set of header checks, and thresholds that need a
+ *   `cf_asn` to evaluate; when the ASN stopped arriving (AECI-868) the thresholds
+ *   stopped firing and the residual grew with nothing to say why.
+ * - **PostHog is not a floor under it.** Its query filters event, date and host
+ *   and nothing else (`lib/posthog-query.ts`), so it counts operators and any bot
+ *   that runs JavaScript, and `uniq(person_id)` is an identity count rather than
+ *   a person count. Measured twice against production, its "1 person" WAS the
+ *   operator (2026-08-23 and 2026-08-26). A number that includes the operator
+ *   cannot bound a number that excludes them, in either direction.
+ *
+ * So each is stated as its own observation with its own caveat, and the email no
+ * longer tells the reader to subtract, bracket or interpolate between them. The
+ * one honest relation left is the corroborated line, and it says what corroborated
+ * it.
  */
 function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
   const lines = metrics.automation
     ? [
-        `The headline is the ${metrics.pageViews.day} views counted server-side less the`,
-        `${metrics.automation.flagged.day} attributed to automated clients. The raw server-side figure is an`,
-        'UPPER bound: it is written on every full-document load, so any crawler that does not run',
-        'JavaScript is still in it. The filter is a maintained heuristic over a small sample, so the',
-        'headline is an estimate — it is not a census, and it can be wrong in both directions.',
-        'Most viewed products and Traffic sources below exclude the same flagged clients, so every',
-        'figure in this email describes one population.',
+        `The headline counts requests no rule could exclude. It is the ${metrics.pageViews.day} views`,
+        `counted server-side less the ${metrics.automation.flagged.day} attributed to automated clients.`,
+        'Read it as a RESIDUAL, not as people: surviving the crawler list, the header checks and the',
+        'automation thresholds is the absence of a bot match, not evidence of a person. The raw',
+        'server-side figure is an UPPER bound on humans — it is written on every full-document load,',
+        'so any crawler that does not run JavaScript is still in it. Most viewed products and Traffic',
+        'sources below exclude the same flagged clients, so every figure in this email describes one',
+        'population.',
       ]
     : [
-        'The automation filter did not run for this day, so the headline is UNFILTERED and is an',
-        'UPPER bound on humans: page views are counted server-side on every full-document load,',
-        'so any crawler that does not run JavaScript is still in the number.',
+        'The automation filter did not run for this day, so the headline is UNFILTERED: nothing has',
+        'been subtracted from the raw server-side count at all. Page views are counted on every',
+        'full-document load, so any crawler that does not run JavaScript is in the number, and it is',
+        'not comparable with a day the filter ran on.',
       ];
+  // AECI-869. Placed here, at the top of the explanation, rather than after the
+  // three figures: when this fires it does not qualify them, it invalidates them.
+  if (arrivalTelemetryDegraded(metrics.arrivalCoverage)) {
+    const { arrivals, arrivalsWithAsn } = metrics.arrivalCoverage;
+    lines.push(
+      ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE,
+      `Only ${arrivalsWithAsn} of ${arrivals} full-document arrivals carried a network (ASN), so the`,
+      'datacentre classification, both automation groupings and the operator retro-join had no input',
+      'and could not fire. Absent evidence is not evidence of absence: the headline is inflated by an',
+      'unknown amount and this day is NOT comparable with a day that has telemetry.',
+    );
+  }
   if (opts.posthog) {
     const { pageviews, people } = opts.posthog;
+    // A SEPARATE observation (AECI-869), deliberately not framed as a bound on
+    // the headline. Both caveats are mandatory: the filter is host+date only, and
+    // `uniq(person_id)` counts identities rather than people.
     lines.push(
-      `PostHog (client-side, consented only) saw ${plural(pageviews, 'page view')} from ` +
-        `${people} ${people === 1 ? 'person' : 'people'} the same day: a LOWER bound.`,
-      metrics.automation
-        ? 'The truth is between that floor and the raw server-side figure; the headline is our best estimate inside that range.'
-        : 'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
+      `Separately, PostHog recorded ${plural(pageviews, 'page view')} from ` +
+        `${people} ${people === 1 ? 'identity' : 'identities'} on the same day and host. That is a` +
+        ' different population, not a floor under the headline: it fires only when our JavaScript' +
+        ' runs and the visitor consented, and its filter is event, date and host only — so operators' +
+        ' and any script that runs JavaScript are both still in it. Twice in August its "1 person"' +
+        ' was the operator. Do not add it to, or subtract it from, any figure above.',
     );
   } else if (opts.posthogUnavailable) {
-    lines.push(`PostHog lower bound unavailable (${opts.posthogUnavailable}).`);
+    lines.push(`PostHog client-side figure unavailable (${opts.posthogUnavailable}).`);
   }
   lines.push(...corroboratedLines(metrics));
   if (metrics.operatorLeakViews > 0) {
@@ -757,28 +952,42 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
 /**
  * The corroborated-human sentences (AECI-683), shared by both renderings.
  *
+ * **The one place in this email that may say "human" (AECI-869)**, and it may
+ * only because it names its own evidence in the same breath: a NAMED external
+ * search or social referrer. Every other figure here is a residual, a raw count
+ * or a different population; this is the only one with a positive signal behind
+ * it, and a proxy pool cannot manufacture that signal because it sends no
+ * `Referer` at all.
+ *
  * Both caveats are mandatory and neither is boilerplate. It is a FLOOR because
  * Referrer-Policy strips real referrals into `Direct`; and a referrer is a CLAIM,
  * unverifiable by construction now that only the host is stored (§9.7) — prod
  * holds one confirmed forgery. A number this small reads as precise unless the
  * text says otherwise, and the whole point of this digest change is to stop
  * numbers reading as more certain than they are.
+ *
+ * It is **supporting evidence, not a verified floor**. The caveats are what make
+ * the difference, so neither may be dropped to shorten the email.
  */
 function corroboratedLines(metrics: AnalyticsMetrics): string[] {
   const { day } = metrics.corroboratedViews;
   if (day === 0) {
     return [
       'No arrival carried an external search or social referrer, so nothing in the day is',
-      'positively corroborated as a person. That is common at this volume, not an outage.',
+      'positively corroborated as human. That is common at this volume, not an outage — and it',
+      'does not make the headline above any more or less likely to be people.',
     ];
   }
   const visitors = metrics.corroboratedVisitors;
   return [
-    `Of those, ${plural(day, 'view')} from ${plural(visitors, 'visitor')} arrived with an external ` +
-      `search or social referrer — the strongest positive evidence of a person we hold ` +
-      `server-side, because a proxy pool sends no Referer at all.`,
-    'Read it as a FLOOR: privacy tools strip the header, so real referrals land in Direct.',
-    'And a referrer is a claim, not a verified fact — only the host is stored.',
+    `Separately, ${plural(day, 'view')} from ${plural(visitors, 'visitor')} arrived with a NAMED ` +
+      `external search or social referrer. That referrer is what corroborates them as human, and ` +
+      `it is the only positive evidence of a person this email holds: a rotating-proxy pool sends ` +
+      `no Referer at all, so it cannot manufacture one.`,
+    'It is supporting evidence, not a verified floor. Privacy tools strip the header, so real',
+    'referrals land in Direct and this under-counts; and a referrer is a claim the request made,',
+    'not a verified fact — only the host is stored, and production holds one confirmed forgery.',
+    'It is a SUBSET of the headline, never an addend to it.',
   ];
 }
 
@@ -792,34 +1001,45 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `Day (UTC): ${opts.dayLabel}`,
     `Generated: ${opts.generatedAt.toISOString()}`,
     '',
-    '== Traffic (humans) ==',
+    // AECI-869: the section no longer claims the population it reports. "Humans"
+    // was the heading over a residual.
+    '== Traffic (unresolved origin) ==',
   ];
   // Headline first, raw second, indented under it (AECI-741). The operator asked
   // for the post-automation figure to be the number they SEE; ordering is most of
   // what makes that true in a plain-text mail client, where there is no type
   // scale to lean on.
-  const net = humanViewsAfterAutomation(metrics);
+  const net = unresolvedRequests(metrics);
+  const notComparable = trafficDaysNotComparable(metrics);
   if (metrics.automation) {
     t.push(
-      `Human page views after automation: ${net.day} (${deltaText(net)})  [headline]`,
-      `  from ${pv.day} counted server-side (${deltaText(pv)}), less ` +
+      `Requests of unresolved origin: ${net.day} (${deltaText(net, { notComparable })})  [headline]`,
+      `  from ${pv.day} counted server-side (${deltaText(pv, { notComparable })}), less ` +
         `${plural(metrics.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
     );
   } else {
     t.push(
-      `Page views: ${pv.day} (${deltaText(pv)})  [upper bound]`,
+      `Requests of unresolved origin: ${pv.day} (${deltaText(pv, { notComparable })})  [upper bound]`,
       '  (automation filter did not run this day — this figure is UNFILTERED)',
+    );
+  }
+  // AECI-869. Directly under the headline, because it is the one line that says
+  // whether the exclusions behind that headline ran at all.
+  if (arrivalTelemetryDegraded(metrics.arrivalCoverage)) {
+    t.push(
+      `  ** ${ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE}`,
+      `  ** ${metrics.arrivalCoverage.arrivalsWithAsn} of ${metrics.arrivalCoverage.arrivals} arrivals carried a network (ASN).`,
     );
   }
   if (opts.posthog) {
     t.push(
       `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
-        `${opts.posthog.people === 1 ? 'person' : 'people'}  [lower bound]`,
+        `${opts.posthog.people === 1 ? 'identity' : 'identities'}  [separate observation]`,
     );
   }
   t.push(
-    `Corroborated by an external referrer: ${metrics.corroboratedViews.day} from ` +
-      `${plural(metrics.corroboratedVisitors, 'visitor')}  [floor]`,
+    `Corroborated as human by an external referrer: ${metrics.corroboratedViews.day} from ` +
+      `${plural(metrics.corroboratedVisitors, 'visitor')}  [supporting evidence]`,
   );
   if (metrics.operatorLeakViews > 0) {
     t.push(
@@ -837,16 +1057,18 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   if (topProducts.length > 0) {
     t.push(
       '',
-      metrics.automation ? 'Most viewed products (after automation):' : 'Most viewed products:',
+      metrics.automation
+        ? 'Most viewed products (unresolved, after automation):'
+        : 'Most viewed products (unresolved):',
     );
     topProducts.forEach((p, i) =>
       t.push(`  ${i + 1}. ${p.name} — ${plural(p.views, 'view')} (/${p.slug})`),
     );
   } else {
-    t.push('Most viewed product: (no human product page views)');
+    t.push('Most viewed product: (no unresolved product page views)');
   }
 
-  t.push('', `== Traffic sources (humans${metrics.automation ? ', after automation' : ''}) ==`);
+  t.push('', `== Traffic sources (unresolved${metrics.automation ? ', after automation' : ''}) ==`);
   if (referrers.length > 0) {
     referrers.forEach((r, i) => t.push(`  ${i + 1}. ${r.source} — ${plural(r.views, 'view')}`));
   } else {
@@ -868,7 +1090,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   );
   if (botActivity.length > 0) {
     t.push(
-      `Bot/crawler page views: ${bot.day} (${deltaText(bot)}) from ${plural(botActivity.length, 'source')}`,
+      `Bot/crawler page views: ${bot.day} (${deltaText(bot, { notComparable })}) from ${plural(botActivity.length, 'source')}`,
     );
     botActivity.forEach((b, i) => t.push(`  ${i + 1}. ${b.name} — ${plural(b.crawls, 'crawl')}`));
   } else {
@@ -969,23 +1191,30 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   // The upper-bound caption sits ON the big number, not in a footnote. The whole
   // failure mode this fixes is a figure that reads as authoritative because
   // nothing next to it says otherwise.
+  // AECI-869: a SEPARATE observation, not a bound. Its HogQL filters event, date
+  // and host only, so it counts operators and any script that runs JavaScript;
+  // `uniq(person_id)` is an identity count. Calling it a lower bound under the
+  // headline invited exactly the arithmetic the issue forbids.
   const posthogLine = opts.posthog
     ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
       `<strong style="color:${HTML.ink}">${opts.posthog.pageviews}</strong> PostHog page view${opts.posthog.pageviews === 1 ? '' : 's'} ` +
-      `from <strong style="color:${HTML.ink}">${opts.posthog.people}</strong> ${opts.posthog.people === 1 ? 'person' : 'people'} ` +
-      `(client-side, consented only) &mdash; a <strong>lower bound</strong>.</p>`
+      `from <strong style="color:${HTML.ink}">${opts.posthog.people}</strong> ${opts.posthog.people === 1 ? 'identity' : 'identities'} ` +
+      `(client-side, consented only) &mdash; a <strong>separate observation</strong>, filtered by date and host only. ` +
+      `Not a floor under the figure above, and never added to or subtracted from it.</p>`
     : opts.posthogUnavailable
-      ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog lower bound unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
+      ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog client-side figure unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
       : '';
-  // The corroborated figure sits ON the tile beside the two bounds, not in the
+  // The corroborated figure sits ON the tile beside the headline, not in the
   // footnote, for the same reason the upper-bound caption does: a number the
   // operator has to scroll to find is a number they will read the headline
-  // instead of.
+  // instead of. It is the one line here that may say "human" (AECI-869), because
+  // it names the evidence in the same sentence.
   const corroboratedLine =
     `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
     `<strong style="color:${HTML.ink}">${metrics.corroboratedViews.day}</strong> view${metrics.corroboratedViews.day === 1 ? '' : 's'} ` +
     `from <strong style="color:${HTML.ink}">${metrics.corroboratedVisitors}</strong> ${metrics.corroboratedVisitors === 1 ? 'visitor' : 'visitors'} ` +
-    `arrived with an external search or social referrer &mdash; a <strong>corroborated floor</strong>.</p>`;
+    `arrived with a named external search or social referrer, which corroborates them as ` +
+    `<strong>human</strong> &mdash; supporting evidence, not a verified floor, and a subset of the figure above.</p>`;
   const operatorLeakLine =
     metrics.operatorLeakViews > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${metrics.operatorLeakViews} view${metrics.operatorLeakViews === 1 ? '' : 's'} excluded as operator self-traffic on a lapsed session.</p>`
@@ -1000,24 +1229,36 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   // operator comparing this morning against last week needs to be able to see
   // both, and a number that silently changed meaning is the failure mode
   // AECI-658 already had to fix once.
-  const net = humanViewsAfterAutomation(metrics);
+  //
+  // AECI-869 relabelled it. Same figure, same subtraction, same sub-line; the
+  // caption no longer calls the residual "human".
+  const net = unresolvedRequests(metrics);
+  const notComparable = trafficDaysNotComparable(metrics);
   const headlineStat = metrics.automation
-    ? primaryStat(
-        net.day,
-        net.day === 1 ? 'human page view after automation' : 'human page views after automation',
-        deltaText(net),
-      ) +
+    ? primaryStat(net.day, unresolvedLabel(net.day), deltaText(net, { notComparable })) +
       `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">` +
       `From <strong style="color:${HTML.ink}">${pv.day}</strong> counted server-side ` +
-      `(${escapeHtml(deltaText(pv))}), less <strong style="color:${HTML.ink}">${metrics.automation.flagged.day}</strong> ` +
-      `flagged as automation. The raw figure is an <strong>upper bound</strong>; the headline is a ` +
-      `heuristic estimate, not a census.</p>`
-    : primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
+      `(${escapeHtml(deltaText(pv, { notComparable }))}), less <strong style="color:${HTML.ink}">${metrics.automation.flagged.day}</strong> ` +
+      `flagged as automation. The raw figure is an <strong>upper bound</strong> on humans; the ` +
+      `headline is what no rule could exclude, which is not the same as a person.</p>`
+    : primaryStat(pv.day, unresolvedLabel(pv.day), deltaText(pv, { notComparable })) +
       `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans. ` +
       `<strong style="color:${HTML.danger}">The automation filter did not run for this day</strong>, so nothing has been removed.</p>`;
+  // AECI-869. Styled as the loudest thing on the tile, above every other caveat,
+  // because it does not qualify the figure above it — it says the exclusions
+  // behind that figure had no input. A four-day outage read as a good week
+  // precisely because nothing occupied this position.
+  const telemetryLine = arrivalTelemetryDegraded(metrics.arrivalCoverage)
+    ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.danger};background:#fef2f2;font-size:13px;color:${HTML.ink}">` +
+      `<strong style="color:${HTML.danger}">${escapeHtml(ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE)}</strong> ` +
+      `Only ${metrics.arrivalCoverage.arrivalsWithAsn} of ${metrics.arrivalCoverage.arrivals} full-document arrivals ` +
+      `carried a network (ASN), so the datacentre classification, both automation groupings and the ` +
+      `operator retro-join could not fire. This day is not comparable with a day that has telemetry.</p>`
+    : '';
   const traffic =
-    sectionTitle('Traffic (humans)') +
+    sectionTitle('Traffic (unresolved origin)') +
     headlineStat +
+    telemetryLine +
     posthogLine +
     corroboratedLine +
     operatorLeakLine +
@@ -1031,8 +1272,8 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const productsSection =
     sectionTitle(
       metrics.automation
-        ? 'Most viewed products (humans, after automation)'
-        : 'Most viewed products (humans)',
+        ? 'Most viewed products (unresolved, after automation)'
+        : 'Most viewed products (unresolved)',
     ) +
     (topProducts.length > 0
       ? rankTable(
@@ -1045,8 +1286,8 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const referrersSection =
     sectionTitle(
       metrics.automation
-        ? 'Traffic sources (humans, after automation)'
-        : 'Traffic sources (humans)',
+        ? 'Traffic sources (unresolved, after automation)'
+        : 'Traffic sources (unresolved)',
     ) +
     (referrers.length > 0
       ? rankTable(
@@ -1077,7 +1318,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const crawlers =
     sectionTitle('Crawler activity') +
     (botActivity.length > 0
-      ? `<p style="margin:0 0 8px;font-size:14px;color:${HTML.muted}">${bot.day} bot/crawler page view${bot.day === 1 ? '' : 's'} <span style="color:${HTML.ink}">(${escapeHtml(deltaText(bot))})</span> from ${botActivity.length} source${botActivity.length === 1 ? '' : 's'}.</p>` +
+      ? `<p style="margin:0 0 8px;font-size:14px;color:${HTML.muted}">${bot.day} bot/crawler page view${bot.day === 1 ? '' : 's'} <span style="color:${HTML.ink}">(${escapeHtml(deltaText(bot, { notComparable }))})</span> from ${botActivity.length} source${botActivity.length === 1 ? '' : 's'}.</p>` +
         rankTable(
           'Bot / crawler',
           'Crawls',

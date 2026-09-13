@@ -182,7 +182,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 
 | Cron (UTC) | Job | `job_runs.job` | Failure / liveness coverage |
 |---|---|---|---|
-| `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 20 metrics, the admin panel's long memory. **Since AECI-827 it also re-checks the trailing ~33 days** and rewrites the `traffic.*` days the operator retro-join moved (ADR 0027), emitting the separate `aeci.metrics_snapshot.recheck.*` family | `metrics-snapshot` | **today: nothing.** A known gap, and the worst one to have — queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable (flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`). → **combined + sweep (26 h)** — the port closes it |
+| `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 21 metrics, the admin panel's long memory (20 until AECI-869 added `quality.arrival_cf_coverage`). **Since AECI-827 it also re-checks the trailing ~33 days** and rewrites the `traffic.*` days the operator retro-join moved (ADR 0027), emitting the separate `aeci.metrics_snapshot.recheck.*` family | `metrics-snapshot` | **today: nothing.** A known gap, and the worst one to have — queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable (flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`). → **combined + sweep (26 h)** — the port closes it |
 | `0 2 * * 2` | **WEEKLY** (Mondays — Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; this read `0 2 * * 1` and therefore fired on SUNDAY until AECI-661) — `asn_registry` refresh from PeeringDB (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6): the read-time network annotation behind the Activity feed | `asn-registry` | **today: nothing on this line.** It arrived with the AECI-750 reconcile, and its Datadog no-data monitor had already been deleted by AECI-651, so it landed with no absence signal at all. → **combined + sweep**, and the sweep's `lookbackHours` widened 72 → 360 for it: a WEEKLY heartbeat is absent from a 72 h window six days in seven, which would have read MISSING every day. A `failed` run is not urgent — nothing is ever deleted, so the panel keeps annotating from the last good rows and `/admin/system` marks the registry stale after two missed Mondays. Watch **coverage**, not freshness: it decays silently as new networks arrive |
 | `0 3 * * *` | §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4) — the system's only scheduled `DELETE`: `page_views` past 400 days, `job_runs` past 90, in bounded chunks, with one `retention.pruned` audit row per run. **Deletes nothing until ~2026-11 (`job_runs`) / ~2027-07 (`page_views`)**, so for now a healthy run is a zero-row run | `retention-prune` | prune-skipped / prune-runaway / prune-failed / prune-not-running (AECI-584) → **runaway stays its own alert** (unchanged 5,000 rows/table/day), failed → combined, not-running → sweep (26 h), **skipped → dashboard + digest, no alert** |
 | `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running → **ERROR stays its own alert** (and now catches a check that *threw*), **WARN → dashboard + digest, no alert**, failed → combined, not-running → sweep (26 h) |
@@ -482,10 +482,88 @@ behind it:
 > without* the fix (verified 2026-08-31). A green local run means "no regression",
 > not "fixed". Use preview, staging, or production.
 
+### 3a-ter. The digest headline is a RESIDUAL, and the telemetry behind it can go missing (AECI-869)
+
+**What the headline means now.** The 05:00 email and the `/admin/overview` lead tile both read
+**"N requests of unresolved origin"**. Same figure, same subtraction, same
+`unresolvedRequests()` call (`apps/api/src/lib/analytics-digest.ts`) — the word *human* is what
+changed, and only on those two surfaces. It was removed because every exclusion behind the number is
+a **negative** test: not on the crawler list, not failing the AECI-658 header checks, not over a
+swarm threshold. None of that is evidence of a person.
+
+AECI-868 is why this stopped being a wording preference. For four days production wrote every
+full-document arrival with a NULL `cf_asn`, so `countDistinct(cf_asn)` was zero, both swarm ratios
+and the ASN-rotator grouping could not fire over a population of any size, and the §13 D15 operator
+retro-join could not match. The residual read **364 / 699 / 680** on 2026-09-08/09/10, the email
+called all of it human, and nothing anywhere said the exclusions had lost their input. A blind day
+is indistinguishable from a quiet one unless something measures the pipe.
+
+**The word "human" now appears on exactly one line** — the corroborated one — because that line names
+its own evidence in the same sentence: a NAMED external search or social referrer. It is supporting
+evidence, not a verified floor, and it is a **subset** of the headline rather than an addend to it.
+
+**The PostHog line is a separate observation, not a bound.** Its HogQL filters event, date and host
+and nothing else (`lib/posthog-query.ts`), so it counts operators and any script that runs
+JavaScript; `uniq(person_id)` is an identity count. Twice in August its "1 person" was the operator
+(2026-08-23 and 2026-08-26). Do not add it to, subtract it from, or bracket the headline with it. The
+email says so in both renderings.
+
+#### The coverage threshold — a launch tunable
+
+| Constant | Value | Where | Why |
+|---|---|---|---|
+| `ARRIVAL_CF_COVERAGE_MIN` | `0.95` | `apps/api/src/lib/arrival-coverage.ts` | The share of a day's full-document arrivals that must carry a `cf_asn`. Not 1.0, because a small NULL tail is legitimate and permanent — `request.cf` is absent on a non-Cloudflare runtime and the row is still written. The observed healthy state is ~100% and the defect took it to **0%**, so any threshold in this region separates the two. Low enough that normal noise never fires, high enough to catch a partial regression (one entrypoint, one route class) before a human notices a missing bot split |
+
+**One constant, four readers**, and that is the point of it being exported rather than restated: the
+nightly `arrival_cf_coverage` data-quality check (§0b), the digest's health line, the
+`/admin/overview` tile envelope, and `readDegradedArrivalDays`. Change it in one place and every
+surface re-decides, **including every past day** — which is exactly why `metrics_daily` stores the
+ratio and never a `degraded` boolean.
+
+**When coverage is below the bar**, both surfaces print: *"Arrival network telemetry unavailable for
+this day; network-based exclusions did not run."* It is absent when healthy, and absent on a day with
+no arrivals at all — an empty night is not a defect, and a warning that fires every quiet night stops
+being read.
+
+#### The degraded-day rule for deltas and charts
+
+`metrics_daily` carries **`quality.arrival_cf_coverage`** (§9.3), written by the 00:15 snapshot and
+reconstructable by `pnpm --filter @aeci/api ops:backfill-metrics-daily` — the `cf_asn` values
+themselves are gone forever, but the NULLs are still in `page_views`, so a backfill over
+2026-09-07 → the fix day marks those days **from the rows themselves** rather than from a list of
+dates somebody has to remember. Three rules follow, and all three are enforced in code rather than
+left to the reader:
+
+1. **Day-over-day deltas are suppressed, not hedged.** When either the reported day or the prior day
+   is degraded, `deltaText` prints *"not comparable with the prior day (arrival network telemetry was
+   unavailable)"* and no arithmetic at all. A delta is a single claim, and a claim qualified
+   underneath itself is still read as the claim — the figure is what gets quoted. **Either** day, not
+   both: a measured day beside a blind one is the case that misleads, because the blind day
+   over-reports, so the morning the pipeline breaks prints growth and the morning it is fixed prints
+   a collapse.
+2. **Sign-ins are exempt.** `accounts.sign_ins_new` buckets `profiles.created_at` and reads no
+   network column, so its delta stays a real comparison on a blind day. Suppressing it would be a
+   false alarm.
+3. **The 30-day chart marks the days rather than dropping them.** Each `series_30d` point carries
+   `degraded`, and `series_spans_degraded_days` counts them in the honesty envelope. A day with **no
+   stored coverage row is `false`** — "not assessed", never "blind" — because painting every
+   unmeasured day red is the one failure mode a telemetry marker must not have.
+
+**Writing those rows to production is a data operation, not a deploy.** The code ships first; the
+backfill over the AECI-868 window is sequenced separately and recorded in the issue when it runs.
+
+---
+
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
+> **Since AECI-869 the headline is called "N requests of unresolved origin"** — same figure, same
+> subtraction, new name and a telemetry-health line beside it. **§3a-ter above is the current
+> description**; everything below is the history that produced it, and every occurrence of "human
+> views after automation" in this section names the figure this one renamed. The word *human* now
+> appears on the corroborated line alone.
+>
 > **Since AECI-741 the digest's HEADLINE is the post-automation figure**, not the raw
-> server-side count. Subject and primary stat both read *"N human views after automation"*, with
+> server-side count. Subject and primary stat both carried it, with
 > the raw count demoted to a sub-line beside it. Read the sections below with that in mind: where
 > they say "the headline is an upper bound" they now describe the **sub-line**.
 >
@@ -649,7 +727,7 @@ names which call site uses which, and so does this table:
 
 All three are **NULL-safe**, and that is a constraint not a detail: `IN` against a NULL verdict is
 NULL, so every row written before the column shipped (and every `'browser'` / `'unknown'` row) counts
-as **no evidence**, never as "not a browser". `analytics-digest.ts`'s `notFlagged()` complement
+as **no evidence**, never as "not a browser". `page-view-predicates.ts`'s `notFlagged()` complement
 carries the same NULL-safety on the same axis — a NULL-verdict row counts in the headline, so it must
 survive the tables.
 
@@ -715,7 +793,7 @@ flagged rows, then unflagged rows, then flagged rows again, and nothing on the u
 distinguishes them from a visitor. On 2026-08-26 that was **22 views in one 105-minute gap**, ending
 on `/auth/login` — which is what a lapse looks like from the outside.
 
-`NOT_INTERNAL` (`lib/analytics-digest.ts`) now carries a third half: a correlated `NOT EXISTS` that
+`NOT_INTERNAL` (`lib/page-view-predicates.ts` since AECI-745; `lib/analytics-digest.ts` when this was written) now carries a third half: a correlated `NOT EXISTS` that
 excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within
 `OPERATOR_PAIR_LOOKBACK_DAYS`. Four things about it are load-bearing:
 
@@ -848,7 +926,9 @@ the unfiltered table.
 join (AECI-239) as the human source of truth. AECI-575 removed the one slice of internal traffic that could
 be excluded **precisely** (operator navigation on authed surfaces, zero false positives); what remains is
 genuine visitors sharing the operator's ISP, which only `ANALYTICS_INTERNAL_ASNS`
-(`ADMIN_PANEL_SPEC.md` §13 D10, unbuilt) or the holder-name fix can separate. Until then, treat the digest's
+(`ADMIN_PANEL_SPEC.md` §13 D10 — **built**: `apps/api/src/lib/internal-asns.ts`, read by
+`admin-analytics.ts`; the env var ships **unset**, which is the shipped default rather than a gap)
+or the holder-name fix can separate. Until then, treat the digest's
 human count as an **upper bound**.
 
 **Half of that fix has landed: `page_views.cf_as_organization`** (AECI-585 / §13 D10) captures the holder

@@ -14,11 +14,13 @@
  * live path reads — §4's correction, D6.
  */
 
+import { ADMIN_METRIC_KEYS, ARRIVAL_COVERAGE_METRIC, type AdminMetricKey } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { metricSeries, utcDayWindow } from './admin-analytics';
+import { readArrivalCfCoverage } from './arrival-coverage';
 import {
   BACKFILL_SERIES,
   buildAggregateStatements,
@@ -32,10 +34,22 @@ import {
   daysInRange,
   isoBounds,
   type BackfillRange,
+  type BackfillSeries,
 } from './metrics-backfill';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const UNFILTERED = { available: false, applied: false, asns: [], predicate: undefined };
+
+/**
+ * Series that get a placeholder `0` on a day with no source rows.
+ *
+ * All but one (AECI-869): `quality.arrival_cf_coverage` opts out, because 0 is
+ * that ratio's WORST value rather than its empty one, and zero-filling would
+ * write "totally blind" into permanent history for every day with no arrivals.
+ * Derived from the flag rather than hardcoded, so a second opt-out is counted
+ * automatically.
+ */
+const ZERO_FILLED = BACKFILL_SERIES.filter((s) => s.zeroFill !== false);
 
 const RANGE: BackfillRange = {
   fromDay: '2026-08-08',
@@ -143,8 +157,12 @@ describe('coverage', () => {
 
     // §7.4: the pruning cron may not delete a page_views day the snapshot never
     // captured, so a gap here would deadlock pruning for that day forever.
-    expect(rows()).toHaveLength(daysInRange(RANGE).length * BACKFILL_SERIES.length);
+    expect(rows()).toHaveLength(daysInRange(RANGE).length * ZERO_FILLED.length);
     expect(valueOf('2026-08-09', 'traffic.page_views_human')).toBe(0);
+    // And the opt-out holds: the seeded rows carry no `navigation`, so there are
+    // no arrivals to measure and the coverage key is ABSENT rather than 0. An
+    // absent row reads as "not assessed"; a 0 would read as a total outage.
+    expect(valueOf('2026-08-09', ARRIVAL_COVERAGE_METRIC)).toBeUndefined();
   });
 
   it('writes nothing outside the range', async () => {
@@ -167,7 +185,17 @@ describe('coverage', () => {
 describe('the values agree with the live endpoint', () => {
   // The endpoint serves backfilled days from `metrics_daily` and everything else
   // by live aggregation. If these disagreed, a chart would step at the boundary.
-  const AGREES = BACKFILL_SERIES.filter((s) => s.metric !== 'catalog.products_created');
+  //
+  // `quality.arrival_cf_coverage` is excluded for a structural reason rather than
+  // a behavioural one (AECI-869): it is not an `AdminMetricKey` at all, so there
+  // is no live `metricSeries` to agree WITH — `/api/admin/metrics/timeseries`
+  // deliberately does not serve a ratio. Its own agreement test is below, against
+  // `readArrivalCfCoverage`.
+  const AGREES = BACKFILL_SERIES.filter(
+    (s): s is BackfillSeries & { metric: AdminMetricKey } =>
+      s.metric !== 'catalog.products_created' &&
+      (ADMIN_METRIC_KEYS as readonly string[]).includes(s.metric),
+  );
 
   it.each(AGREES.map((s) => s.metric))('%s matches metricSeries day by day', async (metric) => {
     await seed();
@@ -175,6 +203,69 @@ describe('the values agree with the live endpoint', () => {
     for (const day of daysInRange(RANGE)) {
       const { perDay } = await metricSeries(t.db, metric, utcDayWindow(day), UNFILTERED);
       expect({ day, value: valueOf(day, metric) }).toEqual({ day, value: perDay.get(day) ?? 0 });
+    }
+  });
+
+  /**
+   * The AECI-869 acceptance case, run against the AECI-868 shape.
+   *
+   * This is the test that says the outage is recoverable *as a marker*. The
+   * `cf_asn` values themselves are gone forever, but the NULLs are still in the
+   * table, so a later `ops:backfill-metrics-daily` over 2026-09-07..fix-day can
+   * mark those days degraded **from the rows themselves** rather than from a
+   * hand-written list of dates somebody has to remember to keep.
+   */
+  it('reconstructs arrival coverage per day, and agrees with the live tripwire', async () => {
+    await t.db.insert(pageViews).values([
+      // A healthy day: three arrivals, all carrying a network.
+      ...[1, 2, 3].map((n) => ({
+        path: '/',
+        isBot: false,
+        navigation: 'arrival',
+        cfAsn: 13335,
+        createdAt: `2026-08-08T0${n}:00:00.000Z`,
+      })),
+      // The AECI-868 day: four arrivals, one of which kept its ASN. 0.25, well
+      // under the 0.95 bar, and NOT 0 — a partial outage has to be visible too.
+      ...[1, 2, 3].map((n) => ({
+        path: '/',
+        isBot: false,
+        navigation: 'arrival',
+        createdAt: `2026-08-10T0${n}:00:00.000Z`,
+      })),
+      {
+        path: '/',
+        isBot: false,
+        navigation: 'arrival',
+        cfAsn: 13335,
+        createdAt: '2026-08-10T04:00:00.000Z',
+      },
+      // An `spa` row on the blind day, deliberately: the browser tracker POSTs its
+      // own request and was never affected, so counting it would dilute exactly
+      // the signal this measures.
+      {
+        path: '/',
+        isBot: false,
+        navigation: 'spa',
+        createdAt: '2026-08-10T05:00:00.000Z',
+      },
+    ]);
+    backfill();
+
+    expect(valueOf('2026-08-08', ARRIVAL_COVERAGE_METRIC)).toBe(1);
+    expect(valueOf('2026-08-10', ARRIVAL_COVERAGE_METRIC)).toBe(0.25);
+    // The silent day gets no row at all rather than a 0 — see ZERO_FILLED above.
+    expect(valueOf('2026-08-09', ARRIVAL_COVERAGE_METRIC)).toBeUndefined();
+
+    // And the generated SQL agrees with the module the live check and the digest
+    // both read. Two definitions of "coverage" is the failure this rules out.
+    for (const day of ['2026-08-08', '2026-08-10']) {
+      const w = utcDayWindow(day);
+      const live = await readArrivalCfCoverage(t.db, w.startIso, w.endIso);
+      expect({ day, value: valueOf(day, ARRIVAL_COVERAGE_METRIC) }).toEqual({
+        day,
+        value: live.coverage,
+      });
     }
   });
 
@@ -393,7 +484,7 @@ describe('the operator probes', () => {
       reconstructed: number;
     };
     expect(probe).toEqual({
-      rows_total: daysInRange(RANGE).length * BACKFILL_SERIES.length,
+      rows_total: daysInRange(RANGE).length * ZERO_FILLED.length,
       days_covered: daysInRange(RANGE).length,
       // The three audit_log-derived catalog series, on every day in the range.
       reconstructed: daysInRange(RANGE).length * 3,
