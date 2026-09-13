@@ -9,7 +9,8 @@
 # Two jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
-#      - Validates `confirm == PROMOTE`.
+#      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
+#        confirmation — there is no typed-word gate; AECI-879).
 #      - `scripts/require-secrets.sh` over the prod secrets (REQUIRED fail-fast,
 #        BEFORE the approval gate, so a misconfigured prod never half-deploys).
 #      - Checks out the repo at `inputs.commit_sha`.
@@ -99,11 +100,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Full 40-char commit SHA already verified in staging'
-        required: true
-        type: string
-      confirm:
-        description: 'Type PROMOTE to confirm'
+        description: 'Full 40-char commit SHA already verified on demo (lowercase hex)'
         required: true
         type: string
 
@@ -133,18 +130,26 @@ jobs:
       contents: read
     steps:
       # -----------------------------------------------------------------------
-      # Step 1: Validate `confirm` input.
+      # Step 1: Validate `commit_sha` input.
+      #   The SHA *is* the confirmation (AECI-879). There is no typed-word gate:
+      #   pasting a 40-char commit you verified on demo is a deliberate act, and
+      #   a second "type PROMOTE" box only trains the operator to type past it.
+      #   What actually protects production is this shape check, the demo
+      #   version assert below, and the `production` GH Environment approval
+      #   that blocks the deploy job before any mutation.
       #   GH Actions workflow_dispatch inputs don't support pattern validation
       #   server-side, so check it as the very first step. Fails fast with a
       #   message that surfaces in the run log.
       # -----------------------------------------------------------------------
-      - name: Validate confirm input
+      - name: Validate commit_sha input
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
         run: |
-          if [ "${{ inputs.confirm }}" != "PROMOTE" ]; then
-            echo "::error::confirm must equal PROMOTE (received: '${{ inputs.confirm }}')"
+          if ! printf '%s' "$COMMIT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::commit_sha must be a full 40-char lowercase hex SHA (received: '$COMMIT_SHA')"
             exit 1
           fi
-          echo "confirm=PROMOTE accepted"
+          echo "commit_sha=$COMMIT_SHA accepted"
 
       # -----------------------------------------------------------------------
       # Step 2: Checkout at the input SHA (NOT main).

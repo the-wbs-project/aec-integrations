@@ -64,8 +64,8 @@ shipped.
 
 > **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
-> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with `commit_sha` + `confirm=PROMOTE`. The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres).
-> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
+> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with a single `commit_sha` input (AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres).
+> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with a single explicit `commit_sha` input and a GH Environment approval gate. AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation and the approval gate is the real stop. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and reaches the app DB through its native D1 `DB` binding (no Prisma Accelerate, no `DATABASE_URL`; ADR 0016). See `docs/environments.md` §"PR previews" for the DB-strategy decision.
 
 Four permanent environments, all on Cloudflare — plus, while Stage 2 is being tested, one temporary fifth:
@@ -318,10 +318,10 @@ In parallel with `deploy-staging`, the independent **`migrate-preview`** job app
 
 Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `deploy-prod-workers` job. Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
+Triggered by Chris (workflow_dispatch with a single `commit_sha` input) and gated by the `production` GH Environment approval on the `deploy-prod-workers` job. Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
 
 **Job: `pre-promotion-checks`**
-1. Validate `confirm == PROMOTE`
+1. Validate `commit_sha` matches `^[0-9a-f]{40}$`
 2. Checkout at `inputs.commit_sha`
 3. Assert **demo** reports the same SHA on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `demo is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
 4. `scripts/require-secrets.sh` — refuse to promote if a required prod secret is missing (before the approval gate, so nothing is deployed)
@@ -335,7 +335,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 6. Poll both `www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
-The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the six-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
+The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `commit_sha` matches `^[0-9a-f]{40}$` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the six-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
 Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention was a comment recording that an alert-grade Datadog *event* replaced it on rollback — removed with the Datadog leg at AECI-651). Release-tag automation remains unbuilt — see §3.4.
 

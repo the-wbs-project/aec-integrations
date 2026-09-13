@@ -90,7 +90,7 @@ key and a throttle are indistinguishable from our side.
 ```
 openssl rand -hex 16
 gh secret set INDEXNOW_KEY_PRODUCTION
-gh workflow run promote-to-prod.yml
+gh workflow run promote-to-prod.yml -f commit_sha="$(curl -s https://demo.aecintegrations.com/api/version | jq -r .sha)"
 ```
 
 Then verify the file-serving half by hand — this is the check the key's unreadability used

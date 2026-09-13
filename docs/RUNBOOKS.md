@@ -1677,7 +1677,7 @@ Rotation is the only way to a known value, and it is cheap — IndexNow supports
 ```
 openssl rand -hex 16
 gh secret set INDEXNOW_KEY_PRODUCTION
-gh workflow run promote-to-prod.yml
+gh workflow run promote-to-prod.yml -f commit_sha="$(curl -s https://demo.aecintegrations.com/api/version | jq -r .sha)"
 ```
 
 Record the value in the password manager **at the moment you generate it**. Then
