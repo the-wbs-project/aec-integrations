@@ -229,7 +229,7 @@ looks sorted, so nothing but review or a test catches them.
 - State mutations that propagate incorrect data downstream
 - Missing cleanup of subscriptions, timers, observers, or event listeners
 - API request payload that doesn't match the documented contract
-- Promote mappings (review app → D1) that overwrite curator-preserve fields (`website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`)
+- Promote mappings (review app → D1) that overwrite curator-preserve fields (`website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`). Note these columns are **not** special-cased in code today — what actually governs overwrite is `REVIEW_APP_PROMOTE_API.md` §3.1 plus the per-field rule (omitted key → untouched, explicit `null` → cleared), and the wholesale AECI-520 claimed-vendor block. The `DATABASE_SCHEMA.md` §13.4 "curator-preserve" list is unreconciled intent, tracked as AECI-903.
 
 ### AI-authored code red flags
 

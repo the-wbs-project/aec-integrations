@@ -326,7 +326,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 
 Send `trades` only where the product has **trade-specific value** — trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get an empty array.** Most products carry no trades; that is the intended outcome, not missing data (`TRADES_VOCABULARY.md` §1.1). Any `productRole` may carry trades, connectors included. Omit the key entirely (or send `[]`) when there are none.
 
-> **`trades` is the one join set where omitting is not neutral.** The key defaults to `[]`, and like every other join set the stored trades are **replaced** to match what you send (§5) — so **omitting `trades` and sending `trades: []` are identical, and both CLEAR the product's trades**. There is no "leave this alone" form. The consequence for a sender: if a product has trade links and none of them resolve, **abort the promote** rather than dropping the key, because dropping it silently wipes trades that are already live.
+> **Omitting `trades` is not neutral — it clears them.** The key defaults to `[]`, and like every other join set the stored trades are **replaced** to match what you send (§5) — so **omitting `trades` and sending `trades: []` are identical, and both CLEAR the product's trades**. There is no "leave this alone" form. (`categories` / `audiences` / `phases` / `extensionOf` behave the same way; `trades` is the one worth calling out because its resolution is find-only.) The consequence for a sender: if a product has trade links and none of them resolve, **abort the promote** rather than dropping the key, because dropping it silently wipes trades that are already live.
 
 ### 3.4 `integrations[]`
 
