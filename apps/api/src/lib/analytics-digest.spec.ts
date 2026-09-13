@@ -1027,6 +1027,124 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
   });
 });
 
+describe('buildAnalyticsDigest — the browser-starts line (AECI-870)', () => {
+  /**
+   * `app_started` is the Tier 2 beacon: it fires for every visitor with no
+   * consent gate, so it is a different population from the consented `$pageview`
+   * figure printed beside it and from the D1 residual printed above both. The
+   * three states this block pins are present / zero / unavailable, and the rule
+   * they all serve is that nothing is ever summed.
+   */
+  const metrics: AnalyticsMetrics = {
+    pageViews: { day: 48, prior: 40 },
+    botPageViews: { day: 734, prior: 700 },
+    newUsers: { day: 0, prior: 0 },
+    totalUsers: 3,
+    pendingModeration: 0,
+    topProducts: [{ name: 'Corpay', slug: 'corpay', views: 2 }],
+    referrers: [{ source: 'Direct', views: 48 }],
+    botActivity: [{ name: 'Bingbot', crawls: 173 }],
+    corroboratedViews: { day: 3, prior: 2 },
+    corroboratedVisitors: 2,
+    operatorLeakViews: 0,
+    automation: { flagged: { day: 8, prior: 6 }, note: null },
+    swarm: null,
+    arrivalCoverage: HEALTHY_COVERAGE,
+    priorArrivalCoverage: HEALTHY_COVERAGE,
+  };
+  const opts = {
+    env: 'production',
+    dayLabel: '2026-09-08',
+    generatedAt: new Date('2026-09-09T05:00:00.000Z'),
+  };
+
+  it('prints starts and the search-referred subset in both renderings', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
+    });
+    expect(text).toContain('Browser starts: 21 (9 search-referred)  [separate observation]');
+    expect(html).toContain('>21</strong> browser starts');
+    expect(html).toContain('>9</strong> search-referred');
+  });
+
+  it('names both exclusions, on both renderings', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
+    });
+    expect(text).toContain('Operator and PostHog-detected bots excluded');
+    expect(html).toContain('operator and PostHog-detected bots excluded');
+  });
+
+  it('states the two things the figure is not', () => {
+    // It counts bundle executions, not people — memory persistence mints a fresh
+    // anonymous id per page load, so persons approximately equal starts. And a
+    // tracker blocker silences it entirely: the client posts straight to
+    // us.i.posthog.com with no reverse proxy.
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
+    });
+    expect(text).toContain('Counts bundle executions, not people');
+    expect(text).toContain('browsers with tracker blockers never report');
+    expect(html).toContain('bundle executions, not people');
+    expect(html).toContain('tracker blockers never report');
+  });
+
+  it('forbids the arithmetic rather than merely omitting it', () => {
+    const { text } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
+    });
+    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
+    expect(text).toContain('not a floor under the headline and not an addend to it');
+  });
+
+  it('renders a zero as a zero, because zero starts is a FINDING', () => {
+    // A day with arrivals and no starts means a broken bundle or a blocked
+    // collector. Suppressing the line there would hide the one reading that
+    // matters most.
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStarts: { startsAll: 0, starts: 0, searchReferred: 0 },
+    });
+    expect(text).toContain('Browser starts: 0 (0 search-referred)');
+    expect(html).toContain('>0</strong> browser start');
+    expect(text).not.toContain('unavailable');
+  });
+
+  it('says why when the read failed, and never substitutes a zero', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      browserStartsUnavailable: 'posthog_http_503',
+    });
+    expect(text).toContain('Browser starts: unavailable (posthog_http_503)');
+    expect(html).toContain('Browser-start figure unavailable (posthog_http_503)');
+    expect(text).not.toContain('Browser starts: 0');
+  });
+
+  it('omits the line entirely when the caller passed neither', () => {
+    // The default `/admin/overview` load does not query PostHog at all, and the
+    // digest must degrade the same way rather than claiming a zero.
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).not.toContain('Browser starts');
+    expect(html).not.toContain('browser start');
+  });
+
+  it('leaves the PostHog $pageview line untouched and separate', () => {
+    const { text } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      posthog: { pageviews: 20, people: 2 },
+      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
+    });
+    // Two lines, two populations, one vendor. Neither folds into the other.
+    expect(text).toContain('PostHog page views: 20 from 2 identities  [separate observation]');
+    expect(text).toContain('Browser starts: 21 (9 search-referred)  [separate observation]');
+    expect(text).not.toContain('41'); // 20 + 21, the sum nobody may print
+  });
+});
+
 describe('buildAnalyticsDigest — the headline is the post-automation count (AECI-741)', () => {
   // The real production shape for 2026-08-30: 70 human views server-side, 56 of
   // them flagged as one rotating-proxy operation, against a prior day of 87 with
@@ -1173,6 +1291,11 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     dayLabel: '2026-09-10',
     generatedAt: new Date('2026-09-11T05:00:00.000Z'),
     posthog: { pageviews: 20, people: 2 },
+    // AECI-870. The measured Sep 10 production figures: 21 raw `app_started`
+    // rows, 13 after the operator and PostHog's own bot verdict are removed, 7 of
+    // those carrying a search referrer. Beside a residual of 680 — the non-
+    // operator bundle executions were 2% of the headline.
+    browserStarts: { startsAll: 21, starts: 13, searchReferred: 7 },
   };
 
   it('reports 2026-09-10 honestly: unresolved, telemetry missing, no arithmetic', () => {
@@ -1219,6 +1342,19 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     // 7. And the NULL-ASN group is labelled rather than counted as a network.
     expect(text).toContain('network unknown (198 requests)');
     expect(text).not.toContain('from 1 network,');
+
+    // 8. AECI-870. Browser starts are a FOURTH observation on the same day, and
+    //    the email does no arithmetic between them and the 680. Explicitly: no
+    //    subtraction (680 - 13 = 667), no ratio, no "of which", and no claim that
+    //    13 bounds 680 from below.
+    expect(text).toContain('Browser starts: 13 (7 search-referred)  [separate observation]');
+    expect(html).toContain('browser starts');
+    expect(text).toContain('Counts bundle executions, not people');
+    expect(text).toContain('browsers with tracker blockers never report');
+    for (const forbidden of ['667', '680 - 13', '13 of 680', '2%', '1.9%']) {
+      expect(text).not.toContain(forbidden);
+      expect(html).not.toContain(forbidden);
+    }
   });
 
   it('suppresses the day-over-day arithmetic across a telemetry boundary', () => {

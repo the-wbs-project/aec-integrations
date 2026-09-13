@@ -660,6 +660,19 @@ export interface AnalyticsDigestOptions {
   /** Why the PostHog figure is missing, when it is. Shown so a silently-skipping
    *  join is visible in the email rather than only in `job_runs`. */
   posthogUnavailable?: string | null;
+  /**
+   * Successful browser-bundle executions (AECI-870) — the `app_started` Tier 2
+   * beacon, operator and PostHog-detected bots removed.
+   *
+   * A THIRD population, and the only one in this email that a client which never
+   * runs JavaScript cannot enter. Same absent-vs-zero discipline as `posthog`
+   * above: null renders an "unavailable" note, and zero renders as zero, because
+   * zero starts on a day with arrivals is a finding — a broken bundle or a
+   * blocked collector — rather than an absence.
+   */
+  browserStarts?: { startsAll: number; starts: number; searchReferred: number } | null;
+  /** Why the browser-start figure is missing, when it is. */
+  browserStartsUnavailable?: string | null;
   // NOTE: there is deliberately no `automation` option here any more (AECI-745).
   // The filter now arrives on `AnalyticsMetrics.automation`, computed by the same
   // call that produced every other number in the email. An option would be a
@@ -937,6 +950,25 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
   } else if (opts.posthogUnavailable) {
     lines.push(`PostHog client-side figure unavailable (${opts.posthogUnavailable}).`);
   }
+  // AECI-870. A THIRD observation, beside the consented `$pageview` one and
+  // never summed with it: their populations overlap, and one is consent-gated
+  // while the other is not. Placed after it because they come from the same
+  // vendor and a reader who has just been told not to add PostHog to the
+  // headline needs to be told the same thing about this before moving on.
+  if (opts.browserStarts) {
+    const { starts, searchReferred } = opts.browserStarts;
+    lines.push(
+      `Browser starts: ${starts} (${searchReferred} search-referred). Operator and` +
+        ' PostHog-detected bots excluded. Counts bundle executions, not people; browsers with' +
+        ' tracker blockers never report. This is the one figure here a client that never runs' +
+        ' JavaScript cannot enter, which makes a zero on a day with arrivals a finding rather' +
+        ' than a quiet day. It is not a floor under the headline and not an addend to it: a' +
+        ' successful start proves execution, not humanity, and a real headless browser produces' +
+        ' one. Do not add it to, or subtract it from, any figure above.',
+    );
+  } else if (opts.browserStartsUnavailable) {
+    lines.push(`Browser-start figure unavailable (${opts.browserStartsUnavailable}).`);
+  }
   lines.push(...corroboratedLines(metrics));
   if (metrics.operatorLeakViews > 0) {
     lines.push(
@@ -1036,6 +1068,17 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
         `${opts.posthog.people === 1 ? 'identity' : 'identities'}  [separate observation]`,
     );
+  }
+  // AECI-870. Its own line, never folded into the one above: `$pageview` is
+  // consent-gated Tier 3 and `app_started` is Tier 2 for every visitor, so the
+  // two count different populations out of the same vendor.
+  if (opts.browserStarts) {
+    t.push(
+      `Browser starts: ${opts.browserStarts.starts} (${opts.browserStarts.searchReferred} ` +
+        `search-referred)  [separate observation]`,
+    );
+  } else if (opts.browserStartsUnavailable) {
+    t.push(`Browser starts: unavailable (${opts.browserStartsUnavailable})`);
   }
   t.push(
     `Corroborated as human by an external referrer: ${metrics.corroboratedViews.day} from ` +
@@ -1204,6 +1247,19 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     : opts.posthogUnavailable
       ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog client-side figure unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
       : '';
+  // AECI-870. Beside the line above, never inside it. `app_started` is the Tier 2
+  // beacon — every visitor, no consent gate — so it is a different population out
+  // of the same vendor, and the two must not read as one figure with two numbers.
+  const browserStartsLine = opts.browserStarts
+    ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
+      `<strong style="color:${HTML.ink}">${opts.browserStarts.starts}</strong> browser start${opts.browserStarts.starts === 1 ? '' : 's'} ` +
+      `(<strong style="color:${HTML.ink}">${opts.browserStarts.searchReferred}</strong> search-referred), operator and ` +
+      `PostHog-detected bots excluded &mdash; a <strong>separate observation</strong>. It counts bundle ` +
+      `executions, not people, and browsers with tracker blockers never report. A client that never runs ` +
+      `JavaScript cannot enter it; a real headless browser can. Never added to or subtracted from any figure above.</p>`
+    : opts.browserStartsUnavailable
+      ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">Browser-start figure unavailable (${escapeHtml(opts.browserStartsUnavailable)}).</p>`
+      : '';
   // The corroborated figure sits ON the tile beside the headline, not in the
   // footnote, for the same reason the upper-bound caption does: a number the
   // operator has to scroll to find is a number they will read the headline
@@ -1260,6 +1316,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     headlineStat +
     telemetryLine +
     posthogLine +
+    browserStartsLine +
     corroboratedLine +
     operatorLeakLine +
     swarmLine +

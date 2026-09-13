@@ -494,6 +494,38 @@ export const AdminArrivalTelemetrySchema = z.object({
 });
 export type AdminArrivalTelemetry = z.infer<typeof AdminArrivalTelemetrySchema>;
 
+/**
+ * Successful browser-bundle executions — PostHog `app_started` (AECI-870).
+ *
+ * **Starts, never people, and the schema is what enforces it.** The Tier 2
+ * client runs with `persistence: 'memory'` (`ANALYTICS.md` §5), so every full
+ * page load mints a fresh anonymous distinct id and PostHog resolves a fresh
+ * person behind it: over the Sep 7–10 production sample, persons ≈ starts. There
+ * is deliberately **no people or session field here** — one cannot be
+ * manufactured from anonymous starts, and a field a caller could print is a
+ * field a caller will print.
+ *
+ * **Three counts, and the gaps between them carry the meaning.** `starts_all` is
+ * the raw event count. `starts` removes the operator (via a `$identify`
+ * retro-join on the admins' Supabase user ids — the PostHog analogue of the D1
+ * `NOT_INTERNAL` exclusion) and the clients PostHog's own `$virt_traffic_type`
+ * flagged as bots. `search_referred` is the subset of `starts` whose referrer
+ * PostHog classified as a search engine.
+ */
+export const AdminBrowserStartsSchema = z.object({
+  /** Every `app_started` row in the window, before either exclusion. */
+  starts_all: z.number().int().nonnegative(),
+  /** `starts_all` less the operator's own starts and PostHog-detected bots. **The
+   *  figure to print.** Zero is a real value and a real finding — it means the
+   *  bundle did not execute, or the collector is blocked, not that nobody came. */
+  starts: z.number().int().nonnegative(),
+  /** Of `starts`, those carrying a non-empty `$search_engine`. The strongest
+   *  human evidence in the client-side stack: a search referrer plus a proven
+   *  bundle execution. */
+  search_referred: z.number().int().nonnegative(),
+});
+export type AdminBrowserStarts = z.infer<typeof AdminBrowserStartsSchema>;
+
 /** Traffic block. `page_views_human` / `delta_day` / `top_sources` /
  *  `top_products` are the digest's own numbers (via `collectAnalyticsMetrics`);
  *  the rest are panel-only additions. */
@@ -617,6 +649,32 @@ export const AdminOverviewTrafficSchema = z.object({
    * §13 D15 measurement envelope rather than beside the status strip.
    */
   arrival_telemetry: AdminArrivalTelemetrySchema,
+  /**
+   * Successful browser-bundle executions in the window (AECI-870) — PostHog's
+   * `app_started`, the Tier 2 beacon that fires for **every** visitor with no
+   * consent gate (`ANALYTICS.md` §5).
+   *
+   * **Null means the figure was not measured, and that has two causes.** By
+   * default this endpoint does not query PostHog at all: the read is gated on
+   * `?recompute=1` alongside the other two network-dependent items (§13 D8), so
+   * a default dashboard load returns null with a `requires_recompute` note. On a
+   * recompute that failed, `browser_starts_unavailable` names the reason. Null
+   * is never a zero — a fabricated zero beside a real residual reads as a
+   * finding rather than as missing data.
+   */
+  browser_starts: AdminBrowserStartsSchema.nullable(),
+  /**
+   * Why {@link AdminOverviewTrafficSchema.shape.browser_starts} is null, when it
+   * is because the read ran and failed (`posthog_http_503`,
+   * `posthog_credentials_missing`, `admin_lookup_failed`, …). Null when the read
+   * was never attempted.
+   *
+   * A free-form transport string rather than an `AdminNoteCode`, deliberately:
+   * every code in that enum is a fixed vocabulary entry with a matching UI
+   * string, and a PostHog status code is not vocabulary. Mirrors the digest's
+   * own `posthogUnavailable` for the same reason.
+   */
+  browser_starts_unavailable: z.string().nullable(),
 });
 export type AdminOverviewTraffic = z.infer<typeof AdminOverviewTrafficSchema>;
 

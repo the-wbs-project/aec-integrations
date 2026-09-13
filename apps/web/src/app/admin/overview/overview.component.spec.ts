@@ -84,6 +84,10 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
         coverage: 1,
         degraded: false,
       },
+      // AECI-870. Null by default because the default load does not query
+      // PostHog — the read is gated on `?recompute=1`. Seeded per test.
+      browser_starts: null,
+      browser_starts_unavailable: null,
     },
     audience: {
       new_sign_ins: { current: 3, prior: 1, diff: 2, pct: 200 },
@@ -433,6 +437,78 @@ describe('AdminOverview', () => {
         t.textContent?.includes('Requests of unresolved origin'),
       )!;
       expect(tile.textContent).not.toContain('Arrival network telemetry');
+    });
+
+    it('puts browser starts in the same envelope as a separate observation (AECI-870)', async () => {
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({
+          ...base,
+          traffic: {
+            ...base.traffic,
+            browser_starts: { starts_all: 21, starts: 13, search_referred: 7 },
+          },
+        }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).toContain('Browser starts: 13');
+      expect(tile.textContent).toContain('search-referred: 7');
+      expect(tile.textContent).toContain('Operator and PostHog-detected bots excluded');
+      expect(tile.textContent).toContain('never added to or subtracted from the figure above');
+      expect(tile.textContent).toContain('counts bundle executions rather than people');
+      expect(tile.textContent).toContain('tracker blocker never report');
+      // The headline itself is untouched: 74, not 74 minus 13 and not 74 plus 13.
+      expect(tile.textContent).toContain('74');
+      expect(tile.textContent).not.toContain('61');
+      expect(tile.textContent).not.toContain('87');
+    });
+
+    it('renders a zero browser-start count rather than hiding it', async () => {
+      // Zero starts on a day with arrivals is a broken bundle or a blocked
+      // collector. It is the reading that matters most, so it must render.
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({
+          ...base,
+          traffic: {
+            ...base.traffic,
+            browser_starts: { starts_all: 0, starts: 0, search_referred: 0 },
+          },
+        }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).toContain('Browser starts: 0');
+    });
+
+    it('says why when the read failed', async () => {
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({
+          ...base,
+          traffic: {
+            ...base.traffic,
+            browser_starts: null,
+            browser_starts_unavailable: 'posthog_http_503',
+          },
+        }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).toContain('Browser starts could not be read');
+      expect(tile.textContent).toContain('posthog_http_503');
+    });
+
+    it('omits the browser-start line on a default load, where nothing was measured', async () => {
+      const { el } = await setup(makeApiMock());
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin'),
+      )!;
+      expect(tile.textContent).not.toContain('Browser starts');
     });
 
     it('renders the two AECI-869 notes in the honesty envelope', async () => {
