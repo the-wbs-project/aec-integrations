@@ -16,7 +16,8 @@
 # Two jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
-#      - Validates `confirm == PROMOTE`.
+#      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
+#        confirmation — there is no typed-word gate; AECI-879).
 #      - Checks out the repo at `inputs.commit_sha`.
 #      - `scripts/require-secrets.sh` over the demo secrets (REQUIRED fail-fast,
 #        RECOMMENDED warn) BEFORE anything is deployed.
@@ -81,11 +82,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Full 40-char commit SHA already verified in staging'
-        required: true
-        type: string
-      confirm:
-        description: 'Type PROMOTE to confirm'
+        description: 'Full 40-char commit SHA already verified on staging (lowercase hex)'
         required: true
         type: string
 
@@ -112,15 +109,21 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Validate confirm input
+      # The SHA *is* the confirmation (AECI-879). There is no typed-word gate:
+      # pasting a 40-char commit you verified on staging is a deliberate act, and
+      # a second "type PROMOTE" box only trains the operator to type past it.
+      # What protects the tier is this shape check plus the staging version
+      # assert below. `workflow_dispatch` inputs have no server-side pattern
+      # validation, so this runs first and fails fast in the run log.
+      - name: Validate commit_sha input
         env:
-          CONFIRM: ${{ inputs.confirm }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
         run: |
-          if [ "$CONFIRM" != "PROMOTE" ]; then
-            echo "::error::confirm must equal PROMOTE"
+          if ! printf '%s' "$COMMIT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::commit_sha must be a full 40-char lowercase hex SHA (received: '$COMMIT_SHA')"
             exit 1
           fi
-          echo "confirm=PROMOTE accepted"
+          echo "commit_sha=$COMMIT_SHA accepted"
 
       - uses: actions/checkout@v5
         with:
