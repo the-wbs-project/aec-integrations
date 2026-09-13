@@ -24,6 +24,24 @@
  * otherwise deposit thousands of "nothing happened" rows a week into the one table
  * nothing prunes.
  *
+ * ── REACH-TIER CLAIMS, AND WHY THEY DO NOT REPLACE WHOLESALE (AECI-891) ─────
+ * Operator ruling 2026-09-13: a claim may anchor to a REACHED pair, so `claims` gained
+ * `connector_pair_id` and this page gained a `claims[]` array.
+ *
+ * The product arm (`./promote-claims.ts`) replaces an integration's claims by origin:
+ * a claim the payload dropped is deleted or converted, because one promote carries an
+ * integration's claims WHOLE. **This arm does not, and must not.** A page is a slice of
+ * a catalogue, not a complete statement about any pair — a claim missing from this page
+ * is a claim on a different page, exactly like every other row here. Replace-by-absence
+ * would make page 2 of a sync silently delete what page 1 committed, and nothing in the
+ * protocol orders the pages or even requires them to arrive.
+ *
+ * So claims join the rest of this endpoint's discipline instead: **upsert keyed on the
+ * review record id, with removal stated explicitly in `deleted.claims[]`.** Within one
+ * claim the `aeci` attestation slot IS replaced, because a claim always travels whole —
+ * that scope is a single record, never a page. Vendor slots are never touched, and a
+ * `origin = 'vendor'` claim is never deleted by promote, both matching §3's rules 2 and 3.
+ *
  * ── WHAT THIS MODULE DELIBERATELY DOES NOT DO ───────────────────────────────
  * No count is recomputed, no index is touched, no cache tag is emitted. §13.5 is
  * categorical: *"Reachable never counts — not in the heading, not in
@@ -38,6 +56,7 @@
 
 import type {
   AuditLogEntry,
+  PromoteConnectorClaim,
   PromoteConnectorMapping,
   PromoteConnectorPagePayload,
   PromoteConnectorPageResponse,
@@ -48,11 +67,13 @@ import type {
   PromoteSkipped,
 } from '@aeci/shared';
 import { ApiErrorCode, CONNECTOR_DECISION_STATUSES } from '@aeci/shared';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { ApiError } from '../errors';
 import {
+  attestations,
+  claims,
   connectorCatalogs,
   connectorCatalogSurfaces,
   connectorPairs,
@@ -60,8 +81,18 @@ import {
   connectorStubs,
   products,
 } from '../db/schema';
+import { claimProvenance } from './attestation-authority';
 import type { BatchStmt, BatchTuple } from './audit';
+import { loadDataObjectResolver, type DataObjectResolver } from './data-object-vocabulary';
+import { liveAttestationsWhere } from './drizzle-helpers';
 import { chunked } from './promote-claims';
+
+/**
+ * The one `attestations.source` promote may write, on either arm. Vendor slots belong to
+ * the portal (`STAGE_2_ATTESTATIONS_SPEC.md` §2.1) and a promote that filled one would
+ * collide with the live vendor row on `attestations_slot_key`.
+ */
+const AECI_SOURCE = 'aeci';
 
 /** Reasons that reach `skipped[]`. Constants so the specs assert the same strings. */
 export const SKIP_CONNECTOR_UNPROMOTED =
@@ -70,6 +101,31 @@ export const SKIP_MAPPING_PRODUCT_UNPROMOTED =
   'the mapped product is not promoted yet (send the mapping again once it is)';
 export const SKIP_MISSING_STUB =
   'references a stub that is neither on this page nor already stored (send the stub page first)';
+
+// ── Reach-tier claim skips (AECI-891) ──────────────────────────────────────────
+// All of these are re-sendable in the §3a sense EXCEPT the two marked otherwise, which
+// describe a review-side data conflict the caller has to resolve before re-sending.
+/** The pair is on a page not yet sent, or it rode this page and was itself skipped. */
+export const SKIP_CLAIM_MISSING_PAIR =
+  'references a connector pair that is neither written by this page nor already stored (send the pair first)';
+/** Not re-sendable as-is: the pair belongs to another catalogue, so this page has no
+ *  authority over it — see the scoping note in the claims section. */
+export const SKIP_CLAIM_FOREIGN_PAIR =
+  'references a connector pair that belongs to a different catalogue; a page may only claim on its own';
+/** Not re-sendable as-is: the term has to be added to the closed vocabulary by AECi, or
+ *  the review app has to send one that exists. */
+export const SKIP_CLAIM_DATA_OBJECT =
+  'did not resolve to the seeded data_object vocabulary (find-only; promote may not mint a term)';
+/** Not re-sendable as-is: two review records assert one `(pair, dataObject, direction)`,
+ *  which `claims_identity_key` permits exactly one of. */
+export const SKIP_CLAIM_IDENTITY_TAKEN =
+  'asserts a (pair, dataObject, direction) another claim already holds; claim identity is unique';
+/** Rule 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §3, applied to the delete path. */
+export const SKIP_CLAIM_VENDOR_ORIGIN =
+  'is vendor-origin; promote curates alongside a vendor but never deletes or overwrites its claims';
+/** Promote writes the `aeci` slot only — same rule and same wording as the product arm. */
+export const SKIP_CLAIM_VENDOR_ATTESTATION =
+  "attestation source is vendor-owned; promote writes only 'aeci'";
 
 /** The plan, mirroring `ClaimIngestPlan` so both ingests read and splice alike. */
 export interface ConnectorPagePlan {
@@ -98,6 +154,24 @@ function norm(value: unknown): unknown {
   return value;
 }
 
+/**
+ * This page's claims, tolerating their ABSENCE (AECI-891).
+ *
+ * `PromoteConnectorPagePayloadSchema` defaults the array, so a parsed page always has
+ * one — but the inline-params path through `runPromoteWorkflow` **casts rather than
+ * re-parses**, and Workflows are at-least-once. An instance created before AECI-891
+ * shipped carries params with no `claims` key at all, and it can replay days later
+ * against this code. Iterating it directly would throw `page.claims is not iterable` and
+ * turn an in-flight connector page into a dead job.
+ *
+ * Same forward-compatibility rule as `PromoteWorkflowParams.kind`, which is absent for
+ * the product arm precisely so pre-AECI-714 instances still replay. `deleted.claims` is
+ * covered by the `deleted?.` optional chain that was already there.
+ */
+function pageClaims(page: PromoteConnectorPagePayload): readonly PromoteConnectorClaim[] {
+  return page.claims ?? [];
+}
+
 /** True when every projected column already holds the incoming value. */
 function unchanged(existing: Record<string, unknown>, incoming: Record<string, unknown>): boolean {
   return Object.keys(incoming).every((k) => norm(existing[k]) === norm(incoming[k]));
@@ -106,13 +180,27 @@ function unchanged(existing: Record<string, unknown>, incoming: Record<string, u
 /**
  * Everything the plan needs, in ONE batched read.
  *
- * Four questions, each preventing a specific failure:
+ * Six questions, each preventing a specific failure:
  *   1. Which of this page's rows already exist, and with what values? — the basis of
  *      created/updated/unchanged, and of dropping unchanged rows entirely.
  *   2. Which referenced products are promoted? — an unpromoted product is a skip;
  *      without this read the foreign key fails and takes the whole page down.
  *   3. Which referenced stubs exist? — pages are not atomic with each other, so a
  *      pair or mapping can legitimately name a stub a later page carries.
+ *   4. Which referenced PAIRS exist, and whose catalogue are they? — same dangling-
+ *      reference rule for claims, plus the scoping check that stops one catalogue's
+ *      page claiming on another's pairs.
+ *   5. Which claims already exist? Asked TWICE and both are needed: **by id**, because
+ *      the id is this arm's upsert key (and covers `deleted.claims` too), and **by
+ *      anchor**, because `claims_identity_key` is unique on `(anchor, dataObject,
+ *      direction)` and a second record id asserting a held identity would otherwise fail
+ *      the whole batch at commit rather than land in `skipped[]`. A claim re-anchored to
+ *      a different pair review-side is exactly the row the by-id read catches and the
+ *      by-anchor read cannot.
+ *   6. Which live attestations hang off this page's claims? — the `aeci` slot is updated
+ *      in place rather than churned, so its id has to be known before the batch is built.
+ *      Only the page's own claim ids are needed: deleted claims cascade, and anchor-found
+ *      claims are read for collision detection only.
  *
  * Every `IN (…)` is chunked at `ID_CHUNK`: D1 caps bound parameters per statement
  * well below what SQLite allows locally, and better-sqlite3 will not reproduce the
@@ -130,12 +218,25 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
   if (page.catalog.connectorProductId) productIds.add(page.catalog.connectorProductId);
   for (const m of page.mappings) if (m.productId) productIds.add(m.productId);
 
+  // Pair ids the page WRITES plus pair ids its claims merely REFERENCE. Unioned into one
+  // read rather than two: a claim-referenced pair that also rides this page must resolve
+  // to the same row either way, and `existingPairs` is keyed by id so the extra entries
+  // are inert for the pair tally.
+  const pairIds = new Set<string>(page.pairs.map((p) => p.id));
+  for (const c of pageClaims(page)) pairIds.add(c.connectorPairId);
+
+  const pageClaimIds = pageClaims(page).map((c) => c.id);
+  const claimIds = new Set<string>([...pageClaimIds, ...(page.deleted?.claims ?? [])]);
+
   const groups = {
     products: chunked([...productIds]),
     stubs: chunked([...stubIds]),
     surfaces: chunked(page.surfaces.map((s) => s.id)),
     mappings: chunked(page.mappings.map((m) => m.id)),
-    pairs: chunked(page.pairs.map((p) => p.id)),
+    pairs: chunked([...pairIds]),
+    claimsById: chunked([...claimIds]),
+    claimsByAnchor: chunked([...pairIds]),
+    attestations: chunked(pageClaimIds),
   };
 
   const reads: BatchStmt[] = [
@@ -155,6 +256,21 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     ...groups.pairs.map((c) =>
       db.select().from(connectorPairs).where(inArray(connectorPairs.id, c)),
     ),
+    ...groups.claimsById.map((c) => db.select().from(claims).where(inArray(claims.id, c))),
+    // `anchor_id` is the generated `coalesce(...)` column the identity index is built on,
+    // so this read and the uniqueness it guards cannot drift apart.
+    ...groups.claimsByAnchor.map((c) =>
+      db.select().from(claims).where(inArray(claims.anchorId, c)),
+    ),
+    ...groups.attestations.map((c) =>
+      db
+        .select()
+        .from(attestations)
+        // `liveAttestationsWhere`, not a bare `retracted_at IS NULL`, so retraction
+        // semantics stay defined in one place — and `deprecated_at` must never gate it,
+        // being a version stamp rather than a withdrawal.
+        .where(and(inArray(attestations.claimId, c), liveAttestationsWhere)),
+    ),
   ];
 
   const rows = (await db.batch(reads as BatchTuple)) as Record<string, unknown>[][];
@@ -168,6 +284,22 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
   const existingMappings = new Map(take(groups.mappings.length).map((r) => [r.id as string, r]));
   const existingPairs = new Map(take(groups.pairs.length).map((r) => [r.id as string, r]));
 
+  // The two claim reads overlap by construction (a claim on one of this page's pairs is
+  // found by both), so they are folded into ONE id-keyed map. `existingClaimsByAnchor`
+  // then indexes that same map, which is what keeps the two views from disagreeing.
+  const existingClaims = new Map<string, Record<string, unknown>>();
+  for (const row of [...take(groups.claimsById.length), ...take(groups.claimsByAnchor.length)]) {
+    existingClaims.set(row.id as string, row);
+  }
+
+  const liveAttestations = new Map<string, Record<string, unknown>[]>();
+  for (const row of take(groups.attestations.length)) {
+    const claimId = row.claimId as string;
+    const list = liveAttestations.get(claimId);
+    if (list) list.push(row);
+    else liveAttestations.set(claimId, [row]);
+  }
+
   return {
     existingCatalog,
     promotedProducts,
@@ -175,6 +307,8 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     existingSurfaces,
     existingMappings,
     existingPairs,
+    existingClaims,
+    liveAttestations,
   };
 }
 
@@ -210,6 +344,7 @@ export async function planConnectorCatalogPage(
     stubs: emptyCounts(),
     mappings: emptyCounts(),
     pairs: emptyCounts(),
+    claims: emptyCounts(),
   };
   const skipped: PromoteSkipped[] = [];
   const catalogId = page.catalog.id;
@@ -221,6 +356,8 @@ export async function planConnectorCatalogPage(
     existingSurfaces,
     existingMappings,
     existingPairs,
+    existingClaims,
+    liveAttestations,
   } = await preread(db, page);
 
   // ── the AECI-720 cutoff ────────────────────────────────────────────────────
@@ -265,8 +402,17 @@ export async function planConnectorCatalogPage(
     counts.stubs.skipped = page.stubs.length;
     counts.mappings.skipped = page.mappings.length;
     counts.pairs.skipped = page.pairs.length;
+    counts.claims.skipped = pageClaims(page).length;
     return { statements: [], audits: [], skipped, counts, wrote: false };
   }
+
+  // The claim vocabulary read is deliberately BELOW both early exits: a refused or
+  // skipped page must cost exactly one batched read, not two. It is also gated on the
+  // page actually carrying claims, because the overwhelming majority of pages are stubs
+  // and mappings and would otherwise pay for a table they never touch.
+  const resolveDataObject: DataObjectResolver | null = pageClaims(page).length
+    ? await loadDataObjectResolver(db)
+    : null;
 
   const deletes: BatchStmt[] = [];
   const upserts: BatchStmt[] = [];
@@ -280,6 +426,37 @@ export async function planConnectorCatalogPage(
       db.delete(connectorCatalogSurfaces).where(inArray(connectorCatalogSurfaces.id, ids)),
     );
     counts.surfaces.deleted += ids.length;
+  }
+
+  // ── deleted claims (AECI-891) ──────────────────────────────────────────────
+  // Filtered against the pre-read rather than issued blind, unlike the two deletes
+  // above, and for two reasons that both matter:
+  //
+  //   1. **Rule 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §3** — promote never deletes a
+  //      vendor-origin claim. Unreachable today (only this arm writes reach claims, and
+  //      it writes `origin='aeci'`), which is precisely the argument AECI-604 disproved
+  //      the hard way on the product arm. Reported, so a review app that starts sending
+  //      these finds out.
+  //   2. **Rule 7** — an id that no longer exists must emit no statement. A blind DELETE
+  //      would make `deleted.claims` re-write an `audit_log` row on every re-send of a
+  //      page that changes nothing, which is the exact churn this planner exists to avoid.
+  //
+  // Deleting a claim cascades its attestations (`attestations.claim_id` ON DELETE
+  // CASCADE), so there is no second statement to emit.
+  const deletedClaimIds: string[] = [];
+  for (const id of page.deleted?.claims ?? []) {
+    const row = existingClaims.get(id);
+    if (!row) continue;
+    if (row.origin === 'vendor') {
+      skipped.push({ ref: id, kind: 'claim', reason: SKIP_CLAIM_VENDOR_ORIGIN });
+      counts.claims.skipped += 1;
+      continue;
+    }
+    deletedClaimIds.push(id);
+  }
+  for (const ids of chunked(deletedClaimIds)) {
+    deletes.push(db.delete(claims).where(inArray(claims.id, ids)));
+    counts.claims.deleted += ids.length;
   }
 
   // ── catalogue ──────────────────────────────────────────────────────────────
@@ -437,12 +614,17 @@ export async function planConnectorCatalogPage(
   }
 
   // ── pairs ──────────────────────────────────────────────────────────────────
+  // Pairs a claim may legally anchor to: the ones this page WRITES. A pair that rode this
+  // page but was skipped for a missing stub is NOT in here — its row never lands, so a
+  // claim naming it would fail the foreign key and take the whole page down.
+  const pairsWrittenThisPage = new Set<string>();
   for (const p of page.pairs as PromoteConnectorPair[]) {
     if (!stubExists(p.stubAId) || !stubExists(p.stubBId)) {
       skipped.push({ ref: p.id, kind: 'connector-pair', reason: SKIP_MISSING_STUB });
       counts.pairs.skipped += 1;
       continue;
     }
+    pairsWrittenThisPage.add(p.id);
     const values = {
       catalogId,
       stubAId: p.stubAId,
@@ -464,8 +646,199 @@ export async function planConnectorCatalogPage(
     );
   }
 
+  // ── claims (AECI-891) ──────────────────────────────────────────────────────
+  // Runs AFTER the pairs loop, because the FK a claim needs is only known once each
+  // pair on this page has been accepted or skipped.
+  //
+  // Statement order within the claim work is FK-safe by construction: claim upserts sit
+  // with the other upserts (after `pairs`), and the two attestation arrays are appended
+  // last. Attestation deletes precede attestation writes so re-filling the `aeci` slot
+  // cannot trip `attestations_slot_key`.
+  const attestationDeletes: BatchStmt[] = [];
+  const attestationWrites: BatchStmt[] = [];
+
+  // Identities already spoken for — by a stored claim, or by an earlier claim on this
+  // page. `claims_identity_key` admits exactly one per `(anchor, dataObject, direction)`,
+  // and a second one would roll the WHOLE page back instead of reporting itself.
+  //
+  // A claim THIS PAGE deletes does not hold its identity: the DELETE is in `deletes`,
+  // which is spliced ahead of every upsert, so by commit time the slot is free. Seeding
+  // it here anyway would reject the re-key shape — hard-delete record X, send record Y on
+  // the same `(pair, dataObject, direction)` — with `SKIP_CLAIM_IDENTITY_TAKEN`, a reason
+  // documented as terminal. The caller would be told to fix upstream data that is already
+  // right, and only a second send of the identical page would land Y.
+  const identityKey = (pairId: string, dataObjectId: string, direction: string) =>
+    `${pairId}|${dataObjectId}|${direction}`;
+  const deletedClaimIdSet = new Set(deletedClaimIds);
+  const identityHolder = new Map<string, string>();
+  for (const row of existingClaims.values()) {
+    if (deletedClaimIdSet.has(row.id as string)) continue;
+    const anchor = row.anchorId as string | null;
+    if (anchor)
+      identityHolder.set(
+        identityKey(anchor, row.dataObjectId as string, row.direction as string),
+        row.id as string,
+      );
+  }
+
+  for (const c of pageClaims(page)) {
+    const storedPair = existingPairs.get(c.connectorPairId);
+    if (!pairsWrittenThisPage.has(c.connectorPairId) && !storedPair) {
+      skipped.push({ ref: c.id, kind: 'claim', reason: SKIP_CLAIM_MISSING_PAIR });
+      counts.claims.skipped += 1;
+      continue;
+    }
+    // Catalogue scoping, and it is a real control rather than belt-and-braces. Every
+    // other child row on this page binds the page-level `catalogId`, which is what makes
+    // "one page writes one catalogue's rows" true — and it is what AECI-720's vendor-
+    // managed freeze rests on. A claim has no `catalog_id` column of its own; its only
+    // scope is the pair it names. Without this check, a page for a review-managed
+    // catalogue could write claims onto a FROZEN catalogue's pairs, walking straight
+    // around the freeze. Page-carried pairs are in scope by construction.
+    if (!pairsWrittenThisPage.has(c.connectorPairId) && storedPair?.catalogId !== catalogId) {
+      skipped.push({ ref: c.id, kind: 'claim', reason: SKIP_CLAIM_FOREIGN_PAIR });
+      counts.claims.skipped += 1;
+      continue;
+    }
+
+    // Find-only against the frozen vocabulary (`docs/DATA_OBJECT_VOCABULARY.md`), through
+    // the same resolver the product arm and the vendor authoring API use. Minting a term
+    // is an AECi curation act; promote may not do it, so a miss is reported and dropped.
+    const term = resolveDataObject?.(c.dataObject);
+    if (!term) {
+      skipped.push({
+        ref: c.id,
+        kind: 'claim',
+        reason: `dataObject "${c.dataObject}" ${SKIP_CLAIM_DATA_OBJECT}`,
+      });
+      counts.claims.skipped += 1;
+      continue;
+    }
+
+    const key = identityKey(c.connectorPairId, term.id, c.direction);
+    const holder = identityHolder.get(key);
+    if (holder !== undefined && holder !== c.id) {
+      skipped.push({ ref: c.id, kind: 'claim', reason: SKIP_CLAIM_IDENTITY_TAKEN });
+      counts.claims.skipped += 1;
+      continue;
+    }
+
+    const existing = existingClaims.get(c.id);
+    if (existing?.origin === 'vendor') {
+      // Rule 2 again, on the write path: AECi curating alongside a vendor never seizes
+      // the vendor's row. Promote leaves it exactly as it found it.
+      skipped.push({ ref: c.id, kind: 'claim', reason: SKIP_CLAIM_VENDOR_ORIGIN });
+      counts.claims.skipped += 1;
+      continue;
+    }
+    // Claim this identity before the write, so a second page entry asserting it is
+    // reported rather than colliding at commit.
+    identityHolder.set(key, c.id);
+
+    const values = {
+      // All three anchor columns are written EXPLICITLY, not just the one that is set.
+      // `claims_anchor_check` requires exactly one non-null, and this is an UPSERT: a row
+      // that somehow arrived carrying a second anchor would otherwise keep it through the
+      // conflict set-clause and fail the CHECK for the whole page.
+      integrationId: null,
+      connectorEvidencedPairId: null,
+      connectorPairId: c.connectorPairId,
+      dataObjectId: term.id,
+      direction: c.direction,
+      // Never assemble the provenance pair by hand — the helper makes `origin='vendor'`
+      // without a vendor id unrepresentable (`STAGE_2_ATTESTATIONS_SPEC.md` §2.2).
+      ...claimProvenance(null),
+    };
+    const outcome = tally(counts.claims, existing, values);
+    if (outcome !== 'unchanged') {
+      upserts.push(
+        db
+          .insert(claims)
+          .values({ id: c.id, ...values, createdAt: now, updatedAt: now })
+          .onConflictDoUpdate({ target: claims.id, set: { ...values, updatedAt: now } }),
+      );
+    }
+
+    // ── the claim's `aeci` attestation slot ──────────────────────────────────
+    // Replaced within the claim, which is a DIFFERENT scope from replacing a page: a
+    // claim always travels whole, so absence here really does mean "AECi no longer
+    // asserts this", the same meaning the product arm gives it. Updated in place rather
+    // than the product arm's delete-then-insert, so an unchanged attestation emits
+    // nothing and the row's id stays put.
+    const live = liveAttestations.get(c.id) ?? [];
+    const liveAeci = live.find((a) => a.source === AECI_SOURCE);
+    let incoming: PromoteConnectorClaim['attestations'][number] | undefined;
+    for (const att of c.attestations) {
+      if (att.source !== AECI_SOURCE) {
+        // Inserting a vendor slot would collide with a live vendor row on
+        // `attestations_slot_key` and 500 the whole page, so it is reported the same way
+        // an unresolved `dataObject` is rather than rejected at the schema boundary.
+        skipped.push({
+          ref: c.id,
+          kind: 'claim',
+          reason: `${SKIP_CLAIM_VENDOR_ATTESTATION} (source "${att.source}")`,
+        });
+        continue;
+      }
+      // First occurrence wins, matching the product arm: a payload repeating a source on
+      // one claim would otherwise fail the batch rather than duplicate a vote.
+      incoming ??= att;
+    }
+
+    const attestationValues = incoming && {
+      claimId: c.id,
+      source: AECI_SOURCE,
+      asserted: incoming.asserted,
+      introducedAt: incoming.introducedAt ?? null,
+      deprecatedAt: incoming.deprecatedAt ?? null,
+      note: incoming.note ?? null,
+    };
+
+    // The attestation IS the claim's content, so a claim whose row did not move but whose
+    // attestation did must not report `unchanged` — that number is what proves a page was
+    // idempotent, and it has to stay honest.
+    const reclassify = () => {
+      if (outcome !== 'unchanged') return;
+      counts.claims.updated += 1;
+      counts.claims.unchanged -= 1;
+    };
+
+    if (!attestationValues) {
+      if (liveAeci) {
+        attestationDeletes.push(
+          db.delete(attestations).where(eq(attestations.id, liveAeci.id as string)),
+        );
+        reclassify();
+      }
+      continue;
+    }
+    if (liveAeci) {
+      if (unchanged(liveAeci, attestationValues)) continue;
+      attestationWrites.push(
+        db
+          .update(attestations)
+          .set({ ...attestationValues, updatedAt: now })
+          .where(eq(attestations.id, liveAeci.id as string)),
+      );
+    } else {
+      attestationWrites.push(
+        db.insert(attestations).values({
+          id: crypto.randomUUID(),
+          ...attestationValues,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+    }
+    reclassify();
+  }
+
   // Rule 4: a page that changed nothing emits no statement and writes no audit row.
-  const changed = deletes.length > 0 || upserts.length > 0;
+  const changed =
+    deletes.length > 0 ||
+    upserts.length > 0 ||
+    attestationDeletes.length > 0 ||
+    attestationWrites.length > 0;
 
   const audits: AuditLogEntry[] = changed
     ? [
@@ -474,10 +847,24 @@ export async function planConnectorCatalogPage(
           action: 'connector_catalog.synced',
           entityType: 'connector_catalog',
           entityId: catalogId,
-          metadata: { page: page.page, counts, skipped: skipped.length },
+          metadata: {
+            page: page.page,
+            counts,
+            skipped: skipped.length,
+            // Named, not just counted. A claim delete is destructive and the summary row
+            // is the only record of it — `deleted: 3` would leave an operator unable to
+            // say WHICH three. Bounded by the page ceiling, so this cannot grow unbounded.
+            ...(deletedClaimIds.length ? { deletedClaimIds } : {}),
+          },
         },
       ]
     : [];
 
-  return { statements: [...deletes, ...upserts], audits, skipped, counts, wrote: changed };
+  return {
+    statements: [...deletes, ...upserts, ...attestationDeletes, ...attestationWrites],
+    audits,
+    skipped,
+    counts,
+    wrote: changed,
+  };
 }

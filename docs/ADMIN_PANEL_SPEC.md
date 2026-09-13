@@ -581,6 +581,26 @@ catalogue, and whether a person rather than the auto pass made the mapping — a
 `publication_gate_inputs_only` advisory saying so. Clause (b) (the pair being undelivered) and
 clause (c) (Addendum A §11.4's "meaningful no" scoring) are AECI-716's and are not evaluated here.
 
+> **Fourth surface value — `derived` (AECI-906, 2026-09-13).** `connector_pairs.surface` gained
+> `derived`: a pair with **no vendor page at all**, enumerated from a closed and published
+> connector list (`DATABASE_SCHEMA.md` §9a.5). Three things move on this screen and nothing else
+> does. The per-catalogue counts gain **`pairs_derived`** beside `pairs_curated` /
+> `pairs_generated` / `pairs_unknown` — the surfaces were a fixed triple in three places, and a
+> `derived` row would otherwise have vanished from the tallies **silently**. The reachable
+> lane's `?surface=` filter accepts the new value. And the **detail** page renders the
+> per-surface split as a readout, because a count nothing displays is a count nobody checks;
+> the **list** table deliberately gains nothing, since it shows no pair counts at all and a
+> lone `derived` column would rank one surface above the three beside it. The "does not decide publication" rule above is
+> untouched, because §13.7 settles that a `derived` pair never publishes at all: it feeds the
+> reach count and renders nowhere. Production's first 669 are upstream's, for Kroo Connector and
+> Trimble AppXchange (AECI-890).
+>
+> **It can carry claims, and this screen shows none of them (AECI-891, same day).** A claim may
+> anchor to any `connector_pairs` row, `derived` included — the third arm of the polymorphic
+> anchor, `DATABASE_SCHEMA.md` §5a.1. Nothing on §5.9 reads it: the reachable lane lists pairs, not
+> claims, and no count here is claim-grained. Whoever adds one owns the distinction that a reach
+> claim asserts **joinability, not delivery**, and must not render it like an integration claim.
+
 #### Five things the build settled
 
 **(1) The handover is derived, and disappears when the lane is reclaimed.** AECI-720 records

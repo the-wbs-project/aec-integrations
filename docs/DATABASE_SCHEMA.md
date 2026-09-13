@@ -132,7 +132,7 @@ Tables grouped by domain:
 - `connector_catalog_surfaces` — one row per index URL the review-side ingest crawls, with its `last_ingested_at` "as of" stamp
 - `connector_stubs` — every listing in a catalogue, mapped or not (the misses are the point)
 - `connector_stub_mappings` — many-to-many stub ↔ product assertions, with confidence, evidence and provenance
-- `connector_pairs` — the pairs a vendor publishes a page for, classified `curated` / `generated` / `unknown`
+- `connector_pairs` — the pairs a connector covers, classified `curated` / `generated` / `derived` / `unknown`; only `derived` means no vendor page exists at all
 - `connector_evidenced_pairs` — the **delivered** tier; created empty here, filled by AECI-721
 
 **Analytics and caching**:
@@ -506,7 +506,7 @@ create index taxonomy_data_objects_slug_idx on taxonomy_data_objects(slug);
 
 ## 5a. Claims & attestations (Stage 1.5 + Stage 2 migration 1)
 
-The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *claim* asserts that a `data_object` flows in a `direction` through one integration (mechanism) row — the integration row is the anchor (ADR 0018), so the same product pair connected by two mechanisms yields two claims. An *attestation* records who affirms a claim. **No `integrations`-table change** — consolidation onto the pair page is a query-time grouping (§7), not a stored entity.
+The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *claim* asserts that a `data_object` flows in a `direction` through one integration (mechanism) row — the integration row is the anchor (ADR 0018), so the same product pair connected by two mechanisms yields two claims. *(The anchor is polymorphic since AECI-721 and three-armed since AECI-891 — §5a.1. The third arm anchors on the **reachable** tier, and a reach claim asserts no delivery.)* An *attestation* records who affirms a claim. **No `integrations`-table change** — consolidation onto the pair page is a query-time grouping (§7), not a stored entity.
 
 **Stage 2 migration 1** (AECI-603, `STAGE_2_ATTESTATIONS_SPEC.md` §2) added claim provenance (`claims.origin`, `claims.created_by_vendor_id`), attestation authorship (`attestations.attested_by_vendor_id`) and supersession (`attestations.retracted_at` + the `attestations_slot_key` partial unique index). All of it is additive; the second migration of that epic (`product_versions`, AECI-607) is separate.
 
@@ -515,19 +515,23 @@ The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *cl
 ```sql
 create table claims (
   id uuid primary key default gen_random_uuid(),
-  -- The anchor is POLYMORPHIC since AECI-721: exactly one of these two is set.
+  -- The anchor is POLYMORPHIC: exactly one of these THREE is set (AECI-721, AECI-891).
+  -- The first two are DELIVERED rows — somebody built the integration. The third is the
+  -- REACHABLE tier: nobody built anything, the two ends are merely joinable.
   integration_id uuid references integrations(id) on delete cascade,
   connector_evidenced_pair_id uuid references connector_evidenced_pairs(id) on delete cascade,
+  connector_pair_id text references connector_pairs(id) on delete cascade,
   data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
   direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   created_by_vendor_id uuid references vendors(id) on delete set null,
-  anchor_id uuid generated always as
-    (coalesce(integration_id, connector_evidenced_pair_id)) stored,
+  anchor_id text generated always as
+    (coalesce(integration_id, connector_evidenced_pair_id, connector_pair_id)) stored,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint claims_anchor_check
-    check ((integration_id is not null) <> (connector_evidenced_pair_id is not null))
+    check (((integration_id is not null) + (connector_evidenced_pair_id is not null)
+            + (connector_pair_id is not null)) = 1)
 );
 
 -- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
@@ -536,15 +540,21 @@ create unique index claims_identity_key on claims(anchor_id, data_object_id, dir
 create index claims_data_object_idx on claims(data_object_id);
 ```
 
-- **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other.
+- **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other. **On a reach anchor, A and B are the pair's own two ends** — `connector_pairs.stub_a_id` and `stub_b_id`, resolved to products through `connector_stub_mappings` — and that ordering is stable only because §9a.5 requires `stub_a_id < stub_b_id` canonically. It is not the alphabetical order of the two product names, and it is not the direction the connector's own page happens to be written in.
 - **`direction` is part of claim identity**, so one integration can carry `rfis a_to_b`, `rfis b_to_a` and `rfis both` as three separate claims. Claims also anchor to the **mechanism row**, not the product pair (§3.1, ADR 0018) — two mechanisms moving the same `data_object` between the same two products are two independent claims, by design.
 - **The anchor is polymorphic (AECI-721), and `anchor_id` is why the identity still works.** "The mechanism row" now means a row of *either* delivered-tier table: `integrations` for an accountable-party edge, `connector_evidenced_pairs` for one an iPaaS delivers (`STAGE_1_5_SPEC.md` §13.1). Three properties make that safe:
   - **A STORED generated column carries the identity index, not a nullable FK.** Put a nullable `integration_id` straight into `claims_identity_key` and it stops working for the moved rows: SQLite treats NULLs as **distinct**, so two claims differing only in a NULL anchor would both be accepted and an identity ADR 0018 calls immutable would silently stop being unique. Coalescing into one non-null column before indexing preserves it. It also means `claims` can only ever be **recreated** into this shape — SQLite refuses to `ALTER TABLE ADD COLUMN` a STORED generated column.
   - **`claims_anchor_check` is a real DB CHECK**, unlike the `origin` / `created_by_vendor_id` biconditional next door and unlike `connector_stub_mappings`' two-column rule. Those are application-enforced because an `ON DELETE SET NULL` would re-evaluate them and make deleting an unrelated row fail. Here **both** anchors cascade, so a claim disappears with its anchor rather than being re-evaluated against it — nothing can make this CHECK fail a delete.
   - **The migration preserved ids**, so re-homing changed no stored value. `0022` inserts each moved edge into `connector_evidenced_pairs` with its `integrations.id` verbatim, so all 85 production claims kept the same `anchor_id` — no unique violations, and every existing `audit_log` row, PostHog log line and attestation still resolves.
+- **A third anchor, and it is the only one that asserts no delivery (AECI-891, operator ruling 2026-09-13).** A claim **can** anchor to a *reached* pair, and AECi carries it here rather than translating it onto the delivered tier. `claims.connector_pair_id` references `connector_pairs(id)` — the **reachable** tier, §9a.5. The three anchors are therefore no longer one kind of thing, and this is the distinction to hold on to: `integrations` and `connector_evidenced_pairs` both mean **somebody built the integration**; `connector_pairs` means only that the two ends are **joinable through that connector** and nobody built anything. A reader that renders all three identically converts reach into a delivery claim, which is the exact error the I24 ruling exists to prevent. Five properties, and the first is the one that bites:
+  - **`claims_anchor_check` changed form, not just arity.** `<>` expresses "exactly one" for two terms and does **not** for three: `a <> b <> c` parses as `(a <> b) <> c`, which is TRUE when all three are set. The shipped CHECK sums the three `IS NOT NULL` booleans and compares to `1`, which is the only form of the rule that survives a third arm. Do not "simplify" it back to chained `<>`.
+  - **The three id spaces cannot collide, so `anchor_id` needs no discriminator.** `connector_pairs.id` is the review app's own record id (`rec…`-shaped text, §9a); `integrations.id` and `connector_evidenced_pairs.id` are UUIDs minted here. `claims_identity_key` stays unique across all three without storing which table the anchor came from.
+  - **All three cascade**, which is what keeps this a real DB CHECK rather than an application rule — same reasoning as the bullet above. Deleting a `connector_pairs` row takes its claims with it, and the connector sync retires pairs by `removed_at` tombstone rather than by delete (§9a.5), so a routine re-sync cannot silently drop one.
+  - **It cost a second full `claims` recreate** — migration `0033_solid_nightcrawler.sql`, the same shape as `0027_powerful_killraven.sql` and for the same reason: SQLite cannot `ALTER TABLE ADD COLUMN` into a table whose STORED generated column has to change. `attestations` cascades from `claims`, production holds roughly **1,872 of each**, and `PRAGMA defer_foreign_keys` does not defer cascade *actions* — so the migration carries both through `__carry_*` tables exactly as `0027` does, and it ships with the same guard `0027` has (`src/test/migration-0027.spec.ts` is the model) because a regenerated file silently reverts to the destructive order. `docs/migrations.md` §3.3a.
+  - **Nothing renders it yet, and that is a stated carve-out rather than an oversight.** A pair-anchored claim can land; no surface reads it. The reachable pair page is **AECI-716** and is unbuilt, and §13.7's endpoint summary line enumerates nothing. Attestation is closed to it by construction too: `apps/api/src/lib/attestation-authority.ts` scopes on `integration_id IS NOT NULL`, so a reach anchor falls outside the authority read and the detector sweep without a new rule (ADR 0018's 2026-08-31 amendment made that scoping explicit for exactly this class of reason).
 - **`origin` is write arbitration, not a trust badge.** It exists so promote can replace AECi curation without touching vendor-created rows (`STAGE_2_ATTESTATIONS_SPEC.md` §3) and so AECi ops can see where a claim came from. A vendor-created claim renders through exactly the same computed agreement states as an AECi-seeded one — nothing reader-facing keys off `origin`. Every row that predates migration 1 backfilled to `'aeci'` via the column default, which is correct: they all came from promote.
 - **`origin = 'vendor'` ⟺ `created_by_vendor_id is not null`** is a two-column invariant enforced in **application code**, not by a DB CHECK — deliberately, so the rule lives in one place: `claimProvenance()` / `assertClaimProvenance()` in `apps/api/src/lib/attestation-authority.ts` (§2.2).
-- **Cascade/restrict/set-null.** Deleting an integration **or a connector-evidenced pair** removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
+- **Cascade/restrict/set-null.** Deleting an integration, **a connector-evidenced pair, or a connector pair** removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
 
 ### 5a.2 `attestations`
 
@@ -2026,6 +2036,22 @@ contract leaves a loose string, the DB leaves unconstrained.* `surface_role`, `i
 `direction_role` are therefore unconstrained on both sides — that vocabulary has already moved
 once (the review app added `all` only after the 2026-08-27 Aquifer/Kroo survey).
 
+**`connector_pairs.surface` then moved, and the recreate was cheap (AECI-906, 2026-09-13).**
+Adding `derived` to the enum cost exactly the destructive table recreate this rule predicts —
+migration `0032_mute_gateway.sql`. It was safe because **nothing holds a foreign key to
+`connector_pairs`**: its three FKs all point outward, so the `DROP` inside the recreate fires no
+cascade and takes nothing with it. That is the whole difference from `0027_powerful_killraven.sql`,
+whose `integrations` → `claims` → `attestations` chain is two levels deep and cost 1,697 claims
+when regenerated. Verify the same way before assuming a recreate on this lane is ever that cheap
+again: `grep -rn "REFERENCES connector_pairs" apps/api/migrations`.
+
+**And it stopped being true the same day (AECI-891, 2026-09-13).** `claims.connector_pair_id`
+now references `connector_pairs(id)` **ON DELETE cascade**, so `connector_pairs` has a cascade
+child, and that child has a cascade child of its own in `attestations`. The next recreate of this
+table is therefore the **dangerous** class, not the cheap one: it must carry `claims` and
+`attestations` through `__carry_*` tables the way `0027` and `0033` do. Run the grep above rather
+than citing `0032` as precedent — that migration was safe for a condition that no longer holds.
+
 ### 9a.1 `connector_catalogs`
 
 One row per iPaaS — the catalogue as a whole, never one of its index pages. That is what gives
@@ -2209,8 +2235,10 @@ create index connector_stub_mappings_status_idx on connector_stub_mappings(catal
 
 ### 9a.5 `connector_pairs`
 
-The pairs a vendor publishes a page for, filtered review-side to pairs where both stubs map to one
-of our products — the difference between ~2,000 rows and MindCloud's 104,186.
+The pairs a connector covers, filtered review-side to pairs where both stubs map to one of our
+products — the difference between ~2,000 rows and MindCloud's 104,186. Most rows are a page the
+vendor published. Since AECI-906 (2026-09-13) a row may instead be one **we** enumerated from the
+vendor's own published connector list, carrying `surface = 'derived'` and no page at all.
 
 ```sql
 create table connector_pairs (
@@ -2220,7 +2248,7 @@ create table connector_pairs (
   stub_b_id text not null references connector_stubs(id) on delete cascade,
   url_a_to_b text,
   url_b_to_a text,
-  surface text not null default 'unknown' check (surface in ('curated', 'generated', 'unknown')),
+  surface text not null default 'unknown' check (surface in ('curated', 'generated', 'derived', 'unknown')),
   classified_at timestamptz,
   first_seen_at timestamptz not null,
   last_seen_at timestamptz not null,
@@ -2243,7 +2271,37 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
   directions as separate pages: without it every pair arrives twice and the unique index cannot see
   the collision. Keeping both URLs means the ordering costs no information.
 - `surface` defaults to `unknown` on purpose — appearing in an index says a page exists, not that
-  anyone read it.
+  anyone read it. **That default only makes sense for a row that came from an index.** A `derived`
+  row came from nowhere but our own enumeration, so it must state its surface explicitly; letting
+  it fall to the default would assert a page that was never there.
+- **`derived` is the one value that is not about a page (AECI-906, 2026-09-13).** The other three
+  classify a page the vendor published — `curated` by hand, `generated` by their own automation,
+  `unknown` not yet read. `derived` says **no page exists**, and AECi enumerated the pair itself
+  from a closed and published connector list. It asserts **reach, never delivery**, and it
+  **never publishes**: `STAGE_1_5_SPEC.md` §13.7 clause (d) requires the vendor's own provenance
+  and "as of" label, and a derived pair has no vendor page for that label to point at. It feeds
+  the reach count and renders nowhere. *(It may still **anchor** a claim — see the next bullet.
+  This one originally said it anchors nothing, which AECI-891 inverted the same day.)* Upstream
+  wrote the first 669 on 2026-09-13 for **Kroo
+  Connector** and **Trimble AppXchange** (AECI-890, review-repo PR #110). Do not read the word as
+  §13.1's "derived at read time" — that phrase describes the reachable tier not being a table,
+  and this is a stored column value.
+- **It IS a claim anchor here, as of the operator ruling of 2026-09-13 (AECI-883 / AECI-891).**
+  The asymmetry this bullet used to record — a claim could anchor to a `connector_pairs` row
+  upstream and to nothing of the sort here — is closed, and it closed the **mirroring** way rather
+  than the translating way. `claims.connector_pair_id` is the third arm of the polymorphic anchor
+  (§5a.1), so a reach claim lands as a reach claim and is never re-pointed at a delivered row it
+  does not belong on. The other option on the table was translating the upstream anchor onto
+  `connector_evidenced_pairs` at promote time, and that was rejected: it would have minted a
+  delivered row for a pair nobody built. **What the anchor does not do is render.** A reach claim
+  asserts that two ends are joinable through this connector, not that anyone built the integration,
+  and no surface reads one today — the reachable pair page is **AECI-716** and is unbuilt, and
+  §13.7's endpoint summary line enumerates nothing. That is a stated carve-out, not an oversight.
+  The worked case is the two Agave ERP Sync rows the AECI-882 retraction consumer holds: 21
+  production claims sit on them, re-anchored upstream onto pair records `reczhKqHUJZTSlUI2` and
+  `recR26YP4tgDvNj6V`, and deleting the rows before this shipped would have cascaded those claims
+  away with nowhere to put them back. The cost of closing it this way is a second destructive
+  `claims` recreate, migration `0033` — see §5a.1 and `docs/migrations.md` §3.3a before touching it.
 
 ### 9a.6 `connector_evidenced_pairs`
 

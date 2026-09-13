@@ -155,9 +155,12 @@ const BUCKETS = [
  * If you are adding one, the bar is the same as `docs/CODE_REVIEW_EXEMPTIONS.md`: a written
  * reason and a named way out.
  */
+// Release needs AECI-891 live in production AND AECI-907 to have pushed the re-anchored
+// copies. "AECI-891 ships" alone is NOT the condition — that issue delivers the anchor,
+// not the render, and reading it that way holds these two forever (corrected 2026-09-13).
 const HELD_RETRACTIONS = {
-  'a96bb827-c0e2-4842-ad54-f25e40b04c81': 'AECI-891 — Agave pair carrying 9 claims',
-  'a3eb9e45-4c06-409c-a95d-caa91e15f0bd': 'AECI-891 — Agave pair carrying 12 claims',
+  'a96bb827-c0e2-4842-ad54-f25e40b04c81': 'AECI-891 + AECI-907 — Agave pair carrying 9 claims',
+  'a3eb9e45-4c06-409c-a95d-caa91e15f0bd': 'AECI-891 + AECI-907 — Agave pair carrying 12 claims',
 };
 
 // Read concurrency against the review app. get_product responses are large (~75KB),

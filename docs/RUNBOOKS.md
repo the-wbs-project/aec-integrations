@@ -1678,6 +1678,13 @@ it. You are executing a decision, not making one.
   it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
 - **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
   with their reason and do not fail the run. If the job is red, something *new* arrived.
+  - **The two Agave holds clear on a sequence, and only the operator can call it (AECI-891, ruled
+    2026-09-13).** A claim may now anchor to a *reached* pair, so the claims those two rows carry
+    have somewhere to live. Release the hold only after AECI-891 is **in production** and both
+    Agave catalogues have re-synced their pairs and claims through
+    `POST /api/promote/connector-catalog`. Do **not** wait for a rendered reach surface — that is
+    AECI-716 and is deliberately out of scope, so any note saying the hold clears "on the anchor
+    and the render" is stale. `REVIEW_APP_PROMOTE_API.md` §5.1.
 - **A parked entry is not a consumer job.** Anything whose `entity` is not `integration` is
   reported and then left alone — never deleted, never confirmed. That is deliberate: a `product`
   entry resolves against neither delivered-tier table, so to the consumer it is indistinguishable

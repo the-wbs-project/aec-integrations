@@ -10,8 +10,8 @@
  *
  * ── WHY TALLIES ARE GROUP-BYs AND NOT CORRELATED SUBQUERIES ─────────────────
  * `vendorListConfig.extras` proves correlated scalar subqueries are fine for two
- * counts on a 100-row page. This surface needs FOURTEEN per catalogue, and five
- * of them are per-status splits. Fourteen correlated subqueries per row is a
+ * counts on a 100-row page. This surface needs FIFTEEN per catalogue, and five
+ * of them are per-status splits. Fifteen correlated subqueries per row is a
  * different animal, so {@link collectCounts} instead runs six GROUP-BY passes
  * over the page's ids in ONE `db.batch` and stitches in JS — bounded by the page
  * size, not by catalogue size.
@@ -30,9 +30,12 @@
 
 import {
   CONNECTOR_AUTO_DECIDER,
+  PAIR_SURFACE_COUNT_KEYS,
   type AdminConnectorCounts,
   type AdminConnectorMapping,
   type AdminConnectorStubState,
+  type ConnectorMappingStatus,
+  type ConnectorPairSurface,
 } from '@aeci/shared';
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 
@@ -62,6 +65,7 @@ export function emptyCounts(): AdminConnectorCounts {
     mappings_publishable: 0,
     pairs_curated: 0,
     pairs_generated: 0,
+    pairs_derived: 0,
     pairs_unknown: 0,
     evidenced_pairs: 0,
   };
@@ -100,7 +104,22 @@ export function isPublishable(m: {
   );
 }
 
-const MAPPING_STATUS_KEYS: Record<string, keyof AdminConnectorCounts> = {
+/**
+ * Mapping status → counts field, keyed on the UNION and not on `string`.
+ *
+ * That typing is load-bearing, and its sibling `PAIR_SURFACE_COUNT_KEYS` is why.
+ * Both lookups were `Record<string, …>`, which accepts a partial map silently — so
+ * when AECI-906 widened `CONNECTOR_PAIR_SURFACES` with `derived`, `pnpm typecheck`
+ * stayed green, the surface lookup returned `undefined` for every derived row, and
+ * those rows were dropped from the tallies with no error anywhere. Nothing in this
+ * lane is an exhaustive `switch`, so there was no second mechanism to catch it.
+ *
+ * Keyed on {@link ConnectorMappingStatus}, adding a status is a BUILD FAILURE here
+ * until a count field exists for it. The runtime `if (key)` guard below stays anyway:
+ * the D1 CHECK could drift ahead of the TS enum, and a row the enum has never heard
+ * of should cost one tally, not the page.
+ */
+const MAPPING_STATUS_KEYS: Record<ConnectorMappingStatus, keyof AdminConnectorCounts> = {
   mapped: 'mappings_mapped',
   ruled_out: 'mappings_ruled_out',
   out_of_scope: 'mappings_out_of_scope',
@@ -108,11 +127,20 @@ const MAPPING_STATUS_KEYS: Record<string, keyof AdminConnectorCounts> = {
   ambiguous_parked: 'mappings_ambiguous_parked',
 };
 
-const PAIR_SURFACE_KEYS: Record<string, keyof AdminConnectorCounts> = {
-  curated: 'pairs_curated',
-  generated: 'pairs_generated',
-  unknown: 'pairs_unknown',
-};
+/**
+ * How many `connector_pairs` rows this catalogue holds, across every surface.
+ *
+ * Summed over {@link PAIR_SURFACE_COUNT_KEYS} rather than written out as
+ * `pairs_curated + pairs_generated + …`, because the hand-written form is what
+ * AECI-906 broke: a fixed three-term sum read ZERO for a derived-only catalogue —
+ * Kroo Connector and Trimble AppXchange are exactly that — and the caller then
+ * behaved as though the catalogue published nothing. This form extends itself.
+ */
+export function reachablePairTotal(counts: AdminConnectorCounts): number {
+  let total = 0;
+  for (const key of Object.values(PAIR_SURFACE_COUNT_KEYS)) total += counts[key];
+  return total;
+}
 
 /**
  * Tallies + freshness for a page of catalogues, in one batch.
@@ -232,7 +260,10 @@ export async function collectCounts(
   for (const r of mappingRows) {
     const e = out.get(r.catalogId);
     if (!e) continue;
-    const key = MAPPING_STATUS_KEYS[r.status];
+    // `status` arrives as `string` from D1, so the annotation carries the
+    // `| undefined` the lookup's key type no longer implies.
+    const key: keyof AdminConnectorCounts | undefined =
+      MAPPING_STATUS_KEYS[r.status as ConnectorMappingStatus];
     // An unrecognized status is skipped rather than crashing the page. The CHECK
     // makes it unreachable today; a CHECK change is a destructive D1 recreate, so
     // this stays tolerant on the same reasoning `AdminAuditRow` renders tolerantly.
@@ -242,7 +273,8 @@ export async function collectCounts(
   for (const r of pairRows) {
     const e = out.get(r.catalogId);
     if (!e) continue;
-    const key = PAIR_SURFACE_KEYS[r.surface];
+    const key: keyof AdminConnectorCounts | undefined =
+      PAIR_SURFACE_COUNT_KEYS[r.surface as ConnectorPairSurface];
     if (key) e.counts[key] = Number(r.total ?? 0);
   }
   const evidencedByProduct = new Map(

@@ -2,14 +2,16 @@ import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
-import type {
-  AdminAuditRow,
-  AdminConnectorCatalogDetail,
-  AdminConnectorEvidencedPairRow,
-  AdminConnectorReachablePairRow,
-  AdminConnectorStubRow,
-  AdminNote,
-  ConnectorCatalogManagementResponse,
+import {
+  PAIR_SURFACE_COUNT_KEYS,
+  type AdminAuditRow,
+  type AdminConnectorCatalogDetail,
+  type AdminConnectorCounts,
+  type AdminConnectorEvidencedPairRow,
+  type AdminConnectorReachablePairRow,
+  type AdminConnectorStubRow,
+  type AdminNote,
+  type ConnectorCatalogManagementResponse,
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
@@ -421,15 +423,49 @@ export class ConnectorDetail {
     }
   }
 
+  /**
+   * `connector_pairs.surface`, in words.
+   *
+   * `unknown` is now an EXPLICIT case and the default returns the raw value, the
+   * same shape as `statusLabel` above. It used to fall through to "Unclassified",
+   * which is how AECI-906's `derived` would have rendered — and those two are
+   * opposite claims. `unknown` means a page exists and nobody has read it.
+   * `derived` means no page exists at all, and the pair was enumerated from a
+   * closed, published connector list. A `derived` row reading "Unclassified"
+   * would tell an operator there is triage to do where there is none.
+   */
   protected surfaceLabel(surface: string): string {
     switch (surface) {
       case 'curated':
         return $localize`:@@admin.connectors.surface.curated:Curated`;
       case 'generated':
         return $localize`:@@admin.connectors.surface.generated:Auto-generated`;
-      default:
+      case 'derived':
+        return $localize`:@@admin.connectors.surface.derived:Derived (no page)`;
+      case 'unknown':
         return $localize`:@@admin.connectors.surface.unknown:Unclassified`;
+      default:
+        return surface;
     }
+  }
+
+  /**
+   * The reachable lane's rows split by surface, for the readout above its table.
+   *
+   * Mapped over `PAIR_SURFACE_COUNT_KEYS` (`@aeci/shared`) rather than written
+   * out, so the next surface added to the vocabulary appears here on its own. A
+   * hand-written list is precisely what dropped `derived` on the server side, and
+   * a derived-only catalogue — Kroo Connector, Trimble AppXchange — is the case
+   * where this readout is the only thing on the screen saying the rows exist.
+   */
+  protected pairSurfaceCounts(
+    counts: AdminConnectorCounts,
+  ): readonly { surface: string; label: string; count: number }[] {
+    return Object.entries(PAIR_SURFACE_COUNT_KEYS).map(([surface, key]) => ({
+      surface,
+      label: this.surfaceLabel(surface),
+      count: counts[key],
+    }));
   }
 }
 

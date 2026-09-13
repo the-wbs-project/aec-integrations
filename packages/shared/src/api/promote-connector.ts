@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { PromoteJobIdSchema, type PromoteSkipped } from './promote';
+import {
+  CLAIM_DIRECTIONS,
+  PromoteAttestationSchema,
+  PromoteJobIdSchema,
+  type PromoteSkipped,
+} from './promote';
 
 /**
  * `POST /api/promote/connector-catalog` — the connector-catalogue mirror
@@ -31,9 +36,10 @@ import { PromoteJobIdSchema, type PromoteSkipped } from './promote';
  *
  * Two consequences the caller must design for, neither of them an error:
  *   - **References may dangle, and that is reported rather than fatal.** A `pairs`
- *     page whose stub endpoints ride a page not yet sent, or a mapping whose product
- *     is not promoted, lands in `skipped[]` and is re-sent later. Send stubs before
- *     pairs and it never happens; the protocol does not require it.
+ *     page whose stub endpoints ride a page not yet sent, a mapping whose product
+ *     is not promoted, or a claim whose pair has not arrived, lands in `skipped[]` and
+ *     is re-sent later. Send stubs before pairs before claims and it never happens; the
+ *     protocol does not require it.
  *   - **Absence never means deletion.** A row missing from a page is a row on a
  *     different page. Hard deletes are explicit ({@link PromoteConnectorPagePayload.deleted}),
  *     and stub/pair retirement is a `removedAt` tombstone riding the ordinary upsert.
@@ -87,7 +93,7 @@ export const CONNECTOR_MAPPING_STATUSES = [
   'ambiguous_parked',
 ] as const;
 export const CONNECTOR_MAPPING_CONFIDENCES = ['low', 'medium', 'high'] as const;
-export const CONNECTOR_PAIR_SURFACES = ['curated', 'generated', 'unknown'] as const;
+export const CONNECTOR_PAIR_SURFACES = ['curated', 'generated', 'derived', 'unknown'] as const;
 
 /** Statuses that NAME a product; several may sit on one stub. */
 export const CONNECTOR_PRODUCT_STATUSES = ['mapped', 'ruled_out'] as const;
@@ -222,6 +228,56 @@ export const PromoteConnectorPairSchema = z.object({
 });
 
 /**
+ * A claim anchored to a REACHED pair (AECI-891; operator ruling 2026-09-13).
+ *
+ * Same concept as the product arm's `PromoteClaimSchema` — a `dataObject` flowing
+ * in a `direction`, carrying its attestations — and deliberately the same field
+ * spellings, because a reader should not have to learn two vocabularies for one idea.
+ * Two things differ, and only two:
+ *
+ *   1. **The anchor.** `connectorPairId` names a row of `connector_pairs`, the REACH
+ *      tier. A claim here asserts *"this data object would flow if you joined these two
+ *      through this connector"*, never that anybody built it. The product arm's claims
+ *      anchor to a DELIVERED row (`integrations` / `connector_evidenced_pairs`). The
+ *      three anchors are not interchangeable when rendering.
+ *   2. **Identity is the review record id, not the identity triple.** The product arm
+ *      omits an id and matches on `(anchor, dataObject, direction)` because one promote
+ *      carries an integration's claims *whole*. This arm is a PAGED MIRROR whose
+ *      governing rule is *"absence never means deletion"* — a row missing from a page is
+ *      a row on a different page — so identity matching would let page 2 delete what
+ *      page 1 wrote. Every other table on this endpoint is keyed on the review record
+ *      id for exactly that reason, and claims join them. Removal is explicit, via
+ *      {@link PromoteConnectorPagePayload.deleted}.
+ *
+ * The identity triple still exists as `claims_identity_key` and is still unique, so two
+ * DIFFERENT record ids asserting the same `(pair, dataObject, direction)` cannot both
+ * land. The ingest reports the loser in `skipped[]` rather than letting the unique index
+ * roll the whole page back.
+ */
+export const PromoteConnectorClaimSchema = z.object({
+  id: RecordIdSchema,
+  /** The reached pair this claim hangs on. May name a pair carried by THIS page or one
+   *  already stored — and may dangle, which is reported in `skipped[]` and re-sent
+   *  later, never fatal (see the reference note in the file header). */
+  connectorPairId: RecordIdSchema,
+  /** A slug OR a name/alias. Resolved **find-only** against the seeded
+   *  `taxonomy_data_objects` (`docs/DATA_OBJECT_VOCABULARY.md` — a frozen, closed list).
+   *  Minting a term is an AECi curation act and promote may not do it, so a miss lands
+   *  in `skipped[]` with `kind: 'claim'`. */
+  dataObject: z.string().min(1),
+  /** Relative to the pair's own endpoints: **A = `stubAId`**, **B = `stubBId`**, which is
+   *  the canonical ordering `connector_pairs_canonical_order` already guarantees. Same
+   *  enum as the product arm — the D1 `claims_direction_check` is one CHECK over both. */
+  direction: z.enum(CLAIM_DIRECTIONS),
+  /** Promote writes only the `aeci` slot; a vendor source is reported in `skipped[]`
+   *  rather than rejected here, exactly as the product arm handles it. Absent means the
+   *  live `aeci` attestation (if any) is removed — see the ingest's replace note. */
+  attestations: z.array(PromoteAttestationSchema).default([]),
+});
+
+export type PromoteConnectorClaim = z.infer<typeof PromoteConnectorClaimSchema>;
+
+/**
  * Rows per page, across every array including `deleted`. A ceiling, not a target.
  *
  * It bounds three things at once: statements in one `db.batch`, chunked pre-reads
@@ -247,29 +303,45 @@ export const PromoteConnectorPagePayloadSchema = z
     stubs: z.array(PromoteConnectorStubSchema).default([]),
     mappings: z.array(PromoteConnectorMappingSchema).default([]),
     pairs: z.array(PromoteConnectorPairSchema).default([]),
+    /** Reach-tier claims (AECI-891). Independent of `pairs`: a claim may ride the page
+     *  that carries its pair, or a later page once the pair is stored. */
+    claims: z.array(PromoteConnectorClaimSchema).default([]),
     /**
      * Explicit hard deletes, by review record id.
      *
      * Necessary because in a PAGED mirror absence cannot mean deletion — a row missing
-     * from this page is a row on another page. Only the two entities the review app
+     * from this page is a row on another page. Only the entities the review app
      * hard-deletes appear here; stubs and pairs retire via the `removedAt` tombstone,
      * which rides the ordinary upsert.
+     *
+     * `claims` joined this list with AECI-891 for the same reason `mappings` is on it:
+     * the review app hard-deletes a claim, and this arm has no wholesale-replace pass
+     * that would notice its absence. Deleting a claim cascades its attestations.
      */
     deleted: z
       .object({
         surfaces: z.array(RecordIdSchema).default([]),
         mappings: z.array(RecordIdSchema).default([]),
+        claims: z.array(RecordIdSchema).default([]),
       })
       .optional(),
   })
   .superRefine((page, ctx) => {
+    // A claim counts as itself PLUS each nested attestation, because the ceiling bounds
+    // STATEMENTS in one `db.batch` and a claim emits one of each. Every other array here
+    // is one row → one statement, so summing lengths was the same thing; claims are the
+    // first entry that carries children, and counting only the parents would let 500
+    // claims become 1,000 statements against a ceiling that reads 500.
+    const claimRows = page.claims.reduce((n, c) => n + 1 + c.attestations.length, 0);
     const rows =
       page.surfaces.length +
       page.stubs.length +
       page.mappings.length +
       page.pairs.length +
+      claimRows +
       (page.deleted?.surfaces.length ?? 0) +
-      (page.deleted?.mappings.length ?? 0);
+      (page.deleted?.mappings.length ?? 0) +
+      (page.deleted?.claims.length ?? 0);
 
     if (rows > CONNECTOR_PAGE_MAX_ROWS) {
       ctx.addIssue({
@@ -283,7 +355,8 @@ export const PromoteConnectorPagePayloadSchema = z
       // the product promote's empty-payload rejection.
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Page carries no surfaces, stubs, mappings, pairs or deletions; send at least one',
+        message:
+          'Page carries no surfaces, stubs, mappings, pairs, claims or deletions; send at least one',
         path: [],
       });
     }
@@ -311,6 +384,8 @@ export const PromoteConnectorPagePayloadSchema = z
     page.mappings.forEach((m, i) => claimId(mappingIds, m.id, ['mappings', i, 'id']));
     const pairIds = new Set<string>();
     page.pairs.forEach((p, i) => claimId(pairIds, p.id, ['pairs', i, 'id']));
+    const claimIds = new Set<string>();
+    page.claims.forEach((c, i) => claimId(claimIds, c.id, ['claims', i, 'id']));
 
     page.pairs.forEach((p, i) => {
       if (p.stubAId >= p.stubBId) {
@@ -355,6 +430,7 @@ export type PromoteConnectorSurface = z.infer<typeof PromoteConnectorSurfaceSche
 export type PromoteConnectorStub = z.infer<typeof PromoteConnectorStubSchema>;
 export type PromoteConnectorMapping = z.infer<typeof PromoteConnectorMappingSchema>;
 export type PromoteConnectorPair = z.infer<typeof PromoteConnectorPairSchema>;
+export type PromoteConnectorDeleted = NonNullable<PromoteConnectorPagePayload['deleted']>;
 
 // ─── Response ────────────────────────────────────────────────────────────────
 
@@ -393,6 +469,13 @@ export interface PromoteConnectorPageResponse {
     stubs: PromoteConnectorTableCounts;
     mappings: PromoteConnectorTableCounts;
     pairs: PromoteConnectorTableCounts;
+    /**
+     * Reach-tier claims (AECI-891). `updated` folds in a claim whose row did not move
+     * but whose `aeci` attestation did — the attestation is the claim's content, and a
+     * page reporting every bucket `unchanged` while still emitting statements would
+     * make the one number that proves idempotence lie.
+     */
+    claims: PromoteConnectorTableCounts;
   };
   /** Rows accepted but not written — an unpromoted product, a stub on a page not yet
    *  sent. Never fatal; re-send later. Always inspect it: on a full-mirror sync a

@@ -432,7 +432,7 @@ word survives.**
 Promote's merge-by-replacement stays, but scoped:
 
 1. **Upsert claims by identity, don't delete-and-reinsert.** Use the existing
-   `claims_identity_key` unique index `(anchor_id, data_object_id, direction)` — the anchor being the mechanism row in either delivered-tier table since AECI-721 — as the
+   `claims_identity_key` unique index `(anchor_id, data_object_id, direction)` — the anchor being the mechanism row in either delivered-tier table since AECI-721, and a **reachable** `connector_pairs` row since AECI-891 (2026-09-13), which the product promote arm never writes — as the
    `ON CONFLICT` target so a surviving claim keeps its id — and therefore keeps the attestations
    hanging off it. This alone fixes the id churn.
 2. **Delete only AECi claims the payload dropped** — `WHERE integration_id = ? AND origin = 'aeci'

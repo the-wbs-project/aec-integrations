@@ -550,13 +550,31 @@
       id="admin-connector-pairs-reachable"
       i18n="@@admin.connectors.pairs.reachable"
     >
-      Pages this connector publishes
+      Pairs in this connector's catalogue
     </h4>
+
+    <!-- AECI-906: this heading said "Pages this connector publishes" until `derived`
+         arrived. A derived pair has NO page. That is the whole meaning of the value, so
+         the old copy asserted something the row itself denies. The neutral word is the
+         one the lane is keyed on: these are pairs, and `surface` says which kind. -->
+    <!-- The whole-catalogue split, not the current page's. Every surface, mapped
+         from the shared vocabulary: a derived-only catalogue has no curated and no
+         generated rows, and without this readout nothing on the screen says how
+         many rows it holds or which kind they are. -->
+    <dl class="mt-2 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+      @for (s of pairSurfaceCounts(c.counts); track s.surface) {
+      <div class="flex gap-2">
+        <dt class="text-(--text-secondary)">{{ s.label }}</dt>
+        <dd class="text-(--text-primary)">{{ s.count }}</dd>
+      </div>
+      }
+    </dl>
+
     @if (reachableNotes().length > 0) {
     <aec-admin-notes class="mt-2" [notes]="reachableNotes()" />
     } @if (reachableLoading()) {
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.loadingTwo">
-      Loading pages…
+      Loading pairs…
     </p>
     } @else if (reachableFailed()) {
     <div
@@ -564,7 +582,7 @@
       class="mt-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
     >
       <p class="text-sm text-(--text-primary)" i18n="@@admin.connectors.pairs.reachableError">
-        We could not load these pages.
+        We could not load these pairs.
       </p>
       <button
         type="button"

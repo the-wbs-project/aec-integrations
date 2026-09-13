@@ -175,6 +175,34 @@ describe('PromoteConnectorPagePayloadSchema (AECI-714)', () => {
     }
   });
 
+  it('accepts `derived`, the fourth pair surface, and still rejects one outside it', () => {
+    // AECI-906. `derived` means the vendor published NO page for this pair and we
+    // enumerated it from their closed connector list, so it is not `unknown` ("a page
+    // exists, nobody read it"). 669 upstream rows carry it.
+    //
+    // This enum and the `connector_pairs_surface_check` D1 CHECK are one vocabulary in
+    // two spellings. A value this schema admits and the CHECK does not rolls back the
+    // WHOLE page at commit, because the connector arm commits a page in one `db.batch`.
+    const stubs = [stub('recA0000000000001', 'a'), stub('recB0000000000001', 'b')];
+    const pair = (surface: string) => ({
+      id: 'recPair000000001',
+      stubAId: 'recA0000000000001',
+      stubBId: 'recB0000000000001',
+      surface,
+      ...STAMPS,
+    });
+
+    const derived = PromoteConnectorPagePayloadSchema.parse(
+      page({ stubs, pairs: [pair('derived')] }),
+    );
+    expect(derived.pairs[0]?.surface).toBe('derived');
+
+    expect(
+      PromoteConnectorPagePayloadSchema.safeParse(page({ stubs, pairs: [pair('inferred')] }))
+        .success,
+    ).toBe(false);
+  });
+
   it('leaves scraper vocabulary loose, in lockstep with the absent DB CHECKs', () => {
     // `surfaceRole` / `indexKind` / `directionRole` are unconstrained on BOTH sides.
     // If this test starts failing, the two halves have drifted and a value the
@@ -198,5 +226,92 @@ describe('PromoteConnectorPagePayloadSchema (AECI-714)', () => {
 
   it('pins the publication gate string so the read path cannot re-spell it', () => {
     expect(CONNECTOR_AUTO_DECIDER).toBe('auto-name-match');
+  });
+});
+
+describe('reach-tier claims on the connector page (AECI-891)', () => {
+  const PAIR_ID = 'recPair000000001';
+  const claim = (overrides: Record<string, unknown> = {}) => ({
+    id: 'recClaim00000001',
+    connectorPairId: PAIR_ID,
+    dataObject: 'RFIs',
+    direction: 'a_to_b',
+    ...overrides,
+  });
+
+  it('accepts a claim and defaults its attestations', () => {
+    const parsed = PromoteConnectorPagePayloadSchema.parse(page({ claims: [claim()] }));
+    expect(parsed.claims[0]).toMatchObject({ connectorPairId: PAIR_ID, direction: 'a_to_b' });
+    expect(parsed.claims[0]?.attestations).toEqual([]);
+  });
+
+  it('accepts a claims-only page, because a claim may reference a stored pair', () => {
+    // The pair may have ridden an earlier page. Rejecting this would force an ordering
+    // the protocol does not define, and §3a is explicit that a dangling reference is
+    // reported at ingest rather than refused at the wire.
+    const parsed = PromoteConnectorPagePayloadSchema.parse(page({ stubs: [], claims: [claim()] }));
+    expect(parsed.claims).toHaveLength(1);
+  });
+
+  it('shares the claim direction vocabulary with the product arm', () => {
+    // One `claims_direction_check` CHECK covers both arms, so a value this schema admits
+    // and that CHECK does not would roll the WHOLE page back at commit.
+    for (const direction of ['a_to_b', 'b_to_a', 'both']) {
+      expect(
+        PromoteConnectorPagePayloadSchema.safeParse(page({ claims: [claim({ direction })] }))
+          .success,
+      ).toBe(true);
+    }
+    expect(
+      PromoteConnectorPagePayloadSchema.safeParse(
+        page({ claims: [claim({ direction: 'inbound' })] }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('rejects a duplicate claim record id within one page', () => {
+    const result = PromoteConnectorPagePayloadSchema.safeParse(
+      page({ claims: [claim(), claim({ dataObject: 'Submittals' })] }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain('Duplicate id');
+  });
+
+  it('counts claims AND their nested attestations toward the page ceiling', () => {
+    // The ceiling bounds STATEMENTS in one `db.batch`, and a claim emits one for itself
+    // plus one for its attestation. Counting only the parents would let 500 claims become
+    // 1,000 statements against a ceiling that reads 500.
+    const attested = (i: number) => ({
+      ...claim({ id: `recClaim${String(i).padStart(8, '0')}` }),
+      attestations: [{ source: 'aeci', asserted: true }],
+    });
+    const half = CONNECTOR_PAGE_MAX_ROWS / 2;
+    const claims = Array.from({ length: half }, (_, i) => attested(i));
+
+    // `half` claims + `half` attestations = exactly the ceiling, with no stubs.
+    expect(PromoteConnectorPagePayloadSchema.safeParse(page({ stubs: [], claims })).success).toBe(
+      true,
+    );
+    const over = PromoteConnectorPagePayloadSchema.safeParse(
+      page({ stubs: [], claims: [...claims, attested(half)] }),
+    );
+    expect(over.success).toBe(false);
+    expect(over.error?.issues[0]?.message).toContain('ceiling');
+  });
+
+  it('accepts an explicit claim deletion, and still rejects a page carrying nothing', () => {
+    // `deleted.claims` is how a claim LEAVES. This arm never replaces by absence — a
+    // claim missing from a page is a claim on a different page — so without the explicit
+    // list a retracted claim would live forever.
+    const parsed = PromoteConnectorPagePayloadSchema.parse(
+      page({ stubs: [], deleted: { surfaces: [], mappings: [], claims: ['recClaim00000001'] } }),
+    );
+    expect(parsed.deleted?.claims).toEqual(['recClaim00000001']);
+
+    const empty = PromoteConnectorPagePayloadSchema.safeParse(
+      page({ stubs: [], deleted: { surfaces: [], mappings: [], claims: [] } }),
+    );
+    expect(empty.success).toBe(false);
+    expect(empty.error?.issues[0]?.message).toContain('claims');
   });
 });

@@ -41,6 +41,7 @@ function makeCounts(over: Partial<AdminConnectorCounts> = {}): AdminConnectorCou
     mappings_publishable: 6,
     pairs_curated: 1,
     pairs_generated: 1,
+    pairs_derived: 1,
     pairs_unknown: 1,
     evidenced_pairs: 0,
     ...over,

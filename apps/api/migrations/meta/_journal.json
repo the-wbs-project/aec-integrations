@@ -225,6 +225,20 @@
       "when": 1789112521490,
       "tag": "0031_gifted_callisto",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1789293191793,
+      "tag": "0032_mute_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1789302136408,
+      "tag": "0033_solid_nightcrawler",
+      "breakpoints": true
     }
   ]
 }

@@ -78,6 +78,7 @@ import {
   collectCounts,
   emptyCounts,
   isPublishable,
+  reachablePairTotal,
   representativeMapping,
   stubFilterWhere,
   toMapping,
@@ -377,7 +378,12 @@ export function createAdminConnectorCatalogDetailHandler(
         ),
       );
     }
-    if (counts.pairs_curated + counts.pairs_generated + counts.pairs_unknown > 0) {
+    // Every surface, via `reachablePairTotal`, never a hand-written sum of the
+    // fields that happened to exist when this line was written. The three-term
+    // version read ZERO for a derived-only catalogue (AECI-906) — Kroo Connector
+    // and Trimble AppXchange — and suppressed the one advisory whose job is to
+    // stop an operator reading pair counts as integrations.
+    if (reachablePairTotal(counts) > 0) {
       advisories.push(
         note(
           'reachable_never_counted',

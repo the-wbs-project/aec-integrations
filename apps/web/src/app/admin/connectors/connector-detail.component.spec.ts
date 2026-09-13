@@ -15,6 +15,12 @@
  *     relationship to the rows beneath it, so the grouping would be visual only.
  *  4. **Sections fail independently.** Five fetches, five loading/failed pairs —
  *     a broken triage query must not blank the catalogue basics.
+ *  5. **`derived` is not a flavour of `unknown` (AECI-906).** `unknown` means a
+ *     page exists and nobody has read it; `derived` means no page exists and the
+ *     pair was enumerated from a closed list. The label switch had no `derived`
+ *     case and its default returned "Unclassified", so a derived row would have
+ *     claimed triage was outstanding where there is none — and it would have done
+ *     so with a green build, because nothing here is an exhaustive switch.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -51,6 +57,7 @@ const COUNTS: AdminConnectorCounts = {
   mappings_publishable: 1,
   pairs_curated: 1,
   pairs_generated: 0,
+  pairs_derived: 0,
   pairs_unknown: 0,
   evidenced_pairs: 0,
 };
@@ -335,9 +342,109 @@ describe('ConnectorDetail', () => {
     const pairsSection = el.querySelector('section[aria-labelledby="admin-connector-pairs"]')!;
     expect(pairsSection.querySelectorAll('[role="alert"]')).toHaveLength(2);
     expect(pairsSection.textContent).toContain('could not load the delivered pairs');
-    expect(pairsSection.textContent).toContain('could not load these pages');
+    expect(pairsSection.textContent).toContain('could not load these pairs');
     expect(pairsSection.textContent).not.toContain('Nothing has been recorded as delivered');
     expect(pairsSection.textContent).not.toContain('publishes no pair pages');
+  });
+
+  describe('the derived surface (AECI-906)', () => {
+    /** One reachable row on `surface`, with the delivered lane left empty so the
+     *  pairs section holds exactly one table. */
+    function withReachableSurface(surface: string) {
+      return makeApiMock({
+        listPairs: vi.fn(async (_id: string, q: Record<string, unknown>) =>
+          q['lane'] === 'evidenced'
+            ? { lane: 'evidenced', data: [], page: 1, perPage: 25, total: 0, advisories: [] }
+            : {
+                lane: 'reachable',
+                data: [
+                  {
+                    id: 'pair-1',
+                    surface,
+                    side_a: {
+                      stub_id: 's1',
+                      slug: 'procore',
+                      label: 'Procore',
+                      product: null,
+                      publishable: false,
+                    },
+                    side_b: {
+                      stub_id: 's2',
+                      slug: 'sage',
+                      label: 'Sage',
+                      product: null,
+                      publishable: false,
+                    },
+                    url_a_to_b: null,
+                    url_b_to_a: null,
+                    classified_at: null,
+                    first_seen_at: '2026-07-01T00:00:00.000Z',
+                    last_seen_at: '2026-08-30T00:00:00.000Z',
+                    removed_at: null,
+                  },
+                ],
+                page: 1,
+                perPage: 25,
+                total: 1,
+                advisories: [],
+              },
+        ),
+      });
+    }
+
+    /** The "Page kind" cell of the reachable lane's only row. */
+    function pageKindCell(el: HTMLElement): string {
+      const pairs = el.querySelector('section[aria-labelledby="admin-connector-pairs"]')!;
+      const cells = pairs.querySelectorAll('tbody tr td');
+      return cells[cells.length - 1]!.textContent!.trim();
+    }
+
+    it('labels a derived row on its own terms, never as "Unclassified"', async () => {
+      const { el } = await setup(withReachableSurface('derived'));
+      // The regression: the switch's default returned the `unknown` label, so a
+      // derived row read as work outstanding rather than as a reach-only pair.
+      expect(pageKindCell(el)).toBe('Derived (no page)');
+      expect(pageKindCell(el)).not.toBe('Unclassified');
+    });
+
+    it('still labels a genuinely unclassified row "Unclassified"', async () => {
+      const { el } = await setup(withReachableSurface('unknown'));
+      expect(pageKindCell(el)).toBe('Unclassified');
+    });
+
+    it('renders a surface a future vocabulary adds, rather than mislabelling it', async () => {
+      // The default no longer absorbs an unrecognised value into the `unknown`
+      // label. It echoes the raw token, which reads as a defect instead of as a
+      // measurement — the same shape `statusLabel` already uses.
+      const { el } = await setup(withReachableSurface('syndicated'));
+      expect(pageKindCell(el)).toBe('syndicated');
+    });
+
+    it('tallies derived pairs as their own line in the surface split', async () => {
+      const { el } = await setup(
+        makeApiMock({
+          getCatalog: vi.fn(async () =>
+            makeCatalog({
+              // A derived-only catalogue: Kroo Connector and Trimble AppXchange
+              // are exactly this. Before AECI-906 every one of these rows was
+              // dropped from the tallies, so the screen reported four zeros.
+              counts: { ...COUNTS, pairs_curated: 0, pairs_derived: 42 },
+            }),
+          ),
+        }),
+      );
+      const pairs = el.querySelector('section[aria-labelledby="admin-connector-pairs"]')!;
+      const split = [...pairs.querySelectorAll('dl div')].map((d) => [
+        d.querySelector('dt')!.textContent!.trim(),
+        d.querySelector('dd')!.textContent!.trim(),
+      ]);
+      expect(split).toEqual([
+        ['Curated', '0'],
+        ['Auto-generated', '0'],
+        ['Derived (no page)', '42'],
+        ['Unclassified', '0'],
+      ]);
+    });
   });
 
   describe('accessibility (structural)', () => {

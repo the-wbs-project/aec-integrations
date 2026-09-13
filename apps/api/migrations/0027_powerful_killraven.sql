@@ -28,10 +28,17 @@
 --      `0014_careful_absorbing_man.sql`, this repo's only prior recreate, never hit
 --      this because `page_views` had no children.
 --
---      MEASURED, not theorised: `src/test/migration-0027.spec.ts` seeds 6 claims and
---      6 attestations, applies this migration in the GENERATED order, and observes
---      `claims = 0, attestations = 0`. Restoring the order below returns 6 and 6.
---      Five of its eight cases fail if anyone reorders this file.
+--      MEASURED, not theorised — but read what the spec actually asserts before you
+--      trust this line. `src/test/migration-0027.spec.ts` seeds 6 claims and 6
+--      attestations, applies this migration AS COMMITTED, and asserts both survive;
+--      five of its eight cases fail if anyone reorders this file. It does NOT apply the
+--      generated order, and an earlier version of this sentence said it did. The
+--      generated-order loss was measured out of band, and re-measured on 2026-09-13
+--      while writing `0033_solid_nightcrawler.sql` (AECI-891), which recreates this same
+--      table: there the generated order destroys every ATTESTATION and zero claims,
+--      because the claims are copied into `__new_claims` before the drop. Expect the
+--      same asymmetry here. That is what makes the loss quiet — the table a reviewer
+--      checks first still has all its rows.
 --
 --      The order below makes `integrations` CHILDLESS before it is dropped, and each
 --      child empty before ITS parent is dropped, so no cascade can reach a live row.

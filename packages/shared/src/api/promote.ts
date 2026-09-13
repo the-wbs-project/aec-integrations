@@ -523,7 +523,13 @@ export interface PromoteSkipped {
     // All four mean "this could not be RESOLVED" — the majority meaning of this
     // type — and never "policy said no". They exist because the connector sync is
     // PAGED and pages are not atomic with each other, so a page can legitimately
-    // reference a row that a later page carries. Widened here rather than given
+    // reference a row that a later page carries.
+    //
+    // AECI-891 note: that reading covers these four and NOT the reach-pair claims
+    // that ride the same endpoint under `kind: 'claim'`. Five of a claim's six skip
+    // reasons ARE "policy said no" and are not cleared by re-sending — see
+    // `REVIEW_APP_PROMOTE_API.md` §3a. Do not generalise the sentence above to
+    // every skip this endpoint emits. Widened here rather than given
     // their own array because `logPromoteSkips` is already generic over `kind` and
     // the review app's §4 skip handling is one code path on both sides.
     | 'connector-catalog'
