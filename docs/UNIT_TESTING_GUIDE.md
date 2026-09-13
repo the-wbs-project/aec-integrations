@@ -133,7 +133,7 @@ Use Miniflare for integration tests. For pure handler logic, extract and test as
 - Happy path: send valid request, assert correct response shape (validate against the Zod schema, not against a hand-written object)
 - Error paths: mock the dependency to throw, assert the right error code surfaces
 - Cache headers: assert exact `Cache-Control` and `Cache-Tag` for each route class; assert non-cacheable responses are `private, no-store`
-- Gateway normalization: assert `cacheKeyFor()` strips tracking noise, retains only content-affecting parameters, canonicalizes order, and is passed to `ctx.exports.Renderer.fetch()` as `cf.cacheKey`
+- Gateway normalization: assert `cacheKeyFor()` strips tracking noise, retains only content-affecting parameters, canonicalizes order, and is passed to `ctx.exports.Renderer.fetch()` as `cf.cacheKey` — **and that the rest of `request.cf` is still there beside it.** A supplied `cf` replaces `request.cf` on the loopback, so a test that asserts only the key passes while six `page_views` columns go NULL on every arrival; that is exactly what AECI-868 was. Assert the whole merged object, for GET and for HEAD (`CACHE_STRATEGY.md` §4a.1)
 - Native cache boundaries: do not mock `caches.default`; front-of-Worker HIT/MISS is deployed-only
 
 ### Async operations

@@ -16,7 +16,7 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to the metrics plane as `aeci.email.send{template:landing-signup}` on each new insert (PostHog beside Datadog through the AECI-639 dual-run) | **Live** (consent-independent) | The true signup count. **Readable since AECI-586** at `/admin/audience` (`GET /api/admin/audience`), which also carries growth, exact churn, and a **consent-independent** UTM + geography breakdown. Read PostHog for the on-site funnel (*which band* converted); read the panel for the number, the trend, and *where they came from*. |
 | **Product feedback** (server) | `feedback` D1 table via `POST /api/feedback` | **Live** (consent-independent) | **Readable since AECI-586** at `/admin/audience` → Feedback inbox (`GET /api/admin/feedback`). Before that the operator email fired from the handler was the only record — the table was genuinely write-only, so a filtered alert was a lost submission. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). Since **§13 D13** (2026-08-19) views made by a verified admin session are excluded on read too, whatever the path — the operator's own public-site browsing was 15% of the human count (see the 2026-08-19 addendum). Since **§13 D15** (2026-08-27) the rows a *lapsed* session left unflagged are excluded as well, by `(user_agent_hash, cf_asn)` pair (see the 2026-08-27 addendum). |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). Since **§13 D13** (2026-08-19) views made by a verified admin session are excluded on read too, whatever the path — the operator's own public-site browsing was 15% of the human count (see the 2026-08-19 addendum). Since **§13 D15** (2026-08-27) the rows a *lapsed* session left unflagged are excluded as well, by `(user_agent_hash, cf_asn)` pair (see the 2026-08-27 addendum). ⚠️ **Full-document `arrival` rows written between 2026-09-07 and the AECI-868 fix carry NULL `cf_asn` / `cf_country` / `cf_colo` / `cf_as_organization` / `tls_version` / `http_protocol`, and those days are not comparable with any other day** (see the 2026-09-11 addendum). |
 
 ### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577 + AECI-582)
 
@@ -640,3 +640,51 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > per-host split, because none was taken. No sitemap fetch result, because the submission is what
 > produces the first one. Each of those is a named gap, not an omission — and a later number that
 > silently fixes one of them by changing the filter is not a comparison.
+
+> **AECI-868 addendum (2026-09-11) — arrivals lost their network metadata for four days, and those
+> days' bot/human splits are not comparable with any other day.** From **2026-09-07T00:44Z** (the
+> Stage 2 promote) until the AECI-868 fix reaches production, every `page_views` row with
+> `navigation = 'arrival'` stored **NULL** `cf_asn`, `cf_country`, `cf_colo`, `cf_as_organization`,
+> `tls_version` and `http_protocol`. The cache gateway forwarded each GET/HEAD to the cached
+> `Renderer` entrypoint with a `cf` object that **replaced** `request.cf` instead of merging into it,
+> and every trusted `x-aeci-cf-*` header is derived from that object (`CACHE_STRATEGY.md` §4a.1).
+> **Staging and preview are affected from 2026-07-19**, when the gateway landed on `stage-2`.
+>
+> | Day (production) | Arrivals | With a `cf_asn` |
+> |---|---|---|
+> | 2026-09-06 | 1,458 | 1,458 |
+> | 2026-09-07 | 1,097 | 18 |
+> | 2026-09-08 | 2,633 | 0 |
+> | 2026-09-09 | 3,302 | 0 |
+> | 2026-09-10 | 2,736 | 0 |
+>
+> The last arrival carrying an ASN is `2026-09-07T00:44:50.980Z`; the first without is
+> `00:49:55.341Z`. **`spa` rows are unaffected throughout** — the browser tracker POSTs its own
+> request, which took the gateway's no-override branch.
+>
+> **What that does to the numbers in this file.** Every network-based signal reads `cf_asn` and
+> treats NULL as *no evidence* rather than as an error, so the failure is uniformly in one direction:
+> **fewer things flagged, more things admitted as human.** `DATACENTER_ASNS` classification could not
+> run on an arrival; `countDistinct(cf_asn)` was 0, so both swarm ratios and the ASN-rotator grouping
+> failed for groups of any size; the §13 D15 operator-pair retro-join cannot match a NULL ASN, so a
+> lapsed operator session on an arrival leaked straight into "human"; and the §9.8
+> `(user_agent_hash, cf_asn)` visitor definition lost half its key, making the count collision-prone.
+> Named-crawler UA matching and the AECI-658 header checks kept working, which is precisely why the
+> outage read as a *quiet* period rather than a broken one.
+>
+> **So: do not compare 2026-09-07 through the first full UTC day after the fix promotes with any day
+> outside that window.** Not the human count, not the bot split, not the automation-flagged figure,
+> not "visitors". A lower flagged count in that range is an artifact of missing input, not a change
+> in traffic. This is the same rule this file already applies to pre-2026-08-26 `client_verdict`
+> coverage: absent evidence is not evidence of absence.
+>
+> **Nothing here is backfillable.** No stored column implies the ASN the row never received, and the
+> arrival's ASN is not derivable from its UA hash (D13 measured that inference wrong in both
+> directions). The window is a permanent gap in the series.
+>
+> **The standing guard is now a check, not vigilance.** `arrival_cf_coverage` (`error`,
+> `apps/api/src/lib/data-quality.ts`) fails the nightly 04:00 UTC suite when arrivals exist and fewer
+> than 95% carry a `cf_asn`, and passes when there were none. It is visible on `/admin/system` with
+> the rest of the suite; `POST_LAUNCH_MONITORING.md` §0b is the procedure. The reason it did not
+> exist before is worth stating plainly: **every check in this system watched the catalog, and none
+> watched the pipe that feeds the traffic numbers.**

@@ -27,6 +27,7 @@ import {
   humanViewsAfterAutomation,
   windowsForDay,
 } from '../lib/analytics-digest';
+import { CHECKS } from '../lib/data-quality';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminOverviewHandler, type AdminOverviewDeps } from './admin-overview';
@@ -531,7 +532,7 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     });
   });
 
-  it('?recompute=1 runs the eleven checks and the drift count, sharing ONE drift call', async () => {
+  it('?recompute=1 runs every data-quality check and the drift count, sharing ONE drift call', async () => {
     await seedDay();
     const runDrift = vi.fn(async () => [
       {
@@ -553,7 +554,7 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     });
 
     expect(body.recomputed).toBe(true);
-    expect(body.status.data_quality?.checks).toHaveLength(11);
+    expect(body.status.data_quality?.checks).toHaveLength(CHECKS.length);
     expect(body.status.algolia_drift).toEqual({
       drifted: 1,
       indexes: [

@@ -14,6 +14,7 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
   integrations,
+  pageViews,
   products,
   productVendors,
   profiles,
@@ -23,9 +24,11 @@ import {
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { ARRIVAL_CF_COVERAGE_MIN } from './arrival-coverage';
 import {
   CHECKS,
   checkAlgoliaDrift,
+  checkArrivalCfCoverage,
   checkBrokenIntegrationRefs,
   checkDuplicateProducts,
   checkDuplicateVendors,
@@ -430,6 +433,94 @@ describe('checkEntitlementMirrorDrift', () => {
     const spec = CHECKS.find((c) => c.id === 'entitlement_mirror_drift');
     expect(spec).toBeDefined();
     expect(spec!.severity).toBe('error');
+  });
+});
+
+// ── #12 arrival CF coverage (AECI-868) ────────────────────────────────────────
+
+describe('checkArrivalCfCoverage', () => {
+  // `NOW` is 2026-06-24T04:00Z (the cron's hour), so the window is the preceding
+  // 24 h. These timestamps sit either side of it.
+  const IN_WINDOW = '2026-06-23T18:00:00.000Z';
+  const BEFORE_WINDOW = '2026-06-22T18:00:00.000Z';
+
+  async function seedArrivals(
+    withAsn: number,
+    withoutAsn: number,
+    createdAt = IN_WINDOW,
+  ): Promise<void> {
+    for (let i = 0; i < withAsn; i++) {
+      await t.db
+        .insert(pageViews)
+        .values({ path: '/products/procore', navigation: 'arrival', cfAsn: 23700, createdAt });
+    }
+    for (let i = 0; i < withoutAsn; i++) {
+      await t.db
+        .insert(pageViews)
+        .values({ path: '/products/procore', navigation: 'arrival', cfAsn: null, createdAt });
+    }
+  }
+
+  it('passes with no arrivals at all — an empty night is not a telemetry defect', async () => {
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('no full-document arrivals');
+  });
+
+  it('passes when coverage is exactly at the floor', async () => {
+    await seedArrivals(19, 1); // 95.0% — the boundary must not fail
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('19/20');
+    expect(finding.note).toContain('95.0%');
+  });
+
+  it('fails when coverage is below the floor, naming the shortfall and the cause', async () => {
+    await seedArrivals(0, 12); // the AECI-868 production shape: arrivals, zero ASNs
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('12 of 12');
+    expect(finding.lines[0]).toContain('NULL cf_asn');
+    expect(finding.lines[0]).toContain('AECI-868');
+    expect(finding.note).toContain('0/12');
+  });
+
+  it('fails on a partial regression, not only a total one', async () => {
+    await seedArrivals(9, 11); // 45%
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('11 of 20');
+    expect(finding.lines[0]).toContain('45.0%');
+  });
+
+  it('ignores rows outside the 24h window', async () => {
+    await seedArrivals(0, 50, BEFORE_WINDOW); // an older outage, already reported
+    await seedArrivals(5, 0);
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('5/5');
+  });
+
+  it('ignores `spa` rows, which never lost their metadata', async () => {
+    await t.db.insert(pageViews).values({
+      path: '/products/procore',
+      navigation: 'spa',
+      cfAsn: 23700,
+      createdAt: IN_WINDOW,
+    });
+    await seedArrivals(0, 4);
+    const finding = await checkArrivalCfCoverage(t.db, NOW);
+    // The four NULL arrivals are the whole population — a healthy SPA row must
+    // not be allowed to lift the ratio back over the floor.
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('4 of 4');
+  });
+
+  it('is registered at `error` severity — a silent telemetry outage is not a warning', () => {
+    const spec = CHECKS.find((c) => c.id === 'arrival_cf_coverage');
+    expect(spec).toBeDefined();
+    expect(spec!.severity).toBe('error');
+    expect(ARRIVAL_CF_COVERAGE_MIN).toBe(0.95);
   });
 });
 

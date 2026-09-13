@@ -951,11 +951,22 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
 - `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
 
-**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the ten
+**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the twelve
 read-only integrity checks (orphan products/vendors, products stuck `ready` >30d, integrations pointing
 at a pulled product, anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate
-vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140 Algolia drift). The job
+vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140 Algolia drift, the AECI-609
+`entitlement_mirror_drift` guard, and the AECI-868 `arrival_cf_coverage` tripwire). The job
 **does not auto-repair** — humans triage. The email digest to Chris + Bill carries the offending rows.
+
+> **`arrival_cf_coverage` is not a data-repair finding — do not triage it like one.** It fails when
+> full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, which
+> means the SSR arrival write lost `request.cf` and six columns are being stored NULL. Start at the
+> cache gateway's `cf` merge (`CACHE_STRATEGY.md` §4a.1, the AECI-868 defect) and at `GET /api/version`
+> to see which build is live. **Nothing repairs the affected rows** — the columns are not
+> reconstructable from D1 — so the whole repair is "stop the bleeding, then mark the window". While it
+> is failing, the day's traffic figures, human/bot split, swarm ratios and visitor counts are all
+> unusable: say so in the health report rather than charting across the gap
+> (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
 
 **First checks**
 

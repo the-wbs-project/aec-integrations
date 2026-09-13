@@ -1,7 +1,7 @@
 /**
  * The §23.1 daily data-quality suite (AECI-241 / Phase 7.6).
  *
- * Eleven read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
+ * Twelve read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
  * (`scheduled.ts`) and summarised in the email digest (`data-quality-email.ts`).
  * **Report-only** — no auto-remediation; the digest + the per-check Datadog gauge
  * are how humans triage (§23.1).
@@ -10,8 +10,14 @@
  * an injected `fetch` for the logo probe and an injected closure for the reused
  * AECI-140 Algolia-drift count), so every check unit-tests against the in-memory
  * D1 harness (`test/d1.ts`) with no network. The orchestrator
- * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
+ * `runDataQualityChecks` runs all twelve best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
+ *
+ * Eleven of the twelve check the *catalog*. #12 (AECI-868) checks the *telemetry
+ * pipeline* that feeds every traffic figure, which is a deliberate widening of what
+ * this suite is for: the four-day arrival-metadata outage it guards produced no
+ * error, no alert and no visibly wrong number, so nothing but a nightly ratio could
+ * have caught it. See `arrival-coverage.ts` for the full argument.
  *
  * Two checks are interpreted against D1 reality (documented inline):
  *   - #2 "ready >30d" is **structurally dead** — nothing in this repo ever writes
@@ -31,6 +37,7 @@ import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concur
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
+import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { textAsc } from './collation';
 import {
   and,
@@ -375,6 +382,47 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
   };
 }
 
+/**
+ * #12 — arrival network-metadata coverage over the last 24 h (AECI-868).
+ *
+ * The one check in this suite that watches the telemetry pipeline rather than the
+ * catalog. Fails when full-document arrivals exist and fewer than
+ * {@link ARRIVAL_CF_COVERAGE_MIN} of them carry a `cf_asn`; passes when there were
+ * no arrivals at all, because an empty night is not a defect.
+ *
+ * ⚠️ Its `count` is **1 when tripped, not a row count** — unlike every other check
+ * here, whose `count` is "how many offending rows". One summary line is the point:
+ * the finding is a *ratio*, and emitting a line per NULL row would put thousands of
+ * identical lines in the digest and set the `aeci.data_quality.check` gauge to a
+ * number that tracks traffic volume rather than severity. The numbers live in the
+ * line and the note, where they are read, not in the gauge, where they would be
+ * misinterpreted.
+ *
+ * Severity is `error` in {@link CHECKS}: a warn would land in the digest's clean-ish
+ * tail, and the defect it guards ran four days on production while every figure
+ * built on it kept rendering.
+ */
+export async function checkArrivalCfCoverage(db: Db, now: Date): Promise<CheckFinding> {
+  const endIso = now.toISOString();
+  const startIso = new Date(now.getTime() - DAY_MS).toISOString();
+  const { arrivals, arrivalsWithAsn, coverage } = await readArrivalCfCoverage(db, startIso, endIso);
+
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  if (arrivals === 0) {
+    return { lines: [], note: 'no full-document arrivals in the last 24h — nothing to measure' };
+  }
+  const observed = `${arrivalsWithAsn}/${arrivals} arrivals carry cf_asn (${pct(coverage)}, floor ${pct(ARRIVAL_CF_COVERAGE_MIN)})`;
+  if (coverage >= ARRIVAL_CF_COVERAGE_MIN) return { lines: [], note: observed };
+  return {
+    lines: [
+      `${arrivals - arrivalsWithAsn} of ${arrivals} full-document arrivals have a NULL cf_asn — ` +
+        `coverage ${pct(coverage)} is below the ${pct(ARRIVAL_CF_COVERAGE_MIN)} floor. ` +
+        `The SSR arrival write lost request.cf; check the cache gateway's cf merge (AECI-868).`,
+    ],
+    note: observed,
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -384,8 +432,9 @@ interface CheckSpec {
   run: (deps: DataQualityDeps) => Promise<CheckFinding>;
 }
 
-/** The eleven checks in digest order (§23.1, plus the AECI-609 mirror guard).
- *  Severity drives the digest grouping and is informational on the gauge. */
+/** The twelve checks in digest order (§23.1, plus the AECI-609 mirror guard and the
+ *  AECI-868 telemetry tripwire). Severity drives the digest grouping and is
+ *  informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
     id: 'products_without_vendor',
@@ -453,6 +502,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Vendors whose `verified` flag disagrees with their entitlement',
     severity: 'error',
     run: ({ db }) => checkEntitlementMirrorDrift(db),
+  },
+  {
+    id: 'arrival_cf_coverage',
+    label: 'Full-document arrivals missing their network metadata (`cf_asn`)',
+    severity: 'error',
+    run: ({ db, now }) => checkArrivalCfCoverage(db, now),
   },
 ];
 
