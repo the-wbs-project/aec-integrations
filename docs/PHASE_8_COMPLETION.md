@@ -118,9 +118,12 @@ writes are exempt, recorded as the standing exemption EX-002; and **scheduled de
 exempt**, so the retention prune writes exactly one `retention.pruned` summary row per run in the
 same batch as its deletes. The test is *entity class, not actor class*.
 
-**Consciously open, none blocking:** AECI-590 (reverse-proxy PostHog, D9, Low, outside the epic) ·
-AECI-591 (the `*/15` reconcile sweep's genuine §26.1 violation — surfaced by ADR 0022, deliberately
-not legitimized, Medium) · AECI-592 (data-quality check #2 is unreachable, Medium).
+**Consciously open, none blocking:** AECI-591 (the `*/15` reconcile sweep's genuine §26.1 violation
+— surfaced by ADR 0022, deliberately not legitimized, Medium) · AECI-592 (data-quality check #2 is
+unreachable, Medium). **AECI-590** (reverse-proxy PostHog, D9) came **off this list on 2026-09-13**,
+closed on its own acceptance criterion: the measurement it required found about **16 real browser
+page loads a day**, so a proxy recovers 2–5. Numbers, corrections and the re-open trigger are in
+`ANALYTICS_BASELINE.md`.
 
 **New punts from this slice:** §F5 (no `metrics-snapshot` monitor) and §F6 (the at-merge
 obligations).

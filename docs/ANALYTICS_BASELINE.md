@@ -688,3 +688,61 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > the rest of the suite; `POST_LAUNCH_MONITORING.md` §0b is the procedure. The reason it did not
 > exist before is worth stating plainly: **every check in this system watched the catalog, and none
 > watched the pipe that feeds the traffic numbers.**
+
+> **AECI-590 addendum (2026-09-13) — how much real browser traffic there is, and why that closed the
+> reverse-proxy question.** AECI-590's acceptance criterion was to measure the blocker-lost delta
+> before building anything. This is that measurement. It did **not** produce a loss ratio, and the
+> reason is worth recording: **D1 holds no JS-gated first-party counter to divide by.** `page_views`
+> `arrival` rows are written server-side by `firePageView`, so a headless fetcher that never runs a
+> line of JavaScript produces one. `app_started` requires the bundle to boot. The two populations are
+> not comparable, so their quotient is not a blocker rate.
+>
+> What the data does settle is **absolute volume**, and that turned out to be the decisive number.
+> PostHog production project 354071, `app_started`, `$host = 'www.aecintegrations.com'`,
+> 2026-09-07 → 09-11:
+>
+> | Signal | 5-day total |
+> |---|---|
+> | `app_started` events | 121 |
+> | …from **one** person firing 41 times | 41 |
+> | …from persons firing **exactly once** | **80** |
+> | D1 corroborated human floor (`corroboratedViews`, AECI-683) | 27 |
+> | D1 `page_views` human arrivals | 3,396 |
+> | D1 human arrivals net automation | 2,338 |
+>
+> Tier 2 uses `persistence: 'memory'`, so an anonymous visitor mints a **fresh id every page load**.
+> A person firing exactly once is therefore one browser page load. The 41-event outlier is the
+> inverse: a stable `localStorage` id, i.e. the operator's own consented Tier 3 session. So the
+> external browser population is **80 page loads in five days, about 16 a day** — and every one of
+> the 130 events in the wider 7-day pull carries a NULL person email, confirming Tier 2 never
+> identifies anyone.
+>
+> **The comparison that matters runs the other way from the one AECI-590 expected.** PostHog's
+> anonymous Tier 2 beacon records **about 3× the corroborated human floor** (80 vs 27). The floor is
+> this file's most conservative human estimator. A large blocker-hidden population would have to be
+> invisible to *both* — and it is not visible to the first-party side either: `navigation = 'spa'`
+> rows, which prove the Angular client booted because the browser tracker POSTed them to our own
+> origin, come from **1–3 distinct visitors a day**. A blocked visitor's SPA rows would still arrive.
+>
+> **Do not read the D1 column of that table as a denominator.** The window sits entirely inside the
+> AECI-868 gap documented in the addendum above, where arrivals carry no `cf_asn` and the failure
+> direction is *more things admitted as human*. The 3,396 is inflated for a known reason. The
+> conclusion does not rest on it — it rests on the 80, which is a direct count on the PostHog side
+> and is unaffected.
+>
+> **Decision.** At PostHog's published 10–30% blocker recovery, a reverse proxy returns **2 to 5 page
+> loads a day**. That does not pay for a Worker route, a cookie-stripping proxy handler, a second host
+> variable and an open-ended filter-list maintenance burden. AECI-590 is closed on the number, which
+> its own AC named as a valid outcome.
+>
+> **Re-open trigger, named so this is a decision and not a drift:** re-run this measurement when
+> `app_started` sustains **200+ page loads a day** for a week, or immediately after the first paid or
+> outbound marketing campaign lands. The scale, not the mechanism, is what makes the proxy worth it.
+> The build was fully scoped before it was declined and the findings are worth keeping: the browser's
+> PostHog surface is **three** endpoints, not one (`/e/` capture, `POST /flags/?v=2`, and
+> `GET /array/{token}/config`), and a first-party `api_host` collapses all three onto one prefix
+> because `posthog-js` resolves a non-`*.posthog.com` host to region `custom` and routes every
+> endpoint kind to `api_host`. Two traps to carry forward: `POSTHOG_HOST` in `apps/web` is read by the
+> **browser injection and the SSR Worker's own OTLP transport**, so the browser needs its own
+> variable; and a same-origin fetch attaches cookies, so the handler must strip `Cookie` before
+> forwarding or every ingest request ships the visitor's `sb-access-token` to PostHog.
