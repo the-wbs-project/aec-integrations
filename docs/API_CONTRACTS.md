@@ -3888,6 +3888,117 @@ the only writer of `unsubscribed_at` is the subscriber, through the tokenized
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
 an unknown `sort` key, or an unknown `status`.
 
+#### Traffic classification classes on the admin read surface — **PROPOSED (AECI-872), not yet agreed**
+
+> **PROPOSED (AECI-872), not yet agreed.** None of the fields below exist. This is the wire half of
+> `ADMIN_PANEL_SPEC.md` §13 **D19** and the read side of `DATABASE_SCHEMA.md` §9.7, written so the
+> shapes can be argued before any schema or handler is touched. Nothing here is implemented and
+> nothing in `packages/shared/src/api/admin-panel.ts` changes until D19 is agreed.
+
+Scope is deliberately narrow: **shapes only**. Which classifier runs, when, and how it decides are
+D19's business and §3c's; this section says what the operator's surfaces would return.
+
+**1. The four classes are additive on `GET /api/admin/overview`, not a replacement for `traffic`.**
+`page_views_human`, `page_views_human_raw` and `automation_flagged` keep their current meanings
+(AECI-745 redefined `page_views_human` once already, and redefining it a second time would be the
+same silent semantic change this doc had to write out in prose the first time). The classes arrive
+as a sibling object, so a reader can see both answers and the delta between them during the
+shadow-mode window §3c requires.
+
+```typescript
+// PROPOSED. Added to AdminOverviewResponseSchema alongside `traffic`.
+export const AdminTrafficClassSchema = z.enum([
+  'identified_automation',
+  'suspected_automation',
+  'browser_with_human_evidence',
+  'unresolved',
+]);
+
+export const AdminClassificationSummarySchema = z.object({
+  // Which classifier produced every count in this object. Null = the classifier
+  // did not run for this window, which is NOT the same as "no rows" — the
+  // automation_filter_did_not_run precedent (§6.10) applies verbatim.
+  classifier_version: z.string().min(1).nullable(),
+
+  // One entry per class, ALWAYS all four, zeros included. An absent class would
+  // read as "not measured" and a measured zero is a different fact.
+  counts: z.array(z.object({
+    class: AdminTrafficClassSchema,
+    views: z.number().int().nonnegative(),
+    visitors: z.number().int().nonnegative(),   // §9.8 (user_agent_hash, cf_asn) pairs
+  })).length(4),
+
+  // Internal traffic is reported BESIDE the classes, never inside one (D19(b)).
+  // It is excluded by identity, not judged by evidence.
+  internal_excluded: z.object({
+    views: z.number().int().nonnegative(),
+    operator_leak_inferred: z.number().int().nonnegative(),  // the D15(b) figure, unchanged
+  }),
+
+  // The D19(a) rule, on the wire rather than only in the caption: name which of
+  // the three questions each figure answers.
+  basis: z.enum(['requests', 'browser_executions']),
+
+  // Non-null when the window spans a classifier version change (D19(c)). Days are
+  // FLAGGED, never blended, so the reader is told rather than shown an average.
+  version_seam: z.object({
+    from_version: z.string().min(1),
+    to_version: z.string().min(1),
+    changed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).nullable(),
+});
+```
+
+**2. Three new note codes, following the existing conventions exactly.** They join
+`AdminNoteCodeSchema`; `code` is the contract and `message` stays untranslated operator text.
+
+| Code | Severity | Gated? |
+|---|---|---|
+| `classification_unresolved_share` | `warn` | **Gated** on the unresolved share exceeding its threshold. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
+| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. |
+| `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d)). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. |
+
+**3. A per-row classification on `GET /api/admin/page-views`.** One nullable object on
+`AdminPageViewRowSchema`, beside `asn_registry` and read the same way — a read-time annotation that
+never alters `is_bot`.
+
+```typescript
+// PROPOSED. Added to AdminPageViewRowSchema.
+export const AdminPageViewClassificationSchema = z.object({
+  class: AdminTrafficClassSchema,
+  // Short, stable machine codes — never prose, and never localized. The UI renders
+  // from these; `DATABASE_SCHEMA.md` §9.7 stores the same array.
+  reason_codes: z.array(z.string().min(1)).max(8),
+  classifier_version: z.string().min(1),
+  evaluated_at: z.string().datetime(),
+  evidence_window: AdminWindowSchema,   // may be WIDER than the row's own day
+  // D19(e): did this row have the inputs the classifier needed? The field that
+  // would have distinguished "less automation" from "blind detector" across
+  // 2026-09-08..11, when an arrival with no `request.cf` wrote `cf_asn = NULL`
+  // and read as clean human traffic on every surface.
+  evidence_complete: z.boolean(),
+});
+```
+
+**Three properties of that row shape are load-bearing.**
+
+- **`null` means "not classified", never "human".** A row written before the classifier existed, or
+  on a day it did not run, returns `classification: null`. Rendering that as any class would be the
+  `is_bot IS NULL` reads-as-human defect (§9.1) recreated in a new field.
+- **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page;
+  closed because the codes are compared across versions months later, so renaming one is a data
+  migration rather than a refactor.
+- **Privacy is unchanged and is enforced by the contract.** No field here carries identity.
+  `visitor_hash` stays `substr(user_agent_hash, 1, 8)` computed in SQL, and `user_id` /
+  `session_id` / `profile_role` remain unselectable (§13 D7). A classification is a judgement about
+  a request, not about a person.
+
+**Filtering by class is deliberately NOT proposed here.** `AdminPageViewsQuerySchema` gains no
+`class=` parameter in this draft. The §13 D10 constraint-2 problem would arrive with it — a row
+filter needs its counts computed both ways or the operator gets a smaller number with nothing to
+compare it against — and that is a decision for whoever builds the screen, not one to settle in a
+spec draft.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`

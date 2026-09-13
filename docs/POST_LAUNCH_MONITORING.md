@@ -1017,6 +1017,79 @@ Ops-routed findings are unaffected.
 | `VENDOR_SYNC_FOCUSED_INTERVAL_MS` / `VENDOR_SYNC_UNFOCUSED_INTERVAL_MS` (hidden = no timer) | `vendor/vendor-live-sync.ts` (web) | 20 s / 60 s / paused | How fast a live portal notices a change it did not make (AECI-629 / `STAGE_2_REALTIME_SPEC.md` §4.1). **The `aeci.api.vendor.updates{changed:none}` ratio is the evidence** — a high `none` share means the cadence outruns how often the portal actually changes, so **lengthen the interval first**; a high `some` share is the opposite finding and is ADR 0023's third re-open condition (adopt a Durable Object), not a reason to poll harder. **Read `some` as an upper bound** — the endpoint is stateless, so the tag means "a cursor moved within 60 s of this response", and one write can be tagged `some` on three consecutive polls of a focused client (`OBSERVABILITY.md`). Hidden is **paused with no timer** rather than slowed: the tab polls immediately on `visibilitychange`, so a resumed tab is correct in one round trip. `online` is answered immediately **only while visible** — a flapping connection would otherwise wake a hidden tab repeatedly. |
 | `VENDOR_SYNC_BACKOFF_BASE_MS` / `VENDOR_SYNC_BACKOFF_CAP_MS` | `vendor/vendor-live-sync.ts` (web) | 20 s / 160 s | The error backoff: `min(20 s × 2ⁿ, 160 s)`, reset on the first success. **It is floored at the current poll interval** (`Math.max(base, backoff)`), so a *focused* tab sees 20 → 40 → 80 → 160 s while an *unfocused* one sees 60 → 60 → 80 → 160 s — without the floor the first backoff step (20 s) would be shorter than the unfocused cadence (60 s) and an outage would be answered with three times the healthy load. The cap is sized so a portal left open through an API outage settles at roughly one request every three minutes and still recovers on its own without the vendor reloading. Raise only if an outage's tail traffic is itself the problem; lowering it trades recovery latency for load during exactly the window the API is already unwell. |
 
+### 3c. Changing a classifier: evaluation and recording — **PROPOSED (AECI-872), not yet agreed**
+
+> **PROPOSED (AECI-872), not yet agreed.** This section describes a procedure that does **not** run
+> today. It is the operational half of `ADMIN_PANEL_SPEC.md` §13 **D19**, and it takes effect only if
+> D19 is agreed. Until then §3b above is the live procedure for every threshold in this document.
+
+Today a threshold change is one edit to a constant in `lib/swarm-detection.ts` and a note in
+`POST_LAUNCH_HEALTH_REPORT.md`. That is the whole record. Two gaps follow from it and §3b already
+names both: a change moves `traffic.page_views_human_after_automation` for every stored day with no
+change to any raw count, so nothing detects it; and there is no measured false-positive cost, so
+"did this help?" is answered by re-reading one production day. D19's answer is a five-step loop.
+A **classifier** here means any of: a `DATACENTER_ASNS` entry, a `NAMED_BOTS` pattern, one of the
+§3b tunable constants, the `NON_BROWSER_VERDICTS` vocabulary, or a whole new rule.
+
+**1. Propose.** Open a Linear issue in the **AECi** team naming: the rule or constant, its current
+value, the proposed value, and **the specific rows it is meant to reach**. A proposal that cannot
+name rows is a hunch. Quote the rows from a read-only `SELECT` against the tier's D1, not from
+memory — §3b's census and sweep queries are the starting point.
+
+**2. Shadow-run.** The new version runs **beside** the current one and reports; it decides nothing.
+It must be exercised against the D19(d) reviewed sample, which has to contain all six of:
+
+| Sample slice | Why it is in the set |
+|---|---|
+| Labelled operator sessions | The population D12 / D13 / D15(a) exclude by identity. A classifier that re-labels them as automation has broken the exclusion, not improved it. |
+| Known bots | The easy half. If these move, the change is wrong for a reason that needs no statistics. |
+| **Privacy-hardened browsers** — DNT / GPC set, no `Sec-CH-UA`, third-party requests blocked | The highest-risk false positive in this whole system. These are real people whose browsers deliberately look like the thing the detectors hunt. |
+| Ambiguous shared-proxy cases | Office NAT, campus, café. D15(c) is entirely about this shape. |
+| Real traffic with unknown labels | The actual population. Without it the sample measures the sample. |
+| **Held-out days the tuning never saw** | The only slice that can show over-fitting to a decomposed day. |
+
+**3. Measure — three numbers, always reported together.** One of the three alone is a way to look
+good.
+
+| Metric | What it counts | Why it decides |
+|---|---|---|
+| **False exclusions** | Real browser activity the new version classified as automation | The cost that is invisible and permanent. D10's rule, restated: a false positive silently deletes a real visitor, which is worse than counting a crawler. |
+| **Missed automation** | Automated clients the new version left in the reported population | The benefit being claimed. Measure it against the held-out days, not against the days that motivated the change. |
+| **Unresolved share** | Rows the new version could not place in any class | The honesty check. A version that moves rows out of *unresolved* into a confident class without new evidence has become more decisive, not more accurate. |
+
+A change that improves one and degrades another is a **trade to be stated in the issue**, not a
+result to be reported as a win.
+
+**4. Record.** A version change is recorded in four places, and the first two are the ones that make
+the stored series legible afterwards:
+
+- **The classification record itself** (`DATABASE_SCHEMA.md` §9.7) carries the classifier version on
+  every row it writes, so a day evaluated under two versions is visible in the data rather than in
+  someone's memory.
+- **`job_runs.detail`** carries the version and the constant values the run actually used — not just
+  the counts it produced, which is all it carries today (`swarmCandidates`, `asnRotatorCandidates`,
+  `swarmFlaggedViews`, `swarmTruncated`, `verdictFlaggedViews`, `nonBrowserCandidates`).
+- **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
+- **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
+  is unchanged and is not superseded by any of the above.
+
+**5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. The
+rule is D19(c): **days under different classifier versions are flagged, never blended.** Concretely,
+for the day of the switch and for any window spanning it, three things hold.
+
+- A note names the change and the two versions. It is emitted **unconditionally** for a spanning
+  window, because it describes what a permanently-present figure means — D15(d)'s treatment of
+  `corroborated_is_a_referrer_floor`, not D15(b)'s gated `operator_leak_is_an_inference`.
+- The stored series is **not** retroactively recomputed to the new definition unless the change was
+  explicitly approved as a re-evaluation. §3b's warning stands: `traffic.page_views_human_after_automation`
+  is snapshot-only and in `NOT_BACKFILLABLE`, so there is no repair tool and a silent mixed series
+  is the default failure.
+- A chart crossing the boundary shows the boundary. It does not average across it.
+
+**What does not change.** The classifier is still **report-only**: no step above writes `is_bot`, and
+no ASN joins `DATACENTER_ASNS` without a human decision on a named holder (§3b, "Widening the list").
+Shadow mode is a way to earn that decision, never a way to skip it.
+
 ---
 
 ## 4. Triage → ticket loop
