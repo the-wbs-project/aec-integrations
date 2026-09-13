@@ -61,6 +61,37 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-09-13 — AECI-590: the reverse-proxy question is closed on a measurement
+
+Scope: **a measurement plus a doc sweep.** No instrumentation changes, no schema change, no
+threshold moves.
+
+**What was measured.** AECI-590's acceptance criterion was to size the blocker-lost delta before
+building a first-party PostHog proxy. Production project 354071, `app_started`,
+`$host = 'www.aecintegrations.com'`, 2026-09-07 → 09-11: **121 events, of which 80 come from
+persons firing exactly once and 41 from a single person.** Tier 2 runs `persistence: 'memory'`, so
+a one-event person is one browser page load and the 41-event person is the operator's own consented
+Tier 3 session. External browser traffic is therefore **~16 page loads a day**. At PostHog's cited
+10–30% blocker recovery a proxy returns **2–5 a day**.
+
+**No loss ratio was produced, deliberately.** D1 holds no JS-gated first-party counter to divide by:
+`page_views` `arrival` rows are written server-side, so a headless fetcher that never runs
+JavaScript produces one. That quotient is not a blocker rate. The full reasoning, the caveat that
+the window sits inside the AECI-868 arrival-metadata gap, and the two build findings kept for a
+re-open are in the dated AECI-590 addendum in `ANALYTICS_BASELINE.md`.
+
+**Correction to the 2026-08-14 entry below.** That entry lists **three** issues as consciously open,
+[AECI-590](https://linear.app/aec-integrations/issue/AECI-590) among them. Per §14.3's rule it is
+left byte-identical — a dated log gets a new entry, not an edit. Read it as **two**: AECI-591 and
+AECI-592 remain open; AECI-590 is closed on its own AC, which named "the number does not justify the
+work" as a valid outcome.
+
+**Regressions / tickets filed:** none.
+**Threshold tuning:** none.
+**Actions / follow-ups:** re-run this measurement when `app_started` sustains **200+ page loads a
+day** for a week, or immediately after the first paid or outbound marketing campaign lands. That is
+the named re-open trigger; the scale, not the mechanism, is what would make the proxy worth it.
+
 ## 2026-09-09 — AECI-827: the long memory now corrects itself
 
 Scope: a **code change to the 00:15 cron**, no schema change, no new cron, no new binding. Closes the
