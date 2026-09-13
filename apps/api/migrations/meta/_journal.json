@@ -218,6 +218,13 @@
       "when": 1789020136869,
       "tag": "0030_aspiring_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1789112521490,
+      "tag": "0031_gifted_callisto",
+      "breakpoints": true
     }
   ]
 }

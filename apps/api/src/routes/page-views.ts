@@ -303,8 +303,11 @@ async function capturePageView(
     // How browser-shaped this request was (AECI-658). Computed here for the same
     // reason the two classifications above are: the headers are gone afterwards.
     // ANNOTATION ONLY — deliberately not passed to `classifyTraffic` and it must
-    // never change `isBot` above. Navigation-aware, so the tracker's same-origin
-    // fetch is not judged by document-arrival rules it fails by construction.
+    // never change `isBot` above. Writer-aware, so the tracker's same-origin fetch
+    // is not judged by document-arrival rules it fails by construction — and since
+    // AECI-871 that writer comes from the SSR Worker's trusted provenance header,
+    // not from `payload.navigation`, which is passed only so a body claiming an
+    // in-app hop that no header corroborates can be declined (`unknown`).
     const clientSignals = classifyClientSignals(req.headers, ua, payload.navigation ?? null, cf);
 
     // AECI-743 — the one-arrival-one-row key. Computed here because it needs the
@@ -379,6 +382,12 @@ async function capturePageView(
         tlsVersion: clientSignals.tlsVersion,
         httpProtocol: clientSignals.httpProtocol,
         clientVerdict: clientSignals.verdict,
+        // Which of our writers originated this row (AECI-871 / §13 D18). Taken
+        // from `clientSignals`, which read it off the TRUSTED
+        // `PAGE_VIEW_WRITER_HEADER` — never from `payload.navigation`, which is a
+        // client-controlled claim and, until this issue, was enough on its own to
+        // earn a `browser` verdict.
+        writerProvenance: clientSignals.writerProvenance,
         // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
         // (e.g. the waitlist welcome banner); null for ordinary views.
         refSource: payload.ref_source ?? null,

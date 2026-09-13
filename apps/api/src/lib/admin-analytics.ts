@@ -908,11 +908,13 @@ export interface PageViewFilterInput {
   source?: string;
   country?: string;
   path_contains?: string;
+  /** Exact `writer_provenance`, or the null sentinel (AECI-871). */
+  writer?: string;
 }
 
 /**
- * The `WHERE` fragment for the feed's `source` / `country` / `path_contains`
- * filters, or `undefined` when none are set.
+ * The `WHERE` fragment for the feed's `source` / `country` / `path_contains` /
+ * `writer` filters, or `undefined` when none are set.
  *
  * `ADMIN_PAGE_VIEW_NULL_FILTER` selects the NULL bucket that `breakdown()`
  * surfaces as `key: null` — a query string cannot carry a null, and those rows
@@ -940,7 +942,18 @@ export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined
   const path =
     f.path_contains === undefined ? undefined : likeContains(pageViews.path, f.path_contains);
 
-  return and(source, country, path);
+  // AECI-871. The null bucket is the one that matters most here and will be the
+  // bulk of the table for a while: `writer_provenance` starts on the day it shipped
+  // and is not backfillable, so "no trusted provenance" has to be selectable rather
+  // than just absent from the other buckets.
+  const writer =
+    f.writer === undefined
+      ? undefined
+      : f.writer === ADMIN_PAGE_VIEW_NULL_FILTER
+        ? isNull(pageViews.writerProvenance)
+        : eq(pageViews.writerProvenance, f.writer);
+
+  return and(source, country, path, writer);
 }
 
 export interface PageViewPage {
@@ -1011,6 +1024,7 @@ export async function listPageViews(
         vendorId: pageViews.vendorId,
         referrerSource: pageViews.referrerSource,
         referrer: pageViews.referrer,
+        writerProvenance: pageViews.writerProvenance,
       })
       .from(pageViews)
       .where(where)
@@ -1058,6 +1072,10 @@ export async function listPageViews(
         entity: entityId ? (entities.get(entityId) ?? null) : null,
         referrer_source: r.referrerSource,
         referrer: r.referrer,
+        // The trusted counterpart to `referrer_source` above (AECI-871): that is
+        // what the request claimed, this is what our SSR Worker stamped. Null on
+        // every row written before it shipped, and not backfillable.
+        writer_provenance: r.writerProvenance,
         // Read-time only. `is_bot` above is untouched by this — see
         // `lib/asn-registry.ts` for why the two must not be merged.
         asn_registry: r.cfAsn === null ? null : (annotations.get(r.cfAsn) ?? null),
