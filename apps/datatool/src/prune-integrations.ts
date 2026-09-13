@@ -3,16 +3,17 @@
  * env's D1 — the Worker port of
  * `scripts/ops/2026-08-orphan-integration-cleanup/cleanup.sh`.
  *
- * **What an orphan is.** A row that **no Airtable record points at** — no
- * `Integrations.supabase_integration_id` holds its id. Because promote keys
+ * **What an orphan is.** A row that **no upstream record points at** — no
+ * integration record in the review app holds its id in `supabase_integration_id`. Because promote keys
  * identity solely on the caller-supplied `supabaseId` (`promote.ts:28` —
  * "Present → update; absent → insert"), such a row is unreachable: no future
  * promote will update it and nothing will ever delete it. It renders as a
  * duplicate mechanism card on the public pair page.
  *
  * **Why the id list is an input, not something we derive here.** Deciding
- * orphan-hood requires reading Airtable, which this Worker deliberately has no
- * credentials for. So the operator supplies the ids (the runbook's
+ * orphan-hood requires reading the review app's curation catalog, which this
+ * Worker deliberately has no credentials for. (The live detector that does read
+ * it is `scripts/ops/2026-09-stranded-row-audit/`, over the `aeci-review` MCP.) So the operator supplies the ids (the runbook's
  * `orphan-ids.txt` produces them) and this module owns the dangerous half:
  * guards, backup, an ordered delete, count repair, and the search/cache refresh.
  * That split also makes the tool reusable for any future stranded-row set rather
@@ -30,7 +31,7 @@
  *
  * **Blocking is the default, not an absolute.** A tripped guard means "not
  * redundant residue" — which is usually a reason to stop, but not always. When a
- * curator has *editorially retracted* an edge (deleted the Airtable record on
+ * curator has *editorially retracted* an edge (deleted the upstream record on
  * purpose) the live D1 row must go even though it has no twin, because promote has
  * no delete semantics and nothing else will ever remove it (AECI-593). So the
  * route accepts an acknowledgment that must name EXACTLY the guards that tripped,

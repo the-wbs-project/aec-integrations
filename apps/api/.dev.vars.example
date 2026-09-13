@@ -90,18 +90,12 @@ SUPABASE_SERVICE_ROLE_KEY=
 # Supabase auth (Phase 5)" step 2.
 LOCAL_ADMIN_USER_ID=
 
-# ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────
-# Used by the Airtable gateway lib (apps/api/scripts/lib/airtable.ts) for the
-# one-time bulk-migration tooling. Workers never read these. (The original
-# Airtable → Supabase-Postgres bulk-migrate script is retired — the live curator
-# → app-DB path is POST /api/promote into D1; see docs/API_CONTRACTS.md.)
-#
-# AIRTABLE_PAT: a Personal Access Token with scopes data.records:read,
-# data.records:write, and schema.bases:write on the base below (the script
-# creates a `supabase_uuid` field and writes the rec-ID→UUID mapping back).
-AIRTABLE_PAT=
-# The Airtable base holding the curator workspace.
-AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
+# ─── No Airtable credential is required (AECI-797) ─────────────────────────
+# There used to be an AIRTABLE_PAT / AIRTABLE_BASE_ID pair here, for the
+# one-time AECI-83 bulk migration. Both are gone, along with the gateway lib
+# they fed. Do not mint an Airtable PAT: the curation store is the review app's
+# own Cloudflare D1 as of 2026-08-25, so there is nothing to authenticate
+# against. See docs/adr/0029-curation-store-is-the-review-apps-own-d1.md.
 
 # ─── Review-app promotion push (POST /api/promote) ─────────────────────────
 # Bearer token the review application presents to push promoted records into

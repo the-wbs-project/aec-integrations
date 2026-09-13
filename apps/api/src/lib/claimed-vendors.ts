@@ -6,7 +6,7 @@
  * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3 — the grant flow writes exactly that row).
  *
  * Why seat-existence and not `vendors.verified`: `verified` is the paid
- * entitlement bit and used to be writable by the Airtable review app through
+ * entitlement bit and used to be writable by the review app through
  * `POST /api/promote`. Seat existence can only be produced by an AECi-side
  * grant, so it is the trustworthy signal for "this row is now vendor-owned".
  *

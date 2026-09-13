@@ -1,5 +1,5 @@
 /**
- * Push-based Airtable → app-DB promotion ingest — Drizzle/D1 (ADR 0016 / AECI-253,
+ * Push-based review app → app-DB promotion ingest — Drizzle/D1 (ADR 0016 / AECI-253,
  * AECI-249).
  *
  * The review application sends one product plus its dependencies; this module
@@ -245,7 +245,7 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     // `verified` is deliberately NOT here (AECI-520). It is an entitlement the
     // vendor-claim grant owns, not curation content — the payload field is still
     // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2). It used to be
-    // written, and a routine Airtable push carrying `verified: false` would then
+    // written, and a routine promote push carrying `verified: false` would then
     // silently un-verify a vendor.
   });
 }

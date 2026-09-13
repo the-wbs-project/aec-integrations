@@ -1616,7 +1616,7 @@ export type AdminCoverageGapKey = z.infer<typeof AdminCoverageGapKeySchema>;
  * One gap. `total` is exact; `sample` is capped at the request's `sample` value
  * and ordered by name so the list is stable between requests. `ref` rows link to
  * the AECi product page — D1 stores no curation-tool key (ADR 0021: "AECi does
- * not store your Airtable/record IDs"), so a per-row deep link into the review
+ * not store your curation record IDs"), so a per-row deep link into the review
  * app is not constructible from this data.
  */
 export const AdminCoverageGapSchema = z.object({

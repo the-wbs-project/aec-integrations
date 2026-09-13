@@ -310,8 +310,10 @@ SketchUp` and `Polycam ↔ Xactimate`, confirming both records are gone. The row
 The obvious reading of the above — "the daily audit went red for four weeks and nobody
 acted" — is **wrong**, and the truth is worse.
 
-`.github/workflows/promote-strand-audit.yml` skips green when `AIRTABLE_TOKEN` is
+`.github/workflows/promote-strand-audit.yml` **skipped** green when `AIRTABLE_TOKEN` was
 absent, on the reasoning that a red-on-arrival cron teaches people to ignore the cron.
+(That skip branch was removed on 2026-09-08; everything in this subsection is the
+pre-fix state.)
 **That secret was never added.** `gh secret list` does not contain it, and all **25**
 scheduled runs since the workflow shipped on 2026-08-13 report `success` after logging
 `AIRTABLE_TOKEN is not set — skipping the strand audit` and running the audit zero

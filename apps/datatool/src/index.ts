@@ -3,7 +3,7 @@
  *
  * Three jobs from a UI (and JSON API): (1) copy/clone D1 data env→env (full
  * mirror, replace), (2) seed reviews into any env, and (3) prune orphaned
- * `integrations` rows that no Airtable record points at. Each runs a clean
+ * `integrations` rows that no upstream record points at. Each runs a clean
  * Algolia reindex + edge-cache purge of the target afterward. All writes are
  * dry-run-by-default and require typed confirmation; production needs an extra
  * explicit confirm. The prune adds three data-shape guards that refuse the delete

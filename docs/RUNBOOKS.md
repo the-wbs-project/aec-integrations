@@ -1420,7 +1420,7 @@ there is no partial state to clean up.
 
 **First checks**
 
-1. **Get the job id.** From the curator (the Airtable row's `promote_job_id`), or from the
+1. **Get the job id.** From the curator (the review app's product row `promote_job_id`), or from the
    `job_id` attribute on the `aeci.api.promote.job_failed` log
    (`service:aeci-api source:review-app-promote`).
 2. **Read the job.** Either the API (`GET /api/promote/jobs/{jobId}` with the
@@ -1432,7 +1432,7 @@ there is no partial state to clean up.
      caller-resolvable: re-push with a **new** job id and slug disambiguation (`-2`, `-3`) will
      settle it.
    - `VALIDATION_FAILED` — a product name that can't be turned into a slug (reserved or empty
-     after normalization). Needs the name fixed in Airtable.
+     after normalization). Needs the name fixed in the review app.
    - `INTERNAL_ERROR` — a real fault. Read the log's `reason` (D1 errors put the detail in the
      `cause` chain) and the step history.
 4. **Stuck rather than failed?** A job sitting in `running` far longer than

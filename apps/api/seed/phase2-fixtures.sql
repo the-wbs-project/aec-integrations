@@ -14,7 +14,7 @@
 --   that boots `dev:bound` (Lighthouse, e2e) gets them on the LOCAL D1.
 --
 --   ⚠️  TEST FIXTURES — dev / CI ONLY. Like catalog.sql, this never runs in
---   staging/production (those re-promote from Airtable via POST /api/promote).
+--   staging/production (those re-promote from the review app via POST /api/promote).
 --
 -- CONTRACT
 --   * Idempotent: vendors/products upsert on slug, integration + join rows

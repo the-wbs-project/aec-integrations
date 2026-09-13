@@ -329,7 +329,7 @@ describe('datatool routes', () => {
 
   // ── Overriding a tripped guard (AECI-593) ──────────────────────────────────
   //
-  // A curator can editorially retract an edge — delete the Airtable record on
+  // A curator can editorially retract an edge — delete the upstream record on
   // purpose — which strands the live D1 row with no twin. Deleting it is correct
   // but must be deliberate, so the acknowledged set has to equal the tripped set
   // exactly and carry a reason.
@@ -352,7 +352,7 @@ describe('datatool routes', () => {
     return orphan;
   }
 
-  const REASON = 'AECI-593: curator retracted this edge in Airtable on 2026-08-09.';
+  const REASON = 'AECI-593: curator retracted this edge in the review app on 2026-08-09.';
 
   it('deletes when every tripped guard is acknowledged with a reason', async () => {
     const orphan = seedNoTwinOrphan(staging);

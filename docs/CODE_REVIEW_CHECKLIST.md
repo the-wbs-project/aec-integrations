@@ -229,7 +229,7 @@ looks sorted, so nothing but review or a test catches them.
 - State mutations that propagate incorrect data downstream
 - Missing cleanup of subscriptions, timers, observers, or event listeners
 - API request payload that doesn't match the documented contract
-- Mappings between Airtable and Supabase that overwrite curator-preserve fields (`website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`)
+- Promote mappings (review app → D1) that overwrite curator-preserve fields (`website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`)
 
 ### AI-authored code red flags
 

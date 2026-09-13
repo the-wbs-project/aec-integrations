@@ -1296,7 +1296,7 @@ Governed by `docs/STAGE_1_5_SPEC.md` (decomposed into AECI-287…300). A focused
 
 - [ ] §2 `data_object` controlled vocabulary — frozen, closed (AECI-287; `DATA_OBJECT_VOCABULARY.md`)
 - [ ] §3 + ADR 0018 the claim/attestation model + this spec (AECI-288)
-- [ ] §4 Review app (bamako): Airtable `data_objects`/`integration_claims` + claim MCP tools + read-only QA tab (AECI-290/292/295) + OPS re-curation (AECI-299)
+- [ ] §4 Review app (bamako): Airtable `data_objects`/`integration_claims` + claim MCP tools + read-only QA tab (AECI-290/292/295) + OPS re-curation (AECI-299) *(as-built wording; the review app moved off Airtable onto its own D1 on 2026-08-25 — ADR 0029)*
 - [ ] §5 Promote contract: `claims[]` shared schema + Review emit (AECI-291/296)
 - [ ] §6 Main app: D1 schema (`taxonomy_data_objects`/`claims`/`attestations`) + promote ingest (AECI-293/297)
 - [ ] §7/§8 Pair page (Layer A) + claim rendering (Layer B) against the AECI-289 prototype (AECI-294/300)

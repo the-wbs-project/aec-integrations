@@ -14,8 +14,10 @@ into the public AECi database (Supabase). Read it end-to-end before implementing
 ## 1. What changed and why
 
 Previously, promotion was a **pull**: a CLI script on the AECi side read every
-Airtable record flagged `promotion_status = 'promoted'` and copied it into
-Supabase. That script is now **deprecated**.
+curation record flagged `promotion_status = 'promoted'` and copied it into
+Supabase. That script is now **deprecated**. (The curation store was an Airtable
+base at the time. It has been the review app's own D1 since 2026-08-25 — see
+`docs/adr/0029-curation-store-is-the-review-apps-own-d1.md`.)
 
 Promotion is a **push you initiate**. When a curator clicks **Promote** in the
 review app, the review app sends that product — plus its vendors, taxonomy, and
@@ -34,7 +36,7 @@ map from its `result`.
 ```
 Curator clicks "Promote"
         │
-        ├─ stamp promote_job_id on the Airtable row   ◀── do this FIRST
+        ├─ stamp promote_job_id on the review app's row  ◀── do this FIRST
         ▼
 POST /api/promote  ──────────────▶  AECi API   ──▶  202 { jobId }   (~1s)
                                         │
@@ -43,7 +45,7 @@ POST /api/promote  ──────────────▶  AECi API   ─
 GET /api/promote/jobs/{jobId}  ──────▶  { status: "complete", result: { vendors[], product, … } }
         │
         ▼
-   write the IDs back to Airtable, then clear promote_job_id
+   write the IDs back to the review app, then clear promote_job_id
 ```
 
 **Why this changed.** The old synchronous call coupled the durability of a
@@ -59,7 +61,7 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 ### Your responsibilities
 
 1. **Supply a `jobId` and stamp it before you push.** Write `promote_job_id` onto
-   the Airtable row *before* calling `POST /api/promote`. It is your idempotency
+   the product's row *before* calling `POST /api/promote`. It is your idempotency
    key: replaying a kick-off with the same `jobId` attaches to the same job and can
    never commit twice. A row with a pending marker must never get a fresh push
    until its job has been collected.
@@ -68,7 +70,7 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 3. **Persist the returned IDs.** For each entity you push, store the `id` AECi
    returns (e.g. `supabase_vendor_id`, `supabase_product_id`,
    `supabase_integration_id`). This mapping is **the only link** between your
-   records and the AECi rows — AECi does **not** store your Airtable/record IDs.
+   records and the AECi rows — AECi does **not** store your curation record IDs.
    The `supabase_claim_id` a claim comes back with is the exception: it is
    **informational only**. Claims are replaced wholesale on every promote (see
    "`claims` shape & resolution" in §3), so the id you store is invalidated by your
@@ -125,7 +127,7 @@ with `401`.
 
 ```jsonc
 {
-  "jobId": "recAbC123XyZ-1754963400",   // your idempotency key — see below
+  "jobId": "recAbC123XyZ-m0kq3f-9c1ea47b",   // your idempotency key — see below
   "vendors":      [ /* … */ ],
   "product":      { /* … */ },
   "integrations": [ /* … */ ]
@@ -135,14 +137,23 @@ with `401`.
 Response — `202 Accepted`, plus a `Location` header pointing at the poll URL:
 
 ```json
-{ "jobId": "recAbC123XyZ-1754963400", "status": "queued" }
+{ "jobId": "recAbC123XyZ-m0kq3f-9c1ea47b", "status": "queued" }
 ```
 
 **`jobId` rules.** 8–100 characters of `[A-Za-z0-9_-]` (it becomes the job's
 internal instance ID, which the platform caps at 100 characters). Any scheme you
-like as long as it is **unique per promote attempt** — an Airtable record ID plus a
-timestamp works well. It is **optional**: omit it and AECi generates one, but then
-you get no replay protection, so supply it.
+like as long as it is **unique per promote attempt**. It is **optional**: omit it
+and AECi generates one, but then you get no replay protection, so supply it.
+
+**The id is opaque to AECi.** Nothing on this side parses it. The only rule
+enforced is the charset-and-length regex above (`PromoteJobIdSchema` in
+`packages/shared/src/api/promote.ts`), and no code splits it on a separator. Your
+own scheme is **three** segments — `<productRecId>-<base36 milliseconds>-<8 hex>`
+— which is what every example below uses. The random suffix is load-bearing:
+`Date.now()` is frozen between I/O in a Worker, so two kick-offs in one isolate
+can share a millisecond. If anyone writes a tool that recovers the record id from
+a job id, it must **split on the FIRST hyphen**. Splitting on the last one, or
+assuming two segments, does not work.
 
 **Replaying a kick-off is safe and free.** POST the same `jobId` again — after a
 network blip, a retry, a restarted worker — and you get the same `202 { jobId }`
@@ -159,7 +170,7 @@ no matter how much later.
 **Poll.** `GET /api/promote/jobs/{jobId}`:
 
 ```jsonc
-{ "jobId": "recAbC123XyZ-1754963400", "status": "running" }
+{ "jobId": "recAbC123XyZ-m0kq3f-9c1ea47b", "status": "running" }
 ```
 
 `status` is one of **`queued`** (accepted, not started), **`running`** (in flight),
@@ -174,8 +185,8 @@ many pages back to back. The controls here are the bearer token and idempotency 
 `promote_jobs` ledger row, and upserts keyed on the review app's own record ids), not a
 rate limit. Do not add one without re-reading `docs/waf-rate-limits.md` §6.2.
 
-**Collect.** On `complete`, write the IDs from `result` back to Airtable, **then**
-clear `promote_job_id`. Collect must be idempotent and resumable: if you crash
+**Collect.** On `complete`, write the IDs from `result` back onto your own
+records, **then** clear `promote_job_id`. Collect must be idempotent and resumable: if you crash
 half-way, re-polling the same job returns the identical `result`, so re-running the
 write-back converges. Clearing the marker last is what guarantees an abandoned run
 is still collectable later (by you or by the reconcile sweep).
@@ -207,7 +218,7 @@ The usual promote = **one product** plus its dependencies. Top-level shape:
 
 ```jsonc
 {
-  "jobId":        "recAbC123XyZ-1754963400",  // idempotency key — §2.1
+  "jobId":        "recAbC123XyZ-m0kq3f-9c1ea47b",  // idempotency key — §2.1
   "vendors":      [ /* vendors of this product (0+; usually 1) */ ],
   "product":      { /* the product being promoted — OPTIONAL (see below) */ },
   "integrations": [ /* integrations incident to this product (0+) */ ]
@@ -284,17 +295,38 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
 | `priorityTier` | `"tier_1"` … `"tier_5"` \| null | — | |
 | `priorityScore` | number \| null | — | |
-| `googleTrendsIndex` | int 0–100 \| null | — | |
-| `searchVolumeMonthly`, `redditMentions24mo` | int \| null | — | |
+| `googleTrendsIndex` | int 0–100 \| null | — | **No longer sent** since AECI-655 — still accepted and still persisted, so an older sender keeps working. |
+| `searchVolumeMonthly`, `redditMentions24mo` | int \| null | — | **No longer sent** since AECI-655. Same as above: accepted, ingested, live column. |
 
 > Do **not** send `id`, `slug`, `createdAt`, `updatedAt`, or `promotionStatus` —
 > they are server-managed. On promote, AECi sets `promotion_status = 'promoted'`.
 
-**`usefulness` resolution.** The Airtable source field nests `disciplines` and `phases`; the review app renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
+> **Two different `promotion_status` vocabularies exist; this doc uses both.** They are
+> not the same list and neither is wrong.
+>
+> - **Yours (the review app), seven values:** `unreviewed` · `needs_attention` ·
+>   `approved` · `on_hold` · `promoted` · `retracted` · `rejected`. A **blank** stored
+>   value means `unreviewed`, not missing. The pre-rename spellings are folded on read —
+>   `pending` → `unreviewed`, `verified` → `approved` — and `ready` is **dead**, folding
+>   onto `unreviewed` (nothing has written it since the vocabulary was introduced).
+>   `retracted` is **reserved**: zero rows, no writer, no reader (§5.1). `approved` and
+>   `promoted` both require `research_status = 'Researched'`, and research cannot be
+>   walked back while a record is approved or promoted. By policy an AI may set
+>   `needs_attention` but never `approved` or `on_hold`.
+> - **AECi's own D1 column, five values:** `pending` \| `ready` \| `promoted` \|
+>   `retracted` \| `rejected` (a CHECK constraint). In practice promote only ever writes
+>   `'promoted'`, and nothing in AECi writes the other four — see
+>   `apps/api/src/lib/data-quality.ts`. **Do not read AECi's list as a description of
+>   yours.** Where this doc says `on_hold` (§3.4a) it means yours; where it says
+>   `promotion_status = 'promoted'` on ingest it means AECi's.
 
-**`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so — unlike `categories` / `audiences` / `phases`, which are find-or-created by canonical slug — an incoming trade is **resolve-only**, matching the `usefulness` and `dataObject` behaviour. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one from Airtable.
+**`usefulness` resolution.** The review app's source field nests `disciplines` and `phases`; it renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
 
-Send `trades` only where the product has **trade-specific value** — trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get an empty array.** Most products carry no trades; that is the intended outcome, not missing data (`TRADES_VOCABULARY.md` §1.1). Any `productRole` may carry trades, connectors included. Omit the key entirely (or send `[]`) when there are none — note that, like the other join sets, **sending the product replaces its full trade set** (§5).
+**`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so — unlike `categories` / `audiences` / `phases`, which are find-or-created by canonical slug — an incoming trade is **resolve-only**, matching the `usefulness` and `dataObject` behaviour. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one by sending it.
+
+Send `trades` only where the product has **trade-specific value** — trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get an empty array.** Most products carry no trades; that is the intended outcome, not missing data (`TRADES_VOCABULARY.md` §1.1). Any `productRole` may carry trades, connectors included. Omit the key entirely (or send `[]`) when there are none.
+
+> **`trades` is the one join set where omitting is not neutral.** The key defaults to `[]`, and like every other join set the stored trades are **replaced** to match what you send (§5) — so **omitting `trades` and sending `trades: []` are identical, and both CLEAR the product's trades**. There is no "leave this alone" form. The consequence for a sender: if a product has trade links and none of them resolve, **abort the promote** rather than dropping the key, because dropping it silently wipes trades that are already live.
 
 ### 3.4 `integrations[]`
 
@@ -340,7 +372,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
-| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). |
+| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). **Explicit `null` clears the stored kind; omitting the key leaves it untouched** (the §5 rule, restated here because the two are easy to confuse). One exception: on the §3.4a connector-evidenced path the field is **dropped entirely** — see that section. |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
@@ -421,6 +453,15 @@ An integration whose `poweredByProduct` resolves to a product that is **neither 
 endpoints** is a *connector-delivered* edge, and after AECI-721's migration it is stored in
 `connector_evidenced_pairs` — the delivered tier's second table (`STAGE_1_5_SPEC.md` §13.1) — rather
 than in `integrations`. Keep sending it exactly as you do today; the app routes it.
+
+> **One field IS silently dropped on this path: `mechanismKind`.** The
+> `connector_evidenced_pairs` table has no such column — connector-evidenced pairs are pinned to
+> `mechanism_rank` 4 instead — so the editable projection for a connector-routed row omits the
+> field by design (`apps/api/src/routes/promote.ts`, the `compact()` call in the
+> connector-evidenced branch). Sending `mechanismKind` on such an edge is **not** an error and
+> **not** reported in `skipped[]`; it simply has no effect. The rows this does *not* apply to are
+> the ones that stay in `integrations` — see the two carve-outs below, whose `mechanismKind` is
+> written normally.
 
 Four consequences worth knowing:
 
@@ -704,7 +745,7 @@ what `GET /api/promote/jobs/{jobId}` returns in `result` once `status` is
 
 ```jsonc
 {
-  "jobId": "recAbC123XyZ-1754963400",
+  "jobId": "recAbC123XyZ-m0kq3f-9c1ea47b",
   "status": "complete",
   "result": {
     // ↓ exactly the shape the old synchronous 200 returned
@@ -885,7 +926,7 @@ the same product twice as two different attempts.
 - **`claims[]` is the one exception to "replaced to exactly match what you send"** —
   it replaces **AECi curation only**. See §5.2.
 
-### 5.1 Promote has NO delete semantics — deleting in Airtable does not retract
+### 5.1 Promote has NO delete semantics — deleting upstream does not retract
 
 This is the sharpest edge in the whole contract, and it is not a bug you can retry
 past. **A promote can create and update rows. It can never delete one.**
@@ -896,22 +937,28 @@ trades, …) are replaced wholesale to match your payload, and an integration's
 attestations survive). Entities themselves — products, vendors, integrations — are
 never removed.
 
-So if a curator **deletes an `Integrations` record from the base**, or simply stops
+So if a curator **deletes an integration record in the review app**, or simply stops
 sending it, the live D1 row does not go anywhere. It stays on the public pair page and
 on both endpoint product pages indefinitely, and — because the only link between the
-two systems is the `supabase_integration_id` Airtable holds — deleting the record also
-destroys the one pointer that could ever have found it again. The row becomes a
+two systems is the `supabase_integration_id` the review app holds — deleting the record
+also destroys the one pointer that could ever have found it again. The row becomes a
 **stray**: unreachable, un-updatable, and un-deletable by any future promote. A
 re-promote of the same product mints a *second* copy alongside it.
 
 Note that this is independent of whether the write-back ever landed. Even a perfectly
 collected promote leaves a stray if the record is later deleted.
 
+> **`promotion_status = 'retracted'` does NOT retract.** It is **reserved, not live**: zero
+> rows carry it, nothing upstream writes it, and **nothing in AECi's promote path reads it**.
+> Setting it and re-promoting pulls nothing down. The only way to remove a live row is step 2
+> below. (Flagged because the review app's own `delete_integration` tool text has said
+> otherwise; they are correcting it.)
+
 **What a curator must do to retract an integration:**
 
-1. Delete the Airtable record (and its `integration_claims` rows) as usual, and record
-   *why* in the product's `tool_integration_check_notes` — that note is what a future
-   auditor uses to tell a deliberate retraction from an accident.
+1. Delete the review app's integration record (and its `claims` rows) as usual, and
+   record *why* in the product's `tool_integration_check_notes` — that note is what a
+   future auditor uses to tell a deliberate retraction from an accident.
 2. Follow up with an explicit delete of the live D1 row through the datatool's
    `POST /api/prune-integrations`. It will report `orphansWithoutATwin` (and usually
    `claimsUniqueToOrphans`) as blocked — correctly, since the row is the only copy of
@@ -1094,7 +1141,7 @@ Synchronous rejections use the standard AECi envelope:
 ### 6.2 Job errors (`GET /api/promote/jobs/{jobId}`)
 
 ```jsonc
-{ "jobId": "recAbC123XyZ-1754963400",
+{ "jobId": "recAbC123XyZ-m0kq3f-9c1ea47b",
   "status": "errored",
   "error": { "code": "SLUG_CONFLICT", "message": "A concurrent promote generated a duplicate slug; retry the request." } }
 ```
@@ -1111,11 +1158,19 @@ no partial state to clean up. Retrying needs a **new `jobId`** — the old one i
 permanently bound to the failed attempt (that is the same guard that stops a replay
 from double-committing).
 
+> **That rule applies ONLY to a job that reported `errored`, and it is the opposite of
+> the rule for a failed kick-off.** If `POST /api/promote` itself returns non-2xx, keep
+> the marker and **replay the SAME `jobId`** (§2.1) — the call may already have started a
+> job, and a second id would create a second product. Read the two together: a new id for
+> a job that ran and failed; the same id for a call that may never have been accepted.
+
 **404 on a poll** means AECi has no record of that job: either the `jobId` was never
-successfully kicked off, or it is older than the retention window. If you have a
-pending marker and get a `404`, the safe move is to re-push with a new `jobId` — but
-check first that the product isn't already live, because a `404` cannot distinguish
-"never ran" from "ran, and aged out".
+successfully kicked off, or it is older than the retention window. **A `404` is a
+kick-off-shaped failure, not a job error** — the safe move is to keep your marker and
+replay the **same** `jobId`, which either attaches to a job you could not see or starts
+the one that never began. Minting a new id here risks a duplicate, because a `404`
+cannot distinguish "never ran" from "ran, and aged out". If the marker is older than the
+retention window, check whether the product is already live before pushing anything.
 
 ### 6.3 Every rejection is logged
 
@@ -1307,7 +1362,7 @@ integration to an already-promoted product (**Navisworks**,
 
 ### Step 1 — stamp the marker
 
-Write `promote_job_id = "recRevit001-1754963400"` onto the Revit row in Airtable
+Write `promote_job_id = "recRevit001-m0kq3f-9c1ea47b"` onto the Revit row in the review app
 **before** anything below. If everything after this point dies, that marker is what
 makes the promote recoverable.
 
@@ -1321,7 +1376,7 @@ Content-Type: application/json
 
 ```json
 {
-  "jobId": "recRevit001-1754963400",
+  "jobId": "recRevit001-m0kq3f-9c1ea47b",
   "vendors": [
     { "ref": "v1", "companyName": "Autodesk", "website": "https://autodesk.com", "isPrimary": true }
   ],
@@ -1358,22 +1413,22 @@ Content-Type: application/json
 Returns immediately:
 
 ```json
-{ "jobId": "recRevit001-1754963400", "status": "queued" }
+{ "jobId": "recRevit001-m0kq3f-9c1ea47b", "status": "queued" }
 ```
 
 ### Step 3 — poll
 
 ```http
-GET https://<staging-api-host>/api/promote/jobs/recRevit001-1754963400
+GET https://<staging-api-host>/api/promote/jobs/recRevit001-m0kq3f-9c1ea47b
 Authorization: Bearer ************
 ```
 
-While it runs: `{ "jobId": "recRevit001-1754963400", "status": "running" }`. Once the
+While it runs: `{ "jobId": "recRevit001-m0kq3f-9c1ea47b", "status": "running" }`. Once the
 commit lands:
 
 ```json
 {
-  "jobId": "recRevit001-1754963400",
+  "jobId": "recRevit001-m0kq3f-9c1ea47b",
   "status": "complete",
   "result": {
   "vendors": [
@@ -1406,7 +1461,7 @@ commit lands:
 
 ### Step 4 — collect
 
-Write the IDs back to Airtable — on Revit: `supabase_product_id = 0f8fad5b-…`; on
+Write the IDs back to the review app — on Revit: `supabase_product_id = 0f8fad5b-…`; on
 Autodesk: `supabase_vendor_id = 1b9d6bcd-…`; on the integration:
 `supabase_integration_id = 6ba7b810-…` — and **then** clear `promote_job_id`. Clearing
 it last is what makes an interrupted collect resumable.
@@ -1459,7 +1514,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 ## 8. Quick checklist for the review-app implementer
 
 - [ ] Store the AECi `REVIEW_APP_TOKEN` server-side; send it as `Bearer`.
-- [ ] **Generate a unique `jobId` per promote attempt and stamp `promote_job_id` on the Airtable row BEFORE the push** (§2.1). This ordering is the duplicate-safety guarantee — there is no key on the AECi side.
+- [ ] **Generate a unique `jobId` per promote attempt and stamp `promote_job_id` on the product's row BEFORE the push** (§2.1). This ordering is the duplicate-safety guarantee — there is no key on the AECi side.
 - [ ] **Poll `GET /api/promote/jobs/{jobId}` until `complete`, then collect, then clear the marker** — in that order. The `202` means "accepted", not "done".
 - [ ] **Never push a row that still has a pending `promote_job_id`.** Collect its job first (or let the reconcile sweep do it); a fresh push with a new `jobId` and no `supabaseId` is a create, and that is how duplicates happen.
 - [ ] Retry a failed *kick-off* with the same `jobId` (free, idempotent); retry a failed *job* with a NEW `jobId` (§6.2).

@@ -9,7 +9,7 @@ tier, `docs/environments.md`):
 2. **Seed reviews** — generate ~150–200 deterministic anonymous reviews against
    any env's products (the in-Worker port of `apps/api db:seed-reviews`).
 3. **Prune orphaned integrations** — delete stranded `integrations` rows (+ their
-   claims/attestations) that no Airtable record points at, behind three blocking
+   claims/attestations) that no upstream record points at, behind three blocking
    guards (the in-Worker port of
    `scripts/ops/2026-08-orphan-integration-cleanup/cleanup.sh`).
 
@@ -64,8 +64,9 @@ that tier's own SSR Worker consumes.
   Cache, hence the queue.) No CF secret is needed — the producer bindings
   `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}` are declared in `wrangler.jsonc`.
 - **Prune takes the id list as INPUT, and does not derive it.** "Orphan" means
-  *no Airtable record points at this row* — deciding that requires reading the
-  AEC Integrations base, which this Worker deliberately holds no credentials for.
+  *no upstream record points at this row* — deciding that requires reading the
+  review app's curation catalog, which this Worker deliberately holds no credentials
+  for. (`scripts/ops/2026-09-stranded-row-audit/` is what reads it, over MCP.)
   So the operator supplies the ids (the ops runbook's `orphan-ids.txt` produces
   them) and datatool owns the dangerous half: guards, rollback SQL, an ordered
   delete, count repair, and the refresh. That split also keeps the tool reusable
@@ -79,7 +80,7 @@ that tier's own SSR Worker consumes.
   so editorial content would be lost).
 - **A tripped guard is overridable, but only by name and with a reason.** "Not a
   redundant copy" is usually a reason to stop — but not always: when a curator has
-  *editorially retracted* an edge (deleted the Airtable record on purpose), the live
+  *editorially retracted* an edge (deleted the upstream record on purpose), the live
   D1 row must go even though it has no twin, because promote has no delete semantics
   and nothing else will ever remove it (AECI-593). So the execute path accepts
   `acknowledgeGuards` + `acknowledgeReason`:

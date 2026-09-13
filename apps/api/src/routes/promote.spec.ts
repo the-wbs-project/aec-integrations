@@ -3510,7 +3510,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
 
 describe('createPromoteHandler — verified is not review-app writable', () => {
   it('ignores `verified` on an update instead of flipping the entitlement bit', async () => {
-    // The regression this guards: a routine Airtable push carrying
+    // The regression this guards: a routine promote push carrying
     // `verified: false` used to silently un-verify a paying vendor.
     await t.db
       .insert(vendors)

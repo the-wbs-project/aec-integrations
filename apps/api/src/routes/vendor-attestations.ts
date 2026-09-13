@@ -597,7 +597,7 @@ function attestationAudit(
 // `Vendor-maintained.` instead of `Maintained by AEC Integrations.`, and
 // `last_reviewed_at` is the date beside it. This surface is the ONLY writer of the
 // `'vendor'` value — promote deliberately does not accept the column, so a routine
-// Airtable push can never flip a record back (the AECI-520 / AECI-604 lesson).
+// promote push can never flip a record back (the AECI-520 / AECI-604 lesson).
 //
 // Both directions ride in the SAME `db.batch` as the attestation mutation (§26.1),
 // each with its own `audit_log` row. They are pushed AFTER the attestation
