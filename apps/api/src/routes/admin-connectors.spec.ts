@@ -27,6 +27,12 @@
  *  5. **A stub with several mappings appears ONCE.** The filters are `EXISTS`
  *     subqueries rather than joins precisely so the many-to-many cannot duplicate
  *     a row and corrupt `total`.
+ *  6. **Every pair surface is tallied, and `derived` is not `unknown` (AECI-906).**
+ *     The surface→field lookup was `Record<string, …>` over three surfaces, so
+ *     widening the vocabulary type-checked clean and dropped every derived row
+ *     from the counts with nothing logged. The has-any-pairs advisory test was a
+ *     fixed three-term sum, so a derived-only catalogue — Kroo Connector, Trimble
+ *     AppXchange — read as holding no pairs at all.
  */
 
 import { eq } from 'drizzle-orm';
@@ -157,6 +163,32 @@ async function seedMapping(
   });
 }
 
+/**
+ * One `connector_pairs` row on the given surface.
+ *
+ * `surface` is a required argument because the tallies split on it, and AECI-906
+ * proved that leaning on the column default exercises one branch and hides the
+ * rest. The stub ids must differ per row and stay in canonical order —
+ * `connector_pairs_pair_idx` is unique on (catalog, a, b) and
+ * `connector_pairs_canonical_order` requires `a < b`.
+ */
+async function seedPair(
+  id: string,
+  surface: 'curated' | 'generated' | 'derived' | 'unknown',
+  stubAId = 'stub-a',
+  stubBId = 'stub-b',
+): Promise<void> {
+  await t.db.insert(connectorPairs).values({
+    id,
+    catalogId: CATALOG,
+    stubAId,
+    stubBId,
+    surface,
+    firstSeenAt: '2026-08-01T00:00:00.000Z',
+    lastSeenAt: '2026-08-30T00:00:00.000Z',
+  });
+}
+
 describe('GET /api/admin/connector-catalogs', () => {
   it('reports tallies, with undecided as the ABSENCE of a mapping row', async () => {
     await seedStub('stub-a');
@@ -193,6 +225,40 @@ describe('GET /api/admin/connector-catalogs', () => {
     expect(row.counts.mappings_ruled_out).toBe(1);
     expect(row.counts.mappings_ambiguous_parked).toBe(1);
     expect(row.counts.evidenced_pairs).toBe(0);
+  });
+
+  it('tallies EVERY pair surface, including derived', async () => {
+    // The regression (AECI-906). The surface→field lookup was `Record<string, …>`
+    // and named three surfaces, so widening `CONNECTOR_PAIR_SURFACES` with
+    // `derived` type-checked clean and every derived row resolved to `undefined`
+    // — dropped from the tallies with nothing logged. `derived` is NOT a flavour
+    // of `unknown`: `unknown` means a page exists and nobody read it, `derived`
+    // means no page exists and the pair was enumerated from a closed list.
+    for (const s of ['stub-a', 'stub-b', 'stub-c', 'stub-d', 'stub-e', 'stub-f']) {
+      await seedStub(s);
+    }
+    await seedPair('pair-curated', 'curated', 'stub-a', 'stub-b');
+    await seedPair('pair-generated', 'generated', 'stub-a', 'stub-c');
+    await seedPair('pair-derived-1', 'derived', 'stub-a', 'stub-d');
+    await seedPair('pair-derived-2', 'derived', 'stub-a', 'stub-e');
+    await seedPair('pair-unknown', 'unknown', 'stub-a', 'stub-f');
+
+    const app = mount(
+      '/api/admin/connector-catalogs',
+      createAdminConnectorCatalogsListHandler(t.factory),
+    );
+    const json = await body(
+      await app.request('/api/admin/connector-catalogs', {}, TEST_ENV, fakeExecutionContext()),
+    );
+    const counts = json.data[0].counts;
+    expect(counts.pairs_curated).toBe(1);
+    expect(counts.pairs_generated).toBe(1);
+    expect(counts.pairs_derived).toBe(2);
+    expect(counts.pairs_unknown).toBe(1);
+    // Nothing was folded into `unknown` to make the totals add up.
+    expect(
+      counts.pairs_curated + counts.pairs_generated + counts.pairs_derived + counts.pairs_unknown,
+    ).toBe(5);
   });
 
   it('reports the newest surface ingest as the catalogue freshness stamp', async () => {
@@ -363,6 +429,33 @@ describe('GET /api/admin/connector-catalogs/:id', () => {
       'connector_evidenced_pairs_empty',
     );
   });
+
+  it('carries the never-counted advisory for a DERIVED-ONLY catalogue', async () => {
+    // The regression (AECI-906). The has-any-pairs test was a fixed three-term sum
+    // — curated + generated + unknown — so a catalogue holding only derived pairs
+    // totalled zero and the advisory was suppressed. Kroo Connector and Trimble
+    // AppXchange are exactly that catalogue, and the advisory is the one line that
+    // stops an operator reading these counts as integrations.
+    await seedStub('stub-a');
+    await seedStub('stub-b');
+    await seedPair('pair-derived', 'derived');
+
+    const json = await body(
+      await detail().request(
+        `/api/admin/connector-catalogs/${CATALOG}`,
+        {},
+        TEST_ENV,
+        fakeExecutionContext(),
+      ),
+    );
+    expect(json.counts.pairs_derived).toBe(1);
+    expect(json.counts.pairs_curated).toBe(0);
+    expect(json.counts.pairs_generated).toBe(0);
+    expect(json.counts.pairs_unknown).toBe(0);
+    expect(json.advisories.map((n: { code: string }) => n.code)).toContain(
+      'reachable_never_counted',
+    );
+  });
 });
 
 describe('GET /api/admin/connector-catalogs/:id/stubs', () => {
@@ -523,6 +616,24 @@ describe('GET /api/admin/connector-catalogs/:id/pairs', () => {
     const codes = json.advisories.map((n: { code: string }) => n.code);
     expect(codes).toContain('publication_gate_inputs_only');
     expect(codes).toContain('reachable_never_counted');
+  });
+
+  it('filters the reachable lane by surface=derived, and serves the row intact', async () => {
+    // The filter derives its allowed values from `ConnectorPairSurfaceSchema`, so
+    // `derived` should be accepted with no change here. This asserts that rather
+    // than assuming it — a rejected value would 400, and a value accepted but
+    // mis-mapped on the way out would surface as the wrong `surface` string.
+    await seedStub('stub-a');
+    await seedStub('stub-b');
+    await seedStub('stub-c');
+    await seedPair('pair-derived', 'derived', 'stub-a', 'stub-b');
+    await seedPair('pair-curated', 'curated', 'stub-a', 'stub-c');
+
+    const json = await fetchPairs('?surface=derived');
+    expect(json.lane).toBe('reachable');
+    expect(json.total).toBe(1);
+    expect(json.data[0].id).toBe('pair-derived');
+    expect(json.data[0].surface).toBe('derived');
   });
 
   it('serves the evidenced lane as empty, with the AECI-721 advisory', async () => {

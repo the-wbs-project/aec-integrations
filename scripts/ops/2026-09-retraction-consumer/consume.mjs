@@ -146,9 +146,14 @@ const HOLD = {
 };
 const HOLD_REASON =
   'AECI-882 / AECI-891: held. These two connector pairs carry the only claims in the ' +
-  'AECI-852 reach-edge population. The public promote contract cannot land a claim ' +
-  'anchored to a connector pair, so deleting them destroys the claims with nowhere to ' +
-  'move them. They go when AECI-891 ships the anchor on the promote path and the render.';
+  'AECI-852 reach-edge population. Deleting them cascades those claims away, and until ' +
+  'the re-anchored copies exist here there is nowhere to move them. ' +
+  'RELEASE CONDITION, corrected 2026-09-13: NOT "when AECI-891 ships". AECI-891 delivers ' +
+  'the anchor only; the render is AECI-716 and is unbuilt, so the old wording would have ' +
+  'held these two forever. They go once (1) AECI-891 is live in production, AND (2) ' +
+  'AECI-907 has pushed the 21 upstream-re-anchored claims onto the connector_pairs rows ' +
+  'here. Verify (2) before releasing: a claim naming an absent pair lands in skipped[] ' +
+  'and the run still reports complete, which looks exactly like success.';
 
 /**
  * The production shape this run was authorised against, measured 2026-09-13. A mismatch

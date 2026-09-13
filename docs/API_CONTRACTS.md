@@ -2361,7 +2361,7 @@ handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/adm
 | `GET /api/admin/connector-catalogs` | Paginated catalogue list. `?managed_by=review\|vendor`, `?search=` over the connector product's name/slug |
 | `GET /api/admin/connector-catalogs/:id` | Basics, surfaces, counts, the derived `handover`, `advisories` |
 | `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=` |
-| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=` on the reachable lane |
+| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=curated\|generated\|derived\|unknown` on the reachable lane |
 | `GET /api/admin/connector-catalogs/:id/audit` | `entity_type='connector_catalog' AND entity_id=:id`, off `audit_log_entity_idx` |
 
 **All five write nothing** — no `audit_log` row (§6's convention as scoped by ADR 0022), no purge,
@@ -2378,7 +2378,7 @@ any catalogue an operator had touched. Authoring returns at **AECI-724** time as
 `PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** — the one
 state in which the sync is frozen out and cannot clobber the row.
 
-Three response shapes are worth knowing before extending them:
+Four response shapes are worth knowing before extending them:
 
 1. **`handover` is derived, and suppressed once the lane is reclaimed.** AECI-720 records
    `vendorId` / `reason` only in the audit row's `metadata`, and `AdminAuditRow` carries no
@@ -2397,6 +2397,13 @@ Three response shapes are worth knowing before extending them:
    four-clause rule is AECI-716's, and its clause (c) reuses Addendum A §11.4's scoring, which
    does not exist here; clause (b) is not computed either. The `publication_gate_inputs_only`
    advisory says so on the wire. One lane per call because §13.3 requires one `<table>` per lane.
+4. **`AdminConnectorCounts` carries four pair tallies, not three (AECI-906, 2026-09-13).**
+   `connector_pairs.surface` gained `derived` — a pair with no vendor page, enumerated from a
+   closed connector list — so the schema gained **`pairs_derived`** beside `pairs_curated` /
+   `pairs_generated` / `pairs_unknown`, and `?surface=` accepts it. The surfaces were a fixed
+   triple in three places and a `derived` row would have dropped out of the tallies with nothing
+   logged. It changes no verdict here: `derived` never publishes on any surface at all
+   (`STAGE_1_5_SPEC.md` §13.7), so it feeds the reach count and nothing else.
 
 The `actions` blob never crosses this wire — the row ships `actions_fetched` plus `action_count`,
 so a never-fetched inventory cannot render as an empty one (§9a.3).
@@ -4951,7 +4958,7 @@ It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is 
 
 **`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
 
-**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(anchor_id, data_object_id, direction)` — where `anchor_id` is the claim's mechanism row in whichever delivered-tier table holds it (AECI-721) — so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
+**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(anchor_id, data_object_id, direction)` — where `anchor_id` is the claim's anchor row in whichever of the three anchor tables holds it: the two delivered-tier ones (AECI-721) plus the reachable `connector_pairs` (AECI-891). **This route only ever writes the integration anchor**, since a vendor authors claims on edges it owns and nobody owns a reach pair. So the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
 
 **`PUT` replaces; it does not patch.** Supersession is **retract-then-insert** (§2.1), never an `UPDATE` — the old row keeps its `id` and gains `retracted_at`, because AECI-303's version-diff timeline reads the append-only history. There is therefore no prior row to leave a field alone on: an omitted `note` or version stamp lands as `null`. The retract clears whatever holds a slot the caller owns (the partial unique index makes that last-write-wins); `DELETE` retracts only the caller's **own** rows, so withdrawing your position never withdraws someone else's.
 

@@ -136,6 +136,14 @@ The **integration row is the anchor** (ADR 0018). Consequences:
 
 Nothing above changes in substance. The anchor is still the mechanism row, still not the pair, and the identity is still immutable — the migration passed each moved edge's id verbatim to its evidenced pair, so all 85 production claims kept the same `anchor_id` value and only changed which column holds it. The generated column is load-bearing rather than cosmetic: a nullable `integration_id` in the unique index would break the identity outright, because SQLite treats NULLs as distinct. ADR 0018 carries the dated amendment.
 
+**Amended again by AECI-891 (operator ruling, 2026-09-13): a claim can anchor to a REACHED pair, and AECi carries it.** The anchor gains a third arm, `claims.connector_pair_id` → `connector_pairs(id)` (`DATABASE_SCHEMA.md` §9a.5), and this arm is not like the other two. `integrations` and `connector_evidenced_pairs` are both **delivered**: somebody built the integration. `connector_pairs` is the **reachable** tier: nobody built anything, and the two ends are merely joinable through that connector. Say which one you mean wherever you describe an anchor, because a surface that renders all three the same way turns reach into a delivery claim — the exact error Addendum C's I24 ruling exists to prevent.
+
+Three consequences, and only the first is a code shape:
+
+- **The CHECK is a sum, not a chain of `<>`.** With two terms `a <> b` said "exactly one"; with three, `a <> b <> c` parses as `(a <> b) <> c` and is TRUE when all three are set. `claims_anchor_check` sums the three `IS NOT NULL` booleans and compares to `1`. The identity triple is unchanged — `anchor_id` simply coalesces three columns instead of two, and the id spaces cannot collide because `connector_pairs.id` is a review-app record id while the other two are UUIDs minted here.
+- **The alternative was rejected on the same grounds.** Translating the upstream anchor onto `connector_evidenced_pairs` at promote time would have minted a *delivered* row for a pair nobody built, which is worse than carrying the reach anchor honestly.
+- **Nothing renders it, and that is a stated carve-out.** A pair-anchored claim can land; no surface reads one. The reachable pair page is **AECI-716** and is unbuilt, and §13.7's endpoint summary line enumerates nothing. Attestation is closed to it by construction, because the authority read scopes on `integration_id IS NOT NULL` (ADR 0018's 2026-08-31 amendment).
+
 ### 3.2 Direction encoding — stored vs context-relative
 
 Direction is stored **relative to the integration row's own two endpoints**, and exposed at the API **relative to the page's context product**. Keep the two representations distinct.
@@ -1430,12 +1438,93 @@ Presentation only; the data lands in AECI-714 and the curation in the review app
   Addendum A §11.4's "meaningful no" bar, deliberately reusing that scoring rather than standing up
   a second parallel bar for the same thin-content risk; and **(d)** it carries §13.1's provenance
   and "as of" label.
+- **A `derived` pair never publishes here. It feeds the reach count only (AECI-906, 2026-09-13).**
+  `connector_pairs.surface` gained a fourth value, `derived` — a pair the vendor never published a
+  page for, enumerated by us from a closed and published connector list. It **fails clause (d) by
+  construction**: the label points at the vendor's own page, and there is no page. So a `derived`
+  pair counts toward the one summary line above — *"N more pairs reachable via connectors"* — and
+  toward §13.10's coverage numbers, and it renders nothing that implies the vendor said anything.
+  No pair page, no comparison column, no outbound link. **Publication still means the `curated`
+  set**; the other three values are unchanged. Upstream wrote the first 669 of these on
+  2026-09-13 for **Kroo Connector** and **Trimble AppXchange** (AECI-890, review-repo PR #110).
+  Read the value as *enumerated by AECi*, not as §13.1's "derived at read time", which is about
+  the reachable tier not being a table. *(Amended the same day by AECI-891, and this bullet
+  originally read "no claim": a claim **may** anchor to a `connector_pairs` row, including a
+  `derived` one, because the anchor carries no `surface` predicate. Nothing reader-facing moves —
+  a reach claim renders nowhere at all until AECI-716 — so read the list above as a rendering rule
+  and not as a structural bar on anchoring.)*
 - **Comparison requires at least two connectors.** A one-column comparison is an advertisement, and
   publishing one would undercut the no-pay-for-placement posture on the exact surface where a
   connector has the most to gain. This is why AECI-716 blocks on the second catalogue (AECI-701).
 - **The coverage surface (AECI-715) is bounded by our catalog, not the connector's marketing
   graph** — expressed as **apps reached, not pairs possible** (linear in the catalog, where the
   pair cross-product is quadratic), and linking into the filtered pair view rather than enumerating.
+
+**Epic 2 re-reads this section as a precondition, not a presentation task (AECI-883, 2026-09-13).**
+The I24 ruling retires the delivered rows these surfaces replace, so the order is fixed and the
+gate is production rather than merge:
+
+1. **Done 2026-09-13.** The review app materialised `connector_pairs` for **Kroo Connector** and
+   **Trimble AppXchange** (AECI-890, review-repo PR #110). Both held stubs and mappings and **zero**
+   pairs, so the 210 pairs AECI-852 had already retired out of `integrations` resolved to nothing and
+   could anchor no claim. 669 rows written; all 210 now resolve; Trimble's reachable pair count went
+   0 → 323 and Kroo held at 366.
+2. **AECI-906, and it is the current gate.** Every one of those 669 rows carries a **new surface
+   value, `derived`** — a pair the vendor never published a page for, enumerated from a closed and
+   published connector list. This app rejects it twice, at the `CONNECTOR_PAIR_SURFACES` Zod enum and
+   at the `connector_pairs_surface_check` D1 CHECK, and the Zod failure is synchronous, so it 400s
+   the **whole page** rather than skipping a row. Three admin count sites additionally treat the
+   surfaces as a fixed triple and would drop a `derived` row **silently**. The CHECK change is a
+   destructive table recreate, but nothing holds a foreign key to `connector_pairs`, so it has no
+   cascade children and migration `0027`'s shape does not repeat. *(That last clause was true when
+   `0032` was written and stopped being true the same day: step 4's AECI-891 adds
+   `claims.connector_pair_id` **ON DELETE cascade**, putting `attestations` two levels below this
+   table. The **next** recreate of `connector_pairs` is the dangerous class —
+   `DATABASE_SCHEMA.md` §9a, `docs/migrations.md` §3.3a.)*
+3. Those two catalogues re-sync. `POST /api/promote/connector-catalog` is what carries `pairs[]`
+   into the app-side table (`REVIEW_APP_PROMOTE_API.md` §3a); nothing else writes it.
+4. AECI-891 and AECI-892 ship **and reach production**.
+5. Only then does AECI-889 retire the remaining 113 duplicates, one catalogue per batch, each batch
+   followed by a run of the AECI-882 retraction consumer.
+
+Retiring a row before its reach renders deletes the answer to "does X integrate with Y" rather than
+moving it to a better shelf. AECI-852 stopped the first sweep for exactly that reason.
+
+- **AECI-892 is not a predicate change, and what it asks for is AECI-716's first bullet above.**
+  `routeIntegrationLane` (`apps/web/src/app/products/connector-lane-grouping.ts`) routes rows that
+  are already in the payload, and **both of its inputs are delivered-tier** — `via` from
+  `connector_evidenced_pairs`, `powered_by_product` from `integrations`. Delete the delivered row
+  and there is nothing left to route, so no predicate can recover it. The fact needs a new
+  **derived** reach read (`connector_stub_mappings` joined to `connector_pairs`) and a scalar on
+  `ProductDetail`.
+  - **It comes back as the summary line, not as a Via card.** AECI-892's own acceptance criterion
+    says the page should "still show reachable via Kroo Connector", and this section forbids that:
+    a per-connector group is a list, renders a table row, and enters the §13.3 heading count, which
+    is three of the first bullet's three prohibitions. The sanctioned form names **no connector** —
+    *"N more pairs reachable via connectors"*, unattributed, outside the count. A Via card that
+    survives its own delivered row would assert a delivery that I24 has just ruled does not exist.
+  - **Attribution:** the endpoint line is **AECI-716**, whose own title is "endpoint summary line +
+    curated undelivered pair pages". AECI-715 is the *connector's* page, reads
+    `catalogs → stubs → mappings` and never touches `connector_pairs`, and counts apps rather than
+    pairs. The two share one predicate, `publishableMapping` in
+    `apps/api/src/lib/admin-connectors.ts`, and nothing else.
+  - **The count carries no `surface` predicate; publication always filters to `curated`.** Two call
+    sites, two rules, and both failures are silent: a `surface` filter leaking into the count
+    reports Kroo Connector and Trimble AppXchange as **zero**, because all 669 of their pairs are
+    `derived`; a missing filter on publication ships a page citing a vendor URL that does not exist.
+  - **Open, and it decides how much of AECI-716 the I24 sweep must wait for:** the first bullet says
+    the line links "our filtered view", and no such route exists. If the only lawful target is the
+    curated pair set, the summary line inherits everything publication is gated on. An unlinked line
+    does not. Settle this before AECI-889's Zapier batch, which is the largest at 110 live rows.
+- **A claim CAN anchor to reach, and AECi carries it (AECI-891, operator ruling 2026-09-13).**
+  This bullet previously said the opposite, and the asymmetry it recorded is closed the mirroring
+  way: `claims` gains a third anchor, `connector_pair_id` → `connector_pairs(id)` (§3.1's second
+  amendment, `DATABASE_SCHEMA.md` §5a.1). The rejected option was translating the upstream anchor
+  onto `connector_evidenced_pairs` at promote time, which would have minted a delivered row for a
+  pair nobody built. **Landing is not rendering.** The two delivered anchors mean somebody built
+  the integration; this one means only that the two ends are joinable through that connector, so
+  nothing above changes — a reach claim reaches no surface until **AECI-716** builds one, and the
+  summary line in the first bullet still enumerates nothing and still names no connector.
 
 ### 13.8 Cross-references and no-change declarations
 
@@ -1534,7 +1623,9 @@ read time from `connector_stubs` + `connector_stub_mappings`. `connector_pairs` 
 because reachability needs it but because **publication** does: §13.7 publishes the *curated* set,
 and `curated | generated | unknown` is a classification on the vendor's own published pair row
 (AECI-677) that exists nowhere in the mapping graph. Without it the only derivable thing is the
-auto-generated cross-product this addendum refuses to publish.
+auto-generated cross-product this addendum refuses to publish. *(**Four values since AECI-906,
+2026-09-13**: `derived` joined the enum for a pair with no vendor page at all. It is the one value
+that classifies nothing the vendor published, and §13.7 settles that it never publishes.)*
 
 **A paged sync**, `POST /api/promote/connector-catalog` (`REVIEW_APP_PROMOTE_API.md` §3a). AECi
 holds the **full** mirror — every stub, including the ~3,342 that map to nothing — because the

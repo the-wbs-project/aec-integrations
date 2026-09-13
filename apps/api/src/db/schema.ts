@@ -533,6 +533,23 @@ export const claims = sqliteTable(
       () => connectorEvidencedPairs.id,
       { onDelete: 'cascade' },
     ),
+    /**
+     * The REACH anchor (AECI-891). Operator ruling 2026-09-13: a claim belongs on a
+     * reached pair, so AECi stores it there rather than dropping it when I24 retires the
+     * delivered row that used to carry it.
+     *
+     * This is the one anchor whose target asserts NO delivery. `connector_pairs` is the
+     * reachable tier (§9a.5); a claim here says "this data object flows if you join these
+     * two through this connector", not "somebody built it". Do not read the three anchors
+     * as interchangeable when rendering — the delivered two carry a built integration and
+     * this one does not.
+     *
+     * Cascade, like its two siblings, which is what keeps `claims_anchor_check` a DB CHECK
+     * rather than an application rule: no anchor is ever nulled out from under a row.
+     */
+    connectorPairId: text('connector_pair_id').references(() => connectorPairs.id, {
+      onDelete: 'cascade',
+    }),
     dataObjectId: text('data_object_id')
       .notNull()
       .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
@@ -545,11 +562,12 @@ export const claims = sqliteTable(
     }),
     /**
      * Whichever anchor is set — the claim's identity column (see the header).
-     * Generated rather than written so it can never disagree with the two FKs it
-     * derives from; there is no code path that could set it wrongly.
+     * Generated rather than written so it can never disagree with the three FKs it
+     * derives from; there is no code path that could set it wrongly. The three id spaces
+     * cannot collide: `connector_pairs.id` is a review record id, the other two are UUIDs.
      */
     anchorId: text('anchor_id').generatedAlwaysAs(
-      sql`coalesce("integration_id", "connector_evidenced_pair_id")`,
+      sql`coalesce("integration_id", "connector_evidenced_pair_id", "connector_pair_id")`,
       { mode: 'stored' },
     ),
     createdAt: createdAt(),
@@ -571,9 +589,12 @@ export const claims = sqliteTable(
     // CHECK, because neither anchor is ever nulled by an `ON DELETE SET NULL`: both
     // cascade, so the row disappears with its anchor rather than being re-evaluated
     // against it. Nothing can make this CHECK fail an unrelated delete.
+    // AECI-891 made it three arms, so `<>` no longer expresses it: `a <> b <> c` parses as
+    // `(a <> b) <> c` and is TRUE for all three set. Summing the three booleans is the
+    // only form that says exactly one.
     check(
       'claims_anchor_check',
-      sql`("integration_id" IS NOT NULL) <> ("connector_evidenced_pair_id" IS NOT NULL)`,
+      sql`(("integration_id" IS NOT NULL) + ("connector_evidenced_pair_id" IS NOT NULL) + ("connector_pair_id" IS NOT NULL)) = 1`,
     ),
   ],
 );
@@ -2156,7 +2177,8 @@ export const connectorStubMappings = sqliteTable(
 );
 
 /**
- * A pair of STUBS the connector publishes a page for, filtered review-side to pairs
+ * A pair of STUBS the connector asserts a relationship between — for three of the
+ * four `surface` values, one it publishes a page for — filtered review-side to pairs
  * where both sides map to one of our products. That filter is the difference between
  * ~2,000 rows and MindCloud's 104,186; the full index scale is not lost, it is
  * recorded as a count on the review side's run log.
@@ -2167,6 +2189,14 @@ export const connectorStubMappings = sqliteTable(
  * curated set, and curated-vs-generated is a classification on the vendor's own
  * published pair row (AECI-677). Without this table the only derivable thing is the
  * auto-generated cross-product that §13.7 and AECI-716 explicitly refuse to publish.
+ *
+ * `derived` (AECI-906) is the one value that names a pair the vendor never published
+ * a page for. The review app enumerates it from a CLOSED, published connector list,
+ * so both endpoints are things that connector demonstrably reaches even though no
+ * per-pair page exists. It asserts REACH, not delivery — so it is NOT interchangeable
+ * with `curated`, and a reader that publishes `derived` as though a page existed is
+ * making a claim the upstream never made. A `derived` row normally carries neither
+ * `url_a_to_b` nor `url_b_to_a`, because there is no page to cite.
  *
  * `surface` defaults to `unknown` on purpose: appearing in an index says a page
  * exists, not that anyone read it.
@@ -2207,7 +2237,14 @@ export const connectorPairs = sqliteTable(
     // ordering guarantees roughly half the answers sit on the b side.
     index('connector_pairs_stub_b_idx').on(t.stubBId),
     check('connector_pairs_canonical_order', sql`"stub_a_id" < "stub_b_id"`),
-    check('connector_pairs_surface_check', sql`"surface" IN ('curated', 'generated', 'unknown')`),
+    // Lockstep with `CONNECTOR_PAIR_SURFACES` in `@aeci/shared`. Changing this list is
+    // a destructive table recreate on D1 (there is no ALTER for a CHECK), which is why
+    // `surface_role` / `index_kind` / `direction_role` deliberately carry none — see
+    // the "deliberately ACCEPTS unfamiliar scraper vocabulary" case in `test/d1.spec.ts`.
+    check(
+      'connector_pairs_surface_check',
+      sql`"surface" IN ('curated', 'generated', 'derived', 'unknown')`,
+    ),
   ],
 );
 
@@ -2603,6 +2640,13 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.connectorEvidencedPairId],
     references: [connectorEvidencedPairs.id],
   }),
+  // The THIRD arm (AECI-891). Declared together with its `many(claims)` inverse on
+  // `connectorPairsRelations`, because the lesson of the arm above is that a one-sided
+  // relation is silent until the first read config asks for it, and then throws.
+  connectorPair: one(connectorPairs, {
+    fields: [claims.connectorPairId],
+    references: [connectorPairs.id],
+  }),
   dataObject: one(taxonomyDataObjects, {
     fields: [claims.dataObjectId],
     references: [taxonomyDataObjects.id],
@@ -2760,7 +2804,9 @@ export const connectorStubMappingsRelations = relations(connectorStubMappings, (
   }),
 }));
 
-export const connectorPairsRelations = relations(connectorPairs, ({ one }) => ({
+export const connectorPairsRelations = relations(connectorPairs, ({ one, many }) => ({
+  // AECI-891's reach anchor. A claim here asserts reach, never delivery.
+  claims: many(claims),
   catalog: one(connectorCatalogs, {
     fields: [connectorPairs.catalogId],
     references: [connectorCatalogs.id],

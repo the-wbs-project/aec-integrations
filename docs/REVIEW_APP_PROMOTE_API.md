@@ -562,7 +562,9 @@ same failure `verified` had before AECI-520 (§4a).
 
 A separate body shape on a separate path, sharing everything else. It mirrors the review
 app's connector-lane model into AECi — catalogues, their crawled listings ("stubs"),
-stub↔product mappings, and the pairs a vendor publishes a page for.
+stub↔product mappings, the connector's pairs (the ones the vendor published a page for, and —
+since AECI-906 — the ones you derived yourself from a closed connector list), and since AECI-891
+the data-object **claims anchored on those pairs**.
 
 **AECi holds the FULL mirror, including the misses.** Send every stub, not just the mapped
 ones: the question the lane answers is *"is this new listing one of ours?"*, and the ~3,342
@@ -582,7 +584,7 @@ commit. What makes that safe is that every write is an upsert keyed on *your* re
 - **order does not matter**, though sending stub pages before pair/mapping pages avoids skips.
 
 Ceiling: **500 rows per page**, counted across `surfaces` + `stubs` + `mappings` + `pairs` +
-`deleted`. Over that is a `400`.
+`claims` + `deleted`. Over that is a `400`.
 
 ### Body
 
@@ -593,7 +595,8 @@ Ceiling: **500 rows per page**, counted across `surfaces` + `stubs` + `mappings`
   "page":    { "index": 3, "of": 8 },
   "surfaces":[ /* 0+ */ ], "stubs": [ /* 0+ */ ],
   "mappings":[ /* 0+ */ ], "pairs": [ /* 0+ */ ],
-  "deleted": { "surfaces": [], "mappings": [] }   // optional; explicit hard deletes
+  "claims":  [ /* 0+ */ ],                        // AECI-891; anchored on a reached pair
+  "deleted": { "surfaces": [], "mappings": [], "claims": [] }  // optional; explicit hard deletes
 }
 ```
 
@@ -664,23 +667,89 @@ sit on one stub; the other three assert there is none to name and **at most one*
 a stub. Both rules are enforced at the kick-off, so a violation is a fast `400` rather than a
 rolled-back page.
 
-#### `pairs[]` — the pairs the vendor publishes a page for
+#### `pairs[]` — the connector's pairs, published or derived
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes | |
 | `stubAId`, `stubBId` | string | yes | **Canonically ordered: `stubAId < stubBId`.** Vendors publish both directions as separate pages; without the ordering every pair arrives twice. A reversed pair is a `400`. |
 | `urlAToB`, `urlBToA` | string | no | Either may be absent. |
-| `surface` | enum | no | `curated` \| `generated` \| `unknown` (default). **This is the field that decides publication** — AECi publishes the curated set and refuses to publish an auto-generated cross-product. |
+| `surface` | enum | no | `curated` \| `generated` \| `derived` \| `unknown` (default). **This is the field that decides publication** — AECi publishes the curated set, refuses to publish an auto-generated cross-product, and counts a `derived` pair toward reach without publishing it anywhere. |
 | `classifiedAt` | ISO-8601 | no | |
 | `firstSeenAt`, `lastSeenAt` | ISO-8601 | **yes** | |
 | `removedAt` | ISO-8601 | no | |
 
+**`derived` means there is no page (AECI-906, 2026-09-13).** The other three values classify a
+page you found: `curated` the vendor hand-published, `generated` their automation produced,
+`unknown` exists but nobody has read it. `derived` says **you enumerated the pair yourself** from
+a closed and published connector list, and no page exists at all. Send it whenever that is what
+happened. Do not send `unknown` instead — `unknown` promises a page — and do not leave the field
+to its default for the same reason.
+
+AECi counts a `derived` pair toward reach and publishes it on no surface: §13.7's publication
+rule needs the vendor's own provenance and "as of" label, and there is nothing to point it at.
+So a `derived` row never becomes a pair page, a comparison column, or an outbound link. The first
+669 arrived on 2026-09-13 for **Kroo Connector** and **Trimble AppXchange** (upstream AECI-890,
+review-repo PR #110).
+
+It **can** carry claims, including a `derived` one — the anchor below applies no `surface`
+predicate (AECI-891, same day). That is not a publication route: a claim on a reach anchor renders
+nowhere at all today, and the publication rule in the paragraph above is unchanged.
+
+#### `claims[]` — data-object claims anchored on a REACHED pair (AECI-891)
+
+**Operator ruling, 2026-09-13: a claim can anchor to a reached pair, and AECi carries it.** This
+is the array that lands it. It exists because the review app has always let a claim sit on one of
+its own `connector_pairs` rows, and AECi previously had nowhere to put such a claim — so the I24
+sweep that retires a delivered row would have destroyed the claim it carried rather than moving it
+to the right shelf.
+
+**Read the anchor literally, and do not treat it as equivalent to the product arm's.** A claim
+nested under an `integrations[]` entry (§3.4) says *somebody built this and this data object flows
+through it*. A claim here says only *these two ends are joinable through this connector*. Nobody
+built anything. AECi stores the two on different anchor columns for exactly that reason
+(`DATABASE_SCHEMA.md` §5a.1), and a surface that rendered them identically would convert reach into
+a delivery claim.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | **Your `claims` record id**, and the upsert key — see the first rule below. Duplicated within one page it is a `400`. |
+| `connectorPairId` | string | yes | **Your `connector_pairs` record id**, the same id you sent in `pairs[]`. If the pair is neither on this page nor already stored, the claim is skipped as `kind: "claim"` and is re-sendable — send pair pages before claim pages if you want to avoid that. |
+| `dataObject` | string | yes | Slug or name/alias, resolved **find-only** against AECi's seeded vocabulary, exactly as §3.4 describes. An unmatched term is skipped, never auto-created. |
+| `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` | yes | **A is the pair's `stubAId` end and B its `stubBId` end** — not the two products in alphabetical order, and not whichever direction the connector's page happens to be written in. The canonical `stubAId < stubBId` ordering is the only thing that makes this stable, which is why a reversed pair is a `400`. |
+| `attestations` | `Attestation[]` | — | Same shape and the same `aeci`-only rule as §3.4. |
+
+Four rules, and each one is inherited from **this** arm rather than from the product arm's
+`claims[]` — do not carry §5.2's replacement semantics across:
+
+- **Your record `id` is the upsert key, not the identity triple.** That is the opposite of the
+  product arm, and deliberately so: a page is a *slice* of a catalogue, so identity matching would
+  let page 2 silently overwrite what page 1 wrote. Every other table on this endpoint is keyed the
+  same way. A page re-sent with nothing changed writes nothing at all, including no `audit_log`
+  row. AECi's `claims_identity_key` `(anchor, dataObject, direction)` is still unique, so a
+  *second* record id asserting an identity another claim already holds is reported in `skipped[]`
+  rather than failing the page.
+- **Absence never deletes.** On a paged mirror a claim missing from this page is a claim on another
+  page, so this array is additive. Removal is explicit: put the record id in `deleted.claims[]`
+  below. Deleting a claim cascades its attestations. A vendor-origin claim is never deleted by
+  promote — it lands in `skipped[]` instead.
+- **Count claims toward the 500-row page ceiling**, with `surfaces` + `stubs` + `mappings` +
+  `pairs` + `deleted`. **A claim counts as itself plus each of its attestations**, because the
+  ceiling bounds statements and a claim emits one per attestation.
+- **A reach claim is not attestable and renders nowhere.** AECi's attestation authority scopes to
+  integration-anchored claims, so no vendor can be asked to affirm one; and the reachable pair page
+  is **AECI-716**, unbuilt. The claim lands, stays queryable, and reaches no reader surface today.
+  That is a deliberate carve-out, not a missing feature.
+
 #### `deleted` (optional) — the only hard deletes
 
-`{ "surfaces": [id, …], "mappings": [id, …] }`. Necessary because in a paged mirror **absence
-cannot mean deletion** — a row missing from this page is a row on another page. Only these
-two entities are hard-deleted; stubs and pairs retire via the `removedAt` tombstone.
+`{ "surfaces": [id, …], "mappings": [id, …], "claims": [id, …] }`. Necessary because in a paged
+mirror **absence cannot mean deletion** — a row missing from this page is a row on another page.
+Only these three entities are hard-deleted; stubs and pairs retire via the `removedAt` tombstone.
+`claims` joined the list with AECI-891, for the same reason `mappings` is on it: the review app
+hard-deletes a claim, and this arm has no wholesale-replace pass that would notice its absence.
+Deleting a claim cascades its attestations. An id that no longer exists writes nothing; a
+vendor-origin claim is refused and reported in `skipped[]`.
 
 ### Response
 
@@ -697,7 +766,8 @@ product bundle's ID map:
     "surfaces": { "created": 0, "updated": 0, "unchanged": 2, "deleted": 0, "skipped": 0 },
     "stubs":    { "created": 412, "updated": 6, "unchanged": 82, "deleted": 0, "skipped": 0 },
     "mappings": { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 3 },
-    "pairs":    { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 0 }
+    "pairs":    { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 0 },
+    "claims":   { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 0 }
   },
   "skipped": [
     { "ref": "recMapAdp0000001", "kind": "connector-mapping",
@@ -710,9 +780,19 @@ product bundle's ID map:
 everything, and that is the proof the page was a true no-op.
 
 **Always inspect `skipped[]`.** On a full-mirror sync a `complete` job that dropped 200
-mappings looks identical to one that dropped none. The four connector kinds are
+mappings looks identical to one that dropped none. The four structural connector kinds are
 `connector-catalog`, `connector-stub`, `connector-mapping` and `connector-pair`; all four mean
 *"this could not be resolved yet"*, never *"policy said no"*, and all four are re-sendable.
+
+**That "always re-sendable" reading stopped being true with AECI-891.** Claims skip under
+`kind: "claim"`, and only **one** of their six reasons is re-sendable — a pair this page has not
+carried yet, which self-heals on the next sync. The other five are terminal and mean exactly the
+*"policy said no"* this section says a skip never means: the pair belongs to a different
+catalogue (which is how a claim is stopped from writing around a vendor-managed freeze, since a
+claim carries no `catalog_id` of its own), the `data_object` missed the closed vocabulary, the
+identity is already held by another record, or the claim or attestation is vendor-authored and
+promote may not touch it. **Re-sending a page will not clear any of those five.** Read the reason
+constant, not just the count.
 
 ### One refusal that is NOT a skip: a vendor-managed catalogue (AECI-720)
 
@@ -1104,11 +1184,21 @@ gone. Those entries are **parked**: reported, never deleted, never confirmed. Th
 missing `entity` is parked for the same reason.
 
 Run state as of 2026-09-13: **214 deleted and confirmed, 2 held.** The two held entries are
-Agave ERP Sync connector pairs carrying 21 claims between them; the public promote contract
-cannot land a claim anchored to a connector pair, so they wait on **AECI-891**. The daily
-backstop grew a `pendingRetractions` bucket (below) so this class can never again be invisible
-to it, and that bucket carries a documented hold list so two deliberate holds do not leave the
-job permanently red.
+Agave ERP Sync connector pairs carrying 21 claims between them; at the time of the run the public
+promote contract could not land a claim anchored to a connector pair, so they were held for
+**AECI-891**. The daily backstop grew a `pendingRetractions` bucket (below) so this class can never
+again be invisible to it, and that bucket carries a documented hold list so two deliberate holds do
+not leave the job permanently red.
+
+**AECI-891 ruled later the same day, and it ruled the way that keeps the claims.** A claim **can**
+anchor to a reached pair and AECi carries it — the third anchor in `DATABASE_SCHEMA.md` §5a.1, and
+the `claims[]` array in §3a. The rejected alternative was translating the anchor onto
+`connector_evidenced_pairs`, which would have invented a delivered row for a pair nobody built. So
+the hold clears on a sequence, not on a single merge: AECI-891 ships and reaches **production**, the
+two Agave catalogues re-sync their pairs and claims through `POST /api/promote/connector-catalog`,
+and only then does the consumer delete and confirm those two entries. Until every one of those steps
+is done, leave them held — confirming first is the unrecoverable direction, because the journal holds
+the only surviving copy of the `supabaseId`.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 
@@ -1572,4 +1662,6 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.
 - [ ] **On the connector arm, inspect `skipped[]` even on a clean `complete`.** A full-mirror sync that dropped 200 mappings because their products are not promoted looks identical to one that dropped none.
 - [ ] **Never let absence mean deletion on the connector arm.** A row missing from a page is a row on another page. Retire a stub or pair with a `removedAt` tombstone; hard-delete a mapping or surface through the explicit `deleted` object.
+- [ ] **Send a reach claim in `claims[]` on the connector arm, anchored by `connectorPairId`** (§3a, AECI-891) — never as an `integrations[]` claim. The two anchors mean different things: one says somebody built the integration, the other says only that the two ends are joinable. Send the pair before the claim, or expect a re-sendable `kind: "claim"` skip.
+- [ ] **Set `pairs[].surface` to `derived` on any pair you enumerated rather than found** (§3a, AECI-906). `unknown` promises a page exists and nobody read it; `derived` says no page exists. AECi counts `derived` toward reach and publishes it nowhere, so mislabelling it as `unknown` puts a non-existent vendor page into the publication candidate set.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

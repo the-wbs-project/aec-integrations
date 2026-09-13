@@ -76,6 +76,19 @@ export const ConnectorMappingConfidenceSchema = z.enum(CONNECTOR_MAPPING_CONFIDE
 export const ConnectorPairSurfaceSchema = z.enum(CONNECTOR_PAIR_SURFACES);
 
 /**
+ * The two vocabularies the counts block splits on, exported as TYPES.
+ *
+ * They exist so the server-side surface→field and status→field lookups can be
+ * declared `Record<ConnectorPairSurface, …>` rather than `Record<string, …>`.
+ * That is the whole defence: widening `CONNECTOR_PAIR_SURFACES` with `derived`
+ * (AECI-906) type-checked clean everywhere, because nothing in this lane is an
+ * exhaustive switch, and a `derived` row was silently dropped from every tally.
+ * A `Record` keyed on the union fails the build instead.
+ */
+export type ConnectorMappingStatus = z.infer<typeof ConnectorMappingStatusSchema>;
+export type ConnectorPairSurface = z.infer<typeof ConnectorPairSurfaceSchema>;
+
+/**
  * Per-catalogue tallies, as a named block rather than loose fields.
  *
  * `stubs_undecided` is stubs carrying **no** mapping row at all. §9a.4 is explicit
@@ -92,6 +105,14 @@ export const ConnectorPairSurfaceSchema = z.enum(CONNECTOR_PAIR_SURFACES);
  * count and must never be presented as one — §13.1/§13.5 forbid counting reachable
  * anywhere. They describe how many pair pages the vendor publishes, split by whether
  * anyone has classified them.
+ *
+ * **One field per member of `CONNECTOR_PAIR_SURFACES`, and `pairs_derived` is not a
+ * flavour of `pairs_unknown`.** `unknown` means a page exists and nobody has read it.
+ * `derived` (AECI-906) means the vendor published no page at all and the pair was
+ * enumerated from a closed, published connector list — an assertion of REACH, not of
+ * delivery. Folding the two together would report a catalogue as unclassified when it
+ * is in fact fully classified, and would make a derived-only catalogue such as Kroo
+ * Connector or Trimble AppXchange read as holding no pairs.
  */
 export const AdminConnectorCountsSchema = z.object({
   surfaces: z.number().int().min(0),
@@ -107,11 +128,33 @@ export const AdminConnectorCountsSchema = z.object({
   mappings_publishable: z.number().int().min(0),
   pairs_curated: z.number().int().min(0),
   pairs_generated: z.number().int().min(0),
+  pairs_derived: z.number().int().min(0),
   pairs_unknown: z.number().int().min(0),
   /** `connector_evidenced_pairs` for this connector. Zero until AECI-721 fills it. */
   evidenced_pairs: z.number().int().min(0),
 });
 export type AdminConnectorCounts = z.infer<typeof AdminConnectorCountsSchema>;
+
+/**
+ * `connector_pairs.surface` → the counts field that tallies it. ONE spelling, for
+ * both sides of the wire.
+ *
+ * It lives here rather than beside the query that fills it because the admin UI
+ * needs the identical list to render the split, and a second hand-written copy is
+ * exactly how AECI-906's `derived` went missing: four independent sites each spelled
+ * the surface list out, none of them a `switch`, so widening the enum type-checked
+ * clean and every derived row was dropped. Keyed on {@link ConnectorPairSurface}, a
+ * new surface fails the build here until it has a field.
+ *
+ * Iteration order follows `CONNECTOR_PAIR_SURFACES`, so a UI mapping over it renders
+ * the surfaces in the vocabulary's own order.
+ */
+export const PAIR_SURFACE_COUNT_KEYS: Record<ConnectorPairSurface, keyof AdminConnectorCounts> = {
+  curated: 'pairs_curated',
+  generated: 'pairs_generated',
+  derived: 'pairs_derived',
+  unknown: 'pairs_unknown',
+};
 
 // ─── GET /api/admin/connector-catalogs ───────────────────────────────────────
 
@@ -345,7 +388,9 @@ export type AdminConnectorPairSide = z.infer<typeof AdminConnectorPairSideSchema
 export const AdminConnectorReachablePairRowSchema = z.object({
   id: RecordIdSchema,
   /** Defaults to `unknown` on purpose: appearing in an index says a page exists,
-   *  not that anyone has read it (§9a.5). */
+   *  not that anyone has read it (§9a.5). `derived` is the opposite claim and never
+   *  the default — no page exists, and the pair was enumerated from a closed,
+   *  published connector list (AECI-906). */
   surface: ConnectorPairSurfaceSchema,
   side_a: AdminConnectorPairSideSchema,
   side_b: AdminConnectorPairSideSchema,

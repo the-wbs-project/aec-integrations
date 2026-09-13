@@ -845,6 +845,35 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('pins the tables that cascade INTO connector_pairs — the next recreate depends on it', async () => {
+    // A migration that recreates a table must know what hangs off it, because SQLite's
+    // `DROP TABLE` fires foreign-key ACTIONS and `PRAGMA defer_foreign_keys` does not stop
+    // them. `0032_mute_gateway.sql` was safe in drizzle-kit's generated order precisely
+    // because this list was EMPTY. `0033_solid_nightcrawler.sql` (AECI-891) then gave
+    // `claims` a `connector_pair_id`, so the next `connector_pairs` recreate is two levels
+    // deep — connector_pairs → claims → attestations — and needs 0027's hand-assembled
+    // ordering instead.
+    //
+    // This case lives here, at HEAD, on purpose. The equivalent assertion inside
+    // `migration-0032.spec.ts` runs against the schema as 0032 left it and therefore
+    // cannot ever see a child added later. A guard that structurally cannot fail is not a
+    // guard. When this list grows, read the migration note in `0032_mute_gateway.sql`
+    // before recreating the table.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'connector_pairs')
+         ORDER BY m.name`,
+      )
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(inbound).toEqual(['claims']);
+    t.dispose();
+  });
+
   it('rejects every out-of-vocabulary connector-lane enum value', async () => {
     const t = await makeTestDb();
     await seedCatalog(t);
@@ -870,6 +899,23 @@ describe('connector lane (AECI-714)', () => {
         catalogId: 'cat1',
         status: 'mapped',
         confidence: 'certain',
+      }),
+    ).rejects.toThrow();
+    // `connector_pairs.surface`. AECI-906 widened this CHECK to four values, and the
+    // name of this test claims EVERY connector-lane enum, so it belongs here as well
+    // as in `migration-0032.spec.ts` — that file guards the recreate, this one guards
+    // the vocabulary the current schema enforces.
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's2', catalogId: 'cat1', slug: 'sage', ...stubStamps });
+    await expect(
+      t.db.insert(connectorPairs).values({
+        id: 'pr-bad',
+        catalogId: 'cat1',
+        stubAId: 's1',
+        stubBId: 's2',
+        surface: 'inferred',
+        ...stubStamps,
       }),
     ).rejects.toThrow();
     t.dispose();

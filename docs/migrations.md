@@ -435,15 +435,25 @@ Each migration must leave the DB in a state the previously-deployed Worker code 
 
 `DROP TABLE`, `DROP COLUMN`, type-narrowing (`varchar(255)` → `varchar(64)`), `ADD COLUMN ... NOT NULL` without a backfill, and any change that loses data without a migration path — these require explicit approval in the issue **before** you write the SQL. Not in the PR. In the issue.
 
-### 3.3a Dropping a column on SQLite/D1 may force a table recreate
+### 3.3a Dropping a column — or changing a CHECK — on SQLite/D1 forces a table recreate
 
-SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
+SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. It has no `ALTER TABLE … ALTER CONSTRAINT` at all, so **widening or narrowing a `CHECK` takes the same path** even though nothing is being dropped. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
 
 Three rules when you hit this, all learned from `migrations/0014_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
 
 1. **Replace the pragma.** drizzle-kit wraps the swap in `PRAGMA foreign_keys=OFF` / `=ON`. That is **not** the lever D1 supports — [D1's migrations docs](https://developers.cloudflare.com/d1/reference/migrations/) specify `PRAGMA defer_foreign_keys = true`, which holds for the surrounding transaction and resets on commit (so it needs no matching re-enable). Regenerating the file reintroduces the wrong pragma; re-apply the edit and say so in a comment at the top of the migration.
 2. **Check the copy lists the PK explicitly.** For an `AUTOINCREMENT` PK, an implicit copy would reassign ids. Anything paginating on `(created_at, id)` then repeats or skips rows.
 3. **Verify against non-empty data, not just a fresh DB.** Apply to a seeded local D1 and assert the row count and `MAX(id)` before and after. A recreate that "applies cleanly" to an empty table proves nothing.
+
+**A fourth rule the CHECK case adds: check for cascade children before trusting the generated order.** `DROP TABLE` performs an implicit DELETE that **fires** foreign-key actions, and `PRAGMA defer_foreign_keys` defers violation *reporting*, not cascade *actions*. `0027_powerful_killraven.sql` (AECI-721) is the worked example of the dangerous case — two levels of cascade below `integrations`, and the generated order would have destroyed 1,697 claims and 1,697 attestations. `0032_mute_gateway.sql` (AECI-906, a `connector_pairs.surface` widening) is the worked example of the safe one: **nothing holds an FK into `connector_pairs`**, its three FKs all point outward, and dropping a child fires nothing on its parents. The test that decides which case you are in is one query. `apps/api/src/test/d1.spec.ts` runs it as an assertion at **HEAD**, which is the only place it can catch a child added later — `migration-0032.spec.ts` asserts the same thing against the schema as `0032` left it, so it records history and can never fail on a future child:
+
+```sql
+SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+  AND m.name NOT LIKE 'sqlite_%'
+  AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f WHERE f."table" = '<the table>');
+```
+
+**Run that query; do not reuse yesterday's answer.** `connector_pairs` had no cascade children on the morning of 2026-09-13 and had one by the evening: **AECI-891** added `claims.connector_pair_id` with `ON DELETE cascade`, which also puts `attestations` two levels below it. So `0032`'s cheap recreate is not precedent for the next one on that table. AECI-891's own migration, **`0033_solid_nightcrawler.sql`**, is a second `claims` recreate in the dangerous class — roughly **1,872 claims and 1,872 attestations** in production, `attestations` cascading from `claims` — and it carries both through `__carry_*` tables exactly as `0027` does.
 
 Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
 

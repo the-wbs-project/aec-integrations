@@ -29,7 +29,7 @@
 --     * a tombstoned stub (`removed_at`)
 --     * `actions IS NULL` (never fetched) beside a fetched one
 --     * one stub mapping to TWO products (§9a.4's many-to-many)
---     * `curated`, `generated` and `unknown` pairs
+--     * `curated`, `generated`, `derived` and `unknown` pairs
 --     * one `review`-managed and one `vendor`-managed catalogue, the latter with
 --       the audit row that AECI-720's flip writes — which is the ONLY record of
 --       who a catalogue was handed to, and what the handover block reads back
@@ -219,14 +219,26 @@ ON CONFLICT (id) DO NOTHING;
 -- Pairs. NOT the reachable tier and NOT an assertion of delivery (§9a.5) — they
 -- exist for the one thing the mapping graph cannot supply, `surface`. The
 -- canonical ordering (stub_a_id < stub_b_id) is a CHECK, so these are pre-sorted.
--- All three surface values appear, because `unknown` is the default and a screen
+-- All FOUR surface values appear, because `unknown` is the default and a screen
 -- that never shows it hides the majority state.
+--
+-- `derived` (AECI-906) is the value a reader is most likely to get wrong, so both
+-- rows below carry NO url_a_to_b, NO url_b_to_a and NO classified_at. That last one
+-- is not an oversight: upstream deliberately stopped stamping `classified_at` on a
+-- derived pair, because the stamp moved on all 669 rows on every ingest. That is the
+-- point of the value:
+-- the vendor never published a page for this pair, and the review app enumerated it
+-- from a closed, published connector list. It asserts REACH, not delivery — so a
+-- surface chip that lumps it in with `curated` is claiming a page that does not
+-- exist. One row per catalogue, so a per-catalogue surface breakdown shows it twice.
 -- ---------------------------------------------------------------------------
 INSERT INTO connector_pairs (id, catalog_id, stub_a_id, stub_b_id, url_a_to_b, url_b_to_a, surface, classified_at, first_seen_at, last_seen_at, removed_at, created_at, updated_at) VALUES
   ('fx-pair-1','fx-cat-mindcloud','fx-stub-mc-procore','fx-stub-mc-sage-intacct','https://example.com/mindcloud/procore-to-sage','https://example.com/mindcloud/sage-to-procore','curated','2026-08-28T00:00:00.000Z','2026-07-01T00:00:00.000Z','2026-08-30T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('fx-pair-2','fx-cat-mindcloud','fx-stub-mc-autodesk-build','fx-stub-mc-procore','https://example.com/mindcloud/autodesk-to-procore',NULL,'generated','2026-08-28T00:00:00.000Z','2026-07-01T00:00:00.000Z','2026-08-30T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('fx-pair-3','fx-cat-mindcloud','fx-stub-mc-bluebeam-revu','fx-stub-mc-plangrid',NULL,NULL,'unknown',NULL,'2026-07-01T00:00:00.000Z','2026-08-30T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('fx-pair-4','fx-cat-agave','fx-stub-ag-autodesk-build','fx-stub-ag-procore','https://example.com/agave/autodesk-procore',NULL,'curated','2026-08-10T00:00:00.000Z','2026-07-01T00:00:00.000Z','2026-08-30T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('fx-pair-4','fx-cat-agave','fx-stub-ag-autodesk-build','fx-stub-ag-procore','https://example.com/agave/autodesk-procore',NULL,'curated','2026-08-10T00:00:00.000Z','2026-07-01T00:00:00.000Z','2026-08-30T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('fx-pair-5','fx-cat-agave','fx-stub-ag-procore','fx-stub-ag-sage-intacct',NULL,NULL,'derived',NULL,'2026-09-12T00:00:00.000Z','2026-09-12T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('fx-pair-6','fx-cat-mindcloud','fx-stub-mc-procore','fx-stub-mc-viewpoint-vista',NULL,NULL,'derived',NULL,'2026-09-12T00:00:00.000Z','2026-09-12T00:00:00.000Z',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------

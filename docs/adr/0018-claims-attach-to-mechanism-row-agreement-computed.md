@@ -119,3 +119,57 @@ an evidenced pair is connector-delivered by construction, and §14 of
 `STAGE_2_ATTESTATIONS_SPEC.md` already forbids attestation on connector-delivered edges. The
 authority read and the detector sweep therefore scope themselves to `integration_id IS NOT NULL`
 explicitly, so the exclusion is a stated decision rather than an emergent property of an inner join.
+
+---
+
+## Amendment — 2026-09-13 (AECI-891): a third arm, and it is not a delivered row
+
+**Decision 1 stands. The 2026-08-31 amendment's "either delivered-tier table" becomes "one of three
+anchor tables", and the third is not delivered.**
+
+Operator ruling of 2026-09-13: **a claim can anchor to a reached pair, and AECi carries it.** An
+earlier answer the same day said such claims would be translated onto the delivered tier at promote
+time; that is superseded. Translation would have minted a `connector_evidenced_pairs` row — a
+*delivered* row, meaning somebody built the integration — for a pair nobody built. Carrying the
+reach anchor honestly is the lesser distortion.
+
+**What changed.** `claims` carries a third nullable anchor FK, `connector_pair_id` →
+`connector_pairs(id)` `ON DELETE cascade` (`DATABASE_SCHEMA.md` §9a.5). `anchor_id` becomes
+`coalesce(integration_id, connector_evidenced_pair_id, connector_pair_id)`, still STORED, still the
+leading column of `claims_identity_key`. The identity triple is unchanged.
+
+**The distinction that must not blur, in this ADR above all.** The first two anchors point at
+**delivered** rows: somebody built the integration. The third points at the **reachable** tier:
+nobody built anything, and the two ends are merely joinable through that connector. Wherever this
+ADR or its readers say "the anchor", say which kind. A surface that renders all three identically
+turns reach into a delivery claim, which is the exact error Addendum C's I24 ruling exists to
+prevent (`STAGE_1_5_SPEC.md` §13.7).
+
+**Why the CHECK changed form and not just arity.** `claims_anchor_check` was
+`(a IS NOT NULL) <> (b IS NOT NULL)`, which says "exactly one" for two terms and does **not** for
+three: `a <> b <> c` parses as `(a <> b) <> c` and evaluates TRUE when all three are set. The
+shipped form sums the three booleans and compares to `1`. Anyone restoring the chained `<>` for
+symmetry would reopen a hole that admits a triple-anchored claim.
+
+**Why no discriminator column is needed.** The three id spaces cannot collide: `connector_pairs.id`
+is the review app's own record id, while `integrations.id` and `connector_evidenced_pairs.id` are
+UUIDs minted here. So `anchor_id` alone still identifies one row in one table.
+
+**What it cost.** A second destructive `claims` recreate — migration `0033`, the same shape as
+`0027` and for the same reason, since a STORED generated column cannot be altered in place.
+`attestations` cascades from `claims`, production holds roughly 1,872 of each, and
+`PRAGMA defer_foreign_keys` does not defer cascade *actions*, so the migration carries both through
+`__carry_*` tables. A second consequence to carry forward: `connector_pairs` now **has** a cascade
+child where it had none, so the next recreate of *that* table is the dangerous class too
+(`docs/migrations.md` §3.3a).
+
+**Consequence for attestation, unchanged and now doubly so.** The 2026-08-31 amendment scoped the
+authority read and the detector sweep to `integration_id IS NOT NULL` explicitly rather than letting
+an inner join imply it. That decision pays off here with no new rule: a reach-anchored claim falls
+outside both by construction. It is not attestable, and it would be incoherent if it were — no
+vendor built the edge, so there is nobody to ask.
+
+**Consequence for rendering: none, deliberately.** A pair-anchored claim can land and no surface
+reads one. The reachable pair page is **AECI-716** and is unbuilt, and §13.7's endpoint summary line
+enumerates nothing. This is a stated carve-out of AECI-891, not an oversight, and the next reader to
+build that surface owns the delivered-versus-reach distinction above.

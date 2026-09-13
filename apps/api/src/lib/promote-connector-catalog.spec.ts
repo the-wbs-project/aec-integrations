@@ -4,7 +4,9 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import {
+  attestations,
   auditLog,
+  claims,
   connectorCatalogs,
   connectorCatalogSurfaces,
   connectorEvidencedPairs,
@@ -12,12 +14,19 @@ import {
   connectorStubMappings,
   connectorStubs,
   products,
+  taxonomyDataObjects,
+  vendors,
 } from '../db/schema';
 import { ApiError } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { auditInsert, type BatchTuple } from './audit';
 import {
   planConnectorCatalogPage,
+  SKIP_CLAIM_DATA_OBJECT,
+  SKIP_CLAIM_FOREIGN_PAIR,
+  SKIP_CLAIM_IDENTITY_TAKEN,
+  SKIP_CLAIM_MISSING_PAIR,
+  SKIP_CLAIM_VENDOR_ORIGIN,
   SKIP_CONNECTOR_UNPROMOTED,
   SKIP_MAPPING_PRODUCT_UNPROMOTED,
   SKIP_MISSING_STUB,
@@ -27,6 +36,17 @@ const CONNECTOR_ID = '11111111-1111-4111-8111-111111111111';
 const PROCORE_ID = '22222222-2222-4222-8222-222222222222';
 const CATALOG_ID = 'rec76C362381D6CDF';
 const STAMPS = { firstSeenAt: '2026-08-27T06:10:37.867Z', lastSeenAt: '2026-08-27T06:11:54.977Z' };
+
+// ── AECI-891 reach-claim fixtures ───────────────────────────────────────────
+const RFIS_ID = '33333333-3333-4333-8333-333333333333';
+const SUBMITTALS_ID = '44444444-4444-4444-8444-444444444444';
+const VENDOR_ID = '55555555-5555-4555-8555-555555555555';
+const WORKATO_ID = '66666666-6666-4666-8666-666666666666';
+/** Canonical order is `stubAId < stubBId`, which `connector_pairs_canonical_order` enforces. */
+const STUB_A = 'recStubAcumati01';
+const STUB_B = 'recStubProcore01';
+const PAIR_ID = 'recPairProcAcu01';
+const CLAIM_ID = 'recClaimRfis0001';
 
 /** Parse through the real schema so the specs exercise the wire defaults too. */
 function makePage(overrides: Record<string, unknown> = {}): PromoteConnectorPagePayload {
@@ -45,6 +65,37 @@ async function seedProducts(t: TestDb, opts: { procore?: boolean } = {}) {
   if (opts.procore !== false) {
     await t.db.insert(products).values({ id: PROCORE_ID, slug: 'procore', name: 'Procore' });
   }
+}
+
+/** The closed `data_object` vocabulary, find-only. Two terms is enough to prove the
+ *  resolver is consulted rather than the string being stored raw. */
+async function seedDataObjects(t: TestDb) {
+  await t.db.insert(taxonomyDataObjects).values([
+    { id: RFIS_ID, slug: 'rfis', name: 'RFIs', aliases: ['Requests for Information'] },
+    { id: SUBMITTALS_ID, slug: 'submittals', name: 'Submittals', aliases: null },
+  ]);
+}
+
+/** A page carrying two stubs, the pair they form, and one claim on that pair — the
+ *  self-sufficient shape, which is what a claim-bearing page will normally look like. */
+function claimPage(overrides: Record<string, unknown> = {}): PromoteConnectorPagePayload {
+  return makePage({
+    stubs: [
+      { id: STUB_B, slug: 'procore', label: 'Procore', ...STAMPS },
+      { id: STUB_A, slug: 'acumatica', label: 'Acumatica', ...STAMPS },
+    ],
+    pairs: [{ id: PAIR_ID, stubAId: STUB_A, stubBId: STUB_B, ...STAMPS }],
+    claims: [
+      {
+        id: CLAIM_ID,
+        connectorPairId: PAIR_ID,
+        dataObject: 'RFIs',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ],
+    ...overrides,
+  });
 }
 
 /** Commit a plan the way the ingest will: statements + audit rows, one batch. */
@@ -84,6 +135,26 @@ describe('planConnectorCatalogPage (AECI-714)', () => {
     expect(replay.wrote).toBe(false);
     expect(replay.counts.catalogs.unchanged).toBe(1);
     expect(replay.counts.stubs.unchanged).toBe(1);
+
+    // AECI-891 extends the property to claims and to the `aeci` attestation hanging off
+    // each one. Asserted HERE rather than in a parallel test, because the property is
+    // about the whole page: a claim table that re-wrote its attestation on every sync
+    // would make every one of these assertions pass and still deposit an `audit_log` row
+    // per page per week into the one table nothing prunes.
+    await seedDataObjects(t);
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    const [attestationBefore] = await t.db.select().from(attestations);
+
+    const claimReplay = await planConnectorCatalogPage(t.db, claimPage());
+    expect(claimReplay.statements).toHaveLength(0);
+    expect(claimReplay.audits).toHaveLength(0);
+    expect(claimReplay.wrote).toBe(false);
+    expect(claimReplay.counts.claims).toMatchObject({ created: 0, updated: 0, unchanged: 1 });
+    // `updated_at` would move if the attestation had been rewritten in place, and the id
+    // would move if it had been churned. Neither may.
+    const [attestationAfter] = await t.db.select().from(attestations);
+    expect(attestationAfter?.id).toBe(attestationBefore?.id);
+    expect(attestationAfter?.updatedAt).toBe(attestationBefore?.updatedAt);
     t.dispose();
   });
 
@@ -380,6 +451,472 @@ describe('planConnectorCatalogPage (AECI-714)', () => {
     expect(plan.counts.catalogs.unchanged).toBe(1);
     const after = (await t.db.select().from(connectorCatalogs))[0];
     expect(after?.updatedAt).toBe(before?.updatedAt);
+    t.dispose();
+  });
+});
+
+describe('reach-tier claims on the connector arm (AECI-891)', () => {
+  async function ready() {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await seedDataObjects(t);
+    return t;
+  }
+
+  it('lands a claim on connector_pair_id and nowhere else', async () => {
+    const t = await ready();
+    const plan = await planConnectorCatalogPage(t.db, claimPage());
+    await commit(t, plan);
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.counts.claims.created).toBe(1);
+    const [row] = await t.db.select().from(claims);
+    // The REACH anchor, and only the reach anchor. `claims_anchor_check` sums the three
+    // and demands exactly one, so a planner that filled two would fail the whole page —
+    // and one that filled `integration_id` would assert DELIVERY, which a reached pair
+    // does not support.
+    expect(row).toMatchObject({
+      id: CLAIM_ID,
+      connectorPairId: PAIR_ID,
+      integrationId: null,
+      connectorEvidencedPairId: null,
+      dataObjectId: RFIS_ID,
+      direction: 'a_to_b',
+      origin: 'aeci',
+      createdByVendorId: null,
+    });
+    // The generated column resolves to the pair, so `claims_identity_key` guards this
+    // claim the same way it guards a delivered one.
+    expect(row?.anchorId).toBe(PAIR_ID);
+    const [attestation] = await t.db.select().from(attestations);
+    expect(attestation).toMatchObject({ claimId: CLAIM_ID, source: 'aeci', asserted: true });
+    t.dispose();
+  });
+
+  it('resolves the data object find-only, by alias, and never mints a term', async () => {
+    const t = await ready();
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'Requests for Information',
+            direction: 'both',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+    expect((await t.db.select().from(claims))[0]?.dataObjectId).toBe(RFIS_ID);
+    expect(await t.db.select().from(taxonomyDataObjects)).toHaveLength(2);
+    t.dispose();
+  });
+
+  it('reports an unresolvable data object and writes the rest of the page', async () => {
+    const t = await ready();
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'Punch lists',
+            direction: 'a_to_b',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+
+    // The vocabulary is frozen and closed; adding a term is an AECi curation act that
+    // promote may not perform, so the miss is reported rather than created or fatal.
+    expect(plan.skipped).toEqual([
+      {
+        ref: CLAIM_ID,
+        kind: 'claim',
+        reason: `dataObject "Punch lists" ${SKIP_CLAIM_DATA_OBJECT}`,
+      },
+    ]);
+    expect(plan.counts.claims.skipped).toBe(1);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    expect(await t.db.select().from(taxonomyDataObjects)).toHaveLength(2);
+    // The pair the claim named still landed — a dropped claim never drops its page.
+    expect(await t.db.select().from(connectorPairs)).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('skips a claim whose pair rides a page not yet sent, then accepts it once it is', async () => {
+    const t = await ready();
+    const claimOnly = makePage({
+      claims: [
+        {
+          id: CLAIM_ID,
+          connectorPairId: PAIR_ID,
+          dataObject: 'RFIs',
+          direction: 'a_to_b',
+          attestations: [{ source: 'aeci', asserted: true }],
+        },
+      ],
+    });
+
+    // §3a: references may dangle, and that is REPORTED rather than fatal. A stricter rule
+    // would make the sender responsible for an ordering the protocol does not define.
+    const first = await planConnectorCatalogPage(t.db, claimOnly);
+    await commit(t, first);
+    expect(first.skipped).toEqual([
+      { ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_MISSING_PAIR },
+    ]);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+
+    // Self-heals with no operator action: send the pair, re-send the claim page.
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage({ claims: [] })));
+    await commit(t, await planConnectorCatalogPage(t.db, claimOnly));
+    expect(await t.db.select().from(claims)).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('skips a claim whose pair rode this page and was ITSELF skipped', async () => {
+    const t = await ready();
+    // The subtle one. The pair is present in the payload, so a planner checking only
+    // "is it on the page?" would emit the claim — and its foreign key would fail and roll
+    // back the WHOLE page, turning one unsendable claim into a silent no-op sync.
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({ stubs: [{ id: STUB_B, slug: 'procore', ...STAMPS }] }),
+    );
+    await commit(t, plan);
+
+    expect(plan.skipped).toEqual([
+      { ref: PAIR_ID, kind: 'connector-pair', reason: SKIP_MISSING_STUB },
+      { ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_MISSING_PAIR },
+    ]);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    t.dispose();
+  });
+
+  it('refuses a claim on another catalogue s pair — the page scoping rule', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage({ claims: [] })));
+
+    // A second catalogue needs a second connector platform — `connector_product_id` is
+    // UNIQUE, one catalogue per iPaaS.
+    await t.db
+      .insert(products)
+      .values({ id: WORKATO_ID, slug: 'workato', name: 'Workato', productRole: 'connector' });
+
+    // Every other child row binds the PAGE s catalogue id, which is what makes "one page
+    // writes one catalogue s rows" true — and what AECI-720 s vendor-managed freeze rests
+    // on. A claim s only scope is the pair it names, so without this check a page for an
+    // open catalogue could write claims onto a FROZEN one s pairs.
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      makePage({
+        catalog: { id: 'recOtherCatalog1', connectorProductId: WORKATO_ID },
+        claims: [
+          {
+            id: 'recClaimForeign1',
+            connectorPairId: PAIR_ID,
+            dataObject: 'RFIs',
+            direction: 'a_to_b',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+    expect(plan.skipped).toEqual([
+      { ref: 'recClaimForeign1', kind: 'claim', reason: SKIP_CLAIM_FOREIGN_PAIR },
+    ]);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    t.dispose();
+  });
+
+  it('does NOT replace by absence — a page omitting a claim leaves it alone', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+
+    // The whole reason this arm diverges from the product arm. The product promote carries
+    // an integration s claims WHOLE, so absence means "AECi withdrew it". A connector page
+    // is a SLICE of a catalogue, so absence means "it is on another page" — and replacing
+    // by absence would let page 2 of a sync delete what page 1 committed.
+    const plan = await planConnectorCatalogPage(t.db, claimPage({ claims: [] }));
+    await commit(t, plan);
+    expect(plan.counts.claims).toMatchObject({ deleted: 0, skipped: 0 });
+    expect(await t.db.select().from(claims)).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('removes a claim only when the page says so, and cascades its attestation', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    expect(await t.db.select().from(attestations)).toHaveLength(1);
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({ claims: [], deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] } }),
+    );
+    await commit(t, plan);
+    expect(plan.counts.claims.deleted).toBe(1);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    // `attestations.claim_id` is ON DELETE CASCADE, so there is no second statement.
+    expect(await t.db.select().from(attestations)).toHaveLength(0);
+    // The destructive act is NAMED in the summary row, not merely counted — `deleted: 1`
+    // would leave an operator unable to say which claim went.
+    expect(plan.audits[0]?.metadata).toMatchObject({ deletedClaimIds: [CLAIM_ID] });
+    t.dispose();
+  });
+
+  it('re-sending a delete for an already-gone claim writes nothing at all', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    const deletePage = claimPage({
+      claims: [],
+      deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] },
+    });
+    await commit(t, await planConnectorCatalogPage(t.db, deletePage));
+    const auditsAfterDelete = (await t.db.select().from(auditLog)).length;
+
+    // Filtered against the pre-read rather than issued blind. A blind DELETE would emit a
+    // statement for an id that matches nothing, and that statement alone would write an
+    // `audit_log` row on every re-send of a page that changes nothing.
+    const replay = await planConnectorCatalogPage(t.db, deletePage);
+    expect(replay.statements).toHaveLength(0);
+    expect(replay.audits).toHaveLength(0);
+    expect(replay.wrote).toBe(false);
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsAfterDelete);
+    t.dispose();
+  });
+
+  it('never deletes or overwrites a vendor-origin claim', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    await t.db.insert(vendors).values({ id: VENDOR_ID, slug: 'procore', companyName: 'Procore' });
+    await t.db
+      .update(claims)
+      .set({ origin: 'vendor', createdByVendorId: VENDOR_ID })
+      .where(eq(claims.id, CLAIM_ID));
+
+    // Rule 2 of STAGE_2_ATTESTATIONS_SPEC.md §3, which AECI-604 had to learn the hard way
+    // on the product arm: AECi keeps curating, the vendor s word survives. Unreachable
+    // today — only this arm writes reach claims, and it writes `origin='aeci'` — which is
+    // exactly the argument that was wrong last time.
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({ deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] } }),
+    );
+    await commit(t, plan);
+    expect(plan.skipped).toEqual([
+      { ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_VENDOR_ORIGIN },
+      { ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_VENDOR_ORIGIN },
+    ]);
+    const [row] = await t.db.select().from(claims);
+    expect(row).toMatchObject({ origin: 'vendor', createdByVendorId: VENDOR_ID });
+    t.dispose();
+  });
+
+  it('reports the loser when two records assert one identity, instead of failing the page', async () => {
+    const t = await ready();
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'RFIs',
+            direction: 'a_to_b',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+          {
+            id: 'recClaimRfisDup1',
+            connectorPairId: PAIR_ID,
+            // Same term by alias, same direction — a duplicate the WIRE cannot see,
+            // because `dataObject` is resolved server-side.
+            dataObject: 'Requests for Information',
+            direction: 'a_to_b',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+
+    // `claims_identity_key` admits exactly one. Letting the second through would roll the
+    // WHOLE page back at commit — 500 rows lost to one duplicate.
+    expect(plan.skipped).toEqual([
+      { ref: 'recClaimRfisDup1', kind: 'claim', reason: SKIP_CLAIM_IDENTITY_TAKEN },
+    ]);
+    expect(await t.db.select().from(claims)).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('lets a re-keyed claim take the identity of one the SAME page deletes', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+
+    // The re-key shape: the review app hard-deletes record X and sends record Y on the
+    // same (pair, dataObject, direction). The DELETE is spliced ahead of every upsert, so
+    // the identity is free by commit time — rejecting Y with SKIP_CLAIM_IDENTITY_TAKEN
+    // would report a TERMINAL, not-re-sendable conflict over data that is already right,
+    // and only a second send of the identical page would land it.
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: 'recClaimRfisRekey',
+            connectorPairId: PAIR_ID,
+            dataObject: 'RFIs',
+            direction: 'a_to_b',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+        deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] },
+      }),
+    );
+    await commit(t, plan);
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.counts.claims).toMatchObject({ created: 1, deleted: 1, skipped: 0 });
+    const rows = await t.db.select().from(claims);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 'recClaimRfisRekey', anchorId: PAIR_ID });
+    t.dispose();
+  });
+
+  it('keeps a claim s id when the review app re-anchors or re-terms it', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'Submittals',
+            direction: 'b_to_a',
+            attestations: [{ source: 'aeci', asserted: true }],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+    expect(plan.counts.claims).toMatchObject({ created: 0, updated: 1 });
+    const rows = await t.db.select().from(claims);
+    // The review record id is the key, so the row is edited rather than churned — and
+    // `attestations.claim_id` keeps pointing at it.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: CLAIM_ID,
+      dataObjectId: SUBMITTALS_ID,
+      direction: 'b_to_a',
+    });
+    expect((await t.db.select().from(attestations))[0]?.claimId).toBe(CLAIM_ID);
+    t.dispose();
+  });
+
+  it('updates the aeci attestation in place and counts the claim as moved', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    const [before] = await t.db.select().from(attestations);
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'RFIs',
+            direction: 'a_to_b',
+            attestations: [
+              {
+                source: 'aeci',
+                asserted: true,
+                introducedAt: '2026-01-01',
+                note: 'from the pair page',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+
+    // The claim ROW did not move; its attestation did. Reporting `unchanged` here would
+    // make the one number that proves a page was idempotent lie.
+    expect(plan.counts.claims).toMatchObject({ created: 0, updated: 1, unchanged: 0 });
+    const [after] = await t.db.select().from(attestations);
+    // Updated in place, not delete-then-insert: the id is the anchor AECI-303 s version
+    // diff needs to stay put.
+    expect(after?.id).toBe(before?.id);
+    expect(after).toMatchObject({ introducedAt: '2026-01-01', note: 'from the pair page' });
+    t.dispose();
+  });
+
+  it('refuses to fill a vendor attestation slot, and says so', async () => {
+    const t = await ready();
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({
+        claims: [
+          {
+            id: CLAIM_ID,
+            connectorPairId: PAIR_ID,
+            dataObject: 'RFIs',
+            direction: 'a_to_b',
+            attestations: [
+              { source: 'vendor_a', asserted: true },
+              { source: 'aeci', asserted: true },
+            ],
+          },
+        ],
+      }),
+    );
+    await commit(t, plan);
+
+    // Permitted by the schema (one shared attestation shape) and refused here, exactly as
+    // the product arm refuses it: inserting a vendor slot would collide with a live vendor
+    // row on `attestations_slot_key` and 500 the whole page.
+    expect(plan.skipped).toHaveLength(1);
+    expect(plan.skipped[0]).toMatchObject({ ref: CLAIM_ID, kind: 'claim' });
+    expect(plan.skipped[0]?.reason).toContain('vendor_a');
+    const rows = await t.db.select().from(attestations);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.source).toBe('aeci');
+    t.dispose();
+  });
+
+  it('survives a pre-AECI-891 page that carries no claims key at all', async () => {
+    const t = await ready();
+    // NOT a hypothetical. `runPromoteWorkflow` CASTS an inline params payload instead of
+    // re-parsing it, and Workflows are at-least-once — so an instance created before this
+    // shipped can replay days later with no `claims` key. Iterating it directly throws
+    // `page.claims is not iterable` and kills an in-flight connector page.
+    const legacy = makePage();
+    delete (legacy as { claims?: unknown }).claims;
+
+    const plan = await planConnectorCatalogPage(t.db, legacy);
+    await commit(t, plan);
+    expect(plan.counts.claims).toMatchObject({ created: 0, skipped: 0 });
+    expect(await t.db.select().from(connectorStubs)).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('skips every claim when the connector platform is not promoted', async () => {
+    const t = await makeTestDb();
+    await seedDataObjects(t);
+    const plan = await planConnectorCatalogPage(t.db, claimPage());
+    expect(plan.statements).toHaveLength(0);
+    expect(plan.counts.claims.skipped).toBe(1);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
     t.dispose();
   });
 });
