@@ -126,10 +126,11 @@ design has to respect — Trimble Unity is row 2, not row 1:
   Unlike every other redirect in `server-runtime.ts` this map is **mutable**, so it needs its own
   `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retires the
   Bluebeam hardcode. Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
-  typed query. **Ownership note:** the in-code comment at `apps/web/src/server-runtime.ts:1374` still
-  assigns this map to "AECI-595's retract path", which is stale — AECI-595 closed 2026-09-07 and its
-  remainder is the retraction-feed consumer (AECI-811), not a redirect table. Whoever builds B updates
-  that comment to point here.
+  typed query. **Ownership note, closed 2026-09-13:** the in-code comment near the `bluebeam` 301 in
+  `apps/web/src/server-runtime.ts` used to assign this map to "AECI-595's retract path". It now points
+  here. The retraction remainder shipped as AECI-882 and is a consumer that *deletes* rows — which
+  leaves a noindexed empty page, not a redirect, and mints no slug mapping — so the two were never
+  the same work.
 - **C — Algolia one-way synonyms (old → new).** Rejected on the existing precedent:
   `docs/SEARCH_RANKING.md:113` already declined synonyms for the alias job because they are index-level
   configuration outside code lockstep. Adopting them now would split alias handling across two

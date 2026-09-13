@@ -10,6 +10,23 @@
 #   vendorSourceGone             D1 vendor whose upstream record is gone
 #   integrationSourceGone        D1 integration edge no upstream record claims
 #   integrationEndpointStranded  an edge whose endpoint product is itself stranded
+#   pendingRetractions           a record deleted UPSTREAM whose public row is still here
+#
+# That last bucket is newer than the others (AECI-882) and it is not the same kind of
+# finding. The six above are STOCK checks: they compare what exists on both sides today,
+# so they catch a row however long ago it was stranded, but they can only infer THAT
+# something went missing. `pendingRetractions` reads the review app's retraction journal,
+# which says WHAT was deleted and WHY in the curator's own words — an EVENT check — and
+# journals forward only. Neither replaces the other.
+#
+# It is also the only bucket that can see a retracted `connector_evidenced_pairs` row. The
+# six stock buckets exclude that table by design, which is why on 2026-09-13 they read
+# green while 215 retracted pairs were live on the public site. A green run before this
+# bucket existed meant "the table I classify is fine", not "the catalog is fine".
+#
+# Entries on the script's `HELD_RETRACTIONS` list are reported but do NOT fail the run.
+# A hold names the issue that clears it. Do not add one to quiet the job; a permanently
+# red guard is one nobody reads, which is the whole reason the list exists.
 #
 # Triggers are `schedule` + `workflow_dispatch` only, and the job consumes no event payload —
 # no issue/PR/commit text reaches a `run:` block, so there is no injection surface here. The
@@ -165,6 +182,7 @@ jobs:
             echo "::error::  2. Read the upstream ruling BEFORE anything else. A stranded row is either an editorial retraction or duplicate residue, and that flips the repair from adopt to delete. Two worked examples, executed end to end: scripts/ops/2026-09-polycam-retraction/README.md (retraction) and scripts/ops/2026-09-procore-followup-retraction/README.md (merge residue)."
             echo "::error::  3. A tripped datatool guard is NOT evidence either way. orphansWithoutATwin is orientation-blind, so it reports 'no twin' on a reverse-orientation duplicate that plainly has one. Go to the claim data. See docs/REVIEW_APP_PROMOTE_API.md 5.1."
             echo "::error::  4. Never delete a row to make this job green. Retraction is a separate authorized action and needs a recorded ruling."
+            echo "::error::  5. pendingRetractions is the exception to 4, and ONLY that bucket: the ruling already exists upstream. Its repair is one command, and it deletes then verifies then confirms, in that order: node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production (dry-run; add --apply --allow-production --confirm-count N to execute). Never confirm an entry you have not deleted."
             echo "::error::Re-run locally for the full dump:"
             echo "::error::  AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache"
           }

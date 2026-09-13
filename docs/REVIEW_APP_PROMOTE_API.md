@@ -978,8 +978,12 @@ the upstream ruling — do not read the guard sheet as evidence either way.**
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
 production D1 against the curation catalog daily at 09:00 UTC and fails on any stranded row.
 Since **2026-09-08 (AECI-796)** it reads that catalog over the `aeci-review` MCP with
-`AECI_MCP_TOKEN`, running `scripts/ops/2026-09-stranded-row-audit/audit.mjs` across six
-buckets. It has **no skip-green branch**: a missing credential exits 2 and goes red, because
+`AECI_MCP_TOKEN`, running `scripts/ops/2026-09-stranded-row-audit/audit.mjs` across seven
+buckets — six stranded-row classes plus **`pendingRetractions`** (AECI-882), which reads this
+feed. That seventh bucket exists because the other six are a **stock** check that excludes
+`connector_evidenced_pairs`, and on 2026-09-13 they read green while 215 retracted pairs were
+live. Entries on the script's `HELD_RETRACTIONS` list are reported but do not fail the run; a
+hold names the issue that clears it. It has **no skip-green branch**: a missing credential exits 2 and goes red, because
 an unchecked audit is not a pass. Read the next paragraph before trusting any run of it dated
 before that. Triage: `docs/RUNBOOKS.md` §"Promote strand audit is red"; the repair recipes are
 still `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing, a retired lane kept for
@@ -1068,10 +1072,36 @@ before this paragraph. Two consequences worth acting on:
   forward only, so it is blind to everything stranded before it shipped. Build the consumer
   (**AECI-811**) *alongside* the daily sweep, not instead of it.
 
-**It is empty today.** `list_retractions` with `include_confirmed: true` and no entity filter
-returns 0 entries, so it journals deletions going forward only. It caught none of the seven
-rows above — including AECI-795, the one row of the seven whose deletion is recorded **nowhere
-else either**. It prevents the *next* strand, not the ones already on the ground.
+**It is consumed now (AECI-882, 2026-09-13).** The consumer is
+`scripts/ops/2026-09-retraction-consumer/consume.mjs`, and its README is the run record.
+
+Read the history above with a correction in mind. When the paragraphs above were written the
+feed **was** empty, and this section said so — it prevents the next strand, not the ones
+already on the ground. That stopped being true within two days. Between 2026-09-10 and
+2026-09-12 the journal filled with **216 entries**, 215 of them the AECI-852 reach-edge
+retirement and one the AECI-878 stray, and none of them were consumed because nothing here
+read the feed.
+
+**The part worth remembering is where those 216 rows were.** Migration `0027` (AECI-721) moved
+connector-powered edges out of `integrations` into `connector_evidenced_pairs` **with their ids
+verbatim**, so a `supabaseId` on a journal entry names a row in *either* table and the entry
+itself cannot say which. 215 of the 216 were in the pairs table — the table the daily
+set-difference sweep excludes by design. So the sweep read **green** on all 215 while they were
+live on the public site, and a consumer written against `integrations` alone would have deleted
+1 row, concluded the other 215 were already gone, and **confirmed** them. That is the
+unrecoverable direction: confirming stamps `synced_at`, the entry leaves the feed, and the
+journal held the only surviving copy of the `supabaseId`. Both tables are read on resolve and
+again on verify, for exactly that reason.
+
+The order is **delete → verify → confirm**, always, and it is enforced structurally rather than
+by convention: the confirm function accepts only the token the both-table verifier returns.
+
+Run state as of 2026-09-13: **214 deleted and confirmed, 2 held.** The two held entries are
+Agave ERP Sync connector pairs carrying 21 claims between them; the public promote contract
+cannot land a claim anchored to a connector pair, so they wait on **AECI-891**. The daily
+backstop grew a `pendingRetractions` bucket (below) so this class can never again be invisible
+to it, and that bucket carries a documented hold list so two deliberate holds do not leave the
+job permanently red.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

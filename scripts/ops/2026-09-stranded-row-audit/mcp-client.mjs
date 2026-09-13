@@ -42,6 +42,13 @@ const READ_ONLY_TOOLS = new Set([
   // a D1 row nothing live claims is either DELETED upstream or REJECTED upstream, and
   // find_product is what tells the two apart.
   'find_product',
+  // AECI-882: the retraction feed. Read-only, and the `pendingRetractions` bucket in
+  // audit.mjs is why it is here — a stock check cannot see an EVENT, and 215 of the 216
+  // entries the feed held on 2026-09-13 sat in `connector_evidenced_pairs`, which that
+  // sweep excludes by design. Without this read a green run meant "the table I classify
+  // is fine". `confirm_retractions` is the WRITE half and stays off this list; it lives
+  // in the consumer lane's own client (scripts/ops/2026-09-retraction-consumer/).
+  'list_retractions',
   'list_integrations',
   'get_integration',
   'list_products',

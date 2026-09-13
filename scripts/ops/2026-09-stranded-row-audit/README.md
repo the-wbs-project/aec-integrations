@@ -83,6 +83,33 @@ originally implied was dropped: the sweep self-optimises instead. See
 | `integrationSourceGone`       | D1 integration whose id no upstream record carries (the AECI-593 shape)                               | **Never a mechanical delete.** Check for a recorded editorial ruling first.                 |
 | `integrationEndpointStranded` | Integration whose `source` / `target` / `built_by` / `powered_by` resolves to a row stranded above    | Usually a **re-point**, not a delete — the edge itself is fine.                             |
 | `orphanChildren`              | Claims + attestations under any stranded integration                                                  | Cascade only; they cannot be stranded independently.                                        |
+| `pendingRetractions`          | A record **deleted upstream** whose public row is still live here (AECI-882)                          | The ruling already exists. Run the consumer — see below.                                    |
+
+### `pendingRetractions` is a different kind of finding (AECI-882)
+
+The six buckets above are a **stock** check: they compare what exists on both sides today, so
+they catch a row however long ago it was stranded, but they can only infer *that* something
+went missing. `pendingRetractions` reads the review app's retraction journal, which says
+*what* was deleted and *why* in the curator's own words — an **event** check — and journals
+forward only. Neither replaces the other, which is why they run together rather than as two
+jobs.
+
+**It is also the only bucket that can see a retracted `connector_evidenced_pairs` row**, and
+that is not academic. On 2026-09-13 the journal held 216 pending entries; **215 resolved to
+that table**, which the six stock buckets exclude by design. They read green while all 215
+were live on the public site. Before this bucket existed, a green run meant "the table I
+classify is fine", not "the catalog is fine".
+
+Its repair is the exception to *never delete a row to make this job green*: the ruling already
+exists upstream, so you are executing a decision rather than making one. One command, which
+deletes then verifies then confirms, in that order —
+`node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production`. Never confirm an
+entry you have not deleted; see that lane's README for why that direction is unrecoverable.
+
+**`HELD_RETRACTIONS`** in `audit.mjs` carries entries held on a recorded decision. They are
+printed every run and do not fail it. That list exists so two deliberate holds cannot leave
+the job permanently red — a red guard nobody reads would hide the *next* retraction behind
+them. Each entry names the issue that clears it; the bar is `docs/CODE_REVIEW_EXEMPTIONS.md`'s.
 
 ### What is deliberately out of scope
 
@@ -94,6 +121,11 @@ originally implied was dropped: the sweep self-optimises instead. See
   (§3.4a), and migration `0027` moved the pre-existing powered edges into it, so it has
   held data since AECI-721. The §3a arm writes `connector_pairs`, a different table. And
   its sender (AECI-731) is built and ran against production on 2026-09-10.
+  **What this exclusion cost, measured:** it is why every run between 2026-09-10 and
+  2026-09-13 reported clean while 215 retracted pairs were live and public. The exclusion
+  itself is still right — classifying that table against `list_integrations` would flag all
+  of it every run — so the fix was the `pendingRetractions` bucket above, which sees those
+  rows through the feed instead of through a set difference.
 - **Claims and attestations as an independent axis.** `claims.integration_id` and
   `attestations.claim_id` both cascade, so a claim cannot outlive its integration.
   They are reported as cascade weight, not as a bucket.

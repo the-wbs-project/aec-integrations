@@ -1,0 +1,198 @@
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878)
+
+**Status: RUN — complete.** Applied to `aeci-app-production` 2026-09-13, verified live.
+
+Consumes the review app's retraction journal: reads `list_retractions`, deletes the live
+AECi rows it names, verifies they are gone in **both** delivered-tier tables, and only then
+calls `confirm_retractions`.
+
+Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
+It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI
+because `docs/CICD_PLAN.md` §7.1 says `AECI_MCP_TOKEN` never reaches a Worker and no runtime
+code here talks to the review app — keeping it in `scripts/ops/` keeps that literally true.
+
+## What ran
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 214
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 951 | 950 | −1 |
+| `connector_evidenced_pairs` | 277 | 64 | −213 |
+| `claims` | 1873 | 1872 | −1 |
+| `attestations` | 1873 | 1872 | −1 |
+| `audit_log` rows from this lane | 0 | 214 | +214 |
+| feed, pending | 216 | 2 | −214 |
+
+The 1 `integrations` row is AECI-878 (`6a5fbeab-…`, Viewpoint Spectrum → Unanet CRM AEC),
+executed by this consumer rather than by hand as that issue asked. The 213 pairs are the
+AECI-852 reach-edge retirement.
+
+**47 products** had `integration_count` repaired and `updated_at` bumped.
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+## The two rows held back
+
+| `supabaseId` | journal entry | claims | attestations |
+|---|---|---|---|
+| `a96bb827-c0e2-4842-ad54-f25e40b04c81` | `rec4kywfVTBXovqBd` | 9 | 9 |
+| `a3eb9e45-4c06-409c-a95d-caa91e15f0bd` | `recDOZmV8n5VmPAyP` | 12 | 12 |
+
+Both are Agave ERP Sync connector pairs and between them they carry **all 21 claims** in the
+215-row pairs population — the figure AECI-882 named, here confirmed by measurement rather
+than taken on trust. Deleting them cascades those claims away, and the public promote
+contract has no way to land a claim anchored to a connector pair, so there is nowhere to put
+them back. They go when **AECI-891** ships.
+
+Worth knowing before that issue is worked: the `claims` table **already has** the anchor
+column (`connector_evidenced_pair_id`, with its XOR CHECK and STORED `anchor_id` —
+`apps/api/src/db/schema.ts`, AECI-721 / ADR 0018 amended). The missing half is the promote
+contract and the render, not the schema.
+
+Each held entry's own curator `reason` adds a detail the issue did not record: **upstream
+has already re-anchored those claims** to different connector pairs (`reczhKqHUJZTSlUI2`
+and `recR26YP4tgDvNj6V`). So the curation-side move is done and the AECi side cannot
+receive it — which is precisely what AECI-891 unblocks.
+
+## The order, and why it is not negotiable
+
+Delete → verify → confirm. Always.
+
+`confirm_retractions` stamps `synced_at`, which drops the entry out of the default feed. An
+entry confirmed but never deleted is a live public row that **nothing in either system can
+find again**: the curation record is gone, so the journal entry holds the only copy of its
+`supabaseId`, and confirming discards it. The opposite mistake is harmless — an unconfirmed
+entry is simply re-reported, and re-deleting a deleted row is a no-op.
+
+Enforced structurally: `confirmRetractions()` takes only the object `verifyDeleted()`
+returns, `verifyDeleted()` only returns one after re-reading **both** tables and seeing zero
+rows, and there is exactly one call site. **`scripts/ops/**` has no test harness**, so this
+is a structural guarantee, not a unit-tested one. Do not add a second call site.
+
+## Why both tables
+
+A journal entry carries a `supabaseId` and nothing that says which table holds it. Migration
+`0027` (AECI-721) moved connector-powered edges out of `integrations` into
+`connector_evidenced_pairs` **with their ids verbatim**, so the same id can be in either.
+215 of the 216 were in the pairs table.
+
+A single-table consumer would therefore have cleared 1 row, concluded the other 215 were
+already gone, and confirmed them — destroying the only pointer to 215 live, incorrect public
+rows. That is the failure this lane is shaped to prevent, and it is why verify reads both.
+
+This is also the **first code path in the repo that deletes from
+`connector_evidenced_pairs`**. Neither the datatool prune (which only counts the table for
+the count repair) nor `apps/api/src/lib/retract-product.ts` can touch it; the only precedent
+was one row by hand in `scripts/ops/2026-09-roofr-qbo-connector-orphan/`.
+
+## Two things the run got wrong, both recorded rather than smoothed over
+
+**1. The confirm step died on a stale MCP session.** The first `--apply` read the feed, spent
+~4 minutes deleting 214 rows across 9 batches, then failed `fetch failed` on the first
+`confirm_retractions`: the `mcp-session-id` minted before the delete phase had expired.
+
+This landed on the safe side by design — nothing was confirmed, the feed still listed all
+216, and the recovery run recognised this lane's own `audit_log` rows (`metadata.tool`),
+routed the 214 through the `goneWithOurAudit` bucket and confirmed them. Fixed since:
+`confirmRetractions()` opens its **own** session, so the write no longer depends on how long
+the delete took.
+
+**2. The recovery run overwrote the rollback.** Artifacts were written to stable names, so
+the recovery run — whose plan was empty — replaced a 214-row `rollback.sql` with a 13-line
+stub. Fixed since: artifacts are timestamped and never overwritten, and no rollback is
+written for an empty plan.
+
+**The consequence stands and is not undone.** The full row bodies of the 214 deleted rows are
+no longer on disk. Each `audit_log` row carries the id, name, slugs, mechanism, endpoints and
+the curator's reason, but **not** the full record (description, `listing_url`, `notes`,
+`maturity`, timestamps). The remaining recovery path is **Cloudflare D1 Time Travel**, which
+keeps a 30-day window and restores the whole database rather than selected rows:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=00005711-00000070-000050e5-d05d0849af2b3c247a2720f40e5e59b6
+```
+
+That bookmark is `2026-09-13T06:40:00Z`, immediately before the delete. It expires around
+**2026-10-13**. Restoring it reverts every write to the database since, not just this one.
+
+## Algolia
+
+Measured after the delete, and it corrected an assumption worth recording:
+
+```
+integrations  production_integrations   indexed 951   promoted 1014   orphans 1
+```
+
+**One** orphan, not 214 — `6a5fbeab-…`, the AECI-878 row. The 213 connector pairs were
+**never in the index**, which is exactly what AECI-880's "+277" drift was measuring: the
+evidenced-pair population has never been indexed. Removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+The nightly sweep's safety cap (`maxDeletes: 50`, `maxFraction: 0.2`, `override: false` in
+`apps/api/src/lib/algolia-orphans.ts`) would have **refused the whole pass** had there been
+214 orphans — it skips entirely rather than partially cleaning. It did not bind here, but it
+would on a larger tranche, so check the count before assuming the cron will tidy up.
+
+For AECI-880: drift is now `promoted 1014` vs `indexed 951`, i.e. **63 missing**, down from
+277. It is not closed, and this run did not close it.
+
+## Cache
+
+**No purge was needed, and none is possible.** Native Workers Cache is live on `preview` and
+`staging` only — the `exports` block exists in those two env blocks of
+`apps/web/wrangler.jsonc` and in neither `demo` nor `production`. Production serves uncached,
+so there was no stale window and nothing to invalidate. Re-check that before assuming the
+same on a future run; enabling production caching is a deliberate future step.
+
+## Verification, live (2026-09-13, browser UA)
+
+`curl` with its default UA gets a Cloudflare **403 bot challenge** whose body carries
+`<meta name="robots" content="noindex,nofollow">` — which looks exactly like a legitimate
+noindexed page. Send a browser UA or you will verify the challenge page instead of the site.
+
+- `/products/viewpoint-spectrum/integrations/unanet-crm-aec` → **200 with
+  `<meta name="robots" content="noindex">`**, not a 404. Expected: a retracted pair leaves a
+  noindexed empty pair page (AECI-795).
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, indexable, **Native**. The
+  AECI-878 negative sentinel, asserted present in both orientations before and after.
+- `/products/viewpoint-vista` → zero occurrences of "Microsoft Fabric". The deleted
+  Kroo-powered pair is gone. Kroo Connector still appears there via a separate
+  `integrations` row (`Viewpoint Vista → Kroo Connector`, `iPaaS`) that was never in the
+  feed — correct, and not residue.
+- 64 evidenced pairs survive across 7 connectors (Aquifer 22, Agave 19, Trimble AppXchange
+  16, and four with 1–2). Kroo Connector has none left.
+
+## Daily audit
+
+`scripts/ops/2026-09-stranded-row-audit/audit.mjs` gained a **`pendingRetractions`** bucket,
+because the six stock buckets exclude `connector_evidenced_pairs` and so read green on
+2026-09-13 while 215 retracted pairs were live. Its own `HELD_RETRACTIONS` list carries the
+two Agave ids so the job does not sit red until AECI-891 — a permanently red guard is one
+nobody reads, which would hide the *next* retraction behind these two.
+
+Post-run: all six stranded buckets **0**, `pendingRetractions` **2, both held**, exit **0**.
+
+## Re-running this lane
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+```
+
+Dry-run by default; writes timestamped `preflight-*.json` and `rollback-*.sql` and changes
+nothing. **Both are gitignored** — they hold production catalog content, and this lane is
+re-runnable, so committing them would put a few hundred KB of catalog rows in the repo every
+run. That means the rollback is not in git: keep it, or record a Time Travel bookmark,
+before you need it. To execute, add `--apply --allow-production --confirm-count <the planned count>`.
+The count must match the resolved plan exactly, which is the human gate AECI-881 asked for:
+if the feed moved between the dry run and the apply, the run refuses.
+
+Guards that refuse rather than adapt: the shape gate (against the recorded 216/215/1, and it
+binds only when there is something to delete), the cascade ceiling (`MAX_CASCADE`), a held id
+missing from the plan, an id present in **both** tables, and the sentinel edge moving.
+Exit codes are `0` clean, `1` refusal, `2` could-not-check — and 2 outranks 1.
