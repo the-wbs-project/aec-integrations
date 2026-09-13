@@ -10,9 +10,10 @@
 // ─── THE ALLOW-LIST IS SPLIT IN TWO, DELIBERATELY ────────────────────────────
 //
 // Every previous copy of this file carried one set and one door: `callTool` refused
-// anything outside a read-only allow-list, and `docs/CICD_PLAN.md` §7.1 still describes
-// AECI_MCP_TOKEN as "Read-only on our side by construction". `confirm_retractions` is a
-// write, so honouring that sentence means two sets and two doors, not one widened set:
+// anything outside a read-only allow-list, which is why `docs/CICD_PLAN.md` §7.1 used to
+// call AECI_MCP_TOKEN "Read-only on our side by construction". `confirm_retractions` is a
+// write, so §7.1 now says the token is read-only in the AUDIT lane and read-plus-one-write
+// here. Keeping that sentence true means two sets and two doors, not one widened set:
 //
 //   callTool(name, args)       → READ_ONLY_TOOLS only. Anything else throws.
 //   callWriteTool(name, args)  → WRITE_TOOLS only. Anything else throws.

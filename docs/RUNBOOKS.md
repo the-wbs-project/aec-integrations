@@ -1652,6 +1652,11 @@ it. You are executing a decision, not making one.
 
 1. Read the entry's `reason` in the audit output. If it does not justify a delete, stop and raise
    it — a retraction with an unconvincing reason is an upstream problem, not a D1 one.
+1a. Check the entry's `entity`. The consumer handles **`integration` only** and parks everything
+   else, so a `product` entry will never clear through it — that one goes through
+   `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
+   bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
+   refuses the upstream delete while a supabase id is attached.
 2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
    prints the plan, the cascade, the affected products and the rollback path.
    ```
@@ -1673,6 +1678,11 @@ it. You are executing a decision, not making one.
   it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
 - **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
   with their reason and do not fail the run. If the job is red, something *new* arrived.
+- **A parked entry is not a consumer job.** Anything whose `entity` is not `integration` is
+  reported and then left alone — never deleted, never confirmed. That is deliberate: a `product`
+  entry resolves against neither delivered-tier table, so to the consumer it is indistinguishable
+  from an edge that is already gone, and confirming it would discard the curator's ruling while
+  the live row stayed. Leaving it pending is the harmless direction.
 - **A refusal is the script working.** It stops rather than adapting when the resolved shape
   differs from the recorded ruling, when the cascade exceeds its ceiling, when a held id has
   vanished, when an id is in both tables, or when the sentinel edge moves. Re-establish the

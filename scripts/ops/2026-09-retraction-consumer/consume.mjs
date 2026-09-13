@@ -40,6 +40,16 @@
 // clear one row and silently conclude the other 215 were already gone — and then confirm
 // them. Both tables are read on resolve AND on verify.
 //
+// ─── AND WHY ONLY THOSE TWO TABLES ───────────────────────────────────────────
+//
+// The feed journals `entity: 'product' | 'integration' | 'vendor'`. This lane handles the
+// integration class ONLY, and step 1b parks the rest rather than running them through a
+// resolve that structurally cannot find them. Without that split a `product` entry looks
+// exactly like an edge that is already gone, and `--confirm-already-gone` would confirm it
+// — discarding the curator's ruling while the live `products` row stays. Parked entries are
+// never deleted and never confirmed, so they are simply re-reported until
+// `ops:retract-product` takes them.
+//
 // This is the FIRST code path in the repo that deletes from `connector_evidenced_pairs`.
 // Neither the datatool prune (`apps/datatool/src/prune-integrations.ts`, which only
 // counts the table for the count repair) nor `apps/api/src/lib/retract-product.ts` can
@@ -144,6 +154,10 @@ const HOLD_REASON =
  * The production shape this run was authorised against, measured 2026-09-13. A mismatch
  * means production moved, and the right response is to stop and re-establish the ruling
  * rather than to delete whatever is there now.
+ *
+ * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. On 2026-09-13 the two were
+ * the same number — all 216 entries were edges — so this is the figure that was authorised
+ * either way. Parked entries (see step 1b) are outside the cohort and cannot move it.
  */
 const EXPECTED = { total: 216, inPairs: 215, inIntegrations: 1 };
 
@@ -438,8 +452,9 @@ consume.mjs — consume the review app's retraction feed (AECI-882).
   --allow-production        required on top of --apply when --env production
   --confirm-count <n>       must equal the resolved plan size, or the run refuses
   --detect-only             read and report, exit 1 if anything is pending
-  --confirm-already-gone    also confirm entries whose row is absent with no audit row
-                            from this lane. Read the header before using it.
+  --confirm-already-gone    also confirm integration-class entries whose row is absent with
+                            no audit row from this lane. Read the header before using it.
+                            Parked (non-integration) entries are never confirmed by it.
   -h, --help
 
 Exit: 0 clean · 1 refusal or pending found · 2 could not check.
@@ -490,22 +505,65 @@ async function main() {
 
   // ─── 1. Read the feed ──────────────────────────────────────────────────────
   const session = await openMcpSession();
-  const { rows: entries, total } = await listAll(session, 'list_retractions', {});
-  console.log(`feed: ${entries.length} pending entries (server total ${total})`);
-  if (entries.length !== total) {
-    console.error(`Drained ${entries.length} but the server reports ${total}. Incomplete read.`);
+  const { rows: feed, total } = await listAll(session, 'list_retractions', {});
+  console.log(`feed: ${feed.length} pending entries (server total ${total})`);
+  if (feed.length !== total) {
+    console.error(`Drained ${feed.length} but the server reports ${total}. Incomplete read.`);
     return 2;
   }
-  if (entries.length === 0) {
+  if (feed.length === 0) {
     // An empty feed is a RESULT, not silence. This line is what makes a quiet run
     // distinguishable from a run that never happened.
     console.log('\nFeed is empty: nothing pending. The public site matches the review app.');
     return 0;
   }
-  const missingId = entries.filter((e) => !e.supabaseId);
+  const missingId = feed.filter((e) => !e.supabaseId);
   if (missingId.length) {
     console.error(`${missingId.length} entries carry no supabaseId — cannot resolve. Exit 2.`);
     return 2;
+  }
+
+  // ─── 1b. Park everything that is not an integration-class entry ────────────
+  //
+  // The feed journals `entity: 'product' | 'integration' | 'vendor'`, not just edges.
+  // This lane resolves a `supabaseId` against `integrations` + `connector_evidenced_pairs`
+  // and NOTHING else, so a `product` entry resolves to nothing here — which is
+  // indistinguishable, at this layer, from an edge that is already gone.
+  //
+  // That mattered in exactly one direction. Such an entry would land in `alreadyGone`,
+  // then in `goneUnexplained`, and `--confirm-already-gone` would CONFIRM it: `synced_at`
+  // stamped, entry out of the feed, curator `reason` and upstream record id gone forever,
+  // while the live `products` row it names is untouched. The row itself is still findable
+  // (the daily sweep's `productDeletedUpstream` bucket is a stock check and sees products),
+  // so the loss is the RULING, which is the one thing §4 of ADR 0030 says this lane exists
+  // to preserve.
+  //
+  // So they are parked, never resolved and never confirmed. Leaving them pending is the
+  // harmless direction: they are re-reported every run until the right tool takes them
+  // (`pnpm --filter @aeci/api ops:retract-product` for a product; a vendor never appears —
+  // AECI-685 refuses the upstream delete while a supabase id is attached).
+  //
+  // A MISSING `entity` is parked too, deliberately. If the upstream projection ever drops
+  // the field this run does nothing at all and says so, rather than deleting rows whose
+  // class it can no longer establish.
+  const entries = feed.filter((e) => e.entity === 'integration');
+  const parked = feed.filter((e) => e.entity !== 'integration');
+  if (parked.length) {
+    console.warn(`\nparked: ${parked.length} entries are not integration-class. Not this lane's`);
+    console.warn('work — they are neither deleted nor confirmed, so they stay in the feed.');
+    console.table(
+      parked.map((e) => ({
+        id: e.supabaseId,
+        entry: e.id,
+        entity: e.entity ?? '(absent)',
+        name: e.name,
+      })),
+    );
+    console.warn('  product → pnpm --filter @aeci/api ops:retract-product');
+  }
+  if (entries.length === 0) {
+    console.log('\nNothing integration-class is pending. Nothing for this lane to do.');
+    return parked.length > 0 ? 1 : 0;
   }
 
   // ─── 2. Resolve against BOTH tables ────────────────────────────────────────
@@ -583,8 +641,9 @@ async function main() {
     inIntegrations.length === EXPECTED.inIntegrations;
   if (!shapeOk) {
     console.warn(
-      `\nSHAPE MISMATCH. Authorised against total ${EXPECTED.total} / pairs ${EXPECTED.inPairs} / ` +
-        `integrations ${EXPECTED.inIntegrations}.\nProduction has moved since the 2026-09-13 ruling.`,
+      `\nSHAPE MISMATCH. Authorised against integration-class total ${EXPECTED.total} / pairs ` +
+        `${EXPECTED.inPairs} / integrations ${EXPECTED.inIntegrations}.\n` +
+        'Production has moved since the 2026-09-13 ruling.',
     );
   }
 
@@ -715,7 +774,12 @@ async function main() {
     env: envName,
     db: target.db,
     at: new Date().toISOString(),
-    feed: { pending: entries.length, serverTotal: total },
+    feed: {
+      pending: feed.length,
+      serverTotal: total,
+      integrationClass: entries.length,
+      parked: parked.map((e) => ({ id: e.supabaseId, entry: e.id, entity: e.entity ?? null })),
+    },
     resolve: {
       inIntegrations: inIntegrations.length,
       inPairs: inPairs.length,
@@ -744,8 +808,11 @@ async function main() {
   console.log(`preflight written: ${preflightPath}`);
 
   if (detectOnly) {
-    console.log(`\nDetect-only: ${entries.length} entries pending. Nothing written.`);
-    return entries.length > 0 ? 1 : 0;
+    console.log(
+      `\nDetect-only: ${feed.length} entries pending (${entries.length} integration-class, ` +
+        `${parked.length} parked). Nothing written.`,
+    );
+    return feed.length > 0 ? 1 : 0;
   }
 
   if (!apply) {

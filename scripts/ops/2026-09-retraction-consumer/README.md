@@ -83,6 +83,26 @@ A single-table consumer would therefore have cleared 1 row, concluded the other 
 already gone, and confirmed them — destroying the only pointer to 215 live, incorrect public
 rows. That is the failure this lane is shaped to prevent, and it is why verify reads both.
 
+## Why only those two tables
+
+The feed journals `entity: 'product' | 'integration' | 'vendor'`, not just edges. This lane
+handles the **integration class only**. Everything else is **parked**: printed with its
+`entity`, then neither deleted nor confirmed, including under `--confirm-already-gone`.
+
+The reason is the same asymmetry the order rests on. A `product` entry resolves against
+neither delivered-tier table, so to this script it looks exactly like an edge that is already
+gone. Confirming it would stamp `synced_at` and discard the curator's `reason` and upstream
+record id forever, while the live `products` row it names stayed up. The row would still be
+findable — the daily sweep's `productDeletedUpstream` bucket is a stock check and sees
+products — but the ruling would not be, and preserving the ruling is the whole point of one
+audit row per deleted row. Leaving the entry pending is harmless: it is re-reported until
+`pnpm --filter @aeci/api ops:retract-product` takes it.
+
+An entry with a **missing** `entity` is parked too. If the upstream projection ever drops the
+field, this run does nothing at all and says so, rather than deleting rows whose class it can
+no longer establish. `vendor` never appears — AECI-685 refuses the upstream delete while a
+supabase id is attached.
+
 This is also the **first code path in the repo that deletes from
 `connector_evidenced_pairs`**. Neither the datatool prune (which only counts the table for
 the count repair) nor `apps/api/src/lib/retract-product.ts` can touch it; the only precedent
@@ -192,7 +212,9 @@ before you need it. To execute, add `--apply --allow-production --confirm-count 
 The count must match the resolved plan exactly, which is the human gate AECI-881 asked for:
 if the feed moved between the dry run and the apply, the run refuses.
 
-Guards that refuse rather than adapt: the shape gate (against the recorded 216/215/1, and it
-binds only when there is something to delete), the cascade ceiling (`MAX_CASCADE`), a held id
-missing from the plan, an id present in **both** tables, and the sentinel edge moving.
+Guards that refuse rather than adapt: the shape gate (against the recorded 216/215/1
+integration-class entries, and it binds only when there is something to delete), the cascade
+ceiling (`MAX_CASCADE`), a held id missing from the plan, an id present in **both** tables,
+and the sentinel edge moving. Entries that are not integration-class are parked before any of
+that — see "Why only those two tables".
 Exit codes are `0` clean, `1` refusal, `2` could-not-check — and 2 outranks 1.

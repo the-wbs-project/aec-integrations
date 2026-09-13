@@ -1096,6 +1096,13 @@ again on verify, for exactly that reason.
 The order is **delete → verify → confirm**, always, and it is enforced structurally rather than
 by convention: the confirm function accepts only the token the both-table verifier returns.
 
+The consumer is also bounded to the **integration class**. The feed journals
+`entity: 'product' | 'integration' | 'vendor'`, and a `product` entry resolves against neither
+delivered-tier table — so to the consumer it is indistinguishable from an edge that is already
+gone. Those entries are **parked**: reported, never deleted, never confirmed. Their repair is
+`ops:retract-product`, and leaving them pending is the harmless direction. An entry with a
+missing `entity` is parked for the same reason.
+
 Run state as of 2026-09-13: **214 deleted and confirmed, 2 held.** The two held entries are
 Agave ERP Sync connector pairs carrying 21 claims between them; the public promote contract
 cannot land a claim anchored to a connector pair, so they wait on **AECI-891**. The daily

@@ -841,6 +841,10 @@ for (const entry of strandedProducts) {
     buckets.pendingRetractions.push({
       id: e.supabaseId,
       name: e.name,
+      // Which repair applies. The consumer handles `integration` only and parks the rest;
+      // a `product` entry goes through `ops:retract-product` instead. `vendor` never
+      // appears — AECI-685 refuses the upstream delete while a supabase id is attached.
+      entity: e.entity ?? null,
       journalEntry: e.id,
       upstreamRecord: e.rowId,
       deletedAt: e.deletedAt,
@@ -877,7 +881,7 @@ const report = {
   env,
   database: `aeci-app-${env}`,
   source:
-    'review-app MCP (list_products + get_product + get_vendor + list_integrations + find_product)',
+    'review-app MCP (list_products + get_product + get_vendor + list_integrations + find_product + list_retractions)',
   // Stamped by the caller's clock, not by anything in the data — this is a snapshot.
   measuredAt: new Date().toISOString(),
   cohort: allStatuses ? 'all listed statuses' : [...RESOLVABLE_STATUSES].join(' | '),

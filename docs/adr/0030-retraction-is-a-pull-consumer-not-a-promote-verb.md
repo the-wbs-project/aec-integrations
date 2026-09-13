@@ -50,6 +50,16 @@ written against `integrations` alone would have deleted 1 row, found the other 2
 concluded they were already gone, and **confirmed** them — destroying the only pointer to
 215 live, incorrect public rows.
 
+The same reasoning bounds the lane in the other direction. The feed journals
+`entity: 'product' | 'integration' | 'vendor'`, and this consumer resolves against the two
+delivered-tier tables and nothing else — so a `product` entry resolves to nothing and is
+indistinguishable, at that layer, from an edge already gone. It is therefore **parked**:
+reported, never deleted, never confirmed, including under `--confirm-already-gone`. Its
+repair is `ops:retract-product`, and leaving the entry pending is the harmless direction.
+An entry with a **missing** `entity` is parked too — if the upstream projection ever drops
+the field, a destructive lane that cannot establish a row's class should do nothing and say
+so.
+
 ### 3. The write tool is behind its own door, not a widened allow-list
 
 Every prior ops MCP client carried one read-only allow-list and one method.
