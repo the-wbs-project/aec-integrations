@@ -38,7 +38,7 @@ The forms that *create* requests already shipped (Phase 2 / AECI-128); Phase 6 b
 - **No Slack.** The moderation surface is the Linear **"Vendor Requests" project** (each request = an issue) plus Linear's **native email notifications** to the assignee, plus the admin pending badge. An **admin email** fires only on a Linear-pipeline *failure* (§6.2). No `#moderation` channel.
 - **Lean workflow tracking, not a guarded FSM.** Moderation is driven off the existing `status` columns; `workflow_transitions` is an append-only history. This **relaxes `STAGE_1_SPEC.md` §26.3** ("documented state machine… invalid transitions throw") for Stage 1 — low request volume doesn't justify the machinery. The full guarded FSM can drop in later.
 - **Linear issue creation on submit**, fire-and-forget via `ctx.waitUntil()`, with a reconciliation sweep + failure email as the backstop (§6).
-- **domain-match is informational only.** Auto-*computed* and shown to the admin (+ the `domain-check-pending` label on mismatch), but it **never** auto-approves or auto-rejects. Admins resolve every request by hand. Corrections are **never** auto-applied — the admin edits source data in Airtable and re-promotes (§7.3).
+- **domain-match is informational only.** Auto-*computed* and shown to the admin (+ the `domain-check-pending` label on mismatch), but it **never** auto-approves or auto-rejects. Admins resolve every request by hand. Corrections are **never** auto-applied — the admin edits source data in the review app and re-promotes (§7.3).
 
 ### 3.3 Out of scope (Stage 2+ / deferred)
 
@@ -159,7 +159,7 @@ Flag likely duplicates: an existing `open` request of the same `kind` for the sa
 
 ### 7.3 Corrections are never auto-applied
 
-Per §22.5: a correction request routes to Linear + the admin dashboard; the admin reviews the suggested change and **edits the source data in Airtable, then re-promotes** (`REVIEW_APP_PROMOTE_API.md`). Phase 6 only routes + tracks.
+Per §22.5: a correction request routes to Linear + the admin dashboard; the admin reviews the suggested change and **edits the source data in the review app, then re-promotes** (`REVIEW_APP_PROMOTE_API.md`). Phase 6 only routes + tracks.
 
 ---
 

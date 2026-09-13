@@ -188,21 +188,26 @@ drop out of the sitemap, which is correct — the content is retracted.
 
 ## Healing
 
+> **Vocabulary updated 2026-09-13 (AECI-797).** The recipes below are live and still linked
+> from `docs/RUNBOOKS.md`, so they name the **review app** rather than the Airtable base this
+> lane was written against. The reasoning is unchanged; only the store is. The rest of this
+> file is a 2026-08 run record and deliberately still says Airtable.
+
 The audit never writes. Once it reports a mismatch:
 
-- **`dangling`** — clear `supabase_product_id` + `supabase_slug` on the Airtable record
-  (via the Airtable MCP or the review app). Do **not** invent a replacement id. Since
+- **`dangling`** — clear `supabase_product_id` + `supabase_slug` on the review app's record
+  (via the `aeci-review` MCP or the review app UI). Do **not** invent a replacement id. Since
   AECI-568 a re-promote with a dead id also self-heals by creating a fresh row and
   returning the new id, so clearing is belt-and-braces for records that will not be
   re-promoted soon.
-- **`stranded`** — recover the public uuid into Airtable (match by slug/name against the
-  D1 row), then re-promote through the normal playbook. The push goes out with the
+- **`stranded`** — recover the public uuid into the review app's record (match by slug/name
+  against the D1 row), then re-promote through the normal playbook. The push goes out with the
   recovered `supabaseId`, so it must come back **`updated`**, not `created` — that is
   the convergence check.
 - **`stray`** — a curation judgment, never a mechanical delete. Decide from the
-  **content**, and check the product's Airtable `research_notes` /
+  **content**, and check the product's upstream `research_notes` /
   `tool_integration_check_notes` first: a curator who retracted an edge on purpose usually
-  said so there. Then either recreate the Airtable record and write the existing uuid into
+  said so there. Then either recreate the upstream record and write the existing uuid into
   `supabase_*_id` (**adopt**), or delete the D1 row via the datatool's
   `POST /api/prune-integrations` (guards, ordered delete, rollback SQL, count repair,
   reindex — see `apps/datatool/README.md`).

@@ -64,7 +64,7 @@ Rules:
   `docs/TRADES_VOCABULARY.md`, whose §8 states the UUIDv5 namespace verbatim).
   The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
-  Airtable via `POST /api/promote`).
+  the review app via `POST /api/promote`).
 - **Per-env apply** (**all four tiers**) is wired into CI: the deploy lanes
   (`deploy.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`) run
   `scripts/d1-apply-migrations.sh <db> <env>`, which
@@ -383,13 +383,13 @@ Write a migration when any of these change in Postgres:
 - A table, column, index, constraint, trigger, or sequence.
 - A function, view, or extension.
 - An RLS policy, PostgREST GRANT, or `is_admin()`/`is_active_user()`-style helper. As of AECI-87 the whole authorization surface lives in numbered migrations (see [§5](#5-rls-and-the-public-schema)); there is no separate apply step.
-- A row in a config-shaped table that staging and production must both have (rare). Taxonomy vocabulary → the code-managed reference file `apps/api/seed/taxonomy.sql` (ADR 0008), applied to D1 via `wrangler d1 execute`, not a migration; other curator content → Airtable sync (`docs/DATABASE_SCHEMA.md` §13).
+- A row in a config-shaped table that staging and production must both have (rare). Taxonomy vocabulary → the code-managed reference file `apps/api/seed/taxonomy.sql` (ADR 0008), applied to D1 via `wrangler d1 execute`, not a migration; other curator content → the review app's promote push (`docs/DATABASE_SCHEMA.md` §13).
 
 **Don't** write a migration for:
 
 - Local test fixtures or seed data — those are the D1 seed SQL under `apps/api/seed/` (applied locally via `pnpm db:seed:local`, whose final step is the non-SQL `grant-local-admin.mjs` — AECI-765). Cross-environment reference data (e.g. the taxonomy vocabulary) is `apps/api/seed/taxonomy.sql`, which *is* applied to every environment via `wrangler d1 execute` (ADR 0008).
 - One-off data backfills — use a script under `apps/api/scripts/` and run it explicitly per environment.
-- Anything Airtable owns (curator-managed content; vendors, products, integrations, reviews — see `docs/DATABASE_SCHEMA.md` §13). *(Taxonomy is no longer in this set — it's code-managed reference data per ADR 0008.)*
+- Anything the review app owns (curator-managed content; vendors, products, integrations, reviews — see `docs/DATABASE_SCHEMA.md` §13). *(Taxonomy is no longer in this set — it's code-managed reference data per ADR 0008.)*
 
 ---
 

@@ -94,6 +94,7 @@ generally cannot commit across repos from a single workspace.
 | v0.dev account-level aesthetic directives / system prompt | `docs/design/v0-system-prompt.md` |
 | Foundation stack validation (Phase 1 reference: Angular SSR + Workers + Spartan UI) | `docs/STACK_VALIDATION_TEST.md` |
 | Linear issue conventions — the `**Spec section:**` anchor grammar (including the `n/a` form), the three-repo title-prefix routing, and the checked-in mirror of the team's Linear issue templates | `docs/linear-issue-conventions.md` |
+| The curation store upstream of promote (the review app's own Cloudflare D1 since 2026-08-25; why upstream ids still look like `rec…`; why no Airtable credential exists here) | `docs/adr/0029-curation-store-is-the-review-apps-own-d1.md` |
 | Architecture Decision Records — why key choices were made | `docs/adr/README.md` (index) |
 
 If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.

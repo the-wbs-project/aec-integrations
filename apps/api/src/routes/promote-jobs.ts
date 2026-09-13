@@ -4,7 +4,7 @@
  *
  * This endpoint is what makes a lost response recoverable. Before it existed, the ID map
  * a promote produced lived only in the HTTP response body: a client that timed out (the
- * review app aborts at 30s) lost the only link between an Airtable row and the public rows
+ * review app aborts at 30s) lost the only link between an upstream record and the public rows
  * the commit had just created, with no way to ask for it again (AECI-561). Now the IDs are
  * durable — held by the Workflow instance for its retention window, and by the KV result
  * mirror for 90 days after that.

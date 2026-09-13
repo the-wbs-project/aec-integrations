@@ -9,7 +9,7 @@ Everything downstream seeds from it:
 
 - **AECI-288** — `docs/STAGE_1_5_SPEC.md` §2 **references this file** (it does not duplicate the
   table) so there is exactly one source of truth.
-- **AECI-290** — the Review-app (bamako) Airtable `data_objects` table is seeded from this list.
+- **AECI-290** — the review app's `data_objects` table is seeded from this list.
 - **"I8"** — the main app's D1 `taxonomy_data_objects` table + `apps/api/seed/data-objects.sql`
   are seeded from this list.
 - **AECI-606** — the vocabulary's first **wire surface**: `GET /api/vendor/data-objects` serves the
@@ -47,7 +47,7 @@ The list is **closed and frozen**. This is a deliberate constraint, not an overs
   against the canonical `slug` set (directly or via an alias). An **unmatched term is rejected** —
   it is **not** auto-created. A curator cannot mint a new term by typing one.
 - **Adding, removing, or renaming a term is a deliberate vocabulary change** — a PR that edits this
-  file and re-seeds **both** apps (main D1 + Review Airtable). It is reviewed as a vocabulary change,
+  file and re-seeds **both** apps (main D1 + the review app's D1). It is reviewed as a vocabulary change,
   with awareness that it affects claim identity across both repos.
 - **`slug` is the immutable identity key.** Once a term ships, its `slug` never changes (renaming a
   slug would orphan existing claims). `name`, `description`, and `aliases` **may** be edited freely —

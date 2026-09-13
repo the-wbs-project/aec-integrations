@@ -75,7 +75,7 @@ const lastReviewedAt = () => text('last_reviewed_at');
 
 /** Who is on the hook for the record's accuracy. `'vendor'` is reachable only via
  *  a live vendor attestation (AECI-301); promote must never write this column, or a
- *  routine Airtable push would silently un-vendor a record. */
+ *  routine promote push would silently un-vendor a record. */
 const maintainedBy = () => text('maintained_by').notNull().default('aeci');
 
 /** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */

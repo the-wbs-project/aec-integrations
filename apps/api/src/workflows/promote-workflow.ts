@@ -4,7 +4,7 @@
  * Why this exists: the ingest used to run inline on `POST /api/promote`, so its
  * durability was only as good as the caller's HTTP connection. The review app aborts
  * at 30s; AECi committed anyway. The atomic `db.batch` landed, the product went live,
- * and the response carrying the assigned IDs — the *only* link between an Airtable row
+ * and the response carrying the assigned IDs — the *only* link between an upstream record
  * and its public row, since D1 stores no curation-tool key — was lost. Re-promoting a
  * stranded product then minted duplicates (AECI-561).
  *
@@ -12,7 +12,7 @@
  * walk away, poll later. Three properties do the work:
  *
  *   1. **The job id IS the Workflow instance id.** The review app supplies it (and
- *      stamps it on the Airtable row *before* pushing — AECI-567), so a replayed
+ *      stamps it on its own product row *before* pushing — AECI-567), so a replayed
  *      kick-off hits `create({ id })`'s duplicate guard and attaches to the existing
  *      instance. A retry storm can never produce a second commit.
  *   2. **The commit step is never auto-retried.** It throws `NonRetryableError`, so a

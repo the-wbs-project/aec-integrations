@@ -14,8 +14,8 @@ Everything downstream seeds from it:
   `GET /api/trades`, `GET /api/trades/:slug`, the `trades` dimension on
   `GET /api/products/facets`, the `trades` chip array on `ProductDetail`, and the `trade_id`
   listing param.
-- **AECI-542 / AECI-543** — the promote `trades` key and the Review-app (bamako) Airtable `Trades`
-  field are seeded from this list; the promote resolver matches against §5 **find-only** (§3).
+- **AECI-542 / AECI-543** — the promote `trades` key and the review app's `trades` table are seeded
+  from this list; the promote resolver matches against §5 **find-only** (§3).
 - **AECI-545** _(shipped)_ — the Algolia product record gains `trades` (term names, faceted via
   `searchable(trades)`) and `trade_aliases` (the §4 aliases flattened; **searchable only**), plus the
   `/search` Trades refinement list. Records stay empty until AECI-542 + AECI-547 populate
@@ -139,10 +139,11 @@ one the original three facets carry:
   1. Edit the §5 table in this file (the human-canonical source).
   2. Regenerate the JSON mirror (§9).
   3. Update `apps/api/seed/trades.sql` and merge — the seed re-applies on every deploy (ADR 0008).
-  4. **Airtable option parity** — add the matching option to the Review-app `Trades` field
-     (AECI-543). There is no sync job: an option that exists in Airtable but not in the seed
-     resolves to nothing and lands in `skipped[]`; an option in the seed but not in Airtable is
-     simply untaggable. Reviewers should treat step 4 as part of the same change, not a follow-up.
+  4. **Review-app parity** — add the matching row to the review app's `trades` table
+     (AECI-543), which stores `{ id, name, slug }` on its own D1 just as this file defines them.
+     There is no sync job: a term that exists upstream but not in the seed resolves to nothing and
+     lands in `skipped[]`; a term in the seed but not upstream is simply untaggable. Reviewers
+     should treat step 4 as part of the same change, not a follow-up.
 - **`slug` is the immutable identity key.** Once a term ships, its `slug` never changes — the slug is
   a permanent public URL (`/trades/electrical`) and an SEO landing page (ADR 0008). `name`,
   `description`, and `aliases` **may** be edited freely; they are presentation/matching metadata,
@@ -150,7 +151,7 @@ one the original three facets carry:
 - **Seeding is upsert-only and never deletes** (a delete would cascade to `product_trades`).
   Retiring a term goes through an explicit, reviewed migration.
 - **The vocabulary is code-managed reference data**, per ADR 0008 — `apps/api/seed/trades.sql`,
-  applied to every environment with `wrangler d1 execute`, never Airtable content.
+  applied to every environment with `wrangler d1 execute`, never curated content arriving over promote.
 
 ---
 

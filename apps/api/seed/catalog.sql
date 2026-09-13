@@ -1,7 +1,7 @@
 -- Local-dev catalog fixture for Cloudflare D1 (ADR 0016 / AECI-252, AECI-256).
 -- A small PROMOTED catalog so the local app renders non-empty browse/detail/home
 -- without a remote DB. NOT used in staging/production (those re-promote from
--- Airtable via POST /api/promote). Idempotent: vendors/products upsert on slug,
+-- the review app via POST /api/promote). Idempotent: vendors/products upsert on slug,
 -- integrations + join rows no-op on conflict. Taxonomy links resolve category/
 -- audience/phase/trade ids by slug, so this file is independent of the
 -- taxonomy.sql / trades.sql ids.

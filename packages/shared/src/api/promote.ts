@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { PromoteConnectorPageResponse } from './promote-connector';
 
 /**
- * `POST /api/promote` — push-based Airtable → Supabase promotion (supersedes the
- * pull-based `scripts/airtable-to-supabase-bulk-migrate.ts`). The review
+ * `POST /api/promote` — push-based review app → app-DB promotion (supersedes the
+ * pull-based `scripts/airtable-to-supabase-bulk-migrate.ts`, retired). The review
  * application sends one product plus its dependencies (vendors, taxonomy,
  * integrations) and the API upserts them, returning the created/updated IDs so
  * the review app can persist the mapping and re-push edits later.
@@ -131,7 +131,7 @@ export type EntityRef = z.infer<typeof EntityRefSchema>;
 /**
  * A vendor of the product being promoted. `ref` is required so integrations in
  * the same payload can name it as their `builtByVendor`. URL-ish fields are
- * loose strings (curated Airtable data is trusted; over-strict validation would
+ * loose strings (curated upstream data is trusted; over-strict validation would
  * reject legitimate-but-unusual values).
  */
 export const PromoteVendorSchema = z.object({
@@ -162,7 +162,7 @@ export const PromoteVendorSchema = z.object({
    * ACCEPTED AND IGNORED since AECI-520. `vendors.verified` is the paid
    * entitlement bit: it is set by the claim→account grant
    * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) and cleared only by a deliberate
-   * entitlement action, so a routine Airtable push must not be able to flip it
+   * entitlement action, so a routine promote push must not be able to flip it
    * (which previously could silently un-verify a paying vendor). Kept in the
    * schema rather than removed so an existing review-app build keeps validating
    * — the server simply drops it.
@@ -172,7 +172,7 @@ export const PromoteVendorSchema = z.object({
   lastReviewedAt: ReviewSignalSchema,
   // `maintainedBy` is deliberately NOT accepted here, on any entity. It flips to
   // `'vendor'` only via a live vendor attestation (AECI-301), and a routine
-  // Airtable push carrying `'aeci'` would silently un-vendor a record the vendor
+  // promote push carrying `'aeci'` would silently un-vendor a record the vendor
   // maintains — the same failure mode as `verified` above (AECI-520) and as the
   // wholesale claim replacement AECI-604 removed.
 });
@@ -183,7 +183,7 @@ export type PromoteVendor = z.infer<typeof PromoteVendorSchema>;
  * A usefulness group on the promote INPUT — looser than the stored
  * `UsefulnessGroup` (`./products`), which requires both `slug` AND `name`. The
  * review app identifies the audience/phase term by `slug` OR `name` (it carries
- * the Airtable name, not the AECi slug — the Disciplines/Project-Phases tables
+ * the review app's name, not the AECi slug — the Disciplines/Project-Phases tables
  * have no slug field), so exactly one is required here. The server resolves each
  * group to an EXISTING term and stores the canonical `{ slug, name }` it
  * resolved to — usefulness groups NEVER find-or-create (`REVIEW_APP_PROMOTE_API.md`
@@ -366,7 +366,7 @@ export const PromotePayloadSchema = z
   .object({
     /**
      * Optional idempotency key for the kick-off (AECI-563). Supply it — the review
-     * app stamps `promote_job_id` on the Airtable row BEFORE pushing (AECI-567), so
+     * app stamps `promote_job_id` on its own product row BEFORE pushing (AECI-567), so
      * a retry replays the same id and can never double-commit. Omitted → the server
      * generates one, which still returns a pollable job but gives the caller no
      * replay protection.

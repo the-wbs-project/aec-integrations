@@ -5,6 +5,10 @@
 **Context owner:** chrisw@thewbsproject.com
 **Relates to:** AECI-563 (this change), AECI-571 / AECI-666 (the amendments), AECI-561 (epic), AECI-567 / AECI-570 (the review-app half, other repo); narrows ADR 0013's cron→queue posture for a *request*-triggered job; ADR 0016 (D1 has no interactive transactions)
 
+> **Dated note (AECI-797, 2026-09-13).** The Airtable references in this record are correct for their date. The review app moved off Airtable onto its own Cloudflare D1 on **2026-08-25**, so "Airtable" below means "the curation store as it was then". Superseded as to the *store* by [ADR 0029](0029-curation-store-is-the-review-apps-own-d1.md); the decision itself is unchanged.
+
+> The AECI-562 ruling this record cites — **no curation-tool key in the public schema** — is **unaffected** by that migration and still holds. It is also why the ID mapping the review app persists remains the only link between the two systems.
+
 > **Amendment 2026-08-13 (AECI-571):** everything below stands, with one exception — the
 > "Residual at-least-once window" under Accepted costs is **no longer accepted**. The ingest
 > now writes a `promote_jobs` ledger row keyed by the job id inside the promote's own

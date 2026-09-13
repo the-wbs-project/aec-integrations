@@ -15,6 +15,8 @@ A structured **claim/attestation model** on top of the existing integration cata
 - **`direction`** is stored relative to the integration row's own endpoints: `a_to_b` / `b_to_a` / `both`, where **A = the integration's source product, B = its target product** (the stored endpoint order). The main app translates this to context-relative `outbound`/`inbound`/`both` at render time — **the Review app stores the canonical `a_to_b`/`b_to_a`/`both` value only.**
 - An **attestation** = who asserts the claim. Shape: `source` (`aeci` / `vendor_a` / `vendor_b`), `asserted` (boolean), optional `introduced_at` / `deprecated_at` / `note`. **In 1.5 you only ever write `source: 'aeci'`, `asserted: true`.** `vendor_a`/`vendor_b` and the date stamps are dormant — accepted by the contract, written by no 1.5 path.
 
+> **Preserved as sent (AECI-797, 2026-09-13).** This is a cross-repo handoff written when the review app ran on an Airtable base. It is kept verbatim as the record of what was asked for. The review app moved onto its own Cloudflare D1 on **2026-08-25** — see `docs/adr/0029-curation-store-is-the-review-apps-own-d1.md`. Read "Airtable" below as "the review app's store at the time".
+
 ## Your four deliverables
 
 ### AECI-290 — Airtable foundation (§4.1)

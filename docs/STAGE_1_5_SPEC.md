@@ -106,17 +106,17 @@ The vocabulary is one logical list seeded into two stores with each store's own 
 
 | Store | Table / file | Convention it mirrors |
 |---|---|---|
-| Review app (Airtable) | **`data_objects`** lookup table | sibling lookup tables `categories` / `disciplines` (no prefix) |
+| Review app (own D1) | **`data_objects`** lookup table | sibling lookup tables `categories` / `disciplines` (no prefix) |
 | Main app (D1) | **`taxonomy_data_objects`** | the existing `taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases` |
 | Main app seed | **`apps/api/seed/data-objects.sql`** | `apps/api/seed/taxonomy.sql` |
 
-The relational claim tables are **not** taxonomy and carry no prefix: D1 `claims` + `attestations` (§6.1); the Airtable authoring table is `integration_claims` (§4.1).
+The relational claim tables are **not** taxonomy and carry no prefix: D1 `claims` + `attestations` (§6.1); the review app's authoring table is `claims` (§4.1).
 
 ---
 
 ## 3. Claim/attestation model
 
-This section is the conceptual heart. It is implemented in Airtable (§4), travels over promote (§5), is stored in D1 (§6), and is rendered on the pair page (§8). It is the same model in every layer.
+This section is the conceptual heart. It is implemented in the review app (§4), travels over promote (§5), is stored in AECi's D1 (§6), and is rendered on the pair page (§8). It is the same model in every layer.
 
 ### 3.1 Claim identity — claims attach to the mechanism row
 
@@ -140,7 +140,7 @@ Nothing above changes in substance. The anchor is still the mechanism row, still
 
 Direction is stored **relative to the integration row's own two endpoints**, and exposed at the API **relative to the page's context product**. Keep the two representations distinct.
 
-**Stored (D1 `claims.direction`, Airtable `integration_claims`):** one of
+**Stored (AECi D1 `claims.direction`, and the review app's own claims table):** one of
 
 | Stored value | Meaning |
 |---|---|
@@ -162,7 +162,7 @@ So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and 
 
 ### 3.3 Attestation shape
 
-An **attestation** records *who asserts a claim*. Attestations hang off a claim (D1: relationally in `attestations`; Airtable: as a JSON array on the claim row — §4.1).
+An **attestation** records *who asserts a claim*. Attestations hang off a claim (AECi D1: relationally in `attestations`; review app: as a JSON array on the claim row — §4.1).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -235,6 +235,8 @@ In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so t
 The Review app (`aec-integrations-review`, codename *bamako*) is the **system of record** for claims, exactly as it is for products/vendors/integrations. AECi staff (and Claude via MCP) author claims there; they reach the main app only through promote (§5). Authoring is **MCP-first** in 1.5 — the Review app has no integration editor UI today, and building one is out of scope. A cross-repo handoff for the bamako team lives at **`docs/stage-1-5-review-app-handoff.md`**.
 
 ### 4.1 Airtable `data_objects` + `integration_claims` tables (AECI-290)
+
+> **Historical, kept as built (AECI-797, 2026-09-13).** This subsection records what AECI-290 shipped, when the review app ran on an Airtable base. The review app moved onto its own Cloudflare D1 on **2026-08-25** (ADR 0029) — the two tables are D1 tables now, and the claims table is named `claims`. The *model* below is unchanged; only the store is.
 
 - **`data_objects`** — a new lookup table mirroring the existing `categories` / `disciplines` lookups: `Name`, `slug`, `description`, `display_order`, `aliases`, `deprecated_at`. **Seed it from the frozen vocabulary** (`DATA_OBJECT_VOCABULARY.md` §4 / the JSON mirror).
 - **`integration_claims`** — the authoring table for claims. Each row **links to one integration record** (the mechanism anchor — §3.1) and carries:
@@ -721,7 +723,7 @@ The residual gap is **promotion coverage, not a D1 data defect**. Of the 325 ups
 edges: 79 are correct in prod, 62 are edges whose *connector* is not promoted (Zapier, Workato,
 et al — the `on_hold` set), and 184 are edges never promoted at all. Zero prod rows have a NULL FK
 whose connector *is* promoted, so there is nothing for a D1 backfill to do today. The ruling above
-still stands for how a row gets fixed — **Airtable + re-promote**, no D1 stopgap — with one
+still stands for how a row gets fixed — **fix it upstream in the review app, then re-promote**, no D1 stopgap — with one
 narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill/`: a row whose FK
 is the *only* difference from upstream. That sweep is also the detector; see its README for the
 bucket definitions and the standing measurement.

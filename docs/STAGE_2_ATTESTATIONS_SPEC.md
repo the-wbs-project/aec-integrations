@@ -1322,7 +1322,7 @@ release history.
 
 Vendor-authored only at launch: `/api/vendor/products/:id/versions` (CRUD), scoped by the same
 ownership check `PATCH /api/vendor/products/:id` already uses — ownership proven first, miss is a
-404. **Promote does not ingest versions** at launch: that would need an Airtable table, a
+404. **Promote does not ingest versions** at launch: that would need a review-app table, a
 `claims[]` contract extension and a bamako change for a capability only Verified vendors can use
 anyway. Recorded as a deferral (§10), not an oversight.
 
@@ -1890,7 +1890,7 @@ field is a caller-supplied timestamp rather than a server-side `now()`: a `now()
 advance on replay, and Workflows are at-least-once.
 
 **`maintained_by` is excluded from promote deliberately**, for the reason AECI-520 excluded
-`verified` and AECI-604 stopped wholesale claim replacement: a routine Airtable push must not be
+`verified` and AECI-604 stopped wholesale claim replacement: a routine promote push must not be
 able to take a record back off a vendor's name.
 
 ### 13.4 The vendor branch

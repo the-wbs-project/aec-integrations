@@ -79,7 +79,7 @@ const EMPTY_SERIES: SeriesData = { rows: [], notes: [] };
  *
  * Per-row links deliberately point at AECi, **not** at the review app, even
  * though §5.5 asks for the latter: ADR 0021 kept the curation key out of D1
- * ("AECi does not store your Airtable/record IDs"), so there is no id to build a
+ * ("AECi does not store your curation record IDs"), so there is no id to build a
  * review-app deep link from. Recorded in `ADMIN_PANEL_SPEC.md` §5.5 rather than
  * papered over.
  *

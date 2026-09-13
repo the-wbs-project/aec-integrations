@@ -60,7 +60,7 @@ Handlers never import a module-level client. Each handler is a factory that take
 
 ## 2. Current state
 
-**The application database (Cloudflare D1) is seeded from Airtable.** The production catalog currently lives in Airtable (base `appy81IdGJY6Fngf9`) as the staging/research layer. Stage 1 builds out the D1 schema (`apps/api/src/db/schema.ts`) and promotes curated data from Airtable into D1 as a one-way push via `POST /api/promote` (see `docs/REVIEW_APP_PROMOTE_API.md`). Supabase is retained for **Auth only**.
+**The application database (Cloudflare D1) is filled by promote.** The catalog is curated upstream in the **review app** (`aec-integrations-review`), which runs on its own Cloudflare D1 (`aeci-review`) — see `docs/adr/0029-curation-store-is-the-review-apps-own-d1.md`. That is the staging/research layer; this D1 (`apps/api/src/db/schema.ts`) is the production read store, and curated data arrives as a one-way push via `POST /api/promote` (see `docs/REVIEW_APP_PROMOTE_API.md`). Supabase is retained for **Auth only**.
 
 Migration approach is documented in Section 10.
 
@@ -329,7 +329,7 @@ It buys nothing *today*, and that is expected: `products.created_at` already ans
 
 1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly two paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), and a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked.
 2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
-3. **`maintained_by` is not accepted by promote.** It flips to `'vendor'` only via a live vendor attestation and back to `'aeci'` when the last one is retracted (`apps/api/src/routes/vendor-attestations.ts`). Accepting it on the promote payload would let a routine Airtable push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520.
+3. **`maintained_by` is not accepted by promote.** It flips to `'vendor'` only via a live vendor attestation and back to `'aeci'` when the last one is retracted (`apps/api/src/routes/vendor-attestations.ts`). Accepting it on the promote payload would let a routine promote push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520.
 
 Neither column is indexed: both are read with the row and never filtered or sorted on.
 
@@ -405,7 +405,7 @@ disambiguate a third.
 
 ## 5. Taxonomy tables
 
-Closed vocabularies. **Code-managed reference data** — the vocabulary lives in version-controlled `apps/api/seed/taxonomy.sql` (idempotent upserts), applied to every environment via `wrangler d1 execute`. Not Airtable-owned and not seeded by the §13 promotion flow. No public write paths. See `docs/adr/0008-taxonomy-reference-data.md`.
+Closed vocabularies. **Code-managed reference data** — the vocabulary lives in version-controlled `apps/api/seed/taxonomy.sql` (idempotent upserts), applied to every environment via `wrangler d1 execute`. Not curator-owned and not seeded by the §13 promotion flow. No public write paths. See `docs/adr/0008-taxonomy-reference-data.md`.
 
 ### 5.1 `taxonomy_categories`
 
@@ -2422,18 +2422,20 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 
 ---
 
-## 13. Migration from Airtable
+## 13. Promotion from the review app
 
-The data currently lives in Airtable (base `appy81IdGJY6Fngf9`). Migration into the application database (Cloudflare D1) happens via the `POST /api/promote` pipeline (`docs/REVIEW_APP_PROMOTE_API.md`).
+The catalog is curated upstream in the **review app** (`aec-integrations-review`), on its own Cloudflare D1 (`aeci-review`). It reaches this application database (Cloudflare D1) via the `POST /api/promote` pipeline (`docs/REVIEW_APP_PROMOTE_API.md`).
 
-> **Taxonomy is excluded from this flow.** As of `docs/adr/0008-taxonomy-reference-data.md`, the taxonomy vocabulary (categories/audiences/phases) is code-managed reference data in `apps/api/seed/taxonomy.sql`, not Airtable content. This section governs **vendors, products, and integrations** only.
+> **Renamed 2026-09-13 (AECI-797).** This section was headed "Migration from Airtable" and described the curation store as an Airtable base. The review app moved onto its own D1 on **2026-08-25** (their PR #73 / AECI-655) — see `docs/adr/0029-curation-store-is-the-review-apps-own-d1.md`. Upstream record ids still *look* like `rec…`; that is a format kept for continuity, not evidence of Airtable. §13.2 below is deliberately left in its original wording, because it records a one-time load that really did read Airtable.
+
+> **Taxonomy is excluded from this flow.** As of `docs/adr/0008-taxonomy-reference-data.md`, the taxonomy vocabulary (categories/audiences/phases) is code-managed reference data in `apps/api/seed/taxonomy.sql`, not curated content. This section governs **vendors, products, and integrations** only.
 
 ### 13.1 Promotion model
 
-Airtable remains the **staging/research layer** for curators. D1 is the **production read store**. Curators flip `promotion_status` to `'promoted'` in Airtable, triggering a one-way sync into D1 via `POST /api/promote`.
+The review app is the **staging/research layer** for curators. D1 is the **production read store**. Curators flip `promotion_status` to `'promoted'` in the review app, triggering a one-way push into D1 via `POST /api/promote`.
 
 ```
-Airtable (curator-edited)
+Review app D1 (curator-edited)
    │
    │  promotion_status='promoted'
    ▼
@@ -2445,7 +2447,7 @@ Algolia (search index)
 
 ### 13.2 Initial bulk migration
 
-One-time script: `scripts/airtable-to-supabase-bulk-migrate.ts` — **retired** (AECI-278). The live curator → app-DB path is `POST /api/promote` into D1 (`docs/REVIEW_APP_PROMOTE_API.md`); the phased plan below is kept as historical record of the initial-load design.
+One-time script: `scripts/airtable-to-supabase-bulk-migrate.ts` — **retired** (AECI-278). The live curator → app-DB path is `POST /api/promote` into D1 (`docs/REVIEW_APP_PROMOTE_API.md`); the phased plan below is kept as historical record of the initial-load design. **Its Airtable references are correct for their date** — the curation store really was an Airtable base when this load ran.
 
 Phases:
 1. Read all Airtable records with `promotion_status='promoted'` (or whatever the curator-designated "ready to launch" filter is at the time)
@@ -2461,18 +2463,20 @@ Phases:
 
 ### 13.3 Ongoing sync (post-launch)
 
-After initial migration, ongoing Airtable → D1 sync is curator-triggered:
+After the initial load, the ongoing review app → D1 push is curator-triggered:
 
-- Curator promotes a new product/vendor/integration in Airtable
+- Curator promotes a new product/vendor/integration in the review app
 - The review app pushes newly-promoted records via `POST /api/promote`
 - New rows inserted in D1
 - Algolia indexed automatically via the write-event pipeline
 
-Updates to already-promoted records are handled the same way — Airtable is the editorial canvas, D1 mirrors the promoted state.
+Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state.
 
 ### 13.4 Curator-preserve fields
 
-When syncing from Airtable, certain fields on D1 records must not be overwritten by automated processes:
+> **Unverified against today's contract — tracked as AECI-903.** This subsection predates the `ref` / `supabaseId` rule in `REVIEW_APP_PROMOTE_API.md` §3.1, which is what actually governs what a push overwrites, and no `admin_notes` discrepancy-flagging exists in the promote path. Treat the list below as intent, not as a description of shipped behaviour, until it is reconciled.
+
+When a promote push arrives, certain fields on D1 records must not be overwritten by automated processes:
 
 - `website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, `youtube_url` (vendor)
 - Any field a human curator has manually corrected
@@ -2511,7 +2515,7 @@ Staging gets a larger subset of real production data, refreshed weekly via a cur
 
 ### 14.3 Production
 
-Production starts empty at launch. Initial bulk migration from Airtable happens once during Phase 2 (Section 13.2).
+Production starts empty at launch. The initial bulk load happens once during Phase 2 (Section 13.2).
 
 ---
 

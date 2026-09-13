@@ -1,5 +1,7 @@
 # 0016 — Application data on Cloudflare D1 (Drizzle), Supabase for Auth only
 
+> **Dated note (AECI-797, 2026-09-13).** The Airtable references in this record are correct for their date. The review app moved off Airtable onto its own Cloudflare D1 on **2026-08-25**, so "Airtable" below means "the curation store as it was then". Superseded as to the *store* by [ADR 0029](0029-curation-store-is-the-review-apps-own-d1.md); the decision itself is unchanged.
+
 - **Status:** Accepted (AECI-257) — the API Worker runtime is Drizzle/D1 only; Supabase retained for Auth (and the separately-tracked landing-Postgres path).
 - **Date:** 2026-06-13 (proposed), 2026-06-22 (accepted)
 - **Context owner:** chrisw@thewbsproject.com

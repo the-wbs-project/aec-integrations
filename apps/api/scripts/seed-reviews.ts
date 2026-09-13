@@ -25,7 +25,7 @@
  * Target defaults to the LOCAL D1 (`aeci-app-preview`, the `--local` SQLite under
  * .wrangler/). A remote env (`--remote --env staging`) is also supported, for
  * populating a deployed catalog with realistic reviews against its REAL products:
- * reviews are user content, NOT Airtable-promoted data, so they neither come from
+ * reviews are user content, NOT promoted catalog data, so they neither come from
  * nor conflict with the `POST /api/promote` refresh. Remote runs need
  * CLOUDFLARE_API_TOKEN (Account→D1→Edit) + CLOUDFLARE_ACCOUNT_ID; production is
  * guarded behind an explicit `--allow-production`. Run

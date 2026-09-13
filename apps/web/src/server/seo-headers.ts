@@ -35,7 +35,7 @@
  * Origin notes:
  *   - `style-src` / `font-src` — Google Fonts stylesheet + woff2 (index.html).
  *     Angular SSR also inlines component `<style>` blocks → `'unsafe-inline'`.
- *   - `img-src 'self' data: https:` — vendor/Airtable `logo_url`s come from
+ *   - `img-src 'self' data: https:` — vendor `logo_url`s from the review app come from
  *     arbitrary https origins; `data:` for inline SVG/placeholders.
  *   - `connect-src` — `'self'` for the `/api/*` service-binding proxy. (Two
  *     `browser-intake-*` Datadog RUM hosts lived here until AECI-651 removed the

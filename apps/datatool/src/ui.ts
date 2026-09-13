@@ -111,7 +111,7 @@ export function renderUi(nonce: string): string {
 
   <section>
     <h2>Prune orphaned integrations</h2>
-    <p class="muted">Delete <strong>stranded</strong> integration rows (+ their claims/attestations) that no Airtable record points at — they surface as duplicate mechanism cards on the public pair pages. Paste the ids from the ops runbook's <code>orphan-ids.txt</code>. Three guards run first and <strong>block</strong> the delete unless all read zero — a tripped guard can be overridden only by acknowledging it by name with a reason, which the dry run will offer below. Recomputes <code>integration_count</code> and reindexes automatically.</p>
+    <p class="muted">Delete <strong>stranded</strong> integration rows (+ their claims/attestations) that no review-app record points at — they surface as duplicate mechanism cards on the public pair pages. Paste the ids from the ops runbook's <code>orphan-ids.txt</code>. Three guards run first and <strong>block</strong> the delete unless all read zero — a tripped guard can be overridden only by acknowledging it by name with a reason, which the dry run will offer below. Recomputes <code>integration_count</code> and reindexes automatically.</p>
     <div class="row">
       <div><label for="prune-target">Target</label><select id="prune-target">${envOptions('staging')}</select></div>
       <button id="prune-dry" class="primary">Dry run</button>
@@ -131,7 +131,7 @@ export function renderUi(nonce: string): string {
         <p class="muted" style="margin:0 0 6px;"><strong>Guards tripped — these rows are not redundant copies.</strong> Stop unless an editorial ruling has retracted the content. To proceed, tick every tripped guard and record why.</p>
         <div id="prune-ack-guards"></div>
         <label for="prune-ack-reason" style="margin-top:8px;">Reason (logged with your identity — a prune writes no <code>audit_log</code> row, so this is the only record)</label>
-        <textarea id="prune-ack-reason" rows="3" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:6px; font:12px/1.5 ui-monospace, monospace;" placeholder="AECI-593: curator ruled 2026-08-09 that the bar is a purpose-built mechanism; both edges deleted in Airtable."></textarea>
+        <textarea id="prune-ack-reason" rows="3" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:6px; font:12px/1.5 ui-monospace, monospace;" placeholder="AECI-593: curator ruled 2026-08-09 that the bar is a purpose-built mechanism; both edges deleted in the review app."></textarea>
       </div>
       <div class="checkline" style="margin-top:8px;">
         <input type="checkbox" id="prune-refresh" checked><label for="prune-refresh">Reindex search + purge cache after</label>

@@ -4049,7 +4049,7 @@ Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md
 
 #### `POST /api/promote` → `202` + `GET /api/promote/jobs/:id`
 
-Push-based Airtable → app-DB (Cloudflare D1) promotion. The review application sends one
+Push-based review app → app-DB (Cloudflare D1) promotion. The review application sends one
 product plus its dependencies (vendors, taxonomy, integrations); the Worker
 upserts the whole bundle in a single atomic `db.batch([...])` and hands back the
 created/updated IDs so the review app can persist the mapping and re-push edits. This is
@@ -4239,7 +4239,7 @@ Google Indexing, and the Algolia sync (all four iterate the result arrays). So
 blocked"; the two are told apart by a `skipped[]` entry whose `ref` matches the
 product's, which only ever appears when a product *was* sent. Seat existence is
 the signal (rather than `vendors.verified`) precisely because it cannot be set
-from Airtable.
+from the review app.
 
 **`verified` is accepted and ignored (AECI-520).** `vendors.verified` is the paid
 entitlement bit: it is set by the claim→account grant
