@@ -18,7 +18,7 @@
  * nothing, sends nothing, and carries no `audit_log` obligation — which is what
  * keeps §6's "all endpoints are GET, read-only" and §9.3 unconditionally true.
  * What makes them special is **network cost**, not mutation: the data-quality
- * suite HTTP-probes a sample of logo URLs (check #9) and drift costs three
+ * suite HTTP-probes a sample of logo URLs (`logo_404`) and drift costs three
  * Algolia queries. Loading a dashboard should not do that on every poll.
  *
  * ─── What the default view shows since AECI-583 ──────────────────────────────
@@ -44,7 +44,7 @@
  *
  * ─── One drift call, two consumers ───────────────────────────────────────────
  *
- * Data-quality check #10 **is** the Algolia drift check, and the status strip
+ * The `algolia_index_drift` data-quality check **is** the drift check, and the status strip
  * wants the same numbers. Memoizing at the PROMISE (not the resolved value) lets
  * the suite and the strip share a single set of Algolia round trips even though
  * they consume it concurrently.
@@ -180,12 +180,12 @@ export async function latestStoredDataQuality(
 export interface ExpensiveStatusDeps {
   /** Swapped in specs to avoid the network; production is `createDriftRunner`. */
   driftRunnerFor?: (env: Env, db: Db) => (() => Promise<AlgoliaIndexDrift[]>) | undefined;
-  /** Injected into data-quality check #9's logo probe. */
+  /** Injected into the `logo_404` data-quality check's logo probe. */
   fetchImpl?: typeof fetch;
 }
 
 export interface ExpensiveStatusResult {
-  /** The ten §23.1 checks; null when `recompute` was false. */
+  /** The §23.1 data-quality checks; null when `recompute` was false. */
   dataQuality: AdminDataQualityStatus | null;
   /** Per-index Algolia drift; null when `recompute` was false, when credentials
    *  are absent, or when the drift call threw. */
@@ -241,9 +241,9 @@ export async function runExpensiveStatusItems(
   const notes: AdminNote[] = [];
   const runDrift = (deps.driftRunnerFor ?? createDriftRunner)(env, db);
 
-  // Memoize at the PROMISE, not the value: data-quality check #10 IS the Algolia
-  // drift check, so the suite and the caller's own drift panel both want this
-  // result and neither should pay for a second set of Algolia round trips.
+  // Memoize at the PROMISE, not the value: the `algolia_index_drift` data-quality
+  // check IS the drift check, so the suite and the caller's own drift panel both
+  // want this result and neither should pay for a second set of Algolia round trips.
   let driftPromise: Promise<AlgoliaIndexDrift[]> | undefined;
   const sharedDrift = runDrift ? () => (driftPromise ??= runDrift()) : undefined;
 

@@ -30,8 +30,8 @@
  * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
  * a day inside the cut window with no `metrics_daily` row aborts the whole run.
  * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
- * Phase 7.6): twelve read-only integrity checks (orphan products/vendors, stale
- * `ready` products, broken integration refs, anonymized-review integrity, stale
+ * Phase 7.6): eleven read-only integrity checks (orphan products/vendors, the
+ * AECI-592 promotion-status invariant, anonymized-review integrity, stale
  * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, the reused
  * AECI-140 Algolia drift, the AECI-609 entitlement-mirror guard, and the AECI-868
  * arrival-metadata coverage tripwire) → an email digest to Chris + Bill via Resend
@@ -976,9 +976,9 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   return { outcome: 'ok', detail: { job: 'request-reconcile', ...result } };
 }
 
-/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): twelve read-only
+/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): the read-only
  *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
- *  Bill. Report-only — no auto-remediation. The Algolia-drift check (#10) reuses
+ *  Bill. Report-only — no auto-remediation. The `algolia_index_drift` check reuses
  *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
  *  it skips (local/preview). The email transport is fail-open: a missing
  *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, the Datadog monitors are
@@ -1062,7 +1062,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   // The whole result set, stored verbatim (§7.2). `DataQualityCheckResult` is
   // field-for-field `AdminDataQualityCheckSchema`, so §5.6 renders exactly what
   // the digest above reported — the round-trip is a parse, not an adapter. This
-  // is what turns the twelve checks from a daily email into a queryable history.
+  // is what turns the checks from a daily email into a queryable history.
   // `outcome` reuses the same `hasErrors` expression as DQ_JOB_METRIC above.
   return {
     outcome: outcome === 'failed' ? 'failed' : 'ok',

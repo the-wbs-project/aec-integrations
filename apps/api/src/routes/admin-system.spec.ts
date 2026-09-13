@@ -41,7 +41,7 @@ import { createAdminSystemHandler, type AdminSystemDeps } from './admin-system';
 
 const NOW = new Date('2026-08-13T05:00:00.000Z');
 
-/** Never hits the network: check #9 probes logo URLs with `fetch`. Every product
+/** Never hits the network: `logo_404` probes logo URLs with `fetch`. Every product
  *  in these fixtures is logo-less, but the seam is injected regardless so a
  *  future fixture change cannot start making real requests from a unit test. */
 const NO_FETCH: typeof fetch = () =>
@@ -262,15 +262,16 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     expect(await t.db.select().from(jobRuns)).toHaveLength(0);
   });
 
-  it('runs all twelve data-quality checks when asked', async () => {
+  it('runs every data-quality check when asked, in digest order', async () => {
     const body = await system('?recompute=1');
 
     expect(body.recomputed).toBe(true);
     expect(body.data_quality).not.toBeNull();
     expect(body.data_quality?.checks.map((c) => c.id)).toEqual([
       'products_without_vendor',
-      'ready_products_unpromoted',
-      'broken_integration_refs',
+      // AECI-592 — one invariant guard, replacing the two unreachable status checks
+      // (`ready_products_unpromoted` and `broken_integration_refs`).
+      'promotion_status_invariant',
       'vendors_without_products',
       'reviews_missing_anonymized_at',
       'stale_stats_cache',
@@ -286,8 +287,9 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
   });
 
   it('reports a check with findings as failing, and a skipped check as NOT failing', async () => {
-    // A vendor with no products trips check #4; nothing trips the rest. Check #10
-    // is skipped (no Algolia credentials) and must not inflate `failing`.
+    // A vendor with no products trips `vendors_without_products`; nothing trips the
+    // rest. `algolia_index_drift` is skipped (no Algolia credentials) and must not
+    // inflate `failing`.
     await t.db
       .insert(vendors)
       .values({ slug: 'orphan-co', companyName: 'Orphan Co', promotionStatus: 'promoted' });
@@ -311,7 +313,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     expect(body.data_quality?.failing).toBe(0);
   });
 
-  it('invokes the Algolia drift runner exactly ONCE — check #10 and the drift panel share it', async () => {
+  it('invokes the Algolia drift runner exactly ONCE — the check and the drift panel share it', async () => {
     const rows: AlgoliaIndexDrift[] = [
       { entity: 'products', indexName: 'aeci_preview_products', database: 5, algolia: 4, drift: 1 },
       { entity: 'vendors', indexName: 'aeci_preview_vendors', database: 2, algolia: 2, drift: 0 },
@@ -340,7 +342,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
         },
       ],
     });
-    // The same numbers reach check #10, from the same single call.
+    // The same numbers reach `algolia_index_drift`, from the same single call.
     const drift = body.data_quality?.checks.find((c) => c.id === 'algolia_index_drift');
     expect(drift?.count).toBe(1);
     expect(drift?.skipped).toBeUndefined();
@@ -488,8 +490,8 @@ describe('GET /api/admin/system — Algolia state', () => {
 describe('GET /api/admin/system — data quality served from the last stored run', () => {
   const CHECKS = [
     {
-      id: 'broken_integration_refs',
-      label: 'Broken refs',
+      id: 'promotion_status_invariant',
+      label: "Catalog rows not at promotion_status='promoted'",
       severity: 'error',
       count: 2,
       sample: ['a'],
@@ -516,7 +518,7 @@ describe('GET /api/admin/system — data quality served from the last stored run
       failing: 1,
     });
     expect(body.data_quality?.checks.map((c) => c.id)).toEqual([
-      'broken_integration_refs',
+      'promotion_status_invariant',
       'logo_404',
     ]);
     expect(body.generated_at).toBe(NOW.toISOString());

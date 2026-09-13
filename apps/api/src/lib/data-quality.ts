@@ -1,7 +1,7 @@
 /**
  * The §23.1 daily data-quality suite (AECI-241 / Phase 7.6).
  *
- * Twelve read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
+ * Eleven read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
  * (`scheduled.ts`) and summarised in the email digest (`data-quality-email.ts`).
  * **Report-only** — no auto-remediation; the digest + the per-check Datadog gauge
  * are how humans triage (§23.1).
@@ -10,27 +10,23 @@
  * an injected `fetch` for the logo probe and an injected closure for the reused
  * AECI-140 Algolia-drift count), so every check unit-tests against the in-memory
  * D1 harness (`test/d1.ts`) with no network. The orchestrator
- * `runDataQualityChecks` runs all twelve best-effort: a check that throws becomes an
+ * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
- * Eleven of the twelve check the *catalog*. #12 (AECI-868) checks the *telemetry
+ * All but one check the *catalog*. `arrival_cf_coverage` (AECI-868) checks the *telemetry
  * pipeline* that feeds every traffic figure, which is a deliberate widening of what
  * this suite is for: the four-day arrival-metadata outage it guards produced no
  * error, no alert and no visibly wrong number, so nothing but a nightly ratio could
  * have caught it. See `arrival-coverage.ts` for the full argument.
  *
- * Two checks are interpreted against D1 reality (documented inline):
- *   - #2 "ready >30d" is **structurally dead** — nothing in this repo ever writes
- *     `promotion_status = 'ready'` to D1 (it is the review app's lifecycle stage,
- *     not ours), so the check can only ever return zero rows. It is unreachable,
- *     not an approximation. Replacing it with a promotion-status invariant guard
- *     is AECI-592. Note `products.promoted_at` DOES now exist (AECI-581, migration
- *     `0011`) — the older note here claiming otherwise was wrong — but adding the
- *     column does not revive the check, which is why §13 D6 withdrew that claim.
- *   - #3 "broken integration refs" — the `source/target_product_id` FKs are
- *     enforced with `ON DELETE CASCADE`, so a *dangling* row is impossible; the
- *     real defect is an integration still pointing at a product that was pulled
- *     from the directory (`promotion_status` retracted/rejected).
+ * **AECI-592 retired two checks and replaced them with one.** The original §23.1
+ * roster carried "products stuck `promotion_status='ready'` >30d" and "integrations
+ * referencing a pulled (retracted/rejected) product". Both were **structurally
+ * dead**: nothing in this repo writes `'ready'`, `'retracted'` or `'rejected'` to
+ * D1 — they are the review app's lifecycle stages, not ours — so both could only
+ * ever return zero rows. Silently passing reads as coverage, which is worse than
+ * failing. #2 `promotion_status_invariant` now asserts the invariant that made
+ * them dead, so the day it stops holding is the day the suite says so.
  */
 
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
@@ -45,7 +41,6 @@ import {
   count,
   desc,
   eq,
-  inArray,
   isNotNull,
   isNull,
   lt,
@@ -54,11 +49,9 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import {
-  integrations,
   products,
   productVendors,
   reviews,
@@ -70,8 +63,8 @@ import {
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** Number of days a product may sit `promotion_status='ready'` before it's flagged. */
-const READY_STALE_DAYS = 30;
+/** The one `promotion_status` value any AECi code path writes — see check #2. */
+const PROMOTED = 'promoted';
 /** A `stats_cache` row older than this signals a stalled stats pipeline. */
 const STATS_STALE_HOURS = 48;
 /** Default number of logo URLs probed per run (sample check, not exhaustive). */
@@ -80,9 +73,6 @@ const DEFAULT_LOGO_SAMPLE = 20;
 const LOGO_FETCH_TIMEOUT_MS = 5_000;
 /** Max sample lines surfaced per check in the digest (the full count is exact). */
 export const SAMPLE_LIMIT = 10;
-/** `promotion_status` values that mean a product was pulled from the directory. */
-const REMOVED_STATUSES = ['retracted', 'rejected'] as const;
-
 export type DataQualitySeverity = 'error' | 'warn' | 'info';
 
 /** The raw finding a single check returns (before id/label/severity are attached). */
@@ -120,7 +110,7 @@ export interface DataQualityDeps {
   /** Max logo URLs to probe (default {@link DEFAULT_LOGO_SAMPLE}). */
   logoSampleSize?: number;
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
-   *  check #10 is skipped (no Algolia creds — the local/preview default). */
+   *  `algolia_index_drift` is skipped (no Algolia creds — the local/preview default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
 }
 
@@ -139,50 +129,53 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
   return { lines: rows.map((r) => `${r.name} (${r.slug})`) };
 }
 
-/** #2 — products stuck `promotion_status='ready'` longer than {@link READY_STALE_DAYS}.
- *  Keyed off `updated_at`, so an edit resets the clock — but that is moot: **no code
- *  path writes `'ready'` to D1**, so this returns zero rows always. Unreachable, not
- *  a proxy (AECI-592 replaces it). `products.promoted_at` exists as of AECI-581 and
- *  is not the fix. Left as-is deliberately; changing the query is AECI-592's call. */
-export async function checkStaleReadyProducts(db: Db, now: Date): Promise<CheckFinding> {
-  const cutoff = new Date(now.getTime() - READY_STALE_DAYS * DAY_MS).toISOString();
-  const rows = await db
-    .select({ slug: products.slug, name: products.name, updatedAt: products.updatedAt })
-    .from(products)
-    .where(and(eq(products.promotionStatus, 'ready'), lt(products.updatedAt, cutoff)))
-    .orderBy(asc(products.updatedAt));
-  return { lines: rows.map((r) => `${r.name} (${r.slug}) — unchanged since ${r.updatedAt}`) };
-}
-
-/** #3 — integrations pointing at a source/target product that was pulled from the
- *  directory (`promotion_status` retracted/rejected). FK cascade makes a truly
- *  dangling ref impossible, so this is the real "broken reference" defect. */
-export async function checkBrokenIntegrationRefs(db: Db): Promise<CheckFinding> {
-  const src = alias(products, 'src');
-  const tgt = alias(products, 'tgt');
-  const rows = await db
-    .select({
-      id: integrations.id,
-      name: integrations.name,
-      srcName: src.name,
-      srcStatus: src.promotionStatus,
-      tgtName: tgt.name,
-      tgtStatus: tgt.promotionStatus,
-    })
-    .from(integrations)
-    .innerJoin(src, eq(integrations.sourceProductId, src.id))
-    .innerJoin(tgt, eq(integrations.targetProductId, tgt.id))
-    .where(
-      or(
-        inArray(src.promotionStatus, [...REMOVED_STATUSES]),
-        inArray(tgt.promotionStatus, [...REMOVED_STATUSES]),
-      ),
-    );
+/**
+ * #2 — every `products` and `vendors` row must read `promotion_status='promoted'`.
+ *
+ * **This is an invariant guard, not a coverage report** (AECI-592). It replaced two
+ * checks that were structurally unreachable: "products stuck `'ready'` >30d" and
+ * "integrations referencing a pulled (retracted/rejected) product". `POST /api/promote`
+ * is D1's only INSERT path into either table and hard-codes `'promoted'` on all four
+ * of its branches (`routes/promote.ts`); the wire payload carries no status field, so
+ * a caller cannot supply one; and retraction is a hard DELETE (`lib/retract-product.ts`),
+ * not a status transition. So the other four CHECK values live in the review app, never
+ * here — which is exactly why both retired checks returned zero rows on every run.
+ *
+ * Four shipped code paths reason from that invariant, and every one of them fails
+ * **silently** if it stops holding:
+ *   - `ADMIN_PANEL_SPEC.md` §13 D6 — `products.created_at` is the exact first-promote
+ *     timestamp, which is what makes the catalog counts-over-time series exact;
+ *   - `lib/metrics-snapshot.ts` — the `catalog.products_promoted` / `_vendors_promoted`
+ *     daily keys;
+ *   - `lib/metrics-backfill.ts` — the historical reconstruction of those keys;
+ *   - `db/schema.ts` — the `promotedAt` set-once rationale.
+ *
+ * A Tier-1 retract endpoint writing `'retracted'` instead of hard-deleting is the
+ * obvious way that happens, and there is no lint rule on this column. `error` severity
+ * because the failure mode is wrong numbers that still render, not a broken page.
+ *
+ * Deliberate trade from folding the old #3 in: this names the offending **catalog row**,
+ * not the integrations that point at it. Once a product is off-`promoted`, finding its
+ * edges is a follow-up query, not a second daily check.
+ */
+export async function checkPromotionStatusInvariant(db: Db): Promise<CheckFinding> {
+  const [badProducts, badVendors] = await Promise.all([
+    db
+      .select({ slug: products.slug, name: products.name, status: products.promotionStatus })
+      .from(products)
+      .where(ne(products.promotionStatus, PROMOTED))
+      .orderBy(textAsc(products.name)),
+    db
+      .select({ slug: vendors.slug, name: vendors.companyName, status: vendors.promotionStatus })
+      .from(vendors)
+      .where(ne(vendors.promotionStatus, PROMOTED))
+      .orderBy(textAsc(vendors.companyName)),
+  ]);
   return {
-    lines: rows.map(
-      (r) =>
-        `${r.name ?? r.id}: source "${r.srcName}" (${r.srcStatus}), target "${r.tgtName}" (${r.tgtStatus})`,
-    ),
+    lines: [
+      ...badProducts.map((r) => `product "${r.name}" (${r.slug}) — ${r.status}`),
+      ...badVendors.map((r) => `vendor "${r.name}" (${r.slug}) — ${r.status}`),
+    ],
   };
 }
 
@@ -432,9 +425,9 @@ interface CheckSpec {
   run: (deps: DataQualityDeps) => Promise<CheckFinding>;
 }
 
-/** The twelve checks in digest order (§23.1, plus the AECI-609 mirror guard and the
- *  AECI-868 telemetry tripwire). Severity drives the digest grouping and is
- *  informational on the gauge. */
+/** The eleven checks in digest order (§23.1, less the two AECI-592 retired, plus the
+ *  AECI-609 mirror guard and the AECI-868 telemetry tripwire). Severity drives the
+ *  digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
     id: 'products_without_vendor',
@@ -443,16 +436,10 @@ export const CHECKS: CheckSpec[] = [
     run: ({ db }) => checkProductsWithoutVendor(db),
   },
   {
-    id: 'ready_products_unpromoted',
-    label: `Products 'ready' >${READY_STALE_DAYS}d without promotion`,
-    severity: 'warn',
-    run: ({ db, now }) => checkStaleReadyProducts(db, now),
-  },
-  {
-    id: 'broken_integration_refs',
-    label: 'Integrations referencing a pulled (retracted/rejected) product',
+    id: 'promotion_status_invariant',
+    label: `Catalog rows not at promotion_status='${PROMOTED}'`,
     severity: 'error',
-    run: ({ db }) => checkBrokenIntegrationRefs(db),
+    run: ({ db }) => checkPromotionStatusInvariant(db),
   },
   {
     id: 'vendors_without_products',

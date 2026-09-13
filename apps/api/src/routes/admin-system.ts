@@ -46,7 +46,7 @@
  *
  * ─── `?recompute=1` (§13 D8) ─────────────────────────────────────────────────
  *
- * The default view now serves the ten data-quality checks from the last stored
+ * The default view now serves the data-quality checks from the last stored
  * 04:00 run (`source: 'job_runs'` + its own `computed_at`); the recompute runs
  * them — and the Algolia drift count, which has no default — live. Both go
  * through the same `runExpensiveStatusItems` the §5.1 status strip uses, so the

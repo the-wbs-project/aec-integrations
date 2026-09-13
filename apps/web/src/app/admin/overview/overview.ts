@@ -49,7 +49,7 @@ const SPARKLINE_METRICS = ['traffic.unique_visitors', 'accounts.sign_ins_new'] a
  * ─── Recompute ───────────────────────────────────────────────────────────────
  *
  * "Recompute today's digest" is `GET …?recompute=1` (§13 D8), which additionally
- * runs the ten data-quality checks and the Algolia drift count. It sends no email,
+ * runs the data-quality checks and the Algolia drift count. It sends no email,
  * writes nothing, and carries no `audit_log` obligation — the line D8 draws is
  * side effects, not manual-ness. A `POST` here would be wrong.
  *

@@ -929,7 +929,7 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 ## Data quality job failed or not running
 
 **Alerts (PostHog, hourly):**
-- `AECi — Data quality check found ERROR-severity issues (by check)` — an integrity check (`broken_integration_refs`, `reviews_missing_anonymized_at`) found defects. **Pages.**
+- `AECi — Data quality check found ERROR-severity issues (by check)` — an integrity check (`promotion_status_invariant`, `reviews_missing_anonymized_at`) found defects. **Pages.**
 - `AECi — Data quality check found WARN-severity issues (by check)` — a hygiene check found issues. **Informational / non-paging** (AECI-279 severity split; the digest carries the rows).
 - `AECi — Data quality job failed (daily cron)` — a check threw or a pre-run crash.
 - `AECi — Data quality job not running (no daily run)` — the cron stopped firing.
@@ -951,12 +951,24 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
 - `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
 
-**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the twelve
-read-only integrity checks (orphan products/vendors, products stuck `ready` >30d, integrations pointing
-at a pulled product, anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate
-vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140 Algolia drift, the AECI-609
-`entitlement_mirror_drift` guard, and the AECI-868 `arrival_cf_coverage` tripwire). The job
-**does not auto-repair** — humans triage. The email digest to Chris + Bill carries the offending rows.
+**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the eleven
+read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
+anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate vendor/product candidates, a
+Brandfetch logo-404 sample, the reused AECI-140 Algolia drift, the AECI-609 `entitlement_mirror_drift`
+guard, and the AECI-868 `arrival_cf_coverage` tripwire). The job **does not auto-repair** — humans
+triage. The email digest to Chris + Bill carries the offending rows.
+
+> **`promotion_status_invariant` is not a data-repair finding either — it means something wrote a column
+> nothing is supposed to write.** It fails when any `products` or `vendors` row reads a
+> `promotion_status` other than `'promoted'`. `POST /api/promote` is D1's only INSERT path into either
+> table and hard-codes `'promoted'` on all four branches; the promote payload carries no status field;
+> and retraction is a hard `DELETE` (`apps/api/src/lib/retract-product.ts`). So a finding here is a
+> **new writer**, not a stale row — most likely a Tier-1 retract endpoint that writes `'retracted'`
+> instead of hard-deleting, or hand-written D1 SQL. Do not "fix" the row and move on: find the writer
+> first. Until you do, four things are silently wrong — `products.created_at` is no longer the exact
+> first-promote timestamp (`ADMIN_PANEL_SPEC.md` §13 D6), and the `catalog.*_promoted` keys in
+> `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
+> same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
 
 > **`arrival_cf_coverage` is not a data-repair finding — do not triage it like one.** It fails when
 > full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, which
@@ -979,7 +991,7 @@ vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140 Alg
    `job_runs.detail`, and the page opens on it — same rows the email carried, no inbox needed, no
    `?recompute=1` click, and stamped with the run's own time so you can tell a stale result from a fresh
    one. "Run data-quality checks" re-runs the suite live once you have made a fix. The stored history
-   also makes "when did `broken_integration_refs` start failing" answerable, which it was not before.
+   also makes "when did `entitlement_mirror_drift` start failing" answerable, which it was not before.
 2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
    (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
    A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
@@ -991,9 +1003,10 @@ vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140 Alg
    `DATA_QUALITY_EMAIL_TO` not set on the Worker (fail-open by design); `failed` = a Resend error — check
    the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.
 
-**Repair:** report-only — triage the digest and fix the underlying data (promote a stuck product, remove
-a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
-daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
+**Repair:** report-only — triage the digest and fix the underlying data (attach a vendor to an orphan
+product, stamp a missing `anonymized_at`, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.);
+the next daily run auto-detects the fix. Two checks are the exception and are diagnosed at the writer,
+not the row — `promotion_status_invariant` and `arrival_cf_coverage`, both noted above. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
 
 ## Cron runs missing or stuck in flight on `/admin/system`

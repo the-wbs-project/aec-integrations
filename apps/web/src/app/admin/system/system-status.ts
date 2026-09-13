@@ -54,8 +54,8 @@ const UNKNOWN_SHA = 'unknown';
  * sentence was false on the other. The merged string names no control by label
  * and no direction.
  *
- * The ten data-quality checks are opt-in (§13 **D8** / §6): the default load
- * omits them because check #9 HTTP-probes logo URLs and check #10 costs three
+ * The data-quality checks are opt-in (§13 **D8** / §6): the default load
+ * omits them because `logo_404` HTTP-probes logo URLs and `algolia_index_drift` costs three
  * Algolia queries, and a dashboard should not do that on every visit. The button
  * re-requests with `?recompute=1`, which remains a pure read — it writes nothing
  * and sends nothing.
@@ -150,7 +150,7 @@ export class SystemStatus {
     void this.load();
   }
 
-  /** Run the ten §23.1 checks + the drift count live (§13 D8 — a pure read). */
+  /** Run the §23.1 checks + the drift count live (§13 D8 — a pure read). */
   protected runChecks(): void {
     if (this.recomputing()) return;
     this.liveMessage.set(

@@ -13,7 +13,6 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
-  integrations,
   pageViews,
   products,
   productVendors,
@@ -29,14 +28,13 @@ import {
   CHECKS,
   checkAlgoliaDrift,
   checkArrivalCfCoverage,
-  checkBrokenIntegrationRefs,
   checkDuplicateProducts,
   checkDuplicateVendors,
   checkEntitlementMirrorDrift,
   checkLogo404Sample,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
-  checkStaleReadyProducts,
+  checkPromotionStatusInvariant,
   checkStaleStatsCache,
   checkVendorsWithoutProducts,
   hasErrors,
@@ -79,6 +77,7 @@ async function seedVendor(over: {
   id: string;
   companyName?: string;
   slug?: string;
+  promotionStatus?: string;
   logoUrl?: string | null;
   updatedAt?: string;
 }): Promise<void> {
@@ -86,6 +85,9 @@ async function seedVendor(over: {
     id: over.id,
     slug: over.slug ?? over.id,
     companyName: over.companyName ?? over.id,
+    // Defaults to the production shape, not the schema default `'pending'` — every
+    // other check's fixtures would otherwise trip `promotion_status_invariant`.
+    promotionStatus: over.promotionStatus ?? 'promoted',
     logoUrl: over.logoUrl ?? null,
     createdAt: over.updatedAt ?? RECENT,
     updatedAt: over.updatedAt ?? RECENT,
@@ -94,20 +96,6 @@ async function seedVendor(over: {
 
 async function linkProductVendor(productId: string, vendorId: string): Promise<void> {
   await t.db.insert(productVendors).values({ productId, vendorId });
-}
-
-async function seedIntegration(over: {
-  id: string;
-  sourceProductId: string;
-  targetProductId: string;
-  name?: string;
-}): Promise<void> {
-  await t.db.insert(integrations).values({
-    id: over.id,
-    name: over.name ?? null,
-    sourceProductId: over.sourceProductId,
-    targetProductId: over.targetProductId,
-  });
 }
 
 async function seedReview(over: {
@@ -150,54 +138,52 @@ describe('checkProductsWithoutVendor', () => {
   });
 });
 
-// ── #2 stale ready products ────────────────────────────────────────────────────
+// ── #2 promotion-status invariant (AECI-592) ──────────────────────────────────
 
-describe('checkStaleReadyProducts', () => {
-  it('flags ready products unchanged for >30 days, not recent or non-ready ones', async () => {
-    await seedProduct({ id: 'p1', name: 'StaleReady', promotionStatus: 'ready', updatedAt: OLD });
-    await seedProduct({
-      id: 'p2',
-      name: 'FreshReady',
-      promotionStatus: 'ready',
-      updatedAt: RECENT,
-    });
-    await seedProduct({
-      id: 'p3',
-      name: 'OldPromoted',
-      promotionStatus: 'promoted',
-      updatedAt: OLD,
-    });
+describe('checkPromotionStatusInvariant', () => {
+  it('passes against the production shape — every product and vendor promoted', async () => {
+    await seedProduct({ id: 'p1', name: 'Revit' });
+    await seedProduct({ id: 'p2', name: 'Procore' });
+    await seedVendor({ id: 'v1', companyName: 'Autodesk' });
+    await linkProductVendor('p1', 'v1');
 
-    const { lines } = await checkStaleReadyProducts(t.db, NOW);
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('StaleReady (p1)');
+    const { lines } = await checkPromotionStatusInvariant(t.db);
+    expect(lines).toEqual([]);
   });
-});
 
-// ── #3 broken integration refs ─────────────────────────────────────────────────
-
-describe('checkBrokenIntegrationRefs', () => {
-  it('flags integrations whose source or target product was pulled', async () => {
-    await seedProduct({ id: 'p1', name: 'Live', promotionStatus: 'promoted' });
+  it('flags a product that is not promoted, naming its status', async () => {
+    await seedProduct({ id: 'p1', name: 'Live' });
     await seedProduct({ id: 'p2', name: 'Pulled', promotionStatus: 'retracted' });
-    await seedProduct({ id: 'p3', name: 'AlsoLive', promotionStatus: 'promoted' });
-    await seedIntegration({
-      id: 'i1',
-      name: 'Broken',
-      sourceProductId: 'p1',
-      targetProductId: 'p2',
-    });
-    await seedIntegration({
-      id: 'i2',
-      name: 'Healthy',
-      sourceProductId: 'p1',
-      targetProductId: 'p3',
-    });
 
-    const { lines } = await checkBrokenIntegrationRefs(t.db);
+    const { lines } = await checkPromotionStatusInvariant(t.db);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('Broken');
+    expect(lines[0]).toContain('product "Pulled" (p2)');
     expect(lines[0]).toContain('retracted');
+  });
+
+  it('flags a vendor left on the schema default `pending`', async () => {
+    await seedVendor({ id: 'v1', companyName: 'Autodesk' });
+    await seedVendor({ id: 'v2', companyName: 'Unpromoted Co', promotionStatus: 'pending' });
+
+    const { lines } = await checkPromotionStatusInvariant(t.db);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('vendor "Unpromoted Co" (v2)');
+    expect(lines[0]).toContain('pending');
+  });
+
+  it('reports products and vendors together, products first', async () => {
+    await seedProduct({ id: 'p1', name: 'Pulled', promotionStatus: 'rejected' });
+    await seedVendor({ id: 'v1', companyName: 'Stalled Co', promotionStatus: 'ready' });
+
+    const { lines } = await checkPromotionStatusInvariant(t.db);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('product "Pulled"');
+    expect(lines[1]).toContain('vendor "Stalled Co"');
+  });
+
+  it('is registered at `error` severity — a silent violation breaks the catalog series', () => {
+    const spec = CHECKS.find((c) => c.id === 'promotion_status_invariant');
+    expect(spec?.severity).toBe('error');
   });
 });
 

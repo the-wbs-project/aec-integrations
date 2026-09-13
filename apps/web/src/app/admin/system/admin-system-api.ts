@@ -34,7 +34,7 @@ export class AdminSystemApi {
   /**
    * `GET /api/admin/system` — the §5.6 bundle.
    *
-   * `recompute` runs the ten data-quality checks and the Algolia drift count
+   * `recompute` runs the data-quality checks and the Algolia drift count
    * live (§13 D8). Still a pure read — it writes nothing and sends nothing — but
    * it costs a logo-URL probe plus three Algolia queries, which is why it is
    * opt-in rather than part of every load.

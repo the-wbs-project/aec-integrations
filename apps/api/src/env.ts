@@ -15,7 +15,7 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
  * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
- * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
+ * (AECI-241 / Phase 7.6): the read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
  * read) and always runs inline. `attestation_notify` is the daily 10:00 UTC §7

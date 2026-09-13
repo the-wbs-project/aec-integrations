@@ -36,6 +36,9 @@
 --
 -- CONTRACT
 --   * Idempotent: every insert is `ON CONFLICT DO NOTHING`, matching catalog.sql.
+--     ONE exception — the `fx-agave-inc` vendor re-asserts `promotion_status` on
+--     conflict (AECI-592), so a local DB seeded before that fix is repaired rather
+--     than left at the 'pending' default that trips the invariant check.
 --   * `connector_product_id` is NOT NULL, so both catalogues need a promoted
 --     connector-role product; they are created here rather than assumed.
 --   * Ids are the review app's own record ids on all five projected tables
@@ -84,9 +87,12 @@ ON CONFLICT (slug) DO NOTHING;
 
 -- A vendor for the handover to name. AECI-720's `vendorId` is validated against
 -- `vendors` rather than trusted, so a fixture handover needs a real row.
-INSERT INTO vendors (id, slug, company_name, website, verified, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000795','fx-agave-inc','Agave Inc. (fixture)','https://example.com/agave',0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-ON CONFLICT (slug) DO NOTHING;
+-- `promotion_status` is EXPLICIT (AECI-592): the column defaults to 'pending', and
+-- the `promotion_status_invariant` data-quality check is `error`-severity, so a row
+-- that omits it turns /admin/system red on every seeded machine.
+INSERT INTO vendors (id, slug, company_name, website, verified, promotion_status, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000795','fx-agave-inc','Agave Inc. (fixture)','https://example.com/agave',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (slug) DO UPDATE SET promotion_status = excluded.promotion_status;
 
 -- Ownership, so the §5.2 payer test has a PURE CONNECTOR VENDOR to render
 -- against locally (AECI-738). Agave Inc. owns exactly one product and that

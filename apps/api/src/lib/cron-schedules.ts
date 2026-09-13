@@ -86,7 +86,7 @@ export const RETENTION_CRON = '0 3 * * *';
 
 /** Daily §23.1 data-quality suite (AECI-241 / Phase 7.6). 04:00 UTC — the §23.1
  *  slot, two hours ahead of the 06:00 moderation snapshot, in the same
- *  dead-of-night daily window. Runs the ten checks and emails the digest when
+ *  dead-of-night daily window. Runs the checks and emails the digest when
  *  they finish (~04:30 UTC). */
 export const DATA_QUALITY_CRON = '0 4 * * *';
 

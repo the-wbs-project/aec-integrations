@@ -4,7 +4,7 @@
  *
  * Two gaps this closes. A cron's outcome used to exist ONLY as a Datadog metric,
  * so nothing in D1 could answer "did the 08:00 Algolia sync run today"; and the
- * ten data-quality findings existed ONLY in an email — computed at 04:00, sent,
+ * data-quality findings existed ONLY in an email — computed at 04:00, sent,
  * discarded. One row per run, carrying a per-job payload, fixes both.
  *
  * ─── No `audit_log` row (§13 D11 / ADR 0022) ──────────────────────────────────
@@ -407,7 +407,7 @@ export interface RetentionPrunedTableDetail {
 
 /**
  * Defensive ceiling on the serialized payload. Nothing today comes close — the
- * data-quality set is the largest at ~6-8 KB (ten checks × `SAMPLE_LIMIT` 10
+ * data-quality set is the largest at ~6-8 KB (eleven checks × `SAMPLE_LIMIT` 10
  * sample lines) — but `detail` is the one field a future job could make
  * unbounded, and a 1 MB row is a D1 failure rather than a large row.
  */

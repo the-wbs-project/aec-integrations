@@ -99,7 +99,7 @@ their own metric, no `template` tag — so they don't appear above:
 | Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` | **`/admin/overview`** (AECI-576) over `GET /api/admin/overview` (AECI-574). `?day=YYYY-MM-DD` reads any UTC day, defaulting to the digest's prior complete day; `?recompute=1` refreshes the two network-dependent status items and **sends no email** |
 
 **Neither email is retired by its screen** (`ADMIN_PANEL_SPEC.md` §13 **D2**): push and pull are
-complementary, and no cron is being removed. What the screen adds is *on demand* — the ten §23.1
+complementary, and no cron is being removed. What the screen adds is *on demand* — the §23.1
 checks used to be visible only in the 04:00 send, so a defect fixed at 10:00 could not be confirmed
 until the next morning. `GET /api/admin/system?recompute=1` re-runs the suite live and is a **pure
 read**: it writes no row and, in particular, **sends no email** (§13 **D8** draws the line at side
