@@ -13,7 +13,7 @@
  * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
- * Ten of the eleven check the *catalog*. #11 (AECI-868) checks the *telemetry
+ * All but one check the *catalog*. `arrival_cf_coverage` (AECI-868) checks the *telemetry
  * pipeline* that feeds every traffic figure, which is a deliberate widening of what
  * this suite is for: the four-day arrival-metadata outage it guards produced no
  * error, no alert and no visibly wrong number, so nothing but a nightly ratio could
@@ -110,7 +110,7 @@ export interface DataQualityDeps {
   /** Max logo URLs to probe (default {@link DEFAULT_LOGO_SAMPLE}). */
   logoSampleSize?: number;
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
-   *  check #10 is skipped (no Algolia creds — the local/preview default). */
+   *  `algolia_index_drift` is skipped (no Algolia creds — the local/preview default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
 }
 

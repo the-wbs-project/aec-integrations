@@ -55,7 +55,7 @@ const UNKNOWN_SHA = 'unknown';
  * and no direction.
  *
  * The data-quality checks are opt-in (§13 **D8** / §6): the default load
- * omits them because check #9 HTTP-probes logo URLs and check #10 costs three
+ * omits them because `logo_404` HTTP-probes logo URLs and `algolia_index_drift` costs three
  * Algolia queries, and a dashboard should not do that on every visit. The button
  * re-requests with `?recompute=1`, which remains a pure read — it writes nothing
  * and sends nothing.

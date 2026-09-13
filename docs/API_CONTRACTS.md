@@ -2856,7 +2856,7 @@ note, and `?recompute=1` runs them live:
 writes nothing, sends no email, and carries no `audit_log` obligation — which is
 what keeps "all endpoints are GET, read-only" unconditionally true. The
 side-effecting `POST /api/admin/jobs/:job/run` stays deferred and is not built.
-Data-quality check #10 *is* the Algolia drift check, so the drift runner is
+The `algolia_index_drift` data-quality check *is* the Algolia drift check, so the drift runner is
 invoked once and its result feeds both. No Algolia credentials → `algolia_drift`
 is `null` + an `algolia_credentials_absent` note (never a fabricated zero); a
 drift call that throws leaves `algolia_drift` null and surfaces the reason on the
@@ -3256,7 +3256,7 @@ is where the answer can be **read** from, not what it costs to compute:
 `?recompute=1` runs the §23.1 checks and the drift count live, tagged
 `source: 'live'`. Still a **pure read** — writes nothing (including no `job_runs`
 row), sends nothing, no `audit_log` obligation; what makes it opt-in is network cost
-(check #9 HTTP-probes a sample of logo URLs, drift costs three Algolia queries), not
+(`logo_404` HTTP-probes a sample of logo URLs, drift costs three Algolia queries), not
 mutation.
 
 A stored payload that does not parse yields `data_quality: null` plus a
@@ -3267,7 +3267,7 @@ as a complete one and understate `failing`.
 Both endpoints share one implementation (`apps/api/src/lib/admin-status.ts`
 `runExpensiveStatusItems`), so the System screen and the Overview status strip
 cannot report different results for the same check. The drift runner is invoked
-**once** per request and memoized at the promise — check #10 of the ten *is* the
+**once** per request and memoized at the promise — `algolia_index_drift` *is* the
 drift check, so running it twice would double the Algolia round trips to report
 one number.
 

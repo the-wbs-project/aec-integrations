@@ -41,7 +41,7 @@ import { createAdminSystemHandler, type AdminSystemDeps } from './admin-system';
 
 const NOW = new Date('2026-08-13T05:00:00.000Z');
 
-/** Never hits the network: check #9 probes logo URLs with `fetch`. Every product
+/** Never hits the network: `logo_404` probes logo URLs with `fetch`. Every product
  *  in these fixtures is logo-less, but the seam is injected regardless so a
  *  future fixture change cannot start making real requests from a unit test. */
 const NO_FETCH: typeof fetch = () =>

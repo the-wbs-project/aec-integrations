@@ -736,7 +736,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 
 Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag additionally means "bypass the snapshot", which is the meaning D8 anticipated; the response's `source` field (`'live'` today, `'snapshot'` later) is what tells the two apart. Overview and System keep the same convention.
 
-**And they keep it by sharing one implementation (AECI-580).** The recompute block moved out of `routes/admin-overview.ts` into `lib/admin-status.ts` (`runExpensiveStatusItems`), which both endpoints call — the same reasoning P1.1 note 1 applies to `collectAnalyticsMetrics`: two screens reporting the same check must not be *able* to disagree. It carries the memoize-at-the-promise trick with it, so the drift runner is invoked once per request even though check #10 and the drift panel both consume it. `statsFreshness` moved for the same reason.
+**And they keep it by sharing one implementation (AECI-580).** The recompute block moved out of `routes/admin-overview.ts` into `lib/admin-status.ts` (`runExpensiveStatusItems`), which both endpoints call — the same reasoning P1.1 note 1 applies to `collectAnalyticsMetrics`: two screens reporting the same check must not be *able* to disagree. It carries the memoize-at-the-promise trick with it, so the drift runner is invoked once per request even though `algolia_index_drift` and the drift panel both consume it. `statsFreshness` moved for the same reason.
 
 **P1.1 implementation notes (AECI-574).** Contracts in `packages/shared/src/api/admin-panel.ts`; handlers in `apps/api/src/routes/admin-{overview,metrics,traffic}.ts` over `apps/api/src/lib/admin-analytics.ts`. Three choices are worth knowing before extending them:
 
