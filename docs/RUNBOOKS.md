@@ -1537,7 +1537,7 @@ permanently unreachable. Which bucket fired tells you what broke:
 | Bucket | Meaning |
 |---|---|
 | `integrationSourceGone` | An `integrations` edge no upstream record claims. **The common one.** |
-| `evidencedPairSourceGone` | A `connector_evidenced_pairs` edge no upstream record claims. **New 2026-09-14 (AECI-897)** — this table was counted but never classified, which is why the job read green on 2026-09-10 and 2026-09-11 with 215 retracted pairs live. **Its repair is not the same as the others — see below.** |
+| `evidencedPairSourceGone` | A `connector_evidenced_pairs` edge no upstream record claims. **New 2026-09-14 (AECI-897)** — this table was counted but never classified, which is why the job read green on 2026-09-10 and 2026-09-11 with 215 retracted pairs live. **Its repair is not the same as the others, and it has two routes — see below.** Its first two findings were both real and were retracted the same day (AECI-916). |
 | `integrationEndpointStranded` | An edge whose endpoint, connector or builder is itself stranded. Falls out with that row. Spans **both** anchor tables; read the entry's `table` field. |
 | `productDeletedUpstream` | A D1 product no upstream record claims at all. |
 | `productRejectedUpstream` | A D1 product whose upstream record is `rejected` — promoted once, then rejected, never retracted here. |
@@ -1556,13 +1556,33 @@ Addendum C model a pair can legitimately carry both a delivered edge and a conne
 one, and two production pairs do. Only "both tables, one unreferenced upstream" is the strand
 shape, which is the AECI-888 signature.
 
-> **`evidencedPairSourceGone` has no repair tool. Do not hand-DELETE.** Neither
-> `ops:retract-product` nor the datatool prune can touch `connector_evidenced_pairs`, and the
-> retraction consumer only acts on journal entries, so a strand finding never reaches it. The
-> path is: confirm the ruling upstream, have the curator delete the record so the journal
-> carries it, then let `scripts/ops/2026-09-retraction-consumer/consume.mjs` execute it. Raw SQL
-> skips the `audit_log` row and the `integration_count` reconcile, which is what made the
-> 2026-09-07 cleanup a one-off nobody can replay.
+> **`evidencedPairSourceGone` has a repair tool since 2026-09-14 (AECI-916), and which route
+> you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** Neither
+> `ops:retract-product` nor the datatool prune can touch `connector_evidenced_pairs`. The
+> retraction consumer can, and it takes two cohorts:
+>
+> - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the
+>   curator delete the record so the journal carries it, then run the consumer normally. It
+>   preserves the curator's own words, which beats an operator's reconstruction.
+> - **Route B, no upstream record and no journal entry.** Write a committed ruling file and run
+>   `consume.mjs --env production --ruling <file>`. Same guards, same `audit_log` row per id,
+>   same count repair, same rollback; `confirm_retractions` is never called and the run refuses
+>   if the journal is non-empty.
+>
+> **This runbook used to prescribe route A only, and that was a real defect, not a stale
+> sentence.** A journal entry is written only when the deleted upstream record carried a
+> `supabase_integration_id` — and a strand is by definition a row nothing upstream points at.
+> So for the rows this bucket finds most often, "have the curator delete the record" reaches a
+> record that is already gone or was never linked, and journals nothing. AECI-916 is the worked
+> case: the route closed under the issue while it was open, three days after it was written
+> down. Raw SQL is still wrong in both routes — it skips the `audit_log` row and the
+> `integration_count` reconcile, which is what made the 2026-09-07 cleanup a one-off nobody can
+> replay, and under route B that audit row is the *only* surviving account of the deletion.
+>
+> **The bar has not moved.** A finding here is still a curation judgement; the escalation path
+> below still applies. What changed is that executing a ruling no longer requires raw SQL.
+> Format, refusals and the worked example: `scripts/ops/2026-09-retraction-consumer/README.md`
+> §"Operator-ruling mode".
 
 **First checks**
 

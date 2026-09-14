@@ -31,6 +31,65 @@
 // (`scripts/ops/2026-09-stranded-row-audit/README.md`), so this is a structural
 // guarantee, not a typechecked or unit-tested one. Do not add a second call site.
 //
+// ─── THE SECOND COHORT SOURCE: --ruling (AECI-916) ───────────────────────────
+//
+// Everything above describes the JOURNAL cohort, which is the normal one. There is a
+// second, and it exists because the journal cannot reach every stranded row.
+//
+// A journal entry is only written when the deleted upstream record carried a
+// `supabase_integration_id`. If that pointer was never stored — the promote created the
+// row and returned its id, and the review app did not write the id back — then deleting
+// the record upstream journals NOTHING. The live AECi row is now unreachable from both
+// sides: no upstream record claims it, and no feed entry names it. The daily strand
+// audit's `evidencedPairSourceGone` bucket can SEE such a row, and until this mode existed
+// nothing could remove it.
+//
+// AECI-916 is the worked case and the reason this mode is here. Two Aquifer-powered
+// HeavyJob pairs were created by HeavyJob's 2026-09-09 promote
+// (`rec8tPLsT5ezww4L3-mttso2i2-5379ce2d`) as the only two `operation: 'created'` rows in a
+// 23-integration job. Their ids were in the served ID map and `skipped[]` was empty. The
+// write-back did not land. AECI-889 batch 3 then deleted both upstream records, which
+// journalled nothing, and the issue's original "confirm upstream → journal → consumer"
+// repair path closed at that moment.
+//
+// So `--ruling <file>` REPLACES the journal read as the cohort. The file names the ids, the
+// operator's reason, and the ticket. Everything else in this script is unchanged: both
+// tables on resolve and again on verify, the EXPECTED shape pin, the MAX_CASCADE ceiling,
+// the sentinel, one `audit_log` row per id, the count repair, the timestamped rollback.
+//
+// FOUR DIFFERENCES, and each one is a refusal rather than a behaviour change:
+//
+//   1. `confirm_retractions` is NEVER called. There is no journal entry to confirm, so the
+//      script does not open a write session at all. `verifyDeleted()` still gates the run
+//      to completion — it is what proves the delete landed — its token simply feeds the
+//      report instead of a confirm.
+//   2. A ruled id that resolves in NEITHER table is a refusal. In journal mode an absent
+//      row is ordinary (`alreadyGone`): the feed is a record of the past and the row may
+//      have been taken already. A ruling is a statement about rows the operator has just
+//      measured, so an id that is not there means the ruling was written against a state
+//      that has moved, which is the same failure `missingHolds` refuses on.
+//   3. `--ruling` with a NON-EMPTY journal is a refusal. The two cohorts must never mix.
+//      Drain the feed first: journal entries carry `confirm_retractions` obligations that a
+//      ruling run would delete the rows for and never discharge, leaving entries pending
+//      against rows that no longer exist and an operator re-running the consumer forever.
+//   4. `--ruling` with `--confirm-already-gone` or `--detect-only` is a refusal. Both are
+//      journal verbs and mean nothing here.
+//
+// THE RULING FILE (JSON, committed — it IS the ruling record):
+//
+//   {
+//     "issue": "AECI-916",
+//     "reason": "<the ruling, in full prose, one copy per audit row>",
+//     "rulingSource": "<where the decision came from and how it was established>",
+//     "noUpstreamRuling": false,
+//     "ids": ["<uuid>", "…"]
+//   }
+//
+// `noUpstreamRuling` is REQUIRED and has no default, deliberately. It is the AECI-795
+// distinction — "an upstream ruling exists, it just is not in the journal" versus "nobody
+// recorded a ruling anywhere" — and it lands verbatim in every audit row. A default would
+// let an operator ship the wrong one of those two without ever deciding.
+//
 // ─── WHY BOTH TABLES ─────────────────────────────────────────────────────────
 //
 // A journal entry carries a `supabaseId` and nothing that says which table holds it. The
@@ -64,10 +123,13 @@
 // evidenced pair at all. This is the fourth route-around; see `apps/datatool/README.md`.
 //
 // USAGE (from the repo root; needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID +
-// AECI_MCP_TOKEN):
+// AECI_MCP_TOKEN — the token is required in BOTH modes, because ruling mode still reads the
+// journal to prove it is empty):
 //   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
 //   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply \
 //        --allow-production --confirm-count 214
+//   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production \
+//        --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-916-heavyjob-aquifer.json
 //
 // Dry-run by default: it reads, reports, writes `preflight.json` + `rollback.sql` next to
 // itself, and changes nothing on either side.
@@ -84,9 +146,9 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { listAll, openMcpSession } from './mcp-client.mjs';
@@ -171,19 +233,28 @@ const HOLD_REASON =
  * and the right response is to stop and re-establish the ruling rather than to delete
  * whatever is there now.
  *
- * ZERO, because the feed is empty as of 2026-09-14 — that is the CURRENT shape, and it is
- * also the only pin that fails closed. A shape carried over from the cohort that just ran
- * is not a guard: the AECI-889 batch-1 run was authorised against `17 / 17 / 0` and the
- * batches 2 + 3 run against `21 / 21 / 0`, and leaving either here would have let the next
- * cohort of that size match by coincidence and pass unruled. AECI-889's I24 batches DO
- * journal deletes — Agave, Trimble App Xchange and Aquifer are done, Kroo and the MindCloud
- * check remain, Zapier is deferred — so the next operator re-measures these three (and
- * `MAX_CASCADE`) from the feed they actually see. What ran before is in this lane's README,
- * not in the guard.
+ * ZERO, the resting state. The AECI-916 operator-ruling run pinned it to `2 / 2 / 0` and
+ * this reset is part of that same change, per the standing rule. Zero is the only pin that
+ * fails closed: a shape carried over from the cohort that just ran is not a guard, because
+ * a later cohort of the same size matches it by coincidence. The AECI-889 batch-1 run was
+ * authorised against `17 / 17 / 0` and the batches 2 + 3 run against `21 / 21 / 0`, and
+ * leaving either here would have let the next cohort of that size match by coincidence and
+ * pass unruled. AECI-889's I24 batches DO journal deletes — Agave, Trimble App Xchange and
+ * Aquifer are done, Kroo and the MindCloud check remain, Zapier is deferred — so the next
+ * operator re-measures these three (and `MAX_CASCADE`) from the cohort they actually see.
+ * What ran before is in this lane's README, not in the guard.
+ *
+ * IT BINDS IN RULING MODE TOO, and that is not redundant with `--confirm-count`. The count
+ * gate proves the operator knows how many rows the plan holds; this gate proves the rows are
+ * in the TABLE the ruling was measured against. A ruling written against two evidenced pairs
+ * that now resolve as one pair and one `integrations` row would clear `--confirm-count 2` and
+ * fail here, which is right — a cross-table move happened under it and the cascade shape it
+ * was measured against no longer holds.
  *
  * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Parked entries (see step
- * 1b) are outside the cohort and cannot move it. An empty feed never reaches this gate —
- * the run returns at the `feed.length === 0` check well before it.
+ * 1b) are outside the cohort and cannot move it; a ruling cohort has none by construction.
+ * An empty feed never reaches this gate in journal mode — the run returns at the
+ * `feed.length === 0` check well before it.
  */
 const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
@@ -353,28 +424,55 @@ function d1Write(target, sql, scratchDir, label) {
  * `action` is 'integration.deleted' for BOTH tables, matching the AECI-593 / 794 / 795
  * rows so the action vocabulary stays queryable. `metadata.table` says which table it
  * actually came from.
+ *
+ * RULING MODE WRITES A DIFFERENT PROVENANCE BLOCK, NOT A THINNER ONE (AECI-916). There is no
+ * journal entry, so `retraction_journal` would be a block of nulls — and a null-filled block
+ * reads like a lost record rather than an absent one. It is replaced by `operator_ruling`,
+ * carrying the file's issue, reason, source and the committed path, so `metadata.source`
+ * alone tells a future auditor which cohort a row came from and where to go next.
  */
-function buildAuditInsert({ entry, table, row, cascade, affectedProductIds }) {
+function buildAuditInsert({ entry, table, row, cascade, affectedProductIds, ruling }) {
   const beforeState = { table, row, cascade };
+  const provenance = ruling
+    ? {
+        source: 'operator-ruling',
+        issue: ruling.issue,
+        sub_issue: null,
+        // The ruling, verbatim. No upstream record and no journal entry hold these ids any
+        // more, so this and the committed file are the only account of why the rows went.
+        operator_ruling: {
+          issue: ruling.issue,
+          reason: ruling.reason,
+          ruling_source: ruling.rulingSource,
+          ruling_file: ruling.path,
+        },
+        ruling_source: ruling.rulingSource,
+        // Stated by the operator in the ruling file rather than assumed either way.
+        no_upstream_ruling: ruling.noUpstreamRuling,
+      }
+    : {
+        source: 'retraction-journal',
+        issue: 'AECI-882',
+        sub_issue: entry.supabaseId === AECI_878_ID ? 'AECI-878' : 'AECI-811',
+        // The feed entry, verbatim. The upstream record is gone; this is the only copy.
+        retraction_journal: {
+          entry_id: entry.id,
+          upstream_record_id: entry.rowId,
+          name_as_it_stood: entry.name,
+          entity: entry.entity,
+          deleted_at: entry.deletedAt,
+          carrier_product_ids: entry.carrierProductIds,
+          reason: entry.reason,
+        },
+        ruling_source: `review-app retraction_journal entry ${entry.id} (upstream record ${entry.rowId}), deleted ${entry.deletedAt}`,
+        // False for every row in a journal run: each one carries a curator's recorded
+        // reason. AECI-795 is the counterexample this field exists for.
+        no_upstream_ruling: false,
+      };
   const metadata = {
-    issue: 'AECI-882',
-    sub_issue: entry.supabaseId === AECI_878_ID ? 'AECI-878' : 'AECI-811',
+    ...provenance,
     operator: OPERATOR,
     tool: TOOL_PATH,
-    // The feed entry, verbatim. The upstream record is gone; this is the only copy.
-    retraction_journal: {
-      entry_id: entry.id,
-      upstream_record_id: entry.rowId,
-      name_as_it_stood: entry.name,
-      entity: entry.entity,
-      deleted_at: entry.deletedAt,
-      carrier_product_ids: entry.carrierProductIds,
-      reason: entry.reason,
-    },
-    ruling_source: `review-app retraction_journal entry ${entry.id} (upstream record ${entry.rowId}), deleted ${entry.deletedAt}`,
-    // False for every row in this run: each one carries a curator's recorded reason.
-    // AECI-795 is the counterexample this field exists for.
-    no_upstream_ruling: false,
     table,
     affected_product_ids: affectedProductIds,
     rollback: 'scripts/ops/2026-09-retraction-consumer/rollback-<run stamp>.sql',
@@ -406,6 +504,111 @@ function buildAuditInsert({ entry, table, row, cascade, affectedProductIds }) {
 
 /** The one `integrations` entry, named so the audit metadata can attribute it. */
 const AECI_878_ID = '6a5fbeab-fa85-4fd7-9088-5bdc04f92fa1';
+
+// ─── The ruling file (AECI-916) ──────────────────────────────────────────────
+
+/**
+ * Read and validate an operator ruling. Returns `{ issue, reason, rulingSource,
+ * noUpstreamRuling, ids, path }`, or throws — and every throw here lands on exit 2 via the
+ * top-level handler, which is right: a malformed ruling is "could not check", not a refusal
+ * to act on a well-formed one.
+ *
+ * VALIDATION IS STRICT BECAUSE THE FILE IS THE ONLY RECORD. In journal mode the curator's
+ * reason is fetched live from the feed and cannot be mistyped here. In ruling mode this file
+ * is the sole source of the `reason` and `ruling_source` that go into every `audit_log` row,
+ * and once the rows are deleted those strings are the only surviving account of why. An
+ * empty `reason` would produce two audit rows saying nothing, which is indistinguishable
+ * from the hand-DELETE this mode exists to replace.
+ *
+ * `noUpstreamRuling` must be an actual boolean. `?? false` would be the wrong default in the
+ * one direction that matters: it would silently claim an upstream ruling exists for a row
+ * whose deletion nobody recorded anywhere, which is the exact assertion AECI-795 refused to
+ * make.
+ */
+function readRulingFile(rulingPath) {
+  const abs = isAbsolute(rulingPath) ? rulingPath : join(process.cwd(), rulingPath);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(abs, 'utf8'));
+  } catch (err) {
+    throw new Error(`Cannot read ruling file ${abs}: ${err?.message ?? err}`);
+  }
+
+  const str = (field) => {
+    const v = parsed?.[field];
+    if (typeof v !== 'string' || v.trim() === '') {
+      throw new Error(`Ruling file ${abs}: "${field}" must be a non-empty string.`);
+    }
+    return v.trim();
+  };
+
+  const issue = str('issue');
+  if (!/^AECI-\d+$/.test(issue)) {
+    throw new Error(`Ruling file ${abs}: "issue" must look like AECI-123, got "${issue}".`);
+  }
+  const reason = str('reason');
+  const rulingSource = str('rulingSource');
+
+  if (typeof parsed?.noUpstreamRuling !== 'boolean') {
+    throw new Error(
+      `Ruling file ${abs}: "noUpstreamRuling" must be true or false, explicitly.\n` +
+        '  false = an upstream ruling exists, it just never reached the journal.\n' +
+        '  true  = nobody recorded a ruling anywhere; the operator is making one (AECI-795).\n' +
+        'There is no default: the wrong one of these is a false claim in every audit row.',
+    );
+  }
+
+  const ids = parsed?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new Error(`Ruling file ${abs}: "ids" must be a non-empty array.`);
+  }
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_RE.test(id)) {
+      throw new Error(`Ruling file ${abs}: "${id}" is not a UUID.`);
+    }
+  }
+  const lowered = ids.map((id) => id.toLowerCase());
+  const dupes = lowered.filter((id, i) => lowered.indexOf(id) !== i);
+  if (dupes.length) {
+    throw new Error(`Ruling file ${abs}: duplicate id(s): ${[...new Set(dupes)].join(', ')}`);
+  }
+
+  // Repo-relative when the file is in the repo, absolute otherwise. A ruling SHOULD be
+  // committed under `rulings/`, but a scratch file outside the tree must not end up in every
+  // audit row as `../../../../../../tmp/x.json`, which names nothing a reader can resolve.
+  const rel = relative(REPO_ROOT, abs);
+  return {
+    issue,
+    reason,
+    rulingSource,
+    noUpstreamRuling: parsed.noUpstreamRuling,
+    ids,
+    path: rel && !rel.startsWith('..') ? rel : abs,
+  };
+}
+
+/**
+ * Project the ruling onto the same entry shape the feed produces, so every downstream stage
+ * — resolve, hold, cascade, sentinel, rollback, audit, verify — runs unchanged.
+ *
+ * `id` is null and that is load-bearing: it is the JOURNAL ENTRY id, the only thing
+ * `confirmRetractions()` accepts, and there is none here. Anything that tried to confirm a
+ * ruling cohort would be handing it a list of nulls, which `confirm_retractions` would
+ * reject — but the real guarantee is that main() never builds a confirm token in this mode,
+ * checked below at the single call site.
+ */
+function rulingEntries(ruling) {
+  return ruling.ids.map((supabaseId) => ({
+    id: null,
+    entity: 'integration',
+    supabaseId,
+    rowId: null,
+    name: null,
+    carrierProductIds: [],
+    reason: ruling.reason,
+    deletedAt: null,
+  }));
+}
 
 // ─── The confirm gate ────────────────────────────────────────────────────────
 
@@ -473,6 +676,16 @@ async function confirmRetractions(verification) {
   if (!verification || !Array.isArray(verification.entryIds)) {
     throw new Error('confirmRetractions requires a token from verifyDeleted(). Refusing.');
   }
+  // A ruling cohort has no journal entries, so its synthesised entries carry `id: null`
+  // (AECI-916). main() never reaches this function in that mode; this is the belt to that
+  // brace, and it throws rather than filtering because a partially-null list means the two
+  // cohorts have been mixed somewhere upstream of here.
+  if (verification.entryIds.some((id) => typeof id !== 'string' || id === '')) {
+    throw new Error(
+      'confirmRetractions was handed a non-journal entry id. A ruling cohort must never\n' +
+        'be confirmed — there is nothing upstream to acknowledge. Refusing.',
+    );
+  }
   const session = await openMcpSession();
   const results = [];
   for (const part of chunk(verification.entryIds, CONFIRM_CHUNK)) {
@@ -506,6 +719,12 @@ consume.mjs — consume the review app's retraction feed (AECI-882).
   --confirm-already-gone    also confirm integration-class entries whose row is absent with
                             no audit row from this lane. Read the header before using it.
                             Parked (non-integration) entries are never confirmed by it.
+  --ruling <file>           OPERATOR-RULING MODE (AECI-916). Take the cohort from a JSON
+                            ruling file instead of the retraction journal, for rows no
+                            journal entry can ever name. confirm_retractions is never
+                            called. Refuses if the journal is non-empty, if a ruled id
+                            resolves in neither table, or alongside --detect-only /
+                            --confirm-already-gone. See this file's header for the format.
   -h, --help
 
 Exit: 0 clean · 1 refusal or pending found · 2 could not check.
@@ -530,6 +749,32 @@ async function main() {
   const detectOnly = argv.includes('--detect-only');
   const confirmAlreadyGone = argv.includes('--confirm-already-gone');
   const confirmCountRaw = readValueFlag(argv, '--confirm-count');
+  const rulingPath = readValueFlag(argv, '--ruling');
+
+  // ─── Ruling-mode flag conflicts, refused before anything is read ───────────
+  // Both flags below are JOURNAL verbs. `--detect-only` reports what is pending in the feed,
+  // and a ruling cohort is never in the feed. `--confirm-already-gone` confirms entries, and
+  // this mode never confirms anything. Silently ignoring either would be worse than
+  // refusing: an operator who typed `--confirm-already-gone` believes something upstream is
+  // being acknowledged, and nothing would be.
+  let ruling = null;
+  if (rulingPath !== undefined) {
+    if (rulingPath === '' || rulingPath.startsWith('--')) {
+      console.error('--ruling requires a file path. Exit 2.');
+      return 2;
+    }
+    if (detectOnly) {
+      console.error('--ruling and --detect-only are mutually exclusive: a ruling cohort is');
+      console.error('never in the feed, so there is nothing for detect-only to detect.');
+      return 1;
+    }
+    if (confirmAlreadyGone) {
+      console.error('--ruling and --confirm-already-gone are mutually exclusive: ruling mode');
+      console.error('never calls confirm_retractions, so the flag would silently do nothing.');
+      return 1;
+    }
+    ruling = readRulingFile(rulingPath);
+  }
 
   if (apply && envName === 'production' && !argv.includes('--allow-production')) {
     console.error('Refusing to write PRODUCTION without --allow-production.');
@@ -551,10 +796,25 @@ async function main() {
   }
 
   console.log(
-    `# AECI-882 retraction consumer — ${target.db} (${apply ? 'APPLY' : detectOnly ? 'detect-only' : 'dry-run'})\n`,
+    `# ${ruling ? `${ruling.issue} operator ruling` : 'AECI-882 retraction'} consumer — ` +
+      `${target.db} (${apply ? 'APPLY' : detectOnly ? 'detect-only' : 'dry-run'})\n`,
   );
+  if (ruling) {
+    console.log(`ruling file: ${ruling.path}`);
+    console.log(`  issue:              ${ruling.issue}`);
+    console.log(`  ids:                ${ruling.ids.length}`);
+    console.log(`  noUpstreamRuling:   ${ruling.noUpstreamRuling}`);
+    console.log(`  rulingSource:       ${ruling.rulingSource}`);
+    console.log(`  reason:             ${ruling.reason}\n`);
+  }
 
   // ─── 1. Read the feed ──────────────────────────────────────────────────────
+  //
+  // Read in BOTH modes. In journal mode it is the cohort. In ruling mode it is the
+  // mixing guard: a ruling run that deleted rows while entries were pending would leave
+  // those entries un-confirmable against rows that no longer exist, and the next journal run
+  // would route them through `goneUnexplained` — where only `--confirm-already-gone`, the
+  // one flag ruling mode forbids, could clear them. Drain the feed first, always.
   const session = await openMcpSession();
   const { rows: feed, total } = await listAll(session, 'list_retractions', {});
   console.log(`feed: ${feed.length} pending entries (server total ${total})`);
@@ -562,16 +822,32 @@ async function main() {
     console.error(`Drained ${feed.length} but the server reports ${total}. Incomplete read.`);
     return 2;
   }
-  if (feed.length === 0) {
-    // An empty feed is a RESULT, not silence. This line is what makes a quiet run
-    // distinguishable from a run that never happened.
-    console.log('\nFeed is empty: nothing pending. The public site matches the review app.');
-    return 0;
-  }
-  const missingId = feed.filter((e) => !e.supabaseId);
-  if (missingId.length) {
-    console.error(`${missingId.length} entries carry no supabaseId — cannot resolve. Exit 2.`);
-    return 2;
+
+  let entries;
+  let parked = [];
+
+  if (ruling) {
+    if (feed.length > 0) {
+      console.error(`\nRefusing: --ruling was given but the retraction journal holds`);
+      console.error(`${feed.length} pending entries. The two cohorts must never mix.`);
+      console.error('Drain the feed first with an ordinary run, then re-run with --ruling.');
+      return 1;
+    }
+    console.log('feed is empty, so the ruling cohort cannot collide with a journal one.\n');
+    entries = rulingEntries(ruling);
+    console.log(`ruling cohort: ${entries.length} ids`);
+  } else {
+    if (feed.length === 0) {
+      // An empty feed is a RESULT, not silence. This line is what makes a quiet run
+      // distinguishable from a run that never happened.
+      console.log('\nFeed is empty: nothing pending. The public site matches the review app.');
+      return 0;
+    }
+    const missingId = feed.filter((e) => !e.supabaseId);
+    if (missingId.length) {
+      console.error(`${missingId.length} entries carry no supabaseId — cannot resolve. Exit 2.`);
+      return 2;
+    }
   }
 
   // ─── 1b. Park everything that is not an integration-class entry ────────────
@@ -597,8 +873,17 @@ async function main() {
   // A MISSING `entity` is parked too, deliberately. If the upstream projection ever drops
   // the field this run does nothing at all and says so, rather than deleting rows whose
   // class it can no longer establish.
-  const entries = feed.filter((e) => e.entity === 'integration');
-  const parked = feed.filter((e) => e.entity !== 'integration');
+  //
+  // RULING MODE SKIPS THIS SPLIT, because there is nothing to split: `rulingEntries()` mints
+  // `entity: 'integration'` on every id by construction. The class question the feed poses —
+  // "is this a product, an edge, or a vendor?" — is answered here by the resolve step
+  // instead, which refuses outright if a ruled id is in neither delivered-tier table. That
+  // is strictly stricter than parking: a ruled product id stops the run rather than being
+  // quietly set aside.
+  if (!ruling) {
+    entries = feed.filter((e) => e.entity === 'integration');
+    parked = feed.filter((e) => e.entity !== 'integration');
+  }
   if (parked.length) {
     console.warn(`\nparked: ${parked.length} entries are not integration-class. Not this lane's`);
     console.warn('work — they are neither deleted nor confirmed, so they stay in the feed.');
@@ -686,6 +971,30 @@ async function main() {
     `resolve: integrations ${inIntegrations.length}, connector_evidenced_pairs ${inPairs.length}, ` +
       `already gone ${alreadyGone.length}`,
   );
+
+  // ─── 2a. Ruling mode: an unresolvable id is a REFUSAL, not a bucket ────────
+  //
+  // In journal mode an absent row is ordinary. The feed is a record of the past, so the row
+  // may have been taken by an earlier run, by `ops:retract-product`, or by a cross-table
+  // move — which is why step 2b exists to tell those apart.
+  //
+  // A ruling is the opposite kind of statement: it names rows the operator measured, now, and
+  // ruled on. An id that resolves to nothing means the file was written against a state that
+  // has already moved, and the same reasoning that refuses a `HOLD` entry missing from the
+  // plan applies with more force here — a hold that misses only fails to protect a row, while
+  // a ruling that misses means the operator is authorising a delete whose target they cannot
+  // see. It also catches the two cheap mistakes this mode invites: a typo'd uuid, and an id
+  // pasted from an audit report of rows that are already gone.
+  if (ruling && alreadyGone.length) {
+    console.error(`\nRefusing: ${alreadyGone.length} ruled id(s) resolve in NEITHER table:`);
+    for (const g of alreadyGone) console.error(`  ${g.entry.supabaseId}`);
+    console.error(
+      '\nA ruling names rows that exist. An id that resolves to nothing means the file was\n' +
+        'written against a state that has moved, or the id is wrong. Re-measure and re-rule.',
+    );
+    return 1;
+  }
+
   const shapeOk =
     entries.length === EXPECTED.total &&
     inPairs.length === EXPECTED.inPairs &&
@@ -814,17 +1123,30 @@ async function main() {
   // Nothing is written when the plan is empty: there is nothing to roll back, and a stub
   // file that LOOKS like a rollback is worse than no file.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const rollbackPath = plan.length ? writeRollback(target, plan, stamp) : null;
+  const rollbackPath = plan.length ? writeRollback(target, plan, stamp, ruling) : null;
   console.log(
     rollbackPath ? `rollback written: ${rollbackPath}` : 'rollback: skipped (empty plan)',
   );
 
   const preflight = {
-    issue: 'AECI-882',
+    issue: ruling ? ruling.issue : 'AECI-882',
+    mode: ruling ? 'operator-ruling' : 'retraction-journal',
     tool: TOOL_PATH,
     env: envName,
     db: target.db,
     at: new Date().toISOString(),
+    // Written verbatim so the preflight is self-contained: a future operator reading only
+    // this file sees the whole ruling, not a path they then have to resolve at some commit.
+    ruling: ruling
+      ? {
+          file: ruling.path,
+          issue: ruling.issue,
+          reason: ruling.reason,
+          rulingSource: ruling.rulingSource,
+          noUpstreamRuling: ruling.noUpstreamRuling,
+          ids: ruling.ids,
+        }
+      : null,
     feed: {
       pending: feed.length,
       serverTotal: total,
@@ -868,7 +1190,10 @@ async function main() {
 
   if (!apply) {
     console.log(`\nDry run. Nothing was written to D1 or to the review app.`);
-    console.log(`Re-run with: --apply --allow-production --confirm-count ${plan.length}`);
+    console.log(
+      `Re-run with: ${ruling ? `--ruling ${ruling.path} ` : ''}--apply --allow-production ` +
+        `--confirm-count ${plan.length}`,
+    );
     return 0;
   }
 
@@ -920,6 +1245,7 @@ async function main() {
           row: p.row,
           cascade: { claims: num(p.row.claims), attestations: num(p.row.attestations) },
           affectedProductIds: affectedByEntry.get(p.entry.supabaseId) ?? [],
+          ruling,
         }),
       );
     }
@@ -1003,17 +1329,30 @@ async function main() {
     return 1;
   }
 
-  // ─── 9. Confirm — only now ─────────────────────────────────────────────────
-  const toConfirm = [...deleted];
-  for (const g of goneWithOurAudit) toConfirm.push(g);
-  if (confirmAlreadyGone) toConfirm.push(...goneUnexplained);
-  const confirmToken = {
-    ...verification,
-    entryIds: toConfirm.map((d) => d.entry.id),
-    count: toConfirm.length,
-  };
-  console.log(`\nConfirming ${confirmToken.entryIds.length} journal entries…`);
-  await confirmRetractions(confirmToken);
+  // ─── 9. Confirm — only now, and never in ruling mode ───────────────────────
+  //
+  // This is the one call site, and the `if` is the whole difference between the two modes.
+  // A ruling cohort has no journal entries, so there is nothing upstream to acknowledge and
+  // no write session is opened at all — the MCP token is read-only for the entire run.
+  // `verifyDeleted()` still ran above and still had to pass; its token feeds the report
+  // rather than a confirm. That ordering is deliberate: the verify is what proves the delete
+  // landed, and it is load-bearing in both modes even though only one of them confirms.
+  let confirmedCount = 0;
+  if (ruling) {
+    console.log('\nRuling mode: no journal entries to confirm. Nothing is written upstream.');
+  } else {
+    const toConfirm = [...deleted];
+    for (const g of goneWithOurAudit) toConfirm.push(g);
+    if (confirmAlreadyGone) toConfirm.push(...goneUnexplained);
+    const confirmToken = {
+      ...verification,
+      entryIds: toConfirm.map((d) => d.entry.id),
+      count: toConfirm.length,
+    };
+    console.log(`\nConfirming ${confirmToken.entryIds.length} journal entries…`);
+    await confirmRetractions(confirmToken);
+    confirmedCount = confirmToken.entryIds.length;
+  }
 
   // ─── 10. Report ────────────────────────────────────────────────────────────
   const after = d1Read(
@@ -1028,7 +1367,8 @@ async function main() {
   console.table(after);
   console.log(
     `\nDone. ${deleted.length} rows deleted, ${held.length} held, ` +
-      `${confirmToken.entryIds.length} entries confirmed.`,
+      `${confirmedCount} entries confirmed` +
+      `${ruling ? ` (ruling mode — nothing to confirm, ${ruling.issue})` : ''}.`,
   );
   console.log("\nNext, from this directory's README:");
   console.log(
@@ -1076,14 +1416,16 @@ function readSentinel(target) {
  * the STRANDED state, not curator control — no upstream record carries these ids any
  * more, so nothing can ever update or re-delete them through a promote.
  */
-function writeRollback(target, plan, stamp) {
+function writeRollback(target, plan, stamp, ruling) {
   const intIds = plan.filter((p) => p.table === 'integrations').map((p) => p.entry.supabaseId);
   const pairIds = plan
     .filter((p) => p.table === 'connector_evidenced_pairs')
     .map((p) => p.entry.supabaseId);
 
   const lines = [
-    '-- Rollback for the AECI-882 retraction-consumer run.',
+    ruling
+      ? `-- Rollback for the ${ruling.issue} operator-ruling run of the retraction consumer.`
+      : '-- Rollback for the AECI-882 retraction-consumer run.',
     '-- Replay order is parent -> child so the FKs hold; INSERT OR IGNORE makes re-runs safe.',
     '-- `claims.anchor_id` is omitted on purpose: it is a STORED generated column (AECI-721)',
     '-- and SQLite refuses an INSERT that supplies it.',
@@ -1096,6 +1438,20 @@ function writeRollback(target, plan, stamp) {
     '-- it any more and no future promote can reach, update or remove it. If one of these',
     '-- edges turns out to be real, re-materialise it upstream with current evidence and',
     '-- promote it, rather than replaying this file.',
+    ...(ruling
+      ? [
+          '--',
+          `-- OPERATOR RULING (${ruling.issue}), file ${ruling.path}:`,
+          `--   ${ruling.reason}`,
+          `-- Source: ${ruling.rulingSource}`,
+          `-- no_upstream_ruling: ${ruling.noUpstreamRuling}`,
+          '--',
+          '-- These ids were never in the retraction journal, which is WHY this ran on a',
+          '-- ruling. Replaying the file recreates rows that no journal entry and no upstream',
+          '-- record will ever name again, so the daily strand audit will report them as',
+          '-- findings the moment they are back.',
+        ]
+      : []),
     '',
   ];
 
