@@ -57,7 +57,9 @@ export const COMPARAND_FLOOR = 10;
  * to delete a live catalogue.
  *
  * So it is routed to the audit's exit 2, "could not check", which is the same line every
- * other upstream read in the lane draws and is explicitly NOT a pass.
+ * other upstream read in the lane draws and is explicitly NOT a pass. The caller also EMPTIES
+ * the bucket when this returns true — exit 2 stops the run reading as a pass, but the
+ * `--ids-out` file is written from the buckets and is what an operator acts on.
  */
 export function comparandLooksBroken({ tableSize, unclaimed, floor = COMPARAND_FLOOR }) {
   return tableSize >= floor && unclaimed === tableSize;

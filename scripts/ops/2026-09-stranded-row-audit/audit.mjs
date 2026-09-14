@@ -849,13 +849,22 @@ if (
     unclaimed: pairClass.sourceGone.length,
   })
 ) {
+  // EMPTY THE BUCKET, don't just warn beside it. Exit 2 already stops the run reading as a
+  // pass, but the `--ids-out` file is the artifact an operator acts on and it is written
+  // straight from `buckets` — leaving the entries in hands over every live pair id under a
+  // `# evidencedPairSourceGone (N)` heading, which is the one outcome this gate exists to
+  // prevent. The count is kept in the message so nothing about the shape is lost.
+  const suppressed = buckets.evidencedPairSourceGone.length;
+  buckets.evidencedPairSourceGone.length = 0;
   unresolvedUpstream.push({
     kind: 'comparand',
+    suppressed,
     error:
       `every one of ${d1EvidencedPairs.length} connector_evidenced_pairs rows is unclaimed ` +
       `by list_integrations. Measured 60/62 CLAIMED on 2026-09-14, so this is far more ` +
-      `likely the upstream projection changing than a whole-table retraction. NOT reported ` +
-      `as findings — re-check that list_integrations still carries supabaseId for ` +
+      `likely the upstream projection changing than a whole-table retraction. The ` +
+      `${suppressed} entries are WITHHELD from evidencedPairSourceGone and from the id ` +
+      `list — re-check that list_integrations still carries supabaseId for ` +
       `connector-powered edges before trusting any verdict here.`,
   });
 }

@@ -152,6 +152,13 @@ or starts excluding connector-powered edges — every row goes unclaimed at once
 exits **2** ("could not check") rather than reporting a live table as 62 findings. The floor is
 10 rows, so a genuinely all-stranded small table is still a finding.
 
+When the gate trips it **empties `evidencedPairSourceGone`**, it does not merely warn beside
+it. Exit 2 alone would not be enough: the `--ids-out` file is written straight from the buckets
+and is the artifact an operator acts on, so leaving the entries in would hand over every live
+pair id under a `# evidencedPairSourceGone (N)` heading. The withheld count rides on the
+`unresolvedUpstream` entry as `suppressed`, and the run also fails `reconciles`, so nothing
+about the shape is lost.
+
 The two rows that came back unclaimed on the measuring run are HeavyJob → Sage 300 CRE and
 HeavyJob → Procore Project Management. They are candidate findings, not noise, and the first
 scheduled run rules on them.

@@ -32,7 +32,8 @@
 # The recorded reason for the exclusion — that classifying pairs against `list_integrations`
 # would flag every row every run — was measured against production on 2026-09-14 and is
 # wrong by 60 of 62. If it ever becomes true, that is the comparand BREAKING, and the script
-# routes it to exit 2 rather than reporting a live table as 62 findings.
+# withholds the findings and routes it to exit 2 rather than reporting a live table as 62
+# findings — the withheld count rides on the `unresolvedUpstream` entry as `suppressed`.
 #
 # **This bucket has no repair tool.** Neither `ops:retract-product` nor the datatool prune
 # can touch that table. See `docs/RUNBOOKS.md` before acting on one.

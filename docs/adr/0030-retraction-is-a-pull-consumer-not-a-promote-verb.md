@@ -25,7 +25,8 @@
 >    arm writes a pair row under the caller's `supabaseId` verbatim and reports it back, and
 >    the review app stores that in the same column `list_integrations` projects. AECI-897
 >    therefore put the table **in scope** as `evidencedPairSourceGone`, with a sanity gate that
->    exits 2 rather than 1 if the whole table ever comes back unclaimed at once.
+>    withholds the findings and exits 2 rather than 1 if the whole table ever comes back
+>    unclaimed at once.
 >
 > The lesson is the one this file already teaches, applied to itself: a stated reason for a
 > blind spot is not evidence for it. That sentence was recorded three times and measured zero

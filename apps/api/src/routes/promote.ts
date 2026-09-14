@@ -2423,9 +2423,17 @@ export async function runPromoteIngest(
       // exactly this tier, which is the defect AECI-730 exists to close, silently
       // reintroduced on the new table (AECI-750).
       //
-      // `powered_by` cannot be unresolved here by construction: an unresolved
-      // connector never routes to this branch. Asserting that with a push anyway
-      // would be reporting an impossible state, so only `built_by` is reported.
+      // `powered_by` CAN be unresolved here since AECI-888, and it could not before.
+      // An unresolvable key is UNSTATED, so an edge already in this table inherits its
+      // stored connector and stays routed — where the old code sent it to the
+      // `integrations` branch and reported it there. Dropping it here would silently
+      // move the connector-delivered tier out of `field:powered_by` too, which is the
+      // same under-count `built_by` above exists to prevent.
+      if (poweredBy.unresolved) {
+        unresolvedLinks.push(
+          unresolvedLinkEntry(intg.ref, 'powered_by', intg.poweredByProduct, result.operation),
+        );
+      }
       if (builtBy.unresolved) {
         unresolvedLinks.push(
           unresolvedLinkEntry(intg.ref, 'built_by', intg.builtByVendor, result.operation),

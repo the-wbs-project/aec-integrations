@@ -4160,9 +4160,12 @@ export interface PromoteResponse {
   product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
   // sourceSlug/targetSlug (the two products' slugs) are optional — populated by the
   // claims ingest (AECI-297) so pair-page purge needs no DB read.
-  // poweredBySlug is the connector product that powers the edge, when the payload
-  // named one (Stage 1.5 Addendum B) — it purges the connector's own product page,
-  // which no other tag rule reaches. All three are optional; tolerate absence.
+  // poweredBySlug is the connector product whose page this promote invalidated
+  // (Stage 1.5 Addendum B) — it purges the connector's own product page, which no
+  // other tag rule reaches. It is a PURGE TARGET, not a read-back of the stored
+  // column: on an AECI-888 de-route (explicit `poweredByProduct: null` moving an
+  // edge out of `connector_evidenced_pairs`) the column lands NULL and this carries
+  // the connector moved away from. All three are optional; tolerate absence.
   integrations: {
     ref: string;
     id: string;

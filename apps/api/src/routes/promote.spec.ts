@@ -2059,6 +2059,14 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     const pairs = await t.db.select().from(connectorEvidencedPairs);
     expect(pairs).toHaveLength(1);
     expect(pairs[0]).toMatchObject({ id: pairId, connectorProductId: ids.connector });
+
+    // Still reported (AECI-730 / §3.4a). An unresolvable key is UNSTATED, so since
+    // AECI-888 it stays on this branch instead of falling through to the shared
+    // reporter — which is how `field:powered_by` could lose the whole connector tier.
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.unresolvedLinks).toEqual([
+      expect.objectContaining({ ref: 'i1', field: 'powered_by', outcome: 'preserved' }),
+    ]);
   });
 
   it('moves the edge to `integrations` when the inherited connector has become an endpoint (Convention A, §13.2a)', async () => {
