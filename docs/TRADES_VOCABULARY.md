@@ -122,9 +122,11 @@ one the original three facets carry:
   `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
   across two permanent URLs and quietly destroy the SEO asset the facet exists to build.
 - **Vendors assign trades; they never mint one (AECI-665).** The vendor portal's product editor
-  (`PATCH /api/vendor/products/:id`) offers the full closed list as toggle chips, so a claimed
-  vendor tags their own product's trades directly — uniformly with the other three facets, with
-  no stricter cap. Resolution stays find-only: an unknown slug is a `VALIDATION_FAILED` keyed to
+  (`PATCH /api/vendor/products/:id`) offers the full closed list in the facet picker modal
+  (AECI-915; it was a row of toggle chips from AECI-522 until then), so a claimed vendor tags their own
+  product's trades directly — uniformly with the other three facets, with no stricter cap. The
+  picker shows every term's `description` beside it, which for trades is the §1.1 rule made
+  concrete at the moment of choosing. Resolution stays find-only: an unknown slug is a `VALIDATION_FAILED` keyed to
   `trade_slugs`, not a silent drop and not a new term. The **closed-vocabulary** guarantee above
   is therefore untouched by self-serve; what changes is only *who decides which existing terms
   apply*, and that decision now sits with the vendor. This is intentional — the §1.1 rule is a
@@ -189,9 +191,11 @@ Ordered **alphabetically by slug**, matching the `taxonomy_categories` / `taxono
 convention. `display_order` increments by 10; slugs are kebab-case; names are Title Case with `&`
 for combined terms.
 
-**Descriptions ship populated.** Unlike the original three facets — seeded `description = NULL`
-(ADR 0008 "Follow-ups") — every trade ships with copy, because `/trades/:slug` is an SEO landing
-page from day one and an empty page is the SEO junk the publication gate (§6) exists to prevent.
+**Descriptions ship populated.** Every trade ships with copy, because `/trades/:slug` is an SEO
+landing page from day one and an empty page is the SEO junk the publication gate (§6) exists to
+prevent. Trades led here: the other three facets were seeded `description = NULL` until 2026-09-14,
+when all 73 category / audience / phase terms were backfilled and ADR 0008's follow-up closed. The
+column difference remains — `taxonomy_trades.description` is `not null`, the siblings are nullable.
 
 | display_order | slug | name | description | aliases |
 |---:|------|------|-------------|---------|

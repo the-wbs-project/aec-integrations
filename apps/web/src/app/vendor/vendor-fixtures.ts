@@ -30,37 +30,130 @@ import type {
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 
+/**
+ * `description` is not decoration here. The taxonomy editor (AECI-915) renders
+ * it behind an info control on the summary card and as its own column in the
+ * picker modal, so a fixture that left it `null` would make the preview and the
+ * component specs exercise only the empty branch. Copy follows the register of
+ * `apps/api/seed/taxonomy.sql` (AECI-911): one sentence naming what belongs,
+ * plus a second pointing at the near-neighbour where there is one.
+ */
 function term(
   slug: string,
   name: string,
   display_order: number,
   product_count = 0,
+  description: string | null = null,
 ): TaxonomyTermWithCount {
-  return { id: `tax-${slug}`, slug, name, description: null, display_order, product_count };
+  return { id: `tax-${slug}`, slug, name, description, display_order, product_count };
 }
 
 /** The category/audience/phase/trade vocabulary the product editor picks from. */
 export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
   categories: [
-    term('project-management', 'Project management', 1, 18),
-    term('bim-authoring', 'BIM authoring', 2, 12),
-    term('estimating', 'Estimating', 3, 9),
-    term('document-control', 'Document control', 4, 7),
-    term('field-reporting', 'Field reporting', 5, 6),
-    term('reality-capture', 'Reality capture', 6, 4),
+    term(
+      'project-management',
+      'Project management',
+      1,
+      18,
+      'Schedules, tasks, budgets, and program tracking from the office. Day-to-day site capture belongs under Field reporting.',
+    ),
+    term(
+      'bim-authoring',
+      'BIM authoring',
+      2,
+      12,
+      'Tools that create and edit the model itself, discipline by discipline. Clash detection and federation belong under BIM coordination.',
+    ),
+    term(
+      'estimating',
+      'Estimating',
+      3,
+      9,
+      'Quantity takeoff, unit pricing, assemblies, and cost databases.',
+    ),
+    term(
+      'document-control',
+      'Document control',
+      4,
+      7,
+      'System of record for drawings, specs, and project files, with versioning and access control.',
+    ),
+    term(
+      'field-reporting',
+      'Field reporting',
+      5,
+      6,
+      'What the crew does on site: daily logs, photos, timecards, and mobile capture.',
+    ),
+    term(
+      'reality-capture',
+      'Reality capture',
+      6,
+      4,
+      'Laser scanning and photogrammetry that turn the built condition into a point cloud or mesh.',
+    ),
   ],
   audiences: [
-    term('architects', 'Architects', 1, 14),
-    term('structural-engineers', 'Structural engineers', 2, 11),
-    term('general-contractors', 'General contractors', 3, 13),
-    term('estimators', 'Estimators', 4, 8),
-    term('project-managers', 'Project managers', 5, 15),
+    term(
+      'architects',
+      'Architects',
+      1,
+      14,
+      'Architectural practices and the people designing the building.',
+    ),
+    term(
+      'structural-engineers',
+      'Structural engineers',
+      2,
+      11,
+      'Structural design and analysis practices. Use Architects for the design lead.',
+    ),
+    term(
+      'general-contractors',
+      'General contractors',
+      3,
+      13,
+      'Firms holding the prime construction contract and running the build.',
+    ),
+    term(
+      'estimators',
+      'Estimators',
+      4,
+      8,
+      'The job title pricing the work, wherever they sit. Project managers run it once it is won.',
+    ),
+    term(
+      'project-managers',
+      'Project managers',
+      5,
+      15,
+      'The job title accountable for scope, cost, and schedule on a live project.',
+    ),
   ],
   phases: [
-    term('preconstruction', 'Preconstruction', 1, 16),
-    term('design', 'Design', 2, 19),
-    term('construction', 'Construction', 3, 22),
-    term('operations', 'Operations', 4, 7),
+    term(
+      'preconstruction',
+      'Preconstruction',
+      1,
+      16,
+      'Between a design and a signed contract: budgeting, bidding, and buyout.',
+    ),
+    term('design', 'Design', 2, 19, 'Schematic design through construction documents.'),
+    term(
+      'construction',
+      'Construction',
+      3,
+      22,
+      'Work in the field, from mobilisation to substantial completion.',
+    ),
+    term(
+      'operations',
+      'Operations',
+      4,
+      7,
+      'After handover: occupancy, maintenance, and the building in use.',
+    ),
   ],
   // The fourth facet (AECI-538/544), which landed on `main` after these fixtures
   // were written and arrives here with the AECI-619 reconciliation. Slugs are real
@@ -68,10 +161,34 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
   // fixture must not invent one, because the trade facet is find-only and an
   // unseeded slug is exactly the state the vocabulary exists to prevent.
   trades: [
-    term('concrete', 'Concrete', 1, 11),
-    term('electrical', 'Electrical', 2, 9),
-    term('hvac-mechanical', 'HVAC & Mechanical', 3, 8),
-    term('structural-steel', 'Structural Steel & Metals', 4, 5),
+    term(
+      'concrete',
+      'Concrete',
+      1,
+      11,
+      'Cast-in-place and precast concrete: formwork, placement, and finishing.',
+    ),
+    term(
+      'electrical',
+      'Electrical',
+      2,
+      9,
+      'Power distribution, lighting, and branch wiring. Low-voltage systems are their own trade.',
+    ),
+    term(
+      'hvac-mechanical',
+      'HVAC & Mechanical',
+      3,
+      8,
+      'Heating, ventilation, air conditioning, and mechanical piping.',
+    ),
+    term(
+      'structural-steel',
+      'Structural Steel & Metals',
+      4,
+      5,
+      'Structural steel fabrication and erection, plus miscellaneous metals.',
+    ),
   ],
 };
 

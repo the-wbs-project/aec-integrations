@@ -390,7 +390,9 @@ export const taxonomyPhases = sqliteTable(
 // `aliases` exactly as `taxonomyDataObjects` does. Two deliberate divergences from its
 // three sibling facets, both from docs/TRADES_VOCABULARY.md:
 //   - `description` is NOT NULL — `/trades/:slug` ships as an SEO landing page, so copy
-//     is part of the contract, not a later addition (the siblings seed it NULL, ADR 0008).
+//     is part of the contract, not a later addition. The siblings stay NULLABLE, but as of
+//     2026-09-14 they are no longer empty: all 73 category/audience/phase terms ship a
+//     populated description too, closing ADR 0008's follow-up. Only the constraint differs.
 //   - `aliases` is dual-purpose (§4): the promote resolver matches an incoming trade
 //     find-only by slug → name → alias (AECI-542, never find-or-create), AND AECI-545
 //     flattens them into a searchable-only `trade_aliases` Algolia attribute so

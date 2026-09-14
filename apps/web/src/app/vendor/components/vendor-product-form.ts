@@ -8,8 +8,11 @@ import {
   type VendorProduct,
 } from '@aeci/shared';
 
+import { InfoHint } from '../../shared/info-hint/info-hint';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+
+import { VendorTaxonomyFacetDialog } from './vendor-taxonomy-facet-dialog';
 
 type ProductTextKey =
   | 'description'
@@ -29,11 +32,27 @@ interface FieldConfig {
 interface FacetConfig {
   readonly key: FacetKey;
   readonly legend: string;
-  /** Optional guidance rendered under the legend. Only `trade` carries one: its
-   *  tagging rule is a genuine judgement call the vendor is best placed to make,
-   *  and "most products have none" is deeply counter-intuitive next to three
-   *  facets where more tags is simply more accurate. */
+  /** Guidance for the facet as a whole. Every facet carries one (AECI-913):
+   *  each is a judgement call the vendor is best placed to make, and the four
+   *  calibrations genuinely differ. Trades: most products have none. Phases:
+   *  more is usually accurate. Categories: narrower beats broader. Audiences:
+   *  the vocabulary mixes disciplines with job titles on one axis, which is not
+   *  guessable from the term list alone. Stating one facet's rule and leaving
+   *  the others silent implied the silent three had no rule.
+   *
+   *  Rendered TWICE, at two densities (AECI-915): as an `<aec-info-hint>`
+   *  overlay beside the heading on the summary card, and written out in full at
+   *  the top of the editor modal — the moment the vendor is actually choosing.
+   *  Kept optional because the type allows a future facet to ship before its
+   *  copy is written. */
   readonly hint?: string;
+}
+
+/** One row of a facet's summary card: a term the product currently carries. */
+interface SelectedTerm {
+  readonly slug: string;
+  readonly name: string;
+  readonly description: string | null;
 }
 
 /** The taxonomy endpoint caps each facet assignment at 10 terms (`termSlugList`). */
@@ -46,28 +65,46 @@ const MAX_TERMS_PER_FACET = 10;
  * Algolia record, and every inbound link, so it stays a correction request) and
  * are shown read-only with a hint.
  *
- * Taxonomy is assigned by toggling the existing category/audience/phase terms
- * (vendors assign existing terms only — minting a term is an AECi curation act,
- * so an unknown slug is a 400 server-side). The chips are `aria-pressed` toggle
- * buttons (state conveyed by pressed-state AND the label, never colour alone),
- * fed by `GET /api/taxonomy`. Taxonomy arrays are full-set replacement on save.
- *
  * Validation is the shared `UpdateVendorProductSchema` (single source of truth,
  * client + server); only changed fields are sent (the endpoint requires ≥1). The
  * PATCH echo re-seeds the baseline so the form settles clean. The confirmation
  * must NOT promise instant search — edits reach Algolia on the nightly sync
  * (≤24h) while SSR repaints immediately (AECI-529).
  *
+ * ── TAXONOMY: SUMMARY HERE, EDITING IN A MODAL (AECI-915) ───────────────────
+ * The four facets used to render as fieldsets of `aria-pressed` toggle chips —
+ * 107 of them, all on screen at once. Reading "what is this tagged as" meant
+ * diffing pressed against unpressed across 32 chips, and the per-term
+ * `description` seeded by AECI-911 (which exists to separate adjacent terms) had
+ * nowhere to go.
+ *
+ * Now each facet is a summary card in a two-column grid: the facet name, its
+ * hint behind an info control, a pencil, and one row per SELECTED term with that
+ * term's description behind its own info control. The full vocabulary lives in
+ * {@link VendorTaxonomyFacetDialog}.
+ *
+ * **The modal saves for real, so facet state here can never be dirty.** That is
+ * structural, not a convention: {@link selected} is COMPUTED off the baseline,
+ * so the only way it moves is a fresh `VendorProduct` — either the input or a
+ * PATCH echo. There is no unsaved facet state to lose, which is why the Taxonomy
+ * tab has no Save button of its own. See the dialog's class doc for why staging
+ * was rejected (`apps/web` has no `CanDeactivate` guard).
+ *
+ * Vendors assign EXISTING terms only; minting a term is an AECi curation act, so
+ * an unknown slug is a 400 server-side.
+ *
  * ── UNSAVED EDITS vs. REVALIDATION (AECI-628) ───────────────────────────────
- * Same contract as `vendor-profile-form.ts`: the baseline re-seeds from the
- * input so a clean form tracks the server, and while `hasChanges()` is true the
- * form registers with {@link VendorPortalStore.markDirty} so a fresh `me`
- * payload is stashed rather than applied. The registration is keyed by PRODUCT
- * ID, because the section renders one of these per owned product and a clean
- * sibling must not be able to cancel a dirty one's protection.
+ * Same contract as `vendor-profile-form.ts`, and it now covers the TEXT fields
+ * alone: the baseline re-seeds from the input so a clean form tracks the server,
+ * and while `hasChanges()` is true the form registers with
+ * {@link VendorPortalStore.markDirty} so a fresh `me` payload is stashed rather
+ * than applied. The registration is keyed by PRODUCT ID, because the section
+ * renders one of these per owned product and a clean sibling must not be able to
+ * cancel a dirty one's protection.
  */
 @Component({
   selector: 'aec-vendor-product-form',
+  imports: [InfoHint, VendorTaxonomyFacetDialog],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit.
@@ -161,40 +198,78 @@ const MAX_TERMS_PER_FACET = 10;
           </div>
         }
 
-        <!-- Taxonomy: assign existing terms only, via aria-pressed toggle chips. -->
-        @for (facet of showTaxonomy() ? facets : []; track facet.key) {
-          <fieldset class="space-y-2 border-0 p-0">
-            <legend [class]="labelClass">{{ facet.legend }}</legend>
-            @if (facet.hint; as hint) {
-              <p class="max-w-prose text-xs leading-relaxed text-(--text-secondary)">{{ hint }}</p>
-            }
-            @if (taxonomy() === null) {
-              <p class="text-xs text-(--text-secondary)" i18n="@@vendor.product.taxonomy.loading">
-                Loading options…
-              </p>
-            } @else {
-              <div class="flex flex-wrap gap-2">
-                @for (term of termsFor(facet.key); track term.slug) {
-                  <button
-                    type="button"
-                    [disabled]="!taxonomyEditable()"
-                    (click)="toggle(facet.key, term.slug)"
-                    [attr.aria-pressed]="isSelected(facet.key, term.slug)"
-                    [class]="chipClass(isSelected(facet.key, term.slug))"
+        <!--
+          Taxonomy: read here, write in the modal. Two columns from the md
+          breakpoint up, since each card is now short enough that one per row
+          wasted the width.
+        -->
+        @if (showTaxonomy()) {
+          <div class="grid gap-4 md:grid-cols-2">
+            @for (facet of facets; track facet.key) {
+              <section
+                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <!-- The info control is a SIBLING of the <h3>, never a child.
+                       Its accessible name IS the whole hint paragraph, and an
+                       accessible name is computed from descendants, so nesting
+                       it would make every facet heading announce as "Categories
+                       Pick what your product does, …" in a screen reader's
+                       heading list. Nothing lints this; axe cannot see it. -->
+                  <div class="flex items-center gap-1.5">
+                    <h3 [class]="facetHeadingClass">{{ facet.legend }}</h3>
+                    @if (facet.hint; as hint) {
+                      <aec-info-hint [text]="hint" width="wide" />
+                    }
+                  </div>
+                  <aec-vendor-taxonomy-facet-dialog
+                    [legend]="facet.legend"
+                    [hint]="facet.hint"
+                    [terms]="termsFor(facet.key)"
+                    [selected]="selected()[facet.key]"
+                    [maxTerms]="maxTerms"
+                    [disabled]="!taxonomyEditable() || taxonomy() === null"
+                    [save]="saverFor(facet.key)"
+                  />
+                </div>
+
+                @if (taxonomy() === null) {
+                  <p
+                    class="mt-3 text-xs text-(--text-secondary)"
+                    i18n="@@vendor.product.taxonomy.loading"
                   >
-                    {{ term.name }}
-                  </button>
+                    Loading options…
+                  </p>
+                } @else if (selectedTermsFor(facet.key); as terms) {
+                  @if (terms.length === 0) {
+                    <p
+                      class="mt-3 text-sm text-(--text-secondary)"
+                      i18n="@@vendor.product.taxonomy.none"
+                    >
+                      None selected yet.
+                    </p>
+                  } @else {
+                    <ul class="mt-3 space-y-1.5">
+                      @for (term of terms; track term.slug) {
+                        <li class="flex items-start gap-1.5 text-sm text-(--text-primary)">
+                          <span class="min-w-0">{{ term.name }}</span>
+                          @if (term.description; as description) {
+                            <aec-info-hint [text]="description" />
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
                 }
-              </div>
-              @if (facetErrors()[facet.key]; as err) {
-                <p class="text-xs font-medium text-(--text-primary)" role="alert">{{ err }}</p>
-              }
+              </section>
             }
-          </fieldset>
+          </div>
         }
 
         <div class="flex flex-wrap items-center gap-4">
-          @if (canEdit()) {
+          <!-- No Save on the Taxonomy tab: the modal persists on its own, so
+               there is nothing here left to submit. -->
+          @if (canEdit() && showFields()) {
             <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
               @if (saving()) {
                 <span i18n="@@vendor.product.saving">Saving…</span>
@@ -253,12 +328,12 @@ export class VendorProductForm {
    * endpoint, and `PATCH /api/vendor/products/:id` both requires ≥1 changed field
    * and re-asserts `product.taxonomy.edit` when facet arrays ride along — so a
    * second implementation is two chances to send an empty PATCH and two places
-   * for the field-level gate to drift. Projecting instead keeps one `patch()`,
-   * one baseline, one reconciliation.
+   * for the field-level gate to drift. Projecting instead keeps one baseline and
+   * one reconciliation.
    *
-   * That the hidden half cannot go dirty is what makes the PATCH carry only the
-   * visible section: `patch()` diffs against the baseline, and a field with no
-   * control on screen is never edited, so it never appears in the body.
+   * That the hidden half cannot go dirty is what makes the submitted PATCH carry
+   * only the visible section: `diff()` compares against the baseline, and a field
+   * with no control on screen is never edited, so it never appears in the body.
    *
    * `'all'` is the default and is what `vendor-dashboard-single.ts` (the
    * single-page concept, which has no product nav to split along) keeps using.
@@ -267,6 +342,8 @@ export class VendorProductForm {
 
   protected readonly showFields = computed(() => this.section() !== 'taxonomy');
   protected readonly showTaxonomy = computed(() => this.section() !== 'profile');
+
+  protected readonly maxTerms = MAX_TERMS_PER_FACET;
 
   protected readonly textFields: readonly FieldConfig[] = [
     {
@@ -289,9 +366,21 @@ export class VendorProductForm {
   ];
 
   protected readonly facets: readonly FacetConfig[] = [
-    { key: 'category_slugs', legend: $localize`:@@vendor.product.facet.categories:Categories` },
-    { key: 'audience_slugs', legend: $localize`:@@vendor.product.facet.audiences:Audiences` },
-    { key: 'phase_slugs', legend: $localize`:@@vendor.product.facet.phases:Phases` },
+    {
+      key: 'category_slugs',
+      legend: $localize`:@@vendor.product.facet.categories:Categories`,
+      hint: $localize`:@@vendor.product.facet.categoriesHint:Pick what your product does, not every feature it touches. Most products fit one to three. Where two terms look close, the narrower one is usually right: BIM Authoring creates models, BIM Coordination clashes them.`,
+    },
+    {
+      key: 'audience_slugs',
+      legend: $localize`:@@vendor.product.facet.audiences:Audiences`,
+      hint: $localize`:@@vendor.product.facet.audiencesHint:Who uses your product day to day, not everyone who benefits from it. The list mixes disciplines like Architecture and MEP Engineering with job titles like Estimator and Superintendent, so pick from both where they apply.`,
+    },
+    {
+      key: 'phase_slugs',
+      legend: $localize`:@@vendor.product.facet.phases:Phases`,
+      hint: $localize`:@@vendor.product.facet.phasesHint:Where in the project lifecycle your product is used. Unlike trades, more is usually accurate here: if it is used from bidding through closeout, pick every phase in between.`,
+    },
     {
       key: 'trade_slugs',
       legend: $localize`:@@vendor.product.facet.trades:Trades`,
@@ -301,11 +390,21 @@ export class VendorProductForm {
 
   private readonly baseline = signal<VendorProduct | null>(null);
   protected readonly model = signal<Record<string, string>>({});
-  protected readonly selected = signal<Record<FacetKey, string[]>>({
-    category_slugs: [],
-    audience_slugs: [],
-    phase_slugs: [],
-    trade_slugs: [],
+
+  /**
+   * What the SERVER says this product carries, per facet. Deliberately a
+   * `computed` off the baseline rather than a writable signal: the modal saves
+   * for real, so there is no such thing as a pending facet edit, and deriving it
+   * makes that unrepresentable instead of merely untrue today.
+   */
+  protected readonly selected = computed<Record<FacetKey, readonly string[]>>(() => {
+    const b = this.baseline();
+    return {
+      category_slugs: b?.category_slugs ?? [],
+      audience_slugs: b?.audience_slugs ?? [],
+      phase_slugs: b?.phase_slugs ?? [],
+      trade_slugs: b?.trade_slugs ?? [],
+    };
   });
 
   protected readonly saving = signal(false);
@@ -314,6 +413,10 @@ export class VendorProductForm {
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
+  /** Carries no layout: the heading's info control is a sibling in a wrapper
+   *  row, not a child, so the heading itself is only ever the facet name. */
+  protected readonly facetHeadingClass =
+    'text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
   /** Everything but the background, which is the read-only tell. Two `bg-*`
    *  utilities on one element would race on stylesheet order. */
   private readonly inputBase =
@@ -348,17 +451,11 @@ export class VendorProductForm {
     return out;
   });
 
-  protected readonly facetErrors = computed<Record<FacetKey, string | null>>(() => {
-    const sel = this.selected();
-    const tooMany = $localize`:@@vendor.product.error.tooManyTerms:Choose at most ${MAX_TERMS_PER_FACET}:max: terms.`;
-    return {
-      category_slugs: sel.category_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
-      audience_slugs: sel.audience_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
-      phase_slugs: sel.phase_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
-      trade_slugs: sel.trade_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
-    };
-  });
-
+  /**
+   * The submit button's payload — TEXT FIELDS ONLY. Facet arrays are PATCHed by
+   * the modal the moment it saves, so including them here would be a second path
+   * to the same write with no state left to carry.
+   */
   protected readonly diff = computed<UpdateVendorProductInput>(() => {
     const base = this.baseline();
     const out: Record<string, unknown> = {};
@@ -369,18 +466,12 @@ export class VendorProductForm {
       const next = raw === '' ? null : raw;
       if (next !== ((base[cfg.key] as string | null) ?? null)) out[cfg.key] = next;
     }
-    const sel = this.selected();
-    for (const facet of this.facets) {
-      if (!sameSet(sel[facet.key], base[facet.key])) out[facet.key] = sel[facet.key];
-    }
     return out as UpdateVendorProductInput;
   });
 
   protected readonly hasChanges = computed(() => Object.keys(this.diff()).length > 0);
-  protected readonly hasErrors = computed(
-    () =>
-      Object.values(this.fieldErrors()).some((e) => e !== null) ||
-      Object.values(this.facetErrors()).some((e) => e !== null),
+  protected readonly hasErrors = computed(() =>
+    Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
     () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
@@ -390,12 +481,15 @@ export class VendorProductForm {
    *  so taxonomy is editable only when BOTH capabilities are held. */
   protected readonly taxonomyEditable = computed(() => this.canEdit() && this.canEditTaxonomy());
 
-  protected readonly chipClass = (selected: boolean): string => {
-    const base =
-      'rounded-(--radius-md) border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-default';
-    return selected
-      ? `${base} border-(--accent-primary) bg-(--accent-primary) text-(--surface-base)`
-      : `${base} border-(--border-default) text-(--text-primary) hover:border-(--border-strong)`;
+  /**
+   * One stable saver per facet, built once. A method returning a fresh closure
+   * would hand the dialog a new input value on every change-detection pass.
+   */
+  private readonly savers: Record<FacetKey, (slugs: string[]) => Promise<boolean>> = {
+    category_slugs: (slugs) => this.saveFacet('category_slugs', slugs),
+    audience_slugs: (slugs) => this.saveFacet('audience_slugs', slugs),
+    phase_slugs: (slugs) => this.saveFacet('phase_slugs', slugs),
+    trade_slugs: (slugs) => this.saveFacet('trade_slugs', slugs),
   };
 
   /** The store deferred a fresh `me` payload because THIS product form is
@@ -441,6 +535,10 @@ export class VendorProductForm {
     return `vendor-product-${this.product().id}-${key.replace(/_/g, '-')}`;
   }
 
+  protected saverFor(key: FacetKey): (slugs: string[]) => Promise<boolean> {
+    return this.savers[key];
+  }
+
   protected termsFor(key: FacetKey): readonly TaxonomyTermWithCount[] {
     const t = this.taxonomy();
     if (!t) return [];
@@ -458,18 +556,27 @@ export class VendorProductForm {
             t.trades;
   }
 
-  protected isSelected(key: FacetKey, slug: string): boolean {
-    return this.selected()[key].includes(slug);
-  }
-
-  protected toggle(key: FacetKey, slug: string): void {
-    if (!this.taxonomyEditable()) return;
-    this.selected.update((s) => {
-      const cur = s[key];
-      const next = cur.includes(slug) ? cur.filter((x) => x !== slug) : [...cur, slug];
-      return { ...s, [key]: next };
-    });
-    this.saved.set(false);
+  /**
+   * The summary rows for one facet: the terms this product carries, in
+   * VOCABULARY order rather than assignment order, so the card does not reshuffle
+   * itself after a save.
+   *
+   * A slug the vocabulary does not know still renders, labelled with the slug —
+   * the taxonomy fetch and the product payload are two round-trips and can
+   * disagree, and quietly dropping a row would understate what is published.
+   */
+  protected selectedTermsFor(key: FacetKey): readonly SelectedTerm[] {
+    const assigned = new Set(this.selected()[key]);
+    if (assigned.size === 0) return [];
+    const known = this.termsFor(key);
+    const rows: SelectedTerm[] = known
+      .filter((t) => assigned.has(t.slug))
+      .map((t) => ({ slug: t.slug, name: t.name, description: t.description }));
+    const seen = new Set(rows.map((r) => r.slug));
+    for (const slug of assigned) {
+      if (!seen.has(slug)) rows.push({ slug, name: slug, description: null });
+    }
+    return rows;
   }
 
   protected onInput(key: string, event: Event): void {
@@ -498,6 +605,42 @@ export class VendorProductForm {
     }
   }
 
+  /**
+   * Persist ONE facet's full replacement set, on behalf of the modal. Resolves
+   * `false` on any refusal so the modal can keep itself open with the draft
+   * intact; the page-level `saveError` stays down, because the message belongs
+   * next to the work that failed.
+   */
+  private async saveFacet(key: FacetKey, slugs: string[]): Promise<boolean> {
+    if (!this.taxonomyEditable()) return false;
+    this.saved.set(false);
+    this.saveError.set(false);
+    const parsed = UpdateVendorProductSchema.safeParse({ [key]: slugs });
+    if (!parsed.success) return false; // guarded by the modal's cap; defensive
+    try {
+      const res = await this.api.updateProduct(this.product().id, parsed.data);
+      this.applyEcho(res.product);
+      this.saved.set(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Absorb a PATCH echo that only carried a facet change.
+   *
+   * Re-seeds the baseline (and with it {@link selected}) but leaves the text
+   * model alone when it holds unsaved edits — in the `section: 'all'` projection
+   * the modal and the text fields share this component, and a full `seed()` here
+   * would throw away typing the user never submitted.
+   */
+  private applyEcho(product: VendorProduct): void {
+    const keepText = this.hasChanges();
+    if (keepText) this.baseline.set(product);
+    else this.seed(product);
+  }
+
   private seed(p: VendorProduct): void {
     this.baseline.set(p);
     this.model.set({
@@ -507,19 +650,5 @@ export class VendorProductForm {
       api_docs_url: p.api_docs_url ?? '',
       logo_url: p.logo_url ?? '',
     });
-    this.selected.set({
-      category_slugs: [...p.category_slugs],
-      audience_slugs: [...p.audience_slugs],
-      phase_slugs: [...p.phase_slugs],
-      trade_slugs: [...p.trade_slugs],
-    });
   }
-}
-
-/** Order-insensitive set equality for taxonomy slug arrays. */
-function sameSet(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const sortedA = [...a].sort();
-  const sortedB = [...b].sort();
-  return sortedA.every((v, i) => v === sortedB[i]);
 }
