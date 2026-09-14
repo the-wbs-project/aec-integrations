@@ -1,39 +1,21 @@
 <section aria-labelledby="admin-requests-heading">
   <div class="flex flex-wrap items-end justify-between gap-4">
+    <!--
+      AECI-922: "Correction requests", not "Vendor requests". Vendor claims are
+      vendor requests too — they are the same table — and this screen stopped
+      listing them when the nav gained a count per queue. A heading that still
+      claimed both would be the one place on the screen contradicting its own
+      badge. New message id because the text changed.
+    -->
     <h2
       id="admin-requests-heading"
       class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.requests.heading"
+      i18n="@@admin.requests.heading2"
     >
-      Vendor requests
+      Correction requests
     </h2>
 
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-requests-kind-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.requests.filter.kind.label"
-          >Kind</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-requests-kind-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of kindOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setKind(opt.key)"
-            [attr.aria-pressed]="kindFilter() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
-      </div>
-
       <div class="flex flex-wrap items-center gap-2">
         <span
           id="admin-requests-status-label"
@@ -103,14 +85,15 @@
         [attr.aria-labelledby]="'request-' + r.id + '-target'"
         class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
       >
-        <!-- Header: kind/status badges, target (linked), duplicate flag, age -->
+        <!-- Header: status badge, target (linked), duplicate flag, age -->
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <span
-                class="inline-flex items-center rounded-full border border-(--border-strong) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
-                >{{ kindLabel(r.kind) }}</span
-              >
+              <!--
+                AECI-922: no kind chip. Every row on this screen is a correction
+                now (the request pins `kind: 'correction'`), so a chip reading
+                "Correction" on all of them labels nothing.
+              -->
               <span
                 class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
                 >{{ statusLabel(r.status) }}</span
@@ -161,19 +144,13 @@
           </div>
         </dl>
 
-        <!-- Triage signals: domain-match hint (claims), Linear, source -->
+        <!--
+          Triage signals: Linear, source. The domain-match chip left with the kind
+          filter (AECI-922) — it was claim-only signalling, and a correction
+          identifies nobody, so it has no claimant domain to match.
+        -->
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          @if (r.kind === 'claim') { @if (r.domain_match === 'no_match') {
-          <span
-            class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-            >{{ domainMatchLabel(r.domain_match) }}</span
-          >
-          } @else {
-          <span
-            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-            >{{ domainMatchLabel(r.domain_match) }}</span
-          >
-          } } @if (r.linear_issue_id) { @if (r.linear_issue_url) {
+          @if (r.linear_issue_id) { @if (r.linear_issue_url) {
           <!-- AECI-261: the issue permalink is persisted, so this is a real deep link. -->
           <a
             [href]="r.linear_issue_url"

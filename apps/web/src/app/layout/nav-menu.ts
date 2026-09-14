@@ -24,8 +24,10 @@
  * deliberate trade: on a phone those secondary links are a scroll to the footer
  * rather than two taps here.
  *
- * The hamburger keeps the pending-review badge: below `lg` it is the only menu
- * control, and the Admin portal door lives inside it.
+ * The hamburger keeps the operator-backlog badge: below `lg` it is the only menu
+ * control, and the Admin portal door lives inside it. Since AECI-922 that badge
+ * is the SUM of the three Operations queues, matching the console's own
+ * Operations trigger rather than counting pending reviews alone.
  *
  * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
  * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger
@@ -120,8 +122,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
           aria-hidden="true"
           >{{ badgeText() }}</span
         >
-        <span id="aec-nav-menu-pending" class="sr-only" i18n="@@admin.shell.nav.pendingCount"
-          >{{ pending() }} reviews pending moderation</span
+        <span id="aec-nav-menu-pending" class="sr-only" i18n="@@admin.nav.pendingTotal"
+          >{{ pending() }} items awaiting action</span
         >
       }
     </button>
@@ -297,10 +299,14 @@ export class NavMenu {
   private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
 
-  /** Live pending-review count (0 until the admin probe seeds the store). */
-  protected readonly pending = computed(() => this.summaryStore.pendingReviews() ?? 0);
+  /** Live operator backlog — reviews + correction requests + vendor claims, the
+   *  same sum the console's own Operations trigger shows (AECI-922). It counted
+   *  pending reviews alone until then, which made the header quieter than the
+   *  console about the identical backlog. 0 until the admin probe seeds the
+   *  store. */
+  protected readonly pending = computed(() => this.summaryStore.operationsTotal());
 
-  /** The trigger badge shows only for an admin with pending reviews. */
+  /** The trigger badge shows only for an admin with something waiting. */
   protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);
 
   /** Capped so the badge can't grow unbounded; the in-menu "(N)" stays exact. */

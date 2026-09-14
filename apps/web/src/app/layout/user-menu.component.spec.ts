@@ -19,7 +19,7 @@ import { UserMenu } from './user-menu';
  * (Account / Admin portal / Vendor portal / Sign out) are verified manually and
  * on staging, not in an automated overlay-open test. Here we pin the
  * always-rendered trigger: its accessible name, popup semantics, and the
- * pending-review badge.
+ * operator-backlog badge (AECI-922: the sum of the three Operations queues).
  *
  * The badge lives here again. It sat on the header's "More" overflow trigger
  * while that menu carried the `/admin` IA; when the menu was retired the badge
@@ -80,8 +80,12 @@ describe('UserMenu trigger', () => {
     return el.querySelector('button[brnPopoverTrigger]') ?? el.querySelector('button')!;
   }
 
+  /** Seed the review queue only. The badge shows `operationsTotal()` since
+   *  AECI-922, and with the other two queues unseeded (null → 0) that total IS
+   *  this number — so every existing expectation still reads as written. The
+   *  sum-of-three behaviour has its own test below. */
   function seed(count: number): void {
-    TestBed.inject(AdminSummaryStore).seed(count);
+    TestBed.inject(AdminSummaryStore).seed({ reviews: count });
   }
 
   it('renders a labelled, button-type trigger with collapsed popup semantics', () => {
@@ -103,7 +107,7 @@ describe('UserMenu trigger', () => {
     expect(button.getAttribute('aria-describedby')).toBeNull();
   });
 
-  it('shows the pending-review badge once the visitor is a known admin', () => {
+  it('shows the operator-backlog badge once the visitor is a known admin', () => {
     const fixture = render();
     seed(3);
     isAdmin.set(true);
@@ -114,8 +118,38 @@ describe('UserMenu trigger', () => {
     // The count is announced, not conveyed by the coloured dot alone.
     expect(button.getAttribute('aria-describedby')).toBe('aec-user-menu-pending');
     expect(button.querySelector('#aec-user-menu-pending')?.textContent?.trim()).toBe(
-      '3 reviews pending moderation',
+      '3 items awaiting action',
     );
+  });
+
+  // AECI-922. The header badge is the SUM of the three Operations queues, which
+  // is the number /admin shows on its own Operations trigger. It counted pending
+  // reviews alone until then, so an admin with six open claims and no reviews saw
+  // no badge at all in the header and a 6 in the console.
+  it('sums all three Operations queues, not reviews alone', () => {
+    const fixture = render();
+    TestBed.inject(AdminSummaryStore).seed({ reviews: 1, requests: 2, claims: 4 });
+    isAdmin.set(true);
+    fixture.detectChanges();
+
+    const button = trigger(fixture.nativeElement as HTMLElement);
+    expect(button.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('7');
+    expect(button.querySelector('#aec-user-menu-pending')?.textContent?.trim()).toBe(
+      '7 items awaiting action',
+    );
+  });
+
+  it('badges an admin whose only backlog is claims', () => {
+    const fixture = render();
+    TestBed.inject(AdminSummaryStore).seed({ reviews: 0, requests: 0, claims: 3 });
+    isAdmin.set(true);
+    fixture.detectChanges();
+
+    expect(
+      trigger(fixture.nativeElement as HTMLElement)
+        .querySelector('span[aria-hidden="true"]')
+        ?.textContent?.trim(),
+    ).toBe('3');
   });
 
   it('caps the badge at 9+ so it cannot grow unbounded', () => {
@@ -128,7 +162,7 @@ describe('UserMenu trigger', () => {
     expect(button.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('9+');
     // The exact count still reaches a screen reader.
     expect(button.querySelector('#aec-user-menu-pending')?.textContent?.trim()).toBe(
-      '42 reviews pending moderation',
+      '42 items awaiting action',
     );
   });
 

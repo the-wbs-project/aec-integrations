@@ -36,6 +36,7 @@ import type {
   VendorEntitlementResponse,
 } from '@aeci/shared';
 
+import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminClaimsApi } from './admin-claims-api';
 import { ClaimQueue } from './claim-queue';
 
@@ -153,12 +154,13 @@ async function setup(api: ApiMock) {
       { provide: AdminClaimsApi, useValue: api },
     ],
   });
+  const store = TestBed.inject(AdminSummaryStore);
   const fixture = TestBed.createComponent(ClaimQueue);
   fixture.detectChanges();
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, store, el: fixture.nativeElement as HTMLElement };
 }
 
 function cardFor(el: HTMLElement, targetName: string): HTMLElement {
@@ -462,6 +464,41 @@ describe('ClaimQueue', () => {
     expect(el.querySelector('article')).toBeNull();
   });
 
+  // ── The nav badge (AECI-922) ───────────────────────────────────────────────
+  // This queue got its own counter when the Operations category started summing
+  // three of them. Before that the screen deliberately decremented nothing.
+
+  it('decrements the claims badge after a successful grant', async () => {
+    const api = makeApiMock([makeClaim({ id: 'c1' })]);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ reviews: 5, requests: 2, claims: 3 });
+    buttonByText(cardFor(el, 'Procore'), 'Grant vendor account').click();
+    fixture.detectChanges();
+    buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
+    await settle();
+    fixture.detectChanges();
+    expect(store.pendingClaims()).toBe(2);
+    // Only this queue moves; the other two are a different backlog.
+    expect(store.pendingReviews()).toBe(5);
+    expect(store.pendingRequests()).toBe(2);
+  });
+
+  // `pending_claims` counts `open` claims. The In review tab moderates rows that
+  // were never in that count, so decrementing there would walk the badge below
+  // the real backlog with nothing to resync it until the next visit to /admin.
+  it('does not decrement when the moderated claim was in_review, not open', async () => {
+    const api = makeApiMock([makeClaim({ id: 'c1', status: 'in_review' })]);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ claims: 3 });
+    buttonByText(cardFor(el, 'Procore'), 'Reject').click();
+    fixture.detectChanges();
+    buttonByText(cardFor(el, 'Procore'), 'Confirm rejection').click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'reject' });
+    expect(store.pendingClaims()).toBe(3);
+  });
+
   it('rejects with an optional reason: passes the reason and drops the row', async () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     const { el, fixture } = await setup(api);
@@ -511,10 +548,11 @@ describe('ClaimQueue', () => {
     );
   });
 
-  it('drops the row and announces on a 422 (already moderated)', async () => {
+  it('drops the row on a 422 (already moderated) without decrementing', async () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 422 }));
-    const { el, fixture } = await setup(api);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ claims: 3 });
     buttonByText(cardFor(el, 'Procore'), 'Reject').click();
     fixture.detectChanges();
     buttonByText(cardFor(el, 'Procore'), 'Confirm rejection').click();
@@ -522,6 +560,8 @@ describe('ClaimQueue', () => {
     fixture.detectChanges();
     expect(el.querySelector('article')).toBeNull();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
+    // The admin who raced us already decremented.
+    expect(store.pendingClaims()).toBe(3);
   });
 
   it('hides moderation actions on terminal rows', async () => {

@@ -8,7 +8,15 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, products, profiles, reviews, vendorEntitlements, vendors } from '../db/schema';
+import {
+  auditLog,
+  products,
+  profiles,
+  reviews,
+  vendorEntitlements,
+  vendorRequests,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -128,29 +136,70 @@ describe('GET /api/account', () => {
       email: 'me@example.com',
       display_name: 'Ada',
       role: 'reviewer',
-      // Non-admin → null, and the reviews table is never counted (AECI-617).
+      // Non-admin → null on all three, and neither table is ever counted
+      // (AECI-617, widened to three queues by AECI-922). All three keys are
+      // PRESENT and null: a consumer must never have to tell `undefined` from
+      // "you are not an operator".
       pending_reviews: null,
+      pending_requests: null,
+      pending_claims: null,
     });
   });
 
-  // AECI-617: the badge count rides along with the role so the header's admin
+  // AECI-617: the badge counts ride along with the role so the header's admin
   // probe resolves both in one round trip instead of chaining
-  // `GET /api/admin/summary`.
-  it('returns the pending-review count for an admin', async () => {
+  // `GET /api/admin/summary`. AECI-922 widened that from one count to three,
+  // because the header badge now shows the same SUM the console's Operations
+  // trigger does.
+  it('returns all three queue counts for an admin', async () => {
     await t.db.insert(profiles).values({ id: ADMIN_USER, displayName: 'Root', role: 'admin' });
     await seedPendingReviews(2);
+    await t.db
+      .insert(vendorRequests)
+      .values([
+        req(31, 'correction', 'open'),
+        req(32, 'claim', 'open'),
+        req(33, 'claim', 'open'),
+        req(34, 'claim', 'resolved'),
+      ]);
 
     const res = await runAs(createGetAccountHandler(t.factory), 'get', 'admin');
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ role: 'admin', pending_reviews: 2 });
+    expect(await res.json()).toMatchObject({
+      role: 'admin',
+      pending_reviews: 2,
+      // Corrections and claims are ONE table split by `kind`. The header sums
+      // these three, so a requests count that swallowed claims would report 6.
+      pending_requests: 1,
+      pending_claims: 2,
+    });
   });
 
-  it('returns 0 pending reviews for an admin with an empty queue', async () => {
+  it('returns 0 on every queue for an admin with nothing waiting', async () => {
     await t.db.insert(profiles).values({ id: ADMIN_USER, displayName: 'Root', role: 'admin' });
     const res = await runAs(createGetAccountHandler(t.factory), 'get', 'admin');
-    expect(await res.json()).toMatchObject({ role: 'admin', pending_reviews: 0 });
+    expect(await res.json()).toMatchObject({
+      role: 'admin',
+      pending_reviews: 0,
+      pending_requests: 0,
+      pending_claims: 0,
+    });
   });
 });
+
+/** A `vendor_requests` row with only the columns the queue counts key off. The
+ *  target is `u(1)`, which `seedPendingReviews` creates. */
+function req(n: number, kind: 'claim' | 'correction', status: string) {
+  return {
+    id: u(n),
+    kind,
+    status,
+    targetType: 'product',
+    targetId: u(1),
+    submitterEmail: `s${n}@example.com`,
+    body: 'b',
+  };
+}
 
 describe('PATCH /api/account', () => {
   it('updates display_name and writes a profile.updated audit', async () => {

@@ -16,16 +16,29 @@ import { z } from 'zod';
 /**
  * Response for `GET /api/admin/summary` (AECI-203 / Phase 5.12).
  *
- * The aggregate counts the admin shell renders as nav badges. Phase 5.12 exposes
+ * The aggregate counts the admin shell renders as nav badges. Phase 5.12 exposed
  * only `pending_reviews` — the moderation-queue badge (`STAGE_1_SPEC.md` §22.1).
- * Phase 6 extends this with request counts (vendor claims / corrections).
+ * **AECI-922 added the other two Operations queues**, so the console's nav can
+ * show one number per screen and their sum on the closed Operations trigger:
+ *
+ *   `pending_reviews`   `reviews.status = 'pending'`
+ *   `pending_requests`  open `vendor_requests` of kind `correction`
+ *   `pending_claims`    open `vendor_requests` of kind `claim`
+ *
+ * **The three are disjoint and the UI sums them.** Requests and claims are the
+ * same table split by `kind`, so `pending_requests` is corrections-ONLY — an
+ * all-kinds count would put every open claim into the total twice. The server
+ * owns that rule in `apps/api/src/lib/admin-queue-counts.ts`, which is the sole
+ * implementation behind both this endpoint and `GET /api/account`.
  *
  * Deliberately a bare object (no pagination envelope): the SSR `ServerApiClient`
- * returns `response.json()` verbatim, and the resolver reads `pending_reviews`
+ * returns `response.json()` verbatim, and the resolver reads the counts
  * directly. A 200 also doubles as the SSR admin-gate signal (the resolver maps a
  * 401/403 to a 404 render — don't reveal the surface).
  */
 export const AdminSummaryResponseSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
+  pending_requests: z.number().int().nonnegative(),
+  pending_claims: z.number().int().nonnegative(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;

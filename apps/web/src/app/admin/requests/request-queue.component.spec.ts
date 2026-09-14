@@ -3,11 +3,20 @@
  *
  * The live axe pass runs in Playwright / static-serve on rendered routes (the
  * repo's component-level a11y convention — cf. `review-queue.component.spec.ts`).
- * Here we assert the moderation logic (load, kind/status filters re-fetch, target
- * link + fallback, domain-match hint, duplicate flag, resolve one-click, reject
- * with/without an optional reason, the 422 race drop, the retryable error) and the
- * structural invariants axe relies on (heading order, the filter groups' accessible
- * names, the polite live region).
+ * Here we assert the moderation logic (load, status filter re-fetch, target link +
+ * fallback, duplicate flag, resolve one-click, reject with/without an optional
+ * reason, the badge decrement, the 422 race drop, the retryable error) and the
+ * structural invariants axe relies on (heading order, the filter group's accessible
+ * name, the polite live region).
+ *
+ * ── WHAT AECI-922 CHANGED HERE ───────────────────────────────────────────────
+ * This screen is CORRECTIONS ONLY now. The kind filter is gone, the request pins
+ * `kind: 'correction'`, and with it went the kind chip and the claim-only
+ * domain-match hint. The reason is arithmetic, not tidying: the nav badges one
+ * count per Operations screen and SUMS them on the category trigger, and
+ * corrections and claims are two kinds of one `vendor_requests` table — so a
+ * Requests queue that still listed claims would put every open claim into that
+ * sum twice. The first test below is what pins the predicate.
  *
  * Harness mirrors `review-queue.component.spec.ts`: browser platform + a macrotask
  * `settle()` drains `afterNextRender`'s async load.
@@ -20,13 +29,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminVendorRequest, ListVendorRequestsResponse } from '@aeci/shared';
 
+import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 import { RequestQueue } from './request-queue';
 
 function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminVendorRequest {
   return {
     id: over.id,
-    kind: over.kind ?? 'claim',
+    // Corrections by default since AECI-922 — this screen asks for nothing else,
+    // so a fixture defaulting to `claim` would describe a page that cannot occur.
+    kind: over.kind ?? 'correction',
     status: over.status ?? 'open',
     target_type: over.target_type ?? 'product',
     target_id: over.target_id ?? `t-${over.id}`,
@@ -79,12 +91,13 @@ async function setup(api: ApiMock) {
       { provide: AdminRequestsApi, useValue: api },
     ],
   });
+  const store = TestBed.inject(AdminSummaryStore);
   const fixture = TestBed.createComponent(RequestQueue);
   fixture.detectChanges();
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, store, el: fixture.nativeElement as HTMLElement };
 }
 
 function cardFor(el: HTMLElement, targetName: string): HTMLElement {
@@ -110,17 +123,35 @@ describe('RequestQueue', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('loads the open queue and renders each request in full', async () => {
+  it('loads the open CORRECTIONS queue and renders each request in full', async () => {
     const { el, api } = await setup(
       makeApiMock([makeRequest({ id: 'r1', submitter_email: 'amy@vendor.test' })]),
     );
-    expect(api.listRequests).toHaveBeenCalledWith({ status: 'open', page: 1, perPage: 100 });
+    // The `kind` predicate is the whole point (AECI-922). Without it this screen
+    // is a superset of /admin/claims and the Operations badge double-counts.
+    expect(api.listRequests).toHaveBeenCalledWith({
+      kind: 'correction',
+      status: 'open',
+      page: 1,
+      perPage: 100,
+    });
     expect(el.textContent).toContain('Procore');
     expect(el.textContent).toContain('amy@vendor.test');
     expect(el.textContent).toContain('claim the listing');
-    expect(el.textContent).toContain('Claim'); // kind badge
+    // No kind chip: every row here is a correction, so a chip saying so on all of
+    // them labels nothing. Scoped to the CARD — the h2 legitimately says
+    // "Correction requests".
+    expect(cardFor(el, 'Procore').textContent).not.toContain('Correction');
     // The target links to its product detail page (hydrated slug).
     expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/products/procore');
+  });
+
+  it('offers no kind filter at all', async () => {
+    const { el } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
+    expect(el.querySelector('[aria-labelledby="admin-requests-kind-label"]')).toBeNull();
+    expect(el.textContent).not.toContain('All kinds');
+    // And the heading says which queue this is, rather than claiming both.
+    expect(el.querySelector('h2')?.textContent?.trim()).toBe('Correction requests');
   });
 
   it('links a vendor target to the vendor detail page', async () => {
@@ -147,20 +178,15 @@ describe('RequestQueue', () => {
     expect(el.textContent).toContain('Possible duplicate');
   });
 
-  it('shows the domain-match hint for claims but not for corrections', async () => {
-    const { el } = await setup(
-      makeApiMock([
-        makeRequest({ id: 'r1', kind: 'claim', domain_match: 'no_match' }),
-        makeRequest({
-          id: 'r2',
-          kind: 'correction',
-          domain_match: 'no_match',
-          target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' },
-        }),
-      ]),
-    );
-    expect(cardFor(el, 'Procore').textContent).toContain('Domain mismatch');
-    expect(cardFor(el, 'Bluebeam').textContent).not.toContain('Domain mismatch');
+  // The domain-match chip left with the kind filter (AECI-922). It compared the
+  // CLAIMANT's email domain to the vendor's, and a correction identifies nobody —
+  // so on this screen it was always the "pending" variant, a chip that said only
+  // that the check does not apply.
+  it('renders no domain-match hint', async () => {
+    const { el } = await setup(makeApiMock([makeRequest({ id: 'r1', domain_match: 'no_match' })]));
+    const card = cardFor(el, 'Procore');
+    expect(card.textContent).not.toContain('Domain mismatch');
+    expect(card.textContent).not.toContain('Domain check pending');
   });
 
   it('renders a real Linear link when linear_issue_url is present (AECI-261)', async () => {
@@ -185,32 +211,20 @@ describe('RequestQueue', () => {
     expect(card.textContent).toContain('Tracked in Linear');
   });
 
-  it('refetches with the kind filter and marks it aria-pressed', async () => {
-    const { el, fixture, api } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
-    filterButton(el, 'admin-requests-kind-label', 'Corrections').click();
-    await settle();
-    fixture.detectChanges();
-    expect(api.listRequests).toHaveBeenLastCalledWith({
-      status: 'open',
-      page: 1,
-      perPage: 100,
-      kind: 'correction',
-    });
-    expect(
-      filterButton(el, 'admin-requests-kind-label', 'Corrections').getAttribute('aria-pressed'),
-    ).toBe('true');
-  });
-
-  it('refetches with the status filter', async () => {
+  it('refetches with the status filter, and keeps the kind pinned across it', async () => {
     const { el, fixture, api } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
     filterButton(el, 'admin-requests-status-label', 'Resolved').click();
     await settle();
     fixture.detectChanges();
     expect(api.listRequests).toHaveBeenLastCalledWith({
+      kind: 'correction',
       status: 'resolved',
       page: 1,
       perPage: 100,
     });
+    expect(
+      filterButton(el, 'admin-requests-status-label', 'Resolved').getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 
   it('resolves a request one-click: calls the API and drops the row', async () => {
@@ -218,13 +232,17 @@ describe('RequestQueue', () => {
       makeRequest({ id: 'r1' }),
       makeRequest({ id: 'r2', target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' } }),
     ]);
-    const { el, fixture } = await setup(api);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ requests: 3 });
     buttonByText(cardFor(el, 'Procore'), 'Resolve').click();
     await settle();
     fixture.detectChanges();
     expect(api.moderate).toHaveBeenCalledWith('r1', { action: 'resolve' });
     expect(el.querySelectorAll('article')).toHaveLength(1);
     expect(el.textContent).toContain('Bluebeam');
+    // AECI-922: the nav badge ticks down without a round-trip, as the reviews
+    // queue has always done.
+    expect(store.pendingRequests()).toBe(2);
   });
 
   it('rejects with an optional reason: passes the reason and drops the row', async () => {
@@ -266,15 +284,33 @@ describe('RequestQueue', () => {
     expect(cardButtons).not.toContain('Reject');
   });
 
-  it('handles a 422 (already moderated) by dropping the row and announcing it', async () => {
+  it('handles a 422 (already moderated) by dropping the row without decrementing', async () => {
     const api = makeApiMock([makeRequest({ id: 'r1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 422 }));
-    const { el, fixture } = await setup(api);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ requests: 3 });
     buttonByText(cardFor(el, 'Procore'), 'Resolve').click();
     await settle();
     fixture.detectChanges();
     expect(el.querySelector('article')).toBeNull();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
+    // The admin who raced us already decremented; the count resyncs on the next
+    // full visit to /admin.
+    expect(store.pendingRequests()).toBe(3);
+  });
+
+  // `pending_requests` counts `open` corrections. `isActionable` also admits
+  // `in_review`, a status this screen's filter cannot select today — but if it
+  // ever can, moderating one must not walk the badge below the real backlog.
+  it('does not decrement when the moderated row was in_review, not open', async () => {
+    const api = makeApiMock([makeRequest({ id: 'r1', status: 'in_review' })]);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ requests: 3 });
+    buttonByText(cardFor(el, 'Procore'), 'Resolve').click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.moderate).toHaveBeenCalledWith('r1', { action: 'resolve' });
+    expect(store.pendingRequests()).toBe(3);
   });
 
   it('keeps the row and shows a retryable alert on a generic failure', async () => {
@@ -321,10 +357,11 @@ describe('RequestQueue', () => {
       expect(el.querySelector('h4, h5, h6')).toBeNull();
     });
 
-    it('gives the filter controls accessible group names', async () => {
+    it('gives the filter control an accessible group name', async () => {
       const { el } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
+      // ONE group since AECI-922 retired the kind filter.
       const groups = [...el.querySelectorAll('[role="group"]')];
-      expect(groups).toHaveLength(2);
+      expect(groups).toHaveLength(1);
       for (const g of groups) {
         const labelId = g.getAttribute('aria-labelledby');
         expect(labelId).toBeTruthy();

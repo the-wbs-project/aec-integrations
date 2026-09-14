@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -54,10 +54,12 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
  *     from `GET /api/admin/summary` and set `RESPONSE_INIT.status = 404` + the
  *     noindex 404 meta). Render the global `<aec-not-found/>` so the surface is
  *     never revealed (§7.1). URL stays at `/admin`.
- *   - `summary` set → the caller is an admin. Render the shell + nav badge and let
- *     the outlet render the screen. The resolved count seeds `AdminSummaryStore`,
- *     so the badge is live: a moderation action in `ReviewQueue` decrements the
- *     store and the badge ticks down without a round-trip (§22.1).
+ *   - `summary` set → the caller is an admin. Render the shell + nav badges and let
+ *     the outlet render the screen. The resolved counts seed `AdminSummaryStore`,
+ *     so the badges are live: a moderation action in `ReviewQueue`, `RequestQueue`
+ *     or `ClaimQueue` decrements its own counter and the badge ticks down without
+ *     a round-trip (§22.1). Since AECI-922 that is three counters, one per
+ *     Operations queue, and the closed Operations trigger shows their sum.
  *
  * `/admin` is a private surface, so on the admin (success) path we set a
  * `robots: noindex` head + a title — mirroring the login utility page. On the
@@ -105,7 +107,6 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
     @if (s === null) {
       <aec-not-found />
     } @else {
-      @let count = pendingCount();
       <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
         <header class="mb-8">
           <h1 class="text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
@@ -128,11 +129,7 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
                       {{ entry.group.heading }}
                     </a>
                   } @else {
-                    <aec-admin-nav-dropdown
-                      [group]="entry.group"
-                      [pendingCount]="count"
-                      [align]="entry.align"
-                    />
+                    <aec-admin-nav-dropdown [group]="entry.group" [align]="entry.align" />
                   }
                 </li>
               }
@@ -179,10 +176,6 @@ export class AdminShell {
     { initialValue: (this.route.snapshot.data['summary'] ?? null) as AdminSummaryResponse | null },
   );
 
-  /** Live count for the badge — seeded from the resolver, decremented by the
-   *  queue. Falls back to 0 (only reached on the admin branch, always seeded). */
-  protected readonly pendingCount = computed(() => this.summaryStore.pendingReviews() ?? 0);
-
   constructor() {
     // The parent `/admin` route data is fixed for this shell instance's lifetime
     // (navigating between children never re-runs the resolver; a fresh visit
@@ -191,7 +184,15 @@ export class AdminShell {
     // decrements the same store after each action.
     const s = this.summary();
     if (s) {
-      this.summaryStore.seed(s.pending_reviews);
+      // AECI-922: all three Operations queues, not just reviews. Spread key by key
+      // rather than passed whole, because the store's contract is that an ABSENT
+      // key is left alone — which is what keeps an older API shape from zeroing
+      // the two counts it does not yet send during a rolling deploy.
+      this.summaryStore.seed({
+        reviews: s.pending_reviews,
+        requests: s.pending_requests,
+        claims: s.pending_claims,
+      });
 
       // Admin (success) path only: private surface → noindex + a real title. The
       // not-found path's head is owned by the resolver (`setNotFoundMeta`), so

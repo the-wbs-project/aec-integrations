@@ -33,7 +33,10 @@
  * `/admin` list into the header's "More" overflow menu; that menu is gone and its
  * public destinations now live in the footer.
  *
- * The pending-review badge sits on this menu's trigger, following the Admin door.
+ * The operator-backlog badge sits on this menu's trigger, following the Admin
+ * door. Since AECI-922 it is the SUM of the three Operations queues (reviews,
+ * correction requests, vendor claims), which is the number `/admin` shows on its
+ * own Operations trigger.
  *
  * The component is only mounted when `SessionStatus.signedIn()` is true (the
  * parent header guards it), mirroring the former account link. Nothing here is
@@ -131,8 +134,8 @@ import { AccountIdentity } from './account-identity';
           aria-hidden="true"
           >{{ badgeText() }}</span
         >
-        <span id="aec-user-menu-pending" class="sr-only" i18n="@@admin.shell.nav.pendingCount"
-          >{{ pending() }} reviews pending moderation</span
+        <span id="aec-user-menu-pending" class="sr-only" i18n="@@admin.nav.pendingTotal"
+          >{{ pending() }} items awaiting action</span
         >
       }
     </button>
@@ -238,10 +241,14 @@ export class UserMenu {
 
   protected readonly signOutFailed = signal(false);
 
-  /** Live pending-review count (0 until the shared role probe seeds the store). */
-  protected readonly pending = computed(() => this.summaryStore.pendingReviews() ?? 0);
+  /** Live operator backlog — reviews + correction requests + vendor claims, the
+   *  same sum the console's own Operations trigger shows (AECI-922). It counted
+   *  pending reviews alone until then, which made the header quieter than the
+   *  console about the identical backlog. 0 until the shared role probe seeds the
+   *  store. */
+  protected readonly pending = computed(() => this.summaryStore.operationsTotal());
 
-  /** The badge shows only for an admin with pending reviews. */
+  /** The badge shows only for an admin with something waiting. */
   protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);
 
   /** Capped so the badge can't grow unbounded. */

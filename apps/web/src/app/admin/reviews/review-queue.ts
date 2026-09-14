@@ -385,7 +385,7 @@ export class ReviewQueue {
   /** Drop the moderated row, decrement the badge, and announce the result. */
   private onModerated(id: string, announcement: string): void {
     this.removeRow(id);
-    this.summaryStore.decrement();
+    this.summaryStore.decrement('reviews');
     this.liveMessage.set(announcement);
   }
 

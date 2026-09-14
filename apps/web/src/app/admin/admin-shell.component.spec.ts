@@ -2,9 +2,9 @@
  * Render test for `AdminShell` (AECI-203 / Phase 5.12; extended to a layout in
  * AECI-205 / Phase 5.14; restructured into the operator-console shell in
  * AECI-576 / Phase 8.3 P1.2). The resolved value drives the two states:
- *   - `summary` set (admin) → the shell renders with the grouped nav, the
- *     pending-count badge and a `<router-outlet/>` for the child screen; the
- *     resolved count seeds `AdminSummaryStore` so the badge is live.
+ *   - `summary` set (admin) → the shell renders with the grouped nav, the queue
+ *     badges and a `<router-outlet/>` for the child screen; the resolved counts
+ *     seed `AdminSummaryStore` so the badges are live.
  *   - `summary === null` (non-admin) → the global `<aec-not-found/>` renders so
  *     the surface is never revealed.
  * Mirrors `taxonomy-index.component.spec.ts`'s ActivatedRoute(data) render setup.
@@ -13,9 +13,16 @@
  * the structural assertions moved with it: group labels are disclosure BUTTONS
  * rather than `<p>` + `aria-labelledby`, and a single-screen group (Catalog)
  * collapses to a plain link with no button at all. What did NOT move is the
- * thing these tests exist to pin: the eleven hrefs, in §5 order, with nothing
- * dead and the badge on exactly one of them. Panels are `[hidden]`, not removed,
- * so every link is still queryable from the nav landmark.
+ * thing these tests exist to pin: the thirteen hrefs, in §5 order, with nothing
+ * dead. Panels are `[hidden]`, not removed, so every link is still queryable
+ * from the nav landmark.
+ *
+ * AECI-922 moved the badge assertions. There were one badged link and a trigger
+ * mirroring its number; there are now THREE badged links (the three Operations
+ * queues) and a trigger showing their SUM. Two consequences these tests pin,
+ * because neither is visible from the template alone: the trigger is the sum and
+ * not a mirror, so a spec that asserts one number would pass on the wrong one;
+ * and a zero renders NO badge at all, on the link and on the trigger alike.
  */
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -27,11 +34,21 @@ import type { AdminSummaryResponse } from '@aeci/shared';
 import { AdminSummaryStore } from './admin-summary.store';
 import { AdminShell } from './admin-shell';
 
-function renderFixture(summary: AdminSummaryResponse | null): {
+/** Every queue empty. Spread under each test's own overrides so a test names
+ *  only the counts it cares about, and a fourth queue does not touch 20 call
+ *  sites. */
+const EMPTY: AdminSummaryResponse = {
+  pending_reviews: 0,
+  pending_requests: 0,
+  pending_claims: 0,
+};
+
+function renderFixture(counts: Partial<AdminSummaryResponse> | null): {
   fixture: ComponentFixture<AdminShell>;
   store: AdminSummaryStore;
   el: HTMLElement;
 } {
+  const summary: AdminSummaryResponse | null = counts && { ...EMPTY, ...counts };
   const data = { summary };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -48,8 +65,8 @@ function renderFixture(summary: AdminSummaryResponse | null): {
   return { fixture, store, el: fixture.nativeElement as HTMLElement };
 }
 
-function render(summary: AdminSummaryResponse | null): HTMLElement {
-  return renderFixture(summary).el;
+function render(counts: Partial<AdminSummaryResponse> | null): HTMLElement {
+  return renderFixture(counts).el;
 }
 
 function navLinks(root: HTMLElement): string[] {
@@ -91,7 +108,7 @@ describe('AdminShell', () => {
     expect(root.textContent).not.toContain('Moderation');
   });
 
-  it('renders the shell + pending-count badge for an admin', () => {
+  it('renders the shell + queue badges for an admin', () => {
     const root = render({ pending_reviews: 12 });
 
     // The admin nav landmark (identified by its aria-label) carries the badge.
@@ -100,13 +117,20 @@ describe('AdminShell', () => {
     expect(nav?.textContent).toContain('12');
     // Accessible, non-aria-hidden description of the count.
     const srOnly = root.querySelector('.sr-only');
-    expect(srOnly?.textContent).toContain('12 reviews pending moderation');
+    expect(srOnly?.textContent).toContain('12 items awaiting action');
   });
 
-  it('renders a zero badge without breaking', () => {
-    const root = render({ pending_reviews: 0 });
+  // AECI-922. The pre-922 behaviour was a literal "0" on the trigger and on the
+  // Review queue link; with three queues that becomes four zeros in one open
+  // panel, which trains an operator to stop reading the numbers. It also matches
+  // the header account menu, which has always hidden its badge at zero.
+  it('renders NO badge when every queue is empty', () => {
+    const root = render(EMPTY);
     expect(root.querySelector('aec-not-found')).toBeNull();
-    expect(root.querySelector('nav[aria-label="Admin sections"]')?.textContent).toContain('0');
+    const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
+    expect(nav.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(nav.textContent).not.toContain('0');
+    expect(nav.textContent).not.toContain('awaiting action');
   });
 
   describe('grouped navigation (AECI-576 / §5, AECI-694 row)', () => {
@@ -216,18 +240,50 @@ describe('AdminShell', () => {
       expect(operations.getAttribute('aria-current')).toBe('true');
     });
 
-    it('puts the badge on the review queue, and mirrors it on the closed category', () => {
-      const root = render({ pending_reviews: 7 });
+    it('badges each Operations queue and SUMS them on the closed category', () => {
+      const root = render({ pending_reviews: 7, pending_requests: 2, pending_claims: 3 });
       const operations = categoryTrigger(root, 'Operations');
-      // Mirrored onto the trigger because a collapsed panel would otherwise hide
-      // the console's only live signal.
-      expect(operations.textContent).toContain('7');
+      // The sum, on the trigger, because a collapsed panel would otherwise hide
+      // the console's only live signal. Deliberately three DIFFERENT counts: a
+      // trigger that mirrored one queue instead of summing them would still read
+      // as a plausible number against equal ones.
+      expect(operations.textContent).toContain('12');
 
-      const badgedLinks = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter(
-        (a) => a.querySelector('[aria-hidden="true"]'),
+      const badged = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter((a) =>
+        a.querySelector('[aria-hidden="true"]'),
       );
-      expect(badgedLinks).toHaveLength(1);
-      expect(badgedLinks[0]?.getAttribute('href')).toBe('/admin/reviews');
+      expect(badged.map((a) => a.getAttribute('href'))).toEqual([
+        '/admin/reviews',
+        '/admin/requests',
+        '/admin/claims',
+      ]);
+      expect(badged.map((a) => a.querySelector('[aria-hidden="true"]')?.textContent)).toEqual([
+        '7',
+        '2',
+        '3',
+      ]);
+    });
+
+    // The sum is only honest because the three counts are disjoint sets — open
+    // CORRECTIONS and open CLAIMS are two kinds of one `vendor_requests` table.
+    // The server owns that split (`lib/admin-queue-counts.ts`); what this pins is
+    // that the shell adds rather than picks.
+    it('shows nothing on Operations when all three of its queues are empty', () => {
+      const root = render({ pending_reviews: 0, pending_requests: 0, pending_claims: 0 });
+      expect(categoryTrigger(root, 'Operations').querySelector('[aria-hidden="true"]')).toBeNull();
+    });
+
+    it('badges Operations from the two request queues alone when reviews are clear', () => {
+      const root = render({ pending_reviews: 0, pending_requests: 4, pending_claims: 1 });
+      expect(categoryTrigger(root, 'Operations').textContent).toContain('5');
+      const badged = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter((a) =>
+        a.querySelector('[aria-hidden="true"]'),
+      );
+      // The empty review queue drops OUT of the badged set rather than showing 0.
+      expect(badged.map((a) => a.getAttribute('href'))).toEqual([
+        '/admin/requests',
+        '/admin/claims',
+      ]);
     });
   });
 
@@ -236,15 +292,24 @@ describe('AdminShell', () => {
     expect(root.querySelector('router-outlet')).not.toBeNull();
   });
 
-  it('seeds the shared store from the resolver and reflects live decrements in the badge', () => {
-    const { fixture, store, el } = renderFixture({ pending_reviews: 5 });
+  it('seeds all three counts from the resolver and reflects live decrements', () => {
+    const { fixture, store, el } = renderFixture({
+      pending_reviews: 5,
+      pending_requests: 2,
+      pending_claims: 1,
+    });
     expect(store.pendingReviews()).toBe(5);
-    expect(el.querySelector('nav[aria-label="Admin sections"]')?.textContent).toContain('5');
+    expect(store.pendingRequests()).toBe(2);
+    expect(store.pendingClaims()).toBe(1);
+    expect(store.operationsTotal()).toBe(8);
 
-    // A moderation action elsewhere decrements the store → the badge ticks down.
-    store.decrement();
+    // A moderation action elsewhere decrements ONE queue → that badge and the
+    // group total both tick down, and the other two queues are untouched.
+    store.decrement('claims');
     fixture.detectChanges();
-    expect(el.querySelector('nav[aria-label="Admin sections"]')?.textContent).toContain('4');
+    expect(store.pendingClaims()).toBe(0);
+    expect(store.pendingReviews()).toBe(5);
+    expect(categoryTrigger(el, 'Operations').textContent).toContain('7');
   });
 
   it('does not render the queue chrome (outlet) for a non-admin', () => {
@@ -261,7 +326,7 @@ describe('AdminShell', () => {
     expect(root.querySelector('nav[aria-label="Admin sections"]')).toBeNull();
     expect(root.textContent).not.toContain('Review queue');
     expect(root.textContent).not.toContain('Overview');
-    expect(root.textContent).not.toContain('reviews pending moderation');
+    expect(root.textContent).not.toContain('awaiting action');
   });
 
   // Structural a11y invariants (the repo's component-level axe convention —
@@ -320,21 +385,32 @@ describe('AdminShell', () => {
       }
     });
 
-    it('announces the count once: visible badges aria-hidden + one sr-only equivalent', () => {
-      const root = render({ pending_reviews: 3 });
-      // Two visible badges (the mirrored trigger count and the Review queue
-      // link's), both decorative, and exactly ONE spoken sentence between them.
-      const counts = [...root.querySelectorAll('[aria-hidden="true"]')].filter(
-        (el) => el.textContent?.trim() === '3',
-      );
-      expect(counts).toHaveLength(2);
+    it('speaks every badge exactly once: visible counts aria-hidden, sr-only text beside each', () => {
+      const root = render({ pending_reviews: 3, pending_requests: 2, pending_claims: 1 });
 
-      const spoken = [...root.querySelectorAll('.sr-only')].filter((el) =>
-        el.textContent?.includes('reviews pending moderation'),
+      // Every visible count is decorative. None of them is ever the accessible
+      // name of anything.
+      const visible = [...root.querySelectorAll('nav[aria-label="Admin sections"] span')].filter(
+        (el) => /^\d+$/.test(el.textContent?.trim() ?? ''),
       );
-      expect(spoken).toHaveLength(1);
-      expect(spoken[0]?.getAttribute('aria-hidden')).toBeNull();
-      expect(spoken[0]?.textContent).toContain('3 reviews pending moderation');
+      expect(visible).toHaveLength(4); // three links + the Operations trigger
+      for (const el of visible) expect(el.getAttribute('aria-hidden')).toBe('true');
+
+      const spoken = [...root.querySelectorAll('.sr-only')]
+        .map((el) => el.textContent?.trim() ?? '')
+        .filter((text) => text.includes('awaiting action'));
+      // One sentence per badge, and the trigger's is the SUM — so a screen reader
+      // hears the same total a sighted operator sees, not three numbers it has to
+      // add.
+      expect(spoken).toEqual([
+        '6 items awaiting action',
+        '3 awaiting action',
+        '2 awaiting action',
+        '1 awaiting action',
+      ]);
+      for (const el of root.querySelectorAll('.sr-only')) {
+        expect(el.getAttribute('aria-hidden')).toBeNull();
+      }
     });
   });
 });

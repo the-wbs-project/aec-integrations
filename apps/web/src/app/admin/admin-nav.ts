@@ -32,12 +32,21 @@
  * self-describing.
  */
 
-/** One nav entry. `badge` marks the single entry that carries the live
- *  pending-review count. */
+import type { AdminQueueKey } from './admin-summary.store';
+
+/**
+ * One nav entry. `badge` names the live queue this entry counts (AECI-922) —
+ * previously a bare `true`, back when Review queue was the only badged screen and
+ * "the count" could only mean one thing.
+ *
+ * It is a KEY rather than a flag because the group trigger sums the counts of the
+ * entries under it. A flag would make every badged entry render the same number,
+ * and the Operations total would then be that number times three.
+ */
 export interface AdminNavItem {
   path: string;
   label: string;
-  badge?: boolean;
+  badge?: AdminQueueKey;
 }
 
 /** A labelled group of entries. `id` wires the group label to its `<ul>` via
@@ -100,10 +109,24 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       {
         path: '/admin/reviews',
         label: $localize`:@@admin.shell.nav.reviews:Review queue`,
-        badge: true,
+        badge: 'reviews',
       },
-      { path: '/admin/requests', label: $localize`:@@admin.shell.nav.requests:Requests` },
-      { path: '/admin/claims', label: $localize`:@@admin.shell.nav.claims:Vendor claims` },
+      // AECI-922 badges all three Operations queues, and the Operations trigger
+      // shows their SUM. The sum is only honest because the queues are disjoint:
+      // `/admin/requests` counts open CORRECTIONS and `/admin/claims` counts open
+      // CLAIMS, which are two kinds of one `vendor_requests` table. That is also
+      // why the Requests screen no longer offers a claims filter — a screen whose
+      // rows outnumbered its own badge would read as a broken count.
+      {
+        path: '/admin/requests',
+        label: $localize`:@@admin.shell.nav.requests:Requests`,
+        badge: 'requests',
+      },
+      {
+        path: '/admin/claims',
+        label: $localize`:@@admin.shell.nav.claims:Vendor claims`,
+        badge: 'claims',
+      },
       { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
       // AECI-692 takes the slot "Reviewer bans" held. `/admin/users?banned=true`
       // is the same `banned_at IS NOT NULL` set with filters, search and paging,

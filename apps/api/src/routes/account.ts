@@ -6,14 +6,17 @@
  * is the token `sub` — the id of both the `profiles` row (D1) and the `auth.users`
  * row (Supabase).
  *
- * ── `pending_reviews` on the read shapes (AECI-617) ─────────────────────────────
- * `GET`/`PATCH` return the moderation-queue count for `role === 'admin'` (`null`
- * otherwise) so the header's role probe (`apps/web/.../auth/role-status.ts`)
- * gets role + badge count in one round trip rather than chaining
+ * ── The queue counts on the read shapes (AECI-617, AECI-922) ───────────────────
+ * `GET`/`PATCH` return the three Operations queue counts for `role === 'admin'`
+ * (`null` otherwise) so the header's role probe (`apps/web/.../auth/role-status.ts`)
+ * gets role + badge counts in one round trip rather than chaining
  * `GET /api/admin/summary`. That second hop repeated the JWKS verify and the
  * `profiles` read, and its latency was the visible lag before the header's Admin
- * affordance appeared. `routes/admin-summary.ts` is unchanged — it stays the
- * `/admin` SSR resolver's gate and the in-shell badge feed.
+ * affordance appeared. `routes/admin-summary.ts` is unchanged in shape — it stays
+ * the `/admin` SSR resolver's gate and the in-shell badge feed, and since
+ * AECI-922 both endpoints read the SAME implementation
+ * (`lib/admin-queue-counts.ts`), so the header badge and the console's Operations
+ * badge cannot report different backlogs.
  *
  * That one probe also answers the vendor portal's door (`role === 'vendor_admin'`),
  * so a signed-in page load makes a single request here however many role-gated
@@ -40,7 +43,7 @@ import {
   type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
-import { count, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -59,6 +62,7 @@ import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
+import { readAdminQueueCounts, type AdminQueueCounts } from '../lib/admin-queue-counts';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { sendAccountDeletionEmail } from '../lib/email';
@@ -110,30 +114,45 @@ export function createGetAccountHandler(
       email: session.email ?? null,
       display_name: profile?.displayName ?? null,
       role: session.role,
-      pending_reviews: await pendingReviewsForSession(db, session.role),
+      ...(await queueCountsForSession(db, session.role)),
     };
     return json(body);
   };
 }
 
+/** The three counts as the account shapes carry them: real numbers for an admin,
+ *  `null` for everyone else. Never a mix — a `0` here means an empty queue, and a
+ *  `null` means "you are not an operator", which is a different fact. */
+type AccountQueueCounts = {
+  [K in keyof AdminQueueCounts]: number | null;
+};
+
+/** What a non-admin gets. Spread verbatim so the three keys are always present
+ *  on the wire and a consumer never has to tell `undefined` from `null`. */
+const NO_QUEUE_COUNTS: AccountQueueCounts = {
+  pending_reviews: null,
+  pending_requests: null,
+  pending_claims: null,
+};
+
 /**
- * The moderation-queue count for the header badge (AECI-617) — the same
- * aggregate `routes/admin-summary.ts` serves, folded into the account read so
- * `AdminStatus` resolves role + count in ONE round trip. Returns `null` for a
- * non-admin without touching the table, so the extra column costs a reviewer
- * nothing and leaks no moderation state.
+ * The Operations queue counts for the header badge (AECI-617, widened to three
+ * by AECI-922) — the same aggregates `routes/admin-summary.ts` serves, through
+ * the same `lib/admin-queue-counts.ts` implementation, folded into the account
+ * read so `AdminStatus` resolves role + counts in ONE round trip. Returns `null`s
+ * for a non-admin without touching either table, so the extra columns cost a
+ * reviewer nothing and leak no moderation state.
  *
  * `session.role` is the DB-refetched role from `requireAuth()` (`lib/authz.ts`
  * re-reads it every request per `AUTH_AND_RLS.md` §4.5), NOT a client claim — so
  * gating on it here is as trustworthy as the `requireAdmin()` gate itself.
  */
-async function pendingReviewsForSession(db: DbContext['db'], role: string): Promise<number | null> {
-  if (role !== 'admin') return null;
-  const rows = await db
-    .select({ value: count() })
-    .from(reviews)
-    .where(eq(reviews.status, 'pending'));
-  return rows[0]?.value ?? 0;
+async function queueCountsForSession(
+  db: DbContext['db'],
+  role: string,
+): Promise<AccountQueueCounts> {
+  if (role !== 'admin') return NO_QUEUE_COUNTS;
+  return readAdminQueueCounts(db);
 }
 
 // ─── PATCH /api/account ────────────────────────────────────────────────────────
@@ -175,7 +194,7 @@ export function createUpdateAccountHandler(
       email: session.email ?? null,
       display_name: payload.display_name,
       role: session.role,
-      pending_reviews: await pendingReviewsForSession(db, session.role),
+      ...(await queueCountsForSession(db, session.role)),
     };
     return json(body);
   };

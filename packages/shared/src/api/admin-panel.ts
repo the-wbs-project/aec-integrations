@@ -387,10 +387,22 @@ export const AdminAsnRegistryStatusSchema = z.object({
 });
 export type AdminAsnRegistryStatus = z.infer<typeof AdminAsnRegistryStatusSchema>;
 
-/** Queue depths an operator acts on today. */
+/**
+ * Queue depths an operator acts on today — one field per Operations screen, on
+ * the same predicates the nav badges use (`apps/api/src/lib/admin-queue-counts.ts`,
+ * `ADMIN_PANEL_SPEC.md` §5.0c).
+ *
+ * `open_requests` is **corrections only** and `open_claims` is its sibling, because
+ * the two are one `vendor_requests` table split by `kind` and each links to a
+ * different screen. Before AECI-922 this was a single all-kinds count pointing at
+ * `/admin/requests`; that screen is corrections-only now, so an all-kinds figure
+ * would send the operator to a page showing fewer rows than the number they
+ * clicked.
+ */
 export const AdminModerationDepthSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
   open_requests: z.number().int().nonnegative(),
+  open_claims: z.number().int().nonnegative(),
 });
 export type AdminModerationDepth = z.infer<typeof AdminModerationDepthSchema>;
 
@@ -903,9 +915,13 @@ export function metricSupportsNetBasis(metric: AdminMetricKey): boolean {
  * remains the screen that will read the `catalog.*` stocks.
  *
  * The key names state their own filter — `*_promoted` where the table carries a
- * `promotion_status` gate, `*_total` where it does not. `queue.requests_open`
- * uses the same `status='open'` predicate as the overview's `open_requests`
- * ({@link AdminModerationDepthSchema}), so the two can never disagree.
+ * `promotion_status` gate, `*_total` where it does not. `queue.requests_open` is
+ * every open `vendor_requests` row, **both kinds** — deliberately unchanged by
+ * AECI-922, which split the overview's `open_requests` into corrections and
+ * `open_claims` ({@link AdminModerationDepthSchema}). This key is a stored daily
+ * series and re-defining its predicate would silently re-base every row already
+ * written, so the two are no longer the same figure: this one is the whole
+ * request backlog, the overview's pair is one number per operator screen.
  */
 export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
   'catalog.products_promoted',
