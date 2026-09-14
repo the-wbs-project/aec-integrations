@@ -17,6 +17,17 @@
  *   2. Aggregates the eight flow series into those rows. Five land as `measured`,
  *      three (the `audit_log`-derived catalog series) as `reconstructed`.
  *
+ * `--series` narrows BOTH passes to the named metric keys (AECI-684). That is the
+ * only way to extend one series' range: the zero-fill runs edge to edge, so a
+ * wider `--from` for the products series would write `traffic.*` = 0 across days
+ * `page_views` did not exist for, and a stored zero is indistinguishable from a
+ * measured one in a table kept forever.
+ *
+ * A catalog-only run REFUSES a range holding page views on days `metrics_daily`
+ * has no row for (step 2b). Zero-filling those days satisfies the §7.4 prune gate
+ * while their traffic is still unmeasured, and the retention cron would then
+ * delete the only rows it could have been measured from.
+ *
  * It writes only flow metrics. Stocks — catalog totals, queue depths, subscriber
  * counts — are NOT backfilled: §4 shows a past total is unrecoverable (827
  * `integration.created` events back 496 live rows), so a reconstruction would be
@@ -31,6 +42,8 @@
  *     into the long memory permanently. Fix first, on the same tier:
  *       wrangler d1 execute <db> --env <env> --remote \
  *         --file=../../scripts/ops/backfill-page-view-bots.sql
+ *   - **Refuses a catalog-only `--series` run over days holding page views that
+ *     `metrics_daily` has no row for** unless `--force` — see the note above.
  *   - Re-runnable: every write is an upsert keyed `(day, metric)`, and a
  *     `reconstructed` row can never overwrite a `measured` one — so a
  *     reconstruction never degrades a real snapshot.
@@ -51,6 +64,11 @@
  *     --from 2026-06-23 --to 2026-08-12 --apply --allow-production
  *   # against the seeded local D1:
  *   pnpm --filter @aeci/api ops:backfill-metrics-daily -- --local --apply
+ *   # recover ONE series over its own earlier range, zero-filling nothing else
+ *   # (AECI-684's 43 pre-2026-06-23 products):
+ *   pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+ *     --series catalog.products_created --from 2026-06-08 --to 2026-06-22 \
+ *     --apply --allow-production
  */
 
 import { spawnSync } from 'node:child_process';
@@ -61,11 +79,13 @@ import {
   buildCoverageProbe,
   buildMetricsBackfillStatements,
   buildProductsCrossCheck,
+  buildPruneExposureProbe,
   buildRangeProbe,
   buildUnclassifiedProbe,
   buildValueDiffProbes,
   buildZeroFillStatements,
   daysInRange,
+  selectSeries,
   type BackfillRange,
   type ValueDiffKind,
 } from '../src/lib/metrics-backfill';
@@ -111,6 +131,34 @@ function readDayFlag(argv: string[], name: string): string | undefined {
   if (value === undefined) return undefined;
   if (!DAY_RE.test(value)) throw new Error(`${name} must be YYYY-MM-DD. Got: ${value}`);
   return value;
+}
+
+/**
+ * `--series a,b` / repeated `--series a --series b` — the metric keys this run
+ * covers (AECI-684). Empty means all eight, which is the default and the
+ * behaviour every prior caller gets.
+ *
+ * Accepts both forms because the two read differently at a terminal and an
+ * operator recovering one series should not have to remember which this script
+ * chose. `selectSeries` validates the keys; this only collects them.
+ */
+function readSeriesFlag(argv: string[]): string[] {
+  const keys: string[] = [];
+  for (const [i, arg] of argv.entries()) {
+    const raw = arg.startsWith('--series=')
+      ? arg.slice('--series='.length)
+      : arg === '--series'
+        ? argv[i + 1]
+        : undefined;
+    if (raw === undefined) continue;
+    keys.push(
+      ...raw
+        .split(',')
+        .map((k) => k.trim())
+        .filter(Boolean),
+    );
+  }
+  return keys;
 }
 
 // ─── Wrangler I/O (mirrors retract-product.ts) ───────────────────────────────
@@ -195,13 +243,13 @@ function printDetail(lines: string[]): void {
  * such a tier could never reach. `lib/metrics-backfill.ts` records why the run
  * deliberately does not collapse them to zero.
  */
-function reportValueDiff(target: Target, range: BackfillRange): void {
+function reportValueDiff(target: Target, range: BackfillRange, only: string[]): void {
   console.log('Value changes this run would make:');
   const detail: string[] = [];
   const stale: string[] = [];
   let changedDays = 0;
 
-  for (const probe of buildValueDiffProbes(range)) {
+  for (const probe of buildValueDiffProbes(range, only)) {
     const rows = runD1<DiffRow>(target, probe.sql)[0]?.results ?? [];
     const rewrites = rows.filter((r) => r.kind === 'rewrite');
     const stalled = rows.filter((r) => r.kind === 'stale');
@@ -264,6 +312,9 @@ export async function main(argv: string[]): Promise<number> {
   const apply = argv.includes('--apply');
   const force = argv.includes('--force');
   const target = resolveTarget(argv);
+  // Throws on an unknown key, before anything is probed or written.
+  const only = readSeriesFlag(argv);
+  const series = selectSeries(only);
 
   if (target.remote && !process.env.CLOUDFLARE_API_TOKEN) {
     console.warn('⚠  CLOUDFLARE_API_TOKEN is unset — wrangler --remote will fail to authenticate.');
@@ -299,17 +350,31 @@ export async function main(argv: string[]): Promise<number> {
   }
   const range: BackfillRange = { fromDay, toDay, computedAt: new Date().toISOString() };
   const days = daysInRange(range);
-  console.log(
-    `Range: ${fromDay} → ${toDay} (${days.length} day(s) × ${BACKFILL_SERIES.length} metrics)`,
-  );
+  console.log(`Range: ${fromDay} → ${toDay} (${days.length} day(s) × ${series.length} metrics)`);
+  if (only.length > 0) {
+    console.log(
+      `Series: ${series.map((s) => s.metric).join(', ')} (--series; ${BACKFILL_SERIES.length - series.length} not run)`,
+    );
+    console.log("        No other series is zero-filled, so this range is this series' alone.");
+  }
   console.log('');
 
   // 2. The AECI-582 gate. `metrics_daily` is kept indefinitely, so a traffic
   //    backfill over unclassified rows is a permanent error, not a temporary one.
-  const unclassified =
-    runD1<{ unclassified: number }>(target, buildUnclassifiedProbe(range))[0]?.results[0]
-      ?.unclassified ?? 0;
-  if (unclassified > 0) {
+  //
+  //    Scoped to runs that actually write a `page_views`-derived series. The gate
+  //    protects the traffic split, so a `--series catalog.products_created` run
+  //    has nothing for it to protect — and refusing that run would block the one
+  //    recovery AECI-684 added `--series` for, on the strength of rows it does
+  //    not read. The gate is unchanged for every run that does touch traffic.
+  const touchesPageViews = series.some((s) => s.metric.startsWith('traffic.'));
+  const unclassified = !touchesPageViews
+    ? 0
+    : (runD1<{ unclassified: number }>(target, buildUnclassifiedProbe(range))[0]?.results[0]
+        ?.unclassified ?? 0);
+  if (!touchesPageViews) {
+    console.log('✓ Bot classification: not checked — no traffic.* series in this run.');
+  } else if (unclassified > 0) {
     console.warn(
       `⚠  ${unclassified} page view(s) in this range have no bot classification and read as HUMAN.`,
     );
@@ -328,6 +393,40 @@ export async function main(argv: string[]): Promise<number> {
     console.log('✓ Bot classification: every page view in the range is classified.');
   }
 
+  // 2b. The other half of that scoping, and the one way --series can LOSE data
+  //     (AECI-684). A day gets pruned once it has any `metrics_daily` row, so a
+  //     catalog-only run that zero-fills a day holding `page_views` rows marks it
+  //     captured while its traffic is still unmeasured — and the next retention
+  //     run deletes the only rows it could ever be measured from. The documented
+  //     products recovery reads 0 here because `page_views` starts later, which is
+  //     precisely why this needs a probe rather than a reader's attention.
+  if (!touchesPageViews) {
+    const exposed =
+      runD1<{ days: number }>(target, buildPruneExposureProbe(range))[0]?.results[0]?.days ?? 0;
+    if (exposed > 0) {
+      console.warn(`⚠  ${exposed} day(s) in this range hold page views but no metrics_daily row.`);
+      if (!force) {
+        console.error(
+          '\nRefusing without --force. Zero-filling a catalog series across those days would\n' +
+            'satisfy the §7.4 prune gate for them, and the retention cron would then delete the\n' +
+            'raw page_views rows their traffic.* series was never built from. Back the traffic\n' +
+            'series up first:\n' +
+            `     pnpm --filter @aeci/api ops:backfill-metrics-daily -- ` +
+            `${target.remote ? `--env ${target.label}` : '--local'} \\\n` +
+            `       --from ${fromDay} --to ${toDay} --apply` +
+            `${target.label === 'production' ? ' --allow-production' : ''}\n` +
+            'or narrow --from/--to to days with no page views.',
+        );
+        return 1;
+      }
+      console.warn(
+        '   --force set: proceeding; those days become prunable with no traffic figures.\n',
+      );
+    } else {
+      console.log('✓ Prune exposure: no day in this range holds unbackfilled page views.');
+    }
+  }
+
   // 3. The §7.1 cross-check on the exact series — a verification, never a source.
   const cross = runD1<{ products: number; product_created_events: number }>(
     target,
@@ -344,22 +443,22 @@ export async function main(argv: string[]): Promise<number> {
 
   // 4. Provenance, stated before anything is written.
   console.log('Series provenance:');
-  for (const s of BACKFILL_SERIES) {
+  for (const s of series) {
     console.log(
       `  ${s.source === 'measured' ? '✓' : '~'} ${s.metric.padEnd(30)} ${s.source} — ${s.rationale}`,
     );
   }
   console.log('');
 
-  const zeroFill = buildZeroFillStatements(range);
-  const aggregates = buildAggregateStatements(range);
+  const zeroFill = buildZeroFillStatements(range, only);
+  const aggregates = buildAggregateStatements(range, only);
 
   // 5. Dry run: report what would CHANGE, then stop.
   if (!apply) {
-    reportValueDiff(target, range);
+    reportValueDiff(target, range, only);
     console.log(
       `DRY RUN — nothing written. On --apply: ${zeroFill.length} zero-fill statement(s) ` +
-        `covering ${days.length * BACKFILL_SERIES.length} (day, metric) pair(s), then ` +
+        `covering ${days.length * series.length} (day, metric) pair(s), then ` +
         `${aggregates.length} aggregate statement(s).`,
     );
     console.log(
@@ -374,7 +473,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // 6. Apply. One statement per execute so a failure names itself.
-  const statements = buildMetricsBackfillStatements(range);
+  const statements = buildMetricsBackfillStatements(range, only);
   for (const [i, sql] of statements.entries()) {
     runD1<unknown>(target, sql);
     if ((i + 1) % 10 === 0 || i === statements.length - 1) {
@@ -387,7 +486,7 @@ export async function main(argv: string[]): Promise<number> {
   //    read 0 on a run that wrote thousands of rows.
   const coverage = runD1<{ rows_total: number; days_covered: number; reconstructed: number }>(
     target,
-    buildCoverageProbe(range),
+    buildCoverageProbe(range, only),
   )[0]?.results[0];
   console.log('');
   console.log(`✓ ${statements.length} statement(s) applied to ${target.db}.`);

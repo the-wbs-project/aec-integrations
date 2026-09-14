@@ -391,6 +391,45 @@ Four things follow, all of them stated on the wire rather than left to inference
 
 This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
+**(6) Provenance on `basis=additions` is per series, not per namespace (AECI-684, 2026-09-14).**
+
+The endpoint attached the same two notes to all four `catalog.*` keys —
+`catalog_series_is_additions_only` ("counts creation events from the audit log")
+and `catalog_series_starts_at` ("the audit log begins …"). Both are true of three
+of them. Neither is wholly true of `catalog.products_created`, which is §4's
+exception:
+
+| segment | `catalog.products_created` | the other three |
+|---|---|---|
+| live fallback | `audit_log` `product.created` | `audit_log` `*.created` |
+| 00:15 cron snapshot | `audit_log` `product.created` | `audit_log` `*.created` |
+| reconstructed (backfilled) days | **`products.created_at`** (§7.1, measured) | `audit_log` `*.created` |
+
+So the products column is served from two definitions either side of the snapshot
+boundary, and its floor is the catalog's first row rather than the log's. Both
+notes now branch on the metric and carry the source in `params`
+(`live_source` / `reconstructed_from` on the first, `source` / `stored_from` on
+the second). Production still shows the divergence the split predicts: 207
+`product.created` events against 204 series points.
+
+`catalog_series_starts_at` on that series also discloses a **stored floor later
+than the catalog floor**, which is the 43 pre-2026-06-23 products §7.1 describes.
+Until that gap is backfilled, a caller reaching before the stored floor reads
+zeros; the note tells them those days were never reconstructed rather than quiet,
+and names the `--series` command that fills them.
+
+**This is a contract-accuracy fix, not a number change.** No figure moves, and no
+screen currently reads either path — (5) moved the panel to `basis=net` in
+AECI-686, which is why the wrong notes survived four weeks unnoticed. The UI
+strings were corrected alongside the API ones so the two cannot drift back apart.
+
+**Open: `catalog.vendors_created` stays on the audit log.** 32 vendors predate the
+first audit row and `vendors.created_at` could recover them the same way. It is
+deliberately *not* done here, because every series moved to a measured backfill
+acquires the same two-definition split as products, and one such series is a
+documented exception where two would be a pattern. Revisit it with AECI-687
+(deletion tombstones), which removes the reason the split exists at all.
+
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
@@ -862,6 +901,53 @@ correction); it is backfilled from that column and marked measured, not
 reconstructed — and it is *better* than the live audit-log series, which covers
 131 of 171 rows.
 
+**That exception splits the products series in two, and AECI-684 made it say so.**
+The 00:15 cron and the endpoint's live fallback both route `catalog.*` through
+`metricSeries`, which counts `audit_log` `*.created` events — so
+`catalog.products_created` is measured from `products.created_at` only across the
+days this script reconstructed. A window spanning the snapshot boundary is
+therefore served from two definitions, and the endpoint's two provenance notes are
+now **per metric** rather than per namespace: the products series names both
+halves and floors on the catalog's own first row, while the other three keep the
+unqualified audit-log wording that is correct for them. The UI strings branch the
+same way (`admin-notes.ts`), so a `curl` and the screen still agree (§9.4).
+
+**One `--from` was not enough, and widening it is the wrong fix (AECI-684).** The
+eight series do not begin on the same day: `products.created_at` reaches back to
+2026-06-08 and `page_views` starts on 2026-06-23. The production run used
+`--from 2026-06-23`, so 43 products created before it have no `metrics_daily` row
+at all. Re-running from 2026-06-08 would *not* fix that — the zero-fill below runs
+edge to edge over every series, so it would write `traffic.*` = 0 across a
+fortnight the table did not exist for, and a stored zero is indistinguishable from
+a measured one in a table kept forever. `--series <metric[,metric]>` narrows both
+passes to the named keys instead, so one series' range can be extended without
+zero-filling any other:
+
+```
+pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+  --series catalog.products_created --from 2026-06-08 --to 2026-06-22 \
+  --apply --allow-production
+```
+
+Four properties of a `--series` run. The §7.4 prune gate is not *blocked* by one,
+because the selected series is still zero-filled edge to edge and the gate asks
+whether the DAY is captured — the same argument `BackfillSeries.zeroFill` already
+makes for opting one series out. The AECI-582 unclassified-`page_views` gate is
+**skipped** when no `traffic.*` series is selected, since it protects the traffic
+split and a catalog-only run writes none. And the post-apply coverage probe is
+scoped to the selection, so another metric's pre-existing rows cannot report a
+single-series run as having landed.
+
+The fourth is the one way `--series` can lose data, and it is the reverse of the
+first. Because the prune gate reads presence of ANY row for a day, a catalog-only
+run over days that **do** hold `page_views` rows marks them captured while their
+`traffic.*` series is still unmeasured, and the retention cron then deletes the
+only rows it could ever have been measured from. The documented products recovery
+is safe because `page_views` does not begin until 2026-06-23, which is exactly why
+this needs a probe rather than a reader's attention: `buildPruneExposureProbe`
+counts those days and the script **refuses** a non-zero result without `--force`,
+naming the traffic backfill to run first.
+
 **Deviation 3 — backfilled `traffic.*` is `measured`, gated on AECI-582.** This
 section originally lumped `page_views` in with `audit_log` as a reconstruction
 source. But a traffic backfill re-aggregates the very rows the live endpoint reads
@@ -1037,7 +1123,7 @@ Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the
 | Item | Why |
 |---|---|
 | ~~Run `scripts/ops/backfill-page-view-bots.sql` on production~~ — **DONE 2026-08-13 (AECI-582)**, all four tiers, via `scripts/ops/2026-08-page-view-bot-backfill/run.sh` | 17,784 rows read as human; every historical traffic chart was wrong until this ran. Production settled at 24,575 bot / 2,096 human. Was also a hard prerequisite for the §7.1 metrics backfill (which refuses a range containing unclassified rows, since `metrics_daily` is kept indefinitely and would otherwise freeze the wrong split permanently) — now satisfied on every tier. The runner adds a rule the ASN file could not: it recovers the **true crawler name** for 4,941 rows by matching their `user_agent_hash` against rows the live classifier has since named — `classifyTraffic()` tests the UA before the ASN, so such a verdict is UA-derived and transfers across ASNs. That reached 885 `Applebot` rows on AS714, **without** adding Apple to `DATACENTER_ASNS`, which would have taught the live classifier to call iCloud Private Relay visitors bots |
-| Run `pnpm --filter @aeci/api ops:backfill-metrics-daily` per environment (AECI-581) — **re-run 2026-09-09 (AECI-688)** on production, staging and demo | Reconstructs the pre-snapshot flow series. Dry-run by default; run it **after** the bot backfill and the operator backfill on that tier. Stocks are deliberately not backfilled. The AECI-688 re-run corrected the days AECI-683's retro-join changed: on production, six days of `traffic.page_views_human` for a net **−51** (2026-08-26: 102 → 80), two days of `traffic.page_views_bot` (−2) and six of `traffic.unique_visitors` (−6). Since AECI-688 the dry run prints every value it would change, per day, so the size of a rewrite is visible before `--apply` — alongside a second block naming the stored days it does **not** correct, which are the days whose source rows are gone (the run deliberately leaves them rather than zeroing them, since §7.4 prunes raw `page_views` once a day is captured). **Always pass `--to <yesterday>`** — the default upper bound is `max(day)` across the source tables, which is *today*, and that writes a partial UTC day into a table kept forever |
+| Run `pnpm --filter @aeci/api ops:backfill-metrics-daily` per environment (AECI-581) — **re-run 2026-09-09 (AECI-688)** on production, staging and demo | Reconstructs the pre-snapshot flow series. Dry-run by default; run it **after** the bot backfill and the operator backfill on that tier. Stocks are deliberately not backfilled. The AECI-688 re-run corrected the days AECI-683's retro-join changed: on production, six days of `traffic.page_views_human` for a net **−51** (2026-08-26: 102 → 80), two days of `traffic.page_views_bot` (−2) and six of `traffic.unique_visitors` (−6). Since AECI-688 the dry run prints every value it would change, per day, so the size of a rewrite is visible before `--apply` — alongside a second block naming the stored days it does **not** correct, which are the days whose source rows are gone (the run deliberately leaves them rather than zeroing them, since §7.4 prunes raw `page_views` once a day is captured). **Always pass `--to <yesterday>`** — the default upper bound is `max(day)` across the source tables, which is *today*, and that writes a partial UTC day into a table kept forever. **Outstanding (AECI-684): `catalog.products_created` still starts 2026-06-23 in storage**, because the original run passed that `--from` while the catalog reaches back to 2026-06-08 — 43 products. Fill it with `--series catalog.products_created --from 2026-06-08 --to 2026-06-22`, which zero-fills no other series; a plain wider `--from` would write `traffic.*` = 0 over days `page_views` did not exist for |
 | Run `scripts/ops/backfill-products-promoted-at.sql` per environment (AECI-581) | Fills `promoted_at := created_at` for rows created before migration 0011. Exact, idempotent |
 | ~~Capture taxonomy entities on page views~~ — **DONE 2026-08-13 (AECI-585)**, `taxonomy_kind` + `taxonomy_id` | `resolveEntity` mapped only `product`/`vendor`; category/audience/phase/trade ids were dropped, so ~600 rows cannot say *which* term was viewed. Two generic columns rather than four FKs: SQLite cannot point one column at four tables, and a hard FK would block ever deleting a term. The kind is stored **only** alongside an existence-checked id, so a dangling kind can never inflate a per-facet count |
 | ~~Store the concrete path alongside the route pattern~~ — **DONE 2026-08-13 (AECI-585)**, `concrete_path` | Detail-page rows store `/products/:slug`; product/vendor rows recover the name via FK, taxonomy rows cannot. `path` keeps its existing (mixed) meaning — the pattern when the writer knows one — and `concrete_path` is always the real path. The SSR `firePageView` stamps it from the request URL, so no resolver changed |
@@ -1607,7 +1693,9 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   Decomposed against production, the 102 were three separate defects, and the decision treats them differently on purpose.
 
-  **(a) The operator flag fails open on token expiry, and that is not fixable at ingest.** `is_operator` is decided once, and `lib/operator-session.ts` resolves *every* failure to `false` — deliberately, per D13's own third property, so an auth hiccup costs a flag rather than the page-view row. An expired access token is one of those failures, so an operator browsing across an expiry writes flagged rows, then unflagged rows, then flagged rows again. On 2026-08-26 that was **22 views in one 105-minute gap**, ending on `/auth/login`. The fix is a **read-side** third half of `NOT_INTERNAL`: exclude a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS` (30). That is D13's own backfill cohort — the pair, not either half — pointed at live traffic instead of at history, and for D13's measured reasons: the hash alone spans 6 ASNs across 5 countries, and the country alone was 44% false positives at 50% recall.
+  **(a) The operator flag fails open on token expiry, and the fix shipped here is read-side.** `is_operator` is decided once, and `lib/operator-session.ts` resolves *every* failure to `false` — deliberately, per D13's own third property, so an auth hiccup costs a flag rather than the page-view row. An expired access token is one of those failures, so an operator browsing across an expiry writes flagged rows, then unflagged rows, then flagged rows again. On 2026-08-26 that was **22 views in one 105-minute gap**, ending on `/auth/login`. The fix is a **read-side** third half of `NOT_INTERNAL`: exclude a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS` (30). That is D13's own backfill cohort — the pair, not either half — pointed at live traffic instead of at history, and for D13's measured reasons: the hash alone spans 6 ASNs across 5 countries, and the country alone was 44% false positives at 50% recall.
+
+  > **Correction (AECI-689, 2026-09-14).** This paragraph originally read *"and that is not fixable at ingest"*. **That was wrong, and D22 below is the counter-example** — the write side is now fixed too, by an expiry grace window rather than by a token refresh. The read-side repair above is unchanged and is still what covers an expiry older than that window. Read this paragraph as the reason the read-side repair exists, not as a claim that it is the only available layer.
 
   **It recovers 22 of the ~26, and stops there on purpose.** The other four sit on UA hashes that never carried an `is_operator = 1` row of their own, so no pair proves them. Reaching them would mean widening to the ASN — the rule D10 and D13 both already rejected. Under-reaching in a way we can name beats over-reaching in a way we cannot.
 
@@ -1713,6 +1801,20 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 - **A live §26.1 gap on a domain entity** — **AECI-591**. The `*/15` reconcile sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). That is domain state under any reading of ADR 0022's carve-out — a genuine violation, not bookkeeping, and more serious than anything this epic introduces.
 - ~~**`data-quality.ts` check #2 is unreachable**, not merely proxied (see D6) — **AECI-592**. It should be replaced by a check that asserts the invariant D6 depends on — that every `products` row reads `promotion_status='promoted'` — so the assumption cannot silently rot.~~ **Done 2026-09-13 (AECI-592).** Shipped as `promotion_status_invariant`, severity `error`, covering `vendors` as well as `products`. It also retired a **second** dead check the issue had not spotted: `broken_integration_refs` filtered for `retracted`/`rejected` endpoints, which nothing writes either, so the invariant guard subsumes it. Roster is eleven.
+
+- **D22 — A recently-expired but signature-valid admin token still flags its own traffic** (settled by AECI-689 on 2026-09-14; §5.2, §9.6, and D13/D15(a) above). D15(a) called the write-side leak unfixable at ingest and shipped a read-side repair instead. The repair works and stays, but the premise was wrong: the leak is fixable at ingest, and not by the route the issue first proposed.
+
+  **The measured defect.** `lib/operator-session.ts` resolves an expired access token to `false`, so an operator browsing across an expiry writes page views flagged as a stranger's. On 2026-08-26 that was 22 views over 105 minutes. The read-side `(user_agent_hash, cf_asn)` retro-join recovers only the rows a pair proves — 22 of ~26 that day — and the other four are unrecoverable by construction.
+
+  **Refreshing the token was the obvious fix and it is not safe.** AECI-689 proposed refreshing server-side on the SSR `/api/*` passthrough and re-issuing the cookie. Two independent blockers, either one fatal. *(i)* The leak happens while the operator browses **public** pages, which render on `handleSsr`'s cacheable branch, so a re-issued `Set-Cookie` would be stored by the native Workers Cache and served to other visitors — the "visitor-state-neutral HTML" constraint, violated at its most literal. *(ii)* Supabase **rotates** refresh tokens, so spending the browser's refresh token without handing the replacement back — which *(i)* prevents — invalidates the operator's own session after the reuse interval. That is worse than the defect it fixes. The round-trip cost the issue asked to measure was never the binding objection.
+
+  **What ships instead: the expiry clock moves, and nothing else does.** `is_operator` is **not an authorization decision** — it grants no access, reads no private data, and changes no response. It decides whether a row counts as the operator's own traffic in the operator's own analytics. So a token whose signature verifies against the project JWKS, whose issuer and audience check out, and whose `exp` passed less than `OPERATOR_TOKEN_GRACE_SECONDS` (24 h) ago is accepted for this flag alone. No refresh token, no network round trip, no cookie write, and nothing added to the anonymous path, which still returns before any crypto.
+
+  **D13's three properties all survive, which is the test this had to pass.** *(1) Server-derived, never claimed* — the signature is still verified and `profiles.role` is still re-read from D1, so forging the flag means signing a JWT with Supabase's key. *(2) Free for anonymous traffic* — unchanged; no token still returns `false` first. *(3) Never throws* — unchanged; this narrows what counts as a failure, and every remaining failure still resolves to `false`. AECI-689's own note forbids treating an **unverifiable** session as an operator, and a signature-verified token is not unverifiable — only its freshness lapsed.
+
+  **The containment is mechanical, not a convention.** The grace lives in a separately named `verifySupabaseJwtWithinGrace`, never as an option on the function the guards call, and `lib/user-auth.spec.ts` asserts that the same token 401s on the authorization path while resolving on the analytics path. If those two ever agree, one of them is wrong and a test fails.
+
+  **What it does not close, stated rather than worked around.** An expiry older than the window still writes an unflagged row, and D15(a)'s read-side retro-join remains the repair for those. The window is deliberately generous: widening it can only move a row from "counted as a visitor" to "excluded as the operator", and the only party who could exploit that already holds a validly-signed admin token. It is a report-quality knob, not a security parameter.
 
 **Proposed — not yet agreed**
 

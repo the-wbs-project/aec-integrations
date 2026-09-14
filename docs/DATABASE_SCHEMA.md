@@ -1403,6 +1403,9 @@ create table page_views (
   -- migration 0016). Written at ingest by apps/api/src/lib/operator-session.ts, which
   -- runs the same two checks lib/authz.ts does — JWKS signature verification, then a
   -- fresh profiles.role read — so this is a server-derived fact, never a client claim.
+  -- Since AECI-689 (§13 D22) the EXPIRY check alone is relaxed by 24h, so an operator
+  -- browsing across a token expiry no longer writes rows flagged as a stranger's; the
+  -- signature and role checks are untouched, so the flag stays unclaimable.
   -- It closes the half the §9.6 path exclusion cannot see: the operator browsing the
   -- PUBLIC site to check their own work. On 2026-08-19 that was 368 of 2,493 human
   -- public-page views (15%), across AS23089/US, AS23314/US and AS23700/ID as the

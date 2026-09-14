@@ -53,6 +53,26 @@
  * `metrics_daily` has not captured. A quiet day that produced no rows would
  * otherwise have no snapshot at all and block pruning forever — so the range is
  * filled edge to edge and the aggregate pass overwrites the days that had data.
+ *
+ * ─── One range per run was not enough (AECI-684) ─────────────────────────────
+ *
+ * Every series shared a single `--from`, and the eight do not all begin on the
+ * same day. `products.created_at` reaches back to 2026-06-08; `page_views` starts
+ * on 2026-06-23. The production run used `--from 2026-06-23`, so 43 products
+ * created before it were never reconstructed and `metrics_daily` has no row for
+ * them at all.
+ *
+ * **Widening `--from` is not the fix, and this is the trap worth naming.** The
+ * zero-fill above runs edge to edge over every series, so a re-run from
+ * 2026-06-08 would write `traffic.*` = 0 across a fortnight `page_views` did not
+ * exist for. A stored zero is indistinguishable from a measured one and this
+ * table is kept forever, so that trades a products gap for a permanent traffic
+ * lie — strictly worse than the gap.
+ *
+ * {@link selectSeries} is the fix: every builder takes an optional list of metric
+ * keys, and both passes narrow together, so a run can extend one series' range
+ * without zero-filling any other. `--series catalog.products_created --from
+ * 2026-06-08 --to 2026-06-22` is the recovery.
  */
 
 import {
@@ -401,17 +421,60 @@ const BACKFILLABLE_KEYS = [...ADMIN_METRIC_KEYS, ...ADMIN_SNAPSHOT_QUALITY_METRI
 /* c8 ignore stop */
 
 /**
+ * The series a run covers — every one by default, or just the named keys.
+ *
+ * **Why a series filter exists at all (AECI-684).** Every series shared one
+ * `--from`, so extending one series backwards extended all of them. The products
+ * series is reconstructible to 2026-06-08 and `page_views` only begins on
+ * 2026-06-23, so the range that recovers the 43 missing products would also
+ * zero-fill `traffic.*` across a fortnight the table did not exist for. Those
+ * zeros are indistinguishable from measured ones once written, and
+ * `metrics_daily` is kept forever — so the naive fix trades a products gap for a
+ * permanent traffic lie. Selecting the series instead keeps each one's range its
+ * own.
+ *
+ * Throws on an unknown key rather than silently selecting nothing: a typo that
+ * produced an empty run would report success having written zero rows, which is
+ * the failure mode this whole module's dry run exists to prevent.
+ */
+export function selectSeries(only?: readonly string[]): readonly BackfillSeries[] {
+  if (!only || only.length === 0) return BACKFILL_SERIES;
+  const known = new Set<string>(BACKFILL_SERIES.map((s) => s.metric));
+  const unknown = only.filter((k) => !known.has(k));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown --series key(s): ${unknown.join(', ')}. Backfillable: ${BACKFILL_SERIES.map((s) => s.metric).join(', ')}`,
+    );
+  }
+  return BACKFILL_SERIES.filter((s) => only.includes(s.metric));
+}
+
+/**
  * Placeholder rows for every `(day, metric)` in the range, at value 0 and the
  * series' own provenance.
  *
  * `DO NOTHING`, always: a zero is a stand-in for "we looked and there was
  * nothing", and it must never displace a real value — not one the aggregate pass
  * is about to write, and certainly not one the cron already captured.
+ *
+ * **`only` narrows which series are zero-filled, and that is the point of it.**
+ * What it must never do is write a placeholder `0` for a series whose source
+ * table has no rows that far back.
+ *
+ * **It does move §7.4's prune gate, and only one case is safe.** That gate asks
+ * whether the DAY is captured, not whether every series is, so a single-series
+ * run over days *outside every other series' range* leaves it exactly where it
+ * was — the same argument {@link BackfillSeries.zeroFill} already makes for
+ * opting one series out, and the case the AECI-684 products recovery is in. Over
+ * days that DO hold `page_views` rows it is the opposite: the day row satisfies
+ * the gate while `traffic.*` stays unmeasured, and the prune then deletes the
+ * only rows it could have been measured from. {@link buildPruneExposureProbe} is
+ * what counts those days, and the script refuses them without `--force`.
  */
-export function buildZeroFillStatements(range: BackfillRange): string[] {
+export function buildZeroFillStatements(range: BackfillRange, only?: readonly string[]): string[] {
   const rows: string[] = [];
   for (const day of daysInRange(range)) {
-    for (const series of BACKFILL_SERIES) {
+    for (const series of selectSeries(only)) {
       if (series.zeroFill === false) continue;
       rows.push(`(${q(day)}, ${q(series.metric)}, 0, ${q(series.source)}, ${q(range.computedAt)})`);
     }
@@ -456,8 +519,8 @@ function appliesOverExistingSql(series: BackfillSeries, table: string): string |
  * reconstructed. That single asymmetry is what lets this run any number of times,
  * in any order relative to the cron, without ever degrading a real snapshot.
  */
-export function buildAggregateStatements(range: BackfillRange): string[] {
-  return BACKFILL_SERIES.map((series) => {
+export function buildAggregateStatements(range: BackfillRange, only?: readonly string[]): string[] {
+  return selectSeries(only).map((series) => {
     const applies = appliesOverExistingSql(series, 'metrics_daily');
     const guard = applies ? ` WHERE ${applies}` : '';
     return (
@@ -475,9 +538,14 @@ export function buildAggregateStatements(range: BackfillRange): string[] {
 }
 
 /** Zero-fill first, then the aggregates — the order matters only in that the
- *  aggregates must be able to overwrite the placeholders. */
-export function buildMetricsBackfillStatements(range: BackfillRange): string[] {
-  return [...buildZeroFillStatements(range), ...buildAggregateStatements(range)];
+ *  aggregates must be able to overwrite the placeholders. `only` narrows both
+ *  passes to the same series, so a single-series run can never zero-fill a series
+ *  it is not going to aggregate. */
+export function buildMetricsBackfillStatements(
+  range: BackfillRange,
+  only?: readonly string[],
+): string[] {
+  return [...buildZeroFillStatements(range, only), ...buildAggregateStatements(range, only)];
 }
 
 /**
@@ -541,8 +609,11 @@ export interface ValueDiffProbe {
  * (migration `0019`) turns that join into a covering-index search; without it
  * the planner scans `op` once per candidate row.
  */
-export function buildValueDiffProbes(range: BackfillRange): ValueDiffProbe[] {
-  return BACKFILL_SERIES.map((series) => {
+export function buildValueDiffProbes(
+  range: BackfillRange,
+  only?: readonly string[],
+): ValueDiffProbe[] {
+  return selectSeries(only).map((series) => {
     const applies = appliesOverExistingSql(series, 'stored');
     // An absent stored row is always in scope: there is no prior provenance for
     // the precedence rule to protect, and the run will insert it.
@@ -587,6 +658,37 @@ export function buildUnclassifiedProbe(range: BackfillRange): string {
   );
 }
 
+/**
+ * Days in the range that hold `page_views` rows but no `metrics_daily` row at
+ * all — the days a catalog-only `--series` run would silently make prunable.
+ *
+ * **This is the one way `--series` can destroy data, and it is not obvious.**
+ * `findSnapshotGap` (`lib/retention-prune.ts`) treats the presence of ANY
+ * `metrics_daily` row for a day as that day being captured — deliberately, since
+ * stocks can never be reconstructed and an all-keys test would deadlock the prune
+ * forever. Before AECI-684 that was safe, because every run wrote all eight
+ * series, so a captured day really did carry its traffic. A `--series
+ * catalog.*` run writes the day row without writing `traffic.*`, which satisfies
+ * the gate on a day whose traffic was never measured. The next retention run then
+ * deletes those raw `page_views` rows, and `page_views` is the only source they
+ * could ever have been reconstructed from.
+ *
+ * The documented 2026-06-08 → 06-22 products recovery returns 0 here, because
+ * `page_views` does not begin until 06-23 — which is why the trap is easy to miss.
+ * The script refuses a non-zero result without `--force`, mirroring the AECI-582
+ * gate above: both guard a table §7.4 keeps forever against a loss that cannot be
+ * undone later.
+ */
+export function buildPruneExposureProbe(range: BackfillRange): string {
+  const { startIso, endIso } = isoBounds(range);
+  return (
+    `SELECT count(*) AS days FROM (` +
+    `SELECT DISTINCT substr("created_at", 1, 10) AS day FROM page_views ` +
+    `WHERE "created_at" >= ${q(startIso)} AND "created_at" < ${q(endIso)}` +
+    `) pv WHERE NOT EXISTS (SELECT 1 FROM metrics_daily md WHERE md."day" = pv.day)`
+  );
+}
+
 /** Earliest and latest day with any data the backfill could reconstruct — the
  *  default range when the operator does not pass `--from`/`--to`. */
 export function buildRangeProbe(): string {
@@ -608,13 +710,25 @@ export function buildRangeProbe(): string {
  * would read 0 on a run that wrote thousands of rows — an operator would
  * reasonably conclude nothing happened. Counting the rows is the honest
  * confirmation, and it doubles as the §7.4 coverage check the pruning cron needs.
+ *
+ * `only` scopes it to the series the run actually wrote. Unscoped it answers the
+ * prune question (is this DAY captured at all); scoped it answers the operator's
+ * question after a single-series run (did MY series land). Those are different
+ * questions and a single-series run wants the second one — unscoped, it would
+ * count every other metric's pre-existing rows and read as success regardless.
  */
-export function buildCoverageProbe(range: BackfillRange): string {
+export function buildCoverageProbe(range: BackfillRange, only?: readonly string[]): string {
+  const scoped =
+    only && only.length > 0
+      ? ` AND "metric" IN (${selectSeries(only)
+          .map((s) => q(s.metric))
+          .join(', ')})`
+      : '';
   return (
     `SELECT count(*) AS rows_total, ` +
     `count(DISTINCT day) AS days_covered, ` +
     `sum(CASE WHEN "source" = 'reconstructed' THEN 1 ELSE 0 END) AS reconstructed ` +
-    `FROM metrics_daily WHERE day >= ${q(range.fromDay)} AND day <= ${q(range.toDay)}`
+    `FROM metrics_daily WHERE day >= ${q(range.fromDay)} AND day <= ${q(range.toDay)}${scoped}`
   );
 }
 

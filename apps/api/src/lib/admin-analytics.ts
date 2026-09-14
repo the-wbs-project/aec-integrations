@@ -1226,6 +1226,88 @@ export async function earliestAuditDay(db: Db): Promise<string | null> {
   return row?.day ?? null;
 }
 
+/**
+ * `catalog.*` series whose RECONSTRUCTED segment is measured from the catalog
+ * table itself rather than from `audit_log` (AECI-684 / §4's exception, §7.1).
+ *
+ * **This is a property of one segment, not of the series.** On `basis=additions`
+ * the live fallback and the 00:15 cron both count `*.created` events via
+ * {@link CATALOG_ACTION} — `metrics-snapshot.ts` routes every catalog key through
+ * `computeFlowMetric`, which is `metricSeries` — while `metrics-backfill.ts`
+ * reconstructs the pre-snapshot days from `products.created_at`. So a window
+ * spanning the snapshot boundary is served from two different definitions, and
+ * §7.1 adopts that split deliberately: `product.created` covers 131 of 171 rows,
+ * and `products.created_at` IS the exact first-promote timestamp (§13 D6).
+ *
+ * Named here so {@link earliestCatalogRowDay} and the route's notes can say which
+ * series that applies to instead of asserting "the audit log" for all four. It
+ * has exactly one member, and adding a second is a decision rather than a
+ * refactor — see AECI-684's open question on `catalog.vendors_created`.
+ */
+const CATALOG_MEASURED_BACKFILL: Partial<Record<AdminMetricKey, string>> = {
+  'catalog.products_created': 'products.created_at',
+};
+
+/**
+ * Where a `catalog.*` series' two `basis=additions` segments actually come from.
+ *
+ * `liveAction` is the `audit_log.action` the cron and the live fallback count.
+ * `reconstructedFrom` is the column `metrics-backfill.ts` measures the
+ * pre-snapshot days from, or null when that series reconstructs from `audit_log`
+ * too — which is the case for three of the four, and is why the un-split note
+ * text stayed correct for them.
+ */
+export function catalogSeriesProvenance(
+  metric: AdminMetricKey,
+): { liveAction: string; reconstructedFrom: string | null } | null {
+  const liveAction = CATALOG_ACTION[metric];
+  if (!liveAction) return null;
+  return { liveAction, reconstructedFrom: CATALOG_MEASURED_BACKFILL[metric] ?? null };
+}
+
+/**
+ * The earliest `created_at` in the catalog table behind `metric` — the true floor
+ * of a {@link CATALOG_MEASURED_BACKFILL} series, which is NOT the audit log's.
+ *
+ * Surviving rows only, so this floor can rise as old rows are removed. That is
+ * the same restatement `catalog_series_is_surviving_rows` declares for
+ * `basis=net`, and it is why the note built on this reports it as the catalog's
+ * own first row rather than as the series' permanent start.
+ */
+export async function earliestCatalogRowDay(
+  db: Db,
+  metric: AdminMetricKey,
+): Promise<string | null> {
+  const source = CATALOG_NET_SOURCE[metric];
+  /* c8 ignore next -- callers gate on catalogSeriesProvenance().reconstructedFrom, whose keys are a subset. */
+  if (!source) return null;
+  const [row] = await db
+    .select({ day: sql<string | null>`min(substr(${source.createdAt}, 1, 10))` })
+    .from(source.table);
+  return row?.day ?? null;
+}
+
+/**
+ * The earliest day `metrics_daily` actually holds for `metric`, or null when it
+ * holds none.
+ *
+ * Read so the route can disclose AECI-684's Defect 2 — the production backfill
+ * was run with an explicit `--from 2026-06-23`, so the stored segment starts
+ * after the catalog does and 43 products fall outside it. A caller asking for a
+ * window that reaches before the stored floor gets zeros with no way to tell a
+ * quiet period from an un-backfilled one, which is exactly what §1.1 forbids.
+ */
+export async function earliestStoredMetricDay(
+  db: Db,
+  metric: AdminMetricKey,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ day: sql<string | null>`min(${metricsDaily.day})` })
+    .from(metricsDaily)
+    .where(eq(metricsDaily.metric, metric));
+  return row?.day ?? null;
+}
+
 /** The caveats every `page_views`-derived response owes its reader, derived from
  *  the window's actual contents and from the figures the caller is reporting.
  *

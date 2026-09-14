@@ -47,11 +47,15 @@ afterEach(() => t.dispose());
 async function ask(
   headers: Record<string, string>,
   env: Partial<Env> = { SUPABASE_URL },
+  graceSeconds?: number,
 ): Promise<boolean> {
   let verdict: boolean | undefined;
   const app = new Hono<{ Bindings: Env }>();
   app.get('/', async (c) => {
-    verdict = await isOperatorRequest(c, t.db, { getKey });
+    verdict = await isOperatorRequest(c, t.db, {
+      getKey,
+      ...(graceSeconds === undefined ? {} : { graceSeconds }),
+    });
     return c.body(null, 204);
   });
   await app.request('/', { headers }, env as Env);
@@ -108,13 +112,7 @@ describe('isOperatorRequest', () => {
     expect(await ask({ Authorization: `Bearer ${token}`, 'x-aeci-role': 'admin' })).toBe(false);
   });
 
-  it('is false for an expired token, a garbage token, and an unknown subject', async () => {
-    const expired = await mintToken({
-      sub: ADMIN_ID,
-      supabaseUrl: SUPABASE_URL,
-      expiresIn: '-1h',
-    });
-    expect(await ask({ Authorization: `Bearer ${expired}` })).toBe(false);
+  it('is false for a garbage token and an unknown subject', async () => {
     expect(await ask({ Authorization: 'Bearer not-a-jwt' })).toBe(false);
 
     const orphan = await mintToken({
@@ -122,6 +120,72 @@ describe('isOperatorRequest', () => {
       supabaseUrl: SUPABASE_URL,
     });
     expect(await ask({ Authorization: `Bearer ${orphan}` })).toBe(false);
+  });
+
+  // ── AECI-689: the expiry grace window (§13 D15(a)) ────────────────────────
+  describe('a recently-expired token still flags its own traffic', () => {
+    it('is TRUE for a token that expired inside the grace window', async () => {
+      // The measured defect: an operator browsing across an hourly expiry wrote
+      // 22 page views as a stranger over 105 minutes on 2026-08-26. This is the
+      // assertion that used to read `false` and was the bug.
+      const expired = await mintToken({
+        sub: ADMIN_ID,
+        supabaseUrl: SUPABASE_URL,
+        expiresIn: '-1h',
+      });
+      expect(await ask({ Authorization: `Bearer ${expired}` })).toBe(true);
+    });
+
+    it('is true on the cookie path too, which is how a real arrival arrives', async () => {
+      // The bearer form only exists over the service binding. A browsing
+      // operator's token rides the `/api/*` passthrough as a cookie, so a fix
+      // that only reached the bearer path would not have touched the defect.
+      const expired = await mintToken({
+        sub: ADMIN_ID,
+        supabaseUrl: SUPABASE_URL,
+        expiresIn: '-90m',
+      });
+      const cookie = `sb-test-project-auth-token=base64-${btoa(
+        JSON.stringify({ access_token: expired }),
+      )}`;
+      expect(await ask({ Cookie: cookie })).toBe(true);
+    });
+
+    it('is FALSE once the expiry is older than the window', async () => {
+      // The window is bounded. Past it, the read-side pair retro-join is the
+      // repair, exactly as before this change.
+      const expired = await mintToken({
+        sub: ADMIN_ID,
+        supabaseUrl: SUPABASE_URL,
+        expiresIn: '-2h',
+      });
+      expect(await ask({ Authorization: `Bearer ${expired}` }, { SUPABASE_URL }, 60 * 60)).toBe(
+        false,
+      );
+    });
+
+    it('still re-reads profiles.role, so expiry grace is not role grace', async () => {
+      // The grace moves the clock and NOTHING else. A non-admin with an expired
+      // token inside the window is still not the operator.
+      const expired = await mintToken({
+        sub: USER_ID,
+        supabaseUrl: SUPABASE_URL,
+        expiresIn: '-1h',
+      });
+      expect(await ask({ Authorization: `Bearer ${expired}` })).toBe(false);
+    });
+
+    it('still requires a real signature, so the flag stays unclaimable', async () => {
+      // §13 D13's first property. A token signed by anyone else is rejected
+      // whatever its expiry says — the grace window is not a way in.
+      const foreign = await makeTestJwks();
+      const token = await foreign.mintToken({
+        sub: ADMIN_ID,
+        supabaseUrl: SUPABASE_URL,
+        expiresIn: '-1h',
+      });
+      expect(await ask({ Authorization: `Bearer ${token}` })).toBe(false);
+    });
   });
 
   it('is false when SUPABASE_URL is unset', async () => {

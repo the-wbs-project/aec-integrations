@@ -91,12 +91,62 @@ export async function verifySupabaseJwt(
   supabaseUrl: string,
   getKey?: JWTVerifyGetKey,
 ): Promise<AuthenticatedUser> {
+  return verifyWithClockTolerance(token, supabaseUrl, 0, getKey);
+}
+
+/**
+ * The same verification as {@link verifySupabaseJwt}, but tolerating a token
+ * whose `exp` passed up to `graceSeconds` ago (AECI-689).
+ *
+ * **This must never be used to authorize anything, and the name is the guard.**
+ * There is exactly one legitimate caller — `lib/operator-session.ts`, deciding
+ * the `page_views.is_operator` analytics flag — and the distinction that makes
+ * it sound is that `is_operator` is not an authorization decision. It grants no
+ * access, reads no private data and changes no response. It decides whether a
+ * row counts as the operator's own traffic in the operator's own analytics
+ * (`ADMIN_PANEL_SPEC.md` §13 D13).
+ *
+ * **What is still enforced, and why §13 D13's first property survives intact.**
+ * The signature is verified against the project's JWKS exactly as above, and the
+ * issuer and audience are still checked. Only the expiry clock moves. So the
+ * token remains *server-derived, never claimed*: a caller cannot assert their
+ * way into the flag, because forging one means signing a JWT with Supabase's
+ * key. An expired-but-validly-signed token is not a usable credential, but it is
+ * conclusive evidence of **who is holding the browser**, which is the only
+ * question `is_operator` asks.
+ *
+ * The failure it exists to stop is real and measured: on 2026-08-26 an operator
+ * browsed for 105 minutes across a token expiry and wrote 22 page views flagged
+ * as a stranger's (§13 D15(a)).
+ *
+ * `apps/api/src/lib/user-auth.spec.ts` pins that `requireUserAuth` and
+ * `lib/authz.ts` still reject an expired token, so this cannot leak sideways
+ * without a test failing.
+ */
+export async function verifySupabaseJwtWithinGrace(
+  token: string,
+  supabaseUrl: string,
+  graceSeconds: number,
+  getKey?: JWTVerifyGetKey,
+): Promise<AuthenticatedUser> {
+  return verifyWithClockTolerance(token, supabaseUrl, graceSeconds, getKey);
+}
+
+async function verifyWithClockTolerance(
+  token: string,
+  supabaseUrl: string,
+  clockTolerance: number,
+  getKey?: JWTVerifyGetKey,
+): Promise<AuthenticatedUser> {
   let sub: string | undefined;
   let email: string | undefined;
   try {
     const { payload } = await jwtVerify(token, getKey ?? remoteJwks(supabaseUrl), {
       issuer: `${supabaseUrl}/auth/v1`,
       audience: 'authenticated',
+      // `jose` applies this to `exp` AND `nbf`. Zero for every authorization
+      // caller, which is the default this file shipped with.
+      clockTolerance,
     });
     sub = payload.sub;
     email = typeof payload['email'] === 'string' ? payload['email'] : undefined;

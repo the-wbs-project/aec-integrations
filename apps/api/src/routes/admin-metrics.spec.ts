@@ -207,6 +207,147 @@ describe('GET /api/admin/metrics/timeseries — the metric vocabulary', () => {
     expect(flag?.params?.earliest_day).toBe('2026-08-10');
   });
 
+  // ── AECI-684: the two catalog notes are per metric, not per namespace ───────
+  describe('catalog provenance notes are metric-aware (AECI-684)', () => {
+    const PA = u(2001);
+
+    it('does not tell a products caller the series comes from the audit log', async () => {
+      await t.db
+        .insert(auditLog)
+        .values([
+          { actorType: 'system', action: 'product.created', createdAt: '2026-08-10T01:00:00.000Z' },
+        ]);
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-10T01:00:00.000Z' }]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-09&to=2026-08-10');
+      const additions = body.notes.find((n) => n.code === 'catalog_series_is_additions_only');
+      // The message must name BOTH halves: the series is served from the audit
+      // log live and from products.created_at where it was reconstructed.
+      expect(additions?.params?.reconstructed_from).toBe('products.created_at');
+      expect(additions?.params?.live_source).toBe('product.created');
+      expect(additions?.message).toContain('products.created_at');
+    });
+
+    it('leaves the other three series on the unqualified audit-log text', async () => {
+      await t.db.insert(auditLog).values([
+        {
+          actorType: 'system',
+          action: 'integration.created',
+          createdAt: '2026-08-10T01:00:00.000Z',
+        },
+      ]);
+      const body = await series(
+        'metric=catalog.integrations_created&from=2026-08-09&to=2026-08-10',
+      );
+      const additions = body.notes.find((n) => n.code === 'catalog_series_is_additions_only');
+      expect(additions?.params?.reconstructed_from).toBeUndefined();
+      expect(additions?.message).toContain('creation events from the audit log');
+    });
+
+    it('floors the products series on the catalog, not on the audit log', async () => {
+      // The audit log starts LATER than the catalog — the production shape, where
+      // 43 products predate the log's first row. Keying the note on the log would
+      // report the wrong floor by exactly that gap.
+      await t.db
+        .insert(auditLog)
+        .values([
+          { actorType: 'system', action: 'product.created', createdAt: '2026-08-10T01:00:00.000Z' },
+        ]);
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-05T01:00:00.000Z' }]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-01&to=2026-08-10');
+      const flag = body.notes.find((n) => n.code === 'catalog_series_starts_at');
+      expect(flag?.params?.earliest_day).toBe('2026-08-05');
+      expect(flag?.params?.source).toBe('products.created_at');
+    });
+
+    it('discloses a stored floor later than the catalog floor as an unfilled gap', async () => {
+      // Defect 2's exact production shape: the catalog reaches back to 08-05 but
+      // the backfill was run from 08-08, so 08-05→08-07 read zero because nobody
+      // reconstructed them. Without this the caller cannot tell that from a quiet
+      // period.
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-05T01:00:00.000Z' }]);
+      await t.db.insert(metricsDaily).values([
+        {
+          day: '2026-08-08',
+          metric: 'catalog.products_created',
+          value: 0,
+          source: 'measured',
+          computedAt: '2026-08-11T00:15:00.000Z',
+        },
+      ]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-01&to=2026-08-10');
+      const flag = body.notes.find((n) => n.code === 'catalog_series_starts_at');
+      expect(flag?.params?.earliest_day).toBe('2026-08-05');
+      expect(flag?.params?.stored_from).toBe('2026-08-08');
+      expect(flag?.message).toContain('--series catalog.products_created');
+    });
+
+    it('omits stored_from once the stored segment reaches the catalog floor', async () => {
+      // The UI picks its prose off the presence of `stored_from` alone, so
+      // emitting it on a caught-up series would have the screen announce a gap
+      // between two identical dates while the message said the opposite.
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-05T01:00:00.000Z' }]);
+      await t.db.insert(metricsDaily).values([
+        {
+          day: '2026-08-05',
+          metric: 'catalog.products_created',
+          value: 1,
+          source: 'measured',
+          computedAt: '2026-08-11T00:15:00.000Z',
+        },
+      ]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-01&to=2026-08-10');
+      const flag = body.notes.find((n) => n.code === 'catalog_series_starts_at');
+      expect(flag?.params?.earliest_day).toBe('2026-08-05');
+      expect(flag?.params?.stored_from).toBeUndefined();
+      expect(flag?.message).toContain('products.created_at begins 2026-08-05');
+    });
+
+    it('stays silent when the stored segment already reaches the catalog floor', async () => {
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-05T01:00:00.000Z' }]);
+      await t.db.insert(metricsDaily).values([
+        {
+          day: '2026-08-05',
+          metric: 'catalog.products_created',
+          value: 1,
+          source: 'measured',
+          computedAt: '2026-08-11T00:15:00.000Z',
+        },
+      ]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-05&to=2026-08-10');
+      // Window starts exactly at the floor and nothing is unfilled, so there is
+      // no leading run of zeros to explain.
+      expect(body.notes.map((n) => n.code)).not.toContain('catalog_series_starts_at');
+    });
+
+    it('emits neither audit-log note on basis=net', async () => {
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-10T01:00:00.000Z' }]);
+      const body = await series(
+        'metric=catalog.products_created&from=2026-08-09&to=2026-08-10&basis=net',
+      );
+      const codes = body.notes.map((n) => n.code);
+      expect(codes).not.toContain('catalog_series_is_additions_only');
+      expect(codes).not.toContain('catalog_series_starts_at');
+      expect(codes).toContain('catalog_series_is_surviving_rows');
+    });
+  });
+
   it('sources new sign-ins from profiles.created_at', async () => {
     await t.db.insert(profiles).values([
       { id: u(1), role: 'reviewer', createdAt: '2026-08-10T01:00:00.000Z' },

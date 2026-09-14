@@ -22,7 +22,12 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { logToPosthog } from '../posthog';
 import { createAuthWhoamiHandler } from '../routes/auth-whoami';
-import { requireUserAuth, type UserAuthVariables } from './user-auth';
+import {
+  requireUserAuth,
+  verifySupabaseJwt,
+  verifySupabaseJwtWithinGrace,
+  type UserAuthVariables,
+} from './user-auth';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ISSUER = `${SUPABASE_URL}/auth/v1`;
@@ -108,6 +113,28 @@ describe('requireUserAuth', () => {
     const token = await mintToken({ expiresIn: '-1h' });
     const { status } = await call({}, bearer(token));
     expect(status).toBe(401);
+  });
+
+  // AECI-689 added `verifySupabaseJwtWithinGrace` for the `is_operator`
+  // analytics flag. It must never reach an authorization path, and this is the
+  // assertion that fails if it ever does. The grace is 24h, so a token expired
+  // an hour ago is the case that separates the two.
+  it('does NOT inherit the operator-flag expiry grace', async () => {
+    const token = await mintToken({ expiresIn: '-1h' });
+
+    // The authorization path: still 401.
+    const { status } = await call({}, bearer(token));
+    expect(status).toBe(401);
+    await expect(verifySupabaseJwt(token, SUPABASE_URL, getKey)).rejects.toThrow();
+
+    // The analytics path, same token: accepted, because it is not a credential
+    // decision. If these two ever agree, one of them is wrong.
+    await expect(
+      verifySupabaseJwtWithinGrace(token, SUPABASE_URL, 24 * 60 * 60, getKey),
+    ).resolves.toMatchObject({ userId: expect.any(String) });
+
+    // And the grace is bounded, not infinite.
+    await expect(verifySupabaseJwtWithinGrace(token, SUPABASE_URL, 60, getKey)).rejects.toThrow();
   });
 
   it('rejects a wrong issuer', async () => {
