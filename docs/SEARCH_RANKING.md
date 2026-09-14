@@ -42,35 +42,60 @@ The preview gap matters in practice: `lighthouse.yml` measures `/search` against
 
 > **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
 
-**Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
-
-### 1.1 How settings actually reach an index
-
-One command applies every index's settings for one environment:
-
-```bash
-pnpm algolia:apply-settings --env <preview|staging|demo|production>
-# → scripts/algolia/apply-settings.mjs → applyIndexSettings(client, env)
-```
-
-It is idempotent, prints no secrets, and per run issues **7 `setSettings` calls** — the three primaries plus the four sort replicas, which re-receive `searchableAttributes` / `attributesForFaceting` / `customRanking` verbatim and differ only in `ranking` (§5a). That is why a new facet needs no separate replica step: the `/search` facet rail keeps working under every sort automatically.
-
-| Environment | How settings are applied |
-|---|---|
-| `staging` | CI — `.github/workflows/deploy.yml` ("Update Algolia staging index settings") |
-| `demo` | CI — `.github/workflows/promote-to-demo.yml` |
-| `production` | CI — `.github/workflows/promote-to-prod.yml` |
-| **`preview`** | **No CI step — an operator must run the command by hand.** |
-
-The preview gap matters in practice: `lighthouse.yml` measures `/search` against the **preview** indexes, so a settings change that lands in code but not on preview is invisible there until someone runs the command. It degrades gracefully rather than erroring (Algolia returns no values for an unconfigured facet attribute, and the widget renders nothing), so it is a hygiene step, not a release blocker.
-
-> **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
-
-**Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
+**Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync does not substitute *as it normally runs*: it selects on an `updated_at` watermark and so only carries rows that were actually touched. It **can** be made to sweep one entity whole, without clearing the index — see §1.2.
 
 **Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
 
 **And it is asserted, not merely documented (AECI-610).** The entitlement vocabulary (`packages/shared/src/entitlements.ts`) and the ranking vocabulary defined here are both pure data in the same package, so `packages/shared/src/entitlements.spec.ts` proves they are **disjoint sets**: no capability id appears in the union of every entity's `searchableAttributes ∪ attributesForFaceting ∪ customRanking`, and none of `verified` / `tier` / `entitlement` / `status` / `paid` / `plan` appears in it either. That test plus the per-entity `customRanking` freezes in `algolia.spec.ts` are the two halves of the firewall. Both are **invariant tests** (`STAGE_2_PAID_TIERS_SPEC.md` §10) — a ranking change that trips one is not a test to update, it is a decision to reopen.
+
+### 1.2 Forcing one full sweep without clearing the index (AECI-880)
+
+There is a third repair path between "wait for tonight's window" and "clear and rebuild",
+and it is the cheapest of the three. Reach for it when records are **missing** from an
+index (positive drift) but the index itself is otherwise correct.
+
+`apps/api/src/lib/algolia-sync.ts` keeps one `stats_cache` row, keyed
+`algolia_sync_watermark`, holding a per-entity ISO timestamp:
+
+```json
+{ "products": "…", "vendors": "…", "integrations": "…" }
+```
+
+`readWatermark()` reads a missing or epoch field as `new Date(0).toISOString()`, which makes
+that entity's next 08:00 UTC run a **full sweep of its whole membership**. So writing the
+epoch sentinel into one field forces one catch-up pass over one entity. The index is never
+emptied, so search keeps serving throughout — which is the difference that matters against
+the datatool's `POST /api/reindex`, whose CLEAR step returns zero hits for the duration.
+
+```
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --apply --allow-production
+```
+
+Five things to know before using it.
+
+- **The sweep is not immediate.** The only producer of the `sync` job is the cron dispatch in
+  `apps/api/src/scheduled.ts`; there is no HTTP route, no queue send, and no CLI that invokes
+  the sync for one entity against a deployed Worker. Resetting the watermark schedules the
+  repair for the next 08:00 UTC run, it does not perform it.
+- **Reset one field, not the row.** Deleting the row resets all three entities and sweeps the
+  whole catalog for no reason. The script rewrites the other fields byte-identically.
+- **It does not stamp `computed_at`.** That column is the admin panel's derived
+  "when did `algolia-sync` last run" signal (`CRON_DERIVATIONS`, `routes/admin-system.ts`), so
+  stamping it would report a sync that never happened.
+- **No audit row is owed.** `stats_cache` is derived state (ADR 0022). Do not add one.
+- **It only fixes MISSING records.** Records that are in the index and should not be are
+  orphans, and they are the drift reconciler's job
+  (`pnpm --filter @aeci/api db:reconcile-algolia-drift`), not this one.
+
+**The worked case.** Migration `0027` moved the connector-evidenced-pair population between
+tables with their ids *and* their `updated_at` verbatim. Every one of those rows landed behind
+the `integrations` watermark, so the nightly window never reached them and never would. They
+counted in the D1 membership and were absent from the index, which is the drift AECI-880
+reported: `production_integrations`, 950 indexed against 972 promoted. The check was right and
+the index was short. See `scripts/ops/2026-09-algolia-integration-watermark-reset/README.md`.
+
+---
 
 ---
 

@@ -17,6 +17,15 @@
  * window, so an older record needs a full rebuild (the datatool's
  * `POST /api/reindex`) rather than another sync (AECI-789).
  *
+ * **Or a watermark reset, which is cheaper than either (AECI-880).** Writing the
+ * epoch sentinel into one entity's field of the `algolia_sync_watermark` row makes
+ * the next 08:00 run sweep that entity's whole membership, without clearing the
+ * index — so search keeps serving throughout, which `POST /api/reindex` cannot
+ * promise. That is the right repair for a positive drift whose rows are simply
+ * older than every window that has ever run. See
+ * `scripts/ops/2026-09-algolia-integration-watermark-reset/` and
+ * `docs/SEARCH_RANKING.md` §1.2.
+ *
  * Default is a DRY-RUN (report only, delete nothing). `--apply` removes orphans;
  * the core's safety cap refuses an unexpectedly large purge unless `--force`.
  *
