@@ -1263,8 +1263,8 @@ gone. Those entries are **parked**: reported, never deleted, never confirmed. Th
 `ops:retract-product`, and leaving them pending is the harmless direction. An entry with a
 missing `entity` is parked for the same reason.
 
-Run state as of **2026-09-14: 233 of 233 deleted and confirmed, 0 held, feed empty.** It got
-there in three runs — 214, then the 2 that first run held back, then a further 17 — and the gap
+Run state as of **2026-09-14: 254 of 254 deleted and confirmed, 0 held, feed empty.** It got
+there in four runs — 214, then the 2 that first run held back, then 17, then 21 — and the gap
 between the first two is the part worth reading.
 
 The 2026-09-13 run took 214 and **held 2** — the Agave ERP Sync connector pairs carrying 21 claims
@@ -1308,7 +1308,10 @@ for the surface.
 backlog. On 2026-09-14 the lane took its first *routine* batch: AECI-889 batch 1 retired 17
 Agave ERP Sync duplicates that were simultaneously a built edge and a reachable pair, and the
 17 journal entries were consumed the same day they were written. That is the intended cadence,
-and AECI-889 has three catalogues left, so expect it to repeat.
+and it repeated within hours: the fourth run took AECI-889 batches 2 and 3 together — 1 Trimble
+App Xchange entry and 20 Aquifer entries, 21 rows, all in `connector_evidenced_pairs` — and
+drained them the same day. AECI-889 has **Kroo** left plus the MindCloud check, with Zapier
+deferred; Kroo's rows are unpromoted, so that batch may journal nothing at all.
 
 That batch also set the lane's cascade record — **169 claims and 169 attestations**, against the
 21 the previous hold agonised over. It was safe for one reason: upstream's `reanchor_claims`
@@ -1320,6 +1323,13 @@ twin, no twin short. The reach population read 190 before the delete and 190 aft
 **Compare per pair, not in aggregate.** A cohort whose totals match while one pair is 12 over and
 another 12 short passes an aggregate check and destroys rulings anyway. The aggregate cannot
 see it; the per-pair join can. That is now the documented shape for raising the ceiling.
+
+**And take the cascade from a dry run against this database, never from the upstream report.**
+Batches 2 and 3 reported **0 claims cascaded** upstream and the real AECi figure was **4**,
+because `reanchor_claims` moves the review app's own claims off the record before the upstream
+delete while the AECi delivered copies stay put — a promote creates the reach copies and cannot
+remove the delivered ones. The two numbers answer different questions and only the dry run
+answers the one the ceiling is guarding.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

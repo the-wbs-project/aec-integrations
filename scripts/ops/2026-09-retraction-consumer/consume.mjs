@@ -127,11 +127,13 @@ const D1_ENVS = {
 // EVERY NUMBER BELOW IS RE-PINNED PER RUN, AND RESET TO ZERO AFTER IT. The 2026-09-13 run
 // (AECI-882) was authorised against a 216-entry feed at a ceiling of 1 / 1; the 2026-09-14
 // run (AECI-909) against the 2 entries that run held back, at 21 / 21; the second 2026-09-14
-// run (AECI-889 batch 1, Agave) against 17 / 17 / 0 at 169 / 169. All three authorisations
-// are spent, so everything is back to zero and the next run refuses until an operator measures
-// the cohort in front of them. An authorisation carried over from a previous cohort is not
-// a guard — a later cohort of the same shape would match it by coincidence. The run record
-// lives in this lane's README; the guard holds only what the NEXT run is allowed to do.
+// run (AECI-889 batch 1, Agave) against 17 / 17 / 0 at 169 / 169; the third (AECI-889
+// batches 2 + 3, Trimble App Xchange and Aquifer, taken in ONE run) against 21 / 21 / 0 at
+// 4 / 4. All four authorisations are spent, so everything is back to zero and the next run
+// refuses until an operator measures the cohort in front of them. An authorisation carried
+// over from a previous cohort is not a guard — a later cohort of the same shape would match
+// it by coincidence. The run record lives in this lane's README; the guard holds only what
+// the NEXT run is allowed to do.
 
 /**
  * Entries held back on a recorded decision, keyed by `supabaseId` — the AECi row id,
@@ -171,11 +173,13 @@ const HOLD_REASON =
  *
  * ZERO, because the feed is empty as of 2026-09-14 — that is the CURRENT shape, and it is
  * also the only pin that fails closed. A shape carried over from the cohort that just ran
- * is not a guard: the AECI-889 batch-1 run was authorised against `17 / 17 / 0`, and leaving
- * that here would have let the NEXT seventeen-pair cohort match by coincidence and pass
- * unruled. AECI-889's I24 batches now DO journal deletes — batch 1 (Agave) is done and three
- * catalogues remain — so the next operator re-measures these three (and `MAX_CASCADE`) from
- * the feed they actually see. What ran before is in this lane's README, not in the guard.
+ * is not a guard: the AECI-889 batch-1 run was authorised against `17 / 17 / 0` and the
+ * batches 2 + 3 run against `21 / 21 / 0`, and leaving either here would have let the next
+ * cohort of that size match by coincidence and pass unruled. AECI-889's I24 batches DO
+ * journal deletes — Agave, Trimble App Xchange and Aquifer are done, Kroo and the MindCloud
+ * check remain, Zapier is deferred — so the next operator re-measures these three (and
+ * `MAX_CASCADE`) from the feed they actually see. What ran before is in this lane's README,
+ * not in the guard.
  *
  * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Parked entries (see step
  * 1b) are outside the cohort and cannot move it. An empty feed never reaches this gate —
@@ -192,7 +196,9 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * legitimately raised it to `169 / 169`, the largest this lane has authorised — but that
  * belonged to those 17 ids only. Left at 169 it would have silently pre-authorised 169
  * rulings' worth of cascade for whatever arrives next, which is the one edit in this lane
- * that can destroy data.
+ * that can destroy data. The batches 2 + 3 run that followed needed only `4 / 4`, which is
+ * the same point from the other side: a 21-row cohort is not a bigger cascade than a
+ * 17-row one, so the ceiling has to come from the rows, never from the row COUNT.
  *
  * Raising it is a ruling, not a measurement. Before you do: confirm BY COUNT that every
  * claim it will cascade away already exists somewhere else — and confirm it PER PAIR, not
@@ -207,6 +213,12 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * a twin, zero twins short. The whole reach population was then re-counted after the delete
  * and read 190 both times. Without that check this guard is the only thing standing between
  * a run and rulings that exist nowhere else on earth.
+ *
+ * Batches 2 + 3 ran the identical join over all 21 rows even though only ONE carried claims.
+ * That is deliberate: 20 rows reading `0 delivered / 0 reach` is evidence, and running the
+ * join only on the row you already believe carries claims assumes the delivered count you
+ * are trying to check. Every one of the 21 resolved to a twin, and the one live App Xchange
+ * pair matched 4 = 4 object for object and direction for direction.
  */
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
