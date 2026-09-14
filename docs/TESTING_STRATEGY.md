@@ -840,6 +840,8 @@ If a test needs to create data (e.g. submit a review), it creates it with a uniq
 
 A nightly job cleans up test-created data from preview Supabase to prevent buildup.
 
+**CI worker count is under trial (AECI-918).** `apps/web/playwright.config.ts` runs 2 workers in CI as of 2026-09-14. It ran 1 from the AECI-33 scaffold onward, which was the Playwright default rather than a measured choice. The suite is `fullyParallel`, so raising the count is safe by construction for most specs. Two things bound that. `e2e/internal-link-graph.spec.ts` is the one serial group, and it is a BFS crawl of roughly 334 pages. Specs that mutate state either stub their writes with `page.route` or skip outright when the `SUPABASE_*_TEST_USER_*` credentials are absent. That leaves the shared local D1 behind the single `dev:bound` Worker pair as the main contention risk. Adopt 2 workers only after four consecutive green re-runs with zero new flakes. Read the `flaky` line of the reporter summary, not just the exit code, because `retries: 1` turns a flake into a pass. Otherwise revert to 1 and record the numbers on AECI-918.
+
 ---
 
 ## 14. Flaky tests

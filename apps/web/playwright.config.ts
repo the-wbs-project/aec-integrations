@@ -55,7 +55,24 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: IS_CI,
   retries: IS_CI ? 1 : 0,
-  workers: IS_CI ? 1 : undefined,
+  // AECI-918 — CI worker count is under trial. The `1` here was the Playwright
+  // scaffold default carried in from AECI-33 (commit 1255244d); it was never a
+  // measured choice, so nothing is known to depend on it.
+  //
+  // Trial (2026-09-14): 2 workers on the 4 vCPU `ubuntu-latest` runner. Baseline
+  // to beat — run 34801858617 ran 352 tests (341 passed, 11 skipped) on 1 worker
+  // in 333s.
+  //
+  // What to watch:
+  //   - the `flaky` line of the reporter summary. `retries: 1` above masks a
+  //     flake as a pass, so a green run is NOT by itself evidence of stability.
+  //   - `e2e/internal-link-graph.spec.ts`, the only `mode: 'serial'` group. It is
+  //     a BFS crawl of ~334 pages and it shares the single `dev:bound` API + SSR
+  //     pair and the local D1 with whatever the other worker is running.
+  //
+  // Adopt only after four consecutive green re-runs with zero new flakes.
+  // Otherwise revert to 1 and record the numbers on AECI-918.
+  workers: IS_CI ? 2 : undefined,
   reporter: IS_CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: BASE_URL,
