@@ -239,6 +239,13 @@
       "when": 1789302136408,
       "tag": "0033_solid_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1789366070550,
+      "tag": "0034_sloppy_dakota_north",
+      "breakpoints": true
     }
   ]
 }

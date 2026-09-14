@@ -30,6 +30,8 @@ import {
 } from '@aeci/shared/algolia-records';
 import { sql } from 'drizzle-orm';
 
+import { presentedDirection } from '@aeci/shared';
+
 import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-helpers';
 
 // ---------------------------------------------------------------------------
@@ -328,12 +330,13 @@ export function toAlgoliaEvidencedPair(row: RawAlgoliaEvidencedPairRow): Algolia
     target_product_slug: target.slug,
     mechanism_kind: null,
     mechanism_name: row.mechanismName,
-    direction:
-      row.direction === 'both'
-        ? 'bidirectional'
-        : row.direction === 'a_to_b' || row.direction === 'b_to_a'
-          ? 'one-way'
-          : null,
+    // Was a hand-rolled collapse here; AECI-921 folded it into the shared
+    // `presentedDirection` now that `integrations` speaks the same vocabulary and
+    // both transforms need the identical rule. The index's `direction` attribute
+    // is FACETED (`SEARCH_RANKING.md`), and a facet is context-free — carrying
+    // `a_to_b` and `b_to_a` would show the reader "One-way" twice, split by an
+    // endpoint ordering they cannot see.
+    direction: presentedDirection(coerceDirection(row.direction)),
     description: row.description,
     mechanism_rank: CONNECTOR_EVIDENCED_MECHANISM_RANK,
   };
@@ -349,7 +352,8 @@ export function toAlgoliaIntegration(row: RawAlgoliaIntegrationRow): AlgoliaInte
     target_product_slug: row.targetProduct.slug,
     mechanism_kind,
     mechanism_name: row.mechanismName,
-    direction: coerceDirection(row.direction),
+    // Context-free — see the sibling transform above.
+    direction: presentedDirection(coerceDirection(row.direction)),
     description: row.description,
     mechanism_rank: mechanismRank(mechanism_kind),
   };

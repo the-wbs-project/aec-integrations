@@ -61,7 +61,7 @@ export function seedCatalog(raw: Database.Database): SeedIds {
     .run(TS);
   raw
     .prepare(
-      "INSERT INTO integrations (id, name, source_product_id, target_product_id, mechanism_kind, direction, created_at, updated_at) VALUES ('int-1', 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'one-way', ?, ?)",
+      "INSERT INTO integrations (id, name, source_product_id, target_product_id, mechanism_kind, direction, created_at, updated_at) VALUES ('int-1', 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'a_to_b', ?, ?)",
     )
     .run(TS, TS);
   // Trades (AECI-545). `description` is NOT NULL here (it diverges from the

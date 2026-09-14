@@ -344,7 +344,7 @@ describe('toAlgoliaIntegration', () => {
       targetProductId: u(82),
       mechanismKind: 'native',
       mechanismName: 'Procore App',
-      direction: 'bidirectional',
+      direction: 'both',
       description: null,
     });
 

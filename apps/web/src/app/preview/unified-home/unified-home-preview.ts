@@ -681,10 +681,10 @@ export class UnifiedHomePreview {
   ];
 
   protected readonly recentIntegrations: readonly IntegrationListItem[] = [
-    this.integration(1, 'Revit', 'Navisworks', 'native', 'bidirectional'),
-    this.integration(2, 'Procore', 'QuickBooks', 'api', 'one-way'),
+    this.integration(1, 'Revit', 'Navisworks', 'native', 'both'),
+    this.integration(2, 'Procore', 'QuickBooks', 'api', 'a_to_b'),
     this.integration(3, 'Bluebeam', 'SharePoint', 'marketplace-app', null),
-    this.integration(4, 'AutoCAD', 'BIM 360', null, 'one-way'),
+    this.integration(4, 'AutoCAD', 'BIM 360', null, 'a_to_b'),
   ];
   protected readonly trendingProducts: readonly ProductListItem[] = [
     this.product(1, 'Procore', 'Procore Technologies', 'Project management', 24),

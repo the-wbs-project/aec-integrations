@@ -334,7 +334,27 @@ export const integrations = sqliteTable(
       'integrations_mechanism_kind_check',
       sql`"mechanism_kind" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')`,
     ),
-    check('integrations_direction_check', sql`"direction" IN ('one-way', 'bidirectional')`),
+    // ── AECI-921: the claim vocabulary, not a two-value one ───────────────────
+    // `a_to_b` / `b_to_a` / `both`, anchored exactly as `claims.direction` is:
+    // A = this row's `source_product_id`, B = its `target_product_id`. Identical
+    // to `claims.direction`, `connector_pairs.direction` and
+    // `connector_evidenced_pairs.direction` — this was the ONLY direction column
+    // in the schema that could not express a reverse flow.
+    //
+    // That gap was not theoretical. Upstream orders a row's endpoints by WHO
+    // BUILT the connector, so an edge whose builder is the data consumer — Power
+    // BI reading BigQuery, Tableau reading Snowflake — stored `one-way` and
+    // rendered the exact reverse of the truth on a live page. 14 such rows were
+    // confirmed from one keyword probe (AECI-920); the real count is higher.
+    //
+    // Migration `0034_…` is the re-spelling and it changed NO row's meaning:
+    // `one-way` → `a_to_b`, `bidirectional` → `both`, NULL → NULL. Correcting the
+    // inverted rows is AECI-920's job, upstream, and it is why `b_to_a` now has
+    // somewhere to land.
+    //
+    // Like the `mechanism_kind` list above, a CHECK change on D1 is a destructive
+    // table recreate, so every edit to this line buys a hand-assembled migration.
+    check('integrations_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
     check('integrations_distinct_endpoints_check', sql`"source_product_id" <> "target_product_id"`),
   ],
 );
@@ -2328,8 +2348,17 @@ export const connectorEvidencedPairs = sqliteTable(
      *   one-way,   source = B  ->  'b_to_a'
      *   bidirectional          ->  'both'
      *   NULL                   ->  NULL
-     * Reusing `integrations`' own `one-way | bidirectional` vocabulary would have
-     * made the copy simpler and thrown the direction away.
+     * Reusing `integrations`' then-vocabulary would have made the copy simpler and
+     * thrown the direction away.
+     *
+     * **AECI-921 took the same lesson upstream of here.** `integrations.direction`
+     * now IS this vocabulary — the two-value form could not say "flows target ->
+     * source" on its own table either, which is not a hypothetical: upstream orders
+     * endpoints by who BUILT the connector, so a consumer edge stored `one-way` and
+     * rendered backwards (AECI-920). The CASE above still stands, because the two
+     * tables anchor A/B differently — `integrations` to its own source/target,
+     * this table to the id-sorted canonical order — so a re-anchor is still
+     * required. It is a re-anchor now rather than a vocabulary translation.
      */
     direction: text('direction'),
     description: text('description'),

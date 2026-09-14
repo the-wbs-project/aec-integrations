@@ -76,7 +76,7 @@ async function seedPair({ entitled = true }: { entitled?: boolean } = {}) {
     sourceProductId: u(1),
     targetProductId: u(2),
     mechanismKind: 'native',
-    direction: 'one-way',
+    direction: 'a_to_b',
   });
   await t.db.insert(taxonomyDataObjects).values({ id: u(20), slug: 'rfis', name: 'RFIs' });
   await t.db.insert(claims).values({
@@ -339,7 +339,7 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
       sourceProductId: u(2),
       targetProductId: u(1),
       mechanismKind: 'native',
-      direction: 'one-way',
+      direction: 'a_to_b',
     });
     await t.db.insert(claims).values({
       id: u(31),

@@ -55,7 +55,7 @@ const validIntegrationListItem = {
   name: 'Procore → BIM 360',
   mechanism_kind: 'native' as const,
   mechanism_name: 'Procore + Autodesk Build',
-  direction: 'bidirectional' as const,
+  direction: 'both' as const,
   source: validProductLink,
   target: { id: uuid(6), name: 'BIM 360', slug: 'bim-360', logo_url: null },
   created_at: '2026-01-03T00:00:00.000Z',

@@ -120,7 +120,10 @@ describe('GET /api/integrations — connector-evidenced pairs (AECI-721)', () =>
     // the information canonicalisation would otherwise lose.
     expect(row?.source.id).toBe(b);
     expect(row?.target.id).toBe(a);
-    expect(row?.direction).toBe('one-way');
+    // Post-swap frame: the endpoints were re-oriented above, so the flow runs
+    // source -> target again and the stored value reads `a_to_b`, never `b_to_a`
+    // (AECI-921 — `orientEvidencedPair` and this arm's SQL CASE agree on that).
+    expect(row?.direction).toBe('a_to_b');
     expect(row?.name).toBe(`${row?.source.name} → ${row?.target.name}`);
   });
 

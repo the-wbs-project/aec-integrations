@@ -57,7 +57,7 @@ async function integration(
     sourceProductId,
     targetProductId,
     mechanismKind: 'native',
-    direction: 'one-way',
+    direction: 'a_to_b',
     ...extra,
   });
 }
@@ -223,7 +223,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
 
   it('reports a bidirectional integration as "both" from either side', async () => {
     await seedProducts();
-    await integration(u(10), u(1), u(2), { direction: 'bidirectional' });
+    await integration(u(10), u(1), u(2), { direction: 'both' });
 
     for (const url of [
       '/api/products/procore/integrations/revit',

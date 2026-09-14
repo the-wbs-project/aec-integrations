@@ -28,6 +28,44 @@ export const IntegrationMechanismKindSchema = z.enum([
 
 export type IntegrationMechanismKind = z.infer<typeof IntegrationMechanismKindSchema>;
 
+/**
+ * The stored direction vocabulary, shared by every table that records which way
+ * data moves: `integrations.direction` (since AECI-921), `claims.direction`, and
+ * `connector_evidenced_pairs.direction`. Anchored to the row's own two endpoints
+ * — **A = `source_product_id`, B = `target_product_id`** (`STAGE_1_5_SPEC.md`
+ * §3.2).
+ *
+ * **Declared here rather than in `promote.ts`, deliberately.** `promote.ts` is a
+ * large Zod module the browser never needs, and it is reached only through
+ * `import type` from the client graph. Importing a *value* out of it — which an
+ * enum is — drags the whole module into the eager web bundle, which put it 3.41 kB
+ * over its budget the first time AECI-921 tried it. `promote.ts` re-exports these
+ * two names so its own consumers are unaffected.
+ */
+export const CLAIM_DIRECTIONS = ['a_to_b', 'b_to_a', 'both'] as const;
+
+/** A stored direction, relative to the row's own endpoints (§3.2). */
+export type ClaimDirection = (typeof CLAIM_DIRECTIONS)[number];
+
+/**
+ * The **context-free** presentation vocabulary for an integration's direction:
+ * "how many ways?", not "which way?".
+ *
+ * **This is no longer what the column stores.** AECI-921 moved
+ * `integrations.direction` onto `CLAIM_DIRECTIONS` (`a_to_b | b_to_a | both`,
+ * anchored to the row's own source/target) because the two-value form could not
+ * express a reverse flow, and a whole class of edge needs to — see AECI-920 and
+ * `STAGE_1_5_SPEC.md` §3.2. `presentedDirection()` in `integration-context.ts`
+ * is the only bridge, and it is deliberately lossy.
+ *
+ * This spelling survives because three surfaces list integrations with **no
+ * context product to frame an arrow against**: the home page's recent-integrations
+ * tile, the Algolia integration record, and the `?direction=` filter below. On
+ * those, `a_to_b` names nothing a reader can act on, and splitting "one-way" into
+ * two values that differ only by an invisible endpoint ordering would be worse
+ * than the collapse. Anything that DOES have a context product uses
+ * `ContextDirectionSchema` instead.
+ */
 export const IntegrationDirectionSchema = z.enum(['one-way', 'bidirectional']);
 
 export type IntegrationDirection = z.infer<typeof IntegrationDirectionSchema>;
@@ -79,7 +117,14 @@ export const IntegrationListItemSchema = z.object({
   // `via` for that, never a synthesised kind.
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
-  direction: IntegrationDirectionSchema.nullable(),
+  // The STORED direction, anchored to this item's own `source` / `target`
+  // (AECI-921 — the same vocabulary as `claims.direction`). NOT the presentation
+  // collapse: a consumer that HAS a context product frames it itself, and the
+  // powered hub does exactly that (`powered-hub-grouping.ts`), so collapsing
+  // here would throw away the one fact it needs. Consumers with no context —
+  // the home page's recent-integrations tile — run it through
+  // `directionLabel()`, which accepts both vocabularies.
+  direction: z.enum(CLAIM_DIRECTIONS).nullable(),
   source: ProductLinkSchema,
   target: ProductLinkSchema,
   /**

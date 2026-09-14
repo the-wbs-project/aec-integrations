@@ -219,8 +219,8 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const { el } = setup(
       connector({
         integrations_as_connector: [
-          edge(procore, acumatica, 'one-way'),
-          edge(sage, procore, 'bidirectional'),
+          edge(procore, acumatica, 'a_to_b'),
+          edge(sage, procore, 'both'),
         ],
       }),
     );
@@ -269,7 +269,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
 
   it('renders a hubless pair as a standalone two-endpoint row instead of a one-partner hub', () => {
     const { el } = setup(
-      connector({ integrations_as_connector: [edge(procore, acumatica, 'bidirectional')] }),
+      connector({ integrations_as_connector: [edge(procore, acumatica, 'both')] }),
     );
 
     const section = el.querySelector('#powered-integrations')!;

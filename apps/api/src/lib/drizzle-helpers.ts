@@ -316,26 +316,42 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
 
 /**
  * Resolve a canonical evidenced pair back into the oriented `source`/`target`
- * frame every read surface speaks, plus the `integrations` direction vocabulary.
+ * frame every read surface speaks.
  *
  * The exact inverse of the AECI-721 migration's CASE, and lossless: `b_to_a` is
  * the only value that swaps the endpoints, which is precisely the information
  * canonicalisation would otherwise discard. `both` and `null` both present A as
  * source — for `both` the orientation carries no meaning, and for `null` we have
  * no orientation to assert, so the stable canonical order is the honest choice.
+ *
+ * **It still swaps, and the returned direction is therefore never `b_to_a`**
+ * (AECI-921). Now that `integrations.direction` speaks this same vocabulary the
+ * swap looks redundant, and it is not: it is what makes
+ * `IntegrationListItem.source` mean "the flow's source" on this arm, which is
+ * what it has always meant here and what the wire shape's consumers read. Return
+ * `raw.direction` verbatim instead and `source` silently changes meaning for
+ * every evidenced pair — a public field's semantics quietly altered by a
+ * migration PR. The direction below is expressed in the POST-swap frame, so it
+ * and the endpoints agree.
+ *
+ * (The two arms of this list do disagree about what `source` means — on an
+ * `integrations` row it is the stored, authorship-ordered endpoint. That
+ * predates this change and is exactly why the direction is carried separately.)
  */
 export function orientEvidencedPair(raw: RawConnectorEvidencedPairRow): {
   source: RawProductLink;
   target: RawProductLink;
-  direction: 'one-way' | 'bidirectional' | null;
+  direction: ClaimDirection | null;
 } {
   switch (raw.direction) {
     case 'a_to_b':
-      return { source: raw.productA, target: raw.productB, direction: 'one-way' };
+      return { source: raw.productA, target: raw.productB, direction: 'a_to_b' };
     case 'b_to_a':
-      return { source: raw.productB, target: raw.productA, direction: 'one-way' };
+      // Endpoints swapped, so the flow now runs source -> target: `a_to_b` in the
+      // frame this function returns, NOT the `b_to_a` it read.
+      return { source: raw.productB, target: raw.productA, direction: 'a_to_b' };
     case 'both':
-      return { source: raw.productA, target: raw.productB, direction: 'bidirectional' };
+      return { source: raw.productA, target: raw.productB, direction: 'both' };
     default:
       // NULL is legal — the CHECK constrains only non-null values, and the
       // migration maps a null `integrations.direction` straight through.
@@ -354,6 +370,9 @@ export function toIntegrationListItemFromEvidencedPair(
     name: synthesizeIntegrationName(raw.name, source, target),
     mechanism_kind: null,
     mechanism_name: raw.mechanismName,
+    // The oriented stored direction — never `b_to_a`, because the endpoints above
+    // were swapped to match (see `orientEvidencedPair`). Both arms of this list
+    // must spell the same fact the same way; they land in one paginated response.
     direction,
     source: toProductLink(source),
     target: toProductLink(target),
@@ -395,7 +414,11 @@ export function toProductIntegrationItemFromEvidencedPair(
   return {
     ...item,
     context_direction: effectiveContextDirection(
-      item.direction,
+      // The ORIENTED stored direction, re-read from the orienting helper rather
+      // than off `item` — `item.direction` is the context-free collapse now
+      // (AECI-921) and has thrown away which way the flow runs, which is the one
+      // thing this call needs.
+      orientEvidencedPair(raw).direction,
       raw.claims.map((claim) => {
         const direction = coerceClaimDirection(claim.direction, raw.id);
         return {
@@ -1177,8 +1200,28 @@ export function toMechanismKind(
   );
 }
 
-export function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null {
-  if (raw === 'one-way' || raw === 'bidirectional') return raw;
+/**
+ * Narrow `integrations.direction` to the stored claim vocabulary (AECI-921).
+ *
+ * **Accepts the pre-AECI-921 spellings too, and must keep doing so.** A D1
+ * migration and a Worker deploy are two separate CI steps in a fixed order, and
+ * whichever order you pick there is a window where the running code and the
+ * applied schema disagree: deploy-then-migrate leaves the new Worker reading
+ * `one-way` out of the old column, migrate-then-deploy leaves the old Worker
+ * reading `a_to_b`. Tolerating both here makes the first window a no-op. (The
+ * second is covered by this function's other half — it is fail-SOFT.)
+ *
+ * Fail-soft is the deliberate difference from `coerceClaimDirection` and
+ * `toMechanismKind`, which throw. Direction is nullable by design — "nobody
+ * established it" is a legal state rendered as an em-dash — so an unreadable
+ * value degrades into that same honest unknown rather than 500-ing a catalog
+ * page. An unknown `mechanism_kind` has no such resting place.
+ */
+export function coerceDirection(raw: string | null): ClaimDirection | null {
+  if (raw === 'a_to_b' || raw === 'b_to_a' || raw === 'both') return raw;
+  // Legacy spellings — see the rollout window above.
+  if (raw === 'one-way') return 'a_to_b';
+  if (raw === 'bidirectional') return 'both';
   return null;
 }
 
@@ -1235,6 +1278,8 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
     name: synthesizeIntegrationName(raw.name, raw.sourceProduct, raw.targetProduct),
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: raw.mechanismName,
+    // The STORED direction, anchored to this row's own source/target (AECI-921).
+    // Consumers that have a context frame it themselves; see the schema comment.
     direction: coerceDirection(raw.direction),
     source: toProductLink(raw.sourceProduct),
     target: toProductLink(raw.targetProduct),

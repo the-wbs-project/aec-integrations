@@ -13,7 +13,7 @@ function makeIntegration(n: number): IntegrationListItem {
     name: `Source ${n} → Target ${n}`,
     mechanism_kind: 'native',
     mechanism_name: null,
-    direction: 'one-way',
+    direction: 'a_to_b',
     source: { id: `s${n}`, slug: `source-${n}`, name: `Source ${n}`, logo_url: null },
     target: { id: `t${n}`, slug: `target-${n}`, name: `Target ${n}`, logo_url: null },
     via: null,

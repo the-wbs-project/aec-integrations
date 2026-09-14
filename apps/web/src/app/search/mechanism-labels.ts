@@ -63,11 +63,37 @@ export function viaConnectorLabel(connectorName: string | null): string {
     : $localize`:@@products.detail.integrations.via:Via ${connectorName}:CONNECTOR:`;
 }
 
-/** Localized label for an integration `direction`, or `''` when absent/unknown. */
+/**
+ * Localized label for an integration `direction` on a **context-free** surface,
+ * or `''` when absent/unknown.
+ *
+ * "How many ways", never "which way" — the callers are surfaces with no context
+ * product to frame an arrow against: the home page's recent-integrations tile,
+ * the `/search` integration card, and the powered hub's hubless pair rows. A
+ * reader there has no way to tell endpoint A from endpoint B, so the two arrows
+ * collapse into one honest bucket. Anything that DOES have a context uses
+ * `contextDirectionLabel()` below instead.
+ *
+ * It accepts **both vocabularies on purpose**, and the two arrive from different
+ * places rather than from a migration in progress (AECI-921):
+ *
+ *   - `a_to_b` / `b_to_a` / `both` — `IntegrationListItem.direction`, which
+ *     carries the STORED value so context-aware consumers can frame it;
+ *   - `one-way` / `bidirectional` — the Algolia integration record, where
+ *     `direction` is a FACET and splitting one user-meaningful value into two
+ *     that differ by an invisible endpoint ordering would be worse than the
+ *     collapse.
+ *
+ * Both are live, neither is legacy, and narrowing this to one of them breaks a
+ * shipped surface.
+ */
 export function directionLabel(direction: string | null | undefined): string {
   switch (direction) {
+    case 'a_to_b':
+    case 'b_to_a':
     case 'one-way':
       return $localize`:@@integrations.direction.oneWay:One-way`;
+    case 'both':
     case 'bidirectional':
       return $localize`:@@integrations.direction.bidirectional:Bidirectional`;
     default:

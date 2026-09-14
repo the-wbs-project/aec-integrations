@@ -472,7 +472,8 @@ describe('GET /api/products/:slug', () => {
     // exactly the information canonicalisation would otherwise discard.
     expect(evidenced?.source.id).toBe(b);
     expect(evidenced?.target.id).toBe(a);
-    expect(evidenced?.direction).toBe('one-way');
+    // Post-swap frame — see `orientEvidencedPair` (AECI-921).
+    expect(evidenced?.direction).toBe('a_to_b');
 
     // The still-direct edge keeps `via: null`, so the two are distinguishable.
     expect(connector.integrations_as_connector.find((i) => i.id === u(51))?.via).toBeNull();
@@ -707,7 +708,7 @@ describe('GET /api/products/:slug', () => {
       id: u(51),
       sourceProductId: u(1),
       targetProductId: u(2),
-      direction: 'bidirectional',
+      direction: 'both',
     });
     await t.db
       .insert(taxonomyDataObjects)

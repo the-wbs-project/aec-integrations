@@ -12,7 +12,7 @@ const baseIntegration: IntegrationListItem = {
   name: 'Revit → Navisworks',
   mechanism_kind: 'native',
   mechanism_name: 'Desktop Connector',
-  direction: 'bidirectional',
+  direction: 'both',
   source: { id: 's1', slug: 'revit', name: 'Revit', logo_url: null },
   target: { id: 't1', slug: 'navisworks', name: 'Navisworks', logo_url: null },
   via: null,

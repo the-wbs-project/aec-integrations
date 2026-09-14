@@ -874,6 +874,70 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('holds every direction column to ONE vocabulary — the AECI-921 lockstep', async () => {
+    // THREE tables carry a flow `direction`, and until AECI-921 one of them spoke
+    // a different language: `integrations.direction` was `one-way | bidirectional`
+    // and could not express a reverse flow at all, which is how a whole class of
+    // edge came to render backwards on a live page (AECI-920).
+    //
+    // `connector_pairs` is deliberately NOT in this list and must not be added:
+    // it is the REACHABLE tier and has no `direction` column at all, because a
+    // pair that asserts no delivery has no flow to orient. Its `direction_role`
+    // on `connector_stubs` is a different fact (which side of a catalogue surface
+    // a stub sits on), not this one.
+    //
+    // Reading the CHECKs out of `sqlite_master` rather than asserting against the
+    // Drizzle schema is deliberate: the schema is where a drift would be
+    // introduced, so it cannot also be the oracle. This fails if any one of the
+    // four is widened, narrowed or re-spelled on its own.
+    const t = await makeTestDb();
+    const ddl = (table: string) =>
+      (
+        t.raw
+          .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`)
+          .get(table) as { sql: string } | undefined
+      )?.sql ?? '';
+
+    const VOCABULARY = `"direction" IN ('a_to_b', 'b_to_a', 'both')`;
+    for (const table of ['integrations', 'claims', 'connector_evidenced_pairs']) {
+      expect(ddl(table), `${table} must use the shared direction vocabulary`).toContain(VOCABULARY);
+    }
+    // The reachable tier stays out of it — see above.
+    expect(ddl('connector_pairs')).not.toContain('"direction"');
+
+    // And nothing anywhere still admits the retired spellings.
+    for (const table of ['integrations', 'claims', 'connector_evidenced_pairs']) {
+      expect(ddl(table)).not.toContain("'one-way'");
+      expect(ddl(table)).not.toContain("'bidirectional'");
+    }
+    t.dispose();
+  });
+
+  it('pins the tables that cascade INTO integrations — the next recreate depends on it', async () => {
+    // The at-HEAD twin of the same assertion in `migration-0034.spec.ts`, and the
+    // one that can still fail after a LATER migration adds a child. A migration
+    // that recreates `integrations` must carry every table below out of the way
+    // first, because SQLite's `DROP TABLE` fires foreign-key ACTIONS and
+    // `PRAGMA defer_foreign_keys` does not stop them. 0027 measured 1,697 claims
+    // and 1,697 attestations lost when that was got wrong on this exact table.
+    //
+    // `claims` alone today, but the chain is TWO deep — `attestations` hangs off
+    // `claims` — so a recreate needs both carry tables, not one.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'integrations')
+         ORDER BY m.name`,
+      )
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(inbound).toEqual(['claims']);
+    t.dispose();
+  });
+
   it('rejects every out-of-vocabulary connector-lane enum value', async () => {
     const t = await makeTestDb();
     await seedCatalog(t);
@@ -1010,7 +1074,7 @@ describe('connector lane (AECI-714)', () => {
         connectorProductId: 'ccc',
         productAId: 'aaa',
         productBId: 'bbb',
-        direction: 'one-way',
+        direction: 'a_to_b',
       }),
     ).rejects.toThrow();
     t.dispose();

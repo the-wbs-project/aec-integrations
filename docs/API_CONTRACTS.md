@@ -436,7 +436,13 @@ export const IntegrationListItemSchema = z.object({
     .nullable(), // null when the column is unset (AECI-115); an out-of-enum non-null value is rejected (500) server-side
                  // ALSO null, structurally, on every row where `via` is set — see below.
   mechanism_name: z.string().nullable(),
-  direction: z.enum(['one-way', 'bidirectional']).nullable(), // the stored connector-level direction, verbatim
+  direction: z.enum(['a_to_b', 'b_to_a', 'both']).nullable(),   // the STORED direction (AECI-921),
+                                        // anchored to THIS item's own source/target: A = source,
+                                        // B = target — the same vocabulary as `claims.direction`.
+                                        // NOT collapsed to one-way/bidirectional here: a consumer
+                                        // that has a context product frames it itself (the powered
+                                        // hub does), and the collapse would throw that away. A
+                                        // context-FREE renderer runs it through `directionLabel()`.
   source: ProductLinkSchema,
   target: ProductLinkSchema,
   via: ProductLinkSchema.nullable().default(null), // the connector, on a connector-evidenced pair only (AECI-721)
@@ -629,7 +635,12 @@ export const IntegrationsListQuerySchema = PageQuerySchema.extend({
   mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator']).optional(),
                                                    // narrows to `integrations` by definition: an evidenced pair carries no kind,
                                                    // so it matches no value of this filter and is excluded rather than returned with null (AECI-721)
-  direction: z.enum(['one-way', 'bidirectional']).optional(),
+  direction: z.enum(['one-way', 'bidirectional']).optional(),   // the CONTEXT-FREE filter
+                                        // vocabulary, deliberately unchanged by AECI-921: this
+                                        // list has no context product, so `a_to_b` would name
+                                        // nothing actionable and would split one user-meaningful
+                                        // bucket in two. Widens to `IN ('a_to_b','b_to_a')` /
+                                        // `= 'both'` against the column, on BOTH arms of the union.
 });
 
 export const IntegrationsListResponseSchema = paginatedResponseSchema(IntegrationListItemSchema);
@@ -730,7 +741,7 @@ export const ProductPairMechanismSchema = z.object({
                                         // frame, which would contradict the context-relative
                                         // `direction` on this same object. Null is expected: the
                                         // client promotes `mechanism_kind`'s label to the heading.
-  direction: ContextDirectionSchema.nullable(),   // the stored one-way/bidirectional, translated context-relative (§3.2)
+  direction: ContextDirectionSchema.nullable(),   // the stored a_to_b/b_to_a/both, translated context-relative (§3.2)
   description: z.string().nullable(),
   listing_url: z.string().url().nullable(),
   docs_url: z.string().url().nullable(),
@@ -806,7 +817,7 @@ export const MaintenanceSchema = z.object({
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 ```
 
-- **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
+- **`direction`** (mechanism) is the integration row's stored `a_to_b`/`b_to_a`/`both` translated to the **context product's** frame: `a_to_b` → `outbound` when the context product is the integration's `source` (endpoint A), else `inbound`; `b_to_a` is the mirror; `both` → `both`; `null` → `null` (§3.2, applied at the mechanism level). **Since AECI-921 this is the identical translation the Layer-B claims get** — `integrationDirectionForContext` is a null-tolerant delegate to `claimDirectionForContext`, because the two stored vocabularies became one.
 - **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
 - **`attestations[]`** carry only **live** rows: the read config filters `retracted_at IS NULL` (`liveAttestationsWhere`, `apps/api/src/lib/drizzle-helpers.ts`), so a withdrawn assertion neither votes nor renders. `deprecated_at` is a *version stamp* and never gates the read. `attestor` is the slot translated to the page's frame by `attestorForContext` (`vendor_a` = endpoint A = the integration's `source_product`): the browser attributes a `single_source` claim by looking the name up on `context_product.vendor` / `other_product.vendor`. The raw `attested_by_vendor_id` is **not** exposed — it feeds the §4.2 distinct-identity dedupe server-side only.
 - **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair. **Claims whose `version_status` is `removed` are excluded from all three counts** (AECI-303): they still render, struck through, but "N data objects sync" must not count a flow that has stopped. Filtered at the single `computeSyncHeadline` call site in `toProductPairResponse`, not inside the shared engine.

@@ -53,6 +53,10 @@ describe('ContextDirectionSchema', () => {
 
   it('rejects the stored (endpoint-relative) direction values', () => {
     expect(ContextDirectionSchema.safeParse('a_to_b').success).toBe(false);
+    expect(ContextDirectionSchema.safeParse('b_to_a').success).toBe(false);
+    expect(ContextDirectionSchema.safeParse('both').success).toBe(true);
+    // AECI-921 retired `one-way` from storage; it survives only as the
+    // context-free presentation spelling, which is not this schema either.
     expect(ContextDirectionSchema.safeParse('one-way').success).toBe(false);
   });
 });

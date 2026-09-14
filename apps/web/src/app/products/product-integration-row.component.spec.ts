@@ -22,7 +22,7 @@ const baseIntegration: ProductIntegrationItem = {
   name: 'Procore → BIM 360',
   mechanism_kind: 'api',
   mechanism_name: 'REST connector',
-  direction: 'one-way',
+  direction: 'a_to_b',
   context_direction: 'outbound',
   source: { id: 's1', slug: 'procore', name: 'Procore', logo_url: null },
   target: OTHER,

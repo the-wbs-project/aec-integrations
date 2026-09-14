@@ -373,12 +373,41 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
 | `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). **Explicit `null` clears the stored kind; omitting the key leaves it untouched** (the §5 rule, restated here because the two are easy to confuse). One exception: on the §3.4a connector-evidenced path the field is **dropped entirely** — see that section. |
-| `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
+| `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` \| null | — | **Changed by AECI-921 — both vocabularies are accepted.** Anchored to **this payload's own `sourceProduct` (A) and `targetProduct` (B)**, exactly like a claim's `direction`. The old spellings still land and are normalised on ingest (`one-way` → `a_to_b`, `bidirectional` → `both`), so nothing breaks if you send them; see the cutover note below. |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
-Direction is meaningful: `sourceProduct → targetProduct`.
+> **Cutover window for `direction` (AECI-921, opened 2026-09-14).**
+>
+> `integrations.direction` in the app DB moved from `one-way | bidirectional` to the claim
+> vocabulary `a_to_b | b_to_a | both`, because the two-value form could not say "flows from the
+> target to the source" and a whole class of edge needs to. The review app orders an integration's
+> endpoints by **who built the connector**, so any edge whose builder is the data *consumer* — a BI
+> tool reading a warehouse — was storing `one-way` and rendering the exact reverse (AECI-920).
+>
+> **Nothing breaks if you send nothing new.** The wire accepts both vocabularies and normalises the
+> old one on ingest, because the two repos deploy separately and there is no moment at which both
+> sides change spelling together.
+>
+> | You send | Stored | Note |
+> | -- | -- | -- |
+> | `"a_to_b"` | `a_to_b` | flows `sourceProduct` → `targetProduct` |
+> | `"b_to_a"` | `b_to_a` | **new** — flows `targetProduct` → `sourceProduct` |
+> | `"both"` | `both` | |
+> | `"one-way"` | `a_to_b` | legacy, normalised |
+> | `"bidirectional"` | `both` | legacy, normalised |
+> | `null` | `null` | nobody established it |
+> | anything else | — | `400` |
+>
+> **What closes the window:** the review app emitting the three-value form, and the 14 known
+> inverted rows corrected to `b_to_a` (AECI-920). Until then `b_to_a` is expressible and unused.
+> Removing the legacy spellings is a separate, later decision — do not read
+> `LEGACY_INTEGRATION_DIRECTIONS` in `packages/shared/src/api/promote.ts` as a deprecation already
+> in progress.
+
+Direction is meaningful: `sourceProduct → targetProduct`, and `direction` says which way data
+actually moves along it — those are two different facts, which is the whole of AECI-921.
 
 **`integrator` (AECI-698 / AECI-721) — one sequencing rule, and it matters.** `integrator` replaces
 `partner`: an SI or consultancy built and maintains the edge, neither endpoint vendor did. Two
@@ -477,10 +506,11 @@ Four consequences worth knowing:
   permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
   absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
   re-key them to `native` or unset because the connector lane now has its own tables.
-- **`direction` is re-encoded, losslessly.** The destination canonicalises the pair
-  (`product_a_id < product_b_id`) and stores orientation as `a_to_b | b_to_a | both`, because once
-  the pair is ordered `one-way` no longer says which way. You keep sending
-  `one-way | bidirectional`.
+- **`direction` is RE-ANCHORED, not re-encoded (amended by AECI-921).** It was a vocabulary
+  translation; since AECI-921 you already send `a_to_b | b_to_a | both`, so what is left is an
+  anchor change: your value is relative to **your** `sourceProduct` → `targetProduct`, while this
+  table canonicalises the pair (`product_a_id < product_b_id`) and anchors against that. When the
+  sort flips your two endpoints, both arrows flip with it. Lossless either way.
 - **Claims still ride with their integration**, unchanged. The migration preserves each edge's id
   verbatim as the evidenced pair's id, so a claim's stored anchor value never moves — only which
   table it points at.
@@ -1588,7 +1618,7 @@ Content-Type: application/json
       "targetProduct": { "supabaseId": "7c9e6679-7425-40de-944b-e07fc1f90ae7" },
       "builtByVendor": { "ref": "v1" },
       "mechanismKind": "native",
-      "direction": "one-way",
+      "direction": "a_to_b",
       "claims": [
         {
           "dataObject": "models",

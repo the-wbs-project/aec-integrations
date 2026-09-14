@@ -138,10 +138,10 @@ describe('groupPoweredIntegrations', () => {
     const projectSosCon = link('projectsos-construction', 'ProjectSOS for Construction');
     const { groups, pairCount } = groupPoweredIntegrations(
       [
-        edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
-        edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
-        edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
-        edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
+        edge(projectSosAed, procore, 'marketplace-app', 'both'),
+        edge(projectSosCon, procore, 'marketplace-app', 'both'),
+        edge(projectSosAed, procore, 'marketplace-app', 'both'),
+        edge(projectSosCon, procore, 'marketplace-app', 'both'),
       ],
       CONNECTOR,
     );
@@ -225,14 +225,14 @@ describe('groupPoweredIntegrations', () => {
   });
 
   it('frames direction relative to the hub, mirroring it when the hub is endpoint B', () => {
-    // `one-way` flows source → target. Procore is the hub in both rows, but is
+    // `a_to_b` flows source → target. Procore is the hub in both rows, but is
     // the source in one and the target in the other, so the hub-relative
     // direction must come out opposite.
     const { groups } = groupPoweredIntegrations(
       [
-        edge(procore, acumatica, 'native', 'one-way'),
-        edge(sage, procore, 'native', 'one-way'),
-        edge(procore, vista, 'native', 'bidirectional'),
+        edge(procore, acumatica, 'native', 'a_to_b'),
+        edge(sage, procore, 'native', 'a_to_b'),
+        edge(procore, vista, 'native', 'both'),
       ],
       CONNECTOR,
     );
@@ -247,9 +247,9 @@ describe('groupPoweredIntegrations', () => {
   it('merges two opposing one-way edges for the same pair into a round trip', () => {
     const { groups } = groupPoweredIntegrations(
       [
-        edge(procore, acumatica, 'native', 'one-way'),
-        edge(acumatica, procore, 'iPaaS', 'one-way'),
-        edge(procore, sage, 'native', 'one-way'),
+        edge(procore, acumatica, 'native', 'a_to_b'),
+        edge(acumatica, procore, 'iPaaS', 'a_to_b'),
+        edge(procore, sage, 'native', 'a_to_b'),
       ],
       CONNECTOR,
     );
