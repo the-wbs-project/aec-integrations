@@ -200,7 +200,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main` and `stage-2`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
-**Job: `unit-tests`** (~3.5 min on a PR; ~5.5 min on a push, where the coverage step also runs)
+**Job: `unit-tests`** (~4 min on a PR; ~5.5 min on a push, where the coverage step also runs)
 1. Checkout, install
 2. `pnpm run test:unit` (Vitest + `apps/web`'s `ng test` component specs)
 3. `pnpm -r run test:coverage` as an **advisory, non-blocking** step
@@ -966,17 +966,22 @@ lint-and-types ─────────────────────�
 > output, so waiting on a 6-minute test job idled it for ~5 minutes on every PR. `deploy-staging`
 > now lists `lint-and-types` and `unit-tests` explicitly, because it used to inherit both through
 > `build-web`. The advisory coverage step in `unit-tests` became push-only in the same change.
-> Measured on run `34801858617` (a `pull_request` run, 2026-09-14):
+> Both runs below are `pull_request` runs from 2026-09-14:
 >
 > | | Required checks green | Full run |
 > |---|---|---|
-> | Before | 7:14 | 14:00 |
-> | After (projected) | ~4:08 | ~8:58 |
+> | Before (run 34801858617) | 7:14 | 14:00 |
+> | Projected | ~4:08 | ~8:58 |
+> | Measured (run 34808877716, PR #705) | 4:03 | 9:41 |
 >
 > The saving is ~5 min rather than ~6 because `build-web` still waits on `lint-and-types`
 > (1:02). Accepted trade-off: `e2e-and-integration` now runs on PRs whose unit tests are red,
 > costing ~7 min of runner time per red PR. Branch protection still requires `Unit tests`, so a
-> red suite still blocks the merge. Projections to be confirmed on the first PR run.
+> red suite still blocks the merge. The first PR run confirmed it: required checks went green at
+> 4:03 with `unit-tests` (4:00) as the gate, `build-web` started 3 seconds after `lint-and-types`
+> finished, and the coverage step was skipped as intended. The full run's 9:41 sits above the ~8:58
+> projection on runner variance rather than structure, with lint at 1:14 against 1:02, build at 1:22
+> against 1:05, and E2E at 6:55 against 6:43.
 
 `changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
 **fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
