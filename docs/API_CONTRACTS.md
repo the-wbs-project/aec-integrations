@@ -2693,8 +2693,12 @@ export const AdminNoteCodeSchema = z.enum([
   // window; the second is about the days a chart or a multi-day delta reaches over.
   'arrival_telemetry_unavailable',     // < ARRIVAL_CF_COVERAGE_MIN of arrivals carried a cf_asn
   'series_spans_degraded_days',        // N of the days behind series_30d / delta_7d were blind
+  // AECI-684 — both are PER METRIC. `catalog.products_created` is reconstructed
+  // from `products.created_at` (§4's exception) while the cron and live fallback
+  // count audit events, so its messages name both halves and its floor is the
+  // catalog's first row, not the log's. `params` carries which.
   'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
-  'catalog_series_starts_at',          // basis=additions: window predates the audit log
+  'catalog_series_starts_at',          // basis=additions: window predates the series' own source
   'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
   'catalog_claims_recreated_by_promote', // basis=net on claims: created_at is a last-promote date
   'internal_filter_unavailable',       // no ASN exclusion ran — see the three states below
@@ -3117,7 +3121,7 @@ against.
 
 | | `additions` (default) | `net` |
 |---|---|---|
-| source | `audit_log` `*.created` events | live rows, bucketed by `created_at` |
+| source | `audit_log` `*.created` events — **except `catalog.products_created`'s reconstructed days, which are measured from `products.created_at`** (§4's exception; AECI-684) | live rows, bucketed by `created_at` |
 | answers | how much work happened | how many records are still here |
 | reconciles with `COUNT(*)` | no | yes, by construction |
 | shows churn | yes | no (300 created + 300 destroyed reads 0) |
@@ -3139,6 +3143,27 @@ states it on every `net` response.
 `catalog_claims_recreated_by_promote`: because promote rewrites claim rows, their
 `created_at` is a last-promote date, so the column is a valid count of live claims
 and a poor history of when they arrived.
+
+**`catalog.products_created` is the one series whose `additions` reading is not
+audit-log-only, and both notes say so (AECI-684).** The 00:15 cron and the live
+fallback count `product.created` events like the other three, but the reconstructed
+segment is measured from `products.created_at`, which is exact where the audit log
+covers only part of the catalog (`ADMIN_PANEL_SPEC.md` §7.1, §13 D6). So the
+series is served from two definitions either side of the snapshot boundary:
+
+- `catalog_series_is_additions_only` names both halves and carries
+  `params.live_source` (`product.created`) and `params.reconstructed_from`
+  (`products.created_at`). The other three series omit both params and keep the
+  unqualified audit-log message.
+- `catalog_series_starts_at` floors on the catalog's own first row rather than the
+  audit log's, and carries `params.source`. When `metrics_daily` holds no row that
+  far back it also carries `params.stored_from` and says the leading zeros are
+  days nobody reconstructed rather than days nothing happened. Production is in
+  that state: the backfill was run with `--from 2026-06-23` and 43 products
+  predate it.
+
+Both branches exist in the UI strings too, so the screen and a `curl` of the same
+endpoint tell the same story (§9.4).
 
 `exclude_internal` applies only to `traffic.*` — there is no ASN on a catalog or
 profile row — and a request that asks anyway gets `value_excluding_internal: null`

@@ -160,11 +160,27 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   series_spans_degraded_days: (p) =>
     $localize`:@@admin.notes.seriesSpansDegradedDays:${num(p, 'degraded_days')}:DEGRADED: of the ${num(p, 'requested')}:REQUESTED: days behind the trend line and the 7-day change were missing network information, so their figures are too high by an unknown amount. Do not read a step across those days as a change in traffic.`,
 
-  catalog_series_is_additions_only: () =>
-    $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
+  // AECI-684. Both of these are per METRIC, and the split branch is not cosmetic.
+  // `catalog.products_created` is §4's exception: the cron and the live fallback
+  // count `product.created` events like the other three, but the reconstructed
+  // days before the snapshot are measured from `products.created_at`, which is
+  // exact where the audit log covers only part of the catalog. Rendering the
+  // unqualified string over that series told the operator the wrong source and
+  // the wrong start date at once, on the one column the panel's provenance
+  // banner points at.
+  catalog_series_is_additions_only: (p) =>
+    p['reconstructed_from'] === undefined
+      ? $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`
+      : $localize`:@@admin.notes.catalogSeriesIsAdditionsOnlySplit:This is additions per day, not a net total: rows removed later still count on the day they were added. Where it comes from changes partway through: recent days count ${str(p, 'live_source')}:LIVE_SOURCE: events from the audit log, while the earlier reconstructed days are measured from ${str(p, 'reconstructed_from')}:RECONSTRUCTED_FROM:, which is exact where the audit log covers only part of the catalog.`,
 
   catalog_series_starts_at: (p) =>
-    $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
+    p['stored_from'] !== undefined && p['source'] !== undefined
+      ? // The stored segment starts after the catalog does, so the leading zeros
+        // are days nobody reconstructed rather than days nothing happened.
+        $localize`:@@admin.notes.catalogSeriesStartsAtUnfilled:The first record in the catalog is from ${str(p, 'earliest_day')}:EARLIEST_DAY:, but this series only has stored figures from ${str(p, 'stored_from')}:STORED_FROM:. Days between the two read zero because they were never reconstructed, not because nothing happened.`
+      : p['source'] !== undefined
+        ? $localize`:@@admin.notes.catalogSeriesStartsAtSource:${str(p, 'source')}:SOURCE: begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`
+        : $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
 
   catalog_series_is_surviving_rows: () =>
     $localize`:@@admin.notes.catalogSeriesIsSurvivingRows:These are the records in the catalog now, counted against the period they were added in, so removals are netted off and the columns add up to the totals above. Nothing records when a record was removed, so a removal comes off the period it was added in: earlier figures can fall as records are removed later.`,

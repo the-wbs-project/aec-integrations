@@ -33,6 +33,7 @@ import {
   buildZeroFillStatements,
   daysInRange,
   isoBounds,
+  selectSeries,
   type BackfillRange,
   type BackfillSeries,
 } from './metrics-backfill';
@@ -653,5 +654,78 @@ describe('the dry run reports what it would change (AECI-688)', () => {
       const [day, metric] = key.split('|');
       expect({ key, value: valueOf(day, metric) }).toEqual({ key, value: stored });
     }
+  });
+});
+
+// ── AECI-684: one series' range without zero-filling the others ──────────────
+describe('--series selection', () => {
+  const EARLIER: BackfillRange = {
+    fromDay: '2026-08-06',
+    toDay: '2026-08-07',
+    computedAt: '2026-08-20T00:00:00.000Z',
+  };
+  const ONLY = ['catalog.products_created'];
+
+  it('defaults to every series when nothing is selected', () => {
+    expect(selectSeries()).toEqual(BACKFILL_SERIES);
+    expect(selectSeries([])).toEqual(BACKFILL_SERIES);
+  });
+
+  it('throws on an unknown key rather than running empty', () => {
+    // A typo that selected nothing would write zero rows and still exit 0, which
+    // reads as "already backfilled" to an operator.
+    expect(() => selectSeries(['catalog.product_created'])).toThrow(/Unknown --series key/);
+  });
+
+  it('writes ONLY the selected series, leaving the others absent', async () => {
+    await t.db
+      .insert(products)
+      .values([{ id: u(1), slug: 'a', name: 'A', createdAt: '2026-08-06T01:00:00.000Z' }]);
+
+    run(buildMetricsBackfillStatements(EARLIER, ONLY));
+
+    const written = new Set(rows().map((r) => r.metric));
+    expect([...written]).toEqual(['catalog.products_created']);
+    expect(valueOf('2026-08-06', 'catalog.products_created')).toBe(1);
+  });
+
+  it('does not zero-fill traffic.* over days page_views did not exist for', async () => {
+    // This is the trap the flag exists for. A plain `--from 2026-08-06` would
+    // stamp `traffic.page_views_human` = 0 onto both days, and a stored zero is
+    // indistinguishable from a measured one in a table kept forever.
+    run(buildMetricsBackfillStatements(EARLIER, ONLY));
+
+    expect(valueOf('2026-08-06', 'traffic.page_views_human')).toBeUndefined();
+    expect(valueOf('2026-08-07', 'traffic.page_views_human')).toBeUndefined();
+  });
+
+  it('still zero-fills the selected series, so §7.4 coverage holds for it', async () => {
+    // No products in range at all: the day must still get a row, or the prune
+    // gate blocks that day forever.
+    run(buildMetricsBackfillStatements(EARLIER, ONLY));
+
+    expect(valueOf('2026-08-06', 'catalog.products_created')).toBe(0);
+    expect(valueOf('2026-08-07', 'catalog.products_created')).toBe(0);
+  });
+
+  it('scopes the dry-run diff probes to the selection', () => {
+    expect(buildValueDiffProbes(EARLIER, ONLY).map((p) => p.metric)).toEqual(ONLY);
+  });
+
+  it('scopes the coverage probe, so an unrelated series cannot fake success', async () => {
+    // A row for a DIFFERENT metric inside the range. Unscoped, the probe would
+    // count it and report the products-only run as having landed.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-06',
+      metric: 'traffic.page_views_human',
+      value: 5,
+      source: 'measured',
+      computedAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    const probe = t.raw.prepare(buildCoverageProbe(EARLIER, ONLY)).get() as {
+      rows_total: number;
+    };
+    expect(probe.rows_total).toBe(0);
   });
 });

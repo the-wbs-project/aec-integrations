@@ -40,6 +40,25 @@
  * (827 `integration.created` events back 496 live rows) and so does not reconcile
  * with a live `COUNT(*)`.
  *
+ * **Both of those notes are per METRIC, not per namespace (AECI-684).** They were
+ * emitted identically for all four `catalog.*` keys, and for
+ * `catalog.products_created` that was false in two ways at once. That series is
+ * §4's exception: the cron and the live fallback count `product.created` events
+ * like the other three, but `metrics-backfill.ts` reconstructs the pre-snapshot
+ * days from `products.created_at` instead, because the audit log covers 131 of
+ * 171 rows and the column is the exact first-promote timestamp (§7.1, §13 D6).
+ * So the series carries two definitions either side of the snapshot boundary,
+ * and its floor is the catalog's first row rather than the log's.
+ *
+ * `catalog_series_starts_at` on that series reports the stored floor beside the
+ * catalog floor when they disagree. In production they do: the backfill was run
+ * with an explicit `--from 2026-06-23`, so 43 products created before it are
+ * outside `metrics_daily` entirely. A caller asking for a window that reaches
+ * back there would otherwise read zeros as a quiet period rather than as days
+ * nobody reconstructed. Filling them is `--series`, not a wider `--from` — a
+ * plain re-run from the catalog floor would zero-fill `traffic.*` across days
+ * `page_views` did not yet exist, trading a products gap for a traffic lie.
+ *
  * `basis=net` is the other reading: rows still present, bucketed by `created_at`,
  * which nets removals off and therefore DOES reconcile. It bypasses the snapshot
  * (the value is retroactive — see `catalogRowsPerDay`), reports `source: 'live'`
@@ -75,7 +94,10 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
 import {
+  catalogSeriesProvenance,
   earliestAuditDay,
+  earliestCatalogRowDay,
+  earliestStoredMetricDay,
   enumerateDays,
   internalFilterNote,
   isPartial,
@@ -250,22 +272,71 @@ export function createAdminTimeseriesHandler(
       }
     }
     if (query.metric.startsWith('catalog.') && !net) {
-      notes.push(
-        note(
-          'catalog_series_is_additions_only',
-          'This series counts creation events from the audit log. It is additions per day, not a net total — rows removed later still count on the day they were added.',
-          { metric: query.metric },
-        ),
-      );
-      const earliest = await earliestAuditDay(db);
-      if (earliest && earliest > w.fromDay) {
+      // AECI-684. Both notes are per metric, not per namespace. Three of the four
+      // catalog series are reconstructed from `audit_log` end to end and the
+      // original text is exactly right for them. `catalog.products_created` is
+      // §4's exception (§7.1) and is served from TWO definitions depending on the
+      // day, so the same sentence told a caller something false about the one
+      // column the panel's own provenance banner points at.
+      const provenance = catalogSeriesProvenance(query.metric);
+      const measuredFrom = provenance?.reconstructedFrom ?? null;
+      if (provenance && measuredFrom) {
         notes.push(
           note(
-            'catalog_series_starts_at',
-            `The audit log begins ${earliest}; days before that read zero for want of data, not for want of activity.`,
-            { earliest_day: earliest },
+            'catalog_series_is_additions_only',
+            `This series is additions per day, not a net total — rows removed later still count on the day they were added. Its source changes at the snapshot boundary: days captured by the daily snapshot or aggregated live count ${provenance.liveAction} events from the audit log, while the reconstructed days before it are measured from ${measuredFrom}, which is exact where the audit log covers only part of the catalog.`,
+            {
+              metric: query.metric,
+              live_source: provenance.liveAction,
+              reconstructed_from: measuredFrom,
+            },
           ),
         );
+        // The floor of the RECONSTRUCTED half is the catalog's own first row, not
+        // the audit log's. Reported beside the stored floor rather than instead of
+        // it, because the two disagree in production and the gap between them is
+        // the 43 products Defect 2 named: a caller reaching before `stored_from`
+        // gets zeros that mean "not backfilled", not "nothing happened".
+        const [catalogFloor, storedFloor] = await Promise.all([
+          earliestCatalogRowDay(db, query.metric),
+          earliestStoredMetricDay(db, query.metric),
+        ]);
+        const gapUnfilled = Boolean(
+          catalogFloor && storedFloor && storedFloor > catalogFloor && w.fromDay < storedFloor,
+        );
+        if (catalogFloor && (catalogFloor > w.fromDay || gapUnfilled)) {
+          notes.push(
+            note(
+              'catalog_series_starts_at',
+              gapUnfilled
+                ? `The catalog's first row is ${catalogFloor}, but the stored series begins ${storedFloor} — the backfill was run from a later day. Days between them read zero because they were never reconstructed, not because nothing happened. Re-run "pnpm ops:backfill-metrics-daily --series ${query.metric}" from ${catalogFloor} to fill them.`
+                : `${measuredFrom} begins ${catalogFloor}; days before that read zero for want of data, not for want of activity.`,
+              {
+                earliest_day: catalogFloor,
+                ...(storedFloor ? { stored_from: storedFloor } : {}),
+                source: measuredFrom,
+              },
+            ),
+          );
+        }
+      } else {
+        notes.push(
+          note(
+            'catalog_series_is_additions_only',
+            'This series counts creation events from the audit log. It is additions per day, not a net total — rows removed later still count on the day they were added.',
+            { metric: query.metric },
+          ),
+        );
+        const earliest = await earliestAuditDay(db);
+        if (earliest && earliest > w.fromDay) {
+          notes.push(
+            note(
+              'catalog_series_starts_at',
+              `The audit log begins ${earliest}; days before that read zero for want of data, not for want of activity.`,
+              { earliest_day: earliest },
+            ),
+          );
+        }
       }
     }
 

@@ -220,6 +220,65 @@ describe('AdminNotes', () => {
     expect(el.textContent).toContain('recompute control on this page');
   });
 
+  // ── AECI-684: the two catalog notes branch on their params ────────────────
+  describe('catalog provenance prose is metric-aware (AECI-684)', () => {
+    it('keeps the plain audit-log wording for the three reconstructed series', () => {
+      const el = render([
+        makeNote({
+          code: 'catalog_series_is_additions_only',
+          params: { metric: 'catalog.integrations_created' },
+        }),
+      ]);
+      expect(el.textContent).toContain('creation events from the audit log');
+      expect(el.textContent).not.toContain('changes partway through');
+    });
+
+    it('names both sources when the series has a measured reconstructed segment', () => {
+      const el = render([
+        makeNote({
+          code: 'catalog_series_is_additions_only',
+          params: {
+            metric: 'catalog.products_created',
+            live_source: 'product.created',
+            reconstructed_from: 'products.created_at',
+          },
+        }),
+      ]);
+      // The defect this replaces: telling a products reader the whole series
+      // comes from the audit log.
+      expect(el.textContent).toContain('products.created_at');
+      expect(el.textContent).toContain('product.created');
+      expect(el.textContent).toContain('changes partway through');
+    });
+
+    it('floors on the named source rather than on "the audit log"', () => {
+      const el = render([
+        makeNote({
+          code: 'catalog_series_starts_at',
+          params: { earliest_day: '2026-06-08', source: 'products.created_at' },
+        }),
+      ]);
+      expect(el.textContent).toContain('products.created_at begins 2026-06-08');
+      expect(el.textContent).not.toContain('The audit log begins');
+    });
+
+    it('says the leading zeros are unfilled when the stored floor is later', () => {
+      const el = render([
+        makeNote({
+          code: 'catalog_series_starts_at',
+          params: {
+            earliest_day: '2026-06-08',
+            stored_from: '2026-06-23',
+            source: 'products.created_at',
+          },
+        }),
+      ]);
+      expect(el.textContent).toContain('2026-06-08');
+      expect(el.textContent).toContain('2026-06-23');
+      expect(el.textContent).toContain('never reconstructed');
+    });
+  });
+
   describe('accessibility (structural)', () => {
     it('is a named list, adds no headings, and introduces no nested landmark', () => {
       const el = render([makeNote({ code: 'requires_recompute' })]);

@@ -391,6 +391,45 @@ Four things follow, all of them stated on the wire rather than left to inference
 
 This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
+**(6) Provenance on `basis=additions` is per series, not per namespace (AECI-684, 2026-09-14).**
+
+The endpoint attached the same two notes to all four `catalog.*` keys —
+`catalog_series_is_additions_only` ("counts creation events from the audit log")
+and `catalog_series_starts_at` ("the audit log begins …"). Both are true of three
+of them. Neither is wholly true of `catalog.products_created`, which is §4's
+exception:
+
+| segment | `catalog.products_created` | the other three |
+|---|---|---|
+| live fallback | `audit_log` `product.created` | `audit_log` `*.created` |
+| 00:15 cron snapshot | `audit_log` `product.created` | `audit_log` `*.created` |
+| reconstructed (backfilled) days | **`products.created_at`** (§7.1, measured) | `audit_log` `*.created` |
+
+So the products column is served from two definitions either side of the snapshot
+boundary, and its floor is the catalog's first row rather than the log's. Both
+notes now branch on the metric and carry the source in `params`
+(`live_source` / `reconstructed_from` on the first, `source` / `stored_from` on
+the second). Production still shows the divergence the split predicts: 207
+`product.created` events against 204 series points.
+
+`catalog_series_starts_at` on that series also discloses a **stored floor later
+than the catalog floor**, which is the 43 pre-2026-06-23 products §7.1 describes.
+Until that gap is backfilled, a caller reaching before the stored floor reads
+zeros; the note tells them those days were never reconstructed rather than quiet,
+and names the `--series` command that fills them.
+
+**This is a contract-accuracy fix, not a number change.** No figure moves, and no
+screen currently reads either path — (5) moved the panel to `basis=net` in
+AECI-686, which is why the wrong notes survived four weeks unnoticed. The UI
+strings were corrected alongside the API ones so the two cannot drift back apart.
+
+**Open: `catalog.vendors_created` stays on the audit log.** 32 vendors predate the
+first audit row and `vendors.created_at` could recover them the same way. It is
+deliberately *not* done here, because every series moved to a measured backfill
+acquires the same two-definition split as products, and one such series is a
+documented exception where two would be a pattern. Revisit it with AECI-687
+(deletion tombstones), which removes the reason the split exists at all.
+
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
@@ -862,6 +901,43 @@ correction); it is backfilled from that column and marked measured, not
 reconstructed — and it is *better* than the live audit-log series, which covers
 131 of 171 rows.
 
+**That exception splits the products series in two, and AECI-684 made it say so.**
+The 00:15 cron and the endpoint's live fallback both route `catalog.*` through
+`metricSeries`, which counts `audit_log` `*.created` events — so
+`catalog.products_created` is measured from `products.created_at` only across the
+days this script reconstructed. A window spanning the snapshot boundary is
+therefore served from two definitions, and the endpoint's two provenance notes are
+now **per metric** rather than per namespace: the products series names both
+halves and floors on the catalog's own first row, while the other three keep the
+unqualified audit-log wording that is correct for them. The UI strings branch the
+same way (`admin-notes.ts`), so a `curl` and the screen still agree (§9.4).
+
+**One `--from` was not enough, and widening it is the wrong fix (AECI-684).** The
+eight series do not begin on the same day: `products.created_at` reaches back to
+2026-06-08 and `page_views` starts on 2026-06-23. The production run used
+`--from 2026-06-23`, so 43 products created before it have no `metrics_daily` row
+at all. Re-running from 2026-06-08 would *not* fix that — the zero-fill below runs
+edge to edge over every series, so it would write `traffic.*` = 0 across a
+fortnight the table did not exist for, and a stored zero is indistinguishable from
+a measured one in a table kept forever. `--series <metric[,metric]>` narrows both
+passes to the named keys instead, so one series' range can be extended without
+zero-filling any other:
+
+```
+pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+  --series catalog.products_created --from 2026-06-08 --to 2026-06-22 \
+  --apply --allow-production
+```
+
+Three properties of a `--series` run. The §7.4 prune gate still holds, because the
+selected series is still zero-filled edge to edge and the gate asks whether the
+DAY is captured — the same argument `BackfillSeries.zeroFill` already makes for
+opting one series out. The AECI-582 unclassified-`page_views` gate is **skipped**
+when no `traffic.*` series is selected, since it protects the traffic split and a
+catalog-only run writes none. And the post-apply coverage probe is scoped to the
+selection, so another metric's pre-existing rows cannot report a single-series run
+as having landed.
+
 **Deviation 3 — backfilled `traffic.*` is `measured`, gated on AECI-582.** This
 section originally lumped `page_views` in with `audit_log` as a reconstruction
 source. But a traffic backfill re-aggregates the very rows the live endpoint reads
@@ -1037,7 +1113,7 @@ Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the
 | Item | Why |
 |---|---|
 | ~~Run `scripts/ops/backfill-page-view-bots.sql` on production~~ — **DONE 2026-08-13 (AECI-582)**, all four tiers, via `scripts/ops/2026-08-page-view-bot-backfill/run.sh` | 17,784 rows read as human; every historical traffic chart was wrong until this ran. Production settled at 24,575 bot / 2,096 human. Was also a hard prerequisite for the §7.1 metrics backfill (which refuses a range containing unclassified rows, since `metrics_daily` is kept indefinitely and would otherwise freeze the wrong split permanently) — now satisfied on every tier. The runner adds a rule the ASN file could not: it recovers the **true crawler name** for 4,941 rows by matching their `user_agent_hash` against rows the live classifier has since named — `classifyTraffic()` tests the UA before the ASN, so such a verdict is UA-derived and transfers across ASNs. That reached 885 `Applebot` rows on AS714, **without** adding Apple to `DATACENTER_ASNS`, which would have taught the live classifier to call iCloud Private Relay visitors bots |
-| Run `pnpm --filter @aeci/api ops:backfill-metrics-daily` per environment (AECI-581) — **re-run 2026-09-09 (AECI-688)** on production, staging and demo | Reconstructs the pre-snapshot flow series. Dry-run by default; run it **after** the bot backfill and the operator backfill on that tier. Stocks are deliberately not backfilled. The AECI-688 re-run corrected the days AECI-683's retro-join changed: on production, six days of `traffic.page_views_human` for a net **−51** (2026-08-26: 102 → 80), two days of `traffic.page_views_bot` (−2) and six of `traffic.unique_visitors` (−6). Since AECI-688 the dry run prints every value it would change, per day, so the size of a rewrite is visible before `--apply` — alongside a second block naming the stored days it does **not** correct, which are the days whose source rows are gone (the run deliberately leaves them rather than zeroing them, since §7.4 prunes raw `page_views` once a day is captured). **Always pass `--to <yesterday>`** — the default upper bound is `max(day)` across the source tables, which is *today*, and that writes a partial UTC day into a table kept forever |
+| Run `pnpm --filter @aeci/api ops:backfill-metrics-daily` per environment (AECI-581) — **re-run 2026-09-09 (AECI-688)** on production, staging and demo | Reconstructs the pre-snapshot flow series. Dry-run by default; run it **after** the bot backfill and the operator backfill on that tier. Stocks are deliberately not backfilled. The AECI-688 re-run corrected the days AECI-683's retro-join changed: on production, six days of `traffic.page_views_human` for a net **−51** (2026-08-26: 102 → 80), two days of `traffic.page_views_bot` (−2) and six of `traffic.unique_visitors` (−6). Since AECI-688 the dry run prints every value it would change, per day, so the size of a rewrite is visible before `--apply` — alongside a second block naming the stored days it does **not** correct, which are the days whose source rows are gone (the run deliberately leaves them rather than zeroing them, since §7.4 prunes raw `page_views` once a day is captured). **Always pass `--to <yesterday>`** — the default upper bound is `max(day)` across the source tables, which is *today*, and that writes a partial UTC day into a table kept forever. **Outstanding (AECI-684): `catalog.products_created` still starts 2026-06-23 in storage**, because the original run passed that `--from` while the catalog reaches back to 2026-06-08 — 43 products. Fill it with `--series catalog.products_created --from 2026-06-08 --to 2026-06-22`, which zero-fills no other series; a plain wider `--from` would write `traffic.*` = 0 over days `page_views` did not exist for |
 | Run `scripts/ops/backfill-products-promoted-at.sql` per environment (AECI-581) | Fills `promoted_at := created_at` for rows created before migration 0011. Exact, idempotent |
 | ~~Capture taxonomy entities on page views~~ — **DONE 2026-08-13 (AECI-585)**, `taxonomy_kind` + `taxonomy_id` | `resolveEntity` mapped only `product`/`vendor`; category/audience/phase/trade ids were dropped, so ~600 rows cannot say *which* term was viewed. Two generic columns rather than four FKs: SQLite cannot point one column at four tables, and a hard FK would block ever deleting a term. The kind is stored **only** alongside an existence-checked id, so a dangling kind can never inflate a per-facet count |
 | ~~Store the concrete path alongside the route pattern~~ — **DONE 2026-08-13 (AECI-585)**, `concrete_path` | Detail-page rows store `/products/:slug`; product/vendor rows recover the name via FK, taxonomy rows cannot. `path` keeps its existing (mixed) meaning — the pattern when the writer knows one — and `concrete_path` is always the real path. The SSR `firePageView` stamps it from the request URL, so no resolver changed |
