@@ -36,12 +36,45 @@
  * anonymous, and this is the hottest write path in the app; it must not grow a
  * per-view auth round trip for visitors who have no session at all.
  *
- * **Never throws, never blocks.** Every failure — malformed token, expired,
- * JWKS fetch down, missing profile — resolves to `false`. This runs inside the
- * fire-and-forget `waitUntil` capture; an auth hiccup must cost a correct
- * `is_operator` flag, never the page-view row and never the visitor's 204.
- * Failing to `false` also fails in the safe direction: a view stays counted
- * rather than silently vanishing from the numbers.
+ * **Never throws, never blocks.** Every failure — malformed token, expired
+ * beyond the grace window below, JWKS fetch down, missing profile — resolves to
+ * `false`. This runs inside the fire-and-forget `waitUntil` capture; an auth
+ * hiccup must cost a correct `is_operator` flag, never the page-view row and
+ * never the visitor's 204. Failing to `false` also fails in the safe direction:
+ * a view stays counted rather than silently vanishing from the numbers.
+ *
+ * ─── The expiry grace window (AECI-689) ─────────────────────────────────────
+ *
+ * A recently-expired access token still flags. That is the one narrowing of
+ * "failure" this module makes, and it closes §13 **D15(a)**'s measured leak: an
+ * operator browsing across a token expiry wrote 22 page views as a stranger over
+ * 105 minutes on 2026-08-26, and AECI-683's read-side pair retro-join could
+ * only recover the ones a `(user_agent_hash, cf_asn)` pair proved.
+ *
+ * **Why this is sound, and why it is not the fail-open the issue forbids.**
+ * AECI-689's note rules out treating an *unverifiable* session as an operator,
+ * because anyone could then suppress their own traffic with a malformed token.
+ * A token inside the grace window is not unverifiable — its signature is checked
+ * against the project JWKS, its issuer and audience are checked, and the role is
+ * still read fresh from D1. Only the clock moved. Forging one means signing a JWT
+ * with Supabase's key, at which point analytics suppression is not the concern.
+ *
+ * **Why not refresh the token instead**, which is what the issue first proposed.
+ * Two independent blockers. The leak happens while the operator browses PUBLIC
+ * pages, which render on the cacheable branch, so the re-issued `Set-Cookie`
+ * would be stored by the native Workers Cache and served to other visitors. And
+ * Supabase rotates refresh tokens, so spending the browser's refresh token
+ * without handing the replacement back — which that first blocker prevents —
+ * invalidates the operator's own session. A refresh also puts a network round
+ * trip on the hottest write path in the app. This costs nothing: no refresh
+ * token, no round trip, no cookie write, and nothing at all on the anonymous
+ * path, which still returns before any crypto.
+ *
+ * **What it does not close.** An expiry older than the window still writes an
+ * unflagged row, and the read-side retro-join remains the repair for those. The
+ * window is deliberately generous rather than tight because the cost of being
+ * wrong is one analytics row either way, while the cost of being too tight is
+ * the defect recurring unnoticed.
  */
 
 import { eq } from 'drizzle-orm';
@@ -53,12 +86,34 @@ import type { Db } from '../db/client';
 import { profiles } from '../db/schema';
 import type { Env } from '../env';
 import { extractSessionCookieToken } from './authz';
-import { extractBearer, verifySupabaseJwt } from './user-auth';
+import { extractBearer, verifySupabaseJwtWithinGrace } from './user-auth';
+
+/**
+ * How long after `exp` a signature-valid admin token still flags its own traffic
+ * (AECI-689). 24 hours.
+ *
+ * Chosen to cover the two shapes that actually produce the leak: browsing
+ * straight across an hourly expiry (the measured 105-minute case), and a tab
+ * left open overnight, which AECI-689 names as the reason a proactive
+ * client-side refresh would not have been enough on its own.
+ *
+ * **It is a report-quality knob, not a security parameter**, which is what makes
+ * "generous" the right default. Widening it can only move a row from "counted as
+ * a visitor" to "excluded as the operator", and the only party who could benefit
+ * from that holds a validly-signed admin token already. Narrowing it does not
+ * make anything safer; it just lets the defect back in. Tune it if the operator
+ * ever reports their own traffic being excluded after a genuinely ended session
+ * — which requires the browser to keep sending a cookie that sign-out clears.
+ */
+export const OPERATOR_TOKEN_GRACE_SECONDS = 24 * 60 * 60;
 
 export type OperatorSessionOptions = {
   /** Test seam: local key resolver (jose `createLocalJWKSet`) so specs verify
    *  offline, mirroring `AuthzOptions.getKey`. Production callers omit it. */
   getKey?: JWTVerifyGetKey;
+  /** Test seam: override {@link OPERATOR_TOKEN_GRACE_SECONDS} so a spec can pin
+   *  both sides of the window without manufacturing a 24-hour-old token. */
+  graceSeconds?: number;
 };
 
 /**
@@ -90,15 +145,24 @@ export async function isOperatorRequest(
   if (!token) return false;
 
   try {
-    const { userId } = await verifySupabaseJwt(token, supabaseUrl, options.getKey);
+    // The ONLY caller of the grace-window verifier. Signature, issuer and
+    // audience are checked exactly as `requireUserAuth` checks them; only `exp`
+    // is tolerated, and only for this analytics flag. See the module header.
+    const { userId } = await verifySupabaseJwtWithinGrace(
+      token,
+      supabaseUrl,
+      options.graceSeconds ?? OPERATOR_TOKEN_GRACE_SECONDS,
+      options.getKey,
+    );
     const profile = await db.query.profiles.findFirst({
       columns: { role: true },
       where: eq(profiles.id, userId),
     });
     return profile?.role === 'admin';
   } catch {
-    // Signature / expiry / issuer / JWKS-fetch failures and D1 errors alike.
-    // An unverifiable session is not an operator session.
+    // Signature / issuer / JWKS-fetch failures, an expiry older than the grace
+    // window, and D1 errors alike. An unverifiable session is not an operator
+    // session — AECI-689's note, unchanged.
     return false;
   }
 }

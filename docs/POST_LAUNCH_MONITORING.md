@@ -830,10 +830,18 @@ cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env productio
 
 `is_operator` is decided **once, at ingest**, and `lib/operator-session.ts` resolves every failure to
 `false` — deliberately, so an auth hiccup costs a flag rather than the page-view row. **An expired
-access token is one of those failures.** An operator browsing across a token expiry therefore writes
-flagged rows, then unflagged rows, then flagged rows again, and nothing on the unflagged ones
-distinguishes them from a visitor. On 2026-08-26 that was **22 views in one 105-minute gap**, ending
+access token used to be one of those failures.** An operator browsing across a token expiry therefore
+wrote flagged rows, then unflagged rows, then flagged rows again, and nothing on the unflagged ones
+distinguished them from a visitor. On 2026-08-26 that was **22 views in one 105-minute gap**, ending
 on `/auth/login` — which is what a lapse looks like from the outside.
+
+> **Narrowed at the write side by AECI-689 (§13 D22, 2026-09-14).** A token whose signature, issuer
+> and audience all verify but whose `exp` passed less than `OPERATOR_TOKEN_GRACE_SECONDS` (24 h) ago
+> now flags. The clock moved and nothing else did — the signature is still checked and `profiles.role`
+> is still re-read — so the flag stays unclaimable. The retro-join below is **unchanged** and is still
+> what covers an expiry older than that window, plus every row written before 2026-09-14. Expect the
+> `operator_leak_excluded` figure to fall once this reaches production, and read that as the write
+> side working rather than as the inference weakening.
 
 `NOT_INTERNAL` (`lib/page-view-predicates.ts` since AECI-745; `lib/analytics-digest.ts` when this was written) now carries a third half: a correlated `NOT EXISTS` that
 excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within

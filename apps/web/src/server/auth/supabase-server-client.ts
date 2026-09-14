@@ -16,9 +16,21 @@
  *
  * Cache interaction (CLAUDE.md "visitor-state-neutral HTML"): the session
  * cookie must NOT join `VISITOR_STATE_COOKIES` — it is a session credential,
- * not render-affecting visitor state, and auth surfaces (`/auth/*`,
- * `/account*`) are already non-cacheable via the fail-closed route classifier
- * in `server-runtime.ts`, so it never reaches a cacheable SSR render.
+ * not render-affecting visitor state.
+ *
+ * **Correction (AECI-689).** This note used to add "so it never reaches a
+ * cacheable SSR render", on the grounds that auth surfaces are non-cacheable.
+ * That is not what keeps the cache safe. `VISITOR_STATE_COOKIES` is empty, so
+ * `stripVisitorStateCookies` strips nothing and the session cookie DOES reach
+ * the cacheable render — a signed-in operator browsing a public product page is
+ * the ordinary case. What actually protects the cache is that the cacheable
+ * branch builds a **cookie-free** API client (`createServerApiClient(env)` with
+ * no inbound auth), so no visitor state can be baked into the stored HTML.
+ *
+ * The distinction matters to anyone proposing to write a cookie from SSR: a
+ * `Set-Cookie` on the cacheable branch would be stored by the native Workers
+ * Cache and served to other visitors. AECI-689 declined a server-side token
+ * refresh for exactly this reason (§13 D22).
  */
 
 import { createServerClient } from '@supabase/ssr';
