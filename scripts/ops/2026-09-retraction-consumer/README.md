@@ -1,18 +1,24 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916)
 
-**Status: RUN — four tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — five tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
-batch 1), and 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3). **The feed is at
+batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), and 2026-09-14 a
+fourth time (2 rows, **AECI-916 — the first operator-ruling run**). **The feed is at
 zero pending and no hold is active.**
 
-The last two tranches are the routine upstream batches this lane was built for, rather than
-one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
+Tranches three and four are the routine upstream batches this lane was built for, rather
+than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
 Zapier deferred. Kroo's 119 rows are unpromoted and carry zero claims, so that batch may
 journal nothing at all and leave this lane with nothing to do.
 
 Consumes the review app's retraction journal: reads `list_retractions`, deletes the live
 AECi rows it names, verifies they are gone in **both** delivered-tier tables, and only then
 calls `confirm_retractions`.
+
+**Since AECI-916 it has a second cohort source.** `--ruling <file>` takes the ids from a
+committed operator ruling instead of the journal, for stranded rows no journal entry can
+ever name. Every guard stays; `confirm_retractions` is never called. See
+[Operator-ruling mode](#operator-ruling-mode---ruling-aeci-916).
 
 Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
 It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI
@@ -447,9 +453,226 @@ to delete into the journal — the "confirm upstream → journal → consumer" r
 waiting on no longer exists. They need a tool that reaches `connector_evidenced_pairs`
 directly. The bucket will keep reporting them, unchanged, until that is built.
 
+## Operator-ruling mode (`--ruling`, AECI-916)
+
+**The journal cannot reach every stranded row, and this is the mode for the ones it cannot.**
+
+A journal entry is written only when the deleted upstream record carried a
+`supabase_integration_id`. If that pointer was never stored, deleting the record upstream
+journals **nothing**. The live AECi row is then unreachable from both sides at once: no
+upstream record claims it, and no feed entry names it. The daily strand audit's
+`evidencedPairSourceGone` bucket can *see* such a row; until this mode existed, nothing in
+the repo could remove it.
+
+```bash
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production \
+  --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-916-heavyjob-aquifer.json
+```
+
+### The ruling file
+
+JSON, and **committed** under `rulings/` — it is the ruling record. Everything else this lane
+writes is gitignored; this is the exception, and the lane `.gitignore` says so, because the
+file plus the `audit_log` rows are the only surviving account of why the rows went. It holds
+uuids and prose, not row bodies, so it does not carry the catalog content the other artifacts
+are ignored for.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `issue` | yes, `AECI-\d+` | the ticket; lands in `metadata.issue` and names the run |
+| `reason` | yes, non-empty | the ruling in full prose, copied verbatim into every audit row |
+| `rulingSource` | yes, non-empty | where the decision came from and how it was established |
+| `noUpstreamRuling` | yes, **a real boolean** | `false` = an upstream ruling exists and just never reached the journal. `true` = nobody recorded one anywhere and the operator is making it (the AECI-795 shape) |
+| `ids` | yes, non-empty uuids | the AECi row ids, de-duplicated case-insensitively |
+
+`noUpstreamRuling` has **no default**, deliberately. `?? false` would be wrong in the one
+direction that matters: it would silently claim an upstream ruling exists for a row whose
+deletion nobody recorded, which is the exact assertion AECI-795 refused to make. A malformed
+ruling file exits **2** (could not check), never 1.
+
+### What stays, and the four things that differ
+
+Everything: both tables on resolve **and** on verify, the `EXPECTED` shape pin, the
+`MAX_CASCADE` ceiling with its per-pair proof, the `HOLD` list, the AECI-878 sentinel, one
+`audit_log` row per deleted id, the `integration_count` repair with the `updated_at` bump, and
+the timestamped rollback + preflight. The differences are all refusals:
+
+1. **`confirm_retractions` is never called.** There is nothing upstream to acknowledge, so no
+   write session is opened at all — the MCP token is read-only for the whole run.
+   `verifyDeleted()` still runs and still has to pass; its token feeds the report rather than a
+   confirm. There is still exactly one `confirmRetractions()` call site, now behind an `if`,
+   and the function itself throws if handed a non-string entry id.
+2. **A ruled id that resolves in neither table is a refusal**, not an `alreadyGone` bucket
+   entry. In journal mode an absent row is ordinary — the feed records the past, and the row
+   may already have been taken. A ruling is a statement about rows the operator measured just
+   now, so an unresolvable id means the file was written against a state that has moved, or
+   the id is wrong. Same reasoning as a `HOLD` entry missing from the plan, with more force:
+   a stale hold merely fails to protect a row, while a stale ruling authorises a delete whose
+   target the operator cannot see.
+3. **`--ruling` with a non-empty journal is a refusal.** The two cohorts must never mix. The
+   feed is still read in ruling mode purely to prove it is empty. Drain it with an ordinary
+   run first — otherwise a ruling run would delete rows while entries were pending, leaving
+   those entries un-confirmable against rows that no longer exist, and the next journal run
+   would route them into `goneUnexplained`, clearable only by `--confirm-already-gone`, which
+   is the one flag this mode forbids.
+4. **`--ruling` with `--detect-only` or `--confirm-already-gone` is a refusal.** Both are
+   journal verbs. Ignoring them silently would be worse: an operator who typed
+   `--confirm-already-gone` believes something upstream is being acknowledged.
+
+The audit `metadata` swaps its provenance block rather than thinning it. `retraction_journal`
+would be a block of nulls, which reads like a *lost* record instead of an *absent* one, so
+ruling mode writes `operator_ruling` (`issue`, `reason`, `ruling_source`, `ruling_file`) and
+sets `metadata.source` to `operator-ruling`. Query that field to tell the two cohorts apart:
+
+```sql
+SELECT json_extract(metadata,'$.source'), COUNT(*) FROM audit_log
+ WHERE json_extract(metadata,'$.tool') = 'scripts/ops/2026-09-retraction-consumer/consume.mjs'
+ GROUP BY 1;
+```
+
+### This is not a licence to hand-rule a strand
+
+The bar has not moved. `evidencedPairSourceGone` findings are still a curation judgement, and
+the RUNBOOKS escalation path still applies: establish the ruling first, then execute it here.
+What changed is only that executing it no longer requires raw SQL. AECI-916's ruling took an
+hour of evidence-gathering across `promote_jobs`, `audit_log`, all 254 journal entries and two
+upstream 404s before a single row was touched, and the one thing it could not establish is
+recorded as an absence in the file rather than guessed at.
+
+Use this mode when the journal route is **structurally closed** — no upstream record, no
+journal entry. If the record still exists upstream, delete it there and let the journal carry
+it; that path preserves the curator's own words, which is strictly better evidence than an
+operator's reconstruction.
+
+## What ran — 2026-09-14, 2 rows (AECI-916, the first ruling run)
+
+The two Aquifer-powered HeavyJob evidenced pairs the AECI-897 two-table strand audit found on
+its first production run. Both publicly reachable, both with zero cascade.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-916-heavyjob-aquifer.json
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-916-heavyjob-aquifer.json --apply --allow-production --confirm-count 2
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 950 | 950 | 0 |
+| `connector_evidenced_pairs` | 24 | 22 | −2 |
+| `claims` | 1880 | 1880 | **0** |
+| `attestations` | 1880 | 1880 | **0** |
+| `claims` on `connector_pairs` (reach tier) | 202 | 202 | 0 — untouched |
+| `audit_log` rows from this lane | 254 | 256 | +2 |
+| feed, pending | 0 | 0 | 0 — **nothing confirmed, by design** |
+
+`resolve: integrations 0, connector_evidenced_pairs 2, already gone 0`. Fourth run in a row
+where nothing landed in `integrations`.
+
+Time Travel bookmark captured immediately before the delete, expires ~2026-10-14:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=0000586c-00000000-000050e6-2b1f1114778e945bd27e1d95cefccd3d
+```
+
+**4 products** had `integration_count` repaired and `updated_at` bumped:
+
+| slug | before | after |
+|---|---|---|
+| `aquifer` | 36 | 34 |
+| `heavyjob` | 17 | 15 |
+| `procore-project-management` | 89 | 88 |
+| `sage-300-cre` | 26 | 25 |
+
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+### Why the journal could never have carried these two
+
+Established from evidence before the run, not inferred:
+
+| Fact | Where it came from |
+|---|---|
+| Both rows created by one promote, `2026-09-09T07:46:32.644Z` | `audit_log` `connector_evidenced_pair.created`, `metadata.source: review-app-promote` |
+| That job is HeavyJob's product promote | `promote_jobs.job_id = rec8tPLsT5ezww4L3-mttso2i2-5379ce2d` |
+| They were the **only two** `operation: 'created'` rows in it | the stored job result: 23 integrations, 21 `updated`, 2 `created`, `skipped: []` |
+| Their upstream record ids | `recG6U43cBIdH48zh` (→ Procore Project Management), `recmuxzxBjSnSG1LG` (→ Sage 300 CRE) |
+| The ID map **was** served, with both ids in it | same job result |
+| The pointer was never stored | 11 of the 13 evidenced pairs created that morning carry a journal entry; these 2 do not |
+| Both upstream records now gone | `get_integration` → `Integration not found` on both |
+| No journal entry names either id | all **254** entries read, pending *and* confirmed |
+| No later HeavyJob promote ran | that job is the last of six for `rec8tPLsT5ezww4L3` |
+
+So the sequence is: the promote created the rows and returned their ids, the write-back of
+those two ids did not land, and AECI-889 batch 3 then deleted both upstream records — which
+journalled nothing, because a journal entry needs the pointer. The 20 sibling Aquifer records
+in that same batch *did* carry pointers, journalled, and were consumed hours earlier.
+
+**Why the write-back did not land is not known, and is recorded as an absence.** The ruling
+file says so in those words. The rows' own `notes` show they were materialised by the review
+app's AECI-670 pair-surface lane on 2026-09-09, which is where to look if it recurs, but
+nothing in either system says what failed, and no later promote gave it a second chance.
+`no_upstream_ruling` is **false**: the upstream ruling exists — AECI-889's I24, the same one
+applied to the 20 siblings — it simply never reached the journal.
+
+### Algolia, fifth run
+
+```
+products      production_products        indexed 260   promoted 260    orphans 0
+vendors       production_vendors         indexed 169   promoted 169    orphans 0
+integrations  production_integrations    indexed 950   promoted 972    orphans 0
+```
+
+**Zero orphans** for the fifth time, same reason: evidenced pairs have never been indexed.
+For AECI-880: drift is now **22 missing**, down from 24 — and 22 is again exactly the
+surviving `connector_evidenced_pairs` count. The two numbers have tracked each other since the
+batches 2 + 3 run and that is arithmetic, not a fix.
+
+### Cache, fifth run
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc` rather than assumed: the `exports`
+block sits in the `preview` and `staging` env blocks only (lines 109 and 176, under the blocks
+opening at 85 and 155), so `demo` and `production` serve uncached.
+
+### Verification, live (2026-09-14, browser UA)
+
+- `/products/procore-project-management/integrations/heavyjob` → **200 with
+  `<meta name="robots" content="noindex">`**, zero occurrences of "Aquifer".
+- `/products/sage-300-cre/integrations/heavyjob` → same.
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, **indexable**, no robots meta.
+  The AECI-878 negative sentinel, asserted present in both orientations before and after.
+
+A retracted pair leaving a noindexed empty pair page rather than a 404 is the expected
+outcome (AECI-795).
+
+### Daily audit after this run
+
+**Exit 0. Every bucket empty**, including `evidencedPairSourceGone` and `pendingRetractions`,
+`orphanChildren` 0c / 0a, **0 publicly reachable stranded rows**, and edge reconciliation
+**972/972 accounted** (950 integrations + 22 evidenced pairs). Catalogue at the time: upstream
+1,543 products / 2,521 integrations (972 carry an id), prod 260 products / 169 vendors.
+
+That is the first clean run since AECI-897 put `connector_evidenced_pairs` in scope.
+
+### The guard, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 2, inPairs: 2, inIntegrations: 0 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 0, attestations: 0 }` — **unchanged** | `{ 0, 0 }` |
+
+`MAX_CASCADE` did not move, and that is the point of taking the cascade from the dry run: it
+read `0 claims, 0 attestations`, which the resting ceiling of `0 / 0` already permits. A run
+that needs no raise is the only kind that should not get one.
+
+`EXPECTED` binds in ruling mode too, and it is not redundant with `--confirm-count`. The count
+gate proves the operator knows how many rows the plan holds; the shape gate proves the rows
+are in the **table** the ruling was measured against. A ruling written against two evidenced
+pairs that had since become one pair and one `integrations` row would clear
+`--confirm-count 2` and fail the shape gate, correctly.
+
 ## The order, and why it is not negotiable
 
-Delete → verify → confirm. Always.
+Delete → verify → confirm. Always. (In ruling mode the third step does not exist, because
+there is no journal entry to acknowledge — but the first two are unchanged and the verify is
+still what gates the run to completion.)
 
 `confirm_retractions` stamps `synced_at`, which drops the entry out of the default feed. An
 entry confirmed but never deleted is a live public row that **nothing in either system can
@@ -620,7 +843,10 @@ if the feed moved between the dry run and the apply, the run refuses.
 Guards that refuse rather than adapt: the shape gate (`EXPECTED`, which binds only when there
 is something to delete), the cascade ceiling (`MAX_CASCADE`), a held id missing from the plan,
 an id present in **both** tables, and the sentinel edge moving. Entries that are not
-integration-class are parked before any of that — see "Why only those two tables".
+integration-class are parked before any of that — see "Why only those two tables". Ruling mode
+adds four more, all listed under
+[Operator-ruling mode](#operator-ruling-mode---ruling-aeci-916), and parks nothing: a ruled id
+that is not in a delivered-tier table stops the run instead.
 
 **`EXPECTED` and `MAX_CASCADE` read `0 / 0 / 0` and `0 / 0`, so the next run refuses until
 you measure the cohort and re-pin them.** That is the design: an authorisation is spent by

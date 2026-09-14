@@ -107,6 +107,98 @@ describe('renderEmailHtml — the CTA', () => {
   });
 });
 
+describe('renderEmailHtml — the detail table (AECI-924)', () => {
+  const ROWS = [
+    ['Claimed', 'Globex Inc (vendor)'],
+    ['Submitter', 'ops@globex.com'],
+    ['Linear issue', 'https://linear.app/aec-integrations/issue/AECI-1'],
+  ] as const;
+
+  it('renders every row as a label and a value', () => {
+    const html = renderEmailHtml({ ...BASE, table: ROWS });
+    expect(html).toContain('Claimed');
+    expect(html).toContain('Globex Inc (vendor)');
+    expect(html).toContain('ops@globex.com');
+  });
+
+  it('separates rows with the border-strong hairline, never a border="1" grid', () => {
+    const html = renderEmailHtml({ ...BASE, table: ROWS });
+    expect(html).toContain('border-top:1px solid #d4d4d8');
+    // The unstyled grid `opsTable()` drew is the thing this migration exists to remove.
+    expect(html).not.toContain('border="1"');
+  });
+
+  it('links a value that is a bare URL, so an operator does not copy-paste by hand', () => {
+    const html = renderEmailHtml({ ...BASE, table: ROWS });
+    expect(html).toContain(
+      '<a href="https://linear.app/aec-integrations/issue/AECI-1" style="color:#1e3a2f;text-decoration:underline">',
+    );
+  });
+
+  it('leaves a value that merely mentions a URL unlinked', () => {
+    const html = renderEmailHtml({
+      ...BASE,
+      table: [['Linear issue', 'not created yet, see https://linear.app']],
+    });
+    expect(html).not.toContain('<a href="not created yet');
+    expect(html).toContain('not created yet, see https://linear.app');
+  });
+
+  it('escapes both halves, because these rows carry submitter-supplied text', () => {
+    const html = renderEmailHtml({
+      ...BASE,
+      table: [['Name & role', '<script>alert(1)</script>']],
+    });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('Name &amp; role');
+  });
+
+  it('renders no table markup at all when there are no rows', () => {
+    expect(renderEmailHtml({ ...BASE, table: [] })).toBe(renderEmailHtml(BASE));
+  });
+});
+
+describe('renderEmailHtml — sections (AECI-924)', () => {
+  const SECTIONS = [
+    { heading: 'Autodesk (claim)', rows: [['Cause', 'no_api_key'] as const] },
+    { heading: 'Globex (claim)', rows: [['Cause', 'timeout'] as const] },
+  ];
+
+  it('renders a heading per group, above that group only', () => {
+    const html = renderEmailHtml({ ...BASE, sections: SECTIONS });
+    expect(html.indexOf('Autodesk (claim)')).toBeLessThan(html.indexOf('no_api_key'));
+    expect(html.indexOf('no_api_key')).toBeLessThan(html.indexOf('Globex (claim)'));
+    expect(html.indexOf('Globex (claim)')).toBeLessThan(html.indexOf('timeout'));
+  });
+
+  it('sets the group heading one step below the email heading, not equal to it', () => {
+    const html = renderEmailHtml({ ...BASE, sections: SECTIONS });
+    // 22px is the email's own heading. A group is 15px/600. Equal sizes would read as
+    // N emails glued together rather than one alert about N things.
+    expect(html).toContain('font-size:15px;line-height:1.4;font-weight:600;color:#0a0a0a');
+    expect(html).toContain('font-size:22px');
+  });
+
+  it('escapes the heading, because a section is named after catalog data', () => {
+    const html = renderEmailHtml({
+      ...BASE,
+      sections: [{ heading: '<script>x</script>', rows: [['a', 'b'] as const] }],
+    });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('opens a one-group alert at the same offset a flat table does', () => {
+    const one = renderEmailHtml({ ...BASE, sections: [SECTIONS[0]!] });
+    expect(one).toContain('padding:20px 32px 0 32px');
+  });
+
+  it('renders nothing when there are no sections', () => {
+    expect(renderEmailHtml({ ...BASE, sections: [] })).toBe(renderEmailHtml(BASE));
+  });
+});
+
 describe('renderEmailHtml — escaping', () => {
   it('escapes the heading, the CTA and the note', () => {
     const html = renderEmailHtml({
@@ -155,6 +247,45 @@ describe('renderEmailText', () => {
   it('omits the CTA line entirely when there is no link to offer', () => {
     const text = renderEmailText({ ...BASE, cta: undefined });
     expect(text).not.toContain('http');
+  });
+
+  it('indents section rows under their heading, as `opsSectionsText` did', () => {
+    const text = renderEmailText({
+      ...BASE,
+      cta: undefined,
+      note: undefined,
+      sections: [
+        { heading: 'Autodesk (claim)', rows: [['Cause', 'no_api_key']] },
+        { heading: 'Globex (claim)', rows: [['Cause', 'timeout']] },
+      ],
+    });
+    expect(text.split('\n\n')).toEqual([
+      'Your claim is approved',
+      'First block.',
+      'Second block.',
+      'Autodesk (claim)\n  Cause: no_api_key',
+      'Globex (claim)\n  Cause: timeout',
+    ]);
+  });
+
+  it('emits the table as one `Key: value` block between the blocks and the CTA', () => {
+    const text = renderEmailText({
+      ...BASE,
+      table: [
+        ['Claimed', 'Globex Inc (vendor)'],
+        ['Submitter', 'ops@globex.com'],
+      ],
+    });
+    // Byte-for-byte what `opsText()` produced, which is why migrating a template
+    // leaves its text part and the specs that assert on it unchanged.
+    expect(text.split('\n\n')).toEqual([
+      'Your claim is approved',
+      'First block.',
+      'Second block.',
+      'Claimed: Globex Inc (vendor)\nSubmitter: ops@globex.com',
+      'Go to your vendor portal: https://www.aecintegrations.com/vendor',
+      'Small print.',
+    ]);
   });
 });
 

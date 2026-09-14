@@ -149,6 +149,14 @@ Two consequences worth knowing before touching a sort:
 
 `COLLATE NOCASE` and `compareText` produce the identical order across the ASCII catalog; `apps/api/src/lib/collation.spec.ts` asserts that agreement against real SQLite rather than asserting it in prose.
 
+#### Taxonomy ordering — `display_order` NULLs go LAST (AECI-925)
+
+**`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
+
+This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a missing category / audience / phase from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row today — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**, still open) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. The duplicate itself is a seed/upstream naming mismatch, guarded separately by `apps/api/src/test/taxonomy-seed-slugs.spec.ts`.
+
+**One place the rule does not reach: the browser.** `toTaxonomyTermWithCount` serialises `display_order` as `raw.displayOrder ?? 0`, because the wire schema types it `z.number().int()` — a client cannot tell "unordered" from "order 0". Consumers that re-sort in memory (`byDisplayOrder`, `apps/web/src/app/core/taxonomy/taxonomy-rank.ts`) therefore still float an uncurated term to the front. That path is used for `phases` only, which has no NULL rows; every other surface renders the wire order. Closing the gap means making `display_order` nullable on the wire, which is a contract change.
+
 ### 3.3 Error response
 
 All error responses use this exact shape.

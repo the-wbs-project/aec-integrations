@@ -16,6 +16,7 @@ import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { submitCount } from '../posthog';
+import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
   parseRecipients,
@@ -37,6 +38,7 @@ import {
   sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
   sendTransactionalEmail,
+  sendVendorSeatInviteEmail,
   type EmailContext,
 } from './email';
 
@@ -356,8 +358,54 @@ describe('sendClaimRejectedEmail', () => {
     expect(text).toContain("weren't able to approve it");
     expect(text).toContain('submit a new claim');
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-rejected']]);
-    const authored = text.replace('— The AEC Integrations team', '');
-    expect(authored).not.toContain('—');
+    // Voice guard. No shim needed any more: the house layout carries no sign-off, so
+    // the only em dash this template ever held is gone.
+    expect(text).not.toContain('—');
+    expect(text).not.toContain('The AEC Integrations team');
+  });
+
+  // AECI-924 — migrated alongside its `claim-approved` sibling, so one claimant cannot
+  // get a branded email on approval and an unbranded one on rejection.
+  it('renders through the house layout, not the legacy bare-paragraph shell', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Autodesk, Inc.',
+    });
+
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('offers no button, because a rejection has no action the §9 AC permits', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    // Even WITH a public host, which is what would otherwise produce a CTA.
+    await sendClaimRejectedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).not.toContain('v:roundrect');
+    expect(String(body.html)).not.toContain('Or paste this into your browser');
+    expect(String(body.text)).not.toContain('http');
+  });
+
+  it('still carries no reviewer note and no table to hide one in', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), { to: 'owner@vendor.com', vendorName: 'Globex' });
+
+    const body = lastBody(fetchSpy);
+    // The §9 guarantee is structural: the send takes no `reason` argument at all, and
+    // the rendered body carries no row the migration could have given one to.
+    expect(String(body.html)).not.toContain('border-top:1px solid #d4d4d8');
+    expect(String(body.text).split('\n\n')).toEqual([
+      'Your claim for Globex was not approved',
+      "Thank you for your claim for Globex. After review, we weren't able to approve it.",
+      "If you represent this vendor, you're welcome to submit a new claim with more detail.",
+    ]);
   });
 
   it('skips when the recipient is undefined', async () => {
@@ -453,6 +501,88 @@ describe('sendMailingListWelcomeEmail', () => {
   });
 });
 
+describe('sendVendorSeatInviteEmail', () => {
+  const invite = {
+    to: 'colleague@globex.com',
+    vendorName: 'Globex Inc',
+    invitedByName: 'Dana Ortiz',
+    token: 'tok_abc123',
+    expiresAt: '2026-10-01T12:00:00.000Z',
+  };
+  const env = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+
+  it('names the inviter and the company, so it does not read as a cold grant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendVendorSeatInviteEmail(fakeContext(env), invite);
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('colleague@globex.com');
+    expect(body.subject).toBe("You're invited to manage Globex Inc on AEC Integrations");
+    const text = String(body.text);
+    expect(text).toContain('Dana Ortiz invited you');
+    expect(text).toContain('Globex Inc');
+  });
+
+  it('states the address the link is bound to, turning the likeliest failure into an instruction', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSeatInviteEmail(fakeContext(env), invite);
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'The invite is tied to colleague@globex.com. Sign in with that address to accept it.',
+    );
+  });
+
+  it('says the link expires, because an invite is not a standing grant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSeatInviteEmail(fakeContext(env), invite);
+    expect(String(lastBody(fetchSpy).text)).toContain('This link expires on');
+  });
+
+  // AECI-924 — this is the template the shell mattered most for. Every anti-phishing
+  // move in the copy was undercut by a bare grey page with a naked inline link.
+  it('renders through the house layout and names the sender in the body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSeatInviteEmail(fakeContext(env), invite);
+
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain(EMAIL_LOGO_URL);
+    // Twice: the logo alt text and the wordmark row. Corporate mail security blocks
+    // images by default, and an email that never names its sender in text reads as
+    // phishing to exactly this audience.
+    expect(html.match(/AEC Integrations/g)?.length).toBeGreaterThan(1);
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('promotes the redeem link to the CTA and still spells the URL out', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSeatInviteEmail(fakeContext(env), invite);
+
+    const body = lastBody(fetchSpy);
+    const link = 'https://www.aecintegrations.com/vendor/invite/tok_abc123';
+    expect(String(body.html)).toContain(`>Accept your invite</a>`);
+    // The paste-able copy matters more here than anywhere: the recipient is being
+    // asked to trust a link from a directory they may not know.
+    expect(String(body.html)).toContain('Or paste this into your browser');
+    expect(String(body.html)).toContain(link);
+    expect(String(body.text)).toContain(`Accept your invite: ${link}`);
+  });
+
+  it('carries no sign-off and no em dash', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSeatInviteEmail(fakeContext(env), invite);
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('The AEC Integrations team');
+    expect(text).not.toContain('—');
+  });
+
+  it('skips entirely without PUBLIC_SITE_URL, rather than inviting with nowhere to go', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    expect(await sendVendorSeatInviteEmail(fakeContext(), invite)).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('sendStaleClaimTicketAlert', () => {
   const row = {
     requestId: 'req-1',
@@ -511,6 +641,56 @@ describe('sendStaleClaimTicketAlert', () => {
     expect(text).toContain('(target removed)');
     expect(text).not.toContain('Linear:');
     expect(text).not.toContain('Administer:');
+  });
+
+  // AECI-924 — the house layout, through `sections`.
+  it('renders one headed section per ticket in the house shell', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [row, { ...row, requestId: 'req-2', identifier: 'AECI-901', targetName: 'Globex' }],
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).toContain('max-width:600px');
+    expect(String(body.html)).not.toContain('border="1"');
+    // Two headings, each above its own rows.
+    const text = String(body.text);
+    expect(text).toContain('Procore (claim)\n  Ticket: AECI-900');
+    expect(text).toContain('Globex (claim)\n  Ticket: AECI-901');
+  });
+
+  it('splits the ticket key from its title, dropping a banned em dash', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [row],
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Ticket: AECI-900');
+    expect(text).toContain('Title: Claim: Procore (product)');
+    expect(text).not.toContain('—');
+  });
+
+  it('offers the claim queue as the one CTA, since N tickets have no single link', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      { to: 'founders@thewbsproject.com', rows: [row] },
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Open the claim queue: https://www.aecintegrations.com/admin/claims');
+    // The per-ticket links stay in the rows: they answer different questions.
+    expect(text).toContain('https://linear.app/aec/issue/AECI-900/claim');
+  });
+
+  it('renders no button when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'founders@thewbsproject.com',
+      rows: [row],
+    });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('Open the claim queue');
   });
 
   it('skips without a recipient', async () => {
@@ -683,6 +863,91 @@ describe('sendStuckRequestAdminAlert', () => {
 
     expect(lastBody(fetchSpy).subject).toBe('[AECi] 2 requests stuck in the Linear pipeline');
   });
+
+  // AECI-924 — the house layout, through `sections`.
+  it('renders the house shell with one headed section per stuck row', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      {
+        to: 'ops@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            kind: 'claim',
+            targetType: 'vendor',
+            targetName: 'Globex Inc',
+            targetSlug: 'globex',
+            ageMinutes: 95,
+            retried: true,
+            reason: 'timeout',
+          },
+        ],
+      },
+    );
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).toContain('max-width:600px');
+    expect(String(body.html)).not.toContain('border="1"');
+    expect(String(body.text)).toContain('Globex Inc (claim)\n  Stuck:');
+  });
+
+  it('promotes the request queue to the CTA instead of repeating it per row', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      {
+        to: 'ops@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            kind: 'claim',
+            targetType: 'vendor',
+            targetName: 'A',
+            targetSlug: 'a',
+            ageMinutes: 95,
+          },
+          {
+            requestId: 'req-2',
+            kind: 'claim',
+            targetType: 'vendor',
+            targetName: 'B',
+            targetSlug: 'b',
+            ageMinutes: 95,
+          },
+        ],
+      },
+    );
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Open the request queue: https://aecintegrations.com/admin/requests');
+    // Once, as the CTA, not once per section.
+    expect(text.match(/\/admin\/requests/g)).toHaveLength(1);
+    // The per-row listing links are unaffected.
+    expect(text).toContain('/vendors/a');
+    expect(text).toContain('/vendors/b');
+  });
+
+  it('glosses the cause without an em dash PRODUCT.md bans', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStuckRequestAdminAlert(fakeContext(), {
+      to: 'ops@aecintegrations.com',
+      rows: [
+        {
+          requestId: 'req-1',
+          kind: 'claim',
+          targetType: 'vendor',
+          targetName: 'A',
+          ageMinutes: 95,
+          retried: true,
+          reason: 'no_api_key',
+        },
+      ],
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('no_api_key: no LINEAR_API_KEY on this Worker');
+    expect(text).not.toContain('—');
+  });
 });
 
 describe('sendClaimSubmittedNotification', () => {
@@ -792,6 +1057,65 @@ describe('sendClaimSubmittedNotification', () => {
     const html = String(lastBody(fetchSpy).html);
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
+  });
+
+  // AECI-924 — the house layout, and the first operator alert on it.
+  it('renders the house shell, not the unbranded ops table', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).toContain('AEC Integrations');
+    // The two tells of the formatter this migrated off.
+    expect(html).not.toContain('border="1"');
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('makes the admin deep link the single CTA rather than a table row', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain(
+      'Review the claim: https://www.aecintegrations.com/admin/claims/req-9',
+    );
+    // Forest fill (DESIGN.md), and the row it replaced is gone.
+    expect(String(body.html)).toContain('background-color:#1e3a2f;color:#ffffff');
+    expect(String(body.text)).not.toContain('Administer');
+  });
+
+  it('renders no button when PUBLIC_SITE_URL is unset, rather than a dead one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      CLAIM,
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('Review the claim:');
+    expect(String(body.html)).not.toContain('Or paste this into your browser');
+  });
+
+  it('states the Linear issue is pending without an em dash PRODUCT.md bans', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, linearIssueUrl: null },
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Linear issue: not created yet, the reconciliation sweep will retry');
+    expect(text).not.toContain('—');
   });
 });
 

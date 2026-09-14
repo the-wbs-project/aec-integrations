@@ -227,9 +227,9 @@ The internal coordinates of the type and connector are **identical** between ori
 
 ## `email-logo-banner.png` is a published asset now (2026-09-14)
 
-`branding/email-logo-banner.png` (1120x182, Forest field, Bone wordmark, clay connector)
-used to be an unreferenced file. It is now the header of every transactional email, and a
-copy is served at a **fixed, hardcoded URL**:
+`branding/email-logo-banner.png` (1120x182, **transparent** field, Bone wordmark, clay
+connector) used to be an unreferenced file. It is now the header of every transactional
+email, and a copy is served at a **fixed, hardcoded URL**:
 
 ```
 https://www.aecintegrations.com/branding/email-logo-banner.png
@@ -248,9 +248,17 @@ Three consequences:
   Access, so a staging URL would 403 in the recipient's mail client.
 - **PNG, not SVG.** Outlook and Gmail do not render SVG at all, which is why the served
   `monogram-light.svg` cannot stand in.
+- **The background is transparent, and must stay transparent (AECI-924).** The banner
+  shipped with a baked Forest field on 2026-09-14 and the email header rendered as two
+  different greens the same day. A mail client applying a dark-mode transform shifts the
+  band's CSS `#1E3A2F` (measured: to `#334D42`) and cannot touch pixels inside an image,
+  so the logo sat in a darker rectangle of its own. Alpha removes the seam because the
+  band shows through. The glyphs stay Bone `#F5F2EA` and clay `#E89668`, both of which
+  read on Forest and on anything a dark-mode client turns Forest into.
 
-Redrawing the banner means re-exporting to this same filename. The repo copy under
-`branding/` and the served copy under `apps/web/public/branding/` must stay identical.
+Redrawing the banner means re-exporting to this same filename, **with no background
+fill**. The repo copy under `branding/` and the served copy under
+`apps/web/public/branding/` must stay identical.
 
 ---
 

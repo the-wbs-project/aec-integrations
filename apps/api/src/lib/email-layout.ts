@@ -42,6 +42,15 @@
  * PNG, not SVG: Outlook and Gmail do not render SVG at all, which is why the served
  * `monogram-light.svg` is unusable here.
  *
+ * **The PNG has a TRANSPARENT background, and that is load-bearing (AECI-924).** It
+ * shipped opaque, carrying its own Forest fill, and the header rendered as two
+ * different greens in any client that applies a dark-mode transform: the client shifts
+ * the `<td>`'s CSS `#1E3A2F` (measured: to `#334D42`) and cannot touch pixels inside an
+ * image, so the logo sat in a visibly darker rectangle. `color-scheme: light only` below
+ * is a hint those clients ignore. With alpha, whatever the band becomes shows through
+ * and there is no seam to have. Keep any replacement transparent; a re-export with a
+ * baked background brings the two-tone header straight back.
+ *
  * The asset is `apps/web/public/branding/email-logo-banner.png`. It only resolves once
  * that build reaches production; until then the band degrades to its alt text, and the
  * wordmark row below it still names the sender. Renaming or moving that file breaks the
@@ -63,6 +72,21 @@ export interface EmailCta {
   url: string;
 }
 
+/**
+ * One `Key: value` row of a detail table.
+ *
+ * Both halves are plain strings and both are escaped by the renderer, because every
+ * operator alert that uses this carries submitter-supplied text (name, role, email).
+ */
+export type EmailTableRow = readonly [label: string, value: string];
+
+/** One headed group of rows, for an alert that is about N things rather than one. */
+export interface EmailSection {
+  /** Names the thing this group describes. Escaped by the renderer. */
+  heading: string;
+  rows: readonly EmailTableRow[];
+}
+
 export interface EmailLayout {
   /** Inbox preview line. Hidden in the body, shown in the client's message list. */
   preheader: string;
@@ -70,6 +94,23 @@ export interface EmailLayout {
   heading: string;
   /** Body paragraphs. HTML for `renderEmailHtml`, plain text for `renderEmailText`. */
   blocks: string[];
+  /**
+   * An optional detail table, rendered after the blocks and before the CTA.
+   *
+   * This is what lets an OPERATOR alert use the house shell (AECI-924). Those emails
+   * are a dozen labelled facts for one reader, not prose, and before this the layout
+   * could only carry them as sentences — which is why they stayed on the unbranded
+   * `opsTable()` when `claim-approved` migrated.
+   */
+  table?: readonly EmailTableRow[];
+  /**
+   * The same detail table, repeated under a heading per item.
+   *
+   * For the digest-shaped alerts that report N stuck rows rather than one event. Set
+   * `table` OR `sections`, never both: they occupy the same slot and the renderer draws
+   * `table` first, so setting both reads as two unrelated tables stacked.
+   */
+  sections?: readonly EmailSection[];
   /** Omitted when there is no link to offer (e.g. `PUBLIC_SITE_URL` is unset). */
   cta?: EmailCta;
   /** Small print below the hairline rule. */
@@ -98,6 +139,15 @@ export function escapeHtml(value: string): string {
  */
 export function renderEmailText(layout: EmailLayout): string {
   const parts = [layout.heading, ...layout.blocks];
+  // One `Key: value` per line, in one paragraph, which is the shape every operator
+  // already reads these in. `opsText()` produced exactly this, so a migrated template's
+  // text part is unchanged and the specs that assert on it still hold.
+  if (layout.table?.length) parts.push(layout.table.map(([k, v]) => `${k}: ${v}`).join('\n'));
+  // Sections keep `opsSectionsText`'s two-space indent under each heading, which is
+  // what makes a multi-row alert scannable in a plain-text client.
+  for (const section of layout.sections ?? []) {
+    parts.push(`${section.heading}\n${section.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
+  }
   if (layout.cta) parts.push(`${layout.cta.label}: ${layout.cta.url}`);
   if (layout.note) parts.push(layout.note);
   return parts.join('\n\n');
@@ -105,8 +155,8 @@ export function renderEmailText(layout: EmailLayout): string {
 
 /**
  * The HTML half. Caller-supplied `blocks` are trusted as HTML (they carry `<strong>`
- * and `<a>`), so a caller escapes its own interpolations; `heading`, the CTA and `note`
- * are escaped here because they are always plain strings.
+ * and `<a>`), so a caller escapes its own interpolations; `heading`, `table`, the CTA
+ * and `note` are escaped here because they are always plain strings.
  */
 export function renderEmailHtml(layout: EmailLayout): string {
   const rows = [
@@ -116,6 +166,8 @@ export function renderEmailHtml(layout: EmailLayout): string {
     // The first block sits tighter to the heading than the ones after it, matching the
     // twin (which only ever has one block, at 12px).
     ...layout.blocks.map((html, i) => blockRow(html, i === 0)),
+    ...(layout.table?.length ? [tableRow(layout.table)] : []),
+    ...(layout.sections ?? []).map(sectionRow),
     ...(layout.cta ? [ctaRow(layout.cta), pasteableUrlRow(layout.cta.url)] : []),
     ...(layout.note ? [hairlineRow(), noteRow(layout.note)] : [spacerRow()]),
   ].join('');
@@ -190,6 +242,73 @@ function blockRow(html: string, first: boolean): string {
     `<tr><td style="padding:${first ? 12 : 16}px 32px 0 32px;font-family:${FONT};font-size:15px;line-height:1.6;color:#52525b">` +
     `${html}</td></tr>`
   );
+}
+
+/**
+ * The detail table: one labelled fact per row, hairline-separated, no outer box.
+ *
+ * Deliberately NOT the `border="1"` grid `opsTable()` drew. That grid is the 1990s
+ * default browsers render when nothing styles a table, and it is the single element
+ * that made these alerts look unlike the product. Hairlines at `#D4D4D8` are the same
+ * rule the card border and the `note` divider already use.
+ *
+ * Two columns rather than a stacked label/value pair because the reader scans the label
+ * column to find one fact. `width="35%"` on the label and `valign="top"` on both keep
+ * that column straight when a value wraps, which several of these do (a LinkedIn URL, a
+ * Linear permalink). The percentage is not a pixel count precisely so the table survives
+ * the phone width the support inbox is usually read at.
+ *
+ * A value that is an absolute `https://` URL renders as a link. The alternative is an
+ * operator copy-pasting a Linear permalink out of an email by hand, and some clients
+ * auto-link it anyway but in their own colour.
+ */
+function tableRow(rows: readonly EmailTableRow[]): string {
+  return `<tr><td style="padding:20px 32px 0 32px">` + detailTable(rows) + `</td></tr>`;
+}
+
+/** The two-column grid itself, shared by the flat `table` and each `sections` group. */
+function detailTable(rows: readonly EmailTableRow[]): string {
+  const cells = rows
+    .map(([label, value], i) => {
+      const top = i === 0 ? '' : 'border-top:1px solid #d4d4d8;';
+      const pad = i === 0 ? 0 : 10;
+      return (
+        `<tr>` +
+        `<td valign="top" width="35%" style="padding:${pad}px 12px 10px 0;${top}font-family:${FONT};font-size:13px;line-height:1.5;color:#71717a">` +
+        `${escapeHtml(label)}</td>` +
+        `<td valign="top" style="padding:${pad}px 0 10px 0;${top}font-family:${FONT};font-size:14px;line-height:1.5;color:#0a0a0a;word-break:break-word">` +
+        `${tableValue(value)}</td>` +
+        `</tr>`
+      );
+    })
+    .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${cells}</table>`;
+}
+
+/**
+ * One headed group, for the digest-shaped alerts.
+ *
+ * The heading is `#0A0A0A` at 15px/600, one step down from the email's own 22px
+ * heading, so the hierarchy reads as "one alert, N items" rather than N emails glued
+ * together. Groups after the first carry the top padding that separates them; the
+ * first sits at the same 20px the flat table does, so a one-item alert is
+ * indistinguishable from a flat one.
+ */
+function sectionRow(section: EmailSection, i: number): string {
+  return (
+    `<tr><td style="padding:${i === 0 ? 20 : 28}px 32px 0 32px">` +
+    `<div style="font-family:${FONT};font-size:15px;line-height:1.4;font-weight:600;color:#0a0a0a;padding-bottom:10px">${escapeHtml(section.heading)}</div>` +
+    detailTable(section.rows) +
+    `</td></tr>`
+  );
+}
+
+/** Escaped always; linked only when the whole value is an absolute `https://` URL, so
+ *  a sentence that merely mentions one is never half-linked. */
+function tableValue(value: string): string {
+  const safe = escapeHtml(value);
+  if (!/^https:\/\/\S+$/.test(value)) return safe;
+  return `<a href="${safe}" style="color:#1e3a2f;text-decoration:underline">${safe}</a>`;
 }
 
 /** Forest fill, white label, plus the VML twin Outlook for Windows needs. */

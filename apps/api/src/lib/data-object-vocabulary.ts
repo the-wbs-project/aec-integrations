@@ -23,10 +23,11 @@
  */
 
 import { slugify } from '@aeci/shared/slug';
-import { asc, sql } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { taxonomyDataObjects } from '../db/schema';
+import { displayOrderAsc } from './display-order';
 
 /**
  * Slugify for matching, never throwing.
@@ -158,9 +159,5 @@ export async function listDataObjectTerms(db: Db): Promise<DataObjectListing[]> 
       description: taxonomyDataObjects.description,
     })
     .from(taxonomyDataObjects)
-    .orderBy(
-      sql`${taxonomyDataObjects.displayOrder} IS NULL`,
-      asc(taxonomyDataObjects.displayOrder),
-      asc(taxonomyDataObjects.slug),
-    );
+    .orderBy(...displayOrderAsc(taxonomyDataObjects.displayOrder), asc(taxonomyDataObjects.slug));
 }

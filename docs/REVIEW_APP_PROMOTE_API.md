@@ -1235,6 +1235,43 @@ before this paragraph. Two consequences worth acting on:
 **It is consumed now (AECI-882, 2026-09-13).** The consumer is
 `scripts/ops/2026-09-retraction-consumer/consume.mjs`, and its README is the run record.
 
+**The feed cannot carry every retraction, and AECI-916 is where that bit.** A journal entry is
+written only when the deleted upstream record carried a `supabase_integration_id`. If that
+pointer was never stored — the promote created the row and returned its id, and the write-back
+did not land — then deleting the record upstream journals **nothing**. The live AECi row is
+now unreachable from both directions at once: no upstream record claims it, so the stock sweep
+sees a strand, and no feed entry names it, so the event check sees nothing. Both halves of the
+detection story are working; neither could repair it.
+
+So the consumer gained a **second cohort source**: `--ruling <file>` takes the ids from a
+committed operator ruling instead of the journal. Every guard is unchanged — both tables on
+resolve and verify, the shape pin, the cascade ceiling, the sentinel, one `audit_log` row per
+id, the count repair, the timestamped rollback — and `confirm_retractions` is **never called**,
+because there is no entry to acknowledge. It refuses if the journal is non-empty, so the two
+cohorts cannot mix, and refuses any ruled id that resolves in neither delivered-tier table.
+
+**Route A is still the better one whenever it is available.** If the upstream record exists,
+delete it there and let the journal carry it: the curator's own words are better evidence than
+an operator's reconstruction. Route B is for strands where route A is structurally closed.
+
+The worked case, 2026-09-14: two Aquifer-powered HeavyJob evidenced pairs, created by
+HeavyJob's promote `rec8tPLsT5ezww4L3-mttso2i2-5379ce2d` on 2026-09-09 as that job's only two
+`operation: 'created'` rows out of 23 integrations, with `skipped[]` empty. Their ids were in
+the served ID map and were never written back. AECI-889 batch 3 then deleted both upstream
+records, journalling nothing, while the 20 sibling Aquifer records in the same batch — which
+did carry pointers — journalled and were consumed hours earlier. **Why the write-back did not
+land is not known and is recorded in the ruling file as an absence**, per the AECI-795 rule
+about not promoting a hypothesis to a cause. `docs/RUNBOOKS.md` §"Promote strand audit is red"
+has the two routes; the lane README §"Operator-ruling mode" has the file format and the
+refusals.
+
+**The transferable point for this section:** "promote cannot retract" understates the problem
+when the *pointer* is also missing. The §5.1 stray is a row promote cannot reach; this is a row
+the retraction protocol cannot reach either, and it is created by an ordinary successful
+promote whose collect step did not complete. A curator who never collects an ID map is not
+merely postponing a link — they are making that row permanently unretractable by the normal
+path.
+
 Read the history above with a correction in mind. When the paragraphs above were written the
 feed **was** empty, and this section said so — it prevents the next strand, not the ones
 already on the ground. That stopped being true within two days. Between 2026-09-10 and
@@ -1265,7 +1302,11 @@ missing `entity` is parked for the same reason.
 
 Run state as of **2026-09-14: 254 of 254 deleted and confirmed, 0 held, feed empty.** It got
 there in four runs — 214, then the 2 that first run held back, then 17, then 21 — and the gap
-between the first two is the part worth reading.
+between the first two is the part worth reading. A **fifth** run followed the same day on the
+other cohort: AECI-916's 2 ruled rows, deleted and verified but **not** confirmed, because
+they were never in the feed to begin with. The daily strand audit reached **exit 0 with every
+bucket empty** after it, for the first time since AECI-897 put `connector_evidenced_pairs` in
+scope.
 
 The 2026-09-13 run took 214 and **held 2** — the Agave ERP Sync connector pairs carrying 21 claims
 between them. At that moment the public promote contract could not land a claim anchored to a

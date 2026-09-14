@@ -32,6 +32,44 @@
 > blind spot is not evidence for it. That sentence was recorded three times and measured zero
 > times, and it held the exclusion in place across the 2026-09-10 miss.
 
+> **Amended again 2026-09-14 (AECI-916). The decision stands; the consumer gained a second
+> cohort source.**
+>
+> §2 derives the cohort from the feed, and §1 says the confirm function has "exactly one call
+> site". Both remain true, and a reader who stopped there would still conclude — wrongly, since
+> AECI-916 — that a row absent from the feed has no repair path here.
+>
+> **The feed cannot carry every retraction.** A journal entry is written only when the deleted
+> upstream record carried a `supabase_integration_id`. If that pointer was never stored, the
+> upstream delete journals nothing, and the live AECi row is unreachable from both directions
+> at once: the stock sweep sees a strand, the event check sees nothing. That is not a gap in
+> either check — it is a gap in the *repair*, and it closed for exactly the class this consumer
+> was built to serve.
+>
+> So `consume.mjs --ruling <file>` takes the ids from a **committed operator ruling** instead.
+> The four load-bearing properties below are unchanged by it:
+>
+> 1. **The order.** Delete → verify still holds and the verify still gates the run. The third
+>    step does not exist in ruling mode because there is nothing upstream to acknowledge, which
+>    removes the unrecoverable move rather than relaxing the guard against it. There is still
+>    exactly one `confirmRetractions()` call site, now behind an `if`, and the function throws
+>    if handed a non-journal entry id.
+> 2. **Both tables**, on resolve and again on verify. Unchanged. Ruling mode is *stricter*
+>    here: a ruled id that resolves in neither table refuses the run outright, where a journal
+>    entry in the same position lands in `alreadyGone`.
+> 3. **The write tool behind its own door.** Ruling mode never opens a write session at all, so
+>    `AECI_MCP_TOKEN` is read-only for the whole run. The token is still required, because the
+>    feed is read to prove it is empty — mixing the two cohorts would leave journal entries
+>    un-confirmable against rows that no longer exist.
+> 4. **One `audit_log` row per deleted row.** Unchanged, and it matters more here: with no
+>    upstream record and no journal entry, that row plus the committed ruling file are the
+>    *only* surviving account of the deletion. The provenance block swaps from
+>    `retraction_journal` to `operator_ruling`; `metadata.source` distinguishes them.
+>
+> **Route A stays the default.** If the upstream record still exists, delete it there and let
+> the journal carry it — the curator's own words are better evidence than a reconstruction.
+> Ruling mode is for the case where that route is structurally closed.
+
 ## Context
 
 Promote can create and update rows. It can never retract one
