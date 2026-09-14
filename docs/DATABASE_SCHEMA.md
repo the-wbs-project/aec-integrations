@@ -2328,7 +2328,17 @@ coverage (AECI-730 reconciles it as 79 promoted + 62 connector-unpromoted + 184 
 Three rules decided which rows moved:
 
 - **The routing key is the FK, not the kind**: `powered_by_product_id IS NOT NULL AND <> source
-  AND <> target`, regardless of `mechanism_kind`. §13.2 left the ~20-row `marketplace-app`-with-
+  AND <> target`, regardless of `mechanism_kind`.
+- **It is a TRANSITION rule, not just a placement rule (AECI-888).** The key is mutable and
+  identity is table-scoped, so a re-promote that flips it has to **move** the row rather than
+  write a second one: insert under the preserved id, re-home the claims, drop the source, one
+  batch. Both directions do this. **Order is the only protection** — `claims` cascades from
+  both anchors and `attestations` cascades from `claims`, and ADR 0018 is explicit that
+  `claims_anchor_check` cannot make a delete fail, so dropping the source first destroys the
+  claims and every vendor attestation on them, silently. Only an **explicit** `poweredByProduct:
+  null` de-routes; an omitted or unresolvable key leaves the edge where it is (§3.4a of
+  `REVIEW_APP_PROMOTE_API.md`). The move out is lossy on `mechanism_kind`, because this table
+  has no such column. §13.2 left the ~20-row `marketplace-app`-with-
   `powered_by` residue open and AECI-721 settled it *into* this table — which is what
   `built_by_vendor_id` was put here on day one to allow. 17 of the 19 are that residue.
 - **Convention-A self-references stayed** in `integrations` (60 prod rows — Aquifer 31, Kroo 29),

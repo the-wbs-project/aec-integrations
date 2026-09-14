@@ -8,21 +8,35 @@
 #   productDeletedUpstream       D1 product no upstream record claims at all
 #   vendorNoLiveProducts         D1 vendor whose products have all moved away
 #   vendorSourceGone             D1 vendor whose upstream record is gone
-#   integrationSourceGone        D1 integration edge no upstream record claims
-#   integrationEndpointStranded  an edge whose endpoint product is itself stranded
+#   integrationSourceGone        an `integrations` edge no upstream record claims
+#   evidencedPairSourceGone      a `connector_evidenced_pairs` edge no upstream record claims
+#   integrationEndpointStranded  an edge (EITHER table) whose endpoint, connector or
+#                                builder is itself stranded
 #   pendingRetractions           a record deleted UPSTREAM whose public row is still here
 #
-# That last bucket is newer than the others (AECI-882) and it is not the same kind of
-# finding. The six above are STOCK checks: they compare what exists on both sides today,
-# so they catch a row however long ago it was stranded, but they can only infer THAT
-# something went missing. `pendingRetractions` reads the review app's retraction journal,
-# which says WHAT was deleted and WHY in the curator's own words — an EVENT check — and
-# journals forward only. Neither replaces the other.
+# That last bucket is not the same kind of finding as the seven above it (AECI-882). Those
+# are STOCK checks: they compare what exists on both sides today, so they catch a row
+# however long ago it was stranded, but they can only infer THAT something went missing.
+# `pendingRetractions` reads the review app's retraction journal, which says WHAT was
+# deleted and WHY in the curator's own words — an EVENT check — and journals forward only.
+# Neither replaces the other.
 #
-# It is also the only bucket that can see a retracted `connector_evidenced_pairs` row. The
-# six stock buckets exclude that table by design, which is why on 2026-09-13 they read
-# green while 215 retracted pairs were live on the public site. A green run before this
-# bucket existed meant "the table I classify is fine", not "the catalog is fine".
+# ── `evidencedPairSourceGone` IS NEW (AECI-897, 2026-09-14) ────────────────────────────
+#
+# The stock buckets used to exclude `connector_evidenced_pairs` entirely — counted, never
+# classified. That is why this job read GREEN on 2026-09-10 and again on 2026-09-11,
+# immediately after 215 rows were deleted upstream with none removed from the public site:
+# all 215 were in the table it did not read. A green run then meant "the table I classify
+# is fine", not "the catalog is fine".
+#
+# The recorded reason for the exclusion — that classifying pairs against `list_integrations`
+# would flag every row every run — was measured against production on 2026-09-14 and is
+# wrong by 60 of 62. If it ever becomes true, that is the comparand BREAKING, and the script
+# withholds the findings and routes it to exit 2 rather than reporting a live table as 62
+# findings — the withheld count rides on the `unresolvedUpstream` entry as `suppressed`.
+#
+# **This bucket has no repair tool.** Neither `ops:retract-product` nor the datatool prune
+# can touch that table. See `docs/RUNBOOKS.md` before acting on one.
 #
 # Entries on the script's `HELD_RETRACTIONS` list are reported but do NOT fail the run.
 # A hold names the issue that clears it. Do not add one to quiet the job; a permanently
@@ -36,8 +50,9 @@
 # review app's `supabase_*_id` columns — D1 stores no curation-tool key (AECI-562 was
 # rejected deliberately). So drift is created by *operator* actions against live data, not
 # by merging code, and the most durable source is one promote cannot guard at all: **a
-# curator deleting a record whose D1 row still exists.** Promote has no delete semantics, so
-# that always leaves a stranded row, and nothing else will ever notice. AECI-593 was exactly
+# curator deleting a record whose D1 row still exists.** Promote cannot retract — it deletes
+# only rows a payload names by id, never rows a payload omits — so that always leaves a
+# stranded row, and nothing else will ever notice. AECI-593 was exactly
 # that — two retracted Polycam edges, live and indexed for four WEEKS under an issue marked
 # Done. This job is how the next one gets caught the next morning.
 #
@@ -183,6 +198,7 @@ jobs:
             echo "::error::  3. A tripped datatool guard is NOT evidence either way. orphansWithoutATwin is orientation-blind, so it reports 'no twin' on a reverse-orientation duplicate that plainly has one. Go to the claim data. See docs/REVIEW_APP_PROMOTE_API.md 5.1."
             echo "::error::  4. Never delete a row to make this job green. Retraction is a separate authorized action and needs a recorded ruling."
             echo "::error::  5. pendingRetractions is the exception to 4, and ONLY that bucket: the ruling already exists upstream. Its repair is one command, and it deletes then verifies then confirms, in that order: node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production (dry-run; add --apply --allow-production --confirm-count N to execute). Never confirm an entry you have not deleted. Check each entry's entity first: the consumer handles integration-class entries only and parks the rest, so a product entry goes through pnpm --filter @aeci/api ops:retract-product instead."
+            echo "::error::  6. evidencedPairSourceGone has NO repair command. Do not hand-DELETE: ops:retract-product and the datatool prune both cannot touch connector_evidenced_pairs, and raw SQL skips the audit_log row and the integration_count reconcile. Confirm the ruling upstream, have the curator delete the record so it lands in the retraction journal, then let the consumer in 5 execute it. Each finding carries table and, where one exists, twin — the row on the other anchor table for the same product pair. A twin is not itself a defect; only a twin with one side unreferenced upstream is (AECI-888)."
             echo "::error::Re-run locally for the full dump:"
             echo "::error::  AECI_MCP_TOKEN=<token> CLOUDFLARE_API_TOKEN=<token> node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache"
           }

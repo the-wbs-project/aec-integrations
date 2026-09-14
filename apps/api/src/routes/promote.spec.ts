@@ -1848,6 +1848,349 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     expect(vendorAtts[0]).toMatchObject({ claimId: claimRow!.id, attestedByVendorId: vendor });
   });
 
+  // ─── AECI-888: the REVERSE move, and the two ways it must NOT fire ──────────
+  //
+  // AECI-798 diagnosed this and shipped only the cleanup. Clearing `powered_by` on a
+  // promoted edge routed it back to `integrations`, the pre-read looked in one table,
+  // found nothing, called the id dead and minted a fresh row — leaving the evidenced
+  // row addressable by nothing, for ever. The public symptom was the edge rendering
+  // twice on three URLs.
+  //
+  // The trigger is narrower than "the key is not set". §3.6 says an OMITTED key means
+  // "no opinion" and AECI-730 says an unresolvable one leaves the stored value alone,
+  // so neither may move a row. Only an explicit `null` is a statement. The four cases
+  // below are that distinction, and the round-trip after them is the count argument.
+
+  /** An edge already living in the evidenced tier, with a claim and a vendor
+   *  attestation on it — the two rows a mis-ordered cascade would destroy. */
+  async function seedRoutedEdge(ids: { target: string; connector: string; vendor: string }) {
+    await seedProduct(ids.target, 'navisworks', 'Navisworks');
+    await seedProduct(ids.connector, 'agave-erp-sync', 'Agave ERP Sync', {
+      productRole: 'connector',
+    });
+    await seedVendor(ids.vendor, 'acme', 'Acme');
+    await seedDataObject(uuid(90), 'rfis', 'RFIs');
+
+    const claim = {
+      dataObject: 'rfis',
+      direction: 'a_to_b' as const,
+      attestations: [{ source: 'aeci' as const, asserted: true }],
+    };
+    const first = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          poweredByProduct: { supabaseId: ids.connector },
+          mechanismKind: 'iPaaS',
+          direction: 'one-way',
+          claims: [claim],
+        },
+      ],
+    });
+    expect(first.status).toBe(200);
+    const [pair] = await t.db.select().from(connectorEvidencedPairs);
+    const [claimRow] = await t.db.select().from(claims);
+    // Promote can never write a vendor attestation, so seed it. It is the row that
+    // disappears if the pair is dropped before its claims are re-homed.
+    await t.db.insert(attestations).values({
+      id: uuid(91),
+      claimId: claimRow!.id,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: ids.vendor,
+    });
+    return { pairId: pair!.id, claimId: claimRow!.id, claim };
+  }
+
+  it('moves an evidenced pair back into `integrations` when poweredByProduct is explicitly cleared (AECI-888)', async () => {
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId, claimId, claim } = await seedRoutedEdge(ids);
+
+    // The AECI-798 payload verbatim: the curator corrected the edge to `native` and
+    // cleared the connector. `null`, not an omitted key — that is what makes it a move.
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          poweredByProduct: null,
+          mechanismKind: 'native',
+          direction: 'one-way',
+          claims: [claim],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    // The row moved and kept its id. Before AECI-888 this was a second row under a
+    // fresh uuid, with the pair left behind and unreachable.
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    const rows = await t.db.select().from(integrations);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: pairId,
+      poweredByProductId: null,
+      mechanismKind: 'native',
+    });
+    expect(body.integrations[0]).toMatchObject({ id: pairId, operation: 'updated' });
+
+    // The claim rode across on the same row id, so the vendor attestation kept its slot.
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: claimId,
+      integrationId: pairId,
+      connectorEvidencedPairId: null,
+    });
+    const vendorAtts = (await t.db.select().from(attestations)).filter(
+      (a) => a.source === 'vendor_a',
+    );
+    expect(vendorAtts).toHaveLength(1);
+
+    // The move is recorded. Same action and entity id as an ordinary update, so
+    // `movedFrom` is the only thing that distinguishes the two after the fact.
+    const moved = (await t.db.select().from(auditLog)).filter(
+      (e) => e.action === 'integration.updated',
+    );
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.metadata).toMatchObject({ movedFrom: 'connector_evidenced_pairs' });
+  });
+
+  it('does NOT report a stale supabaseId when the id resolves in the other anchor table (AECI-888 narrows AECI-568)', async () => {
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId, claim } = await seedRoutedEdge(ids);
+
+    const staleIds: string[] = [];
+    const rc: PromoteRunCtx = {
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    };
+    const result = await runPromoteIngest(
+      rc,
+      PromotePayloadSchema.parse({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: pairId,
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: ids.target },
+            poweredByProduct: null,
+            claims: [claim],
+          },
+        ],
+      }),
+      {
+        dbFor: recordingFactory(t.db).factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        refreshHomeStats: noopHomeStats,
+      },
+    );
+    staleIds.push(...result.staleSupabaseIds.map((s) => s.supabaseId));
+    // A live pointer into the pairs table is not a dead pointer. Reporting it as one is
+    // what fed `aeci.api.promote.stale_id` a population that was never stale.
+    expect(staleIds).toEqual([]);
+  });
+
+  it('leaves an evidenced pair where it is when poweredByProduct is OMITTED (AECI-888 / §3.6)', async () => {
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId, claim } = await seedRoutedEdge(ids);
+
+    // No `poweredByProduct` key at all. §3.6: absent means "no opinion", so the stored
+    // connector still applies and the edge has not been re-routed. Moving it here would
+    // be inference from absence — the thing ADR 0030 refuses.
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          description: 'edited copy, nothing said about the connector',
+          claims: [claim],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({
+      id: pairId,
+      connectorProductId: ids.connector,
+      description: 'edited copy, nothing said about the connector',
+    });
+  });
+
+  it('leaves an evidenced pair where it is when poweredByProduct does not resolve (AECI-888 / AECI-730)', async () => {
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId, claim } = await seedRoutedEdge(ids);
+
+    // An unpromoted connector resolves to `undefined`, which AECI-730 defines as
+    // "leave the stored column alone". Same conclusion as the omitted key: no move.
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          poweredByProduct: { supabaseId: uuid(77) },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ id: pairId, connectorProductId: ids.connector });
+
+    // Still reported (AECI-730 / §3.4a). An unresolvable key is UNSTATED, so since
+    // AECI-888 it stays on this branch instead of falling through to the shared
+    // reporter — which is how `field:powered_by` could lose the whole connector tier.
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.unresolvedLinks).toEqual([
+      expect.objectContaining({ ref: 'i1', field: 'powered_by', outcome: 'preserved' }),
+    ]);
+  });
+
+  it('moves the edge to `integrations` when the inherited connector has become an endpoint (Convention A, §13.2a)', async () => {
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId, claim } = await seedRoutedEdge(ids);
+
+    // The payload says nothing about the connector, so the stored one is inherited —
+    // but an endpoint has since MOVED onto it. `connector_evidenced_pairs_distinct_connector`
+    // would reject that row and fail the whole batch, turning a routine re-promote into
+    // an outage. Convention A puts a self-referential edge in `integrations` instead.
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.connector },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    const rows = await t.db.select().from(integrations);
+    expect(rows).toHaveLength(1);
+    // The connector is not discarded — it rides in the column that can hold a
+    // self-reference, which is exactly what the ~60 production Convention A rows do.
+    expect(rows[0]).toMatchObject({
+      id: pairId,
+      targetProductId: ids.connector,
+      poweredByProductId: ids.connector,
+    });
+  });
+
+  it('round-trips an edge across both tables without changing any count, and loses only `mechanism_kind` (AECI-888)', async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    // The SOURCE product must be re-addressed by id on every push. Omitting its
+    // `supabaseId` creates `revit-2` on push 2 and measures a different product.
+    const source = uuid(3);
+    await seedProduct(source, 'revit', 'Revit');
+
+    const edge = (extra: Record<string, unknown>) => ({
+      product: { ref: 'p1', supabaseId: source, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [],
+          ...extra,
+        },
+      ],
+    });
+    const totals = async () => {
+      const i = await t.db.select().from(integrations);
+      const p = await t.db.select().from(connectorEvidencedPairs);
+      const all = await t.db.select().from(products);
+      return {
+        products: all.length,
+        rows: i.length + p.length,
+        // The three products the edge can ever count for: both endpoints and, while it
+        // is routed, the connector. §13.5 option B is the reason the third one moves.
+        counts: Object.fromEntries(all.map((x) => [x.slug, x.integrationCount])),
+      };
+    };
+
+    // 1. Born in `integrations`. The connector counts nothing yet.
+    const a = await promote(edge({ mechanismKind: 'native', direction: 'one-way' }));
+    const id = ((await a.json()) as PromoteResponse).integrations[0]!.id;
+    expect(await totals()).toEqual({
+      products: 3,
+      rows: 1,
+      counts: { revit: 1, navisworks: 1, 'agave-erp-sync': 0 },
+    });
+
+    // 2. Gains a connector → moves to the evidenced tier, id preserved. One row still,
+    //    because the two tables are summed everywhere (§13.5) — and the connector now
+    //    counts the edge too.
+    await promote(
+      edge({ supabaseId: id, poweredByProduct: { supabaseId: connector }, direction: 'one-way' }),
+    );
+    expect(await totals()).toEqual({
+      products: 3,
+      rows: 1,
+      counts: { revit: 1, navisworks: 1, 'agave-erp-sync': 1 },
+    });
+    expect((await t.db.select().from(connectorEvidencedPairs))[0]).toMatchObject({ id });
+
+    // 3. Connector cleared → moves back, still one row, and the connector's count drops
+    //    to zero. That drop is the AECI-888 recompute: before it, the old connector's
+    //    hub kept counting an edge it no longer carried.
+    //
+    //    `mechanismKind` is deliberately NOT restated here, and it cannot be recovered —
+    //    `connector_evidenced_pairs` has no such column, so step 2 dropped the value.
+    //    The loss is real and silent, so it is asserted rather than discovered. The
+    //    column is nullable and the CHECK passes on NULL.
+    await promote(edge({ supabaseId: id, poweredByProduct: null, direction: 'one-way' }));
+    expect(await totals()).toEqual({
+      products: 3,
+      rows: 1,
+      counts: { revit: 1, navisworks: 1, 'agave-erp-sync': 0 },
+    });
+    const [back] = await t.db.select().from(integrations);
+    expect(back).toMatchObject({ id, poweredByProductId: null, mechanismKind: null });
+
+    // 4. Restating it puts the value back. Nothing else has to be replayed.
+    await promote(
+      edge({
+        supabaseId: id,
+        poweredByProduct: null,
+        mechanismKind: 'native',
+        direction: 'one-way',
+      }),
+    );
+    const [restored] = await t.db.select().from(integrations);
+    expect(restored).toMatchObject({ id, mechanismKind: 'native' });
+  });
+
   it('omits poweredBySlug when the integration names no powered-by product', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
@@ -2590,6 +2933,53 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     expect(tags.has('pair:navisworks__revit')).toBe(true);
     // …and the connector's own page, which renders the edge in its "Integrations it
     // powers" hub and is reached by no other tag (it is neither endpoint).
+    expect(tags.has('product:agave-erp-sync')).toBe(true);
+  });
+
+  it('purges the OLD connector when an edge is de-routed out of the evidenced tier (AECI-888)', async () => {
+    // The mirror of the test above, and the half `CACHE_STRATEGY.md` §"Bounded gap"
+    // warns about. On a de-route the WRITTEN `powered_by_product_id` is null, so deriving
+    // the purge set from it reaches no connector at all — while the connector's own
+    // "Integrations it powers" hub is precisely the page that just went wrong. The tag
+    // has to come from the connector we moved AWAY from.
+    const source = uuid(3);
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(source, 'revit', 'Revit');
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const routed = await promote({
+      product: { ref: 'p1', supabaseId: source, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [],
+        },
+      ],
+    });
+    const id = ((await routed.json()) as PromoteResponse).integrations[0]!.id;
+
+    const { res, sendBatch } = await promoteWithPurge({
+      product: { ref: 'p1', supabaseId: source, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: id,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: null,
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const tags = new Set(firstMessage(sendBatch).tags);
+    expect(tags.has('pair:navisworks__revit')).toBe(true);
     expect(tags.has('product:agave-erp-sync')).toBe(true);
   });
 

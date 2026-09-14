@@ -32,8 +32,16 @@
  * **Blocking is the default, not an absolute.** A tripped guard means "not
  * redundant residue" — which is usually a reason to stop, but not always. When a
  * curator has *editorially retracted* an edge (deleted the upstream record on
- * purpose) the live D1 row must go even though it has no twin, because promote has
- * no delete semantics and nothing else will ever remove it (AECI-593). So the
+ * purpose) the live D1 row must go even though it has no twin, because promote cannot
+ * RETRACT and nothing else will ever remove it (AECI-593). (Promote does delete a row it
+ * moves between the two anchor tables — AECI-888 — but only one a payload names by id;
+ * absence still removes nothing, which is why this route exists.)
+ *
+ * **This route cannot see `connector_evidenced_pairs` and cannot delete from it.** Since
+ * AECI-721 the delivered tier spans two tables, and an editorially-retracted edge is far more
+ * likely to be in the other one — 215 of the 216 entries on the 2026-09 retraction journal
+ * were. The repair for those is
+ * `scripts/ops/2026-09-retraction-consumer/consume.mjs`, which reads both. So the
  * route accepts an acknowledgment that must name EXACTLY the guards that tripped,
  * plus a reason. Exact-match rather than "at least these": naming a guard that
  * reads zero proves the plan being acknowledged is not the plan that just ran, so

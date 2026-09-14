@@ -80,24 +80,27 @@ originally implied was dropped: the sweep self-optimises instead. See
 | `productDeletedUpstream`      | D1 product no upstream record claims at all                                                           | Find the ruling before retracting — see the strand audit's §Healing.                        |
 | `vendorNoLiveProducts`        | D1 vendor with zero products (the AECI-685 shape)                                                     | A vendor page rendering an empty grid. Redirect, then delete.                               |
 | `vendorSourceGone`            | D1 vendor no upstream vendor record claims                                                            | Curation judgment.                                                                          |
-| `integrationSourceGone`       | D1 integration whose id no upstream record carries (the AECI-593 shape)                               | **Never a mechanical delete.** Check for a recorded editorial ruling first.                 |
-| `integrationEndpointStranded` | Integration whose `source` / `target` / `built_by` / `powered_by` resolves to a row stranded above    | Usually a **re-point**, not a delete — the edge itself is fine.                             |
-| `orphanChildren`              | Claims + attestations under any stranded integration                                                  | Cascade only; they cannot be stranded independently.                                        |
+| `integrationSourceGone`       | `integrations` row whose id no upstream record carries (the AECI-593 shape)                          | **Never a mechanical delete.** Check for a recorded editorial ruling first.                 |
+| `evidencedPairSourceGone`     | `connector_evidenced_pairs` row whose id no upstream record carries (AECI-897)                       | **No repair tool exists.** Escalate by hand — see below.                                    |
+| `integrationEndpointStranded` | Edge in **either** table whose endpoint, connector or builder resolves to a row stranded above       | Usually a **re-point**, not a delete — the edge itself is fine. Read the entry's `table`.   |
+| `orphanChildren`              | Claims + attestations under any stranded edge, from **both** anchor columns                          | Cascade only; they cannot be stranded independently.                                        |
 | `pendingRetractions`          | A record **deleted upstream** whose public row is still live here (AECI-882)                          | The ruling already exists. Run the consumer — see below.                                    |
 
 ### `pendingRetractions` is a different kind of finding (AECI-882)
 
-The six buckets above are a **stock** check: they compare what exists on both sides today, so
+The seven buckets above are a **stock** check: they compare what exists on both sides today, so
 they catch a row however long ago it was stranded, but they can only infer *that* something
 went missing. `pendingRetractions` reads the review app's retraction journal, which says
 *what* was deleted and *why* in the curator's own words — an **event** check — and journals
 forward only. Neither replaces the other, which is why they run together rather than as two
 jobs.
 
-**It is also the only bucket that can see a retracted `connector_evidenced_pairs` row**, and
-that is not academic. On 2026-09-13 the journal held 216 pending entries; **215 resolved to
-that table**, which the six stock buckets exclude by design. They read green while all 215
-were live on the public site. Before this bucket existed, a green run meant "the table I
+**It used to be the only bucket that could see a retracted `connector_evidenced_pairs` row**,
+and that was not academic. On 2026-09-13 the journal held 216 pending entries; **215 resolved
+to that table**, which the stock buckets excluded by design. They read green while all 215
+were live on the public site. (AECI-897 closed that exclusion — `evidencedPairSourceGone` now
+sees them too. This bucket is still not redundant: a set difference cannot say *why* a record
+went away, and the feed can.) Before this bucket existed, a green run meant "the table I
 classify is fine", not "the catalog is fine".
 
 Its repair is the exception to *never delete a row to make this job green*: the ruling already
@@ -118,21 +121,70 @@ non-zero `pendingRetractions` today is entirely unhandled work. **Empty a discha
 same commit as the run that releases it** — left in place it turns a real finding into a number
 that looks familiar.
 
+### `connector_evidenced_pairs` was out of scope until AECI-897, and the reason was wrong
+
+This is worth keeping as a record, because the reasoning failed in a specific and repeatable
+way rather than by oversight.
+
+The exclusion was recorded three times — in this README, in `audit.mjs`'s header, and in ADR
+0030 — always with the same justification: *auditing them against `list_integrations` would
+report all of them, every run.* It was never measured. On **2026-09-14** it was:
+
+| measure | count |
+| --- | --- |
+| upstream integrations carrying a `supabaseId` | 1,010 |
+| D1 `connector_evidenced_pairs` | 62 |
+| …claimed upstream | **60** |
+| …unclaimed | **2** |
+
+Wrong by 60 of 62. The comparand was always sound, because the ids are the **same ids**: the
+product promote arm writes a pair row under the caller's `supabaseId` verbatim and reports it
+back on `response.integrations[]`, which the review app stores in the same
+`supabase_integration_id` column `list_integrations` projects. Spot-checked against upstream
+`recBL85bbICUSkvp7`, whose `supabaseId` is `a70e2044-…` — a `connector_evidenced_pairs` row.
+
+**What the exclusion cost:** every run between 2026-09-10 and 2026-09-13 reported clean while
+215 retracted pairs were live and public.
+
+**What replaced it:** the `evidencedPairSourceGone` bucket, plus `comparandLooksBroken` in
+`classify.mjs`. If the comparand ever *does* break — upstream stops projecting `supabaseId`,
+or starts excluding connector-powered edges — every row goes unclaimed at once, and that shape
+exits **2** ("could not check") rather than reporting a live table as 62 findings. The floor is
+10 rows, so a genuinely all-stranded small table is still a finding.
+
+When the gate trips it **empties `evidencedPairSourceGone`**, it does not merely warn beside
+it. Exit 2 alone would not be enough: the `--ids-out` file is written straight from the buckets
+and is the artifact an operator acts on, so leaving the entries in would hand over every live
+pair id under a `# evidencedPairSourceGone (N)` heading. The withheld count rides on the
+`unresolvedUpstream` entry as `suppressed`, and the run also fails `reconciles`, so nothing
+about the shape is lost.
+
+The two rows that came back unclaimed on the measuring run are HeavyJob → Sage 300 CRE and
+HeavyJob → Procore Project Management. They are candidate findings, not noise, and the first
+scheduled run rules on them.
+
+> **The transferable lesson:** a stated reason for a blind spot is not evidence for one. This
+> reason was recorded in three files and measured in none, and it survived the 2026-09-10 miss
+> because each of the three cited the others.
+
+### `evidencedPairSourceGone` has no repair tool
+
+Every other bucket names a command. This one cannot, and that is a real gap rather than an
+omission: neither `ops:retract-product` nor the datatool prune can touch
+`connector_evidenced_pairs`, and the retraction consumer acts only on journal entries, so a
+strand finding never reaches it.
+
+The path is: **confirm the ruling upstream → have the curator delete the record so the journal
+carries it → let `scripts/ops/2026-09-retraction-consumer/consume.mjs` execute it.** Do not
+hand-DELETE. Raw SQL skips both the `audit_log` row and the `integration_count` reconcile,
+which is exactly what made the 2026-09-07 Roofr cleanup a one-off nobody can replay.
+
 ### What is deliberately out of scope
 
-- **`connector_evidenced_pairs`.** Its rows are counted and reported, never classified —
-  auditing them against `list_integrations` would report all of them, every run. That
-  decision stands, but the reason recorded here was wrong twice and is corrected as of
-  AECI-764 (2026-09-10). This table is **not** fed by the connector-catalog arm (§3a): it
-  is fed by the ordinary product arm routing `integrations[]` off `poweredByProduct`
-  (§3.4a), and migration `0027` moved the pre-existing powered edges into it, so it has
-  held data since AECI-721. The §3a arm writes `connector_pairs`, a different table. And
-  its sender (AECI-731) is built and ran against production on 2026-09-10.
-  **What this exclusion cost, measured:** it is why every run between 2026-09-10 and
-  2026-09-13 reported clean while 215 retracted pairs were live and public. The exclusion
-  itself is still right — classifying that table against `list_integrations` would flag all
-  of it every run — so the fix was the `pendingRetractions` bucket above, which sees those
-  rows through the feed instead of through a set difference.
+- **`connector_pairs`.** The **reachable** tier (AECI-891). Nobody built those edges — they
+  assert that two products *could* be joined through a connector — so "is this row claimed by
+  an upstream integration record?" is not a question that applies to them. `claims` anchored
+  on `connector_pair_id` are excluded from `orphanChildren` for the same reason.
 - **Claims and attestations as an independent axis.** `claims.integration_id` and
   `attestations.claim_id` both cascade, so a claim cannot outlive its integration.
   They are reported as cascade weight, not as a bucket.
@@ -186,10 +238,18 @@ omission fails `reconciles`, so the run still exits `2`, and the row appears in
 The line between `1` and `2` is the one `scripts/ci/posthog-liveness-sweep.sh` draws for the
 same reason: "the sweep could not run" is not "the thing being swept is fine".
 
-**None of this has an automated test.** There is no test harness for `scripts/ops/**`
-anywhere in the repo — no vitest include, no package script — so do not assume coverage. The
-exit codes are checked by hand: `--help` (2), a run with `AECI_MCP_TOKEN` unset (2), and a
-real production run (1 while AECI-795 is open).
+**The classification is tested; the I/O is not.** AECI-897 split the pure half into
+`classify.mjs`, and `apps/api/src/test/strand-classify.spec.ts` covers it — the 2026-09-10
+shape going red, the AECI-888 twin signature, the legitimate-twin negative, and the comparand
+gate's floor. That spec lives in `apps/api` because `scripts/ops/**` still has no harness of
+its own; the unit lane already runs in plain Node, so it imports the `.mjs` by relative path
+with no config change.
+
+Note what the fixture is: the real 215-row upstream snapshot is gitignored production catalog
+content, so the spec replays the **shape** of that state, not those ids.
+
+Everything else here — the wrangler reads, the MCP session, the exit codes — is still checked
+by hand: `--help` (2), a run with `AECI_MCP_TOKEN` unset (2), and a real production run.
 
 ### Runs daily in CI
 
@@ -279,7 +339,7 @@ for**, **0 unresolved upstream reads**.
 | Side                  | Products             | Vendors              | Integrations                            |
 | --------------------- | -------------------- | -------------------- | --------------------------------------- |
 | Upstream (review app) | 1,535 (285 resolved) | 1,010 (190 resolved) | 2,441 (942 carry an id)                 |
-| Production D1         | 247                  | 165                  | 927 (+19 evidenced pairs, out of scope) |
+| Production D1         | 247                  | 165                  | 927 (+19 evidenced pairs, unclassified at the time) |
 
 | Bucket                        | Count                     |
 | ----------------------------- | ------------------------- |
@@ -515,12 +575,14 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | 2026-09-08 | production | `audit.mjs` | Re-run after the AECI-794 retraction: **0 products, 0 vendors, 1 integration** stranded; 1 claim + 1 attestation in cascade; **1** publicly reachable. `integrationSourceGone` is down to **1**. `8f5365f9-…` is gone, and so are the Bluebeam vendor and both `built_by` strands — that whole lane closed between the two runs. Only **AECI-795** is left. Still exits 1, correctly. |
 | 2026-09-08 | production | `audit.mjs --refresh-cache` | Re-run immediately after the AECI-795 retraction, on the pre-rewrite script: **every bucket 0**, 0 claims/attestations in cascade, **0 publicly reachable**. `RESULT: clean — every row is claimed upstream`, and it **exits 0 — the first clean run since the sweep was written**. Catalogue had also grown between runs: upstream 1,541 products / 2,487 integrations (963 carry an id), prod 252 products / 167 vendors / 937 integrations + 26 evidenced pairs. The whole tail went from 7 reachable rows to 0 in two days. |
 | 2026-09-08 | production | `audit.mjs` | **First run of the AECI-796 rewrite, and clean: 0 in every bucket, 0 publicly reachable, 0 orphan children.** Reconciled 252/252, 0 unresolved reads, exit **0**. Nine minutes after the run above, so it re-tests the drained tail on the new transport. Also the first run to show the upstream fast path live: `fastPath: products {fromList: 252, viaGet: 38}, vendors {fromList: 167, viaGet: 26}` — ~64 fallback calls instead of ~300, about two minutes. Invoked exactly as CI does, with `--refresh-cache` and all three artifacts in a temp dir. |
+| 2026-09-14 | production | `audit.mjs --refresh-cache` | **First run of the AECI-897 two-table sweep, and it found two rows the old one structurally could not.** `evidencedPairSourceGone: 2` — `6c01f481-…` (HeavyJob → Procore Project Management) and `018f47d5-…` (HeavyJob → Sage 300 CRE), both Aquifer-connector edges, both publicly reachable and both in search. Zero claims and zero attestations in cascade. Every other bucket 0, `pendingRetractions` 0 (the feed was drained by AECI-909). Exit **1**, correctly. Three things this run also verifies about the change itself: the **comparand gate did not trip** (60 of 62 pairs claimed, nowhere near the all-unclaimed shape), the new edge reconciliation reports **1012/1012 accounted** rather than passing vacuously, and neither finding carries a `twin` — so these are plain strands, not the AECI-888 cross-table shape. Catalogue at the time: upstream 1,543 products / 2,699 integrations (1,010 carry an id), prod 260 products / 169 vendors / 950 integrations + 62 evidenced pairs. Filed as **AECI-916**. |
 
 ## Follow-ups filed from this run
 
 | Issue        | Row                                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------------------- |
 | **AECI-794** | `procore-project-management → followup-crm` — reverse twin survives. **Ruled DELETE and executed 2026-09-08**, see `scripts/ops/2026-09-procore-followup-retraction/` |
+| **AECI-916** | The two 2026-09-14 Aquifer HeavyJob pairs. **Not yet ruled** — why upstream stopped claiming them is unknown, and AECI-795 is the precedent for not inferring a cause. Whatever the ruling, the repair goes through the upstream journal and the consumer, because this bucket has no tool. |
 | **AECI-795** | `microsoft-dynamics-365 → monday-com` — no twin, so the retraction removed the only copy of that mechanism. **Ruled DELETE and executed 2026-09-08**, see `scripts/ops/2026-09-dynamics-monday-retraction/`. The ruling came from **escalating**, not from a note — this is the one row of the seven whose deletion was recorded nowhere on either side. (It did **not** 404 the pair URL: the page returns 200 with a noindexed empty state and left `sitemap.xml`.) |
 
 Five of the seven rows were already covered: **AECI-685** (the vendor and both

@@ -5,9 +5,36 @@
 **Issue:** AECI-882 (epic), AECI-811, AECI-878
 **Supersedes:** nothing. Completes the AECi half of AECI-595, whose upstream half shipped 2026-09-07.
 
+> **Amended 2026-09-14 (AECI-888 / AECI-897).** Two sentences below are now wrong, and the
+> decision is unchanged by both.
+>
+> 1. **"It can never delete one" is too strong** — read it as **"it can never *retract*
+>    one"**. The rejected alternative at the bottom of this file is about inferring a delete
+>    from **absence**, and that rejection stands unconditionally. What AECI-888 adds is an
+>    **id-directed cross-table move**: `powered_by_product_id` routes an edge between
+>    `integrations` and `connector_evidenced_pairs`, identity is table-scoped, and the key is
+>    mutable — so a push that flips it must move the row, dropping the old one in the same
+>    batch as the insert. That delete is caused by an id you named, never by a record you
+>    omitted. The forward direction already shipped with AECI-721; AECI-888 added the reverse
+>    and the two are now symmetric. Both re-home claims *before* the drop, for the reason
+>    §2 below gives.
+> 2. **"classifying it against `list_integrations` would flag every row every run" is wrong**
+>    (see "The detection half"). Measured against production on 2026-09-14: of 62
+>    `connector_evidenced_pairs` rows, **60 were claimed upstream and 2 were not**. It is wrong
+>    by 60 of 62. The comparand is sound because the ids are the same ids — the product promote
+>    arm writes a pair row under the caller's `supabaseId` verbatim and reports it back, and
+>    the review app stores that in the same column `list_integrations` projects. AECI-897
+>    therefore put the table **in scope** as `evidencedPairSourceGone`, with a sanity gate that
+>    withholds the findings and exits 2 rather than 1 if the whole table ever comes back
+>    unclaimed at once.
+>
+> The lesson is the one this file already teaches, applied to itself: a stated reason for a
+> blind spot is not evidence for it. That sentence was recorded three times and measured zero
+> times, and it held the exclusion in place across the 2026-09-10 miss.
+
 ## Context
 
-Promote can create and update rows. It can never delete one
+Promote can create and update rows. It can never retract one
 (`docs/REVIEW_APP_PROMOTE_API.md` §5.1). So when a curator deletes a curation record, the
 live D1 row it produced stays on the public site, and the review app's `supabase_*_id`
 column — which ADR 0021's AECI-562 veto keeps out of our schema on purpose — is the only
@@ -95,9 +122,16 @@ cheapest read together:
   only, so it is blind to anything stranded before it shipped.
 
 The bucket also closes a real blind spot rather than adding a nice-to-have. The six stock
-buckets exclude `connector_evidenced_pairs` by design — classifying it against
-`list_integrations` would flag every row every run — so they reported **clean** on every
-run between 2026-09-10 and 2026-09-13 while 215 retracted pairs were live and public.
+buckets excluded `connector_evidenced_pairs` by design — the recorded reason was that
+classifying it against `list_integrations` would flag every row every run — so they reported
+**clean** on every run between 2026-09-10 and 2026-09-13 while 215 retracted pairs were live
+and public.
+
+> **That reason was wrong and the exclusion is gone (AECI-897, 2026-09-14).** Measured: 60 of
+> 62 pair rows are claimed upstream. The table is now classified as `evidencedPairSourceGone`,
+> a seventh stock bucket. The `pendingRetractions` bucket stays and is not redundant — a set
+> difference can only infer that something went missing, while the feed carries the curator's
+> ruling and its reason. Stock and event, not one check run twice.
 
 That bucket carries a `HELD_RETRACTIONS` list: entries held on a recorded decision are
 printed but do not fail the run. Without it, two deliberate holds would leave the job red
@@ -117,10 +151,16 @@ that clears it.
 
 ## Alternatives considered
 
-**Add delete semantics to promote.** Rejected. A promote payload is a statement about what
-exists, and absence in a paged, partial push is not evidence of deletion — the connector
-arm needs an explicit `deleted` block (§3a) for exactly that reason. Inferring deletion
-from absence on the product arm would make every partial push a potential mass delete.
+**Infer deletion from absence in a promote payload.** Rejected, permanently. A promote
+payload is a statement about what exists, and absence in a paged, partial push is not
+evidence of deletion — the connector arm needs an explicit `deleted` block (§3a) for exactly
+that reason. Inferring deletion from absence on the product arm would make every partial push
+a potential mass delete.
+
+This is about **absence**, and it is the only thing being rejected here. An **id-directed**
+delete — the cross-table move in the 2026-09-14 amendment, where the payload names the row
+and states its new routing key — is not covered by this rejection and never was; the forward
+half of it already shipped with AECI-721, before this ADR was written.
 
 **`promotion_status = 'retracted'`.** Already reserved and inert: zero rows carry it,
 nothing upstream writes it, and nothing in AECi's promote path reads it. Making it live

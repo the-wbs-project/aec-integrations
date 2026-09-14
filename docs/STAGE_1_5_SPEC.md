@@ -900,6 +900,16 @@ must answer it before AECI-713 finalises.
 evidenced connector pairs. No key, no heuristic, no dirty column — the structure carries what the
 predicate used to, **for every edge that could be routed**.
 
+**Which means the routing key is now a TRANSITION rule, not only a placement rule (AECI-888).**
+Membership *is* the assertion (§13.1), so when `powered_by_product_id` changes on an already-promoted
+edge, the edge has to **move tables** — it cannot be re-placed by writing a second row, because
+identity here is table-scoped. Promote does that move in one batch, in both directions, preserving
+the id and re-homing the claims before dropping the source. Before AECI-888 only the `integrations`
+→ evidenced direction existed, and clearing the key stranded the original row permanently (AECI-798,
+the Roofr → QuickBooks Online orphan). Two consequences worth carrying: only an **explicit**
+`poweredByProduct: null` de-routes — an omitted or unresolvable key leaves the edge where it is — and
+the move out is **lossy on `mechanism_kind`**, because the evidenced table has no such column.
+
 **One correction to this paragraph, from the build.** `mechanism_kind` DOES still contain `iPaaS`.
 53 production edges are `iPaaS` with a NULL `powered_by` because their connector is not a promoted
 product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-700 parks Zapier and
