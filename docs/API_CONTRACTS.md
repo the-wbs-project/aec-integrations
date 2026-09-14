@@ -720,7 +720,16 @@ export const ProductPairClaimSchema = z.object({
 export const ProductPairMechanismSchema = z.object({
   id: z.string().uuid(),
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
-  mechanism_name: z.string().nullable(),
+  mechanism_name: z.string().nullable(),   // the MECHANISM's own label, never a directional pair
+                                        // title (AECI-919). Resolved by `toMechanismHeading`:
+                                        // `integrations.mechanism_name`, else `integrations.name`
+                                        // ONLY when that name carries no arrow glyph, else null.
+                                        // `integrations.name` is the PAIR's title and upstream
+                                        // writes it source-first by authorship convention, so it
+                                        // reads "Power BI → BigQuery" on 56% of rows — an absolute
+                                        // frame, which would contradict the context-relative
+                                        // `direction` on this same object. Null is expected: the
+                                        // client promotes `mechanism_kind`'s label to the heading.
   direction: ContextDirectionSchema.nullable(),   // the stored one-way/bidirectional, translated context-relative (§3.2)
   description: z.string().nullable(),
   listing_url: z.string().url().nullable(),

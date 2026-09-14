@@ -241,6 +241,16 @@ interface PairView {
    *  arrow — i.e. there is detail for the Basic view to hide. Gates the toggle so
    *  a pair with nothing to collapse doesn't show a no-op control. */
   readonly hasDetail: boolean;
+  /** True when some mechanism renders a **standalone Layer-A direction arrow** —
+   *  the `!hasClaims && direction` condition the per-mechanism card applies. The
+   *  narrower sibling of `hasDetail`, which also counts Layer-B claim lanes.
+   *
+   *  It exists to pick the empty data-flow band's copy (AECI-919): the band counts
+   *  Layer-B claims, so it goes empty while a direction is plainly documented just
+   *  below it, and the original "Data flows aren't documented yet" contradicted the
+   *  arrow it sat above. Keep it distinct from `hasDetail` — a pair whose only
+   *  detail is claim lanes never shows an empty band at all (`syncTotal > 0`). */
+  readonly hasLayerADirection: boolean;
 }
 
 /** The pair page's two disclosure levels (URL `?view=`). `detailed` (the default,
@@ -437,8 +447,18 @@ function writePairViewCookie(mode: PairViewMode): void {
             }
           </header>
 
-          <!-- The rail: context (left) ⇄ other (right). Context is always left;
-               the per-mechanism arrows below carry direction. -->
+          <!-- The rail: context (left) | other (right). Context is always left;
+               the per-mechanism arrows below carry direction.
+
+               The separator is a HAIRLINE RULE, never a glyph (AECI-919). It used
+               to be the bidirectional arrow, which is the same character
+               directionGlyph('both') emits, so one page carried that character
+               with two unrelated meanings, and the rail's was the louder of the
+               two at text-3xl. DESIGN.md's Arrow Rule now binds this: an arrow
+               means data-flow direction and nothing else. A plus sign was rejected
+               as the replacement because DESIGN.md already spends it on the
+               version-diff "added" marker; a rule carries no vocabulary at all
+               and so cannot collide. -->
           <div
             class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-raised) p-6 md:gap-8 md:p-8"
           >
@@ -468,7 +488,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                 </span>
               }
             </a>
-            <span class="font-display text-3xl text-(--text-tertiary)" aria-hidden="true">⇄</span>
+            <span class="h-12 w-px bg-(--border-default) md:h-16" aria-hidden="true"></span>
             <a
               [routerLink]="['/products', other.slug]"
               class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
@@ -556,6 +576,27 @@ function writePairViewCookie(mode: PairViewMode): void {
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
               <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
                 {{ v.confirmedRatio }}
+              </p>
+            } @else if (viewMode() === 'detailed' && v.hasLayerADirection) {
+              <!-- AECI-919: the band counts Layer-B data-object claims, and the
+                   standalone Layer-A arrow renders right under it. "Data flows
+                   aren't documented yet" therefore sat directly above a documented
+                   direction and read as a contradiction. The direction IS known;
+                   the records that cross are not. This variant says that, and the
+                   subline points at the arrow rather than denying it. Gated on
+                   the Detailed view too: Basic hides the arrow, so "below" would
+                   name nothing there and the original copy is the honest one. -->
+              <p
+                class="font-display text-2xl leading-tight text-(--text-primary)"
+                i18n="@@pair.dataflow.empty.directional"
+              >
+                We haven’t catalogued what syncs yet
+              </p>
+              <p
+                class="mt-2 text-sm text-(--text-secondary)"
+                i18n="@@pair.dataflow.empty.subline.directional"
+              >
+                Direction is documented below; the records that cross aren’t yet.
               </p>
             } @else {
               <p
@@ -897,6 +938,11 @@ export class ProductsPairPage {
       hasDetail: mechanisms.some(
         (m) => m.claimGroups.length > 0 || (m.direction !== null && !m.hasClaims),
       ),
+      // Deliberately the SAME predicate the per-mechanism card gates its
+      // standalone arrow on (see the template). If the two drift, the band
+      // promises a direction "below" that no card renders — which is the defect
+      // AECI-919 fixed, just inverted.
+      hasLayerADirection: mechanisms.some((m) => m.direction !== null && !m.hasClaims),
     };
   });
 

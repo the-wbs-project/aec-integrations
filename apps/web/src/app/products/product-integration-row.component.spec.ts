@@ -106,7 +106,7 @@ describe('ProductIntegrationRow', () => {
 
   // AECI-853 folded Direction out of its own leading cell and into the meta line
   // under the partner name, which is the FIRST cell. The row is now two content
-  // cells + the trailing decorative arrow, so these assertions read cells[0] for
+  // cells + the trailing nav chevron, so these assertions read cells[0] for
   // both the partner and the direction, and cells[1] for the connection.
   it('renders "Outbound" in the partner cell meta line when data leaves this product', () => {
     const { el } = setup();
@@ -133,9 +133,38 @@ describe('ProductIntegrationRow', () => {
     expect(cells[0]?.textContent).toContain('⇄');
   });
 
-  it('renders exactly two content cells plus the trailing arrow (no Direction column)', () => {
+  it('renders exactly two content cells plus the trailing chevron (no Direction column)', () => {
     const { el } = setup();
     expect(el.querySelectorAll('td').length).toBe(3);
+  });
+
+  // AECI-919. The trailing cell used to render a literal "\u2192", the same character
+  // `directionGlyph('outbound')` emits into the meta line of this same row — two
+  // arrows, two meanings, one row. It is a navigation affordance, so it is now a
+  // Lucide chevron-right and carries no direction vocabulary at all.
+  it('renders the nav affordance as a chevron, never a direction arrow', () => {
+    const { el } = setup();
+    const nav = el.querySelectorAll('td')[2]!;
+
+    expect(nav.textContent).not.toContain('\u2192');
+    expect(nav.textContent).not.toContain('\u2190');
+    expect(nav.textContent).not.toContain('\u21C4');
+
+    const chevron = nav.querySelector('svg')!;
+    expect(chevron).toBeTruthy();
+    // Lucide `chevron-right`; aria-hidden because the stretched overlay link
+    // already carries the accessible name for this row's destination.
+    expect(chevron.querySelector('path')?.getAttribute('d')).toBe('m9 18 6-6-6-6');
+    expect(chevron.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  // The direction arrow in the meta line is the one arrow that survives, and it
+  // has to keep working — the chevron swap must not have taken it with it.
+  it('still renders a direction glyph in the meta line, distinct from the chevron', () => {
+    const { el } = setup();
+    const cells = el.querySelectorAll('td');
+    expect(cells[0]?.textContent).toContain('\u2192');
+    expect(cells[2]?.textContent).not.toContain('\u2192');
   });
 
   it('keeps the direction in the same cell as the partner name', () => {

@@ -196,15 +196,70 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
   });
 
+  // AECI-919. The rail separator used to be a literal "\u21C4" \u2014 the same character
+  // `directionGlyph('both')` emits \u2014 rendered at text-3xl between the two logos.
+  // One page, one character, two unrelated meanings, and the non-directional one
+  // was the louder. It is now a hairline rule, which carries no vocabulary.
+  it('renders the rail separator as a rule, not a glyph', () => {
+    const { el } = setup(buildPair());
+    // Nothing on this fixture is bidirectional, so the character must be absent
+    // from the WHOLE page, not merely from the rail.
+    expect(el.textContent).not.toContain('\u21C4');
+  });
+
+  it("emits \u21C4 only from directionGlyph('both')", () => {
+    const base = buildPair();
+    const { el } = setup({
+      ...base,
+      mechanisms: [{ ...base.mechanisms[0]!, direction: 'both' }],
+    });
+    // Now it IS on the page \u2014 once, from the mechanism's own direction, beside
+    // the copy that explains it.
+    expect(el.textContent).toContain('\u21C4');
+    expect(el.textContent).toContain('Syncs both ways');
+  });
+
   it('renders the context-relative direction for the mechanism', () => {
     const { el } = setup(buildPair());
     // Context = Procore, integration outbound → "Sends to Revit".
     expect(el.textContent).toContain('Sends to Revit');
   });
 
-  it('renders the empty data-flow band when the pair has no claims', () => {
+  // AECI-919. The band counts Layer-B claims, so it goes empty while the Layer-A
+  // direction arrow renders directly beneath it. The default fixture is exactly
+  // that shape (`direction: 'outbound'`, no claims), and it used to read "Data
+  // flows aren't documented yet" six lines above "Sends to Revit". The direction
+  // IS documented; the records that cross are not, and the copy now says so.
+  it('renders the DIRECTIONAL empty band when a Layer-A arrow renders under it', () => {
     const { el } = setup(buildPair());
+    expect(el.textContent).toContain('We haven’t catalogued what syncs yet');
+    expect(el.textContent).toContain('Direction is documented below');
+    expect(el.textContent).not.toContain('Data flows aren’t documented yet');
+    // The arrow the subline promises is genuinely on the page.
+    expect(el.textContent).toContain('Sends to Revit');
+  });
+
+  it('keeps the original empty-band copy when no mechanism carries a direction', () => {
+    const base = buildPair();
+    const { el } = setup({
+      ...base,
+      mechanisms: [{ ...base.mechanisms[0]!, direction: null }],
+    });
     expect(el.textContent).toContain('Data flows aren’t documented yet');
+    expect(el.textContent).not.toContain('We haven’t catalogued what syncs yet');
+  });
+
+  it('keeps the original empty-band copy for an unconnected pair', () => {
+    const { el } = setup({ ...buildPair(), mechanisms: [] });
+    expect(el.textContent).toContain('Data flows aren’t documented yet');
+  });
+
+  // Basic (Overview) hides the standalone Layer-A arrow, so "documented below"
+  // would name nothing there. The gate is on the VIEW as well as the data.
+  it('falls back to the original empty-band copy in Basic view', () => {
+    const { el } = setup(buildPair(), { view: 'basic' });
+    expect(el.textContent).toContain('Data flows aren’t documented yet');
+    expect(el.textContent).not.toContain('Direction is documented below');
   });
 
   it('renders the sync headline + claim rows grouped by direction (Layer B)', () => {

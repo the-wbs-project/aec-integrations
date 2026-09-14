@@ -1397,6 +1397,55 @@ function toProductPairClaim(
   };
 }
 
+/**
+ * Every glyph a curator has used to mean "flows this way" in a free-text title:
+ * the three Unicode arrow blocks, plus the ASCII forms people type when the
+ * keyboard is in the way.
+ *
+ *   `\u2190-\u21FF`  Arrows — covers → ← ↔ ⇄ ⇆ ⇌
+ *   `\u27F0-\u27FF`  Supplemental Arrows-A
+ *   `\u2900-\u297F`  Supplemental Arrows-B
+ *
+ * Written as codepoint escapes rather than literal glyphs. A character-class
+ * RANGE of arrows is unreadable inline, and a literal one is easy to mis-edit
+ * into a range that also swallows the en dash.
+ *
+ * Deliberately NOT the en dash (U+2013) or the hyphen: "Revit-to-Procore" and
+ * "Procore – Bluebeam" name a pair without asserting a direction, so stripping
+ * them would cost titles and fix nothing.
+ */
+const DIRECTIONAL_GLYPH_RE = /[\u2190-\u21FF\u27F0-\u27FF\u2900-\u297F]|<-+>|-+>|<-+|=>/u;
+
+/**
+ * The heading a pair-page mechanism card shows — **never a directional pair title**
+ * (AECI-919, `STAGE_1_5_SPEC.md` §7.1).
+ *
+ * Two columns feed this. `integrations.mechanism_name` is the mechanism's own label
+ * ("Power Query Google BigQuery connector"); `integrations.name` is the PAIR's title
+ * and upstream writes it source-first by authorship convention, so it reads
+ * "Power BI → BigQuery" on 56% of rows. The pair page frames everything relative to
+ * the context product, so an absolute A→B title in the card `h2` pointed the
+ * opposite way to the direction lane directly beneath it, with nothing saying the
+ * frame had switched. The rail above already names both products, so the title added
+ * no information and only the contradiction.
+ *
+ * This mapper used to read `raw.name ?? raw.mechanismName` — name FIRST. The order is
+ * now reversed and the `name` fallback is gated: it survives only when it carries no
+ * directional glyph, which keeps genuinely useful labels like "Autodesk Revit export"
+ * (3.5% of rows have no `mechanism_name` at all) and drops the arrow-bearing pair
+ * titles. `null` is a supported result — the pair template promotes the mechanism
+ * KIND label to the `h2` rather than rendering a blank heading.
+ *
+ * It cannot catch an arrow a curator typed into `mechanism_name` itself (2.5% of
+ * rows). That is their label for their mechanism and we render it verbatim; the
+ * upstream naming rule is the place to fix it, not a stripper here.
+ */
+function toMechanismHeading(name: string | null, mechanismName: string | null): string | null {
+  if (mechanismName) return mechanismName;
+  if (name && !DIRECTIONAL_GLYPH_RE.test(name)) return name;
+  return null;
+}
+
 /** Order claims for stable rendering: by the data_object's curated
  *  `display_order`, then name — independent of D1 row order. */
 function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
@@ -1408,9 +1457,9 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
 
 /** One mechanism row on the pair page, with its direction translated to the
  *  context product's frame (§3.2 / §7) and its `data_object` claims (§8).
- *  `mechanism_name` is the integration's own title, falling back to the
- *  mechanism label; source/target are redundant on the pair page (both are the
- *  page's endpoints) so they are not surfaced. */
+ *  `mechanism_name` is the mechanism's own label and is never a directional pair
+ *  title — see `toMechanismHeading` (AECI-919); source/target are redundant on the
+ *  pair page (both are the page's endpoints) so they are not surfaced. */
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
@@ -1420,7 +1469,7 @@ function toProductPairMechanism(
   return {
     id: raw.id,
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
-    mechanism_name: raw.name ?? raw.mechanismName,
+    mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
     description: raw.description,
     listing_url: raw.listingUrl,
@@ -1462,7 +1511,7 @@ function toProductPairMechanismFromEvidencedPair(
     id: raw.id,
     // Null by construction — see the section header. The connector is in `via`.
     mechanism_kind: null,
-    mechanism_name: raw.name ?? raw.mechanismName,
+    mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(direction, contextIsSource),
     description: raw.description,
     listing_url: raw.listingUrl,
