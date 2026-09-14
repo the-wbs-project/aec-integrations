@@ -37,7 +37,18 @@ import {
   type ConnectorMappingStatus,
   type ConnectorPairSurface,
 } from '@aeci/shared';
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+  type Column,
+  type SQL,
+} from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -72,23 +83,51 @@ export function emptyCounts(): AdminConnectorCounts {
 }
 
 /**
- * §9a.4's publication gate, as SQL, in ONE place.
+ * The three columns §9a.4's gate reads. Typed as bare columns rather than as
+ * `typeof connectorStubMappings` so an `alias()` of that table satisfies it —
+ * Drizzle bakes the table name into every column's type, so the aliased table is
+ * not assignable to the base one.
+ */
+type PublishabilityColumns = {
+  readonly status: Column;
+  readonly productId: Column;
+  readonly decidedBy: Column;
+};
+
+/**
+ * §9a.4's publication gate, as SQL, over ONE named instance of the mappings
+ * table.
  *
  * `status = 'mapped' AND product_id IS NOT NULL AND decided_by IS NOT NULL AND
  * decided_by <> 'auto-name-match'`.
  *
  * **Provenance, never confidence.** §9a.4 is explicit that gating on
  * `confidence` would publish hundreds of machine guesses sitting at `medium`.
+ *
+ * The parameter exists for AECI-892's reach read, which joins this table to
+ * itself — once as the page product's own mapping, once as the partner's — and
+ * so needs the predicate over an `alias()` rather than over the base table.
+ * Spec §13.7 is explicit that the reach count and AECI-715's coverage surface
+ * "share one predicate … and nothing else", so the reach read takes an aliased
+ * copy of THIS function rather than restating four clauses.
+ */
+export function publishableMappingOn(t: PublishabilityColumns): SQL {
+  return and(
+    eq(t.status, 'mapped'),
+    isNotNull(t.productId),
+    isNotNull(t.decidedBy),
+    ne(t.decidedBy, CONNECTOR_AUTO_DECIDER),
+  ) as SQL;
+}
+
+/**
+ * The same gate over the base table.
+ *
  * Exported so the per-row `publishable` flag and the `mappings_publishable`
  * tally are provably the same predicate — the UI never re-implements it, which
  * is the failure mode a second copy invites.
  */
-export const publishableMapping: SQL = and(
-  eq(connectorStubMappings.status, 'mapped'),
-  isNotNull(connectorStubMappings.productId),
-  isNotNull(connectorStubMappings.decidedBy),
-  ne(connectorStubMappings.decidedBy, CONNECTOR_AUTO_DECIDER),
-) as SQL;
+export const publishableMapping: SQL = publishableMappingOn(connectorStubMappings);
 
 /** The same predicate evaluated in JS, for rows already in memory. */
 export function isPublishable(m: {

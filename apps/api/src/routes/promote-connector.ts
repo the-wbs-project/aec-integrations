@@ -26,11 +26,12 @@ import type {
   PromoteConnectorPagePayload,
   PromoteConnectorPageResponse,
 } from '@aeci/shared';
-import { eq } from 'drizzle-orm';
+import { CACHE_PURGE_QUEUE_MAX_TAGS } from '@aeci/shared';
+import { eq, inArray } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
 import type { DbContext } from '../db/client';
-import { promoteJobs } from '../db/schema';
+import { products, promoteJobs } from '../db/schema';
 import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { logBatchToPosthog } from '../posthog';
@@ -38,11 +39,14 @@ import { planConnectorCatalogPage } from '../lib/promote-connector-catalog';
 import {
   AUDIT_META,
   auditLogEvent,
+  dispatchHook,
   isPromoteJobDuplicate,
   logPromoteSkips,
+  logPurgeEnqueueFailure,
   type PromoteIngestDeps,
   type PromoteRunCtx,
 } from './promote';
+import { cacheTagsForConnectorPage } from './promote-cache-tags';
 
 /**
  * Merge the shared `source` facet into an entry's own metadata rather than replacing it.
@@ -71,6 +75,14 @@ export type ConnectorIngestResult = {
   wrote: boolean;
   bookmark: string | null;
   auditEntries: AuditLogEntry[];
+  /**
+   * Products whose §13.7 reach line this page may have moved (AECI-892).
+   *
+   * A cache-key set and nothing else. It is NOT `affectedProducts` — see
+   * {@link ConnectorJobLedger} for why that name stays absent — and it reaches
+   * `cacheTagsForConnectorPage` and no counter.
+   */
+  purgeProductIds: string[];
 };
 
 /**
@@ -85,6 +97,14 @@ export type ConnectorIngestResult = {
  * `staleSupabaseIds` and `affectedProducts`. None has a connector analogue, and the
  * last one matters — carrying it would let a replay call `recomputeProductCounts` and
  * quietly violate §13.5. The shape enforces the rule so no call site has to remember it.
+ *
+ * `purgeProductIds` (AECI-892) is NOT that field wearing a different name, and the
+ * distinction is worth stating because the two hold similar-looking id sets. This one
+ * is consumed by `cacheTagsForConnectorPage` and by nothing else; it reaches no
+ * counter, no Algolia record and no `recompute-counts` call. It is stored because a
+ * replay must still be able to drive the post-commit hooks — they dispatch from `run()`
+ * AFTER the step, so on a replay the ledger is the only thing that knows which pages
+ * went stale.
  */
 export type ConnectorJobLedger = {
   v: 1;
@@ -94,6 +114,8 @@ export type ConnectorJobLedger = {
   /** Stored WITH the planner's counts; only the shared `source` facet is re-applied on
    *  replay, so a replayed page forwards the same summary the original committed. */
   auditEntries: AuditLogEntry[];
+  /** Cache keys only — never a count input. See the note above. */
+  purgeProductIds?: string[];
 };
 
 function parseConnectorLedger(stored: unknown): ConnectorJobLedger | null {
@@ -106,6 +128,10 @@ function parseConnectorLedger(stored: unknown): ConnectorJobLedger | null {
     response: c.response,
     wrote: c.wrote ?? false,
     auditEntries: c.auditEntries ?? [],
+    // Optional on the way in: ledgers written before AECI-892 carry none, and a
+    // replay of one of those simply purges nothing. Stale-until-TTL on a page
+    // nobody is currently looking at beats refusing to replay.
+    purgeProductIds: c.purgeProductIds ?? [],
   };
 }
 
@@ -133,6 +159,7 @@ function replayConnectorJob(
     wrote: ledger.wrote,
     bookmark: dbCtx.getBookmark(),
     auditEntries: ledger.auditEntries.map(withAuditMeta),
+    purgeProductIds: ledger.purgeProductIds ?? [],
   };
 }
 
@@ -187,6 +214,7 @@ export async function runConnectorCatalogIngest(
       response,
       wrote: plan.wrote,
       auditEntries: plan.audits,
+      purgeProductIds: plan.purgeProductIds,
     };
     // FIRST in the batch, and never with `ON CONFLICT DO NOTHING` — the primary-key
     // violation IS the replay guard (AECI-571). `promote_jobs` has no foreign keys, so
@@ -211,7 +239,13 @@ export async function runConnectorCatalogIngest(
     }
   }
 
-  return { response, wrote: plan.wrote, bookmark: dbCtx.getBookmark(), auditEntries };
+  return {
+    response,
+    wrote: plan.wrote,
+    bookmark: dbCtx.getBookmark(),
+    auditEntries,
+    purgeProductIds: plan.purgeProductIds,
+  };
 }
 
 /**
@@ -226,19 +260,95 @@ export async function runConnectorCatalogIngest(
  *     no-change is crawl-budget vandalism.
  *   - **No home-stats refresh.** Refuted by spec rather than by inference (§13.5), and
  *     it would repaint an unchanged home page on every page of a 30-page sync.
- *   - **No cache purge, today.** A positive statement, not an omission: no cacheable
- *     route's output depends on these rows yet. When §13.7's summary line ships, the
- *     tag set is `product:{connectorSlug}` plus `product:{slug}` for each endpoint whose
- *     reachable count moved — and never `pair:*`, which §13.7 forbids enumerating, nor
- *     `sitemap`, since reachable pairs create no URLs. That obligation belongs to
- *     AECI-715/716 and is named here so it is inherited rather than rediscovered.
+ *   - ~~**No cache purge, today.**~~ **Shipped by AECI-892, and it is the third hook.**
+ *     The absence was conditional from the start — *"no cacheable route's output
+ *     depends on these rows YET"* — and §13.7's reach line is the first public reader,
+ *     so `CACHE_STRATEGY.md` §3 rule 5's stated transfer has happened. The tag set is
+ *     exactly what that rule named: `product:{connectorSlug}` plus `product:{slug}` for
+ *     each endpoint whose reachable count moved. Never `pair:*`, which §13.7 forbids
+ *     enumerating, and never `sitemap`, since reachable pairs create no URLs. See
+ *     {@link purgeAfterConnectorPage}.
  *
  * What does apply: the §26.5 audit forward, and the skip report — which on a
  * full-mirror sync is the only thing that distinguishes "synced cleanly" from "synced
  * with 200 mappings dropped", since both return `status: 'complete'`.
  */
-export function dispatchConnectorHooks(rc: PromoteRunCtx, result: ConnectorIngestResult): void {
+export function dispatchConnectorHooks(
+  rc: PromoteRunCtx,
+  result: ConnectorIngestResult,
+  deps: PromoteIngestDeps = {},
+): void {
   // One batched request for N entries, per the AECI-666 connection-budget rule.
   logBatchToPosthog(rc, rc.env, rc.request, result.auditEntries.map(auditLogEvent));
   logPromoteSkips(rc, result.response.skipped);
+  // Behind the same 20s watchdog the product arm's hooks use: a wedged queue
+  // producer holds one of the invocation's ~6 connections, and a `fetch` the
+  // runtime cancels to break that deadlock returns a promise that never settles
+  // (AECI-666).
+  if (result.purgeProductIds.length) {
+    dispatchHook(rc, 'cache-purge', purgeAfterConnectorPage(rc, result.purgeProductIds, deps));
+  }
+}
+
+/**
+ * Enqueue the reach-line purge for one committed connector page (AECI-892).
+ *
+ * Resolves ids to slugs HERE rather than in the planner, and that placement is the
+ * point: this runs post-commit, off-request, inside `waitUntil`, so the extra read
+ * cannot lengthen the batch, cannot fail the page, and cannot make a purge concern
+ * into a correctness one. The planner therefore hands over ids and stops.
+ *
+ * A page that wrote nothing arrives with an empty set and never gets here, which is
+ * the cache half of §13.10's *"a re-sent page writes nothing at all"*.
+ *
+ * One `sendBatch()` rather than a `send()` per batch, per the AECI-666 rule that a
+ * Queue producer call spends the same per-invocation connection budget as a `fetch`.
+ * A failed enqueue warns and is swallowed: the rows are committed either way, and the
+ * cost of losing this is one stale count until TTL.
+ */
+async function purgeAfterConnectorPage(
+  rc: PromoteRunCtx,
+  purgeProductIds: readonly string[],
+  deps: PromoteIngestDeps = {},
+): Promise<void> {
+  const queue = rc.env.CACHE_PURGE_QUEUE;
+  if (!queue) return;
+
+  // Resumes the write's session via `rc.bookmark()`, the same anchor the product
+  // arm's post-commit reads take (AECI-250). Without it this resolves to
+  // `first-unconstrained` — the one anchor that can read a lagging replica — and a
+  // product a recent promote created would simply be missing from the SELECT,
+  // dropping its `product:{slug}` tag with nothing logged either way.
+  const { db } = (deps.dbFor ?? getDb)(rc.env, { bookmark: rc.bookmark() });
+  const slugs: string[] = [];
+  for (const chunk of chunkedIds(purgeProductIds)) {
+    const rows = await db
+      .select({ slug: products.slug })
+      .from(products)
+      .where(inArray(products.id, chunk));
+    for (const row of rows) slugs.push(row.slug);
+  }
+
+  const tags = cacheTagsForConnectorPage(slugs);
+  if (tags.length === 0) return;
+
+  const batches: string[][] = [];
+  for (let i = 0; i < tags.length; i += CACHE_PURGE_QUEUE_MAX_TAGS) {
+    batches.push(tags.slice(i, i + CACHE_PURGE_QUEUE_MAX_TAGS));
+  }
+
+  try {
+    await queue.sendBatch(batches.map((batch) => ({ body: { tags: batch, source: 'promote' } })));
+  } catch (error) {
+    // `sendBatch` is all-or-nothing, so report the whole tag set — every one of
+    // these pages is now unpurged.
+    logPurgeEnqueueFailure(rc, tags, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** `SQLITE_MAX_VARIABLE_NUMBER` cover for the id lookup, same ceiling the planner uses. */
+function chunkedIds(ids: readonly string[], size = 90): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push([...ids.slice(i, i + size)]);
+  return out;
 }

@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, signal } from '@angular/core';
 
 import type { ProductIntegrationItem } from '@aeci/shared';
@@ -51,6 +52,26 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * relationship to the rows beneath it. Each lane's table is named by its card's
  * `<h3>` through `aria-labelledby`, so heading and table cannot drift.
  *
+ * ── THE REACH LINE (§13.7, AECI-892) ────────────────────────────────────────
+ * One sentence, and every one of its constraints is a prohibition:
+ *
+ *   - it **names no connector**. A per-connector group is a list, renders a table
+ *     row, and enters the `<h2>` count — three of §13.7's three prohibitions —
+ *     and a "Via {connector}" card that outlives its own delivered row asserts a
+ *     delivery the I24 ruling has just said does not exist;
+ *   - it is **not a table row** and not a card;
+ *   - it **never touches `lanes().rowCount`**, so `Integrations (N)` cannot move.
+ *     §13.5 is categorical: reachable never counts, anywhere;
+ *   - it is **unlinked at v0**. §13.7 says it links "our filtered view" and no
+ *     such route exists; the only lawful target would be the curated pair set,
+ *     which would make this line inherit everything publication is gated on. The
+ *     link is deferred to AECI-716.
+ *
+ * It renders on the EMPTY branch too, and that is the case the work exists for:
+ * a product whose only connector-delivered edge was retired by the AECI-889
+ * sweep has no lanes left and is precisely the page that must still answer
+ * "does X integrate with Y".
+ *
  * ── SINGLE-LANE PAGES ARE DELIBERATELY UNCHANGED ────────────────────────────────
  * A product with no connector-delivered edges — the overwhelming majority —
  * still renders exactly one unheaded table, named by the section `<h2>`. §13.3
@@ -77,7 +98,13 @@ import { ProductIntegrationsTable } from './product-integrations-table';
   // `ProductIntegrationRow`.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-integrations-section]',
-  imports: [IntegrationGroupCard, IntegrationListFilter, ProductIntegrationsTable, RequestTrigger],
+  imports: [
+    IntegrationGroupCard,
+    IntegrationListFilter,
+    NgTemplateOutlet,
+    ProductIntegrationsTable,
+    RequestTrigger,
+  ],
   template: `
     <!-- Heading row: title left, filter right. The filter lives HERE rather
          than in a band under the heading so an idle one costs no vertical
@@ -117,6 +144,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           >suggest a correction</a
         >.
       </p>
+      <ng-container [ngTemplateOutlet]="reachLine" />
     } @else {
       <!-- A page with no connector edges renders exactly what it always did:
              one unheaded table, named by the section heading. The lane structure
@@ -182,6 +210,8 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         </p>
       }
 
+      <ng-container [ngTemplateOutlet]="reachLine" />
+
       <!-- Catalog-scope note. An integration row only exists once BOTH
              endpoints are promoted products, so this table is bounded by the
              directory, not by the vendor's real partner list: a product with
@@ -203,6 +233,18 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         >.
       </p>
     }
+
+    <!-- §13.7's summary line for the REACHABLE tier. Rendered through an
+         ng-template because it belongs on both branches, in different places:
+         last on the empty branch, above the scope note on the populated one,
+         where that note is the caveat covering everything in the section. Two
+         outlets rather than two copies of the sentence, because a duplicated
+         $localize id is a translation bug waiting to happen. -->
+    <ng-template #reachLine>
+      @if (reachableCount() > 0) {
+        <p class="text-sm text-(--text-secondary)">{{ reachLabel() }}</p>
+      }
+    </ng-template>
   `,
 })
 export class ProductIntegrationsSection {
@@ -213,6 +255,17 @@ export class ProductIntegrationsSection {
   readonly asSource = input.required<readonly ProductIntegrationItem[]>();
   /** Edges where this product is the target endpoint. */
   readonly asTarget = input.required<readonly ProductIntegrationItem[]>();
+  /**
+   * §13.7's reach count: how many MORE products this one could be joined to
+   * through a connector, over and above the delivered edges in the two arrays
+   * above. Server-computed (`reachable_pair_count`), because the subtraction it
+   * needs spans two delivered tables in two orientations and the client sees
+   * only one page's worth of that.
+   *
+   * Optional and zero-defaulted so a page with no connector data — every
+   * non-production environment today — simply renders nothing.
+   */
+  readonly reachableCount = input(0);
 
   /**
    * The reader's filter text (AECI-841). Component-local and deliberately NOT a
@@ -269,6 +322,28 @@ export class ProductIntegrationsSection {
    * same control appearing over one and not the other reads as a bug.
    */
   protected readonly showFilter = computed(() => this.lanes().rowCount > 0);
+
+  /**
+   * §13.7's sentence, built in TS for the same reason `countLabel()` is: the
+   * singular and plural are separate message ids, not an ICU plural, which is
+   * the idiom this component already uses.
+   *
+   * FOUR ids rather than two. On a section with no delivered rows there is
+   * nothing for the reach to be MORE than, and shipping "3 more pairs" above an
+   * empty-integrations notice contradicts the screen it sits on. That is the
+   * exact page the AECI-889 sweep creates, so it is not an edge case.
+   */
+  protected readonly reachLabel = computed(() => {
+    const count = this.reachableCount();
+    if (this.lanes().rowCount === 0) {
+      return count === 1
+        ? $localize`:@@products.detail.body.integrations.reach.only.one:1 pair reachable via connectors`
+        : $localize`:@@products.detail.body.integrations.reach.only:${count}:COUNT: pairs reachable via connectors`;
+    }
+    return count === 1
+      ? $localize`:@@products.detail.body.integrations.reach.more.one:1 more pair reachable via connectors`
+      : $localize`:@@products.detail.body.integrations.reach.more:${count}:COUNT: more pairs reachable via connectors`;
+  });
 
   protected readonly directHeading = computed(
     () => $localize`:@@products.detail.body.integrations.lane.direct:Direct integrations`,

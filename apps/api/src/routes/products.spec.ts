@@ -15,7 +15,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   claims,
+  connectorCatalogs,
   connectorEvidencedPairs,
+  connectorPairs,
+  connectorStubMappings,
+  connectorStubs,
   integrations,
   productAudiences,
   productCategories,
@@ -795,5 +799,178 @@ describe('GET /api/products/:slug — maintenance marker (AECI-616)', () => {
     );
     expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
     expect(body.updated_at).not.toBe(reviewed);
+  });
+});
+
+describe('GET /api/products/:slug — the reachable tier (AECI-892 / §13.7)', () => {
+  const CATALOG = 'cat-kroo';
+
+  /**
+   * A reachable pair between two products through one connector's catalogue.
+   *
+   * `surface: 'derived'` on purpose. All 669 pairs upstream materialised for Kroo
+   * Connector and Trimble AppXchange carry that value, so a `curated` filter
+   * leaking into this count reports the two largest catalogues we hold as
+   * reaching nothing — silently, because the response is still a 200 with a
+   * number in it.
+   */
+  async function seedReach(pageId: string, partnerId: string, connectorId: string) {
+    await t.db.insert(connectorCatalogs).values({
+      id: CATALOG,
+      connectorProductId: connectorId,
+      connectorAuthorship: 'platform',
+    });
+    for (const id of ['stub-page', 'stub-partner']) {
+      await t.db.insert(connectorStubs).values({
+        id,
+        catalogId: CATALOG,
+        slug: id,
+        label: id,
+        firstSeenAt: '2026-09-01T00:00:00.000Z',
+        lastSeenAt: '2026-09-13T00:00:00.000Z',
+      });
+    }
+    await t.db.insert(connectorStubMappings).values([
+      {
+        id: 'map-page',
+        stubId: 'stub-page',
+        catalogId: CATALOG,
+        productId: pageId,
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+      {
+        id: 'map-partner',
+        stubId: 'stub-partner',
+        catalogId: CATALOG,
+        productId: partnerId,
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+    ]);
+    await t.db.insert(connectorPairs).values({
+      id: 'pair-1',
+      catalogId: CATALOG,
+      stubAId: 'stub-page',
+      stubBId: 'stub-partner',
+      surface: 'derived',
+      firstSeenAt: '2026-09-01T00:00:00.000Z',
+      lastSeenAt: '2026-09-13T00:00:00.000Z',
+    });
+  }
+
+  it('is 0 for a product with no connector data at all', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(body.reachable_pair_count).toBe(0);
+  });
+
+  it('reports reach for a product whose only connector-delivered edge was RETIRED', async () => {
+    // The regression AECI-892 exists for, in the state AECI-889 leaves behind.
+    //
+    // I24 retires an `integrations` row that is also a reachable pair in the same
+    // connector's catalogue. Before this change the page simply lost the answer:
+    // `routeIntegrationLane` reads `via` and `powered_by_product`, both
+    // delivered-tier, so the "Via {connector}" group emptied and nothing replaced
+    // it. 110 Zapier rows are queued behind exactly this.
+    await seedProduct(u(1), 'kroo-connector', 'Kroo Connector', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    await seedReach(u(2), u(3), u(1));
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    // Zero delivered edges — the retired row is gone from both tables.
+    expect(body.integrations_as_source).toEqual([]);
+    expect(body.integrations_as_target).toEqual([]);
+    // And the reach survives.
+    expect(body.reachable_pair_count).toBe(1);
+  });
+
+  it('excludes a partner already delivered by an `integrations` row, in EITHER orientation', async () => {
+    // "N MORE pairs" has to mean more. Half of the two-table, two-orientation
+    // rule; the other half is the next test.
+    await seedProduct(u(1), 'kroo-connector', 'Kroo Connector', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    await seedReach(u(2), u(3), u(1));
+    // Page product is the TARGET, partner the source: the orientation a naive
+    // `source = page AND target = partner` check misses.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(3),
+      targetProductId: u(2),
+      mechanismKind: 'api',
+    });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(body.integrations_as_target).toHaveLength(1);
+    expect(body.reachable_pair_count).toBe(0);
+  });
+
+  it('excludes a partner already delivered by a `connector_evidenced_pairs` row', async () => {
+    // The half AECI-882's consumer lost: the delivered tier spans TWO tables.
+    // A single-table exclusion reports this page as having one more reachable
+    // pair than it has, and reports nothing anywhere.
+    await seedProduct(u(1), 'kroo-connector', 'Kroo Connector', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    await seedReach(u(2), u(3), u(1));
+    const [a, b] = [u(2), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(1),
+      productAId: a!,
+      productBId: b!,
+      direction: 'b_to_a',
+      mechanismName: 'Kroo Connector',
+    });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(
+      [...body.integrations_as_source, ...body.integrations_as_target].map((i) => i.id),
+    ).toEqual([u(52)]);
+    expect(body.reachable_pair_count).toBe(0);
+  });
+
+  it('counts a reachable partner that is delivered to a DIFFERENT product', async () => {
+    // The exclusion is per-page, not global. A partner with delivered edges
+    // elsewhere is still only reachable from here.
+    await seedProduct(u(1), 'kroo-connector', 'Kroo Connector', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(4), 'acumatica', 'Acumatica');
+    await seedReach(u(2), u(3), u(1));
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(3),
+      targetProductId: u(4),
+      mechanismKind: 'api',
+    });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(body.reachable_pair_count).toBe(1);
+  });
+
+  it('leaves `integration_count` alone — reachable NEVER counts (§13.5)', async () => {
+    await seedProduct(u(1), 'kroo-connector', 'Kroo Connector', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore', { integrationCount: 0 });
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    await seedReach(u(2), u(3), u(1));
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(body.reachable_pair_count).toBe(1);
+    expect(body.integration_count).toBe(0);
   });
 });

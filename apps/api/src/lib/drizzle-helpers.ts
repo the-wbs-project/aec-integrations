@@ -87,6 +87,8 @@ import {
   vendors,
 } from '../db/schema';
 
+import { reachOnlyPartnerCount } from './connector-reach';
+
 // ---------------------------------------------------------------------------
 // Shared read orderings
 // ---------------------------------------------------------------------------
@@ -1978,10 +1980,35 @@ export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
   reviews: RawPublicReviewRow[] = [],
+  reachablePartnerIds: readonly string[] = [],
 ): ProductDetail {
   // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
   // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
+  const asSource = [
+    ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
+    ...evidencedPairsForEndpoint(raw, true),
+  ];
+  const asTarget = [
+    ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+    ...evidencedPairsForEndpoint(raw, false),
+  ];
+  // ── The reach subtraction (AECI-892 / §13.7) ─────────────────────────────
+  // "N MORE pairs reachable" has to mean MORE, so a partner the reader can
+  // already see in the table above is not one of them.
+  //
+  // The delivered set is read off the two arrays just built rather than from a
+  // second query, and that is the load-bearing part. §13.1's delivered tier
+  // spans TWO tables and a pair has TWO orientations; those arrays already
+  // union `integrations` with `connector_evidenced_pairs`
+  // (`evidencedPairsForEndpoint`) and are already oriented per endpoint. A
+  // hand-written two-table, two-orientation `NOT EXISTS` would be a fourth
+  // independent copy of that rule, and a copy that loses either half
+  // over-counts silently — AECI-882 lost the table half, AECI-795 the
+  // orientation half.
+  const deliveredPartnerIds = new Set<string>();
+  for (const item of asSource) deliveredPartnerIds.add(item.target.id);
+  for (const item of asTarget) deliveredPartnerIds.add(item.source.id);
   return {
     ...base,
     description: raw.description,
@@ -2009,14 +2036,8 @@ export function toProductDetail(
     //
     // The union is deliberately invisible on the wire — `via` discriminates, and
     // §13.3's split is a sourcing question, never a rendering one.
-    integrations_as_source: [
-      ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
-      ...evidencedPairsForEndpoint(raw, true),
-    ],
-    integrations_as_target: [
-      ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
-      ...evidencedPairsForEndpoint(raw, false),
-    ],
+    integrations_as_source: asSource,
+    integrations_as_target: asTarget,
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
     //
@@ -2043,6 +2064,7 @@ export function toProductDetail(
     ],
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
+    reachable_pair_count: reachOnlyPartnerCount(reachablePartnerIds, deliveredPartnerIds),
     maintenance: toMaintenance(raw),
   };
 }

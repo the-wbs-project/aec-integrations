@@ -388,8 +388,29 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // grouping ("Connects Procore with: …") is a client-side presentation concern.
   integrations_as_connector: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
+  // The REACHABLE tier's one number (AECI-892 / Stage 1.5 §13.7): how many MORE
+  // products this one could be joined to through a connector, beyond the delivered
+  // edges in the two arrays above. Feeds one unattributed sentence under the
+  // Integrations section and nothing else.
+  //
+  // NOT an integration count, and it must never be added to one. §13.5 is
+  // categorical: reachable never counts — not in the section heading, not in
+  // `integration_count`, not in a facet, not in the home stats.
+  //
+  // Zero-defaulted so a database with no connector rows parses rather than fails.
+  reachable_pair_count: z.number().int().min(0).default(0),
 });
 ```
+
+**`reachable_pair_count` is derived per request, not stored.** It is the only field on
+`ProductDetail` with no column behind it: `createdProductDetailHandler` runs a third promise
+(`reachablePartnerProductIds`, `apps/api/src/lib/connector-reach.ts`) alongside the related-products
+and reviews reads, walking `connector_stub_mappings` → `connector_pairs` → partner mappings as
+**two `UNION` branches** — never an `OR` across `stub_a_id`/`stub_b_id`, which uses neither index.
+It carries **no `surface` predicate**: all 669 of Kroo Connector's and Trimble AppXchange's pairs
+are `derived`, so a `curated` filter would report both catalogues as reaching nothing. Partners that
+already have a delivered edge are then subtracted in `toProductDetail`, off the two arrays above,
+so the exclusion spans both delivered tables in both orientations by construction.
 
 ### 5.2 Vendor
 
@@ -567,7 +588,8 @@ export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 
 #### `GET /api/products/:slug`
 
-Get full product detail by slug. Hydration per §3.4.
+Get full product detail by slug. Hydration per §3.4, plus one derived scalar,
+`reachable_pair_count` (§5.1), which is not hydrated and has no column.
 
 ```typescript
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
@@ -2346,9 +2368,12 @@ model of who controls the lane is wrong); `400` on a bad body or an unknown `man
 per row, distinguishing it from the run-granularity carve-out governing the connector sync on
 the same tables. Actions are `connector_catalog.managed_by_vendor` / `.managed_by_review`,
 `entity_type='connector_catalog'`. **No `workflow_instances` row** (that CHECK is closed) and
-**no cache purge** — AECI-722 reads `connector_catalogs`, but only on the deliberately
-uncacheable `/admin` surface, so there is still no tag to purge. That obligation stays with
-AECI-715 / 716, the first *public* reader (`CACHE_STRATEGY.md` §4).
+**no cache purge** — but read the reason, because it changed on 2026-09-14. The connector
+tables now DO have a tag vocabulary: AECI-892 made §13.7's reach line the first public reader, so
+`POST /api/promote/connector-catalog` emits `product:{connectorSlug}` plus `product:{slug}` per
+moved endpoint (`CACHE_STRATEGY.md` §3 rule 5). This endpoint still purges nothing because
+`managed_by` is a governance flag that no public surface reads and that moves no reach count — not
+because no tag exists.
 
 #### Connector admin reads (AECI-722 / `ADMIN_PANEL_SPEC.md` §5.9)
 

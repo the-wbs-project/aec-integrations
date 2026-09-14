@@ -16,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auditLog, connectorStubs, products, promoteJobs } from '../db/schema';
 import type { Env } from '../env';
-import { makeTestDb, type TestDb } from '../test/d1';
+import type { DbFactory } from '../lib/handler-utils';
+import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import type { PromoteRunCtx } from './promote';
 import { dispatchConnectorHooks, runConnectorCatalogIngest } from './promote-connector';
 
@@ -135,12 +136,18 @@ describe('runConnectorCatalogIngest (AECI-714)', () => {
     expect(await t.db.select().from(promoteJobs)).toHaveLength(0);
   });
 
-  it('reaches no count, index, URL or cache surface — a source guard, not a mock', async () => {
+  it('reaches no count, index or URL surface — a source guard, not a mock', async () => {
     // The executable form of the "two hooks, not seven" decision, written as a source
     // guard for the same reason the `vendor_entitlements` no-read-path check is: a
     // spy only proves the hook did not fire on THIS input, while the thing worth
     // preventing is someone wiring this arm into `dispatchPromoteHooks` wholesale.
     // §13.5 is categorical — reachable data never counts, anywhere.
+    //
+    // AECI-892 removed `CACHE_PURGE_QUEUE` and `cacheTagsForPromote` from this list
+    // and no others. The cache absence was always conditional — "no cacheable route
+    // depends on these rows YET" — and §13.7's reach line is the first public reader.
+    // The count, index and URL absences are not conditional and stay.
+    //
     // Comments stripped first: the module's own doc block NAMES the hooks it does not
     // use, and explaining an absence must not trip the guard against it.
     const source = readFileSync(join(process.cwd(), 'src/routes/promote-connector.ts'), 'utf8')
@@ -152,16 +159,141 @@ describe('runConnectorCatalogIngest (AECI-714)', () => {
       'notifyIndexNow',
       'notifyGoogleIndexing',
       'refreshHomeStats',
+      // The PRODUCT arm's tag deriver. This arm has its own, and borrowing that one
+      // would emit `pair:*` and `sitemap`, both of which §13.7 forbids.
       'cacheTagsForPromote',
-      'CACHE_PURGE_QUEUE',
       'recomputeProductCounts',
       'connectorEvidencedPairs',
     ]) {
       expect(source).not.toContain(forbidden);
     }
-    // And the two that DO apply are present, so the guard cannot pass vacuously.
+    // And the three that DO apply are present, so the guard cannot pass vacuously.
     expect(source).toContain('logBatchToPosthog');
     expect(source).toContain('logPromoteSkips');
+    expect(source).toContain('cacheTagsForConnectorPage');
     expect(typeof dispatchConnectorHooks).toBe('function');
+  });
+});
+
+/**
+ * The reach-line cache purge (AECI-892).
+ *
+ * `CACHE_STRATEGY.md` §3 rule 5 parked this obligation when AECI-714 landed and said
+ * in terms that it *"transfers to whichever issue first renders them"*. These assert
+ * the transfer arrived with the constraints attached, not just the enqueue:
+ *
+ *  - a page that changed nothing purges nothing, so a re-sync of six catalogues does
+ *    not repaint the whole catalog every night;
+ *  - the tags are `product:*` and nothing else. `pair:*` would purge a page §13.7
+ *    forbids building, and `sitemap` would repaint `sitemap.xml` once per page of a
+ *    30-page run for URLs that do not exist;
+ *  - a pair row moving purges BOTH its endpoints, which is the case a mapping-only
+ *    collector misses — AECI-890 wrote 669 pair rows and not one mapping.
+ */
+describe('dispatchConnectorHooks — the reach-line purge', () => {
+  function queueEnv() {
+    const sent: { tags: string[]; source: string }[] = [];
+    const env = {
+      ENV: 'preview',
+      CACHE_PURGE_QUEUE: {
+        sendBatch: async (msgs: { body: { tags: string[]; source: string } }[]) => {
+          for (const m of msgs) sent.push(m.body);
+        },
+      },
+    } as unknown as Env;
+    return { env, sent };
+  }
+
+  async function flush(
+    env: Env,
+    purgeProductIds: string[],
+    over: { dbFor?: DbFactory; bookmark?: string | null } = {},
+  ) {
+    const tasks: Promise<unknown>[] = [];
+    const rc: PromoteRunCtx = {
+      env,
+      request: new Request('https://api.test/api/promote/connector-catalog'),
+      waitUntil: (p: Promise<unknown>) => tasks.push(p),
+      bookmark: () => over.bookmark ?? null,
+    };
+    dispatchConnectorHooks(
+      rc,
+      {
+        response: {
+          kind: 'connector',
+          catalogId: CATALOG_ID,
+          page: { index: 0, of: 1 },
+          counts: {
+            catalogs: zeroCounts(),
+            surfaces: zeroCounts(),
+            stubs: zeroCounts(),
+            mappings: zeroCounts(),
+            pairs: zeroCounts(),
+            claims: zeroCounts(),
+          },
+          skipped: [],
+        },
+        wrote: purgeProductIds.length > 0,
+        bookmark: null,
+        auditEntries: [],
+        purgeProductIds,
+      },
+      // The in-memory D1 harness, injected the same way the commit step takes it.
+      { dbFor: over.dbFor ?? t.factory },
+    );
+    await Promise.all(tasks);
+  }
+
+  const zeroCounts = () => ({ created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 });
+
+  it('enqueues product tags for the moved endpoints', async () => {
+    await seedConnector();
+    await t.db.insert(products).values([
+      { id: '22222222-2222-4222-8222-222222222222', slug: 'procore', name: 'Procore' },
+      { id: '33333333-3333-4333-8333-333333333333', slug: 'sage-intacct', name: 'Sage Intacct' },
+    ]);
+    const { env, sent } = queueEnv();
+    await flush(env, [
+      CONNECTOR_ID,
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+    ]);
+    expect(sent).toHaveLength(1);
+    expect([...sent[0]!.tags].sort()).toEqual([
+      'product:mindcloud',
+      'product:procore',
+      'product:sage-intacct',
+    ]);
+  });
+
+  it('resumes the write session for the slug read, rather than reading unconstrained', async () => {
+    // The one anchor this read must not take is the default. With no `opts` it
+    // resolves to `first-unconstrained`, and once D1 read replication is enabled a
+    // product a recent promote created is simply absent from the SELECT — its
+    // `product:{slug}` tag is dropped and nothing is logged on either side. The
+    // product arm's post-commit reads anchor on `rc.bookmark()` for exactly this
+    // reason (AECI-250); this asserts the connector arm does too.
+    await seedConnector();
+    const rec = recordingFactory(t.db);
+    const { env, sent } = queueEnv();
+    await flush(env, [CONNECTOR_ID], { dbFor: rec.factory, bookmark: 'bm-after-commit' });
+    expect(rec.calls).toEqual([{ bookmark: 'bm-after-commit' }]);
+    expect(sent[0]!.tags).toEqual(['product:mindcloud']);
+  });
+
+  it('enqueues NOTHING for a page that changed nothing', async () => {
+    const { env, sent } = queueEnv();
+    await flush(env, []);
+    expect(sent).toEqual([]);
+  });
+
+  it('never emits `pair:*` or `sitemap`', async () => {
+    await seedConnector();
+    const { env, sent } = queueEnv();
+    await flush(env, [CONNECTOR_ID]);
+    const tags = sent.flatMap((m) => m.tags);
+    expect(tags.some((tag) => tag.startsWith('pair:'))).toBe(false);
+    expect(tags).not.toContain('sitemap');
+    expect(tags.every((tag) => tag.startsWith('product:'))).toBe(true);
   });
 });
