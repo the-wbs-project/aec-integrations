@@ -66,6 +66,9 @@
 #                                 non-blocking step (continue-on-error) per
 #                                 docs/TESTING_STRATEGY.md §3.3 — coverage is
 #                                 generated and uploaded, never a merge gate.
+#                                 AECI-917 made that step PUSH-ONLY: it cost ~2
+#                                 min of the required `unit-tests` check on every
+#                                 PR for a report nobody read per PR.
 #
 # THE RULE (do not deploy if required secrets are missing): deploy-staging runs
 # `scripts/require-secrets.sh` before any deploy and `scripts/verify-worker-secrets.sh`
@@ -250,11 +253,21 @@ jobs:
       # merge on it. `continue-on-error` keeps a sub-threshold result (the
       # vitest `thresholds` blocks exit non-zero on a miss) from failing the
       # job. The thresholds stay in the configs as the documented target.
+      #
+      # AECI-917: PUSH-ONLY. On a PR this step cost ~2 min of the REQUIRED
+      # `unit-tests` check to produce a report nobody acted on per PR — and it
+      # never covered the 171 `ng test` component specs anyway, because
+      # `apps/web`'s `test:coverage` is the plain vitest suite. It still runs on
+      # every push to a long-lived branch (`main`, `admin-panel`), so
+      # `migrate-preview` and `deploy-staging` on main still wait behind it.
       - name: Coverage (advisory, non-blocking)
+        if: github.event_name == 'push'
         continue-on-error: true
         run: pnpm -r --if-present run test:coverage
       - name: Upload coverage report
-        if: always()
+        # `always()` so a failed coverage run still uploads what it produced; the
+        # event guard (AECI-917) keeps PRs from uploading a never-generated report.
+        if: ${{ always() && github.event_name == 'push' }}
         uses: actions/upload-artifact@v6
         with:
           name: coverage
@@ -268,7 +281,13 @@ jobs:
   build-web:
     name: Build SSR Worker
     runs-on: ubuntu-latest
-    needs: [lint-and-types, unit-tests]
+    # AECI-917: this job reads NO test output, so it does not need `unit-tests`.
+    # Waiting on it idled the build ~5 min per PR to save ~65 s of runner time on
+    # the rare red PR. `Unit tests` is still a REQUIRED status check on `main`, so
+    # a red suite still blocks the merge — the gate moved, it did not go away.
+    # `deploy-staging` now carries its OWN explicit `needs:` on the test jobs (see
+    # that job below), because it used to inherit lint + unit through this one.
+    needs: [lint-and-types]
     steps:
       - uses: actions/checkout@v5
       - name: Install pnpm
@@ -553,7 +572,10 @@ jobs:
     # gate keeps merges to main green during the bootstrap window.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
-    needs: [build-web, e2e-and-integration]
+    # `lint-and-types` / `unit-tests` are listed EXPLICITLY since AECI-917:
+    # `build-web` no longer needs `unit-tests`, and the staging deploy must never
+    # run on a red suite.
+    needs: [lint-and-types, unit-tests, build-web, e2e-and-integration]
     environment:
       name: staging
       url: https://staging.aecintegrations.com

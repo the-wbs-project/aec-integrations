@@ -200,11 +200,13 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main` and `stage-2`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
-**Job: `unit-tests`** (~3 min)
+**Job: `unit-tests`** (~3.5 min on a PR; ~5.5 min on a push, where the coverage step also runs)
 1. Checkout, install
-2. `pnpm run test:unit` (Vitest)
+2. `pnpm run test:unit` (Vitest + `apps/web`'s `ng test` component specs)
 3. `pnpm -r run test:coverage` as an **advisory, non-blocking** step
-   (`continue-on-error`); uploads the lcov/HTML `coverage` artifact
+   (`continue-on-error`), **push-only since AECI-917**; on a push it uploads the
+   lcov/HTML `coverage` artifact. It does not run on PRs, where it cost ~2 min of
+   a required check for a report nobody read per PR (`TESTING_STRATEGY.md` §3.3).
 4. Coverage is **reported, not gated** — a drop does not fail the job
    (`TESTING_STRATEGY.md` §3.3). There is no Codecov integration today.
 
@@ -287,7 +289,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 > `stage-2` / `admin-panel` runs the test jobs and stops.
 
 **Job: `deploy-staging`** — the actual step order in `deploy.yml`, verified 2026-08-14:
-1. All PR checks repeat (lint, types, tests, build) — via `needs:`
+1. All PR checks repeat (lint, types, tests, build) — via `needs:` (explicit `needs: [lint-and-types, unit-tests, build-web, e2e-and-integration]` since AECI-917; previously lint/unit were inherited through `build-web`)
 2. `scripts/require-secrets.sh` preflight — refuse to deploy a half-provisioned staging
 3. Provision the staging queues — the scheduled-job set (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, `aeci-stats-staging`, `aeci-reconcile-staging`, `aeci-data-quality-staging`, and the AECI-302 `aeci-attestation-notify-staging`) plus the WC-5 `aeci-cache-purge-staging` purge queue; idempotent
 4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
@@ -627,7 +629,7 @@ Every PR must pass these gates before merge:
 - ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **partially enforced** (AECI-188): Accessibility / Best-Practices / SEO / TBT / the `/search` TTFB are error-level on the post-merge run; Performance / LCP / CLS / the JS budgets remain advisory pending the perf follow-up (see the note below)
 - ✓ At least one human reviewer approval
 
-Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` lane reports red/green without gating the staging deploy until it's promoted to a required check (`TESTING_STRATEGY.md` §6.5).
+Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3; **push-only since AECI-917**, so it is not part of the PR lane at all), and the `integration-db-tests` lane reports red/green without gating the staging deploy until it's promoted to a required check (`TESTING_STRATEGY.md` §6.5).
 
 **axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`'s `db:setup:local` → `db:seed:fixtures:local`):
 
@@ -952,13 +954,29 @@ Aggressive caching to minimize CI time:
 Independent jobs run in parallel. The real `deploy.yml` dependency graph is:
 
 ```
-lint-and-types ─┐
-                ├─→ build-web ─┐
-unit-tests ─────┘              │
-                               ├─→ e2e-and-integration ─→ deploy-staging
-changes  ──────────────────────┘        (push + refs/heads/main + STAGING_ENABLED)
- (advisory)
+lint-and-types ──→ build-web ──┐
+                               ├─→ e2e-and-integration ──┐
+changes  ──────────────────────┘                         │
+ (advisory)                                              ├─→ deploy-staging
+unit-tests ──────────────────────────────────────────────┤   (push + refs/heads/main
+lint-and-types ──────────────────────────────────────────┘    + STAGING_ENABLED)
 ```
+
+> **AECI-917 (2026-09-14):** `build-web` no longer `needs:` `unit-tests`. The build reads no test
+> output, so waiting on a 6-minute test job idled it for ~5 minutes on every PR. `deploy-staging`
+> now lists `lint-and-types` and `unit-tests` explicitly, because it used to inherit both through
+> `build-web`. The advisory coverage step in `unit-tests` became push-only in the same change.
+> Measured on run `34801858617` (a `pull_request` run, 2026-09-14):
+>
+> | | Required checks green | Full run |
+> |---|---|---|
+> | Before | 7:14 | 14:00 |
+> | After (projected) | ~4:08 | ~8:58 |
+>
+> The saving is ~5 min rather than ~6 because `build-web` still waits on `lint-and-types`
+> (1:02). Accepted trade-off: `e2e-and-integration` now runs on PRs whose unit tests are red,
+> costing ~7 min of runner time per red PR. Branch protection still requires `Unit tests`, so a
+> red suite still blocks the merge. Projections to be confirmed on the first PR run.
 
 `changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
 **fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
