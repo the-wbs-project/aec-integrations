@@ -1900,8 +1900,9 @@ removes nothing writes no row.
 
 **There are two appenders since AECI-944, not one.** `bufferVendorRecrawl`
 (`apps/api/src/routes/vendor-shared.ts`) appends on every vendor-portal write that changes a
-public page, with `source = 'vendor'`. Five endpoints reach it: the profile PATCH, the product
-PATCH, the claim POST, and the attestation PUT and DELETE. Nothing else about this table
+public page, with `source = 'vendor'`. Eight endpoints reach it: the profile PATCH, the product
+PATCH, the three product-version writes, the claim POST, and the attestation PUT and DELETE.
+Nothing else about this table
 changed, because the `url` unique index already dedupes across writers as well as within one.
 A page a vendor edits between two drain ticks is still submitted once.
 

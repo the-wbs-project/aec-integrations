@@ -823,7 +823,7 @@ Four properties to hold on to before changing anything:
 | **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
 | **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |
 | **`POST /api/promote`, `/api/promote/connector-catalog`** | none | First-party trusted caller, and the connector arm is **paged** — a limiter throttles our own ingest. `REVIEW_APP_PROMOTE_API.md` §6 publishes this to the review app's repo |
-| **the nine `requireAdmin()` writes** | none | Hand-granted role with no anonymous path to it, and every write emits an `audit_log` row in the same batch. A limiter would risk 429-ing a moderation burst, which is the legitimate workload |
+| **the ten `requireAdmin()` writes** | none | Hand-granted role with no anonymous path to it, and every write emits an `audit_log` row in the same batch. A limiter would risk 429-ing a moderation burst, which is the legitimate workload |
 | **`POST /admin/purge`** (SSR Worker) | none | It would be the SSR Worker's first non-transport binding across four env blocks, and buys little: an unauthenticated flood costs one constant-time compare and a 401, and an attacker who *has* the token purges everything in one request. If a control is wanted, use a WAF **custom** rule — separate, larger quota, consumes neither rate-limit slot |
 
 ### 6.3 Two invariants

@@ -22,7 +22,7 @@
  * separate table rather than a column on `indexnow_queue`.
  */
 
-import { asc, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { gscRecrawlQueue } from '../db/schema';
@@ -54,17 +54,15 @@ import {
 export const GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT = 20;
 
 /**
- * Ceiling on one worklist read.
+ * One worklist row, as the admin screen reads it.
  *
- * Sized for a screen a human works down, not for a machine drain. Two hundred
- * rows is far more than a day's Request Indexing quota, so the operator can never
- * exhaust a page; anything below the cut is by definition tier-4 work that was
- * not going to be reached today anyway. It also keeps the response inside D1's
- * ~1 MB cap with three orders of magnitude to spare.
+ * The paged LIST read is deliberately NOT in this module. `GET /api/admin/reindex`
+ * (`routes/admin-reindex.ts`) builds its own `select()`, because it needs the page,
+ * the `?priority=` filter and the matching `COUNT(*)` in **one** `db.batch`, and a
+ * helper returning rows alone cannot carry the total. Page size is the caller's
+ * (`PageQuerySchema`, default 24, hard max 100). A second read helper here would be
+ * a second `ORDER BY` to keep in step with that handler's.
  */
-export const GSC_RECRAWL_PAGE_SIZE = 200;
-
-/** One worklist row, as the admin screen reads it. */
 export interface PendingGscRecrawl {
   id: number;
   url: string;
@@ -174,39 +172,6 @@ export async function enqueueGscRecrawl(
     touched += (await stmt).length;
   }
   return touched;
-}
-
-/**
- * The worklist, most important first.
- *
- * `ORDER BY priority ASC, queued_at ASC, id ASC` — exactly the composite index on
- * the table, plus the AECI-825 unique trailing term. `id` is not decoration: two
- * rows written by the same promote share a `queued_at` to the millisecond, and a
- * paginated list whose ordering is not total can drop or duplicate a row across
- * pages.
- */
-export async function readPendingGscRecrawl(
-  db: Db,
-  limit: number = GSC_RECRAWL_PAGE_SIZE,
-): Promise<PendingGscRecrawl[]> {
-  return db
-    .select({
-      id: gscRecrawlQueue.id,
-      url: gscRecrawlQueue.url,
-      priority: gscRecrawlQueue.priority,
-      reason: gscRecrawlQueue.reason,
-      source: gscRecrawlQueue.source,
-      queuedAt: gscRecrawlQueue.queuedAt,
-    })
-    .from(gscRecrawlQueue)
-    .orderBy(asc(gscRecrawlQueue.priority), asc(gscRecrawlQueue.queuedAt), asc(gscRecrawlQueue.id))
-    .limit(limit);
-}
-
-/** How many rows are waiting. Feeds the admin nav count (§5.0c). */
-export async function countPendingGscRecrawl(db: Db): Promise<number> {
-  const [row] = await db.select({ count: sql<number>`count(*)` }).from(gscRecrawlQueue);
-  return Number(row?.count ?? 0);
 }
 
 /**

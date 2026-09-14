@@ -35,6 +35,15 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  * either there or they are not.
  */
 
+/**
+ * The lowest (least important) tier a row can carry, and the ceiling both schemas
+ * validate against. Mirrors `GSC_RECRAWL_MAX_PRIORITY` in
+ * `apps/api/src/lib/gsc-recrawl-priority.ts`, which is where a re-tune happens —
+ * this package cannot import from the API Worker, so the two are kept in step by
+ * hand and a widened tier map has to widen this too.
+ */
+export const REINDEX_QUEUE_MAX_PRIORITY = 4;
+
 /** Worklist filter. Ordering is fixed — priority, then oldest first — so there
  *  is no `sort` parameter: a worklist whose order the operator can change is a
  *  worklist whose top row is no longer the right next action. */
@@ -42,7 +51,7 @@ export const ListReindexQueueQuerySchema = PageQuerySchema.extend({
   /** Show only this tier. The operator's use for it is "clear the tier-1 backlog
    *  first on a day when the quota is tight", which the default ordering already
    *  serves — so this is a convenience, not the mechanism. */
-  priority: z.coerce.number().int().min(1).max(4).optional(),
+  priority: z.coerce.number().int().min(1).max(REINDEX_QUEUE_MAX_PRIORITY).optional(),
 });
 export type ListReindexQueueQuery = z.infer<typeof ListReindexQueueQuerySchema>;
 
@@ -62,7 +71,7 @@ export type ListReindexQueueQuery = z.infer<typeof ListReindexQueueQuerySchema>;
 export const ReindexQueueRowSchema = z.object({
   id: z.number().int().positive(),
   url: z.string().url(),
-  priority: z.number().int().min(1).max(4),
+  priority: z.number().int().min(1).max(REINDEX_QUEUE_MAX_PRIORITY),
   reason: z.string().min(1),
   source: z.string().min(1),
   queued_at: z.string().datetime(),
@@ -81,4 +90,3 @@ export type ListReindexQueueResponse = z.infer<typeof ListReindexQueueResponseSc
  * property that makes the nav badge trustworthy at a glance. A later edit to the
  * same page inserts a fresh row, so nothing is lost.
  */
-export const REINDEX_QUEUE_MAX_PRIORITY = 4;

@@ -31,6 +31,7 @@
  */
 
 import {
+  facetUrl,
   pairUrl,
   productUrl,
   productsIndexUrl,
@@ -77,11 +78,7 @@ export const MATERIAL_VENDOR_FIELDS: ReadonlySet<string> = new Set([
 
 /** The facet buckets a product edit can move, minus trades — which are
  *  publication-gated and handled separately. */
-const UNGATED_FACETS = [
-  ['categories', 'categories'],
-  ['audiences', 'audiences'],
-  ['phases', 'phases'],
-] as const;
+const UNGATED_FACETS = ['categories', 'audiences', 'phases'] as const;
 
 /** A product's facet membership, before or after an edit. Structurally the
  *  `TaxonomySlugs` shape from `vendor.ts`, restated here so this module does not
@@ -120,10 +117,10 @@ export function productEditRecrawl(
   // page it left never carried this product's tag either. Mirrors
   // `productEditTags`; keep the two in lockstep.
   let taxonomyChanged = false;
-  for (const [bucket, segment] of UNGATED_FACETS) {
-    const union = new Set<string>([...before[bucket], ...after[bucket]]);
-    if (!sameSet(before[bucket], after[bucket])) taxonomyChanged = true;
-    for (const termSlug of union) indexNow.add(`${base}/${segment}/${termSlug}`);
+  for (const facet of UNGATED_FACETS) {
+    const union = new Set<string>([...before[facet], ...after[facet]]);
+    if (!sameSet(before[facet], after[facet])) taxonomyChanged = true;
+    for (const termSlug of union) indexNow.add(facetUrl(base, facet, termSlug));
   }
   if (!sameSet(before.trades, after.trades)) taxonomyChanged = true;
 
@@ -170,6 +167,41 @@ export function vendorProfileRecrawl(
   return {
     indexNow: [url],
     gsc: [{ url, reason: material ? 'vendor.updated' : 'vendor.minor' }],
+  };
+}
+
+/**
+ * Re-crawl payload for the three product-version writes —
+ * `POST` / `PATCH` / `DELETE /api/vendor/products/:id/versions`.
+ *
+ * **Pair pages only, and the product's own page is deliberately absent.** A
+ * `product_versions` row renders on the integration-pair page and nowhere else:
+ * `routes/integrations.ts` loads the table for both endpoints of a pair, and no
+ * product-detail read touches it. Announcing `/products/{slug}` would ask a
+ * crawler to re-fetch a page this write did not change. `versionEditTags` still
+ * purges `product:{slug}` because that is the tag the pair pages carry, which is
+ * the cache layer reaching the same pages by a different route.
+ *
+ * `counterpartSlugs` comes from `readPairCounterpartSlugs`
+ * (`lib/product-pair-slugs.ts`), run post-commit. It is a superset — see there.
+ *
+ * **Always tier 4 on the Google side**, for the same reason
+ * {@link attestationEditRecrawl} is: a pair page cannot exist here without an
+ * integration that already existed, so there is no `pair.created` path, and what
+ * changed is a version selector rather than the page's own copy.
+ */
+export function productVersionRecrawl(
+  base: string,
+  productSlug: string,
+  counterpartSlugs: readonly string[],
+): VendorRecrawl {
+  // Deduped on the built URL rather than on the slug: `pairUrl` sorts its two
+  // slugs, so two different counterparts can never collide, but a caller that
+  // repeats one would otherwise emit the same page twice.
+  const urls = [...new Set(counterpartSlugs.map((other) => pairUrl(base, productSlug, other)))];
+  return {
+    indexNow: urls,
+    gsc: urls.map((url): GscRecrawlEntry => ({ url, reason: 'pair.updated' })),
   };
 }
 

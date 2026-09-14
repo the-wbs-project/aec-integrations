@@ -1140,7 +1140,7 @@ web client reads it to decide whether to surface admin affordances.
 The four counts (AECI-617, widened from one to three by **AECI-922** and to four by
 **AECI-946**) are the Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
 through the same server-side implementation — and are non-null **only** for `role
-=== 'admin'`; a non-admin gets `null` on all three and neither table is counted.
+=== 'admin'`; a non-admin gets `null` on all four and no table is counted.
 They ride along here so the header's account menu resolves "am I an admin, and how
 much is waiting?" in ONE round trip. The former `/api/account` →
 `/api/admin/summary` chain paid two JWKS verifies and two `profiles` reads, and

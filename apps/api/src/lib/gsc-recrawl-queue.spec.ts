@@ -19,7 +19,7 @@
  *      column at the worst moment.
  */
 
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { gscRecrawlQueue } from '../db/schema';
@@ -34,11 +34,9 @@ import {
   type GscRecrawlReason,
 } from './gsc-recrawl-priority';
 import {
-  countPendingGscRecrawl,
   enqueueGscRecrawl,
   GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT,
   gscRecrawlInsertStatements,
-  readPendingGscRecrawl,
 } from './gsc-recrawl-queue';
 
 const BASE = 'https://www.aecintegrations.com';
@@ -55,6 +53,16 @@ const rowFor = (url: string) =>
     .from(gscRecrawlQueue)
     .where(eq(gscRecrawlQueue.url, url))
     .then((rows) => rows[0]);
+
+/** Queue depth, read directly. The module exports no count helper on purpose —
+ *  the one that ships is `readAdminQueueCounts`, which batches this `COUNT(*)`
+ *  with the other three badges and is covered by `routes/admin-reindex.spec.ts`.
+ *  A second exported helper would be a second definition of "pending". */
+const queueDepth = () =>
+  t.db
+    .select({ value: count() })
+    .from(gscRecrawlQueue)
+    .then((rows) => rows[0]?.value ?? 0);
 
 // ─── The tier map ────────────────────────────────────────────────────────────
 
@@ -159,12 +167,12 @@ describe('enqueueGscRecrawl — the conflict rule', () => {
     for (const reason of ['product.minor', 'product.updated', 'product.minor'] as const) {
       await enqueueGscRecrawl(t.db, [{ url, reason }], 'vendor');
     }
-    expect(await countPendingGscRecrawl(t.db)).toBe(1);
+    expect(await queueDepth()).toBe(1);
   });
 
   it('writes nothing at all for an empty entry list', async () => {
     expect(await enqueueGscRecrawl(t.db, [], 'promote')).toBe(0);
-    expect(await countPendingGscRecrawl(t.db)).toBe(0);
+    expect(await queueDepth()).toBe(0);
   });
 });
 
@@ -198,28 +206,14 @@ describe('gscRecrawlInsertStatements — the 100-bound-parameter cap', () => {
       reason: 'product.created' as const,
     }));
     await enqueueGscRecrawl(t.db, entries, 'promote');
-    expect(await countPendingGscRecrawl(t.db)).toBe(47);
+    expect(await queueDepth()).toBe(47);
   });
 });
 
-// ─── The worklist read ───────────────────────────────────────────────────────
-
-describe('readPendingGscRecrawl', () => {
-  it('returns priority first, then oldest first', async () => {
-    await enqueueGscRecrawl(
-      t.db,
-      [{ url: `${BASE}/products/late`, reason: 'pair.updated' }],
-      'promote',
-      () => new Date('2026-09-01T00:00:00.000Z'),
-    );
-    await enqueueGscRecrawl(
-      t.db,
-      [{ url: `${BASE}/products/first`, reason: 'product.created' }],
-      'promote',
-      () => new Date('2026-09-05T00:00:00.000Z'),
-    );
-
-    const rows = await readPendingGscRecrawl(t.db);
-    expect(rows.map((r) => r.url)).toEqual([`${BASE}/products/first`, `${BASE}/products/late`]);
-  });
-});
+// ─── The worklist read lives with its handler ────────────────────────────────
+//
+// `ORDER BY priority ASC, queued_at ASC, id ASC` is asserted in
+// `routes/admin-reindex.spec.ts`, against the query that actually serves
+// `GET /api/admin/reindex`. There is deliberately no second read helper here to
+// test — one that a handler does not call could pass forever while the shipped
+// ordering drifted.

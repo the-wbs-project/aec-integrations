@@ -99,20 +99,6 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
 }
 
 /**
- * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
- *
- * Two lists rather than one, because the two channels have opposite economics.
- * `indexNow` is free, batched and unranked, so it takes everything the edit
- * touched including hub pages. `gsc` is quota-capped and worked by a human, so
- * it takes entity detail pages only, each carrying the reason that ranks it. See
- * `lib/gsc-recrawl-priority.ts` for why the Google list is ordered rather than
- * filtered.
- *
- * Optional on {@link afterVendorWrite}: nine of its call sites are seat-invite
- * and membership writes that change no public page at all, and they pass
- * nothing.
- */
-/**
  * Whether this environment should buffer re-crawl URLs at all.
  *
  * **Gated on `INDEXNOW_KEY` AND `PUBLIC_SITE_URL`, including for the Google
@@ -133,6 +119,22 @@ export function recrawlEnabled(env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'
   return Boolean(env.INDEXNOW_KEY) && publicSiteBase(env) !== null;
 }
 
+/**
+ * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
+ *
+ * Two lists rather than one, because the two channels have opposite economics.
+ * `indexNow` is free, batched and unranked, so it takes everything the edit
+ * touched including hub pages. `gsc` is quota-capped and worked by a human, so
+ * it takes entity detail pages only, each carrying the reason that ranks it. See
+ * `lib/gsc-recrawl-priority.ts` for why the Google list is ordered rather than
+ * filtered.
+ *
+ * Optional on {@link afterVendorWrite}: its remaining five call sites are
+ * seat-invite and membership writes that change no public page at all, and they
+ * pass nothing. The test for a new writer is the tag list, not the handler's
+ * name — anything that purges a `product:` / `vendor:` / `pair:` tag is changing
+ * a page a crawler can see and must name that page here too.
+ */
 export interface VendorRecrawl {
   indexNow: readonly string[];
   gsc: readonly GscRecrawlEntry[];

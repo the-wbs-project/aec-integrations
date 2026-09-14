@@ -22,8 +22,10 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  connectorEvidencedPairs,
   gscRecrawlQueue,
   indexnowQueue,
+  integrations,
   productVendors,
   products,
   profiles,
@@ -37,6 +39,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { submitCount } from '../posthog';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
+import { createProductVersionHandler } from './vendor-product-versions';
 import { createUpdateVendorProductHandler, createUpdateVendorProfileHandler } from './vendor';
 
 vi.mock('../posthog', () => ({
@@ -51,6 +54,12 @@ const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}
 const VENDOR = u(10);
 const PRODUCT = u(20);
 const SEAT = u(30);
+/** Two counterparts, one per delivered-tier table — `integrations` and
+ *  `connector_evidenced_pairs`. Reading only the first is the AECI-721 omission
+ *  that dropped 19 real production pairs out of the sitemap. */
+const PAIRED = u(21);
+const EVIDENCED = u(22);
+const CONNECTOR = u(23);
 const BASE = 'https://www.aecintegrations.com';
 
 const AUTH: AuthzVariables['auth'] = {
@@ -75,8 +84,15 @@ let t: TestDb;
 beforeEach(async () => {
   vi.mocked(submitCount).mockClear();
   t = await makeTestDb();
-  await t.db.insert(vendors).values({ id: VENDOR, slug: 'procore-inc', companyName: 'Procore' });
-  await t.db.insert(products).values({ id: PRODUCT, slug: 'procore', name: 'Procore' });
+  await t.db
+    .insert(vendors)
+    .values({ id: VENDOR, slug: 'procore-inc', companyName: 'Procore', verified: true });
+  await t.db.insert(products).values([
+    { id: PRODUCT, slug: 'procore', name: 'Procore' },
+    { id: PAIRED, slug: 'autodesk-build', name: 'Autodesk Build' },
+    { id: EVIDENCED, slug: 'sage-300', name: 'Sage 300' },
+    { id: CONNECTOR, slug: 'agave', name: 'Agave' },
+  ]);
   await t.db
     .insert(productVendors)
     .values({ productId: PRODUCT, vendorId: VENDOR, isPrimary: true });
@@ -100,6 +116,7 @@ function app() {
   });
   a.patch('/api/vendor/profile', createUpdateVendorProfileHandler(t.factory));
   a.patch('/api/vendor/products/:id', createUpdateVendorProductHandler(t.factory));
+  a.post('/api/vendor/products/:id/versions', createProductVersionHandler(t.factory));
   return a;
 }
 
@@ -192,6 +209,82 @@ describe('PATCH /api/vendor/products/:id — re-crawl buffering', () => {
     await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
     expect((await indexNowRows()).map((r) => r.url)).toContain(`${BASE}/products`);
     expect((await gscRows()).map((r) => r.url)).not.toContain(`${BASE}/products`);
+  });
+});
+
+describe('POST /api/vendor/products/:id/versions — re-crawl buffering', () => {
+  /** Two pair pages for Procore, one per delivered-tier table. */
+  beforeEach(async () => {
+    await t.db.insert(integrations).values({
+      id: u(50),
+      sourceProductId: PRODUCT,
+      targetProductId: PAIRED,
+      name: 'Procore ↔ Autodesk Build',
+    });
+    // Canonical ordering is a CHECK on this table: PRODUCT (…20) < EVIDENCED (…22).
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(51),
+      connectorProductId: CONNECTOR,
+      productAId: PRODUCT,
+      productBId: EVIDENCED,
+      name: 'Procore ↔ Sage 300 via Agave',
+    });
+  });
+
+  async function postVersion(env: Env = PUBLIC_ENV) {
+    const execCtx = fakeExecutionContext();
+    const res = await app().request(
+      `/api/vendor/products/${PRODUCT}/versions`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ label: '2026.1' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      {
+        ...env,
+        CACHE_PURGE_QUEUE: {
+          send: vi.fn().mockResolvedValue(undefined),
+        } as unknown as Env['CACHE_PURGE_QUEUE'],
+      },
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    return res;
+  }
+
+  it('announces every pair page the product appears on, from BOTH tables', async () => {
+    // The half that can silently not happen: a version write purges
+    // `product:{slug}`, which repaints every pair page through the embedded tag —
+    // but a crawler has no tag graph, so the pages have to be named.
+    const res = await postVersion();
+    expect(res.status).toBe(201);
+
+    const urls = (await gscRows()).map((r) => r.url).sort();
+    expect(urls).toEqual([
+      `${BASE}/products/autodesk-build/integrations/procore`,
+      `${BASE}/products/procore/integrations/sage-300`,
+    ]);
+    expect((await indexNowRows()).map((r) => r.url).sort()).toEqual(urls);
+  });
+
+  it('tiers them at 4 and tags the rows as a vendor write', async () => {
+    await postVersion();
+    const gsc = await gscRows();
+    expect(gsc.every((r) => r.reason === 'pair.updated' && r.priority === 4)).toBe(true);
+    expect(gsc.every((r) => r.source === 'vendor')).toBe(true);
+  });
+
+  it('never announces the product page, because versions do not render on it', async () => {
+    await postVersion();
+    const urls = (await gscRows()).map((r) => r.url);
+    expect(urls).not.toContain(`${BASE}/products/procore`);
+  });
+
+  it('buffers nothing on a gated environment', async () => {
+    const res = await postVersion({ ...TEST_ENV, PUBLIC_SITE_URL: BASE } as Env);
+    expect(res.status).toBe(201);
+    expect(await gscRows()).toHaveLength(0);
+    expect(await indexNowRows()).toHaveLength(0);
   });
 });
 

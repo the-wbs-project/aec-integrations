@@ -32,6 +32,7 @@ import {
   MATERIAL_PRODUCT_FIELDS,
   MATERIAL_VENDOR_FIELDS,
   productEditRecrawl,
+  productVersionRecrawl,
   vendorProfileRecrawl,
   type RecrawlTaxonomySlugs,
 } from './vendor-recrawl';
@@ -265,6 +266,47 @@ describe('attestationEditRecrawl', () => {
     expect(out.gsc[0]!.reason).toBe('pair.updated');
     expect(gscRecrawlPriority(out.gsc[0]!.reason)).toBe(4);
     expect(out.gsc.slice(1).map((e) => e.reason)).toEqual(['product.minor', 'product.minor']);
+  });
+});
+
+// ─── Product-version edit ────────────────────────────────────────────────────
+
+describe('productVersionRecrawl', () => {
+  it('announces one pair page per counterpart, in canonical slug order', () => {
+    const out = productVersionRecrawl(BASE, 'procore', ['autodesk-build', 'sage-300']);
+    expect(out.indexNow).toEqual([
+      `${BASE}/products/autodesk-build/integrations/procore`,
+      `${BASE}/products/procore/integrations/sage-300`,
+    ]);
+  });
+
+  it('never announces the product page, because versions do not render on it', () => {
+    // `product_versions` is read by the PAIR route only (`routes/integrations.ts`).
+    // Announcing `/products/procore` would ask a crawler to re-fetch a page this
+    // write did not change — and on the Google side spend a quota slot to do it.
+    const out = productVersionRecrawl(BASE, 'procore', ['autodesk-build']);
+    expect(out.indexNow).not.toContain(`${BASE}/products/procore`);
+    expect(out.gsc.map((e) => e.url)).not.toContain(`${BASE}/products/procore`);
+  });
+
+  it('tiers every pair page at 4', () => {
+    const out = productVersionRecrawl(BASE, 'procore', ['autodesk-build', 'sage-300']);
+    expect(out.gsc.map((e) => e.reason)).toEqual(['pair.updated', 'pair.updated']);
+    for (const entry of out.gsc) expect(gscRecrawlPriority(entry.reason)).toBe(4);
+  });
+
+  it('collapses a repeated counterpart to one page', () => {
+    // A pair can hold several `integrations` edges, and the same two products can
+    // appear in both delivered-tier tables. They name one page either way.
+    const out = productVersionRecrawl(BASE, 'procore', ['sage-300', 'sage-300']);
+    expect(out.indexNow).toHaveLength(1);
+    expect(out.gsc).toHaveLength(1);
+  });
+
+  it('emits nothing for a product on no pair page', () => {
+    const out = productVersionRecrawl(BASE, 'procore', []);
+    expect(out.indexNow).toEqual([]);
+    expect(out.gsc).toEqual([]);
   });
 });
 
