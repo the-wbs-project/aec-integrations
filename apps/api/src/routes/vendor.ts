@@ -101,12 +101,16 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, entitlementRequired, requireCapability } from '../lib/authz';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { publicSiteBase } from '../lib/public-urls';
+import { resolvePublishedTradeSlugs } from './promote-trade-publication';
+import { productEditRecrawl, vendorProfileRecrawl } from './vendor-recrawl';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
 import {
-  AUDIT_SOURCE,
   afterVendorWrite,
+  AUDIT_SOURCE,
   parseJsonBody,
+  recrawlEnabled,
   requireOwnedProduct,
   seatsOf,
   sessionVendorId,
@@ -164,11 +168,16 @@ export type FetchSeatEmails = (
  * the nav's trade list is filtered by the publication floor, so it changes
  * without any term being minted.
  *
- * NOT emitted for a vendor edit, deliberately: the IndexNow / Google submission
- * that `POST /api/promote` fires for newly-published trade URLs. A vendor edit
- * repaints the edge but does not ask a crawler to re-fetch; the next promote
- * touching that trade does. Cheap to add later if trade pages prove slow to
- * index.
+ * **The crawler notification is no longer excluded (AECI-944).** This comment
+ * used to say a vendor edit "repaints the edge but does not ask a crawler to
+ * re-fetch; the next promote touching that trade does". That held while the
+ * portal was dark. It stops holding once a vendor can change a public page that
+ * no promote will touch again for weeks, so the re-crawl buffering now happens
+ * for every vendor write — see `vendor-recrawl.ts` for the URL sets and
+ * `afterVendorWrite`'s `recrawl` parameter for where they are handed over. The
+ * URL derivation and this tag derivation read the same before/after pair on
+ * purpose: a page that is purged but not announced, or announced but not purged,
+ * is the drift this keeps out.
  */
 function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
   const tags = new Set<string>([`product:${slug}`, 'index:products']);
@@ -773,7 +782,14 @@ export function createUpdateVendorProfileHandler(
     // `vendor:{slug}` is enough here: a product detail page embeds its vendor and
     // therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2), so every page
     // showing the vendor repaints.
-    afterVendorWrite(c, [`vendor:${after.slug}`], auditEntry);
+    const profileBase = recrawlEnabled(c.env) ? publicSiteBase(c.env) : null;
+    afterVendorWrite(
+      c,
+      [`vendor:${after.slug}`],
+      auditEntry,
+      profileBase ? vendorProfileRecrawl(profileBase, after.slug, Object.keys(payload)) : undefined,
+      db,
+    );
 
     const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(after) };
     validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
@@ -896,7 +912,45 @@ export function createUpdateVendorProductHandler(
     // if the row vanished between the batch and the read.
     const after = { ...before, ...writeColumns } as ProductRow;
 
-    afterVendorWrite(c, productEditTags(after.slug, beforeTaxonomy, afterTaxonomy), auditEntry);
+    // The publication floor is resolved AFTER the commit, exactly as the promote
+    // path does it (`resolvePublishedTradeSlugs`), because the count that decides
+    // whether `/trades/{slug}` is indexable is the post-write count. A vendor
+    // edit crosses the floor in BOTH directions: a term gaining its first product
+    // becomes indexable, and a term losing its last one stops being. Only the
+    // former produces a URL — there is nothing to ask a crawler to look at when
+    // the answer is `noindex`.
+    //
+    // The read is folded into the recrawl derivation rather than awaited inline,
+    // so a slow or failing count never delays the response. A rejection resolves
+    // to "no trade URLs", which is the safe direction.
+    // `recrawlEnabled` is checked BEFORE the read rather than inside the buffer,
+    // so a gated environment pays nothing: `resolvePublishedTradeSlugs` is a
+    // grouped D1 count and running it to feed a buffer that will not be written
+    // is pure waste on every preview and every local request.
+    const touchedTrades = symmetricDifference(beforeTaxonomy.trades, afterTaxonomy.trades);
+    const productBase = recrawlEnabled(c.env) ? publicSiteBase(c.env) : null;
+    const recrawl = productBase
+      ? resolvePublishedTradeSlugs(db, touchedTrades)
+          .catch(() => [] as string[])
+          .then((publishedTradeSlugs) =>
+            productEditRecrawl(
+              productBase,
+              after.slug,
+              Object.keys(payload),
+              beforeTaxonomy,
+              afterTaxonomy,
+              publishedTradeSlugs,
+            ),
+          )
+      : undefined;
+
+    afterVendorWrite(
+      c,
+      productEditTags(after.slug, beforeTaxonomy, afterTaxonomy),
+      auditEntry,
+      recrawl,
+      db,
+    );
 
     const body: UpdateVendorProductResponse = {
       product: toVendorProduct(after, isPrimary, afterTaxonomy),

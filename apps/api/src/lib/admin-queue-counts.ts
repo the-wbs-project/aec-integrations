@@ -1,5 +1,6 @@
 /**
- * The operator console's three queue counters, in one place (AECI-922).
+ * The operator console's four queue counters, in one place (AECI-922, extended
+ * by AECI-946).
  *
  * `GET /api/admin/summary` (the `/admin` SSR resolver's gate and the in-shell
  * badge feed) and `GET|PATCH /api/account` (the header's one-round-trip role
@@ -24,6 +25,12 @@
  * ever added, it needs its own counter and its own screen, or it silently
  * vanishes from the console's only live signal.
  *
+ * `pending_reindex` (AECI-946) is disjoint from all three for the easy reason:
+ * it is a different table entirely. It needs no predicate at all, because a row
+ * in `gsc_recrawl_queue` IS a pending item — the Done button deletes rather than
+ * flagging, precisely so that "is it waiting" never becomes a column whose
+ * predicate this file would have to keep in step with a screen.
+ *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
  * `vendor_requests.status` allows `open | in_review | resolved | rejected`, and
  * `in_review` is real: the inbound Linear webhook moves an actively-worked issue
@@ -43,22 +50,23 @@
 import { and, count, eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { reviews, vendorRequests } from '../db/schema';
+import { gscRecrawlQueue, reviews, vendorRequests } from '../db/schema';
 
-/** The three counters, in the wire shape both endpoints return. */
+/** The four counters, in the wire shape both endpoints return. */
 export interface AdminQueueCounts {
   pending_reviews: number;
   pending_requests: number;
   pending_claims: number;
+  pending_reindex: number;
 }
 
 /**
- * All three counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
- * because three trivial `COUNT(*)`s are not worth three binding calls, and this
+ * All four counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
+ * because four trivial `COUNT(*)`s are not worth four binding calls, and this
  * runs on the header probe of every signed-in admin page load.
  */
 export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
-  const [reviewRows, requestRows, claimRows] = await db.batch([
+  const [reviewRows, requestRows, claimRows, reindexRows] = await db.batch([
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
     db
       .select({ value: count() })
@@ -68,11 +76,14 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .select({ value: count() })
       .from(vendorRequests)
       .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'claim'))),
+    // No `where`: every row here is pending by construction. See the header.
+    db.select({ value: count() }).from(gscRecrawlQueue),
   ]);
 
   return {
     pending_reviews: reviewRows[0]?.value ?? 0,
     pending_requests: requestRows[0]?.value ?? 0,
     pending_claims: claimRows[0]?.value ?? 0,
+    pending_reindex: reindexRows[0]?.value ?? 0,
   };
 }

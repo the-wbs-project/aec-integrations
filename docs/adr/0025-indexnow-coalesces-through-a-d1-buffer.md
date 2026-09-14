@@ -46,7 +46,10 @@ equally consistent with the evidence, and this ADR asserts neither.
 
 1. `POST /api/promote`'s post-commit hook appends the affected public URLs to a new D1 table,
    `indexnow_queue`, on `on conflict do nothing` keyed on the URL. It makes **no** outbound
-   request.
+   request. *(**Second appender since AECI-944**: every vendor-portal write that changes a
+   public page, through `afterVendorWrite`, tagged `source = 'vendor'` on the row. Nothing here
+   changes, because the `url` UNIQUE index dedupes across writers as well as within one call.
+   The Google half of that work is a separate table and a separate decision — see ADR 0031.)*
 2. A new `*/20 * * * *` cron (`indexnow-drain`, the fourteenth) reads the buffer, submits it
    in **one** `callIndexNow` request, and deletes what it sent.
 3. On failure the rows stay. **The next tick is the backoff.**

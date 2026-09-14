@@ -51,12 +51,24 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'phase.created': $localize`:@@admin.audit.action.phaseCreated:Phase term created`,
   'promote.blocked': $localize`:@@admin.audit.action.promoteBlocked:Promote blocked by a guard`,
 
-  // ── Claims and attestations ───────────────────────────────────────────────
+  // ── Claims and vendor positions ───────────────────────────────────────────
+  //
+  // The ACTION KEYS stay `attestation.*` — they are `audit_log.action` values
+  // already written to rows this panel still has to render, and nothing prunes
+  // that table (§26.6). Renaming a key would orphan every historical row behind
+  // the humanized fallback.
+  //
+  // The LABELS say "position", which is the word the vendor portal has always
+  // shown for the same act: `vendor.attest.live.cleared` renders "Position
+  // withdrawn." and `vendor.attest.stance.none` renders "No position yet". These
+  // two labels were the only place in the whole rendered site — public, portal,
+  // console — that said "attestation" at a reader, so they were the only place
+  // the console disagreed with the portal about what a vendor had just done.
   'claim.created': $localize`:@@admin.audit.action.claimCreated:Integration claim recorded`,
   'claim.deleted': $localize`:@@admin.audit.action.claimDeleted:Integration claim removed`,
   'claim.converted': $localize`:@@admin.audit.action.claimConverted:Claim reassigned to the vendor`,
-  'attestation.created': $localize`:@@admin.audit.action.attestationCreated:Attestation added`,
-  'attestation.retracted': $localize`:@@admin.audit.action.attestationRetracted:Attestation retracted`,
+  'attestation.created': $localize`:@@admin.audit.action.attestationCreated:Vendor position added`,
+  'attestation.retracted': $localize`:@@admin.audit.action.attestationRetracted:Vendor position withdrawn`,
 
   // ── Product versions, written from the vendor portal ──────────────────────
   'product_version.created': $localize`:@@admin.audit.action.versionCreated:Product version added`,
@@ -131,6 +143,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // they aged out unsent. `metadata.reason` tells the two apart, and metadata is
   // not on this wire, so the label has to cover both honestly.
   'indexnow.drained': $localize`:@@admin.audit.action.indexnowDrained:Search-engine ping queue drained`,
+  // AECI-946. The operator side of the same problem IndexNow solves for Bing and
+  // Yandex: Google accepts no ping, so a row is cleared by hand from
+  // `/admin/reindex` once the URL has been submitted in Search Console. One row
+  // per URL cleared, so this is the only record that the chore was done.
+  'reindex.cleared': $localize`:@@admin.audit.action.reindexCleared:Re-index request marked done`,
 };
 
 /**

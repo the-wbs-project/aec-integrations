@@ -40,5 +40,9 @@ export const AdminSummaryResponseSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
   pending_requests: z.number().int().nonnegative(),
   pending_claims: z.number().int().nonnegative(),
+  /** Rows awaiting a manual Google Request Indexing (AECI-946). Unlike the
+   *  three above this needs no predicate: a row in `gsc_recrawl_queue` is
+   *  pending by construction, because Done deletes it. */
+  pending_reindex: z.number().int().nonnegative(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;

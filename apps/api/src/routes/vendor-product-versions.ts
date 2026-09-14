@@ -61,14 +61,19 @@ import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { VERSION_ORDER } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { readPairCounterpartSlugs } from '../lib/product-pair-slugs';
+import { publicSiteBase } from '../lib/public-urls';
+import { productVersionRecrawl } from './vendor-recrawl';
 import {
   AUDIT_SOURCE,
   afterVendorWrite,
   assertVerifiedVendor,
   parseJsonBody,
+  recrawlEnabled,
   requireOwnedProduct,
   sessionVendorId,
   type VendorContext,
+  type VendorRecrawl,
 } from './vendor-shared';
 
 type ProductVersionRow = typeof productVersions.$inferSelect;
@@ -98,6 +103,38 @@ function toProductVersion(row: ProductVersionRow): ProductVersion {
  */
 function versionEditTags(productSlug: string): string[] {
   return [`product:${productSlug}`];
+}
+
+/**
+ * The URLs a version write asks the search engines to re-fetch (AECI-944).
+ *
+ * The same pages `versionEditTags` purges, named explicitly rather than reached
+ * through an embedded tag — a crawler has no tag graph. That means a D1 read for
+ * the counterpart slugs, because a pair-page URL is built from two product slugs
+ * and this handler holds one.
+ *
+ * **Resolved after the commit and never awaited inline.** The promise is handed
+ * to `afterVendorWrite`, which settles it inside `waitUntil` alongside the
+ * inserts it feeds, so a slow or failing read never delays the response. A
+ * rejection resolves to "no pair pages", which is the safe direction: the write
+ * is committed, the edge is purged, and the sitemap's `<lastmod>` is still the
+ * passive discovery path (§20.5 step 5).
+ *
+ * Returns `undefined` off a public environment, so a gated tier pays nothing —
+ * `recrawlEnabled` is checked BEFORE the read rather than inside the buffer,
+ * matching the product-edit handler.
+ */
+function versionEditRecrawl(
+  c: VendorContext,
+  db: Db,
+  productId: string,
+  productSlug: string,
+): Promise<VendorRecrawl> | undefined {
+  const base = recrawlEnabled(c.env) ? publicSiteBase(c.env) : null;
+  if (!base) return undefined;
+  return readPairCounterpartSlugs(db, productId)
+    .catch(() => [] as string[])
+    .then((counterpartSlugs) => productVersionRecrawl(base, productSlug, counterpartSlugs));
 }
 
 /** The path's version id. Present by routing, but Hono types it optional. */
@@ -239,7 +276,13 @@ export function createProductVersionHandler(
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
-    afterVendorWrite(c, versionEditTags(product.slug), auditEntry);
+    afterVendorWrite(
+      c,
+      versionEditTags(product.slug),
+      auditEntry,
+      versionEditRecrawl(c, db, productId, product.slug),
+      db,
+    );
 
     const body: ProductVersionResponse = { version: toProductVersion(row) };
     validateResponseInDev(c.env, () => ProductVersionResponseSchema.parse(body));
@@ -308,7 +351,13 @@ export function createUpdateProductVersionHandler(
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
-    afterVendorWrite(c, versionEditTags(product.slug), auditEntry);
+    afterVendorWrite(
+      c,
+      versionEditTags(product.slug),
+      auditEntry,
+      versionEditRecrawl(c, db, productId, product.slug),
+      db,
+    );
 
     const body: ProductVersionResponse = { version: toProductVersion(after) };
     validateResponseInDev(c.env, () => ProductVersionResponseSchema.parse(body));
@@ -352,7 +401,13 @@ export function createDeleteProductVersionHandler(
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
-    afterVendorWrite(c, versionEditTags(product.slug), auditEntry);
+    afterVendorWrite(
+      c,
+      versionEditTags(product.slug),
+      auditEntry,
+      versionEditRecrawl(c, db, productId, product.slug),
+      db,
+    );
 
     return noContent();
   };

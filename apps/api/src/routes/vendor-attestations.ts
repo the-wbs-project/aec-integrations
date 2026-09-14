@@ -146,14 +146,18 @@ import { auditActorType } from '../lib/authz';
 import { loadDataObjectResolver, type DataObjectTerm } from '../lib/data-object-vocabulary';
 import { productLinkColumns, toMechanismKind, toProductLink } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
+import { attestationEditRecrawl } from './vendor-recrawl';
 import {
-  AUDIT_SOURCE,
   afterVendorWrite,
   assertVerifiedVendor,
+  AUDIT_SOURCE,
   parseJsonBody,
+  recrawlEnabled,
   sessionVendorId,
   type VendorContext,
+  type VendorRecrawl,
   type VendorRow,
 } from './vendor-shared';
 
@@ -357,6 +361,27 @@ function toVendorClaim(
  */
 function attestationEditTags(sourceSlug: string, targetSlug: string): string[] {
   return [pairCacheTag(sourceSlug, targetSlug), `product:${sourceSlug}`, `product:${targetSlug}`];
+}
+
+/**
+ * The re-crawl payload for a claim or attestation write (AECI-944).
+ *
+ * The same three pages `attestationEditTags` purges — pair page, both endpoint
+ * products — because a claim or attestation changes the claim lanes on the pair
+ * page and the direction/maintenance markers on each product's integration row.
+ *
+ * Returns `undefined` off a public environment so `afterVendorWrite` skips the
+ * buffering entirely rather than deriving URLs against a base that does not
+ * exist.
+ */
+function recrawlFor(
+  c: VendorContext,
+  endpoints: { sourceSlug: string; targetSlug: string },
+): VendorRecrawl | undefined {
+  if (!recrawlEnabled(c.env)) return undefined;
+  const base = publicSiteBase(c.env);
+  if (!base) return undefined;
+  return attestationEditRecrawl(base, endpoints.sourceSlug, endpoints.targetSlug);
 }
 
 // ─── Shared loads ────────────────────────────────────────────────────────────
@@ -1028,11 +1053,13 @@ export function createVendorClaimHandler(
     ];
     await db.batch(stmts as BatchTuple);
 
-    afterVendorWrite(c, attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug), [
-      claimAudit,
-      ...attestationAudits,
-      maintenance.audit,
-    ]);
+    afterVendorWrite(
+      c,
+      attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
+      [claimAudit, ...attestationAudits, maintenance.audit],
+      recrawlFor(c, endpoints),
+      db,
+    );
 
     const live: RawAttestation[] = attestationRows.map((row) => ({
       id: row.id as string,
@@ -1160,7 +1187,13 @@ export function createUpsertVendorAttestationHandler(
     stmts.push(...audits.map((entry) => auditInsert(db, entry)));
     await db.batch(stmts as BatchTuple);
 
-    afterVendorWrite(c, attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug), audits);
+    afterVendorWrite(
+      c,
+      attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
+      audits,
+      recrawlFor(c, endpoints),
+      db,
+    );
 
     // Composed in memory rather than re-read: the surviving rows are the live ones
     // in slots the caller does NOT own, plus what it just wrote. Re-reading would
@@ -1285,7 +1318,13 @@ export function createRetractVendorAttestationHandler(
     ];
     await db.batch(stmts as BatchTuple);
 
-    afterVendorWrite(c, attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug), audits);
+    afterVendorWrite(
+      c,
+      attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
+      audits,
+      recrawlFor(c, endpoints),
+      db,
+    );
     return noContent();
   };
 }

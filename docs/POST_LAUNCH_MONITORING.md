@@ -156,8 +156,12 @@ annotations and source-map upload go back to warn-skipping.
 
 ## 1. Daily monitoring checklist
 
-A ~5-minute glance across the shipped dashboards + alerts. Nothing here should require action on a
-healthy day — the point is to catch a regression before an alert's sustained-window threshold does.
+A ~5-minute glance across the shipped dashboards + alerts. Nothing in rows 1–10 should require action
+on a healthy day — the point is to catch a regression before an alert's sustained-window threshold
+does. **Row 11 is the exception and it is deliberate.** The Google re-crawl worklist is work, not a
+signal, and a healthy day is precisely when it has rows on it. It sits on the daily list rather than
+the weekly one because Google's Request Indexing quota is per *day*, so a day skipped is quota that
+cannot be recovered later (AECI-946).
 **That framing matters more now than it did:** PostHog alerts evaluate **hourly**, so the daily
 eyeball is the compensating control for a detection window that got four to twelve times longer.
 
@@ -178,6 +182,7 @@ data today, with the PostHog successor in brackets.
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews` +, since AECI-922, `pending_requests` and `pending_claims` — the open-correction and open-claim depths in the same call), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) — ⚠️ **this stops alerting at AECI-651** and becomes a dashboard read. **This row is why it is safe to drop the alert; do not skip it** |
 | 9 | **Field Core Web Vitals** | PostHog **Web vitals** (production project 354071; p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no alert — read manually; see §2)*. The Datadog RUM source was deleted at AECI-651; `$web_vitals` has been live on every tier since the project toggle was flipped 2026-08-26 |
 | 10 | **Deploy markers line up with step changes** | PostHog — the annotation line across every insight (once the `phx_` key exists), or a HogQL query over the `deployment` event, which works **today** on the publishable token | a step change in any of the above coincides with a marker | *(no alert)*. `deploy_kind: auto_rollback` is an **incident** marker, not a release one — if you see one you did not expect, start there |
+| 11 | **Google re-crawl worklist** (AECI-946) | **`/admin/reindex`**, or the Operations badge on any admin screen. Depth also rides `GET /api/admin/summary` and `GET /api/account` as `pending_reindex` | Worked down to the quota most days; no tier-1 or tier-2 row older than about 48 h. A standing tail of tier-4 rows is **normal**, not a backlog | *(no alert, deliberately. See `RUNBOOKS.md` for the written decline)*. This is a **do**, not just a read: work the list, then click Done. Skipping it is the one item on this checklist that goes unnoticed |
 
 > **Don't confuse field CWV with the SSR render metric.** PostHog's Web vitals page is field
 > data from real browsers; `aeci.page.render.duration_ms` on the Traffic dashboard is the
@@ -236,7 +241,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `0 10 * * *` | §7 attestation detector sweep + nudge email (AECI-302) — four detectors over the claim/attestation spine, deduped through an `audit_log` ledger | `attestation-notify` | **today: nothing** — read `aeci.attestation.detector` (a per-detector gauge, always emitted incl. 0) and `aeci.attestation.notify.job{outcome}`. **The zero series is the liveness signal**: the detectors match nothing until vendors start attesting, so "0 findings" is the healthy steady state and no-data is the failure → **combined + sweep** |
 | `0 11 * * *` | §7 entitlement term-expiry sweep (AECI-613) — warning notices only; terms **never** auto-lapse | `entitlement-expiry` | **today: nothing** — `aeci.entitlement.expiry.job{outcome}` plus the `aeci.entitlement.expiry_due` gauge, emitted every run **including zero**. Same shape as the 10:00 sweep and for longer: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to this job, so **"0 due" is healthy and no-data is the failure** → **combined + sweep** |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data → **persistent-stuck stays its own alert**; liveness → sweep (window **relaxed 60 → 90 min**, margin for the *sweep's* lateness) |
-| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer the promote hook writes and makes **one** outbound IndexNow submission per tick — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Liveness → **sweep (90 min)**. **Failure is NOT covered by the combined cron alert** — `aeci.indexnow.drain` was never added to that alert's metric list (see the note below this table); a sustained refusal ratio does get its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
+| `*/20 * * * *` | IndexNow submission drain (AECI-826 / §20.2) — reads the `indexnow_queue` buffer that the promote hook and (since AECI-944) every vendor-portal write append to, and makes **one** outbound IndexNow submission per tick — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so the next tick is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** tick including the empty and no-creds ones, which is what makes absence meaningful. Liveness → **sweep (90 min)**. **Failure is NOT covered by the combined cron alert** — `aeci.indexnow.drain` was never added to that alert's metric list (see the note below this table); a sustained refusal ratio does get its **own alert** ("Search-engine pings refused", > 90% over 24 h with a ≥3-submission floor). That alert is the check whose absence let the channel fail silently for at least three days |
 | `25 */6 * * *` | Claim-ticket staleness check (AECI-862 / §6.2) — reads the `claim` rows older than 24 h that already have a `linear_issue_id`, asks Linear in **one batched query** what state each of those issues is in, and emails `FOUNDER_ALERT_EMAIL` a digest naming the ones nobody has started. Queue-less and inline. **Minute 25 avoids the `*/15`, `*/20` and hourly expressions** — two jobs cannot share a cron string, because `scheduled.ts` switches on the raw value | `claim-stale-check` | **new with AECI-862.** Read `aeci.linear.claim_stale.job{outcome}` for liveness and `aeci.linear.claim_stale.stale` for the verdict. **A run that finds stale tickets is a SUCCESSFUL run** — `outcome:ok` means the check completed, not that the queue is clean. Two series need reading together: `…claim_stale.checked` is the population and `…claim_stale.stale` the finding, so "0 stale" means something different when 0 claims were eligible. `…claim_stale.read_failure` non-zero means Linear was unreadable and **nothing was asserted** — not that nothing is stale |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
 
@@ -341,11 +346,19 @@ per-**env**, not per-host (`robots-policy.ts`), so any hostname routed to `env.p
 `apps/web/wrangler.jsonc` inherits `"true"`. There is no per-host opt-out by design. Treat a new
 production route as an SEO change, not a config change.
 
-**The consoles carry a manual dependency.** Google discovery is not fully automated: the operator
-runs **URL Inspection → Request Indexing** after a promote that adds or changes public pages
-(`environments.md` → "Request indexing by hand (Google) — after a promote"). IndexNow covers
-Bing/Yandex automatically; Google is a person. If that person stops, the §3a-bis Googlebot
-coverage figure is the only place it surfaces, and it degrades slowly with no alert.
+**The consoles carry a manual dependency, and since AECI-946 it has a worklist behind it.** Google
+discovery is not fully automated. The operator runs **URL Inspection → Request Indexing** against
+`/admin/reindex`, which every promote and every vendor write appends to
+(`environments.md` → "Request indexing by hand (Google)"). IndexNow covers Bing and Yandex
+automatically; Google is a person.
+
+**What changed is the visibility, not the dependency.** The step used to run from memory after a
+promote, so an operator who stopped left no trace anywhere. Now the queue depth is a badge on the
+Operations nav and a `pending_reindex` count on `GET /api/admin/summary`, so a skipped week shows up
+on the daily checklist (§1, row 11) within a day. **That is a nudge, not a control.** Nothing pages,
+and the §3a-bis Googlebot coverage figure is still the only *outcome* signal, degrading slowly with
+no alert. Weekly checklist item 5 stays a separate activity: reading the indexed-page count tells you
+whether the requests worked, and draining the queue is what makes the requests.
 
 ### Dual-run additions (drop these once AECI-651 has run)
 
@@ -404,6 +417,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | *(new)* Cron job failed — combined | n/a | any failure heartbeat > 0, hourly | do not add a floor. A cron failing once is a real event, and the `label_column` tells you which |
 | *(new)* Per-cron staleness | n/a | 26 h daily jobs · 90 min the `*/15` reconcile and the `*/20` IndexNow drain · 8 h the `25 */6` claim-staleness check · 180 min the hourly poll (`observability/posthog/project-config.json`) | these are the *sweep's* allowances and already include margin for the sweep's own lateness. Tighten only if a cron's schedule changes |
 | *(new)* Claim ticket un-started | 24 h | AECI-862. The age at which a claim ticket that exists in Linear escalates to `FOUNDER_ALERT_EMAIL`. Set in `STALE_THRESHOLD_HOURS` (`apps/api/src/lib/claim-stale-check.ts`) | this is a **business-response** threshold, not a system one. Lower it if vendors complain about reply latency; raise it if the founders are being paged for tickets they have deliberately parked |
+| *(new, AECI-946)* Google re-crawl worklist depth | n/a | **no alert, declined in writing**. `RUNBOOKS.md` records why | the depth is a nav badge and a daily-checklist row, not a page. An alert here would fire on a normal Saturday, because a healthy queue is a non-empty queue. Revisit only if the badge proves ignorable |
 | *(new, AECI-826)* Search-engine pings refused | n/a — **never alerted on by either plane**, which is the defect | > 90% of `aeci.indexnow.submit` failed over **24 h**, **≥3-submission floor** | the window is 24 h, not 1 h, because coalescing makes submissions sparse on purpose — an empty buffer sends nothing. Raise the floor only if quiet days start paging. **Do not lower the threshold to 100**: a channel that is 19-of-20 broken should still fire |
 
 ### Home stats-card content tunables (AECI-280 / Phase 8.2)
@@ -450,6 +464,29 @@ limiter we are waiting on — before AECI-833 it cost three per tick, measured i
 in `isRetryableStatus` (`apps/api/src/lib/indexnow.ts`): a 429 is retried only when IndexNow itself
 names a time to come back. In practice the number is far lower than any row above, because an empty
 buffer makes no request at all. The design this replaced produced eleven inside seven minutes.
+
+### Google re-crawl worklist tunables (AECI-945 / AECI-946 / §20.2)
+
+The Google half has **no cadence to tune**, because a person is the drain. What is tunable is the
+ranking, and it is a map rather than a threshold, which changes how a retune is done.
+
+| Constant | Where | Value | When to retune |
+|---|---|---|---|
+| `GSC_RECRAWL_PRIORITY` | `apps/api/src/lib/gsc-recrawl-priority.ts` | An exhaustive `reason` → tier map, tiers 1–4 | **The single place a re-tune happens.** It is deliberately a map rather than `pageTypeRank + changeClassRank`, because `trade.published` already sits outside the formula's two axes and the next exception would force a rewrite instead of an edit. It is typed `Record<GscRecrawlReason, number>`, so adding a reason without a tier is a compile error rather than a row that sorts as `undefined`. Retune when the Search Console outcome disagrees with the ranking, for example if pair pages turn out to be what actually ranks |
+| `PAGE_SIZE` | `apps/web/src/app/admin/reindex/reindex-list.ts` | `25` | Rows per page on `/admin/reindex`, and the **only** page size that ships. Big enough that the operator rarely pages, small enough that the table stays scannable; the worklist is ordered, so anything below the cut is lower-tier work by construction. The server caps any `perPage` at `100` (`PageQuerySchema`, `packages/shared/src/api/common.ts`), so raising this past 100 silently fails validation. There is deliberately no second page-size constant in the API Worker: `GET /api/admin/reindex` builds the only worklist query that ships, because it needs the page, the `?priority=` filter and the matching `COUNT(*)` in one `db.batch` |
+
+**There is deliberately no `GSC_RECRAWL_QUEUE_MAX_AGE_DAYS`, and adding one would be a defect.**
+Its sibling `INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) exists because a missed IndexNow ping is recoverable:
+the sitemap covers the URL within days and nothing was decided by dropping it. A row aged out of the
+Google worklist is the opposite. It is work that was queued, never surfaced to a human, and then
+deleted, with no metric that would be non-zero afterwards. Unbounded growth is the cheaper failure,
+and the table's own bound is the `url` unique index.
+
+**What to watch instead of a threshold.** Queue depth is `pending_reindex` on
+`GET /api/admin/summary`. The number to react to is not the total, it is **the age of the oldest
+tier-1 or tier-2 row**. A standing tail of tier-4 rows is the design working. A week-old tier-1 row
+means a new product page has been invisible to Google for a week, which is the thing this whole
+mechanism exists to prevent.
 
 ### Trade publication floor (AECI-539 / AECI-546)
 

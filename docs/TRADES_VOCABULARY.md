@@ -22,7 +22,8 @@ Everything downstream seeds from it:
   `product_trades`.
 - **AECI-546** _(shipped)_ — the publication gate in §6 reaches the SEO surfaces: the XML sitemap
   lists published terms only (plus the always-listed `/trades` index), a sub-floor term page renders
-  `noindex`, and `POST /api/promote` buffers only published trade URLs for the IndexNow drain.
+  `noindex`, and the two writers buffer only published trade URLs for the IndexNow drain.
+  *(Since AECI-944 those writers are `POST /api/promote` and `PATCH /api/vendor/products/:id`.)*
 
 ---
 
@@ -336,7 +337,7 @@ floor.
 | `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
 | `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
-| IndexNow submit set on `POST /api/promote` | Buffered for the drain | **Not buffered** (AECI-546) |
+| IndexNow submit set, and the Google worklist | Buffered for the drain, queued at tier 3 for Google | **Neither** (AECI-546) |
 | Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
@@ -358,16 +359,25 @@ it would remove the entry point to the whole namespace, and it would make the fa
 depend on the catalog rather than on the page. It is therefore listed unconditionally in the sitemap
 and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
 
-**Why the indexing pings follow the floor.** `POST /api/promote` buffers affected URLs for IndexNow
-(§20.2; since AECI-826 the promote buffers and a `*/20` cron submits — the Google Indexing ping was
+**Why the indexing pings follow the floor.** Affected URLs are buffered for IndexNow
+(§20.2; since AECI-826 the writer buffers and a `*/20` cron submits — the Google Indexing ping was
 removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
-only published terms are buffered. **The floor read matters more under the buffer, not less**: a
+only published terms are buffered.
+
+**The floor read matters more under the buffer, not less**: a
 sub-floor trade URL written to `indexnow_queue` outlives the promote and is submitted up to twenty
 minutes later by a job with no way to re-derive whether it should have been. The `/trades` **index** is submitted whenever any trade is
 touched at all — published or not — because it renders live per-term counts and gains or loses a
 tile on a floor crossing. AECI-542 excluded trade URLs outright and deferred the decision to
 AECI-546; this is that decision.
+
+**There are two such writers since AECI-944, and the rule is identical on both.**
+`POST /api/promote` was the only one until vendors held seats. `PATCH /api/vendor/products/:id`
+now buffers too, and it resolves the floor the same way, post-commit, through
+`resolvePublishedTradeSlugs`. It also queues each published trade URL for Google at tier 3
+(`DATABASE_SCHEMA.md` §9.8), where asking for a `noindex` page would additionally spend a capped
+Request Indexing slot to be told no.
 
 **Why the facet sidebar is exempt (AECI-544).** Its counts come from
 `GET /api/products/facets`, which is **disjunctive and scoped to the active filters** — a scoped
@@ -406,7 +416,9 @@ consumers, and where each applies the floor:
 | Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
 | XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
-| IndexNow submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+| IndexNow submit set, promote | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+| IndexNow submit set + Google worklist, vendor product edit | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/vendor-recrawl.ts` (AECI-944). The same floor resolver, reused rather than re-derived |
+| Google worklist, promote | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-gsc-recrawl-entries.ts` (AECI-945) |
 | Admin panel — catalog coverage | `apps/api/src/lib/admin-catalog.ts` → `taxonomyUsage()` (AECI-579). Reports **published vs thin per term** so an operator can see which trade pages currently clear the floor. It is the one consumer that neither hides nor filters a sub-floor term — the whole point is to show what is still thin. It also surfaces the untagged-product count with a `trade_facet_sparse_by_design` caveat, because §1.1 makes "untagged" the correct state for most of the catalog rather than a backlog. |
 
 The API-side consumer is the only one that must *read* the floor rather than filter data it already

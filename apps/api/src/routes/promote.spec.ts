@@ -21,6 +21,7 @@ import {
   auditLog,
   claims,
   connectorEvidencedPairs,
+  gscRecrawlQueue,
   indexnowQueue,
   integrations,
   productCategories,
@@ -3294,10 +3295,16 @@ describe('IndexNow submission after promote (AECI-236)', () => {
 
   /** A minimal committed-promote response: one created product, nothing else.
    *  `affectedUrlsForPromote` walks vendors, integrations and all three taxonomy
-   *  facets unconditionally, so every collection has to be present and empty. */
+   *  facets unconditionally, so every collection has to be present and empty.
+   *
+   *  The field is `operation`, not `action` — this fixture said `action` until
+   *  AECI-945 and the `as unknown as` cast hid it. Nothing noticed because the
+   *  IndexNow deriver ignores the value; the Google deriver reads it to tell a
+   *  new page from an edit, so a wrong key silently demoted every created
+   *  product from tier 1 to tier 2. */
   const productResponse = (slug = 'revit'): PromoteResponse =>
     ({
-      product: { ref: 'p1', id: 'p-1', slug, action: 'created' },
+      product: { ref: 'p1', id: 'p-1', slug, operation: 'created' },
       vendors: [],
       integrations: [],
       taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
@@ -3348,6 +3355,41 @@ describe('IndexNow submission after promote (AECI-236)', () => {
         exploding,
       ),
     ).resolves.toBeUndefined();
+  });
+
+  // ── The Google half of the same hook (AECI-945) ─────────────────────────────
+  //
+  // It rides `bufferIndexNowAfterPromote` rather than getting its own
+  // `dispatchHook`, so these assert the two queues stay independent: different
+  // URL sets, and the same fail-open contract.
+
+  it('buffers the Google worklist alongside the IndexNow buffer', async () => {
+    await bufferIndexNowAfterPromote(
+      runCtx(indexNowEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+    );
+
+    const rows = await t.db
+      .select({ url: gscRecrawlQueue.url, priority: gscRecrawlQueue.priority })
+      .from(gscRecrawlQueue);
+
+    // Entity detail pages ONLY. `/products` is on the IndexNow list above and
+    // deliberately not here: a hub is re-crawled constantly anyway, and a
+    // Request Indexing slot spent on it is one not spent on a page Google has
+    // never seen.
+    expect(rows).toEqual([{ url: 'https://aecintegrations.com/products/revit', priority: 1 }]);
+  });
+
+  it('buffers no Google rows when the creds are absent', async () => {
+    await bufferIndexNowAfterPromote(
+      runCtx(baseEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+    );
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
   });
 });
 

@@ -1905,6 +1905,125 @@ export const indexnowQueue = sqliteTable(
   ],
 );
 
+/**
+ * The Google re-crawl worklist (AECI-945).
+ *
+ * ─── What it is, and why it is not `indexnow_queue` ───────────────────────────
+ *
+ * The sibling table above is drained by a cron and submitted to an API. This one
+ * is drained by a **person**, because Google has no API that accepts our content
+ * types: its Indexing API is documented for `JobPosting` / `BroadcastEvent` only,
+ * which is why AECI-747 deleted the ping we used to make. The only way to ask
+ * Google to look *now* is Search Console → URL Inspection → Request Indexing, run
+ * by hand, one URL at a time.
+ *
+ * So this table is the operator's list of what still needs that treatment. The
+ * `/admin/reindex` screen (AECI-946) reads it in priority order; the Done button
+ * deletes the row.
+ *
+ * **Two structural reasons it is a separate table rather than a column on
+ * `indexnow_queue`.**
+ *
+ *  1. **That drain deletes.** `deleteSubmittedThrough` removes rows with
+ *     `WHERE id <= :maxId` — one bound parameter, chosen because D1 caps a query
+ *     at 100 of them. Retaining rows for a second, slower consumer would break
+ *     that cursor, or force the drain to learn a status column it has no reason
+ *     to know about.
+ *  2. **The two consumers want opposite things.** IndexNow is free, batched and
+ *     deduped, so it takes everything indiscriminately. Request Indexing is
+ *     quota-capped — the ceiling is real, per-property, and Google does not
+ *     publish it — so this list has to be *ordered*, and a row may sit here for
+ *     weeks without ever being reached. Those are different lifecycles.
+ *
+ * ─── Dedupe RAISES priority; it does not ignore the conflict ──────────────────
+ *
+ * `url` is UNIQUE, so a page edited five times before the operator reaches it is
+ * one row rather than five. But the conflict target is **`DO UPDATE`, not
+ * `DO NOTHING`** — see `enqueueGscRecrawl` for the statement. A page that got a
+ * logo swap (priority 4) and is then renamed (priority 2) must *rise* to 2. Under
+ * `DO NOTHING` it would keep the logo swap's priority and stay buried at the
+ * bottom of a list the operator never reaches, which is indistinguishable from
+ * never having queued it.
+ *
+ * `queuedAt` deliberately keeps its **original** value on conflict. Ordering
+ * inside a tier is oldest-first, so refreshing the timestamp would let a
+ * repeatedly-edited page starve an older one forever.
+ *
+ * ─── No auto-prune, deliberately ──────────────────────────────────────────────
+ *
+ * `indexnow_queue` ages rows out after `INDEXNOW_QUEUE_MAX_AGE_DAYS` because a
+ * missed ping is recoverable — the sitemap covers it eventually. **Here an
+ * aged-out row is work silently discarded that nobody ever saw.** Rows persist
+ * until a human clears them. The screen displays age; nothing enforces it.
+ *
+ * ─── Audit ────────────────────────────────────────────────────────────────────
+ *
+ * The INSERTs are derived and log-class (they are computed from a write that
+ * already audited), so they are **exempt from the §26.1 audit-in-batch invariant
+ * under ADR 0022**, exactly like the IndexNow buffer and `job_runs`. The **DELETE
+ * is not exempt and is not the scheduled-deletion case either** — it is an
+ * operator action on an admin screen, so it audits **per row**
+ * (`action='reindex.cleared'`), in the same `db.batch` as the delete, attributed
+ * to the admin rather than to `'system'`.
+ *
+ * Like `indexnowQueue` and `metricsDaily`, this table is deliberately absent from
+ * the `schema` barrel at the foot of this file: every access is a direct
+ * `db.insert()` / `db.select()` / `db.delete()`, never `db.query.*`, so it needs
+ * no relational-query registration.
+ */
+export const gscRecrawlQueue = sqliteTable(
+  'gsc_recrawl_queue',
+  {
+    /** Surrogate key. Unlike `indexnow_queue.id` this is NOT a drain cursor —
+     *  nothing deletes by range here — it is simply the row handle the Done
+     *  button posts back. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The absolute public URL to request indexing for, e.g.
+     *  `https://www.aecintegrations.com/products/procore`. **Absolute, not a
+     *  path**, because Search Console's URL Inspection bar rejects a relative
+     *  URL: a Domain property spans several hosts and will not guess one. It is
+     *  also what lets a row whose host no longer matches `PUBLIC_SITE_URL` (an
+     *  env re-point) be recognised and dropped without re-deriving it. */
+    url: text('url').notNull(),
+
+    /** 1 (most important) … 4 (least). Assigned from `reason` by the
+     *  `GSC_RECRAWL_PRIORITY` map in `lib/gsc-recrawl-priority.ts` — never
+     *  computed at the call site, so re-tuning is one edit.
+     *
+     *  No CHECK constraint: the map is the enforcement, it is exhaustive over
+     *  the reason union at the type level, and a CHECK here would mean a
+     *  destructive table recreate every time the tier count changed (see
+     *  ADR 0018 / migration 0027 for why that is a thing to avoid on D1). */
+    priority: integer('priority').notNull(),
+
+    /** Why the row was queued, e.g. `product.created`, `product.updated`,
+     *  `attestation.added`. Drives BOTH the priority lookup and the operator-
+     *  facing "why is this here" column, which is why it is a stable slug rather
+     *  than prose. */
+    reason: text('reason').notNull(),
+
+    /** What queued it — `promote` or `vendor`. Same purpose as
+     *  `indexnow_queue.source`: a second writer is distinguishable per row
+     *  rather than only per deploy. */
+    source: text('source').notNull(),
+
+    /** When the change happened. Oldest-first inside a priority tier, and the
+     *  age the screen displays. Preserved on conflict — see the dedupe note
+     *  above. */
+    queuedAt: text('queued_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // The dedupe constraint AND the conflict target for `ON CONFLICT DO UPDATE`.
+    uniqueIndex('gsc_recrawl_queue_url_idx').on(t.url),
+    // The worklist read, exactly: `ORDER BY priority ASC, queued_at ASC`. A
+    // composite in that column order serves it without a sort step.
+    index('gsc_recrawl_queue_priority_queued_at_idx').on(t.priority, t.queuedAt),
+  ],
+);
+
 // ===========================================================================
 // Connector lane (Stage 1.5 Addendum C §13 / AECI-714)
 //

@@ -46,7 +46,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- API endpoints behind `requireAdmin()` (§6), **read-only with five named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), and §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739). The first three are *account* writes, the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — and the fifth is an **annotation**: it changes no claim status and grants nothing. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739 and to "five" by AECI-740 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)*
+- API endpoints behind `requireAdmin()` (§6), **read-only with six named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739), and §5.11's worklist clear (`DELETE /api/admin/reindex/:id`, AECI-946). The first three are *account* writes, the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — the fifth is an **annotation**: it changes no claim status and grants nothing — and the sixth is **queue consumption**: it clears one row of the operator's own worklist and touches nothing any visitor can see. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739, to "five" by AECI-740 and to "six" by AECI-946 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)*
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Nineteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **thirteen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Twenty routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **fourteen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -146,6 +146,7 @@ Nineteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **
     /admin/requests        existing (Phase 6.10)
     /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
     /admin/claims/:id      §5.10 (detail — nav links the list only)
+    /admin/reindex         §5.11 (the Google re-crawl worklist — AECI-946)
     /admin/vendors         §5.7  (list)
     /admin/vendors/:id     §5.7  (detail — nav links the list only)
     /admin/users           §5.8  (list)
@@ -217,15 +218,15 @@ Six mechanics, all pinned by `admin-breadcrumb.component.spec.ts` and `admin-she
 
 **What it deliberately does not do.** It is not a second navigation surface — every crumb is an ancestor of the current page, never a sibling, so §5.0a's "a portal owns its own navigation; the header offers one door" is untouched and the row remains the only way to change section. It also does not appear on the non-admin branch, which renders `<aec-not-found/>` and no console chrome at all.
 
-### 5.0c Each Operations queue carries its own count, and the category sums them — SHIPPED (AECI-922)
+### 5.0c Each Operations queue carries its own count, and the category sums them — SHIPPED (AECI-922, fourth queue added by AECI-946)
 
 `GET /api/admin/summary` served one number, `pending_reviews`, and the nav rendered
 it twice: on the Review queue entry, and mirrored onto the closed Operations
 trigger. Requests and Vendor claims sat beside it uncounted, so the two queues an
 operator is most likely to be behind on were the two the nav never mentioned.
 
-The endpoint now returns three counts and `GET /api/account` carries the same
-three (`API_CONTRACTS.md` §6.8 / §6.10). Each badged nav entry renders its own;
+The endpoint now returns four counts and `GET /api/account` carries the same
+four (`API_CONTRACTS.md` §6.8 / §6.10). Each badged nav entry renders its own;
 the **Operations trigger renders their SUM**.
 
 | Nav entry | Count | Predicate |
@@ -233,6 +234,7 @@ the **Operations trigger renders their SUM**.
 | Review queue | `pending_reviews` | `reviews.status = 'pending'` |
 | Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
+| Re-index queue | `pending_reindex` | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
 
 Five decisions, all of them load-bearing.
 
@@ -305,6 +307,49 @@ with the identical number. The `queue.requests_open` **stored** daily metric
 (`metrics_daily`, `DATABASE_SCHEMA.md`) is deliberately NOT split: it is a series
 with rows already written, and re-defining its predicate would silently re-base
 every one of them. It remains the whole request backlog, both kinds.
+
+**A fourth queue joined at AECI-946, and every decision above had to be
+re-answered for it.** `pending_reindex` counts `gsc_recrawl_queue`, the Google
+re-crawl worklist (§5.11). Taking them in order:
+
+**(1) Disjointness is trivial here, and that is the whole argument.** Decision (1)
+above was hard work because Requests and Claims are two `kind`s of *one table*, so
+proving they do not double-count meant changing a screen's default filter. This
+queue is a **different table entirely**. No row can be in both `gsc_recrawl_queue`
+and `vendor_requests`, so the Operations sum stays honest with no filter to pin and
+nothing to keep in step. It is the first badged queue that does not read
+`vendor_requests` or `reviews`.
+
+**(2) There is no `in_review` equivalent, because there is no status column.** A
+row is queued or it is gone. Done **deletes** rather than flagging (§5.11), which is
+what lets the count run with **no predicate at all**. Every row is pending by
+construction. That removes the whole class of failure decision (2) was written
+about, where a badge counts rows the screen's default filter does not show.
+
+**(3) A zero renders no badge**, inherited unchanged, and it matters more here than
+on the other three. A quiet day legitimately leaves this queue empty, whereas an
+empty review queue is worth noticing. A literal `0` on a queue that is *supposed*
+to reach zero is the fastest way to train an operator to stop reading the row.
+
+**(4) The trigger still sums its own group's entries**, so adding this one cost a
+single `ADMIN_NAV_GROUPS` entry and the Operations number went up by the new count
+with no change to `AdminNavDropdown`. That is decision (4)'s claim being tested
+rather than restated.
+
+**(5) One server-side implementation, two endpoints**, unchanged.
+`readAdminQueueCounts` (`apps/api/src/lib/admin-queue-counts.ts`) gained a fourth
+`COUNT(*)` in the **same `db.batch`**, so the header badge and the console badge
+still cannot disagree, and four trivial counts still cost one D1 round trip rather
+than four binding calls. On the client, `AdminSummaryStore.seed()` still leaves an
+**absent** key alone rather than zeroing it, which is what stops a rolling deploy
+from emptying this badge when an older `/api/account` shape arrives without it.
+
+**(6) The §5.1 Overview status strip was deliberately NOT extended.** The strip's
+three links are *moderation depths*, work with a claimant or a reviewer waiting on
+the other end. A re-crawl row has no counterparty and no SLA. Adding a fourth link
+would put a chore beside three obligations and make the strip's own heading wrong.
+The nav badge and the §1 daily checklist row in `POST_LAUNCH_MONITORING.md` are
+where this queue is surfaced instead.
 
 ### 5.1 Overview
 
@@ -844,13 +889,86 @@ identical states is not a history.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 
+### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14)
+
+The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
+**ADR 0031** owns the reasoning; `DATABASE_SCHEMA.md` §9.8 is the table and
+`API_CONTRACTS.md` §6.10 the endpoint shapes. Recorded here because the route, the
+IA and the write are this doc's business.
+
+**Why it exists.** Bing and Yandex are fed automatically: a write buffers URLs into
+`indexnow_queue` and a twenty-minute cron submits them in one request. Google
+cannot be fed that way. Its Indexing API accepts `JobPosting` and `BroadcastEvent`
+only, which is why AECI-747 deleted the ping we used to make, and nothing has
+replaced it because nothing can. Search Console → URL Inspection → Request Indexing
+is a browser action against a daily quota Google does not publish.
+
+So the automation stops at *knowing what needs doing*. Before this screen the
+operator worked from memory after a promote, which `environments.md` described as
+"undelegated, unmonitored and invisible". This fixes the third word only.
+
+- **`/admin/reindex`** — one table, most important first, with a Done button per
+  row. `priority`, `reason`, `url`, and age. The only filter is `?priority=`.
+
+Four IA notes, in §5.10's voice:
+
+- **Operations, not Insights.** It is a chore with a backlog rather than a number to
+  read. Every row is a URL someone has to paste into another product's UI. It sits
+  after `/admin/claims` and before `/admin/vendors`, which keeps the group's
+  badged-queues-first shape.
+- **A nav badge, and the fourth one.** §5.0c covers how it satisfies that section's
+  five decisions, and why decision (1)'s disjointness proof is trivial here.
+- **No detail route.** A row is a URL and four scalars. There is nothing a second
+  screen could show, and a parameterised route would have cost a breadcrumb rule
+  (§5.0b) for no content.
+- **Ordering is fixed and not client-selectable.** A worklist whose order the
+  operator can change is a worklist whose top row is no longer reliably the right
+  next action, and working top-down is the entire value of the screen. The
+  `?priority=` filter is a convenience for "clear the tier-1 backlog first on a tight
+  day", not the mechanism.
+
+**This section is not read-only, and it is the sixth §2 exception.** The write is a
+`DELETE`, and three things about it are decisions rather than defaults:
+
+- **Done deletes rather than flagging.** A `requested_at` column would mean an
+  empty-looking screen could still hold rows, so the badge would have to distinguish
+  "pending" from "pending and not yet dismissed", and the operator would have to
+  trust that distinction at a glance. Deleting makes an empty list mean exactly one
+  thing. Nothing is lost, because a later edit to the same page queues a fresh row.
+- **It audits per row, and not through the §26.1 scheduled-deletion exception.**
+  `action='reindex.cleared'`, `entity_type='gsc_recrawl_queue'`, in the same
+  `db.batch` as the delete, attributed to the admin rather than to `'system'`. The
+  summary-row allowance exists for *scheduled* deletes and does not reach an
+  operator clicking a button. `before_state` carries the cleared row, because the
+  row is gone immediately afterwards and the trail is the only surviving copy.
+- **The DELETE carries no `rateLimit()`**, matching every other `requireAdmin()`
+  write here (`waf-rate-limits.md` §6.2). Clearing thirty rows in one sitting is
+  exactly the workload this screen exists for, so a write-shaped ceiling would 429
+  the operator partway through the intended use.
+
+**What this screen deliberately cannot do:**
+
+- **Submit to Google.** There is no API to call. If one ever accepts our content
+  types, this screen becomes the thing that drives it and the worklist shape
+  survives unchanged.
+- **Re-queue a URL, or edit a priority.** Both are derived from a write that
+  happened. Hand-editing either would make the `reason` column a claim rather than a
+  record.
+- **Show what has already been requested.** That is the cost of Done deleting, and
+  it is accepted. `audit_log` filtered on `reindex.cleared` is the history, which is
+  where the other admin writes keep theirs too.
+
+---
+
 ---
 
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
 
-**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), and §5.10 added one `PATCH` (the operator note). Their contracts live in `packages/shared/src/api/admin-vendors.ts` and `admin-users.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
+**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), §5.10 added one `PATCH` (the operator note), and §5.11 added one `DELETE` (clear a worklist row). Their contracts live in `packages/shared/src/api/admin-vendors.ts`, `admin-users.ts` and `admin-reindex.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
+
+> **Why §5.11 takes the bare envelope, stated once because it is the rule's clearest case.** The console shape's `notes` array exists to *qualify a number that might be wrong* — a bot-classified count, a figure computed without a credential. A queue depth cannot be qualified. The rows are either there or they are not, and there is no upstream whose absence would make the count approximate. So the surface that would gain least from the envelope is the one that most obviously should not carry it.
 
 | Endpoint | Purpose | Notes |
 |---|---|---|
@@ -879,8 +997,10 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/connector-catalogs/:id/audit` | §5.9 audit — **SHIPPED (AECI-722)** | **One** disjunct, not §5.7's four: the flip and the sync both file under `entity_type='connector_catalog'` with the catalogue id |
 | `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
 | `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The fourth write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
+| `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
+| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()`, like every other admin write (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
 
-**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail and §5.4a's roster (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — and an operator note is an *annotation* on a request row, which was never catalog data. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail, §5.4a's roster and §5.11's worklist (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 
