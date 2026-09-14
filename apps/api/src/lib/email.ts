@@ -432,6 +432,20 @@ export async function sendSeatInvite(
  * nothing a reviewer types can leak. The claimant is told only that the claim
  * wasn't approved, and is invited to resubmit. Recipient is `submitter_email`;
  * absent → skip.
+ *
+ * **On the house layout since AECI-924.** It is the sibling of `claim-approved`, which
+ * AECI-914 migrated, so leaving it behind meant the same claimant got a branded email
+ * on approval and an unbranded one on rejection. That asymmetry reads as carelessness
+ * precisely where the recipient is already being told no.
+ *
+ * **It carries NO CTA, deliberately.** The Forest button is the layout's one action,
+ * and a rejection has no action to offer that the §9 AC permits: a "Submit a new claim"
+ * button would press harder than the copy, which only says resubmission is welcome.
+ * A layout with no `cta` renders no button and no paste-able URL, which is the whole
+ * shape of this email — heading, two blocks, nothing to click.
+ *
+ * The reviewer's `reason` is still absent, and the migration must never become the
+ * moment it acquires a `note` slot to sit in.
  */
 export function sendClaimRejectedEmail(
   c: EmailContext,
@@ -441,20 +455,20 @@ export function sendClaimRejectedEmail(
   const resubmit =
     "If you represent this vendor, you're welcome to submit a new claim with more detail.";
 
-  const textParagraphs = [
-    `Thank you for your claim for ${name}. After review, we weren't able to approve it.`,
-    resubmit,
-  ];
-  const htmlParagraphs = [
-    `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`,
-    resubmit,
-  ];
+  const opening = `Thank you for your claim for ${name}. After review, we weren't able to approve it.`;
+  const openingHtml = `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`;
+
+  const shared = {
+    preheader: `We reviewed your claim for ${name}.`,
+    heading: `Your claim for ${name} was not approved`,
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-rejected',
     subject: `Your claim for ${name} was not approved`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    text: renderEmailText({ ...shared, blocks: [opening, resubmit] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, resubmit] }),
   });
 }
 

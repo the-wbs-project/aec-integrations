@@ -357,8 +357,54 @@ describe('sendClaimRejectedEmail', () => {
     expect(text).toContain("weren't able to approve it");
     expect(text).toContain('submit a new claim');
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-rejected']]);
-    const authored = text.replace('— The AEC Integrations team', '');
-    expect(authored).not.toContain('—');
+    // Voice guard. No shim needed any more: the house layout carries no sign-off, so
+    // the only em dash this template ever held is gone.
+    expect(text).not.toContain('—');
+    expect(text).not.toContain('The AEC Integrations team');
+  });
+
+  // AECI-924 — migrated alongside its `claim-approved` sibling, so one claimant cannot
+  // get a branded email on approval and an unbranded one on rejection.
+  it('renders through the house layout, not the legacy bare-paragraph shell', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Autodesk, Inc.',
+    });
+
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('offers no button, because a rejection has no action the §9 AC permits', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    // Even WITH a public host, which is what would otherwise produce a CTA.
+    await sendClaimRejectedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).not.toContain('v:roundrect');
+    expect(String(body.html)).not.toContain('Or paste this into your browser');
+    expect(String(body.text)).not.toContain('http');
+  });
+
+  it('still carries no reviewer note and no table to hide one in', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), { to: 'owner@vendor.com', vendorName: 'Globex' });
+
+    const body = lastBody(fetchSpy);
+    // The §9 guarantee is structural: the send takes no `reason` argument at all, and
+    // the rendered body carries no row the migration could have given one to.
+    expect(String(body.html)).not.toContain('border-top:1px solid #d4d4d8');
+    expect(String(body.text).split('\n\n')).toEqual([
+      'Your claim for Globex was not approved',
+      "Thank you for your claim for Globex. After review, we weren't able to approve it.",
+      "If you represent this vendor, you're welcome to submit a new claim with more detail.",
+    ]);
   });
 
   it('skips when the recipient is undefined', async () => {
