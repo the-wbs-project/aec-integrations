@@ -31,7 +31,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles, vendorSeatInvites } from '../db/schema';
@@ -55,6 +55,32 @@ export const INVITE_TTL_DAYS = 14;
  * still bounded.
  */
 export const INVITE_DAILY_LIMIT = 10;
+
+/**
+ * Minimum gap between two sends of the SAME invite (AECI-927).
+ *
+ * This is the burst brake, and it is the only cap of the three that can be
+ * expressed as a per-row comparison rather than an aggregate — `last_sent_at` is
+ * on the row, so the wait it reports is exact rather than a window-shaped upper
+ * bound. Five minutes is long enough that a second send is a decision and short
+ * enough that "it went to spam, try again" is not a coffee break.
+ */
+export const RESEND_COOLDOWN_MINUTES = 5;
+
+/**
+ * Total sends per invite, INCLUDING the original. Four means the owner gets three
+ * re-sends before the invite is spent as a mailer.
+ *
+ * This is what actually bounds the mail, and the cooldown is not a substitute for
+ * it: pending invites accumulate for 14 days at up to {@link INVITE_DAILY_LIMIT}
+ * a day, so a cooldown alone leaves daily volume in the thousands. A lifetime cap
+ * makes total sends a constant multiple of the creation rate, which is already
+ * capped.
+ *
+ * Past it the answer is "revoke and send a fresh one" — which is deliberately not
+ * free, because it spends one of the day's ten.
+ */
+export const INVITE_MAX_SENDS = 4;
 
 /** `metadata.source` on every audit row this module writes — the vendor portal's
  *  own tag (`routes/vendor-shared.ts` `AUDIT_SOURCE`), NOT `admin-moderation`.
@@ -115,6 +141,62 @@ export function inviteRedeemState(
   return normalizeInviteEmail(signedInEmail) === normalizeInviteEmail(invite.email)
     ? 'ok'
     : 'email_mismatch';
+}
+
+// ─── Re-send policy (AECI-927) ───────────────────────────────────────────────
+
+/** The invite columns the re-send rules read. Structural, like
+ *  {@link RedeemableInvite}, so the rules test against a literal. */
+export interface ResendableInvite {
+  /** `null` when the invite has only ever been mailed once, at `createdAt`. */
+  lastSentAt: string | null;
+  createdAt: string;
+  sendCount: number;
+}
+
+/** Why a re-send is refused, or `'ok'`. */
+export type InviteResendState = 'ok' | 'cooling_down' | 'send_limit';
+
+/**
+ * May this invite be re-sent right now?
+ *
+ * Pure, and — like {@link inviteRedeemState} — the SINGLE source of the answer for
+ * both the read that renders the control (`can_resend` on the roster) and the
+ * write that performs it. Two independent computations of the same policy is how
+ * a surface ends up offering a button the handler refuses.
+ *
+ * Order matters for the same reason it does in `inviteRedeemState`: the terminal
+ * state is checked first, so an invite that has exhausted its sends says so
+ * instead of reporting a cooldown that will never let it through.
+ *
+ * The caller has already established that the invite is PENDING. This function
+ * deliberately knows nothing about `accepted_at`, `revoked_at` or expiry — those
+ * decide whether the invite exists to act on, which is a scoping question the
+ * `WHERE` clause answers before we get here.
+ */
+export function inviteResendState(invite: ResendableInvite, now: string): InviteResendState {
+  if (invite.sendCount >= INVITE_MAX_SENDS) return 'send_limit';
+  return resendCooldownSecondsRemaining(invite, now) > 0 ? 'cooling_down' : 'ok';
+}
+
+/**
+ * Seconds until this invite may be re-sent; `0` once the cooldown has elapsed.
+ *
+ * Feeds `Retry-After` directly, which is why it is exact rather than the full
+ * window: unlike the rolling 24 h invite cap — where the honest wait is "until
+ * the oldest invite in the window ages out", a second aggregate we chose not to
+ * pay for — the last send is a column on the row we have already read.
+ *
+ * Rounds UP, so a caller that waits exactly the advertised number of seconds is
+ * past the boundary rather than sitting on it.
+ */
+export function resendCooldownSecondsRemaining(invite: ResendableInvite, now: string): number {
+  // An invite that has never been re-sent still has a last send: its creation.
+  // Reading `lastSentAt` alone would let a brand-new invite be re-sent instantly.
+  const lastSent = Date.parse(invite.lastSentAt ?? invite.createdAt);
+  const elapsedMs = Date.parse(now) - lastSent;
+  const remainingMs = RESEND_COOLDOWN_MINUTES * 60_000 - elapsedMs;
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
 }
 
 /** The statements + the audit entry the caller forwards post-commit. */
@@ -227,6 +309,100 @@ export function revokeInviteStatements(db: Db, p: RevokeInviteParams): SeatInvit
             eq(vendorSeatInvites.vendorId, p.vendorId),
             isNull(vendorSeatInvites.acceptedAt),
             isNull(vendorSeatInvites.revokedAt),
+          ),
+        ),
+      auditInsert(db, auditEntry),
+    ],
+    auditEntry,
+  };
+}
+
+export interface ResendInviteParams {
+  inviteId: string;
+  vendorId: string;
+  email: string;
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  now: string;
+  /** Refreshed expiry — `inviteExpiryFrom(now)`, computed by the handler because
+   *  it also has to put the same value in the email. */
+  expiresAt: string;
+  /** `send_count` BEFORE this send, so the audit row can state the transition
+   *  rather than only its result. */
+  sendCountBefore: number;
+}
+
+/**
+ * Re-send a pending invite: refresh its expiry, stamp the send, count it.
+ *
+ * Three properties, each a bug if it drifts:
+ *
+ * 1. **The token is NOT rotated, and no statement here touches it.** Redeeming is
+ *    bound to the invited mailbox ({@link inviteRedeemState}), so the old link was
+ *    never a standing credential and rotating buys no security. What rotation
+ *    would buy is the failure this endpoint exists to fix: it silently kills a
+ *    link the invitee may be holding, so of two mails only the newest works, with
+ *    nothing on the dead one to say why.
+ * 2. **`expires_at` moves forward.** An invite re-sent on day 13 with a day left
+ *    is barely worth sending, and the email states its own expiry, so the row and
+ *    the mail have to agree. This is also why {@link INVITE_MAX_SENDS} is the real
+ *    bound: without it, expiry could be refreshed indefinitely.
+ * 3. **The UPDATE carries the full guard in its `WHERE`,** and that guard is a
+ *    compare-and-swap. Vendor scope plus still-pending is the revoke's shape, but
+ *    it does NOT survive a race here the way it does there: the revoke sets
+ *    `revoked_at`, which its own `WHERE` tests, so the second of two concurrent
+ *    revokes matches nothing. Nothing this `SET` writes is read by those four
+ *    terms, so without more, two concurrent re-sends would both apply and advance
+ *    `send_count` by two — past {@link INVITE_MAX_SENDS}. `send_count =
+ *    sendCountBefore` is what closes that: the row the handler read is the row it
+ *    writes, or it writes nothing.
+ *
+ * `send_count` is still incremented in SQL (`send_count + 1`) rather than written
+ * as a computed literal, so the value is derived from the row rather than from the
+ * handler's copy of it.
+ *
+ * **What the CAS does not do is suppress the loser's `audit_log` row or its mail.**
+ * The audit insert is an unconditional second statement, so a request whose UPDATE
+ * matched nothing still records a `1 → 2` transition it did not perform, and the
+ * post-commit send still fires. Nothing in a `db.batch` can make one statement
+ * conditional on another's row count. Duplicate MAIL is bounded by the two layers
+ * that exist for it — {@link RESEND_COOLDOWN_MINUTES} and the per-vendor `write`
+ * bucket — not by this predicate; what this predicate protects is the row.
+ */
+export function resendInviteStatements(db: Db, p: ResendInviteParams): SeatInviteBatch {
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: 'vendor_seat.invite_resent',
+    entityType: 'vendor_seat_invite',
+    entityId: p.inviteId,
+    beforeState: { send_count: p.sendCountBefore },
+    afterState: { send_count: p.sendCountBefore + 1, expires_at: p.expiresAt },
+    metadata: {
+      source: SEAT_INVITE_AUDIT_SOURCE,
+      vendor_id: p.vendorId,
+      invited_email: p.email,
+    },
+  };
+
+  return {
+    stmts: [
+      db
+        .update(vendorSeatInvites)
+        .set({
+          lastSentAt: p.now,
+          sendCount: sql`${vendorSeatInvites.sendCount} + 1`,
+          expiresAt: p.expiresAt,
+          updatedAt: p.now,
+        })
+        .where(
+          and(
+            eq(vendorSeatInvites.id, p.inviteId),
+            eq(vendorSeatInvites.vendorId, p.vendorId),
+            isNull(vendorSeatInvites.acceptedAt),
+            isNull(vendorSeatInvites.revokedAt),
+            // The compare-and-swap term. See property 3 above.
+            eq(vendorSeatInvites.sendCount, p.sendCountBefore),
           ),
         ),
       auditInsert(db, auditEntry),
@@ -367,13 +543,43 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
   };
 }
 
-/** The "is this address already invited here?" predicate — the pending partial
- *  index's exact shape, shared by the duplicate probe and the roster read so the
- *  two can never disagree about what "pending" means. */
+/**
+ * "Not spent" — the pending partial index's exact shape, shared by the duplicate
+ * probe, the roster read and the revoke/re-send guards so they can never disagree
+ * about what "pending" means.
+ *
+ * **Expiry is deliberately NOT in here, and callers add it themselves where they
+ * need it.** Two of the four callers must not have it. A revoke has to keep
+ * working on an expired row, or an invite that lapsed could never be cleared; the
+ * re-send guard reads the row for the same reason before deciding separately. The
+ * roster and the duplicate probe DO filter on expiry, and they have to filter
+ * identically — an invite the roster hides while the probe still counts it is an
+ * address the owner can neither see, revoke, nor re-invite, which is exactly the
+ * defect AECI-927 fixed. Use {@link liveInvitesFor} for those two, never a
+ * hand-rolled expiry term.
+ */
 export function pendingInvitesFor(vendorId: string) {
   return and(
     eq(vendorSeatInvites.vendorId, vendorId),
     isNull(vendorSeatInvites.acceptedAt),
     isNull(vendorSeatInvites.revokedAt),
   );
+}
+
+/**
+ * "Pending AND not yet expired" — what a human means by a live invite, and the
+ * predicate BOTH the roster read and the duplicate probe must use (AECI-927).
+ *
+ * The two used to differ: the roster filtered `expires_at > now` and the probe
+ * used {@link pendingInvitesFor} alone. An invite that lapsed unredeemed
+ * therefore disappeared from the roster while still tripping the probe's 409, so
+ * that address could never be invited again — and the owner could not see the row
+ * blocking them, let alone revoke it. Sharing one predicate is what makes that
+ * class of divergence unrepresentable rather than merely fixed.
+ *
+ * `now` is passed in rather than read from the clock so the two callers in one
+ * request compare against the same instant, and so tests need no fake timers.
+ */
+export function liveInvitesFor(vendorId: string, now: string) {
+  return and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now));
 }

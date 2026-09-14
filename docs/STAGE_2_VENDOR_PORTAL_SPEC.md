@@ -1023,7 +1023,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 
 ## 11a. Self-serve seat invites (AECI-664) — activating the first §11 deferral
 
-**Shipped 2026-08-26.** One migration (`0020`), five endpoints, two web surfaces. This section is the build contract; the code is `apps/api/src/lib/vendor-seat-invites.ts`, `apps/api/src/routes/{vendor-seat-invites,seat-invites}.ts`, and `apps/web/src/app/vendor/{vendor-invite-page.ts,components/vendor-seat-{roster,invite-dialog,invite-form}.ts}`.
+**Shipped 2026-08-26**, extended by AECI-927 on 2026-09-14 (§11a.9). Two migrations (`0020`, `0035`), six endpoints, two web surfaces. This section is the build contract; the code is `apps/api/src/lib/vendor-seat-invites.ts`, `apps/api/src/routes/{vendor-seat-invites,seat-invites}.ts`, and `apps/web/src/app/vendor/{vendor-invite-page.ts,components/vendor-seat-{roster,invite-dialog,invite-form}.ts}`.
 
 ### 11a.1 Why this was safe to open up
 
@@ -1076,6 +1076,8 @@ The §5 claim queue is unaffected and remains the path for someone who has **no*
 Owner side, behind `requireVendor()` **plus** an in-handler `requireSeatOwner()` that re-reads `seat_owner` from D1 every request (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read in `createAuthzMiddleware`):
 
 - `POST /api/vendor/seats/invites` — 201. Duplicate probe, **rate limit** (`INVITE_DAILY_LIMIT` = 10 per vendor per rolling 24 h, counted over `vendor_seat_invites`). It stays a D1 count after AECI-773 added a `ratelimits` binding to this Worker, because `simple.period` is a strict enum of 10 or 60 seconds and **no binding window reaches 24 h**; the binding sits *in front of* it as a burst bucket, keyed per vendor for the same reason the daily cap is. Mail is post-commit `waitUntil`; a send failure never un-creates a committed invite.
+  - **The duplicate probe checks EXPIRY as well as the two terminal columns** (AECI-927). It did not, and the roster always has, so an invite that lapsed unredeemed was invisible on the roster while still returning the 409 below — that address could never be invited again, and the owner could not see, revoke, or re-send the row blocking them. Both callers now share `liveInvitesFor`.
+- `POST /api/vendor/seats/invites/:id/resend` — 200 (AECI-927). See §11a.9.
 - `DELETE /api/vendor/seats/invites/:id` — 204, soft delete (`revoked_at`).
 - `DELETE /api/vendor/seats/:userId` — 204. **The first HTTP surface `revokeSeatStatements` has ever had** (AECI-524 shipped the builder unwired). Refuses self-removal; also carries an explicit last-owner guard which is *currently unreachable* and kept deliberately — see the handler docblock.
 
@@ -1086,13 +1088,15 @@ Invitee side, on its **own prefix** and behind `requireAuth()`, because the call
 
 `GET /api/vendor/seats` gains `pending_invites` and `can_manage_seats`. It stays **un-gated** by capability (`STAGE_2_PAID_TIERS_SPEC.md` §4.3). **The `token` is never on this payload** — the roster is readable by every seat, and a token there would let any seat redeem an invite addressed to someone else's mailbox. It appears in exactly one place: the invite email.
 
+Each `pending_invites` entry is a `ManageableSeatInvite` — the base `VendorSeatInvite` plus `last_sent_at` and `resend_state` (AECI-927). The split is deliberate: the base has two other consumers (the admin user detail and the admin vendor detail) and **neither has a re-send action**, so shipping them a re-send verdict would put a permission claim on a surface that cannot honour it.
+
 ### 11a.5a The owner's surface: roster, with invite behind a trigger
 
 The Seats section is a **reading** surface first — who has access, who has a pending invite — so the create-an-invite form does not sit permanently under it. The section heading carries the action:
 
 - **`Invite`**, right-aligned opposite the "Seats (N)" heading (`components/vendor-seat-invite-dialog.ts`), opens the form in a Spartan `BrnDialog` modal. Owner-only: the component renders **nothing at all** for a member seat, so the heading row simply collapses to the heading.
 - **`components/vendor-seat-invite-form.ts`** is the dialog's body only — field, submit, outcome. The heading and the "any email address works" hint are the dialog's `brnDialogTitle` / `brnDialogDescription`.
-- **`components/vendor-seat-roster.ts`** keeps the roster, the pending-invite list, and the two destructive actions over them (remove seat, revoke invite). It no longer carries a form of any kind.
+- **`components/vendor-seat-roster.ts`** keeps the roster, the pending-invite list, and the three actions over them: remove seat, revoke invite, and **re-send invite** (AECI-927, §11a.9). It no longer carries a form of any kind. Re-send lives here rather than in the dialog because it acts on a row already on screen, and the fact the owner needs in order to decide — when it last went out — is the line beside the button.
 
 Both surfaces gate on the same `can_manage_seats` from `GET /api/vendor/seats` — the SERVER's verdict on `profiles.seat_owner`, never re-derived from the roster, because hiding a control the API would 403 and showing one it would accept have to come from one source. That read is also why the trigger appears **with** the roster rather than with the first paint.
 
@@ -1115,6 +1119,73 @@ The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is
 - ~~**Cross-domain invites.**~~ **Shipped 2026-08-26** — the domain gate was removed outright; see §11a.3. The §5 claim queue remains the path for someone with no owner to ask.
 - **Bulk/CSV invite, and role tiers beyond owner/member.**
 - **A seat-count capability or per-seat billing** — a Paid Tiers (AECI-515) decision, not this one's.
+
+### 11a.9 Re-sending an invite (AECI-927 — 2026-09-14)
+
+`POST /api/vendor/seats/invites/:id/resend` → **200** `{ invite }`. Owner-only, behind the same three
+gates as the rest of §11a.5, and not entitlement-gated for the same reason (§11a.6).
+
+**Why it exists.** An invite that goes to spam, gets deleted, or is simply ignored had no recovery
+path. The only move was revoke-then-re-invite, which mints a new token and spends one of the day's
+ten. That is a capability gap dressed as a UX gap: the owner *could* get there, but by a route that
+does not look like "send it again".
+
+**The token is NOT rotated.** It was never a bearer credential — the redeem is bound to the invited
+mailbox (§11a.2) — so rotation buys no security, and it costs the exact failure the endpoint exists
+to fix: it silently kills a link the invitee may already be holding, so of two mails only the newest
+works with nothing on the dead one to say why.
+
+**`expires_at` IS refreshed** to `now + INVITE_TTL_DAYS`. An invite re-sent on day 13 with a day left
+is barely worth sending, and the email states its own expiry, so the row and the mail have to agree.
+That refresh is also why the lifetime cap below is the real bound rather than a nicety.
+
+**Three caps, three different mechanisms**, and the third is the one that actually bounds volume:
+
+| Cap | Mechanism | Refusal |
+|---|---|---|
+| Burst | the AECI-773 `write` bucket, `by: 'vendor'`, **shared with the create route** (no `tag:` — splitting it would let an owner spend both budgets for twice the mail) | 429, `Retry-After: 60` |
+| Per invite | `RESEND_COOLDOWN_MINUTES` = 5, a per-row comparison against `last_sent_at` | 429 with an **exact** `Retry-After` |
+| Per invite, lifetime | `INVITE_MAX_SENDS` = 4 **including the original** | **422 `INVALID_STATE_TRANSITION`** |
+
+The last row is not a 429, and that is the point: a 429 promises that waiting helps, and here it
+never does. The copy has to send the owner to revoke-and-re-invite, so the status has to agree. A
+cooldown alone would not bound anything useful — pending invites accumulate for 14 days at up to
+`INVITE_DAILY_LIMIT` a day, so daily volume without a lifetime cap runs to the thousands. With it,
+total sends are a constant multiple of a creation rate that is already capped.
+
+**An EXPIRED invite is a 404, not a revival.** Reviving would contradict the roster, which does not
+show it, and would hand the lifetime cap a way around itself — an owner could park an address
+indefinitely by re-sending on each expiry.
+
+**The mail names the ORIGINAL sender**, resolved from `invited_by_id`, not whoever pressed the
+button. The email's job is to be recognisable to the recipient, and the name they may already have
+seen on the first copy is what does that; `requireSeatOwner` proves the caller may act, it is not the
+byline. It falls back to the caller when that account has been erased (`ON DELETE SET NULL`).
+
+**Schema.** Migration `0035`, two additive columns on `vendor_seat_invites`: `last_sent_at`
+(nullable — `null` means it has only ever gone out once, at `created_at`) and `send_count` (default
+`1`). Nullable and constant-default respectively, so drizzle-kit emits plain `ALTER TABLE ADD COLUMN`
+rather than the table rebuild a CHECK change would force (§1.2 / R1).
+
+**One verdict function, three consumers.** `inviteResendState` decides `ok` / `cooling_down` /
+`send_limit`, and it is what the roster read ships as `resend_state`, what the handler re-runs before
+writing, and what the response echoes. The reason travels rather than a boolean because a disabled
+control with no explanation is a dead end, and the two refusals need opposite copy — one clears
+itself in minutes, the other never does.
+
+**Same shape as the rest of §11a otherwise**: the `audit_log` row (`vendor_seat.invite_resent`) rides
+the same `db.batch` as the UPDATE (§26.1), `send_count` increments in SQL rather than as a literal
+computed from the handler's read, and the mail is post-commit `waitUntil` — a send failure must not
+roll back a committed expiry refresh.
+
+**The UPDATE's `WHERE` is a compare-and-swap, and it has to be.** Vendor-scope-plus-pending is the
+revoke's guard, and it survives a race there only because the revoke SETS `revoked_at`, which its own
+`WHERE` tests — so the second of two concurrent revokes matches nothing. Nothing the re-send SETS is
+read by those four terms, so `send_count = <the value just read>` is the term that makes the row
+advance exactly once and keeps `INVITE_MAX_SENDS` enforceable. What it does **not** do is suppress the
+losing request's `audit_log` row or its mail: the audit insert is an unconditional second statement in
+the batch, and no statement in a `db.batch` can be made conditional on another's row count. Duplicate
+mail is bounded by the cooldown and the per-vendor `write` bucket, not by this predicate.
 
 ---
 

@@ -777,7 +777,7 @@ there is no `wrangler ratelimit create`.
 | `token` | `TOKEN_RATE_LIMIT` | **10 / 10 s** | client IP (`cf-connecting-ip`) |
 | `write` | `WRITE_RATE_LIMIT` | **30 / 60 s** | authenticated user — vendor on the shared mailer |
 
-Three properties to hold on to before changing anything:
+Four properties to hold on to before changing anything:
 
 - **`simple.period` is a strict enum of 10 or 60 seconds.** These are burst caps. They do
   not and cannot implement an hourly cap, exactly like the WAF rules above. Hourly and
@@ -789,6 +789,13 @@ Three properties to hold on to before changing anything:
   `limit × colos`. That is acceptable only because §1 exists — the WAF is the volumetric
   answer and this is a per-actor brake. Two requests from one IP through different colos
   not sharing a counter is expected behaviour, not a bug.
+- **A D1-level cap is not always a count.** ADR 0026 §"Why D1 counts" says of the two caps it
+  shipped that they need "no new table, no new index, no migration", and that is still true of
+  those two. It is a description of the invite and review **counts**, not a standing prohibition:
+  the AECI-927 re-send cooldown is a per-row timestamp comparison, which is a third mechanism and
+  did take two additive columns (migration `0035`). What it bought is the only exact `Retry-After`
+  on the surface — a count over a rolling window cannot produce one without a second aggregate,
+  while a column on the row you already read is free.
 - **The binding is not inherited across wrangler environments.** Each bucket is declared
   **five** times in `apps/api/wrangler.jsonc` (base + preview + staging + demo +
   production), each with its own `namespace_id` because counters are shared *account-wide*
@@ -805,7 +812,8 @@ Three properties to hold on to before changing anything:
 | Endpoint | Layer | Why |
 |---|---|---|
 | `PATCH /api/vendor/profile`, the four `/api/vendor/products/*` writes, `POST /api/vendor/claims`, `PUT`/`DELETE …/attestation`, `DELETE /api/vendor/seats/*` | `write` (by user) | Covered by nothing at the edge. The product PATCH purges cache tags, so an unbounded loop there is an edge-cache purge loop |
-| `POST /api/vendor/seats/invites` | `write` (**by vendor**) + D1 `INVITE_DAILY_LIMIT` | The one `by: 'vendor'` on the surface: the protected resource is vendor-**shared** outbound Resend mail, so five seats must not buy five times the sends. The 24 h cap stays a D1 count — no binding window reaches it |
+| `POST /api/vendor/seats/invites` | `write` (**by vendor**) + D1 `INVITE_DAILY_LIMIT` | One of two `by: 'vendor'` routes: the protected resource is vendor-**shared** outbound Resend mail, so five seats must not buy five times the sends. The 24 h cap stays a D1 count — no binding window reaches it |
+| `POST /api/vendor/seats/invites/:id/resend` | `write` (**by vendor**, same budget) + a per-invite cooldown + a per-invite lifetime cap | AECI-927, the other mailer. It shares the create route's bucket deliberately — **no `tag:`**, because separate budgets would let one owner spend both back to back for twice the mail. The two D1 caps are **not counts**: a 5-minute cooldown compares `last_sent_at` on the single row already read (so the 429 carries an *exact* `Retry-After`, the only one on the surface that does), and a lifetime 4 sends reads `send_count`. The lifetime cap is what bounds volume — pending invites accumulate for 14 days at up to 10/day, so a cooldown alone leaves the daily total in the thousands. It returns **422**, not 429: waiting never clears it, and a 429 would promise otherwise |
 | `POST /api/reviews` | `write` (by user) + D1 3/user/rolling hour | §15.1's second bullet, honoured literally for the first time. Rule B unchanged |
 | `PATCH /api/account`, `POST /api/auth/profile/ensure` | `write` (by user) | Both are D1 writes with no limit before. `profile/ensure` is the last hop of every sign-in, so a mis-set limit there is a login outage — it gets the loosest bucket and one sign-in spends one unit |
 | `POST /api/seat-invites/:token/accept`, `POST /api/unsubscribe` | `token` (by IP) | The caller presents a secret. Keyed by IP, **never by the token** — a per-token key hands every guess its own fresh budget |

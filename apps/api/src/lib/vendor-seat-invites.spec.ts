@@ -16,10 +16,16 @@ import {
   createInviteStatements,
   inviteExpiryFrom,
   inviteRedeemState,
+  inviteResendState,
   normalizeInviteEmail,
+  resendCooldownSecondsRemaining,
+  resendInviteStatements,
   revokeInviteStatements,
+  INVITE_MAX_SENDS,
   INVITE_TTL_DAYS,
+  RESEND_COOLDOWN_MINUTES,
   type RedeemableInvite,
+  type ResendableInvite,
 } from './vendor-seat-invites';
 
 const NOW = '2026-08-26T12:00:00.000Z';
@@ -81,6 +87,63 @@ describe('inviteRedeemState', () => {
     expect(
       inviteRedeemState({ ...live, expiresAt: '2026-08-26T12:00:00.001Z' }, NOW, live.email),
     ).toBe('ok');
+  });
+});
+
+describe('inviteResendState / resendCooldownSecondsRemaining (AECI-927)', () => {
+  /** `n` minutes before {@link NOW}. */
+  const minutesAgo = (n: number) => new Date(Date.parse(NOW) - n * 60_000).toISOString();
+
+  const resendable = (over: Partial<ResendableInvite> = {}): ResendableInvite => ({
+    lastSentAt: null,
+    createdAt: minutesAgo(60),
+    sendCount: 1,
+    ...over,
+  });
+
+  it('allows a re-send once the cooldown has elapsed', () => {
+    expect(inviteResendState(resendable(), NOW)).toBe('ok');
+  });
+
+  it('falls back to created_at when the invite has never been re-sent', () => {
+    // The trap: reading `last_sent_at` alone treats `null` as "never sent" and
+    // lets an invite created seconds ago be re-sent immediately. Its creation IS
+    // its first send.
+    expect(inviteResendState(resendable({ createdAt: minutesAgo(1) }), NOW)).toBe('cooling_down');
+    expect(inviteResendState(resendable({ createdAt: minutesAgo(60) }), NOW)).toBe('ok');
+  });
+
+  it('cools down from the LAST send, not the first', () => {
+    const invite = resendable({ createdAt: minutesAgo(600), lastSentAt: minutesAgo(1) });
+    expect(inviteResendState(invite, NOW)).toBe('cooling_down');
+  });
+
+  it('reports the send limit BEFORE the cooldown', () => {
+    // Order is load-bearing: an invite that is both spent and freshly sent must
+    // say "spent", or the copy promises that waiting will help when it never will.
+    const spentAndFresh = resendable({ sendCount: INVITE_MAX_SENDS, lastSentAt: minutesAgo(1) });
+    expect(inviteResendState(spentAndFresh, NOW)).toBe('send_limit');
+  });
+
+  it('refuses at the cap, not one past it', () => {
+    expect(inviteResendState(resendable({ sendCount: INVITE_MAX_SENDS - 1 }), NOW)).toBe('ok');
+    expect(inviteResendState(resendable({ sendCount: INVITE_MAX_SENDS }), NOW)).toBe('send_limit');
+  });
+
+  it('reports the exact seconds remaining, and 0 once elapsed', () => {
+    const oneMinuteIn = resendable({ lastSentAt: minutesAgo(1) });
+    expect(resendCooldownSecondsRemaining(oneMinuteIn, NOW)).toBe(
+      (RESEND_COOLDOWN_MINUTES - 1) * 60,
+    );
+    expect(resendCooldownSecondsRemaining(resendable(), NOW)).toBe(0);
+  });
+
+  it('is 0 exactly ON the boundary, so the advertised wait is enough', () => {
+    // Rounds UP elsewhere; here the boundary itself must be permissive, or a
+    // caller who waits exactly the advertised seconds is refused again.
+    const onBoundary = resendable({ lastSentAt: minutesAgo(RESEND_COOLDOWN_MINUTES) });
+    expect(resendCooldownSecondsRemaining(onBoundary, NOW)).toBe(0);
+    expect(inviteResendState(onBoundary, NOW)).toBe('ok');
   });
 });
 
@@ -263,5 +326,39 @@ describe('batch shapes', () => {
     expect(batch.auditEntry.afterState).toMatchObject({ seat_owner: true });
     // The conflict path preserves the owner bit rather than forcing it false.
     expect(upsert).toContain('on conflict');
+  });
+
+  it('resend: one guarded update + its audit row, and the token is untouched', () => {
+    const batch = resendInviteStatements(t.db, {
+      inviteId: INVITE,
+      vendorId: VENDOR,
+      email: 'dana@acme.com',
+      actorId: ACTOR,
+      actorType: 'user',
+      now: NOW,
+      expiresAt: '2026-09-09T12:00:00.000Z',
+      sendCountBefore: 1,
+    });
+
+    expect(batch.stmts).toHaveLength(2);
+    const [update, audit] = sqlOf(batch.stmts);
+    expect(audit).toContain('audit_log');
+    // Never rotated: the invitee may already hold that link.
+    expect(update).not.toContain('"token"');
+    // The full guard, not just the id.
+    expect(update).toContain('"vendor_id"');
+    expect(update).toContain('"accepted_at" is null');
+    expect(update).toContain('"revoked_at" is null');
+    // ...and a compare-and-swap on top of it. Unlike the revoke, nothing this
+    // statement SETS is read by the four terms above, so without this term two
+    // concurrent re-sends would both apply and carry `send_count` past the cap.
+    expect(update).toMatch(/"send_count" = \?/);
+    // Incremented in SQL, so the read that produced `sendCountBefore` cannot
+    // become a lost update.
+    expect(update).toMatch(/"send_count" = "vendor_seat_invites"\."send_count" \+ 1/);
+    // The transition, both sides.
+    expect(batch.auditEntry.action).toBe('vendor_seat.invite_resent');
+    expect(batch.auditEntry.beforeState).toMatchObject({ send_count: 1 });
+    expect(batch.auditEntry.afterState).toMatchObject({ send_count: 2 });
   });
 });

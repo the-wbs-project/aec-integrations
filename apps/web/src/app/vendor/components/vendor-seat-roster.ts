@@ -1,7 +1,8 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
 
-import type { VendorSeat, VendorSeatInvite } from '@aeci/shared';
+import type { ManageableSeatInvite, VendorSeat } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -13,11 +14,16 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * seat management itself (§11a.4).
  *
  * ── WHAT LIVES HERE, AND WHAT DOESN'T ───────────────────────────────────────
- * This renders the roster, the pending-invite list, and the two destructive
- * actions an owner has over them (remove a seat, revoke an invite). **Creating**
- * an invite does not live here — it is {@link VendorSeatInviteDialog}, triggered
- * from the section heading, so the list people come here to read isn't sitting
- * under a permanent form. Both surfaces gate on the same `canManageSeats` flag.
+ * This renders the roster, the pending-invite list, and the three actions an
+ * owner has over them: remove a seat, revoke an invite, and re-send one
+ * (AECI-927). **Creating** an invite does not live here — it is
+ * {@link VendorSeatInviteDialog}, triggered from the section heading, so the list
+ * people come here to read isn't sitting under a permanent form. Both surfaces
+ * gate on the same `canManageSeats` flag.
+ *
+ * Re-send belongs here and not in the dialog for the same reason: it acts on a
+ * row that is already on screen, and the thing the owner needs in order to decide
+ * — when it last went out — is the line right beside the button.
  *
  * The roster is a **separate** browser read (`GET /api/vendor/seats`) from the
  * dashboard payload because it needs the Supabase email lookup and the first
@@ -189,7 +195,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
               <div class="min-w-0">
                 <p class="text-sm text-(--text-primary)">{{ invite.email }}</p>
                 <p class="text-xs text-(--text-secondary)">
-                  <ng-container i18n="@@vendor.seats.pending.expires">Expires</ng-container>
+                  <ng-container i18n="@@vendor.seats.pending.sent">Sent</ng-container>
+                  {{ invite.last_sent_at || invite.created_at | date: 'mediumDate' }}
+                  <ng-container i18n="@@vendor.seats.pending.expires">· expires</ng-container>
                   {{ invite.expires_at | date: 'mediumDate' }}
                   @if (invite.invited_by; as by) {
                     <ng-container i18n="@@vendor.seats.pending.by">· invited by</ng-container>
@@ -198,15 +206,35 @@ import { VendorPortalStore } from '../vendor-portal-store';
                 </p>
               </div>
               @if (canManage()) {
-                <button
-                  type="button"
-                  [disabled]="busyInvite() === invite.id"
-                  (click)="revoke(invite)"
-                  [class]="dangerClass"
-                >
-                  <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
-                  <span class="sr-only">{{ invite.email }}</span>
-                </button>
+                <div class="flex shrink-0 items-center gap-2">
+                  <!-- Disabled states carry their reason in the accessible name,
+                       not just in the visual state: a cooldown clears itself in
+                       minutes, a spent invite never does, and the two need
+                       opposite next steps. -->
+                  <button
+                    type="button"
+                    [disabled]="busyInvite() !== null || invite.resend_state !== 'ok'"
+                    (click)="resend(invite)"
+                    [class]="dangerClass"
+                    [attr.title]="resendHint(invite)"
+                  >
+                    @if (isBusy(invite, 'resend')) {
+                      <span i18n="@@vendor.seats.pending.resending">Sending…</span>
+                    } @else {
+                      <span i18n="@@vendor.seats.pending.resend">Resend</span>
+                    }
+                    <span class="sr-only">{{ invite.email }}{{ resendHintSuffix(invite) }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    [disabled]="busyInvite()?.id === invite.id"
+                    (click)="revoke(invite)"
+                    [class]="dangerClass"
+                  >
+                    <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
+                    <span class="sr-only">{{ invite.email }}</span>
+                  </button>
+                </div>
               }
             </li>
           }
@@ -216,6 +244,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
     @if (actionError(); as message) {
       <p class="mt-3 text-sm text-(--text-primary)" role="alert">{{ message }}</p>
+    }
+    @if (actionStatus(); as message) {
+      <p class="mt-3 text-sm text-(--text-secondary)" role="status">{{ message }}</p>
     }
   `,
   styles: [':host { display: block; }'],
@@ -237,8 +268,18 @@ export class VendorSeatRoster {
    *  one it would accept have to come from the same source. */
   protected readonly canManage = this.store.canManageSeats;
   protected readonly busySeat = signal<string | null>(null);
-  protected readonly busyInvite = signal<string | null>(null);
+  /** The invite action in flight, if any — the id AND which action, not the id
+   *  alone. Both actions are mutually exclusive over the whole list, so the id by
+   *  itself cannot say what is happening to that row: a revoke would put the
+   *  neighbouring Resend button into its "Sending…" state, including on a row
+   *  whose `resend_state` makes a send impossible. */
+  protected readonly busyInvite = signal<{ id: string; action: 'resend' | 'revoke' } | null>(null);
   protected readonly actionError = signal<string | null>(null);
+  /** The success half of {@link actionError} — a `role="status"` line, so a
+   *  re-send that produces no visible list change is still announced. Kept
+   *  separate rather than reusing the error signal so the two can never end up
+   *  in the same live region with the wrong politeness. */
+  protected readonly actionStatus = signal<string | null>(null);
   protected readonly loading = this.store.seatsLoading;
   protected readonly failed = this.store.seatsFailed;
 
@@ -282,6 +323,7 @@ export class VendorSeatRoster {
     if (this.busySeat()) return;
     this.busySeat.set(seat.user_id);
     this.actionError.set(null);
+    this.actionStatus.set(null);
     try {
       await this.api.removeSeat(seat.user_id);
       await this.store.reload('seats');
@@ -295,10 +337,11 @@ export class VendorSeatRoster {
   }
 
   /** Revoke a pending invite before it is redeemed. */
-  protected async revoke(invite: VendorSeatInvite): Promise<void> {
+  protected async revoke(invite: ManageableSeatInvite): Promise<void> {
     if (this.busyInvite()) return;
-    this.busyInvite.set(invite.id);
+    this.busyInvite.set({ id: invite.id, action: 'revoke' });
     this.actionError.set(null);
+    this.actionStatus.set(null);
     try {
       await this.api.revokeInvite(invite.id);
       await this.store.reload('seats');
@@ -309,5 +352,86 @@ export class VendorSeatRoster {
     } finally {
       this.busyInvite.set(null);
     }
+  }
+
+  /**
+   * Mail a pending invite again (AECI-927). Same link, refreshed expiry.
+   *
+   * Pessimistic and re-read, like every other write on this surface: the visible
+   * change is a "Sent" date and a now-disabled button, and guessing either
+   * locally would mean re-implementing the cooldown the server just applied.
+   *
+   * The confirmation is a `role="status"` line rather than the list itself,
+   * because a successful re-send moves no row — without it the only feedback
+   * would be a button going quiet, which reads like a failure.
+   */
+  protected async resend(invite: ManageableSeatInvite): Promise<void> {
+    if (this.busyInvite() || invite.resend_state !== 'ok') return;
+    this.busyInvite.set({ id: invite.id, action: 'resend' });
+    this.actionError.set(null);
+    this.actionStatus.set(null);
+    try {
+      await this.api.resendInvite(invite.id);
+      this.actionStatus.set(
+        $localize`:@@vendor.seats.resend.sent:Invite sent again to ${invite.email}:email:.`,
+      );
+      // The server's row, not a local splice: it holds the new expiry and the
+      // cooldown verdict that disables the button.
+      await this.store.reload('seats');
+    } catch (err) {
+      this.actionError.set(resendErrorFor(err));
+    } finally {
+      this.busyInvite.set(null);
+    }
+  }
+
+  /** Is THIS action in flight on THIS invite? The action matters: a revoke and a
+   *  re-send both hold the row, and only one of them is a send. */
+  protected isBusy(invite: ManageableSeatInvite, action: 'resend' | 'revoke'): boolean {
+    const busy = this.busyInvite();
+    return busy?.id === invite.id && busy.action === action;
+  }
+
+  /** Why the Resend control is disabled, or `null` when it is not. Rendered as
+   *  `title` and appended to the accessible name — a disabled button whose reason
+   *  is invisible is a dead end, and the two reasons need opposite next steps. */
+  protected resendHint(invite: ManageableSeatInvite): string | null {
+    switch (invite.resend_state) {
+      case 'cooling_down':
+        return $localize`:@@vendor.seats.resend.hint.cooling:This invite was sent recently. You can send it again in a few minutes.`;
+      case 'send_limit':
+        return $localize`:@@vendor.seats.resend.hint.limit:This invite has been sent the maximum number of times. Revoke it and invite them again.`;
+      default:
+        return null;
+    }
+  }
+
+  /** The hint as a screen-reader suffix, so the disabled button's accessible name
+   *  carries the reason. Empty when the control is available. */
+  protected resendHintSuffix(invite: ManageableSeatInvite): string {
+    const hint = this.resendHint(invite);
+    return hint ? `. ${hint}` : '';
+  }
+}
+
+/** Map the re-send refusals onto copy that says what to do next — the same
+ *  discipline as `vendor-seat-invite-form.ts`. The two 4xx here are genuinely
+ *  different advice: a cooldown resolves by waiting, a spent invite never does. */
+function resendErrorFor(err: unknown): string {
+  const code =
+    err instanceof HttpErrorResponse
+      ? ((err.error as { error?: { code?: string } } | null)?.error?.code ?? null)
+      : null;
+  switch (code) {
+    case 'RATE_LIMITED':
+      return $localize`:@@vendor.seats.resend.error.rate:That invite was just sent. Give it a few minutes.`;
+    case 'INVALID_STATE_TRANSITION':
+      return $localize`:@@vendor.seats.resend.error.limit:That invite has been sent the maximum number of times. Revoke it and invite them again.`;
+    case 'FORBIDDEN':
+      return $localize`:@@vendor.seats.resend.error.forbidden:Only an account owner can manage seats.`;
+    case 'NOT_FOUND':
+      return $localize`:@@vendor.seats.resend.error.gone:That invite is no longer pending. Refresh the list.`;
+    default:
+      return $localize`:@@vendor.seats.resend.error.generic:Could not send that invite again. Try again.`;
   }
 }

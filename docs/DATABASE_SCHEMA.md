@@ -1211,6 +1211,16 @@ URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
 `crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
 (`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
 
+**Re-sending is bounded by two columns, not by a counter table** (AECI-927). A 5-minute
+cooldown reads `last_sent_at`; a lifetime cap of 4 sends reads `send_count`. The lifetime
+cap is the one that bounds volume — pending invites accumulate for 14 days at up to 10/day,
+so a cooldown alone leaves the daily total in the thousands. `send_count` is incremented in
+SQL (`send_count = send_count + 1`), never written as a value computed from a prior read, and
+the UPDATE's `WHERE` carries a compare-and-swap on that same column, so two concurrent
+re-sends advance the row once rather than twice past the cap. A re-send does **not** touch `token`:
+the redeem is bound to the invited mailbox, so rotating would only kill a link the invitee
+may already hold. It DOES move `expires_at` forward, which is why the lifetime cap exists.
+
 **No FK on the invitee.** `email` is deliberately not a `profiles` reference: at
 insert time the invitee usually has no account at all. Who actually redeemed it
 is on the `audit_log` row (`vendor_seat.invite_accepted`, `actor_id` = redeemer).
@@ -1231,6 +1241,16 @@ create table vendor_seat_invites (
                                        -- change on SQLite is a full table rebuild)
   accepted_at timestamptz,             -- both null = pending; either set = spent
   revoked_at timestamptz,
+
+  -- AECI-927 (migration 0035). Both additive: `last_sent_at` is nullable and
+  -- `send_count` has a constant default, so drizzle-kit emits plain ALTER TABLE
+  -- ADD COLUMN rather than the table rebuild a CHECK change would force.
+  last_sent_at timestamptz,            -- last RE-send; null = only ever sent once,
+                                       -- at created_at. Read it as
+                                       -- `last_sent_at ?? created_at` — treating
+                                       -- null as "never sent" lets a brand-new
+                                       -- invite skip its own cooldown
+  send_count integer not null default 1, -- INCLUDING the original send
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

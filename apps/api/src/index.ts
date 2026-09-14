@@ -121,6 +121,7 @@ import {
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import {
   createRemoveSeatHandler,
+  createResendSeatInviteHandler,
   createRevokeSeatInviteHandler,
   createSeatInviteHandler,
 } from './routes/vendor-seat-invites';
@@ -833,22 +834,33 @@ authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandle
 // entitlement would stop a lapsed vendor revoking a departed employee's access
 // (§11a). `DELETE /seats/:userId` is the first HTTP surface `revokeSeatStatements`
 // has ever had — AECI-524 shipped the builder unwired.
-//   - POST   /api/vendor/seats/invites     — invite a colleague (201).
-//   - DELETE /api/vendor/seats/invites/:id — revoke a pending invite (204).
-//   - DELETE /api/vendor/seats/:userId     — remove a seat (204).
+//   - POST   /api/vendor/seats/invites            — invite a colleague (201).
+//   - POST   /api/vendor/seats/invites/:id/resend — mail it again (200, AECI-927).
+//   - DELETE /api/vendor/seats/invites/:id        — revoke a pending invite (204).
+//   - DELETE /api/vendor/seats/:userId            — remove a seat (204).
 //
 // The invites routes are registered BEFORE `/seats/:userId` so the literal
 // `invites` segment can never be parsed as a user id.
-// The ONE `by: 'vendor'` on this surface. Keyed per vendor rather than per seat
-// because the protected resource is vendor-SHARED outbound Resend mail — five
-// seats must not buy five times the sends. It is the burst layer BENEATH the
-// D1-counted `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h), which no
-// binding can express because `simple.period` maxes at 60 s.
+// The TWO `by: 'vendor'` routes on this surface, and they are the two that mail.
+// Keyed per vendor rather than per seat because the protected resource is
+// vendor-SHARED outbound Resend mail — five seats must not buy five times the
+// sends. They share one budget deliberately (no `tag:`): splitting it would let
+// an owner spend the create bucket and the resend bucket back to back for twice
+// the mail. It is the burst layer BENEATH the D1 caps, which no binding can
+// express because `simple.period` maxes at 60 s — `INVITE_DAILY_LIMIT` (10 per
+// vendor per rolling 24 h) on create, and on resend a per-invite cooldown plus a
+// lifetime send cap (`waf-rate-limits.md` §6.2).
 authVendor.post(
   '/api/vendor/seats/invites',
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
   createSeatInviteHandler(getDb, sendSeatInvite),
+);
+authVendor.post(
+  '/api/vendor/seats/invites/:id/resend',
+  requireVendor(),
+  rateLimit('write', { by: 'vendor' }),
+  createResendSeatInviteHandler(getDb, sendSeatInvite),
 );
 authVendor.delete(
   '/api/vendor/seats/invites/:id',

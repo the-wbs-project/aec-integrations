@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 
 import type {
   CreateSeatInviteResponse,
+  ResendSeatInviteResponse,
   AgreementAttestation,
   CreateVendorClaimInput,
   ListDataObjectsResponse,
@@ -167,6 +168,24 @@ export class PreviewVendorApi extends VendorApi {
         invited_by: 'Dana Ruiz',
         expires_at: '2099-01-01T00:00:00.000Z',
         created_at: '2026-08-26T00:00:00.000Z',
+        // Matches the real handler: a just-created invite is inside its own
+        // cooldown, so the roster's Resend control is correctly dead on arrival.
+        last_sent_at: null,
+        resend_state: 'cooling_down',
+      },
+    };
+  }
+
+  /** AECI-927. Echoes the fixture row with the fields a re-send actually moves,
+   *  so the preview shows the post-send state rather than an unchanged row. */
+  override async resendInvite(inviteId: string): Promise<ResendSeatInviteResponse> {
+    const existing = VENDOR_SEAT_INVITES_FIXTURE.find((invite) => invite.id === inviteId);
+    return {
+      invite: {
+        ...(existing ?? VENDOR_SEAT_INVITES_FIXTURE[0]!),
+        id: inviteId,
+        last_sent_at: '2026-08-26T10:00:00.000Z',
+        resend_state: 'cooling_down',
       },
     };
   }
