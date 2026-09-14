@@ -80,6 +80,13 @@ export interface EmailCta {
  */
 export type EmailTableRow = readonly [label: string, value: string];
 
+/** One headed group of rows, for an alert that is about N things rather than one. */
+export interface EmailSection {
+  /** Names the thing this group describes. Escaped by the renderer. */
+  heading: string;
+  rows: readonly EmailTableRow[];
+}
+
 export interface EmailLayout {
   /** Inbox preview line. Hidden in the body, shown in the client's message list. */
   preheader: string;
@@ -96,6 +103,14 @@ export interface EmailLayout {
    * `opsTable()` when `claim-approved` migrated.
    */
   table?: readonly EmailTableRow[];
+  /**
+   * The same detail table, repeated under a heading per item.
+   *
+   * For the digest-shaped alerts that report N stuck rows rather than one event. Set
+   * `table` OR `sections`, never both: they occupy the same slot and the renderer draws
+   * `table` first, so setting both reads as two unrelated tables stacked.
+   */
+  sections?: readonly EmailSection[];
   /** Omitted when there is no link to offer (e.g. `PUBLIC_SITE_URL` is unset). */
   cta?: EmailCta;
   /** Small print below the hairline rule. */
@@ -128,6 +143,11 @@ export function renderEmailText(layout: EmailLayout): string {
   // already reads these in. `opsText()` produced exactly this, so a migrated template's
   // text part is unchanged and the specs that assert on it still hold.
   if (layout.table?.length) parts.push(layout.table.map(([k, v]) => `${k}: ${v}`).join('\n'));
+  // Sections keep `opsSectionsText`'s two-space indent under each heading, which is
+  // what makes a multi-row alert scannable in a plain-text client.
+  for (const section of layout.sections ?? []) {
+    parts.push(`${section.heading}\n${section.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
+  }
   if (layout.cta) parts.push(`${layout.cta.label}: ${layout.cta.url}`);
   if (layout.note) parts.push(layout.note);
   return parts.join('\n\n');
@@ -147,6 +167,7 @@ export function renderEmailHtml(layout: EmailLayout): string {
     // twin (which only ever has one block, at 12px).
     ...layout.blocks.map((html, i) => blockRow(html, i === 0)),
     ...(layout.table?.length ? [tableRow(layout.table)] : []),
+    ...(layout.sections ?? []).map(sectionRow),
     ...(layout.cta ? [ctaRow(layout.cta), pasteableUrlRow(layout.cta.url)] : []),
     ...(layout.note ? [hairlineRow(), noteRow(layout.note)] : [spacerRow()]),
   ].join('');
@@ -242,20 +263,42 @@ function blockRow(html: string, first: boolean): string {
  * auto-link it anyway but in their own colour.
  */
 function tableRow(rows: readonly EmailTableRow[]): string {
+  return `<tr><td style="padding:20px 32px 0 32px">` + detailTable(rows) + `</td></tr>`;
+}
+
+/** The two-column grid itself, shared by the flat `table` and each `sections` group. */
+function detailTable(rows: readonly EmailTableRow[]): string {
   const cells = rows
-    .map(
-      ([label, value], i) =>
+    .map(([label, value], i) => {
+      const top = i === 0 ? '' : 'border-top:1px solid #d4d4d8;';
+      const pad = i === 0 ? 0 : 10;
+      return (
         `<tr>` +
-        `<td valign="top" width="35%" style="padding:${i === 0 ? 0 : 10}px 12px 10px 0;${i === 0 ? '' : 'border-top:1px solid #d4d4d8;'}font-family:${FONT};font-size:13px;line-height:1.5;color:#71717a">` +
+        `<td valign="top" width="35%" style="padding:${pad}px 12px 10px 0;${top}font-family:${FONT};font-size:13px;line-height:1.5;color:#71717a">` +
         `${escapeHtml(label)}</td>` +
-        `<td valign="top" style="padding:${i === 0 ? 0 : 10}px 0 10px 0;${i === 0 ? '' : 'border-top:1px solid #d4d4d8;'}font-family:${FONT};font-size:14px;line-height:1.5;color:#0a0a0a;word-break:break-word">` +
+        `<td valign="top" style="padding:${pad}px 0 10px 0;${top}font-family:${FONT};font-size:14px;line-height:1.5;color:#0a0a0a;word-break:break-word">` +
         `${tableValue(value)}</td>` +
-        `</tr>`,
-    )
+        `</tr>`
+      );
+    })
     .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${cells}</table>`;
+}
+
+/**
+ * One headed group, for the digest-shaped alerts.
+ *
+ * The heading is `#0A0A0A` at 15px/600, one step down from the email's own 22px
+ * heading, so the hierarchy reads as "one alert, N items" rather than N emails glued
+ * together. Groups after the first carry the top padding that separates them; the
+ * first sits at the same 20px the flat table does, so a one-item alert is
+ * indistinguishable from a flat one.
+ */
+function sectionRow(section: EmailSection, i: number): string {
   return (
-    `<tr><td style="padding:20px 32px 0 32px">` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${cells}</table>` +
+    `<tr><td style="padding:${i === 0 ? 20 : 28}px 32px 0 32px">` +
+    `<div style="font-family:${FONT};font-size:15px;line-height:1.4;font-weight:600;color:#0a0a0a;padding-bottom:10px">${escapeHtml(section.heading)}</div>` +
+    detailTable(section.rows) +
     `</td></tr>`
   );
 }

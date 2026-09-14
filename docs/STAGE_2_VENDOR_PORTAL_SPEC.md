@@ -1003,8 +1003,19 @@ What changed, and what did not:
   is nothing for a future edit to render by accident. A spec asserts the rendered body
   carries no table row at all.
 
-The other 16 transactional templates are deliberately untouched. `docs/email.md`
-(§House layout) carries the standard, the twin-file rule, and the migration table.
+§11a's `vendor-seat-invite` moved in the same change, and of everything migrated it is
+the one the shell mattered most for. Its copy is three defences against reading as
+phishing (name the inviter, name the address the link is bound to, say the link expires)
+and the legacy shell undercut all three: bare grey paragraphs, no logo, the sender named
+nowhere but the `From:`, and the redeem link as a naked inline anchor. The house shell
+names AECi in the body twice, as logo alt text and as the wordmark row, so it survives
+the images-off corporate mail security this audience sits behind. The redeem link is now
+the single Forest CTA with its URL spelled out underneath, which matters more here than
+on any other template because the recipient is being asked to trust a link from a
+directory they may not know.
+
+`docs/email.md` (§House layout) carries the standard, the twin-file rule, and the
+migration table: 6 templates on the layout, 13 still on the legacy formatters.
 
 ---
 

@@ -159,6 +159,46 @@ describe('renderEmailHtml — the detail table (AECI-924)', () => {
   });
 });
 
+describe('renderEmailHtml — sections (AECI-924)', () => {
+  const SECTIONS = [
+    { heading: 'Autodesk (claim)', rows: [['Cause', 'no_api_key'] as const] },
+    { heading: 'Globex (claim)', rows: [['Cause', 'timeout'] as const] },
+  ];
+
+  it('renders a heading per group, above that group only', () => {
+    const html = renderEmailHtml({ ...BASE, sections: SECTIONS });
+    expect(html.indexOf('Autodesk (claim)')).toBeLessThan(html.indexOf('no_api_key'));
+    expect(html.indexOf('no_api_key')).toBeLessThan(html.indexOf('Globex (claim)'));
+    expect(html.indexOf('Globex (claim)')).toBeLessThan(html.indexOf('timeout'));
+  });
+
+  it('sets the group heading one step below the email heading, not equal to it', () => {
+    const html = renderEmailHtml({ ...BASE, sections: SECTIONS });
+    // 22px is the email's own heading. A group is 15px/600. Equal sizes would read as
+    // N emails glued together rather than one alert about N things.
+    expect(html).toContain('font-size:15px;line-height:1.4;font-weight:600;color:#0a0a0a');
+    expect(html).toContain('font-size:22px');
+  });
+
+  it('escapes the heading, because a section is named after catalog data', () => {
+    const html = renderEmailHtml({
+      ...BASE,
+      sections: [{ heading: '<script>x</script>', rows: [['a', 'b'] as const] }],
+    });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('opens a one-group alert at the same offset a flat table does', () => {
+    const one = renderEmailHtml({ ...BASE, sections: [SECTIONS[0]!] });
+    expect(one).toContain('padding:20px 32px 0 32px');
+  });
+
+  it('renders nothing when there are no sections', () => {
+    expect(renderEmailHtml({ ...BASE, sections: [] })).toBe(renderEmailHtml(BASE));
+  });
+});
+
 describe('renderEmailHtml — escaping', () => {
   it('escapes the heading, the CTA and the note', () => {
     const html = renderEmailHtml({
@@ -207,6 +247,25 @@ describe('renderEmailText', () => {
   it('omits the CTA line entirely when there is no link to offer', () => {
     const text = renderEmailText({ ...BASE, cta: undefined });
     expect(text).not.toContain('http');
+  });
+
+  it('indents section rows under their heading, as `opsSectionsText` did', () => {
+    const text = renderEmailText({
+      ...BASE,
+      cta: undefined,
+      note: undefined,
+      sections: [
+        { heading: 'Autodesk (claim)', rows: [['Cause', 'no_api_key']] },
+        { heading: 'Globex (claim)', rows: [['Cause', 'timeout']] },
+      ],
+    });
+    expect(text.split('\n\n')).toEqual([
+      'Your claim is approved',
+      'First block.',
+      'Second block.',
+      'Autodesk (claim)\n  Cause: no_api_key',
+      'Globex (claim)\n  Cause: timeout',
+    ]);
   });
 
   it('emits the table as one `Key: value` block between the blocks and the CTA', () => {
