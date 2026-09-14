@@ -40,6 +40,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
+import { escapeHtml, renderEmailHtml, renderEmailText } from './email-layout';
 import { adminRequestUrl, environmentHost } from './request-links';
 
 /**
@@ -283,6 +284,14 @@ export function sendReviewRejectedEmail(
  * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
  * absent → silent skip. Copy stays account-scoped: verification is a status, not a
  * product endorsement, and never touches ranking (no pay-for-placement).
+ *
+ * **The first template on the house layout** (`./email-layout`), which is why it reads
+ * as a headline, two short blocks and one Forest button rather than four equal grey
+ * paragraphs. The structural change is the CTA: the portal used to be an inline link
+ * inside a sentence, and this is the one action the email exists to prompt. Every §9 AC
+ * is unchanged — the vendor is named, capabilities are listed, the link appears only
+ * when configured, the sign-in line still branches on the identity outcome, and the
+ * verification framing is word-for-word what it was.
  */
 export function sendClaimApprovedEmail(
   c: EmailContext,
@@ -291,44 +300,35 @@ export function sendClaimApprovedEmail(
   const name = opts.vendorName.trim() || 'this vendor';
   const portal = portalUrl(c.env);
 
-  const signInText = opts.invited
+  // The button carries the destination, so the sign-in line no longer repeats the URL.
+  // Without a portal link there is no button, and the copy has to stand alone.
+  const signIn = opts.invited
     ? portal
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${portal}.`
+      ? 'We created an account for your email address. Sign in by requesting a one-time sign-in link.'
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : portal
-      ? `Sign in with your existing account to get started: ${portal}.`
-      : 'Sign in with your existing account to get started.';
-  const signInHtml = opts.invited
-    ? portal
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(portal)}">your vendor portal</a>.`
-      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : portal
-      ? `<a href="${escapeHtml(portal)}">Sign in with your existing account</a> to get started.`
-      : 'Sign in with your existing account to get started.';
+    : 'Sign in with your existing account to get started.';
 
   const verification =
     "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
   const capabilities =
-    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor portal.';
+    'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
 
-  const textParagraphs = [
-    `Your claim for ${name} has been approved, and your account is now verified on AEC Integrations.`,
-    capabilities,
-    signInText,
-    verification,
-  ];
-  const htmlParagraphs = [
-    `Your claim for <strong>${escapeHtml(name)}</strong> has been approved, and your account is now verified on AEC Integrations.`,
-    capabilities,
-    signInHtml,
-    verification,
-  ];
+  const opening = `Your account is now verified on AEC Integrations and can manage the ${name} listing.`;
+  const openingHtml = `Your account is now verified on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
+
+  const shared = {
+    preheader: `Your vendor portal for ${name} is open.`,
+    heading: `Your claim for ${name} is approved`,
+    ...(portal ? { cta: { label: 'Go to your vendor portal', url: portal } } : {}),
+    note: verification,
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-approved',
     subject: `Your claim for ${name} is approved`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    text: renderEmailText({ ...shared, blocks: [opening, capabilities, signIn] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, capabilities, signIn] }),
   });
 }
 
@@ -1410,6 +1410,20 @@ function pairUrl(env: Env, slugA: string, slugB: string): string | null {
   return `${base}/products/${context}/integrations/${other}`;
 }
 
+/**
+ * LEGACY formatters — an unbranded `<body>` of `<p>` tags with no card, no wordmark, no
+ * button and no footer, at an off-palette `#27272a`.
+ *
+ * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
+ * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
+ * that. These two remain only for the templates not yet migrated; `docs/email.md`
+ * (§House layout) carries the migration list.
+ *
+ * Note the sign-off: the house layout deliberately has none, because its footer wordmark
+ * names the sender. It also carries an em dash, which PRODUCT.md bans — the em-dash lint
+ * is scoped to `apps/web` (`eslint.config.base.mjs`), so nothing catches it here.
+ * Migrating a template off these formatters is what removes it.
+ */
 function toText(paragraphs: string[]): string {
   return `${paragraphs.join('\n\n')}\n\n— The AEC Integrations team`;
 }
@@ -1469,13 +1483,8 @@ function opsSectionsHtml(
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p>${blocks}</body></html>`;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+// `escapeHtml` now lives in `./email-layout` (the layout is what interpolates) and is
+// imported at the top of this file, so every call site below is unchanged.
 
 /** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */

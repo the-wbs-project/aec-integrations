@@ -50,6 +50,81 @@ decision record; no separate ADR.
   `null` on **PR previews and local dev**, where the key is absent by design
   (`AUTH_AND_RLS.md` §3.1).
 
+## House layout (the shared shell)
+
+**`apps/api/src/lib/email-layout.ts` is the standard every transactional email renders
+into.** It exports `renderEmailHtml(layout)` and `renderEmailText(layout)` over one
+`EmailLayout` object: `preheader`, `heading`, `blocks[]`, an optional `cta`, an optional
+`note`.
+
+It is a port of the sign-in email in `docs/email-templates/magic-link.html`, which was
+the only brand-correct email in the product and the only one **not** sent by
+`lib/email.ts`. What it carries:
+
+| Element | Spec |
+|---|---|
+| Page background | `#F4F4F5` |
+| Card | 600px max, `#FFFFFF`, `1px solid #D4D4D8`, `border-radius: 6px`, `overflow: hidden` |
+| Preheader | Hidden `<div>` (`mso-hide: all`). The line the client shows in the message list |
+| Logo band | Full-bleed Forest `#1E3A2F` `<td>`, the 300x49 banner image, `alt="AEC Integrations"` |
+| Text wordmark | "AEC Integrations", 14px / 600, Forest, on the white card below the band |
+| Heading | 22px / 600 / 1.3, `#0A0A0A` |
+| Blocks | 15px / 1.6, `#52525B`. First block sits at 12px, later ones at 16px |
+| CTA | Forest fill, `#FFFFFF` label, 6px radius, plus the `[if mso]` `v:roundrect` twin Outlook for Windows needs |
+| Paste-able URL | Always rendered under a CTA. Corporate gateways strip buttons routinely |
+| Hairline | 1px `#D4D4D8` |
+| Note | 13px / 1.6, `#71717A` |
+| Footer | Centered "AEC Integrations", 12px, `#71717A`, outside the card |
+
+Four rules the module holds, each because of a specific failure:
+
+- **The logo URL is hardcoded to production** (`EMAIL_LOGO_URL`), never derived from
+  `PUBLIC_SITE_URL`. Non-prod tiers sit behind Cloudflare Access (`docs/access.md`), so a
+  staging-derived URL would 403 in the recipient's mail client and show nothing. It is a
+  **PNG**, not an SVG, because Outlook and Gmail do not render SVG at all, which is why
+  the already-served `monogram-light.svg` is unusable here. The asset is
+  `apps/web/public/branding/email-logo-banner.png`; renaming or moving it breaks the
+  header of every email already delivered.
+- **The brand appears twice, as an image and as text.** The band's `<td>` carries the
+  Forest fill and Bone `#F5F2EA` type styling so the alt text renders legibly *inside*
+  the band when images are blocked, and the wordmark row repeats it on the card. An email
+  that never names its sender in text reads as phishing, and this audience sits behind
+  mail security that blocks images by default.
+- **A CTA always ships its URL as paste-able text.** Same reason the sign-in email does.
+- **There is no "The AEC Integrations team" sign-off.** The footer wordmark is what names
+  the sender. Dropping it also removes an em dash, which PRODUCT.md bans and which the
+  lint does not catch here (`eslint.config.base.mjs`'s em-dash rule is scoped to
+  `apps/web`).
+
+### The twin file
+
+`docs/email-templates/magic-link.html` is the Supabase/GoTrue sign-in template. GoTrue
+runs Go templates and cannot import TypeScript, so **the two are hand-kept twins: change
+the shell in one and change it in the other in the same PR**, or the sign-in email drifts
+from every other email. That file additionally has to be pasted into the Supabase
+dashboard to take effect, per the magic-link section below.
+
+### Migration status
+
+`claim-approved` is the first template on the layout (2026-09-14). The rest still render
+through the legacy formatters in `lib/email.ts`, which produce an unbranded `<body>` of
+`<p>` tags at an off-palette `#27272a`:
+
+| Formatter | Templates | Count |
+|---|---|---|
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved` | 1 |
+| `toText` / `toHtml` (legacy reader-facing) | `review-submitted`, `review-approved`, `review-rejected`, `claim-rejected`, `vendor-seat-invite`, `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `entitlement-expiring` | 11 |
+| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `claim-submitted-alert`, `attestation-ops-alert`, `entitlement-expiring-admin` | 5 |
+| `opsSectionsText` / `opsSectionsHtml` (operator, multi-section) | `stuck-request-alert`, `stale-claim-ticket-alert` | 2 |
+
+Migrating a reader-facing template means re-cutting its copy around a heading, short
+blocks and **one** CTA, and it drops that template's sign-off. The **7 operator alerts
+are a separate question**: they are data tables for one reader, not brand surfaces, so
+they may not want the card treatment at all.
+
+The two cron digests are also unmigrated and are a larger job: `lib/analytics-digest.ts`
+carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.md token.
+
 ## Template catalogue
 
 | `template` id | Trigger / call site | Recipient | Notes |
@@ -64,7 +139,7 @@ decision record; no separate ADR.
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
 | `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only**; ALSO re-sent by the §6.7 reconciliation sweep when that is what finally created the issue (AECI-861) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. Operator format (`opsText`/`opsTable`) carrying the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet — the reconciliation sweep will retry` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
 | `stale-claim-ticket-alert` | the `25 */6` `claim-stale-check` cron (`lib/claim-stale-check.ts`, AECI-862) | `FOUNDER_ALERT_EMAIL` | Founder escalation: claim tickets that **exist** in Linear and that nobody has started after 24 hours. A deliberate third recipient — `stuck-request-alert` means the pipeline is broken and goes to whoever fixes it, this means the pipeline worked and the humans did not, so merging them would bury a business-response problem inside an infrastructure alert. The intro says so in as many words ("nothing is broken"). Operator format, one section per ticket, carrying the Linear identifier and title, how long it has waited, the state it is stuck in, the claimant, and **both** links: Linear is where you accept the work, `/admin/claims/:id` is where the claimant's evidence is. Band-throttled by the caller (`lib/alert-bands.ts`) — once as the ticket crosses 24 h, then once a day, never four times a day. Staleness is read from **Linear**, not `vendor_requests.status`, because the local status depends on the §6.3 inbound webhook, which is not confirmed to be delivering. |
-| `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. |
+| `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. **The first template on the house layout (2026-09-14)** — the portal moved from an inline link inside a sentence to the single Forest CTA, since it is the one action the email exists to prompt, and the copy re-cut into a heading plus three short blocks. No `PUBLIC_SITE_URL` means no button, exactly as it previously meant no link. Every §9 AC is unchanged. |
 | `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. |
 | `vendor-seat-invite` | `POST /api/vendor/seats/invites` (`routes/vendor-seat-invites.ts`, AECI-664) — post-commit, `ctx.waitUntil` | the invited colleague (the address the owner typed) | **The only template a CUSTOMER triggers**, which is why that endpoint carries the tightest rate limit on the surface — a 24 h cap of 10 per vendor, plus an AECI-773 burst bucket keyed per vendor rather than per seat so five seats cannot buy five times the sends. (Since AECI-773 it is no longer the *only* rate-limited endpoint — see `waf-rate-limits.md` §6 — but it is still the only one that mails a third party on a customer's command, which is what earns the daily cap.) Names the inviter and the company (a cold "you have been granted access" from a directory the recipient may not know is indistinguishable from phishing), states the address the link is bound to (redeeming requires signing in as exactly that address, so saying it up front turns the likeliest failure into an instruction), and says the link expires. Carries the redeem link — safe in a URL because the token identifies an invite and never authorizes one (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). No `PUBLIC_SITE_URL` → the whole send is `skipped` rather than mailing an invite with nowhere to act on it. |
 | `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302). **Never fires on a connector-powered edge** (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14) — nor do the two rows below, since the sweep drops every *vendor-addressed* finding on those edges before delivery. The `attestation-ops-alert` row is unaffected: ops findings are AECi's own correction signal, not a nudge | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
@@ -83,8 +158,9 @@ by hand. `/admin/audience` makes the table readable and the email a notification
 rather than an archive. Both sends are unchanged and still fire, fail-open, on the
 same conditions (`ADMIN_PANEL_SPEC.md` §13 **D2** — push and pull are complementary).
 
-Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
-not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
+Copy is en-US, built inline in `lib/email.ts` (emails are not i18n'd at launch — the
+CLAUDE.md i18n rule is for rendered `apps/web` templates). Migrated templates render
+through the house layout above; the rest are still plain text + minimal HTML.
 
 ### Cron digests (the low-level `sendEmail` layer)
 
@@ -349,9 +425,20 @@ The https target is the public SSR host, which forwards `POST /api/unsubscribe` 
 
 ## Testing
 
+- `apps/api/src/lib/email-layout.spec.ts` — the house layout in isolation: the card, the
+  hardcoded production logo URL, the alt-text-on-Forest fallback, the Forest CTA and its
+  VML twin, the paste-able URL, escaping, and that the text half carries no sign-off.
 - `apps/api/src/lib/email.spec.ts` — mocks `fetch`; asserts each template's POST
-  payload + the `sent` / `failed` / `skipped` outcomes (fail-open, never throws).
+  payload + the `sent` / `failed` / `skipped` outcomes (fail-open, never throws). The
+  `claim-approved` suite additionally asserts the layout markup, so a regression back to
+  `toHtml()` fails rather than quietly shipping.
 - `lib/admin-alert.spec.ts` — the sweep seam delegates to the transport.
 - `routes/{reviews,admin-reviews,account}.spec.ts` — assert the right send fires
   (mocked `lib/email`) with the correct recipient/payload, and that a send never
   affects the response.
+
+**There is still no way to look at an email.** No preview route, no render script, no
+snapshot. The specs assert on the POST payload and never render anything, so a layout
+regression that keeps the strings intact passes. Rendering one means calling
+`renderEmailHtml` from a throwaway script and opening the output; note the logo will
+404 locally, because `EMAIL_LOGO_URL` is fixed to production.

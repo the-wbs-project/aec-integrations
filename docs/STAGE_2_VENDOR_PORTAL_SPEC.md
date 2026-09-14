@@ -953,6 +953,32 @@ Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI
 - **Approved copy** names the vendor, lists the account's new capabilities (edit profile, submit data corrections, add integration attestations), links to `/vendor` when `PUBLIC_SITE_URL` is set, and tailors sign-in guidance: `invited` explains the just-provisioned account + one-time sign-in link (no GoTrue invite email is sent, §2); `linked` points at the existing account. Verification is framed as an **account status**, never ranking/placement (no pay-for-placement) and with no instant-search promise.
 - **Rejected copy** is **neutral by design** (this §9 AC): it names the vendor, states the claim wasn't approved, and invites a fresh claim. The reviewer's decision `reason` is an **internal audit note** — recorded in `audit_log` (admin-visible) and **never emailed** — so nothing a reviewer types can leak to the claimant. `ModerateClaimSchema` keeps its single `reason` field, but it no longer reaches the email path (the `SendClaimDecisionEmail` seam carries no `reason`), and the `/admin/claims` reject form labels it "Internal reason … not shared with the claimant." *(Review-pass hardening, 2026-08-14: the initial AECI-528 build echoed `reason` to the claimant — a reviewer-note leak vector — which contradicted this AC; it was neutralized. Splitting `reason` into distinct claimant-facing vs internal fields remains a possible future enhancement.)*
 
+### As built — the copy moves onto the house email layout (2026-09-14)
+
+The §9 build note above says the copy is assembled "via `toText()`/`toHtml()`". That is no
+longer true for `claim-approved`, which is now the first template rendered through
+**`apps/api/src/lib/email-layout.ts`** (`renderEmailHtml` / `renderEmailText`) — the
+shared shell ported from the sign-in email, `docs/email-templates/magic-link.html`.
+`claim-rejected` is unchanged and still uses `toText`/`toHtml`.
+
+What changed, and what did not:
+
+- **Structure.** A Forest logo band and text wordmark, a heading, three short blocks, one
+  Forest CTA ("Go to your vendor portal") with its paste-able URL, a hairline, and the
+  verification sentence as small print. It used to be four equal grey paragraphs.
+- **The portal link became the CTA.** It was an inline link inside the sign-in sentence.
+  It is the one action the email exists to prompt, so it is now the button, and the
+  sign-in line no longer repeats the URL. The `PUBLIC_SITE_URL` behaviour is unchanged:
+  unset means no button, where it previously meant no link.
+- **The sign-off is gone.** The house layout has no "The AEC Integrations team" line; its
+  footer wordmark names the sender. That also removes an em dash PRODUCT.md bans.
+- **Every AC in this section still holds.** The vendor is named, the capabilities are
+  listed, the `invited` / `linked` branch is intact, and the verification framing is
+  word-for-word what it was: an account status, never ranking or placement.
+
+The other 18 transactional templates are deliberately untouched. `docs/email.md`
+(§House layout) carries the standard, the twin-file rule, and the migration table.
+
 ---
 
 ## 10. Document `vendor_admin` authz (AECI-525)
