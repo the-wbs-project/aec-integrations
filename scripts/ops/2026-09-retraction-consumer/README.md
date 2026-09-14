@@ -1,12 +1,14 @@
 # 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889)
 
-**Status: RUN — three tranches, all complete.** Applied to `aeci-app-production` on
-2026-09-13 (214 rows), 2026-09-14 (the 2 held back), and 2026-09-14 again (17 rows, AECI-889
-batch 1). **The feed is at zero pending and no hold is active.**
+**Status: RUN — four tranches, all complete.** Applied to `aeci-app-production` on
+2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
+batch 1), and 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3). **The feed is at
+zero pending and no hold is active.**
 
-The third tranche is the first one this lane took from a *routine* upstream batch rather than
-from a one-off cleanup, which is what it was built for. Expect more: AECI-889 has three
-catalogues left.
+The last two tranches are the routine upstream batches this lane was built for, rather than
+one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
+Zapier deferred. Kroo's 119 rows are unpromoted and carry zero claims, so that batch may
+journal nothing at all and leave this lane with nothing to do.
 
 Consumes the review app's retraction journal: reads `list_retractions`, deletes the live
 AECi rows it names, verifies they are gone in **both** delivered-tier tables, and only then
@@ -282,6 +284,169 @@ render is unbuilt. Same state as the 213 AECI-852 rows and the 2 AECI-909 rows.
 **AECI-916**. Both were created 2026-09-09 and never updated, so they predate this run and are
 not its residue. Exit **1**, correctly, and it will stay 1 until AECI-916 is ruled.
 
+## What ran — 2026-09-14, 21 rows (AECI-889 batches 2 + 3, App Xchange and Aquifer)
+
+Batches 2 and 3 taken in **one** run, because they landed in the feed together. Upstream
+retired 42 records across Trimble App Xchange (5) and Aquifer (37); only 21 of those carried a
+`supabase_integration_id` and so journalled anything. This half deleted those 21 live AECi rows.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 21
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 950 | 950 | 0 |
+| `connector_evidenced_pairs` | 45 | 24 | −21 |
+| `claims` | 1884 | 1880 | −4 |
+| `attestations` | 1884 | 1880 | −4 |
+| `claims` on `connector_pairs` (reach tier) | 202 | 202 | **0 — untouched** |
+| `audit_log` rows from this lane | 233 | 254 | +21 |
+| feed, pending | 21 | 0 | −21 |
+
+**16 products** had `integration_count` repaired and `updated_at` bumped.
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+Time Travel bookmark captured immediately before the delete, expires ~2026-10-14:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=0000585a-00000010-000050e6-1916c11bba44215b009a1563a2afcb21
+```
+
+### The split: 1 App Xchange row, 20 Aquifer rows, all in `connector_evidenced_pairs`
+
+`resolve: integrations 0, connector_evidenced_pairs 21`. Third run in a row where nothing
+landed in `integrations` — migration `0027` moved every connector-powered edge into the pairs
+table with its id verbatim, and every connector-lane retraction since has been one of those.
+
+| batch | catalogue | journal entries | rows carrying claims |
+|---|---|---|---|
+| 2 | Trimble App Xchange | 1 | 1 |
+| 3 | Aquifer | 20 | 0 |
+
+### `MAX_CASCADE` moved to 4 / 4, and only after the per-pair proof
+
+The cascade was **4 claims and 4 attestations**, all on one row. That is two orders of
+magnitude below batch 1's 169, and the ceiling was still proved the same way rather than
+waved through as small.
+
+The join ran over **all 21 rows, not just the one believed to carry claims.** Each evidenced
+pair was joined to its `connector_pairs` twin through `connector_stub_mappings` on both stubs,
+same catalogue, same two products, and the two claim counts compared:
+
+| catalogue | pair | delivered claims (deleted) | reach `connector_pairs` id | reach claims (kept) |
+|---|---|---|---|---|
+| Trimble App Xchange | procore-project-financials ↔ viewpoint-vista | 4 | `reci5soEoFe0HPOfq` | 4 |
+| Aquifer | arcgis ↔ chatgpt | 0 | `recWDnqWLw1sivgo3` | 0 |
+| Aquifer | arcgis ↔ microsoft-dynamics-365 | 0 | `recZ42bDglYBn1xUx` | 0 |
+| Aquifer | autodesk-construction-cloud ↔ oracle-primavera-p6 | 0 | `rechjZUmr6BE6csVj` | 0 |
+| Aquifer | autodesk-construction-cloud ↔ viewpoint-vista | 0 | `recuJIQn4XxCE6gER` | 0 |
+| Aquifer | coupa ↔ microsoft-dynamics-365 | 0 | `recP3qvtQUOAXUQKf` | 0 |
+| Aquifer | coupa ↔ snowflake | 0 | `recMimAGlxp4NP8MM` | 0 |
+| Aquifer | oracle-fusion-cloud-erp ↔ arcgis | 0 | `reczc6yciqEg3cKZM` | 0 |
+| Aquifer | oracle-fusion-cloud-erp ↔ coupa | 0 | `recht3Z97QtE2botp` | 0 |
+| Aquifer | oracle-fusion-cloud-erp ↔ oracle-primavera-p6 | 0 | `rec6zoTXGKjSBQ4uI` | 0 |
+| Aquifer | oracle-fusion-cloud-erp ↔ salesforce | 0 | `recHErNzuKBcAy4cb` | 0 |
+| Aquifer | procore-project-management ↔ microsoft-dynamics-365 | 0 | `rec3qnJqr8DFPeFQi` | 0 |
+| Aquifer | procore-project-management ↔ sap-s-4hana | 0 | `recTaDEMjSaY1Wx6P` | 0 |
+| Aquifer | sage-300-cre ↔ autodesk-construction-cloud | 0 | `recWBiaZkqsPdzuUh` | 0 |
+| Aquifer | sage-300-cre ↔ chatgpt | 0 | `recpfz0LajOEArhkE` | 0 |
+| Aquifer | sage-300-cre ↔ oracle-primavera-p6 | 0 | `recmH0ZhWQGp9Iyvl` | 0 |
+| Aquifer | sage-300-cre ↔ viewpoint-vista | 0 | `rec6AzyIPpOjjtrAh` | 0 |
+| Aquifer | sap-s-4hana ↔ arcgis | 0 | `rec8EjecbRcj2o8Mu` | 0 |
+| Aquifer | sap-s-4hana ↔ snowflake | 0 | `recv4tVhY9uClrk5t` | 0 |
+| Aquifer | snowflake ↔ arcgis | 0 | `recjI13YVdtgEovYm` | 0 |
+| Aquifer | viewpoint-vista ↔ oracle-primavera-p6 | 0 | `recCQDGqMr15rOK4U` | 0 |
+| | **total** | **4** | 21 pairs, all matched | **4** |
+
+**Run the join over every row, not just the ones you expect to carry claims.** Filtering to
+the rows you already believe carry claims assumes the delivered count you are checking. Twenty
+rows reading `0 delivered / 0 reach` is evidence; twenty rows never queried is not.
+
+The one live row was then compared claim by claim rather than by count alone, because 4 = 4
+could be four different objects:
+
+| data object | delivered direction | reach direction |
+|---|---|---|
+| `budgets` | `both` | `both` |
+| `commitments` | `both` | `both` |
+| `cost-codes` | `both` | `both` |
+| `invoices-payments` | `both` | `both` |
+
+The whole reach population was re-counted after the delete and read **202 before and 202
+after**, and the App Xchange twin still holds its 4.
+
+### The upstream cascade figure is not the AECi cascade figure
+
+The upstream half of this batch reported **0 claims cascaded** and said `MAX_CASCADE` could
+stay low. That is true upstream and wrong here, and the difference is worth stating because
+the next batch will hit it again.
+
+`reanchor_claims` moved the review app's own claims off the integration record before deleting
+it, so the upstream delete cascaded nothing. On this side the promote then **created** the
+reach copies as new rows and left the delivered copies in place — a promote cannot delete. So
+the AECi row still carried its 4 delivered claims at delete time, and the cascade was 4, not 0.
+
+**Take the cascade from the dry run against production, never from the upstream report.**
+The two numbers answer different questions and only one of them is about this database.
+
+### The two guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 21, inPairs: 21, inIntegrations: 0 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 4, attestations: 4 }` | `{ 0, 0 }` |
+
+Both reset in the same change as the run that spent them. The resting state was already zero
+going in, so the net `consume.mjs` diff for this run is the doc comments only — the pinned
+values live here, in the record, which is where a future operator will look for them.
+
+### Algolia, fourth run
+
+```
+products      production_products        indexed 260   promoted 260    orphans 0
+vendors       production_vendors         indexed 169   promoted 169    orphans 0
+integrations  production_integrations    indexed 950   promoted 974    orphans 0
+```
+
+**Zero orphans** for the fourth time, same reason: evidenced pairs have never been indexed.
+For AECI-880: drift is now **24 missing**, down from 45. It keeps narrowing because the
+unindexed population is being deleted, not because indexing improved. 24 is now the entire
+surviving `connector_evidenced_pairs` population, so the drift number and the table count have
+converged — that is a coincidence of arithmetic, not a fix.
+
+### Cache, fourth run
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc` rather than assumed: the `exports`
+block sits in the `preview` and `staging` env blocks only, so `demo` and `production` serve
+uncached.
+
+### Verification, live (2026-09-14, browser UA)
+
+- `/products/procore-project-financials/integrations/viewpoint-vista` → **200 with
+  `<meta name="robots" content="noindex">`**, zero occurrences of "AppXchange". The one App
+  Xchange row.
+- `/products/sage-300-cre/integrations/viewpoint-vista` → same, zero occurrences of "Aquifer".
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, **indexable**, no robots meta.
+  The AECI-878 negative sentinel, asserted present in both orientations before and after.
+
+The App Xchange pair page losing its delivered edge is the expected outcome. Its 4 claims now
+sit on `reci5soEoFe0HPOfq` with no public surface, because AECI-716's reach render is unbuilt.
+Same state as every retraction on this lane since AECI-852.
+
+### Daily audit after this run
+
+`pendingRetractions` **0**. Six of the seven stranded buckets **0**. The seventh,
+`evidencedPairSourceGone`, still holds the same **2** Aquifer HeavyJob rows filed as
+**AECI-916**. Exit **1** on those two and nothing else, which is the expected result.
+
+**AECI-916's repair path closed during this batch and the audit cannot see that.** The upstream
+half deleted both HeavyJob records as unpromoted rows, so there is no longer an upstream record
+to delete into the journal — the "confirm upstream → journal → consumer" route those two were
+waiting on no longer exists. They need a tool that reaches `connector_evidenced_pairs`
+directly. The bucket will keep reporting them, unchanged, until that is built.
+
 ## The order, and why it is not negotiable
 
 Delete → verify → confirm. Always.
@@ -464,5 +629,12 @@ including by matching its shape coincidentally. Raising `MAX_CASCADE` is the one
 lane that can destroy data, so raise it only after confirming, by count, that every claim it
 will cascade away already exists somewhere else. Reset both to zero in the same change as the
 run that used them, exactly as you would empty a discharged `HOLD`.
+
+Two things the batches 2 + 3 run learned about that measurement, both worth carrying forward.
+**Take the cascade from the dry run against production, never from the upstream report** —
+upstream said 0 and the real figure here was 4, because `reanchor_claims` moves the review
+app's claims while the AECi delivered copies stay until this lane deletes them. And **run the
+per-pair join over every row in the plan**, not only the rows you expect to carry claims:
+filtering to those assumes the count you are checking.
 
 Exit codes are `0` clean, `1` refusal, `2` could-not-check — and 2 outranks 1.
