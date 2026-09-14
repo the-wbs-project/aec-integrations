@@ -105,6 +105,16 @@ every day until they clear, and a permanently red guard is one nobody reads — 
 hide the next retraction behind the two we already know about. Each hold names the issue
 that clears it.
 
+> **Amended 2026-09-14 (AECI-909).** Both holds are discharged and `HELD_RETRACTIONS` is
+> empty. AECI-891 reached production, AECI-910 re-anchored the 21 claims those two rows
+> carried onto the reach tier, and the consumer then deleted and confirmed the entries. The
+> feed is at zero pending. The list mechanism stays — this decision is unchanged — but the
+> practice it proved is narrower than the decision: **empty a hold in the same change as the
+> run that releases it**, because a discharged hold left in place recreates exactly the
+> blind spot the bucket was built to remove. The consumer's numeric guards were reset to
+> zero in the same change for the same reason — an authorisation is spent by the run that
+> used it, and a later cohort of the same shape would otherwise inherit it.
+
 ## Alternatives considered
 
 **Add delete semantics to promote.** Rejected. A promote payload is a statement about what
