@@ -27,6 +27,7 @@ import {
   buildCoverageProbe,
   buildMetricsBackfillStatements,
   buildProductsCrossCheck,
+  buildPruneExposureProbe,
   buildRangeProbe,
   buildUnclassifiedProbe,
   buildValueDiffProbes,
@@ -67,6 +68,11 @@ afterEach(() => t.dispose());
 /** Run the statements the way the ops script does — one at a time. */
 function run(statements: string[]): void {
   for (const sql of statements) t.raw.prepare(sql).run();
+}
+
+/** Days the AECI-684 prune-exposure gate would refuse. */
+function exposedDays(range: BackfillRange): number {
+  return (t.raw.prepare(buildPruneExposureProbe(range)).get() as { days: number }).days;
 }
 
 function backfill(range: BackfillRange = RANGE): void {
@@ -710,6 +716,38 @@ describe('--series selection', () => {
 
   it('scopes the dry-run diff probes to the selection', () => {
     expect(buildValueDiffProbes(EARLIER, ONLY).map((p) => p.metric)).toEqual(ONLY);
+  });
+
+  it('reports no prune exposure over days that hold no page views', async () => {
+    // The documented products recovery: the range predates `page_views` entirely,
+    // so zero-filling it captures no day whose traffic is still unmeasured.
+    expect(exposedDays(EARLIER)).toBe(0);
+  });
+
+  it('counts a day holding page views with no metrics_daily row as exposed', async () => {
+    // The trap. Zero-filling a catalog series here marks 08-06 captured, and the
+    // §7.4 prune would then delete the only rows traffic.* could be built from.
+    await t.db.insert(pageViews).values([
+      { path: '/', createdAt: '2026-08-06T01:00:00.000Z', isBot: false },
+      { path: '/', createdAt: '2026-08-07T01:00:00.000Z', isBot: false },
+    ]);
+    expect(exposedDays(EARLIER)).toBe(2);
+  });
+
+  it('stops counting a day once ANY metrics_daily row captures it', async () => {
+    // Mirrors `findSnapshotGap`, which asks the same question of the same table:
+    // presence of any row for the day, not presence of every series.
+    await t.db
+      .insert(pageViews)
+      .values([{ path: '/', createdAt: '2026-08-06T01:00:00.000Z', isBot: false }]);
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-06',
+      metric: 'traffic.page_views_human',
+      value: 1,
+      source: 'measured',
+      computedAt: '2026-08-20T00:00:00.000Z',
+    });
+    expect(exposedDays(EARLIER)).toBe(0);
   });
 
   it('scopes the coverage probe, so an unrelated series cannot fake success', async () => {

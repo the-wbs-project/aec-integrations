@@ -301,19 +301,27 @@ export function createAdminTimeseriesHandler(
           earliestCatalogRowDay(db, query.metric),
           earliestStoredMetricDay(db, query.metric),
         ]);
-        const gapUnfilled = Boolean(
-          catalogFloor && storedFloor && storedFloor > catalogFloor && w.fromDay < storedFloor,
-        );
-        if (catalogFloor && (catalogFloor > w.fromDay || gapUnfilled)) {
+        //
+        // `unfilledFrom` is the stored floor ONLY when there is a real gap to
+        // report. It is not "the stored floor, when we happen to know it": the UI
+        // picks its prose off the presence of `stored_from` alone, so emitting it
+        // on a caught-up series would have the screen announce a gap between two
+        // identical dates while the `message` beside it said something else —
+        // exactly the §9.4 disagreement this change exists to remove.
+        const unfilledFrom =
+          catalogFloor && storedFloor && storedFloor > catalogFloor && w.fromDay < storedFloor
+            ? storedFloor
+            : null;
+        if (catalogFloor && (catalogFloor > w.fromDay || unfilledFrom)) {
           notes.push(
             note(
               'catalog_series_starts_at',
-              gapUnfilled
-                ? `The catalog's first row is ${catalogFloor}, but the stored series begins ${storedFloor} — the backfill was run from a later day. Days between them read zero because they were never reconstructed, not because nothing happened. Re-run "pnpm ops:backfill-metrics-daily --series ${query.metric}" from ${catalogFloor} to fill them.`
+              unfilledFrom
+                ? `The catalog's first row is ${catalogFloor}, but the stored series begins ${unfilledFrom} — the backfill was run from a later day. Days between them read zero because they were never reconstructed, not because nothing happened. Re-run "pnpm ops:backfill-metrics-daily --series ${query.metric}" from ${catalogFloor} to fill them.`
                 : `${measuredFrom} begins ${catalogFloor}; days before that read zero for want of data, not for want of activity.`,
               {
                 earliest_day: catalogFloor,
-                ...(storedFloor ? { stored_from: storedFloor } : {}),
+                ...(unfilledFrom ? { stored_from: unfilledFrom } : {}),
                 source: measuredFrom,
               },
             ),

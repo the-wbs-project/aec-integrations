@@ -1279,7 +1279,7 @@ export async function earliestCatalogRowDay(
   metric: AdminMetricKey,
 ): Promise<string | null> {
   const source = CATALOG_NET_SOURCE[metric];
-  /* c8 ignore next -- callers gate on catalogMeasuredBackfillSource, whose keys are a subset. */
+  /* c8 ignore next -- callers gate on catalogSeriesProvenance().reconstructedFrom, whose keys are a subset. */
   if (!source) return null;
   const [row] = await db
     .select({ day: sql<string | null>`min(substr(${source.createdAt}, 1, 10))` })

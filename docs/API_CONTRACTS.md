@@ -3156,11 +3156,15 @@ series is served from two definitions either side of the snapshot boundary:
   (`products.created_at`). The other three series omit both params and keep the
   unqualified audit-log message.
 - `catalog_series_starts_at` floors on the catalog's own first row rather than the
-  audit log's, and carries `params.source`. When `metrics_daily` holds no row that
-  far back it also carries `params.stored_from` and says the leading zeros are
+  audit log's, and carries `params.source`. It carries `params.stored_from` **only
+  when there is a real gap** — the stored segment starts later than the catalog
+  and the requested window reaches before it — and then says the leading zeros are
   days nobody reconstructed rather than days nothing happened. Production is in
   that state: the backfill was run with `--from 2026-06-23` and 43 products
-  predate it.
+  predate it. Once the gap is filled the param disappears and the message reverts
+  to the plain floor sentence; the UI branches on the param's presence, so
+  emitting it unconditionally would have the screen announce a gap between two
+  identical dates.
 
 Both branches exist in the UI strings too, so the screen and a `curl` of the same
 endpoint tell the same story (§9.4).

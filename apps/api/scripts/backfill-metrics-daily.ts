@@ -23,6 +23,11 @@
  * `page_views` did not exist for, and a stored zero is indistinguishable from a
  * measured one in a table kept forever.
  *
+ * A catalog-only run REFUSES a range holding page views on days `metrics_daily`
+ * has no row for (step 2b). Zero-filling those days satisfies the §7.4 prune gate
+ * while their traffic is still unmeasured, and the retention cron would then
+ * delete the only rows it could have been measured from.
+ *
  * It writes only flow metrics. Stocks — catalog totals, queue depths, subscriber
  * counts — are NOT backfilled: §4 shows a past total is unrecoverable (827
  * `integration.created` events back 496 live rows), so a reconstruction would be
@@ -37,6 +42,8 @@
  *     into the long memory permanently. Fix first, on the same tier:
  *       wrangler d1 execute <db> --env <env> --remote \
  *         --file=../../scripts/ops/backfill-page-view-bots.sql
+ *   - **Refuses a catalog-only `--series` run over days holding page views that
+ *     `metrics_daily` has no row for** unless `--force` — see the note above.
  *   - Re-runnable: every write is an upsert keyed `(day, metric)`, and a
  *     `reconstructed` row can never overwrite a `measured` one — so a
  *     reconstruction never degrades a real snapshot.
@@ -72,6 +79,7 @@ import {
   buildCoverageProbe,
   buildMetricsBackfillStatements,
   buildProductsCrossCheck,
+  buildPruneExposureProbe,
   buildRangeProbe,
   buildUnclassifiedProbe,
   buildValueDiffProbes,
@@ -383,6 +391,40 @@ export async function main(argv: string[]): Promise<number> {
     console.warn('   --force set: proceeding; the traffic split for those days WILL be wrong.\n');
   } else {
     console.log('✓ Bot classification: every page view in the range is classified.');
+  }
+
+  // 2b. The other half of that scoping, and the one way --series can LOSE data
+  //     (AECI-684). A day gets pruned once it has any `metrics_daily` row, so a
+  //     catalog-only run that zero-fills a day holding `page_views` rows marks it
+  //     captured while its traffic is still unmeasured — and the next retention
+  //     run deletes the only rows it could ever be measured from. The documented
+  //     products recovery reads 0 here because `page_views` starts later, which is
+  //     precisely why this needs a probe rather than a reader's attention.
+  if (!touchesPageViews) {
+    const exposed =
+      runD1<{ days: number }>(target, buildPruneExposureProbe(range))[0]?.results[0]?.days ?? 0;
+    if (exposed > 0) {
+      console.warn(`⚠  ${exposed} day(s) in this range hold page views but no metrics_daily row.`);
+      if (!force) {
+        console.error(
+          '\nRefusing without --force. Zero-filling a catalog series across those days would\n' +
+            'satisfy the §7.4 prune gate for them, and the retention cron would then delete the\n' +
+            'raw page_views rows their traffic.* series was never built from. Back the traffic\n' +
+            'series up first:\n' +
+            `     pnpm --filter @aeci/api ops:backfill-metrics-daily -- ` +
+            `${target.remote ? `--env ${target.label}` : '--local'} \\\n` +
+            `       --from ${fromDay} --to ${toDay} --apply` +
+            `${target.label === 'production' ? ' --allow-production' : ''}\n` +
+            'or narrow --from/--to to days with no page views.',
+        );
+        return 1;
+      }
+      console.warn(
+        '   --force set: proceeding; those days become prunable with no traffic figures.\n',
+      );
+    } else {
+      console.log('✓ Prune exposure: no day in this range holds unbackfilled page views.');
+    }
   }
 
   // 3. The §7.1 cross-check on the exact series — a verification, never a source.

@@ -458,11 +458,18 @@ export function selectSeries(only?: readonly string[]): readonly BackfillSeries[
  * is about to write, and certainly not one the cron already captured.
  *
  * **`only` narrows which series are zero-filled, and that is the point of it.**
- * §7.4's prune gate asks whether the DAY is captured, so a single-series run over
- * days outside every other series' range leaves that gate exactly where it was —
- * the same argument {@link BackfillSeries.zeroFill} already makes for opting one
- * series out. What it must never do is write a placeholder `0` for a series whose
- * source table has no rows that far back.
+ * What it must never do is write a placeholder `0` for a series whose source
+ * table has no rows that far back.
+ *
+ * **It does move §7.4's prune gate, and only one case is safe.** That gate asks
+ * whether the DAY is captured, not whether every series is, so a single-series
+ * run over days *outside every other series' range* leaves it exactly where it
+ * was — the same argument {@link BackfillSeries.zeroFill} already makes for
+ * opting one series out, and the case the AECI-684 products recovery is in. Over
+ * days that DO hold `page_views` rows it is the opposite: the day row satisfies
+ * the gate while `traffic.*` stays unmeasured, and the prune then deletes the
+ * only rows it could have been measured from. {@link buildPruneExposureProbe} is
+ * what counts those days, and the script refuses them without `--force`.
  */
 export function buildZeroFillStatements(range: BackfillRange, only?: readonly string[]): string[] {
   const rows: string[] = [];
@@ -648,6 +655,37 @@ export function buildUnclassifiedProbe(range: BackfillRange): string {
     `SELECT count(*) AS unclassified FROM page_views ` +
     `WHERE "created_at" >= ${q(startIso)} AND "created_at" < ${q(endIso)} ` +
     `AND "is_bot" IS NULL AND ${notInternalSql()}`
+  );
+}
+
+/**
+ * Days in the range that hold `page_views` rows but no `metrics_daily` row at
+ * all — the days a catalog-only `--series` run would silently make prunable.
+ *
+ * **This is the one way `--series` can destroy data, and it is not obvious.**
+ * `findSnapshotGap` (`lib/retention-prune.ts`) treats the presence of ANY
+ * `metrics_daily` row for a day as that day being captured — deliberately, since
+ * stocks can never be reconstructed and an all-keys test would deadlock the prune
+ * forever. Before AECI-684 that was safe, because every run wrote all eight
+ * series, so a captured day really did carry its traffic. A `--series
+ * catalog.*` run writes the day row without writing `traffic.*`, which satisfies
+ * the gate on a day whose traffic was never measured. The next retention run then
+ * deletes those raw `page_views` rows, and `page_views` is the only source they
+ * could ever have been reconstructed from.
+ *
+ * The documented 2026-06-08 → 06-22 products recovery returns 0 here, because
+ * `page_views` does not begin until 06-23 — which is why the trap is easy to miss.
+ * The script refuses a non-zero result without `--force`, mirroring the AECI-582
+ * gate above: both guard a table §7.4 keeps forever against a loss that cannot be
+ * undone later.
+ */
+export function buildPruneExposureProbe(range: BackfillRange): string {
+  const { startIso, endIso } = isoBounds(range);
+  return (
+    `SELECT count(*) AS days FROM (` +
+    `SELECT DISTINCT substr("created_at", 1, 10) AS day FROM page_views ` +
+    `WHERE "created_at" >= ${q(startIso)} AND "created_at" < ${q(endIso)}` +
+    `) pv WHERE NOT EXISTS (SELECT 1 FROM metrics_daily md WHERE md."day" = pv.day)`
   );
 }
 

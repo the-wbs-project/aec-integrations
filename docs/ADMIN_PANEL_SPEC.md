@@ -929,14 +929,24 @@ pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
   --apply --allow-production
 ```
 
-Three properties of a `--series` run. The §7.4 prune gate still holds, because the
-selected series is still zero-filled edge to edge and the gate asks whether the
-DAY is captured — the same argument `BackfillSeries.zeroFill` already makes for
-opting one series out. The AECI-582 unclassified-`page_views` gate is **skipped**
-when no `traffic.*` series is selected, since it protects the traffic split and a
-catalog-only run writes none. And the post-apply coverage probe is scoped to the
-selection, so another metric's pre-existing rows cannot report a single-series run
-as having landed.
+Four properties of a `--series` run. The §7.4 prune gate is not *blocked* by one,
+because the selected series is still zero-filled edge to edge and the gate asks
+whether the DAY is captured — the same argument `BackfillSeries.zeroFill` already
+makes for opting one series out. The AECI-582 unclassified-`page_views` gate is
+**skipped** when no `traffic.*` series is selected, since it protects the traffic
+split and a catalog-only run writes none. And the post-apply coverage probe is
+scoped to the selection, so another metric's pre-existing rows cannot report a
+single-series run as having landed.
+
+The fourth is the one way `--series` can lose data, and it is the reverse of the
+first. Because the prune gate reads presence of ANY row for a day, a catalog-only
+run over days that **do** hold `page_views` rows marks them captured while their
+`traffic.*` series is still unmeasured, and the retention cron then deletes the
+only rows it could ever have been measured from. The documented products recovery
+is safe because `page_views` does not begin until 2026-06-23, which is exactly why
+this needs a probe rather than a reader's attention: `buildPruneExposureProbe`
+counts those days and the script **refuses** a non-zero result without `--force`,
+naming the traffic backfill to run first.
 
 **Deviation 3 — backfilled `traffic.*` is `measured`, gated on AECI-582.** This
 section originally lumped `page_views` in with `audit_log` as a reconstruction

@@ -290,6 +290,30 @@ describe('GET /api/admin/metrics/timeseries — the metric vocabulary', () => {
       expect(flag?.message).toContain('--series catalog.products_created');
     });
 
+    it('omits stored_from once the stored segment reaches the catalog floor', async () => {
+      // The UI picks its prose off the presence of `stored_from` alone, so
+      // emitting it on a caught-up series would have the screen announce a gap
+      // between two identical dates while the message said the opposite.
+      await t.db
+        .insert(products)
+        .values([{ id: PA, slug: 'a', name: 'A', createdAt: '2026-08-05T01:00:00.000Z' }]);
+      await t.db.insert(metricsDaily).values([
+        {
+          day: '2026-08-05',
+          metric: 'catalog.products_created',
+          value: 1,
+          source: 'measured',
+          computedAt: '2026-08-11T00:15:00.000Z',
+        },
+      ]);
+
+      const body = await series('metric=catalog.products_created&from=2026-08-01&to=2026-08-10');
+      const flag = body.notes.find((n) => n.code === 'catalog_series_starts_at');
+      expect(flag?.params?.earliest_day).toBe('2026-08-05');
+      expect(flag?.params?.stored_from).toBeUndefined();
+      expect(flag?.message).toContain('products.created_at begins 2026-08-05');
+    });
+
     it('stays silent when the stored segment already reaches the catalog floor', async () => {
       await t.db
         .insert(products)
