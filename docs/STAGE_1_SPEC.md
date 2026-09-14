@@ -465,7 +465,7 @@ A product carries any number of terms from each facet (the `product_categories` 
 
 | Mode | Order | Offered on |
 |---|---|---|
-| **Sequence** | The API's own `display_order ASC, name ASC` | **`/phases` only**, where it is also the default |
+| **Sequence** | The API's own `display_order ASC, name ASC`, with NULL `display_order` sorted LAST (`API_CONTRACTS.md` §3.2, AECI-925) | **`/phases` only**, where it is also the default |
 | **A → Z** | `name` A–Z, collation pinned to `en` | All four; the default for the other three |
 | **Products** | `product_count` DESC, then `integration_count` DESC, then `name` | All four |
 
