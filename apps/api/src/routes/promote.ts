@@ -437,6 +437,143 @@ function planEvidencedPairWrite(args: {
 }
 
 /**
+ * Where a caller-supplied `supabaseId` actually lives. The delivered tier spans TWO
+ * tables and migration `0027` preserved ids verbatim across the move, so an id alone
+ * does not say which one holds it (`DATABASE_SCHEMA.md` §9a.6).
+ *
+ * Both branches of the integration loop need this answer, and they need it BEFORE
+ * routing, not after. That is the whole of AECI-888: the routed branch already read
+ * both tables, the unrouted one read only `integrations`, and an id sitting in
+ * `connector_evidenced_pairs` therefore looked DEAD — so a re-promote that cleared
+ * `powered_by` minted a fresh row and left the old one unreachable forever (AECI-798,
+ * the Roofr → QuickBooks Online orphan; write-up in
+ * `scripts/ops/2026-09-roofr-qbo-connector-orphan/README.md`).
+ *
+ * `null` keeps its original meaning and only its original meaning: the pointer is dead
+ * in BOTH tables, which is the AECI-568 stale-id case. An id that resolves on the other
+ * side is not stale and must never be reported as such.
+ */
+type LocatedEdge =
+  | { id: string; table: 'integrations'; row: LocatedIntegrationRow }
+  | { id: string; table: 'evidenced'; row: LocatedEvidencedRow };
+
+type LocatedIntegrationRow = {
+  sourceProductId: string;
+  targetProductId: string;
+  poweredByProductId: string | null;
+};
+
+type LocatedEvidencedRow = {
+  productAId: string;
+  productBId: string;
+  connectorProductId: string;
+};
+
+async function locateEdge(
+  db: Db,
+  supabaseId: string | null | undefined,
+): Promise<LocatedEdge | null> {
+  if (!supabaseId) return null;
+  // `integrations` first: it is the larger table and the overwhelmingly common hit, so
+  // the second read is skipped on most rows. Order is a cost choice only — the
+  // single-table invariant means at most one of these can match.
+  const intg = await db.query.integrations.findFirst({
+    columns: { sourceProductId: true, targetProductId: true, poweredByProductId: true },
+    where: eq(integrations.id, supabaseId),
+  });
+  if (intg) return { id: supabaseId, table: 'integrations', row: intg };
+
+  const pair = await db.query.connectorEvidencedPairs.findFirst({
+    columns: { productAId: true, productBId: true, connectorProductId: true },
+    where: eq(connectorEvidencedPairs.id, supabaseId),
+  });
+  if (pair) return { id: supabaseId, table: 'evidenced', row: pair };
+
+  return null;
+}
+
+/**
+ * Plan the write for an edge landing in **`integrations`** — the delivered tier's
+ * accountable-party table. The exact mirror of {@link planEvidencedPairWrite}, and it
+ * exists for the same reason: WHERE the preserved id already lives decides the write.
+ *
+ *   - `integrations` — plain UPDATE (the ordinary re-promote).
+ *   - `evidenced` — the edge is coming BACK out of the connector-delivered tier because
+ *     its routing key was cleared. INSERT here with the id preserved, RE-HOME its claims
+ *     off `connector_evidenced_pair_id`, then drop the source row.
+ *   - `null` — brand new, or a dead id (AECI-568). Mint a fresh id and INSERT.
+ *
+ * **Statement order in the `evidenced` branch is the entire safety argument**, and it is
+ * the same 0027 step 8→9→11 dance the forward move performs. `claims.connector_evidenced_pair_id`
+ * is `ON DELETE CASCADE` and `attestations.claim_id` cascades off that, so dropping the
+ * pair first destroys every claim on the edge AND the vendor attestations hanging from
+ * them — silently, because ADR 0018 is explicit that `claims_anchor_check` cannot make a
+ * delete fail. Re-homing first is the only protection there is.
+ *
+ * Both anchor columns move in ONE `UPDATE` so the CHECK's three-term sum never leaves 1
+ * mid-statement. `anchor_id` is `coalesce()` over the three arms and the id is unchanged,
+ * so `claims_identity_key` sees no movement and vendor attestations keep their slots.
+ *
+ * **This move is lossy on `mechanism_kind` and nothing can fix that here.**
+ * `connector_evidenced_pairs` has no such column — the forward move drops the value
+ * deliberately (see {@link planEvidencedPairWrite}) — so only the payload can supply it.
+ * A push that clears `powered_by` without restating `mechanismKind` lands a NULL kind.
+ * The column is nullable and the CHECK passes on NULL, so this is recorded rather than
+ * guarded; `promote.spec.ts` asserts the loss so it stays a known property.
+ */
+function planIntegrationWrite(args: {
+  db: Db;
+  intg: PromoteIntegration;
+  /** The two NOT NULL endpoints, plus whichever optional links resolved. Typed
+   *  structurally rather than as `Record<string, unknown>` so Drizzle's insert overload
+   *  can still see that `source_product_id` / `target_product_id` are supplied. */
+  linkData: { sourceProductId: string; targetProductId: string } & Record<string, unknown>;
+  existing: LocatedEdge | null;
+}): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
+  const { db, intg, linkData, existing } = args;
+  const editable = integrationEditableData(intg);
+
+  if (existing?.table === 'integrations') {
+    return {
+      id: existing.id,
+      operation: 'updated',
+      statements: [
+        db
+          .update(integrations)
+          .set({ ...editable, ...linkData })
+          .where(eq(integrations.id, existing.id)),
+        // Belt-and-braces on the single-table invariant, mirroring the evidenced branch:
+        // an id must never live in both tables. A clean `integrations` row has no twin,
+        // so this is a no-op then; it only bites if a prior partial state left one.
+        db.delete(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, existing.id)),
+      ],
+    };
+  }
+
+  if (existing?.table === 'evidenced') {
+    return {
+      id: existing.id,
+      operation: 'updated',
+      statements: [
+        db.insert(integrations).values({ id: existing.id, ...editable, ...linkData }),
+        db
+          .update(claims)
+          .set({ integrationId: existing.id, connectorEvidencedPairId: null })
+          .where(eq(claims.connectorEvidencedPairId, existing.id)),
+        db.delete(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, existing.id)),
+      ],
+    };
+  }
+
+  const id = crypto.randomUUID();
+  return {
+    id,
+    operation: 'created',
+    statements: [db.insert(integrations).values({ id, ...editable, ...linkData })],
+  };
+}
+
+/**
  * Build one AECI-730 report entry for an optional integration link that didn't
  * resolve, so the column was left out of the write.
  *
@@ -1192,8 +1329,12 @@ type PromoteReplayPath = 'pre-read' | 'batch-conflict';
  *   - `bookmark` — a D1 session token, meaningless in another session. The replay
  *     returns its own, which (having just read this row through the `'first-primary'`
  *     anchor) is already at or past the original commit.
- *   - `AuditLogEntry.metadata` — the same `AUDIT_META` constant on every entry, so it is
- *     re-attached on read rather than stored N times.
+ *   - `AuditLogEntry.metadata` — `AUDIT_META` is on every entry, so it is re-attached on
+ *     read rather than stored N times. Entry-specific keys (`movedFrom`, AECI-888) are
+ *     therefore NOT replayed. That is a bounded loss: the `audit_log` ROW committed with
+ *     the full metadata in the original batch, and a replay by definition means that
+ *     commit already happened — only the re-forwarded log line is thinner. Storing them
+ *     would need a `v: 2` envelope, which is not worth it for that.
  */
 export type PromoteJobLedger = {
   /** Envelope version. A row written by a future shape reads as unusable rather than
@@ -1436,7 +1577,16 @@ export async function runPromoteIngest(
   // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
   const stmts: BatchStmt[] = [];
   const auditEntries: AuditLogEntry[] = [];
-  const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
+  // MERGE, don't overwrite. `AUDIT_META` is on every row, but a caller may add keys of
+  // its own — `movedFrom` on a cross-table move (AECI-888) is the first. Assigning
+  // `AUDIT_META` wholesale silently dropped them.
+  const audit = (entry: AuditLogEntry) =>
+    auditEntries.push({
+      ...entry,
+      // `AuditLogEntry.metadata` is `unknown` (it is a JSON column), so the spread needs
+      // the narrowing. A caller here only ever passes a plain object or nothing.
+      metadata: { ...AUDIT_META, ...(entry.metadata as Record<string, unknown> | undefined) },
+    });
   const skipped: PromoteSkipped[] = [];
   // The inverse of `skipped`: existing vendor-owned claims/attestations this promote
   // deliberately left alive (AECI-604). Never an error — it is the operator's receipt
@@ -2168,44 +2318,58 @@ export async function runPromoteIngest(
     // `integrations` — `connector_product_id` is NOT NULL, and "an edge whose
     // connector did not resolve also stays" is this branch's own rule above. That
     // reproduces the pre-merge routing exactly; only the WRITE gains the guard.
-    const connectorId = typeof poweredBy.value === 'string' ? poweredBy.value : null;
+    const payloadConnectorId = typeof poweredBy.value === 'string' ? poweredBy.value : null;
+
+    let result: PromoteIntegrationResult;
+    // LOCATE BEFORE ROUTING (AECI-888). An update may MOVE an endpoint, so the OLD
+    // products have to be recomputed too (the AECI-86 drift fix), and the pre-read has to
+    // happen pre-batch anyway. What changed is that it now reads BOTH anchor tables:
+    // migration `0027` preserves ids verbatim across the move, so an id living on the
+    // other side is not a dead pointer and must not take the create branch.
+    const located = await locateEdge(db, intg.supabaseId);
+    // Kept under its old name for the AECI-730 `preserved` branch below, which needs the
+    // STORED `powered_by_product_id` — not the payload's — to know whose product page
+    // still needs purging. Narrowed to the `integrations` arm because that is the only
+    // table with the column.
+    const existing = located?.table === 'integrations' ? located.row : undefined;
+
+    // ── Which table does this edge belong in, given BOTH inputs? ─────────────
+    //
+    // The payload alone cannot answer it. §3.6's absent-means-untouched rule says an
+    // OMITTED `poweredByProduct` is "no opinion", and AECI-730 says an UNRESOLVABLE one
+    // leaves the stored value alone — so in both cases the edge stays wherever it already
+    // is, which for a migrated edge is `connector_evidenced_pairs`. Routing those to
+    // `integrations` on the strength of a key nobody stated is inference from absence,
+    // which is exactly what ADR 0030 refuses.
+    //
+    // So: a RESOLVED third-party connector routes to the evidenced tier, as before. An
+    // unstated one routes by WHERE THE ROW LIVES. Only an EXPLICIT `null` moves an edge
+    // back out of the evidenced tier, because only an explicit null is a statement.
+    const connectorStated = poweredBy.value !== undefined;
+    const storedConnectorId =
+      located?.table === 'evidenced' ? located.row.connectorProductId : null;
+    // An unstated key inherits the stored connector. Convention A (§13.2a) still applies
+    // to the inherited value: if an endpoint has since MOVED onto the connector, the
+    // destination's `connector_evidenced_pairs_distinct_connector` CHECK would reject the
+    // row and fail the whole batch — an outage on a routine re-promote. That edge belongs
+    // in `integrations` by the same rule that keeps ~60 production self-references there,
+    // so let it fall through and carry the connector in `powered_by_product_id` instead.
+    const connectorId = connectorStated ? payloadConnectorId : storedConnectorId;
     const routesToEvidencedPair =
       connectorId !== null && connectorId !== sourceId && connectorId !== targetId;
 
-    let integrationId: string;
-    let result: PromoteIntegrationResult;
-    // An update may MOVE an endpoint. Capture the pre-update source/target so the OLD
-    // products are recomputed too (the AECI-86 drift fix); the new endpoints are added
-    // below. Read pre-batch. A miss also means the id is dead, so create instead of
-    // no-op-updating (AECI-568).
-    // `poweredByProductId` rides along for the AECI-730 `preserved` branch: when the
-    // payload's connector didn't resolve we leave the column alone, so the STORED
-    // value — not the payload's — is the one whose product page still needs purging.
-    const existing = intg.supabaseId
-      ? await db.query.integrations.findFirst({
-          columns: { sourceProductId: true, targetProductId: true, poweredByProductId: true },
-          where: eq(integrations.id, intg.supabaseId),
-        })
-      : undefined;
+    // An unstated key that inherits its connector must not CLEAR the stored column on the
+    // way past. `compact()` already drops `poweredByProductId` when it is `undefined`, so
+    // the unrouted-but-inherited case leaves the column exactly as it was.
 
     if (routesToEvidencedPair) {
       // WHERE the preserved id already lives decides the write (see
       // `planEvidencedPairWrite`). The migration keeps the id verbatim across the
-      // move, so a re-promote of a migrated edge finds it HERE, not in `integrations`
-      // — reading only `existing` (integrations) would route it to a fresh-id INSERT
-      // and collide on `connector_evidenced_pairs_pair_idx`.
-      const existingEvidenced = intg.supabaseId
-        ? await db.query.connectorEvidencedPairs.findFirst({
-            columns: { productAId: true, productBId: true, connectorProductId: true },
-            where: eq(connectorEvidencedPairs.id, intg.supabaseId),
-          })
-        : undefined;
-      const located: { id: string; table: 'evidenced' | 'integrations' } | null =
-        intg.supabaseId && existingEvidenced
-          ? { id: intg.supabaseId, table: 'evidenced' }
-          : intg.supabaseId && existing
-            ? { id: intg.supabaseId, table: 'integrations' }
-            : null;
+      // move, so a re-promote of a migrated edge finds it in the evidenced table, not in
+      // `integrations` — routing it to a fresh-id INSERT would collide on
+      // `connector_evidenced_pairs_pair_idx`. `locateEdge` above answers that for both
+      // branches now (AECI-888); this branch used to run its own second read.
+      const existingEvidenced = located?.table === 'evidenced' ? located.row : undefined;
       // A supplied id that resolves in neither table is dead — the create branch
       // mints a new one, and we report the stale pointer the same way the
       // `integrations` branch does (AECI-568).
@@ -2232,6 +2396,12 @@ export async function runPromoteIngest(
             : 'connector_evidenced_pair.created',
         entityType: 'connector_evidenced_pair',
         entityId: evidenced.id,
+        // Symmetric with the de-route below (AECI-888). Same action and same entity id
+        // whether the pair was updated in place or moved in from `integrations`, so
+        // without this the move leaves no trace anyone can search for.
+        ...(located?.table === 'integrations'
+          ? { metadata: { movedFrom: 'integrations' as const } }
+          : {}),
       });
       // Recompute the OLD endpoints too when this edge already existed — its
       // endpoints (or the connector it counted for) may have moved. The integrations
@@ -2284,40 +2454,62 @@ export async function runPromoteIngest(
       }
       continue;
     }
-    if (intg.supabaseId && !existing) {
+    // Only a pointer dead in BOTH tables is stale (AECI-888 narrows AECI-568). An id
+    // resolving in `connector_evidenced_pairs` used to land here and take the create
+    // branch, which is precisely how the old row was stranded.
+    if (intg.supabaseId && !located) {
       staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
     }
-    if (intg.supabaseId && existing) {
+    // A move out of the evidenced tier changes the OLD pair's endpoints and its
+    // connector, and §13.5 option B counts the edge for the connector's own
+    // `integration_count` — so all three have to be recomputed or the connector's hub
+    // keeps counting an edge it no longer carries.
+    const movedFromEvidenced = located?.table === 'evidenced' ? located.row : null;
+    if (movedFromEvidenced) {
+      affectedProducts.add(movedFromEvidenced.productAId);
+      affectedProducts.add(movedFromEvidenced.productBId);
+      affectedProducts.add(movedFromEvidenced.connectorProductId);
+    }
+    if (existing) {
       affectedProducts.add(existing.sourceProductId);
       affectedProducts.add(existing.targetProductId);
-      stmts.push(
-        db
-          .update(integrations)
-          .set({ ...integrationEditableData(intg), ...linkData })
-          .where(eq(integrations.id, intg.supabaseId)),
-      );
-      integrationId = intg.supabaseId;
-      result = { ref: intg.ref, id: intg.supabaseId, operation: 'updated' };
-      audit({
-        actorType: 'system',
-        action: 'integration.updated',
-        entityType: 'integration',
-        entityId: intg.supabaseId,
-      });
-    } else {
-      const id = crypto.randomUUID();
-      stmts.push(
-        db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
-      );
-      integrationId = id;
-      result = { ref: intg.ref, id, operation: 'created' };
-      audit({
-        actorType: 'system',
-        action: 'integration.created',
-        entityType: 'integration',
-        entityId: id,
-      });
     }
+
+    // A move out of the evidenced tier is an INSERT, and `compact()`'s absent-means-
+    // untouched rule does not survive one: there is no prior row to leave untouched, so
+    // an omitted `poweredByProduct` would land NULL. That is not "no opinion", it is a
+    // silent discard of the only record that this edge was connector-delivered.
+    //
+    // It only arises on the Convention A path — an unstated connector that was inherited
+    // from the pair and has since become an endpoint. Carry it into
+    // `powered_by_product_id`, which is exactly where the ~60 production self-referential
+    // rows keep theirs. An EXPLICIT `null` is untouched by this: it is a statement, it
+    // survives `compact()`, and it correctly writes NULL.
+    const inheritedConnectorId =
+      movedFromEvidenced && !connectorStated ? movedFromEvidenced.connectorProductId : null;
+    const written = planIntegrationWrite({
+      db,
+      intg,
+      linkData: inheritedConnectorId
+        ? { ...linkData, poweredByProductId: inheritedConnectorId }
+        : linkData,
+      existing: located,
+    });
+    stmts.push(...written.statements);
+    const integrationId = written.id;
+    result = { ref: intg.ref, id: written.id, operation: written.operation };
+    audit({
+      actorType: 'system',
+      action: written.operation === 'updated' ? 'integration.updated' : 'integration.created',
+      entityType: 'integration',
+      entityId: written.id,
+      // A cross-table move is otherwise indistinguishable from an ordinary update in
+      // `audit_log` — same action, same entity id. Recording it is what makes the
+      // AECI-798 shape visible after the fact instead of only on the public page.
+      ...(movedFromEvidenced
+        ? { metadata: { movedFrom: 'connector_evidenced_pairs' as const } }
+        : {}),
+    });
     // Report each link the write had to leave out (AECI-730). Pushed HERE, after the
     // branch, because `outcome` is decided by whether the row was created (column is
     // NULL) or updated (column left exactly as it was — the clobber guard).
@@ -2336,8 +2528,14 @@ export async function runPromoteIngest(
     // `undefined` means the column was left untouched, so what still applies is the
     // value already stored — the update branch's pre-read carries it. Anything else
     // (a resolved id, or an explicit `null` clear) is what was actually written.
+    //
+    // On a DE-ROUTE the written value is `null`, and using it would purge nothing: the
+    // old connector's `product:{slug}` hub still lists this edge and would keep serving
+    // it from cache (`CACHE_STRATEGY.md` §"Bounded gap"). The connector we just moved
+    // away from is the one whose page went stale, so it is the one to purge.
     const poweredById =
-      poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value;
+      movedFromEvidenced?.connectorProductId ??
+      (poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value);
     integrationEndpoints.push({ result, sourceId, targetId, poweredById });
 
     // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────

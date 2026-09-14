@@ -493,6 +493,32 @@ Four consequences worth knowing:
   under its existing id, its claims and their vendor attestations re-homed with it, and the old
   `integrations` row dropped. No payload change and no separate call is needed for either.
 
+- **Clearing the routing key moves the edge back, and only an EXPLICIT `null` does it
+  (AECI-888).** The three carve-outs above are written as *initial routing* rules; these are the
+  *transition-out* rules, and they are not symmetric with them, because §3.4's absent-means-untouched
+  rule applies to the routing key like any other column.
+
+  | `poweredByProduct` in your payload | what happens to an edge already in `connector_evidenced_pairs` |
+  |---|---|
+  | a resolved third product | updated in place, as above |
+  | **`null`** | **moved to `integrations`** under its existing id, claims re-homed off `connector_evidenced_pair_id`, the pair row dropped |
+  | **omitted** | **stays where it is.** "No opinion" is not a de-route — the stored connector still applies |
+  | present but **unresolvable** | **stays where it is**, stored connector preserved, reported on `unresolvedLinks` (AECI-730) |
+
+  The one exception to "omitted stays": if the inherited connector has since become one of the
+  edge's own endpoints, that is Convention A (§13.2a) and the destination's
+  `connector_evidenced_pairs_distinct_connector` CHECK would reject the row and fail the whole
+  batch. Such an edge moves to `integrations` and carries the connector in
+  `powered_by_product_id`, which is where the ~60 production self-referential rows keep theirs.
+
+  **Two properties to know before relying on this.** A `supabaseId` that resolves in *either*
+  anchor table is no longer reported on `staleSupabaseIds` — before AECI-888 a pair-table id
+  looked dead, took the create branch, and left the original addressable by nothing (AECI-798;
+  diagnosis in `scripts/ops/2026-09-roofr-qbo-connector-orphan/README.md`). And the move out is
+  **lossy on `mechanismKind`**: `connector_evidenced_pairs` has no such column, so the value was
+  dropped on the way in and only your payload can supply it on the way back. Restate it whenever
+  you clear `poweredByProduct`, or the edge lands with a null mechanism.
+
 ### 3.5 Vendor-only (or integration-only) push
 
 To push **just an edited vendor** live — without touching its product — send only
@@ -1006,16 +1032,28 @@ the same product twice as two different attempts.
 - **`claims[]` is the one exception to "replaced to exactly match what you send"** —
   it replaces **AECi curation only**. See §5.2.
 
-### 5.1 Promote has NO delete semantics — deleting upstream does not retract
+### 5.1 Promote cannot RETRACT — deleting upstream does not remove the public row
 
 This is the sharpest edge in the whole contract, and it is not a bug you can retry
-past. **A promote can create and update rows. It can never delete one.**
+past. **Absence is never evidence of deletion.** A payload is a statement about what
+exists; a paged or partial push that omits a record says nothing about it, so nothing
+you leave out of a promote is ever removed by one. Retraction is a separate, pull-shaped
+consumer (ADR 0030).
 
-The only exception is *within* an entity you push: a product's join sets (categories,
-trades, …) are replaced wholesale to match your payload, and an integration's
-`claims[]` replaces **AECi's own curation** on it (§5.2 — vendor-authored claims and
-attestations survive). Entities themselves — products, vendors, integrations — are
-never removed.
+Two kinds of delete *are* in the contract, and neither of them is retraction.
+
+1. **Within an entity you push.** A product's join sets (categories, trades, …) are
+   replaced wholesale to match your payload, and an integration's `claims[]` replaces
+   **AECi's own curation** on it (§5.2 — vendor-authored claims and attestations survive).
+2. **An id-directed cross-table move** (§3.4a, AECI-888). The delivered tier spans
+   `integrations` and `connector_evidenced_pairs`, and `powered_by_product_id` is what
+   routes an edge between them. Because identity is table-scoped and that key is mutable,
+   a push that flips it **moves** the row — insert under the preserved id, re-home the
+   claims, drop the source, all in the same batch. The old row is deleted because you
+   named it, not because anything was missing from the payload.
+
+What is never removed is an **entity you stopped mentioning**. Products, vendors and
+edges you leave out of a payload stay exactly as they are.
 
 So if a curator **deletes an integration record in the review app**, or simply stops
 sending it, the live D1 row does not go anywhere. It stays on the public pair page and
@@ -1058,11 +1096,14 @@ the upstream ruling — do not read the guard sheet as evidence either way.**
 **The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
 production D1 against the curation catalog daily at 09:00 UTC and fails on any stranded row.
 Since **2026-09-08 (AECI-796)** it reads that catalog over the `aeci-review` MCP with
-`AECI_MCP_TOKEN`, running `scripts/ops/2026-09-stranded-row-audit/audit.mjs` across seven
-buckets — six stranded-row classes plus **`pendingRetractions`** (AECI-882), which reads this
-feed. That seventh bucket exists because the other six are a **stock** check that excludes
+`AECI_MCP_TOKEN`, running `scripts/ops/2026-09-stranded-row-audit/audit.mjs` across eight
+buckets — seven stranded-row classes plus **`pendingRetractions`** (AECI-882), which reads this
+feed. That last bucket was added because the stock classes then **excluded**
 `connector_evidenced_pairs`, and on 2026-09-13 they read green while 215 retracted pairs were
-live. Entries on the script's `HELD_RETRACTIONS` list are reported but do not fail the run; a
+live. **AECI-897 closed that exclusion** — `evidencedPairSourceGone` is the seventh stock class,
+and the stated reason for the exclusion turned out to be wrong by 60 of 62 when it was finally
+measured. Both checks stay: a set difference cannot say *why* a record went away, and the feed
+can. Entries on the script's `HELD_RETRACTIONS` list are reported but do not fail the run; a
 hold names the issue that clears it. It has **no skip-green branch**: a missing credential exits 2 and goes red, because
 an unchecked audit is not a pass. Read the next paragraph before trusting any run of it dated
 before that. Triage: `docs/RUNBOOKS.md` §"Promote strand audit is red"; the repair recipes are

@@ -1536,15 +1536,33 @@ permanently unreachable. Which bucket fired tells you what broke:
 
 | Bucket | Meaning |
 |---|---|
-| `integrationSourceGone` | A D1 integration edge no upstream record claims. **The common one.** |
-| `integrationEndpointStranded` | An edge whose endpoint product is itself stranded. Falls out with the product. |
+| `integrationSourceGone` | An `integrations` edge no upstream record claims. **The common one.** |
+| `evidencedPairSourceGone` | A `connector_evidenced_pairs` edge no upstream record claims. **New 2026-09-14 (AECI-897)** — this table was counted but never classified, which is why the job read green on 2026-09-10 and 2026-09-11 with 215 retracted pairs live. **Its repair is not the same as the others — see below.** |
+| `integrationEndpointStranded` | An edge whose endpoint, connector or builder is itself stranded. Falls out with that row. Spans **both** anchor tables; read the entry's `table` field. |
 | `productDeletedUpstream` | A D1 product no upstream record claims at all. |
 | `productRejectedUpstream` | A D1 product whose upstream record is `rejected` — promoted once, then rejected, never retracted here. |
 | `vendorSourceGone` | A D1 vendor whose upstream record is gone. |
 | `vendorNoLiveProducts` | A D1 vendor whose products have all moved to another vendor. Usually a re-parenting that left the old row behind. |
 
 `orphanChildren` is reported alongside them as cascade weight (claims and attestations that
-would go with the rows), not as a bucket — it does not affect the exit code.
+would go with the rows), not as a bucket — it does not affect the exit code. It reads **both**
+`claims.integration_id` and `claims.connector_evidenced_pair_id` since AECI-897; before that it
+reported zero cascade for every pair finding, understating the cost of a retraction by exactly
+the rows that make one dangerous.
+
+Every edge finding also carries `table` and, where one exists, `twin` — the row on the *other*
+anchor table covering the same product pair. A twin is **not** by itself a defect: under the
+Addendum C model a pair can legitimately carry both a delivered edge and a connector-delivered
+one, and two production pairs do. Only "both tables, one unreferenced upstream" is the strand
+shape, which is the AECI-888 signature.
+
+> **`evidencedPairSourceGone` has no repair tool. Do not hand-DELETE.** Neither
+> `ops:retract-product` nor the datatool prune can touch `connector_evidenced_pairs`, and the
+> retraction consumer only acts on journal entries, so a strand finding never reaches it. The
+> path is: confirm the ruling upstream, have the curator delete the record so the journal
+> carries it, then let `scripts/ops/2026-09-retraction-consumer/consume.mjs` execute it. Raw SQL
+> skips the `audit_log` row and the `integration_count` reconcile, which is what made the
+> 2026-09-07 cleanup a one-off nobody can replay.
 
 **First checks**
 
@@ -1606,8 +1624,9 @@ read. The audit itself has no `--apply` and never writes. Two things worth repea
   read high until the next promote of any product runs `refreshHomeStatsAfterPromote`. Harmless
   and self-healing; only chase it if no promote is expected soon.
 
-**Root cause, and why this job exists:** promote can create and update but **never delete**
-(`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an upstream record therefore always
+**Root cause, and why this job exists:** promote can create and update but **never retracts**
+(`docs/REVIEW_APP_PROMOTE_API.md` §5.1) — it deletes only rows a payload names by id, never rows
+a payload merely omits. A curator deleting an upstream record therefore always
 strands the D1 row, and destroys the only pointer that could have found it. Nothing in the promote
 path can guard that, so this scheduled audit is the backstop. The other half shipped in
 **AECI-882** — the review app's `list_retractions` feed, which says *why* a record went away — and

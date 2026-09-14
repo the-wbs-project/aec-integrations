@@ -4098,6 +4098,16 @@ machine-to-machine auth, not a user session.
   the review app then writes back over the real one. Each fallback is reported post-commit
   as `aeci.api.promote.stale_id{kind}`.
 
+  **"Gone" means gone from BOTH anchor tables (AECI-888).** An edge id lives in either
+  `integrations` or `connector_evidenced_pairs` — migration `0027` preserved ids verbatim
+  across the move — so an id resolving on the other side is a live pointer, not a dead one.
+  It is **not** reported as stale, and it does **not** take the create branch: the row is
+  moved instead (§3.4a of `REVIEW_APP_PROMOTE_API.md`). Before this, clearing an edge's
+  `poweredByProduct` minted a second row and left the original addressable by nothing
+  (AECI-798). The `stale_id{kind:'integration'}` series therefore covers a strictly smaller
+  population than it did, and a drop in it after 2026-09-14 is this change, not a fix
+  upstream.
+
 **Errors split across the two surfaces.** Synchronous: `400 MALFORMED_REQUEST` /
 `400 VALIDATION_FAILED` / `401 UNAUTHENTICATED` / `413 PAYLOAD_TOO_LARGE` (body > 8 MiB, or
 oversize with no `PROMOTE_KV` to stage into) / `503 DEPENDENCY_FAILURE` (no

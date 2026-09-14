@@ -55,21 +55,43 @@
 //                                 powered_by resolves to a row stranded above.
 //   orphanChildren                Claims + attestations hanging off any stranded
 //                                 integration. Derived, reported for the cascade.
+//   evidencedPairSourceGone       `connector_evidenced_pairs` row whose id no upstream
+//                                 record carries. The AECI-897 bucket — see below.
 //   pendingRetractions            A record DELETED upstream whose public row this repo
 //                                 has not removed yet (AECI-882). Not a stranded row —
 //                                 the ruling already exists; the consumer has not run.
-//                                 This is the only bucket that can see a retracted
-//                                 `connector_evidenced_pairs` row, because the six above
-//                                 exclude that table. Entries on HELD_RETRACTIONS are
-//                                 reported but do NOT make the run dirty.
+//                                 Entries on HELD_RETRACTIONS are reported but do NOT
+//                                 make the run dirty.
 //
-// `connector_evidenced_pairs` is DELIBERATELY OUT OF SCOPE: its rows are counted and
-// reported, never classified, because auditing them against `list_integrations` would
-// report all of them, every run. The reason recorded here was wrong twice and is
-// corrected as of AECI-764 (2026-09-10). This table is NOT fed by the connector-catalog
-// arm (§3a writes `connector_pairs`, a different table); it is fed by the product arm
-// routing `integrations[]` off `poweredByProduct` (§3.4a), and has held data since
-// AECI-721. The §3a sender (AECI-731) is built and ran against production on 2026-09-10.
+// ─── `connector_evidenced_pairs` IS IN SCOPE, SINCE AECI-897 ──────────────────
+//
+// It was not, and the exclusion cost a real miss. This sweep read GREEN on 2026-09-10 and
+// again on 2026-09-11, immediately after 215 rows were deleted upstream with none removed
+// from the public site. Every one of the 215 was in this table. A check that cannot see a
+// whole table is worse than no check, because it reads as coverage.
+//
+// The recorded reason was that classifying pairs against `list_integrations` "would report
+// all of them, every run". That was MEASURED against production on 2026-09-14 and is wrong
+// by 60 of 62:
+//
+//     upstream integrations carrying a supabaseId   1,010
+//     D1 connector_evidenced_pairs                     62
+//       ...claimed upstream                            60
+//       ...unclaimed                                    2
+//
+// The comparand is sound because the ids are the SAME ids. The product promote arm writes
+// a pair row under the caller's `supabaseId` verbatim and reports it back on
+// `response.integrations[]`, which the review app stores in the same
+// `supabase_integration_id` column `list_integrations` projects. This table is not fed by
+// the connector-catalog arm at all (§3a writes `connector_pairs`, a different table); it
+// is fed by the product arm routing `integrations[]` off `poweredByProduct` (§3.4a).
+//
+// If that ever stops being true, every row goes unclaimed at once — which is the comparand
+// BREAKING, not 62 findings. `comparandLooksBroken` in `classify.mjs` catches that shape
+// and routes it to exit 2.
+//
+// The classification itself lives in `classify.mjs` so it can be tested:
+// `apps/api/src/test/strand-classify.spec.ts`.
 //
 // ONLY `--env production` IS MEANINGFUL, for the reason both sibling lanes give: the
 // review app holds PRODUCTION uuids in its `supabase*` fields — there is one curation
@@ -94,6 +116,15 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  attachTwins,
+  classifyRows,
+  comparandLooksBroken,
+  evidencedPairEndpoints,
+  evidencedPairEntry,
+  integrationEndpoints,
+  integrationEntry,
+} from './classify.mjs';
 import { listAll, mapWithConcurrency, openMcpSession } from './mcp-client.mjs';
 
 // A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
@@ -127,6 +158,10 @@ const BUCKETS = [
   'vendorSourceGone',
   'integrationSourceGone',
   'integrationEndpointStranded',
+  // AECI-897. The same set difference as `integrationSourceGone`, over the OTHER anchor
+  // table. Its own bucket rather than folded in, because its repair is different: see the
+  // `--ids-out` legend — nothing in this repo can delete one on an operator's say-so.
+  'evidencedPairSourceGone',
   // AECI-882. NOT a stranded-row class — this one is an unconsumed RETRACTION: a record
   // the curator deleted whose public row this repo has not yet removed. It is in BUCKETS
   // so it flows through the summary table, the report and the exit code like any other
@@ -569,9 +604,34 @@ for (const i of d1Integrations) {
   i.claim_count = claimCounts.get(i.id) ?? 0;
   i.attestation_count = attestationCounts.get(i.id) ?? 0;
 }
-const [{ evidenced_pairs: evidencedPairCount }] = readD1(
-  `SELECT count(*) AS evidenced_pairs FROM connector_evidenced_pairs`,
+// AECI-897: the full projection, not a count. Column mapping mirrors the retraction
+// consumer (`scripts/ops/2026-09-retraction-consumer/consume.mjs`), which is the only
+// other code in the repo that reads both anchor tables as one shape: endpoints are
+// `product_a_id` / `product_b_id`, the mechanism label is `mechanism_name` (no
+// `mechanism_kind` column exists here), and the connector is a third product.
+const d1EvidencedPairs = readD1(
+  `SELECT id, name, mechanism_name, product_a_id, product_b_id,
+          connector_product_id, built_by_vendor_id
+   FROM connector_evidenced_pairs`,
 );
+const evidencedPairCount = d1EvidencedPairs.length;
+// GROUP BY aggregates joined in JS, for the same reason the `integrations` counts above
+// are: the correlated per-row form tripped D1's CPU limit outright on 2026-09-07.
+const pairClaimCounts = new Map(
+  readD1(`SELECT connector_evidenced_pair_id, count(*) AS n FROM claims
+          WHERE connector_evidenced_pair_id IS NOT NULL
+          GROUP BY connector_evidenced_pair_id`).map((r) => [r.connector_evidenced_pair_id, r.n]),
+);
+const pairAttestationCounts = new Map(
+  readD1(`SELECT c.connector_evidenced_pair_id AS pair_id, count(*) AS n
+          FROM attestations a JOIN claims c ON c.id = a.claim_id
+          WHERE c.connector_evidenced_pair_id IS NOT NULL
+          GROUP BY c.connector_evidenced_pair_id`).map((r) => [r.pair_id, r.n]),
+);
+for (const e of d1EvidencedPairs) {
+  e.claim_count = pairClaimCounts.get(e.id) ?? 0;
+  e.attestation_count = pairAttestationCounts.get(e.id) ?? 0;
+}
 
 const productById = new Map(d1Products.map((p) => [p.id, p]));
 const vendorById = new Map(d1Vendors.map((v) => [v.id, v]));
@@ -740,67 +800,102 @@ const strandedVendorIds = new Set(
   [...buckets.vendorNoLiveProducts, ...buckets.vendorSourceGone].map((e) => e.id),
 );
 
-// INTEGRATIONS.
+// EDGES — BOTH ANCHOR TABLES (AECI-897).
+//
+// The delivered tier spans two tables and they are summed on every public surface, so a
+// sweep over one of them measures half the catalogue while reporting on all of it. The
+// classification is identical for both; only the column names and the entry builder
+// differ, and both live in `classify.mjs`.
 const slugOf = (id) => productById.get(id)?.slug ?? null;
-const bothEndpointsPromoted = (row) =>
-  productById.get(row.source_product_id)?.promotion_status === 'promoted' &&
-  productById.get(row.target_product_id)?.promotion_status === 'promoted';
+const promotedOf = (id) => productById.get(id)?.promotion_status === 'promoted';
+const entryDeps = { slugOf, promotedOf };
+const claimedIds = new Set(claimedIntegrations.keys());
 
-function integrationEntry(row, reason) {
-  const a = slugOf(row.source_product_id);
-  const b = slugOf(row.target_product_id);
-  return {
-    id: row.id,
-    name: row.name,
-    mechanismKind: row.mechanism_kind,
-    reason,
-    sourceProductId: row.source_product_id,
-    targetProductId: row.target_product_id,
-    builtByVendorId: row.built_by_vendor_id,
-    poweredByProductId: row.powered_by_product_id,
-    url: a && b ? pairUrl(a, b) : null,
-    // Both endpoint pages also render the edge, so a retraction touches three URLs.
-    alsoRenderedOn: [a && productUrl(a), b && productUrl(b)].filter(Boolean),
-    inAlgolia: bothEndpointsPromoted(row),
-    cascade: { claims: row.claim_count, attestations: row.attestation_count },
-  };
+const intgClass = classifyRows({
+  rows: d1Integrations,
+  entryFor: integrationEntry,
+  claimedIds,
+  strandedProductIds,
+  strandedVendorIds,
+  endpointsOf: integrationEndpoints,
+  deps: entryDeps,
+});
+buckets.integrationSourceGone.push(...intgClass.sourceGone);
+buckets.integrationEndpointStranded.push(...intgClass.endpointStranded);
+
+const pairClass = classifyRows({
+  rows: d1EvidencedPairs,
+  entryFor: evidencedPairEntry,
+  claimedIds,
+  strandedProductIds,
+  strandedVendorIds,
+  endpointsOf: evidencedPairEndpoints,
+  deps: entryDeps,
+});
+buckets.evidencedPairSourceGone.push(...pairClass.sourceGone);
+// A pair whose endpoints or connector are stranded is the same defect as an integration
+// whose are, so it rides the existing bucket. `table` on every entry is what keeps the
+// two distinguishable once they are mixed.
+buckets.integrationEndpointStranded.push(...pairClass.endpointStranded);
+
+// DID THE COMPARISON BREAK? If upstream ever stops projecting `supabaseId`, or excludes
+// connector-powered edges from `list_integrations`, every pair row goes unclaimed at once.
+// That is the check failing, not the catalogue vanishing, and reporting it as N stranded
+// rows would point an operator at a live table. Exit 2 — "could not check" — is the same
+// line every other upstream read in this file draws.
+if (
+  comparandLooksBroken({
+    tableSize: d1EvidencedPairs.length,
+    unclaimed: pairClass.sourceGone.length,
+  })
+) {
+  unresolvedUpstream.push({
+    kind: 'comparand',
+    error:
+      `every one of ${d1EvidencedPairs.length} connector_evidenced_pairs rows is unclaimed ` +
+      `by list_integrations. Measured 60/62 CLAIMED on 2026-09-14, so this is far more ` +
+      `likely the upstream projection changing than a whole-table retraction. NOT reported ` +
+      `as findings — re-check that list_integrations still carries supabaseId for ` +
+      `connector-powered edges before trusting any verdict here.`,
+  });
 }
 
-for (const row of d1Integrations) {
-  if (!claimedIntegrations.has(row.id)) {
-    buckets.integrationSourceGone.push(integrationEntry(row, 'no upstream record carries this id'));
-    continue;
-  }
-  const broken = [];
-  if (strandedProductIds.has(row.source_product_id)) broken.push('source product stranded');
-  if (strandedProductIds.has(row.target_product_id)) broken.push('target product stranded');
-  if (row.powered_by_product_id && strandedProductIds.has(row.powered_by_product_id)) {
-    broken.push('powered_by product stranded');
-  }
-  if (row.built_by_vendor_id && strandedVendorIds.has(row.built_by_vendor_id)) {
-    broken.push('built_by vendor stranded');
-  }
-  if (broken.length > 0) {
-    buckets.integrationEndpointStranded.push(integrationEntry(row, broken.join('; ')));
-  }
-}
+// Which row on the OTHER table covers the same product pair (AECI-888). Decoration, not
+// detection — see `attachTwins`. Runs over every edge finding in one pass.
+attachTwins({
+  findings: [
+    ...buckets.integrationSourceGone,
+    ...buckets.integrationEndpointStranded,
+    ...buckets.evidencedPairSourceGone,
+  ],
+  integrationRows: d1Integrations,
+  pairRows: d1EvidencedPairs,
+});
 
-// ORPHANED CHILDREN. Derived from the two integration buckets — claims and
-// attestations are wholly owned by their integration (claims.integration_id and
-// attestations.claim_id both cascade), so they cannot be stranded independently.
-const strandedIntegrations = [
+// ORPHANED CHILDREN. Derived from the three edge buckets — claims and attestations are
+// wholly owned by their anchor (`claims.integration_id`, `claims.connector_evidenced_pair_id`
+// and `attestations.claim_id` all cascade), so they cannot be stranded independently.
+//
+// BOTH anchor columns are read (AECI-897). A pair's claims hang off
+// `connector_evidenced_pair_id`, so the single-column form reported zero cascade for every
+// evidenced finding — understating what a retraction would cost by exactly the rows that
+// make it dangerous. `connector_pair_id` is deliberately NOT here: that third arm is the
+// REACHABLE tier (AECI-891) and this sweep classifies delivered rows only.
+const strandedEdges = [
   ...buckets.integrationSourceGone,
   ...buckets.integrationEndpointStranded,
+  ...buckets.evidencedPairSourceGone,
 ];
 const orphanChildren = {
-  claims: strandedIntegrations.reduce((n, e) => n + e.cascade.claims, 0),
-  attestations: strandedIntegrations.reduce((n, e) => n + e.cascade.attestations, 0),
+  claims: strandedEdges.reduce((n, e) => n + e.cascade.claims, 0),
+  attestations: strandedEdges.reduce((n, e) => n + e.cascade.attestations, 0),
   claimIds: [],
 };
-if (strandedIntegrations.length > 0) {
-  const inList = strandedIntegrations.map((e) => lit(e.id)).join(', ');
+if (strandedEdges.length > 0) {
+  const inList = strandedEdges.map((e) => lit(e.id)).join(', ');
   orphanChildren.claimIds = readD1(
-    `SELECT id, integration_id FROM claims WHERE integration_id IN (${inList})`,
+    `SELECT id, integration_id, connector_evidenced_pair_id FROM claims
+     WHERE integration_id IN (${inList}) OR connector_evidenced_pair_id IN (${inList})`,
   );
 }
 
@@ -833,10 +928,14 @@ for (const entry of strandedProducts) {
 
 // ─── pending retractions (AECI-882) ──────────────────────────────────────────
 //
-// Read the feed on the session this sweep already holds. Every entry is a public row
-// that upstream has deleted and this repo still serves, whichever table holds it — which
-// is the half `integrationSourceGone` structurally cannot see, because
-// `connector_evidenced_pairs` is out of scope for the classification above.
+// Read the feed on the session this sweep already holds. Every entry is a public row that
+// upstream has deleted and this repo still serves, whichever table holds it.
+//
+// Since AECI-897 the stock buckets cover both anchor tables too, so this bucket is no
+// longer the ONLY thing that can see a retracted pair. It is still not redundant: the
+// stock buckets are a set difference and can only infer that something went missing,
+// while the feed carries the curator's ruling and its reason. Stock and event, not one
+// check twice.
 //
 // `url` is deliberately left unset. The endpoint slugs are not on a journal entry, so
 // this sweep cannot resolve a public URL for one without a lookup it has no budget for,
@@ -884,6 +983,18 @@ const productsAccounted =
   buckets.productRejectedUpstream.length +
   buckets.productDeletedUpstream.length;
 
+// The same accounting over the delivered tier (AECI-897). Without it the new axis passes
+// VACUOUSLY — which is the exact failure being fixed: a table that is read but never
+// reconciled reports clean whether or not the read worked. Every edge row must be either
+// claimed upstream or in a source-gone bucket. `integrationEndpointStranded` is NOT a term
+// here: those rows ARE claimed, so they are already counted on the left.
+const edgesAccounted =
+  d1Integrations.filter((i) => claimedIntegrations.has(i.id)).length +
+  d1EvidencedPairs.filter((e) => claimedIntegrations.has(e.id)).length +
+  buckets.integrationSourceGone.length +
+  buckets.evidencedPairSourceGone.length;
+const edgeTotal = d1Integrations.length + d1EvidencedPairs.length;
+
 const report = {
   env,
   database: `aeci-app-${env}`,
@@ -904,11 +1015,13 @@ const report = {
     products: d1Products.length,
     vendors: d1Vendors.length,
     integrations: d1Integrations.length,
-    // Out of scope by design — see the header.
+    // In scope since AECI-897, and summed with `integrations` on every public surface.
     connectorEvidencedPairs: evidencedPairCount,
   },
   productsAccounted,
-  reconciles: productsAccounted === d1Products.length,
+  edgesAccounted,
+  edgeTotal,
+  reconciles: productsAccounted === d1Products.length && edgesAccounted === edgeTotal,
   // Rows the cohort missed but `find_product` proved are still claimed upstream.
   // Populated once the upstream list projections carry `supabaseId` — see the fast path.
   fastPath,
@@ -938,7 +1051,8 @@ if (asJson) {
   );
   console.log(
     `prod:     ${report.prod.products} products, ${report.prod.vendors} vendors, ` +
-      `${report.prod.integrations} integrations (+${report.prod.connectorEvidencedPairs} evidenced pairs, out of scope)`,
+      `${report.prod.integrations} integrations + ${report.prod.connectorEvidencedPairs} evidenced pairs ` +
+      `(${report.edgesAccounted}/${report.edgeTotal} accounted)`,
   );
   // The one line that says whether the upstream `list_products` / `list_vendors` projection
   // has started carrying `supabaseId`. `fromList` climbing off zero is the whole difference
@@ -998,9 +1112,17 @@ writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`);
 const idListPath = idsOutPath ?? join(HERE, `stranded-ids-${stamp}.txt`);
 const idLines = [
   `# stranded row audit — ${report.database} — ${report.measuredAt}`,
-  '# READ-ONLY OUTPUT. Retraction is a separate authorized action:',
+  '# READ-ONLY OUTPUT. Retraction is a separate authorized action, and the repair is NOT',
+  '# the same for every bucket. Read the class before acting on an id:',
   '#   products     → pnpm --filter @aeci/api ops:retract-product',
   '#   integrations → the datatool POST /api/prune-integrations',
+  '#   connector_evidenced_pairs → NO TOOL. Escalate by hand (AECI-897).',
+  '#     Neither ops:retract-product nor the datatool prune can touch that table, and',
+  '#     the retraction consumer only acts on journal entries, so a strand finding never',
+  '#     reaches it. Confirm the ruling upstream, have the curator delete the record so',
+  '#     the journal carries it, then let consume.mjs execute it. Do not hand-DELETE:',
+  '#     that skips the audit_log row and the count reconcile, which is what made the',
+  '#     2026-09-07 cleanup a one-off nobody can replay.',
   '# pendingRetractions is a DIFFERENT class with a different repair — those ids are not',
   '# stranded rows to rule on, they are deletions already ruled on upstream:',
   '#   node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production',
