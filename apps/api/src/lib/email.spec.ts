@@ -258,9 +258,40 @@ describe('sendClaimApprovedEmail', () => {
     // Account-state framing, not a product endorsement (no pay-for-placement).
     expect(text).toContain("doesn't affect search ranking or placement");
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
-    // Voice guard: no em dash beyond the shared house signature.
-    const authored = text.replace('— The AEC Integrations team', '');
-    expect(authored).not.toContain('—');
+    // Voice guard. No shim needed any more: the house layout carries no sign-off, so
+    // the only em dash this template ever held is gone.
+    expect(text).not.toContain('—');
+    expect(text).not.toContain('The AEC Integrations team');
+  });
+
+  it('renders through the house layout, not the legacy bare-paragraph shell', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Autodesk, Inc.',
+      invited: false,
+    });
+
+    const html = String(lastBody(fetchSpy).html);
+    // The card, the Forest logo band, and the Forest CTA. A regression back to
+    // `toHtml()` loses all three, and `#27272a` is its tell.
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain('https://www.aecintegrations.com/branding/email-logo-banner.png');
+    expect(html).toContain('>Go to your vendor portal</a>');
+    expect(html).toContain('v:roundrect');
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('leads with the portal button rather than burying the link in a sentence', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Go to your vendor portal: https://aecintegrations.com/vendor');
   });
 
   it('tailors the sign-in copy for an invited (just-provisioned) claimant', async () => {

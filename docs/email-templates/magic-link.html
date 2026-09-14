@@ -6,6 +6,12 @@
   It is NOT read from this repo at runtime. This file exists so the deployed copy has a
   reviewable source of truth; if you edit the dashboard, edit this file in the same PR.
 
+  THIS IS THE HOUSE TEMPLATE, and it has a TypeScript twin: apps/api/src/lib/email-layout.ts.
+  That module is a port of this shell, and it is what every Resend-sent email renders into.
+  GoTrue runs Go templates and cannot import TypeScript, so the two are hand-kept twins:
+  change the shell here and change it there in the SAME PR, or the sign-in email drifts
+  from every other email. docs/email.md (§House layout) is the contract.
+
   ONE PROJECT SERVES EVERY TIER (ADR 0017), so this template must never name an
   environment. `{{ .ConfirmationURL }}` already carries the right per-request redirect.
 
@@ -20,9 +26,10 @@
   not classes, and a VML fallback so the button renders in Outlook for Windows.
 
   COPY RULES (PRODUCT.md): product register, sentence case, no em dashes, no hyperbole.
-  Colors are DESIGN.md tokens: Forest #1E3A2F (CTA, per the Forest-Anchor Rule),
-  text-primary #0A0A0A, text-secondary #52525B, text-tertiary #71717A,
-  surface-sunken #F4F4F5, border-strong #D4D4D8.
+  Colors are DESIGN.md tokens: Forest #1E3A2F (the logo band and the CTA, per the
+  Forest-Anchor Rule), Bone #F5F2EA (type on Forest), text-primary #0A0A0A,
+  text-secondary #52525B, text-tertiary #71717A, surface-sunken #F4F4F5,
+  border-strong #D4D4D8.
 
   The stated expiry MUST match Authentication -> Emails -> "Email OTP Expiration"
   in the dashboard. `supabase/config.toml` (local only) has otp_expiry = 3600.
@@ -78,13 +85,53 @@
               background-color: #ffffff;
               border: 1px solid #d4d4d8;
               border-radius: 6px;
+              overflow: hidden;
             "
           >
-            <!-- Wordmark. An auth email that never names the sender reads as phishing. -->
+            <!-- Logo band. The <td> carries the Forest fill AND Bone type styling so a
+                 client with images off renders the alt text legibly inside the band
+                 rather than a broken-image icon on nothing. The URL is hardcoded to
+                 production on purpose: non-prod sits behind Cloudflare Access and would
+                 403 in the recipient's mail client. PNG, not SVG, because Outlook and
+                 Gmail do not render SVG at all. -->
+            <tr>
+              <td
+                bgcolor="#1e3a2f"
+                style="
+                  background-color: #1e3a2f;
+                  padding: 24px 32px;
+                  font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  font-size: 16px;
+                  font-weight: 600;
+                  letter-spacing: 0.01em;
+                  color: #f5f2ea;
+                "
+              >
+                <img
+                  src="https://www.aecintegrations.com/branding/email-logo-banner.png"
+                  width="300"
+                  height="49"
+                  alt="AEC Integrations"
+                  style="
+                    display: block;
+                    border: 0;
+                    outline: none;
+                    text-decoration: none;
+                    width: 300px;
+                    height: auto;
+                    max-width: 100%;
+                  "
+                />
+              </td>
+            </tr>
+
+            <!-- Wordmark. An auth email that never names the sender in TEXT reads as
+                 phishing, and this audience sits behind mail security that blocks
+                 images, so the band above cannot be the only place the brand appears. -->
             <tr>
               <td
                 style="
-                  padding: 32px 32px 0 32px;
+                  padding: 28px 32px 0 32px;
                   font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                   font-size: 14px;
                   font-weight: 600;

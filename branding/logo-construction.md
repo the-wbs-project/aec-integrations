@@ -225,6 +225,35 @@ The internal coordinates of the type and connector are **identical** between ori
 
 ---
 
+## `email-logo-banner.png` is a published asset now (2026-09-14)
+
+`branding/email-logo-banner.png` (1120x182, Forest field, Bone wordmark, clay connector)
+used to be an unreferenced file. It is now the header of every transactional email, and a
+copy is served at a **fixed, hardcoded URL**:
+
+```
+https://www.aecintegrations.com/branding/email-logo-banner.png
+```
+
+served from `apps/web/public/branding/email-logo-banner.png`, referenced by
+`EMAIL_LOGO_URL` in `apps/api/src/lib/email-layout.ts` and by
+`docs/email-templates/magic-link.html`.
+
+Three consequences:
+
+- **Do not rename, move or delete that path.** A mail client fetches it months after the
+  send. Breaking it breaks the header of every email already sitting in an inbox, and
+  nothing in CI would notice.
+- **The URL is production, not per-tier, on purpose.** Non-prod sits behind Cloudflare
+  Access, so a staging URL would 403 in the recipient's mail client.
+- **PNG, not SVG.** Outlook and Gmail do not render SVG at all, which is why the served
+  `monogram-light.svg` cannot stand in.
+
+Redrawing the banner means re-exporting to this same filename. The repo copy under
+`branding/` and the served copy under `apps/web/public/branding/` must stay identical.
+
+---
+
 ## Things never to do when constructing the logo
 
 - Never change the connector color from clay. The connector is the only place clay appears in the wordmark — it is the brand signal.
