@@ -3,12 +3,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  TaxonomyResponse,
-  TaxonomyTermWithCount,
-  UpdateVendorProductResponse,
-  VendorProduct,
-} from '@aeci/shared';
+import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE, VENDOR_TAXONOMY_FIXTURE } from '../vendor-fixtures';
@@ -18,50 +13,81 @@ import { VendorProductForm } from './vendor-product-form';
 /**
  * `VendorProductForm` (AECI-522) shares the dirty-diff / save scaffolding with
  * `VendorProfileForm` (pinned by its own spec + the profile-edit e2e), so these
- * specs focus on the three paths that are DISTINCTIVE to the product form and
- * would otherwise ship unverified: the `aria-pressed` taxonomy toggle, the
- * ORDER-INSENSITIVE set-replacement diff (`sameSet`), and the per-facet 10-term
- * cap. Plus one success round-trip to prove the echo re-seeds the baseline clean.
+ * specs focus on what is DISTINCTIVE to the product form.
+ *
+ * Since AECI-915 that is the split between reading taxonomy and writing it. The
+ * page renders a SUMMARY card per facet — the assigned terms only, each with its
+ * `description` behind an info control — and every write goes through
+ * `VendorTaxonomyFacetDialog`, whose own spec pins the picker's behaviour. What
+ * is pinned here is the seam between them: that the card shows what the server
+ * says, that a modal save PATCHes exactly one facet, that the echo lands without
+ * trampling unsaved text, and that the Taxonomy tab has no Save button of its own
+ * (the modal already persisted, so there would be nothing to submit).
  */
 const PRODUCT: VendorProduct = VENDOR_ME_FIXTURE.products[0];
 /** The fixture product that DOES carry trades (most carry none, by design). */
 const SECONDARY: VendorProduct = VENDOR_ME_FIXTURE.products[1];
 const DESCRIPTION_ID = `vendor-product-${PRODUCT.id}-description`;
 
-function term(slug: string, name: string, order: number): TaxonomyTermWithCount {
-  return {
-    id: `tax-${slug}`,
-    slug,
-    name,
-    description: null,
-    display_order: order,
-    product_count: 0,
-  };
+function saveButton(fixture: ComponentFixture<VendorProductForm>): HTMLButtonElement | null {
+  return fixture.nativeElement.querySelector('button[type="submit"]');
 }
 
-function saveButton(fixture: ComponentFixture<VendorProductForm>): HTMLButtonElement {
-  return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
+/** The four facet summary cards, in render order: categories, audiences, phases,
+ *  trades. */
+function facetCards(fixture: ComponentFixture<VendorProductForm>): HTMLElement[] {
+  return Array.from(fixture.nativeElement.querySelectorAll('section'));
 }
 
-/** All toggle chips in the first facet fieldset (Categories). */
-function categoryChips(fixture: ComponentFixture<VendorProductForm>): HTMLButtonElement[] {
-  const fieldset = fixture.nativeElement.querySelectorAll('fieldset')[0] as HTMLElement;
-  return Array.from(fieldset.querySelectorAll('button[aria-pressed]'));
+function cardByName(fixture: ComponentFixture<VendorProductForm>, legend: string): HTMLElement {
+  // Matched on the heading's WHOLE text, which pins the a11y rule as well as
+  // finding the card: the facet hint's info control is a sibling of the <h3>,
+  // so a hint nested back inside it would fail this lookup outright.
+  const card = facetCards(fixture).find(
+    (c) => (c.querySelector('h3')?.textContent ?? '').trim() === legend,
+  );
+  if (!card) throw new Error(`no facet card: ${legend}`);
+  return card;
 }
 
-/** A single toggle chip found by its visible label (across all facets). */
-function chipByName(fixture: ComponentFixture<VendorProductForm>, name: string): HTMLButtonElement {
-  const all = Array.from(
-    fixture.nativeElement.querySelectorAll('button[aria-pressed]'),
-  ) as HTMLButtonElement[];
-  const chip = all.find((b) => (b.textContent ?? '').trim() === name);
-  if (!chip) throw new Error(`chip not found: ${name}`);
-  return chip;
+/** The assigned terms a facet card is showing, by visible label. */
+function assigned(fixture: ComponentFixture<VendorProductForm>, legend: string): string[] {
+  return Array.from(cardByName(fixture, legend).querySelectorAll('li > span')).map((s) =>
+    (s.textContent ?? '').trim(),
+  );
 }
 
-function click(fixture: ComponentFixture<VendorProductForm>, el: HTMLElement): void {
-  el.click();
-  fixture.detectChanges();
+/** A facet card's pencil. The dialog component renders exactly one button in
+ *  the document flow; its modal body is a portaled `ng-template`. */
+function pencil(fixture: ComponentFixture<VendorProductForm>, legend: string): HTMLButtonElement {
+  return cardByName(fixture, legend).querySelector(
+    'aec-vendor-taxonomy-facet-dialog button',
+  ) as HTMLButtonElement;
+}
+
+/** Every info control's accessible name — which IS its hint text (AECI-915). */
+function hints(fixture: ComponentFixture<VendorProductForm>): string[] {
+  return Array.from(fixture.nativeElement.querySelectorAll('aec-info-hint button')).map(
+    (b) => (b as HTMLElement).getAttribute('aria-label') ?? '',
+  );
+}
+
+function overlay(): HTMLElement | null {
+  return document.querySelector('.cdk-overlay-container');
+}
+
+function modalRow(name: string): HTMLLabelElement {
+  const labels = Array.from(overlay()?.querySelectorAll('label') ?? []) as HTMLLabelElement[];
+  const found = labels.find((l) => (l.textContent ?? '').includes(name));
+  if (!found) throw new Error(`no modal row for ${name}`);
+  return found;
+}
+
+function modalButton(label: string): HTMLButtonElement {
+  const buttons = Array.from(overlay()?.querySelectorAll('button') ?? []) as HTMLButtonElement[];
+  const found = buttons.find((b) => (b.textContent ?? '').trim() === label);
+  if (!found) throw new Error(`no modal button: ${label}`);
+  return found;
 }
 
 function setInput(fixture: ComponentFixture<VendorProductForm>, id: string, value: string): void {
@@ -82,6 +108,7 @@ describe('VendorProductForm', () => {
 
   beforeEach(() => {
     updateProduct = vi.fn();
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
@@ -92,178 +119,224 @@ describe('VendorProductForm', () => {
     });
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+  });
 
   function create(
     taxonomy: TaxonomyResponse | null = VENDOR_TAXONOMY_FIXTURE,
     product: VendorProduct = PRODUCT,
+    section: 'all' | 'profile' | 'taxonomy' = 'all',
   ): ComponentFixture<VendorProductForm> {
     const fixture = TestBed.createComponent(VendorProductForm);
     fixture.componentRef.setInput('product', product);
     fixture.componentRef.setInput('taxonomy', taxonomy);
+    fixture.componentRef.setInput('section', section);
     fixture.detectChanges();
     return fixture;
   }
 
-  it('disables Save until a real edit, and enables it when a chip is toggled', () => {
-    const fixture = create();
-    expect(saveButton(fixture).disabled).toBe(true);
-
-    // PRODUCT is not tagged "Estimating"; toggling it on is a genuine change.
-    click(fixture, chipByName(fixture, 'Estimating'));
-    expect(saveButton(fixture).disabled).toBe(false);
-  });
-
-  it('sends the full replacement set for a facet when a chip is toggled', async () => {
-    updateProduct.mockResolvedValue({ product: { ...PRODUCT } } as UpdateVendorProductResponse);
-    const fixture = create();
-
-    click(fixture, chipByName(fixture, 'Estimating'));
-    saveButton(fixture).click();
+  async function settle(fixture: ComponentFixture<VendorProductForm>): Promise<void> {
     await flush();
+    fixture.detectChanges();
+  }
 
-    // Full-set replacement (existing two + the newly added one), not a delta —
-    // and only the touched facet is in the PATCH body.
-    expect(updateProduct).toHaveBeenCalledTimes(1);
-    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
-      category_slugs: ['bim-authoring', 'document-control', 'estimating'],
-    });
-  });
-
-  it('renders the trades facet with the full closed vocabulary', () => {
+  it('summarises each facet with the assigned terms only, in vocabulary order', () => {
     const fixture = create();
-    const fieldsets = Array.from(
-      fixture.nativeElement.querySelectorAll('fieldset'),
-    ) as HTMLFieldSetElement[];
-    const trades = fieldsets.find(
-      (f) => (f.querySelector('legend')?.textContent ?? '') === 'Trades',
-    );
 
-    expect(trades).toBeDefined();
-    // Every seeded term is offered, INCLUDING ones below the publication floor:
-    // that floor gates the SEO surfaces, not tagging, and a vendor tagging a
-    // trade is how it reaches the floor at all.
-    const names = Array.from(trades!.querySelectorAll('button[aria-pressed]')).map((c) =>
-      (c.textContent ?? '').trim(),
-    );
-    expect(names).toEqual([
-      'Concrete',
-      'Electrical',
-      'HVAC & Mechanical',
-      'Structural Steel & Metals',
-    ]);
+    // PRODUCT carries two categories and no trades. The other 4 category terms
+    // are in the picker, not on the card — that is the whole point of the split.
+    expect(assigned(fixture, 'Categories')).toEqual(['BIM authoring', 'Document control']);
+    expect(assigned(fixture, 'Trades')).toEqual([]);
+    expect(cardByName(fixture, 'Trades').textContent).toContain('None selected yet');
   });
 
-  it('states the trade-specific tagging rule, which is not self-evident', () => {
+  it('carries each assigned term description as an info control', () => {
+    // The AECI-911 copy that separates adjacent terms reaches the vendor here.
+    // The accessible name IS the description, so it is not hover-only.
+    const fixture = create();
+    expect(hints(fixture)).toContain(
+      'Tools that create and edit the model itself, discipline by discipline. Clash detection and federation belong under BIM coordination.',
+    );
+  });
+
+  it('puts every facet hint behind its heading, including the trades rule', () => {
     // "Most products have none" reads as broken next to three facets where more
     // tags is simply more accurate, so the rule is on the surface, not in a doc.
     const fixture = create();
-    expect(fixture.nativeElement.textContent).toContain('Most products have none');
+    const all = hints(fixture).join(' | ');
+
+    expect(all).toContain('the narrower one is usually right');
+    expect(all).toContain('mixes disciplines like Architecture');
+    expect(all).toContain('more is usually accurate here');
+    expect(all).toContain('Most products have none');
   });
 
-  it('sends trade_slugs as its own full replacement set', async () => {
-    updateProduct.mockResolvedValue({ product: { ...PRODUCT } } as UpdateVendorProductResponse);
-    const fixture = create();
+  it('renders a term the vocabulary does not know, rather than dropping it', () => {
+    // The taxonomy fetch and the product payload are two round-trips and can
+    // disagree. Hiding the row would understate what is actually published.
+    const stray: VendorProduct = { ...PRODUCT, phase_slugs: ['a-phase-we-never-loaded'] };
+    const fixture = create(VENDOR_TAXONOMY_FIXTURE, stray);
 
-    click(fixture, chipByName(fixture, 'Electrical'));
-    saveButton(fixture).click();
-    await flush();
-
-    // Only the touched facet rides along: the three sibling arrays stay absent
-    // so an untouched facet is never rewritten.
-    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, { trade_slugs: ['electrical'] });
+    expect(assigned(fixture, 'Phases')).toEqual(['a-phase-we-never-loaded']);
   });
 
-  it('round-trips a product that already carries trades', async () => {
-    updateProduct.mockResolvedValue({ product: { ...SECONDARY } } as UpdateVendorProductResponse);
-    const fixture = create(VENDOR_TAXONOMY_FIXTURE, SECONDARY);
+  it('has no Save button on the Taxonomy tab, because the modal already saved', () => {
+    const taxonomyOnly = create(VENDOR_TAXONOMY_FIXTURE, PRODUCT, 'taxonomy');
+    expect(saveButton(taxonomyOnly)).toBeNull();
 
-    // Seeded from the payload, so the assigned trades show as pressed.
-    expect(chipByName(fixture, 'Electrical').getAttribute('aria-pressed')).toBe('true');
-    expect(chipByName(fixture, 'HVAC & Mechanical').getAttribute('aria-pressed')).toBe('true');
-    expect(chipByName(fixture, 'Concrete').getAttribute('aria-pressed')).toBe('false');
-    expect(saveButton(fixture).disabled).toBe(true);
-
-    // Clearing the last trade is a legitimate edit: an empty set is the honest
-    // answer for a product that stopped having trade-specific value.
-    click(fixture, chipByName(fixture, 'Electrical'));
-    click(fixture, chipByName(fixture, 'HVAC & Mechanical'));
-    saveButton(fixture).click();
-    await flush();
-
-    expect(updateProduct).toHaveBeenCalledWith(SECONDARY.id, { trade_slugs: [] });
+    // The Profile projection still submits text edits the ordinary way.
+    const profileOnly = create(VENDOR_TAXONOMY_FIXTURE, PRODUCT, 'profile');
+    expect(saveButton(profileOnly)).not.toBeNull();
   });
 
-  it('treats reordering the same terms as no change (order-insensitive sameSet)', () => {
-    const fixture = create();
-
-    // Remove then re-add the same term: the selection array's ORDER now differs
-    // from the baseline, but the SET is identical, so Save must settle disabled.
-    click(fixture, chipByName(fixture, 'BIM authoring'));
-    expect(saveButton(fixture).disabled).toBe(false); // one removed → a real change
-    click(fixture, chipByName(fixture, 'BIM authoring'));
-    expect(saveButton(fixture).disabled).toBe(true); // same set as baseline → no change
-  });
-
-  it('blocks the save with an inline error when a facet exceeds 10 terms', () => {
-    const bigTaxonomy: TaxonomyResponse = {
-      categories: Array.from({ length: 11 }, (_, i) =>
-        term(`cat-${i + 1}`, `Category ${i + 1}`, i + 1),
-      ),
-      audiences: [],
-      phases: [],
-      trades: [],
-    };
-    const emptyProduct: VendorProduct = {
-      ...PRODUCT,
-      category_slugs: [],
-      audience_slugs: [],
-      phase_slugs: [],
-    };
-    const fixture = create(bigTaxonomy, emptyProduct);
-
-    // Ten selected is exactly at the cap: valid, Save enabled, no error.
-    for (let i = 0; i < 10; i++) click(fixture, categoryChips(fixture)[i]);
-    expect(saveButton(fixture).disabled).toBe(false);
-    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
-
-    // The eleventh tips it over the cap → inline error + Save disabled.
-    click(fixture, categoryChips(fixture)[10]);
-    const alert = fixture.nativeElement.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('Choose at most 10');
-    expect(saveButton(fixture).disabled).toBe(true);
-    expect(updateProduct).not.toHaveBeenCalled();
-  });
-
-  it('confirms and re-disables Save on a successful save (echo re-seeds the baseline)', async () => {
+  it('PATCHes the one edited facet from the modal and repaints the card', async () => {
     updateProduct.mockResolvedValue({
       product: { ...PRODUCT, category_slugs: ['bim-authoring', 'document-control', 'estimating'] },
     } as UpdateVendorProductResponse);
     const fixture = create();
 
-    click(fixture, chipByName(fixture, 'Estimating'));
-    saveButton(fixture).click();
-    await flush();
-    fixture.detectChanges();
+    pencil(fixture, 'Categories').click();
+    await settle(fixture);
+    modalRow('Estimating').click();
+    await settle(fixture);
+    modalButton('Save').click();
+    await settle(fixture);
 
-    const status = fixture.nativeElement.querySelector('[role="status"]');
-    expect(status?.textContent).toContain('Product updated');
-    expect(saveButton(fixture).disabled).toBe(true);
+    // Full-set replacement for the touched facet, and only that facet: the three
+    // sibling arrays stay absent so an untouched facet is never rewritten.
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
+      category_slugs: ['bim-authoring', 'document-control', 'estimating'],
+    });
+    // The echo is the source for the repaint, not the draft.
+    // Vocabulary order, not assignment order, so the card does not reshuffle.
+    expect(assigned(fixture, 'Categories')).toEqual([
+      'BIM authoring',
+      'Estimating',
+      'Document control',
+    ]);
+    expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain(
+      'Product updated',
+    );
   });
 
-  it('surfaces a retryable error when the save fails', async () => {
+  it('sends trade_slugs as its own set, and can clear the last one', async () => {
+    updateProduct.mockResolvedValue({
+      product: { ...SECONDARY, trade_slugs: [] },
+    } as UpdateVendorProductResponse);
+    const fixture = create(VENDOR_TAXONOMY_FIXTURE, SECONDARY);
+
+    expect(assigned(fixture, 'Trades')).toEqual(['Electrical', 'HVAC & Mechanical']);
+
+    pencil(fixture, 'Trades').click();
+    await settle(fixture);
+    modalRow('Electrical').click();
+    modalRow('HVAC & Mechanical').click();
+    await settle(fixture);
+    modalButton('Save').click();
+    await settle(fixture);
+
+    // An empty set is the honest answer for a product that stopped having
+    // trade-specific value, so it has to reach the endpoint.
+    expect(updateProduct).toHaveBeenCalledWith(SECONDARY.id, { trade_slugs: [] });
+    expect(assigned(fixture, 'Trades')).toEqual([]);
+  });
+
+  it('does not trample unsaved text when a facet echo lands', async () => {
+    // Only reachable in the `section: 'all'` projection, where the modal and the
+    // text fields share this component. A full re-seed here would silently throw
+    // away typing the vendor never submitted.
+    updateProduct.mockResolvedValue({
+      product: { ...PRODUCT, category_slugs: ['bim-authoring', 'document-control', 'estimating'] },
+    } as UpdateVendorProductResponse);
+    const fixture = create();
+
+    setInput(fixture, DESCRIPTION_ID, 'A revised product description.');
+    pencil(fixture, 'Categories').click();
+    await settle(fixture);
+    modalRow('Estimating').click();
+    await settle(fixture);
+    modalButton('Save').click();
+    await settle(fixture);
+
+    const textarea = fixture.nativeElement.querySelector(
+      `#${DESCRIPTION_ID}`,
+    ) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('A revised product description.');
+    // Still dirty, so the submit button is still live for the text edit.
+    expect(saveButton(fixture)?.disabled).toBe(false);
+  });
+
+  it('leaves the modal open, with no page-level error, when the facet save fails', async () => {
+    updateProduct.mockRejectedValue(new Error('boom'));
+    const fixture = create();
+
+    pencil(fixture, 'Categories').click();
+    await settle(fixture);
+    modalRow('Estimating').click();
+    await settle(fixture);
+    modalButton('Save').click();
+    await settle(fixture);
+
+    // The message belongs next to the work that failed, not at the foot of the
+    // page behind the modal.
+    expect(overlay()?.textContent).toContain('Something went wrong saving these');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+    // Nothing was committed, so the card still shows the server's set.
+    expect(assigned(fixture, 'Categories')).toEqual(['BIM authoring', 'Document control']);
+  });
+
+  it('disables Save until a real text edit', () => {
+    const fixture = create();
+    expect(saveButton(fixture)?.disabled).toBe(true);
+
+    setInput(fixture, DESCRIPTION_ID, 'A revised product description.');
+    expect(saveButton(fixture)?.disabled).toBe(false);
+  });
+
+  it('confirms and re-disables Save on a successful text save', async () => {
+    updateProduct.mockResolvedValue({
+      product: { ...PRODUCT, description: 'A revised product description.' },
+    } as UpdateVendorProductResponse);
+    const fixture = create();
+
+    setInput(fixture, DESCRIPTION_ID, 'A revised product description.');
+    saveButton(fixture)!.click();
+    await settle(fixture);
+
+    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
+      description: 'A revised product description.',
+    });
+    expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain(
+      'Product updated',
+    );
+    expect(saveButton(fixture)?.disabled).toBe(true);
+  });
+
+  it('surfaces a retryable error when the text save fails', async () => {
     updateProduct.mockRejectedValue(new Error('boom'));
     const fixture = create();
 
     setInput(fixture, DESCRIPTION_ID, 'A revised product description.');
-    saveButton(fixture).click();
-    await flush();
-    fixture.detectChanges();
+    saveButton(fixture)!.click();
+    await settle(fixture);
 
-    const alert = fixture.nativeElement.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('Something went wrong');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
+      'Something went wrong',
+    );
     // Still enabled so the user can retry.
-    expect(saveButton(fixture).disabled).toBe(false);
+    expect(saveButton(fixture)?.disabled).toBe(false);
+  });
+
+  it('waits for the vocabulary before claiming a facet is empty', () => {
+    // With no taxonomy loaded, the slugs are known but the names are not. Saying
+    // "None selected yet" there would be a lie about a tagged product.
+    const fixture = create(null);
+    expect(cardByName(fixture, 'Categories').textContent).toContain('Loading options');
+    expect(cardByName(fixture, 'Categories').textContent).not.toContain('None selected yet');
+    expect(pencil(fixture, 'Categories').disabled).toBe(true);
   });
 });
 
@@ -289,7 +362,10 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
     });
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+  });
 
   function build(canEdit: boolean, canEditTaxonomy = canEdit): ComponentFixture<VendorProductForm> {
     const fixture = TestBed.createComponent(VendorProductForm);
@@ -313,32 +389,37 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
     ).toBe(PRODUCT.description);
   });
 
-  it('withholds Save, explains why, and disables the taxonomy chips', () => {
+  it('withholds Save, explains why, and disables the facet pencils', () => {
     const fixture = build(false);
 
     expect(saveButton(fixture)).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Editing is paused');
-    expect(categoryChips(fixture).every((c) => c.disabled)).toBe(true);
+    const pencils = ['Categories', 'Audiences', 'Phases', 'Trades'].map(
+      (f) => pencil(fixture, f).disabled,
+    );
+    expect(pencils).toEqual([true, true, true, true]);
   });
 
-  it('leaves the chips readable: aria-pressed still reports what is assigned', () => {
+  it('leaves the taxonomy readable: the summary still reports what is assigned', () => {
     const fixture = build(false);
-    const pressed = categoryChips(fixture)
-      .filter((c) => c.getAttribute('aria-pressed') === 'true')
-      .map((c) => (c.textContent ?? '').trim());
-
-    // Disabled must not mean invisible: the vendor can still see their taxonomy.
-    expect(pressed).toContain('BIM authoring');
+    // Disabled must not mean invisible: the vendor can still see their taxonomy,
+    // and the descriptions that explain it.
+    expect(assigned(fixture, 'Categories')).toContain('BIM authoring');
+    expect(hints(fixture).length).toBeGreaterThan(0);
   });
 
-  it('ignores a programmatic toggle without the taxonomy capability', () => {
+  it('refuses a facet write without the taxonomy capability', async () => {
     const fixture = build(false);
-    const before = categoryChips(fixture).map((c) => c.getAttribute('aria-pressed'));
+    // The pencil is disabled, so drive the seam directly: the component must
+    // refuse rather than trust the disabled attribute it rendered.
+    const ok = await (
+      fixture.componentInstance as unknown as {
+        saverFor(k: string): (s: string[]) => Promise<boolean>;
+      }
+    ).saverFor('category_slugs')(['estimating']);
 
-    chipByName(fixture, 'Estimating').click();
-    fixture.detectChanges();
-
-    expect(categoryChips(fixture).map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
+    expect(ok).toBe(false);
+    expect(updateProduct).not.toHaveBeenCalled();
   });
 
   it('gates taxonomy on its OWN capability, even while text editing is open', () => {
@@ -348,7 +429,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
 
     expect(fields(fixture).some((f) => f.readOnly)).toBe(false);
     expect(saveButton(fixture)).not.toBeNull();
-    expect(categoryChips(fixture).every((c) => c.disabled)).toBe(true);
+    expect(pencil(fixture, 'Categories').disabled).toBe(true);
   });
 
   it('does not PATCH even if the form is submitted anyway', async () => {

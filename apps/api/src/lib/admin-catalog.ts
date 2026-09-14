@@ -332,8 +332,8 @@ export async function researchStatusDistribution(db: Db): Promise<AdminResearchS
 
 /**
  * One facet's terms with their usage count. Terms come back uncapped and
- * display-ordered: the five vocabularies total ~122 rows (33 categories · 30
- * audiences · 5 phases · 34 trades · 20 data objects), so paging would be
+ * display-ordered: the five vocabularies total ~134 rows (32 categories · 36
+ * audiences · 5 phases · 34 trades · 27 data objects), so paging would be
  * ceremony over a list that fits on one screen.
  *
  * The correlated-count shape mirrors `categoryTermConfig` and friends in
