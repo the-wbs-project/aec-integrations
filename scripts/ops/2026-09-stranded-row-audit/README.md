@@ -23,7 +23,11 @@ stranded tail two rows or two hundred?
 
 **Read-only.** There is no `--apply` flag and no write path. Retraction is a separate,
 authorized action — `pnpm --filter @aeci/api ops:retract-product` for a product, the
-datatool `POST /api/prune-integrations` for integrations.
+datatool `POST /api/prune-integrations` for an `integrations` row, and
+`scripts/ops/2026-09-retraction-consumer/consume.mjs` for a `connector_evidenced_pairs` row,
+which neither of the other two can touch at all. That last one takes its cohort from the
+retraction journal, or — since AECI-916 — from a committed operator ruling via `--ruling`,
+for strands no journal entry can ever name.
 
 ---
 
@@ -81,7 +85,7 @@ originally implied was dropped: the sweep self-optimises instead. See
 | `vendorNoLiveProducts`        | D1 vendor with zero products (the AECI-685 shape)                                                     | A vendor page rendering an empty grid. Redirect, then delete.                               |
 | `vendorSourceGone`            | D1 vendor no upstream vendor record claims                                                            | Curation judgment.                                                                          |
 | `integrationSourceGone`       | `integrations` row whose id no upstream record carries (the AECI-593 shape)                          | **Never a mechanical delete.** Check for a recorded editorial ruling first.                 |
-| `evidencedPairSourceGone`     | `connector_evidenced_pairs` row whose id no upstream record carries (AECI-897)                       | **No repair tool exists.** Escalate by hand — see below.                                    |
+| `evidencedPairSourceGone`     | `connector_evidenced_pairs` row whose id no upstream record carries (AECI-897)                       | Still a curation judgement. Two routes since AECI-916 — see below.                          |
 | `integrationEndpointStranded` | Edge in **either** table whose endpoint, connector or builder resolves to a row stranded above       | Usually a **re-point**, not a delete — the edge itself is fine. Read the entry's `table`.   |
 | `orphanChildren`              | Claims + attestations under any stranded edge, from **both** anchor columns                          | Cascade only; they cannot be stranded independently.                                        |
 | `pendingRetractions`          | A record **deleted upstream** whose public row is still live here (AECI-882)                          | The ruling already exists. Run the consumer — see below.                                    |
@@ -163,21 +167,60 @@ The two rows that came back unclaimed on the measuring run are HeavyJob → Sage
 HeavyJob → Procore Project Management. They are candidate findings, not noise, and the first
 scheduled run rules on them.
 
+**Both were real, and both were retracted on 2026-09-14 as AECI-916.** They were the first
+findings this bucket produced and they proved the measurement above: 2 unclaimed out of 62 was
+the right answer, not a comparand artefact. They also exposed the repair gap — no upstream
+record and no journal entry meant the prescribed route could not reach them — which is what
+`--ruling` was built for.
+
 > **The transferable lesson:** a stated reason for a blind spot is not evidence for one. This
 > reason was recorded in three files and measured in none, and it survived the 2026-09-10 miss
 > because each of the three cited the others.
 
-### `evidencedPairSourceGone` has no repair tool
+### `evidencedPairSourceGone` — the repair tool, and the two routes to it
 
-Every other bucket names a command. This one cannot, and that is a real gap rather than an
-omission: neither `ops:retract-product` nor the datatool prune can touch
-`connector_evidenced_pairs`, and the retraction consumer acts only on journal entries, so a
-strand finding never reaches it.
+**It had none until 2026-09-14 (AECI-916), and the paragraph that used to sit here was wrong
+within a day of being written.** It prescribed the only route that existed — confirm the
+ruling upstream, have the curator delete the record so the journal carries it, let the
+consumer execute it — and that route **closes for exactly the rows this bucket finds most
+often.** A journal entry is written only when the deleted upstream record carried a
+`supabase_integration_id`. A strand is, by definition, a row nothing upstream points at. So
+telling an operator to "have the curator delete the record" can send them to delete a record
+that either no longer exists or was never linked, and journals nothing either way.
 
-The path is: **confirm the ruling upstream → have the curator delete the record so the journal
-carries it → let `scripts/ops/2026-09-retraction-consumer/consume.mjs` execute it.** Do not
-hand-DELETE. Raw SQL skips both the `audit_log` row and the `integration_count` reconcile,
-which is exactly what made the 2026-09-07 Roofr cleanup a one-off nobody can replay.
+There are now two routes, and which one applies is a question about the upstream record, not
+about the row here.
+
+**Route A — the upstream record still exists.** Prefer this one, always. Confirm the ruling,
+have the curator delete the record so the journal carries it, then run the consumer normally.
+It preserves the curator's own words, which is strictly better evidence than a reconstruction.
+
+```bash
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+```
+
+**Route B — no upstream record and no journal entry.** The strand is unreachable from both
+sides, and this is what `--ruling` exists for (AECI-916). Write a committed ruling file naming
+the ids, the reason, the source and whether an upstream ruling exists at all, then run:
+
+```bash
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --ruling <file>
+```
+
+Same guards, same `audit_log` row per id, same `integration_count` repair, same rollback.
+`confirm_retractions` is never called — there is nothing to acknowledge — and the run refuses
+if the journal is non-empty, so the two cohorts can never mix. Format and refusals:
+`scripts/ops/2026-09-retraction-consumer/README.md` §"Operator-ruling mode".
+
+**Neither route lowers the bar. Do not hand-DELETE either way.** Raw SQL skips both the
+`audit_log` row and the `integration_count` reconcile, which is exactly what made the
+2026-09-07 Roofr cleanup a one-off nobody can replay — and route B's whole point is that the
+audit row is the *only* surviving account of a strand, since no upstream record and no journal
+entry will ever name it again. A finding here is still a curation judgement: establish the
+ruling first, then execute it. AECI-916's took evidence from `promote_jobs`, `audit_log`, all
+254 journal entries and two upstream `get_integration` 404s before a row was touched, and the
+one thing it could not establish — why the promote's write-back never landed — is recorded in
+the ruling file as an absence rather than guessed at.
 
 ### What is deliberately out of scope
 
@@ -578,6 +621,7 @@ Worth stating explicitly, because the `inAlgolia` column is otherwise easy to mi
 | 2026-09-14 | production | `audit.mjs --refresh-cache` | **First run of the AECI-897 two-table sweep, and it found two rows the old one structurally could not.** `evidencedPairSourceGone: 2` — `6c01f481-…` (HeavyJob → Procore Project Management) and `018f47d5-…` (HeavyJob → Sage 300 CRE), both Aquifer-connector edges, both publicly reachable and both in search. Zero claims and zero attestations in cascade. Every other bucket 0, `pendingRetractions` 0 (the feed was drained by AECI-909). Exit **1**, correctly. Three things this run also verifies about the change itself: the **comparand gate did not trip** (60 of 62 pairs claimed, nowhere near the all-unclaimed shape), the new edge reconciliation reports **1012/1012 accounted** rather than passing vacuously, and neither finding carries a `twin` — so these are plain strands, not the AECI-888 cross-table shape. Catalogue at the time: upstream 1,543 products / 2,699 integrations (1,010 carry an id), prod 260 products / 169 vendors / 950 integrations + 62 evidenced pairs. Filed as **AECI-916**. |
 | 2026-09-14 | production | `audit.mjs` | Re-run after the AECI-889 batch 1 retraction (17 Agave evidenced pairs, 169 claims). `pendingRetractions` back to **0** — the consumer drained the batch the same day it arrived, which is the cadence this bucket exists to police. Every other bucket **0** except `evidencedPairSourceGone`, still **2**: the same two AECI-916 HeavyJob rows, both created 2026-09-09 and never updated, so they predate the batch and are not its residue. **2 publicly reachable stranded rows, both AECI-916.** Edge reconciliation **995/995 accounted** (950 integrations + 45 evidenced pairs, down from 62). Catalogue: upstream 1,543 products / 2,682 integrations (993 carry an id), prod 260 products / 169 vendors. Exit **1**, correctly, and it stays 1 until AECI-916 is ruled. |
 | 2026-09-14 | production | `audit.mjs` | Re-run after the AECI-889 batches 2 + 3 retraction (1 Trimble App Xchange pair, 20 Aquifer pairs, 4 claims). `pendingRetractions` **0** again, same-day drain for the second batch running. Every other bucket **0** except `evidencedPairSourceGone`, still the same **2** AECI-916 HeavyJob rows, unchanged since 2026-09-09. **2 publicly reachable stranded rows, both AECI-916.** Edge reconciliation **974/974 accounted** (950 integrations + 24 evidenced pairs, down from 45). Catalogue: upstream 1,543 products / 2,640 integrations (972 carry an id), prod 260 products / 169 vendors. Exit **1**, correctly. **AECI-916's repair path closed in this batch**: the upstream half deleted both HeavyJob records as unpromoted rows, so there is no upstream record left to delete into the journal and the consumer can never reach them. This bucket will keep reporting them until a tool that writes `connector_evidenced_pairs` directly exists. |
+| 2026-09-14 | production | `audit.mjs --refresh-cache` | **CLEAN — exit 0, every bucket empty**, the first clean run since AECI-897 put `connector_evidenced_pairs` in scope. Re-run after **AECI-916** retracted the two Aquifer HeavyJob strands through the consumer's new `--ruling` mode. `evidencedPairSourceGone` **0**, `pendingRetractions` **0**, every other bucket **0**, `orphanChildren` 0c / 0a, **0 publicly reachable stranded rows**. Edge reconciliation **972/972 accounted** (950 integrations + 22 evidenced pairs, down from 24). Catalogue: upstream 1,543 products / 2,521 integrations (972 carry an id), prod 260 products / 169 vendors. Two things this closes. The bucket's first-ever findings were **both real** — 2 unclaimed of 62 was the correct measurement, not a comparand artefact — and its **repair gap is closed**: the "no repair tool" paragraph above prescribed a journal route that structurally could not reach them, because a strand by definition has no upstream pointer to journal. Cascade was 0 claims / 0 attestations, so `MAX_CASCADE` stayed at its resting `0 / 0` and no ceiling was raised. |
 
 ## Follow-ups filed from this run
 

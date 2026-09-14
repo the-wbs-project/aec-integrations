@@ -13,3 +13,9 @@
 # README's account of the run that lost one.
 preflight-*.json
 rollback-*.sql
+
+# rulings/ IS COMMITTED, deliberately, and is the one thing in this directory that is.
+# An operator ruling (--ruling, AECI-916) is the ONLY surviving account of why rows with no
+# upstream record and no journal entry were deleted — there is nothing to look them up in
+# afterwards. It holds uuids and prose, not row bodies, so it does not carry the catalog
+# content the two patterns above are ignored for. Do not widen this file to cover it.
