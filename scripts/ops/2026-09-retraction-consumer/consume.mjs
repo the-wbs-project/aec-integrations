@@ -121,60 +121,79 @@ const D1_ENVS = {
 // ─── The editorial half, carried as constants ────────────────────────────────
 //
 // "Which rows go" is an editorial decision, not something to derive from a query. These
-// mirror Chris's ruling of 2026-09-13 on AECI-811 and the run REFUSES if reality has
-// moved away from them, rather than adapting to the new reality on its own.
+// mirror the operator's standing ruling and the run REFUSES if reality has moved away
+// from them, rather than adapting to the new reality on its own.
+//
+// EVERY NUMBER BELOW IS RE-PINNED PER RUN. The 2026-09-13 run (AECI-882) was authorised
+// against a 216-entry feed; this one (AECI-909) is authorised against the 2 entries that
+// run held back. A ceiling or a shape carried over from a previous cohort is not a guard,
+// so the next operator to use this lane re-measures all three before applying.
 
 /**
- * The two entries held back. Both are Agave ERP Sync connector pairs, and between them
- * they carry the only claims in the 215-row pairs population. Deleting them cascades
- * those claims away with nowhere to re-home them, because the PUBLIC promote path has no
- * way to land a claim anchored to a connector pair yet — that is AECI-891. (The `claims`
- * table itself already has the anchor column: `connector_evidenced_pair_id`, AECI-721 /
- * ADR 0018 amended. The gap is the promote contract and the render, not the schema.)
+ * Entries held back on a recorded decision, keyed by `supabaseId` — the AECi row id,
+ * because that is what this script deletes.
  *
- * Keyed by `supabaseId` — the AECi row id — because that is what this script deletes.
+ * EMPTY since 2026-09-14 (AECI-909). The two Agave ERP Sync connector pairs that lived
+ * here carried all 21 claims in the AECI-852 pairs population, and they were held because
+ * the public promote contract had no way to land a claim anchored to a connector pair.
+ * Both release conditions that hold named are now met, and neither was taken on trust:
+ *
+ *   1. AECI-891 reached PRODUCTION on `b5a75c93`, promoted 2026-09-13 23:31 UTC.
+ *   2. AECI-910 — which replaced AECI-907 when the cross-repo ticket was split — pushed
+ *      the 21 re-anchored claims. Verified against a live apply response reading
+ *      `claims created 0, updated 0, unchanged 21, deleted 0, skipped 0`, NOT against a
+ *      `complete` status. Zero `kind: claim` entries in `skipped[]`.
+ *
+ * Measured here against production before the run: 12 claims + 12 attestations on
+ * connector pair `recR26YP4tgDvNj6V` (Procore ↔ Foundation) and 9 + 9 on
+ * `reczhKqHUJZTSlUI2` (Autodesk Build ↔ Foundation) — the same two product pairs the
+ * deleted rows named, so the cohort is superseded rather than lost.
+ *
+ * A hold is not an exemption in perpetuity. If you add one, name the issue that clears it
+ * and give it a release condition that can actually be evaluated. The wording here was
+ * corrected once already, because "when AECI-891 ships" would have held these forever:
+ * that issue delivers the claim anchor, and the reach-tier render is AECI-716, unbuilt.
  */
-const HOLD = {
-  'a96bb827-c0e2-4842-ad54-f25e40b04c81': {
-    entry: 'rec4kywfVTBXovqBd',
-    name: 'Autodesk Forma Build ↔ Foundation Software (via Agave ERP Sync)',
-  },
-  'a3eb9e45-4c06-409c-a95d-caa91e15f0bd': {
-    entry: 'recDOZmV8n5VmPAyP',
-    name: 'Procore Project Management ↔ Foundation Software (via Agave ERP Sync)',
-  },
-};
+const HOLD = {};
 const HOLD_REASON =
-  'AECI-882 / AECI-891: held. These two connector pairs carry the only claims in the ' +
-  'AECI-852 reach-edge population. Deleting them cascades those claims away, and until ' +
-  'the re-anchored copies exist here there is nowhere to move them. ' +
-  'RELEASE CONDITION, corrected 2026-09-13: NOT "when AECI-891 ships". AECI-891 delivers ' +
-  'the anchor only; the render is AECI-716 and is unbuilt, so the old wording would have ' +
-  'held these two forever. They go once (1) AECI-891 is live in production, AND (2) ' +
-  'AECI-907 has pushed the 21 upstream-re-anchored claims onto the connector_pairs rows ' +
-  'here. Verify (2) before releasing: a claim naming an absent pair lands in skipped[] ' +
-  'and the run still reports complete, which looks exactly like success.';
+  "No hold is active. If you add an id to HOLD, replace this string with that entry's " +
+  'recorded reason and the issue that clears it — it is written verbatim into ' +
+  'preflight-*.json, which is the only place a future operator will look for it.';
 
 /**
- * The production shape this run was authorised against, measured 2026-09-13. A mismatch
+ * The production shape this run was authorised against, measured 2026-09-14. A mismatch
  * means production moved, and the right response is to stop and re-establish the ruling
  * rather than to delete whatever is there now.
  *
- * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. On 2026-09-13 the two were
- * the same number — all 216 entries were edges — so this is the figure that was authorised
- * either way. Parked entries (see step 1b) are outside the cohort and cannot move it.
+ * The 214 entries the 2026-09-13 run took are deleted and confirmed, so the feed now holds
+ * exactly the 2 it held back, both in `connector_evidenced_pairs`. **The next run of this
+ * lane will refuse until these three numbers are re-measured** — AECI-889's I24 batches
+ * are expected to start journalling deletes, which moves all of them.
+ *
+ * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Both entries are edges,
+ * so the two are the same number again. Parked entries (see step 1b) are outside the
+ * cohort and cannot move it.
  */
-const EXPECTED = { total: 216, inPairs: 215, inIntegrations: 1 };
+const EXPECTED = { total: 2, inPairs: 2, inIntegrations: 0 };
 
 /**
- * The cascade ceiling. Everything in the 213 reach-edge population carries zero claims
- * (each entry's own `reason` says so), and the one `integrations` row (AECI-878) carries
- * exactly 1 claim and 1 attestation. So a planned cascade larger than this means a row
- * nobody has ruled on is about to lose curation data, and the run refuses.
+ * The cascade ceiling. Unlike every previous cohort, BOTH rows here carry claims — that is
+ * the whole reason they were held — so the ceiling is the exact measured total rather than
+ * a near-zero floor: 9 claims + 9 attestations on `a96bb827-…` and 12 + 12 on
+ * `a3eb9e45-…`, read from production 2026-09-14. A plan that would cascade more than
+ * 21 / 21 is reaching a row nobody has ruled on, and the run refuses.
  *
- * This is the guard that would have caught the Agave rows had they not been held by id.
+ * **Raising this from the 2026-09-13 run's 1 / 1 is not a relaxation of the guard.** Those
+ * 21 claims are not being destroyed, they are being SUPERSEDED. AECI-910 re-anchored all
+ * 21 onto the reach-tier `connector_pairs` rows through the AECI-891 third claim arm
+ * (`claims.connector_pair_id`), and those copies are live in production now — 12 on
+ * `recR26YP4tgDvNj6V`, 9 on `reczhKqHUJZTSlUI2`. What this run deletes is the stale
+ * delivered-tier copy.
+ *
+ * Verify the superseding copies exist BEFORE raising this number. Without them the guard
+ * is the only thing standing between a run and 21 rulings that exist nowhere else.
  */
-const MAX_CASCADE = { claims: 1, attestations: 1 };
+const MAX_CASCADE = { claims: 21, attestations: 21 };
 
 /**
  * The AECI-878 negative sentinel. The upstream ruling that retracted

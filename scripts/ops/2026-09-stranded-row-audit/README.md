@@ -107,9 +107,16 @@ deletes then verifies then confirms, in that order —
 entry you have not deleted; see that lane's README for why that direction is unrecoverable.
 
 **`HELD_RETRACTIONS`** in `audit.mjs` carries entries held on a recorded decision. They are
-printed every run and do not fail it. That list exists so two deliberate holds cannot leave
-the job permanently red — a red guard nobody reads would hide the *next* retraction behind
-them. Each entry names the issue that clears it; the bar is `docs/CODE_REVIEW_EXEMPTIONS.md`'s.
+printed every run and do not fail it. That list exists so a deliberate hold cannot leave the
+job permanently red — a red guard nobody reads would hide the *next* retraction behind it.
+Each entry names the issue that clears it; the bar is `docs/CODE_REVIEW_EXEMPTIONS.md`'s.
+
+**It is empty as of 2026-09-14 (AECI-909).** The two Agave ERP Sync ids it held were released
+once AECI-891 reached production and AECI-910 re-anchored their 21 claims onto `connector_pairs`;
+the consumer then deleted and confirmed both, and the map was emptied in the same change. So a
+non-zero `pendingRetractions` today is entirely unhandled work. **Empty a discharged hold in the
+same commit as the run that releases it** — left in place it turns a real finding into a number
+that looks familiar.
 
 ### What is deliberately out of scope
 

@@ -1678,13 +1678,19 @@ it. You are executing a decision, not making one.
   it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
 - **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
   with their reason and do not fail the run. If the job is red, something *new* arrived.
-  - **The two Agave holds clear on a sequence, and only the operator can call it (AECI-891, ruled
-    2026-09-13).** A claim may now anchor to a *reached* pair, so the claims those two rows carry
-    have somewhere to live. Release the hold only after AECI-891 is **in production** and both
-    Agave catalogues have re-synced their pairs and claims through
-    `POST /api/promote/connector-catalog`. Do **not** wait for a rendered reach surface — that is
-    AECI-716 and is deliberately out of scope, so any note saying the hold clears "on the anchor
-    and the render" is stale. `REVIEW_APP_PROMOTE_API.md` §5.1.
+  - **The list is EMPTY as of 2026-09-14 (AECI-909).** The two Agave holds were released and their
+    rows deleted, verified and confirmed, so every entry the bucket now reports is unhandled. A
+    non-zero `pendingRetractions` today means run the consumer, not "check the hold list".
+  - **If you add a hold, delete it in the same change as the run that releases it.** A discharged
+    hold left in place is worse than no hold: the bucket reports a steady count, the job stays
+    green, and the next retraction sits invisible behind ids nobody re-reads. The two Agave holds
+    are the worked example of doing it right — each named its release condition, that condition
+    was evaluated against live evidence, and the map was emptied the same day.
+  - **Write a release condition you can actually evaluate.** The Agave wording had to be corrected
+    once: "when AECI-891 ships" would have held those two forever, because that issue delivers the
+    claim *anchor* while the reach-tier *render* is AECI-716 and is still unbuilt. The condition
+    that worked named two checkable facts — AECI-891 live in production, and the re-anchored claims
+    counted in production D1. `REVIEW_APP_PROMOTE_API.md` §5.1.
 - **A parked entry is not a consumer job.** Anything whose `entity` is not `integration` is
   reported and then left alone — never deleted, never confirmed. That is deliberate: a `product`
   entry resolves against neither delivered-tier table, so to the consumer it is indistinguishable

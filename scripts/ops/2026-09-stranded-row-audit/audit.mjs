@@ -155,13 +155,17 @@ const BUCKETS = [
  * If you are adding one, the bar is the same as `docs/CODE_REVIEW_EXEMPTIONS.md`: a written
  * reason and a named way out.
  */
-// Release needs AECI-891 live in production AND AECI-907 to have pushed the re-anchored
-// copies. "AECI-891 ships" alone is NOT the condition — that issue delivers the anchor,
-// not the render, and reading it that way holds these two forever (corrected 2026-09-13).
-const HELD_RETRACTIONS = {
-  'a96bb827-c0e2-4842-ad54-f25e40b04c81': 'AECI-891 + AECI-907 — Agave pair carrying 9 claims',
-  'a3eb9e45-4c06-409c-a95d-caa91e15f0bd': 'AECI-891 + AECI-907 — Agave pair carrying 12 claims',
-};
+// EMPTY since 2026-09-14 (AECI-909). The two Agave ERP Sync ids that lived here were
+// released once both of their recorded conditions were met: AECI-891 reached production on
+// `b5a75c93`, and AECI-910 pushed the 21 re-anchored claims onto the reach-tier
+// `connector_pairs` rows. The consumer then deleted, verified and confirmed both entries,
+// and this map was emptied in the SAME change.
+//
+// Emptying it is not tidying. A discharged hold left in place is worse than no hold at
+// all: the bucket would report "2, both held" forever, the run would stay green, and the
+// NEXT retraction to arrive would sit invisible behind two ids nobody re-reads. If you
+// release a hold, delete its entry in the same commit as the run that released it.
+const HELD_RETRACTIONS = {};
 
 // Read concurrency against the review app. get_product responses are large (~75KB),
 // and the server rate-limits: eight in flight tripped a 429 partway through the first

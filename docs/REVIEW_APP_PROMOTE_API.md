@@ -1183,22 +1183,41 @@ gone. Those entries are **parked**: reported, never deleted, never confirmed. Th
 `ops:retract-product`, and leaving them pending is the harmless direction. An entry with a
 missing `entity` is parked for the same reason.
 
-Run state as of 2026-09-13: **214 deleted and confirmed, 2 held.** The two held entries are
-Agave ERP Sync connector pairs carrying 21 claims between them; at the time of the run the public
-promote contract could not land a claim anchored to a connector pair, so they were held for
-**AECI-891**. The daily backstop grew a `pendingRetractions` bucket (below) so this class can never
-again be invisible to it, and that bucket carries a documented hold list so two deliberate holds do
+Run state as of **2026-09-14: 216 of 216 deleted and confirmed, 0 held, feed empty.** It got
+there in two runs, and the gap between them is the part worth reading.
+
+The 2026-09-13 run took 214 and **held 2** — the Agave ERP Sync connector pairs carrying 21 claims
+between them. At that moment the public promote contract could not land a claim anchored to a
+connector pair, so deleting them would have cascaded 21 curator rulings away with nowhere to put
+them back. The daily backstop grew a `pendingRetractions` bucket (below) so this class can never
+again be invisible to it, and that bucket carries a documented hold list so a deliberate hold does
 not leave the job permanently red.
 
 **AECI-891 ruled later the same day, and it ruled the way that keeps the claims.** A claim **can**
 anchor to a reached pair and AECi carries it — the third anchor in `DATABASE_SCHEMA.md` §5a.1, and
 the `claims[]` array in §3a. The rejected alternative was translating the anchor onto
 `connector_evidenced_pairs`, which would have invented a delivered row for a pair nobody built. So
-the hold clears on a sequence, not on a single merge: AECI-891 ships and reaches **production**, the
-two Agave catalogues re-sync their pairs and claims through `POST /api/promote/connector-catalog`,
-and only then does the consumer delete and confirm those two entries. Until every one of those steps
-is done, leave them held — confirming first is the unrecoverable direction, because the journal holds
-the only surviving copy of the `supabaseId`.
+the hold cleared on a **sequence**, not on a single merge, and all three steps are now done:
+
+1. AECI-891 reached production on `b5a75c93`, promoted 2026-09-13 23:31 UTC.
+2. AECI-910 re-sent both Agave catalogues through `POST /api/promote/connector-catalog`, landing
+   21 claims on the reach tier — 12 on `connector_pairs` `recR26YP4tgDvNj6V`, 9 on
+   `reczhKqHUJZTSlUI2`.
+3. AECI-909 ran the consumer over the remaining 2 entries on 2026-09-14: deleted, verified in both
+   tables, confirmed. `HELD_RETRACTIONS` was emptied in the same change.
+
+**Step 2 is the one that cannot be checked the obvious way.** A `claims[]` entry naming a pair that
+does not exist here lands in `skipped[]` and the job still reports `complete`, which looks exactly
+like success. AECI-910 was verified against a live apply response reading `claims created 0,
+updated 0, unchanged 21, deleted 0, skipped 0` and against a direct count in production D1, never
+against the job status. Check the same way before releasing any future hold of this shape.
+
+**What the release actually costs, stated plainly.** The 21 claims survive, but nothing renders them
+yet — the reach-tier surface is AECI-716 and is unbuilt. So both pair pages
+(`procore-project-management ↔ foundation-software`, `autodesk-build ↔ foundation-software`) now
+serve **200 with `noindex`** rather than a delivered edge, which is the same outcome the other 213
+AECI-852 rows took and is correct: the pairs assert reach, not delivery. The data is in D1 waiting
+for the surface.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 
