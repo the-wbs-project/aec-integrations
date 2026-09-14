@@ -356,7 +356,7 @@ create table integrations (
   -- DESTRUCTIVE table recreate on D1 -- see docs/migrations.md 3.3a.
   mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')),
   mechanism_name text,
-  direction text check (direction in ('one-way', 'bidirectional')),
+  direction text check (direction in ('a_to_b', 'b_to_a', 'both')),   -- AECI-921; A = source, B = target
 
   -- Attribution
   built_by_vendor_id uuid references vendors(id),
@@ -388,6 +388,27 @@ create index integrations_mechanism_kind_idx on integrations(mechanism_kind);
 create index integrations_built_by_idx on integrations(built_by_vendor_id) where built_by_vendor_id is not null;
 create index integrations_powered_by_idx on integrations(powered_by_product_id) where powered_by_product_id is not null;
 ```
+
+> **`integrations.direction` uses the claim vocabulary (AECI-921, migration `0034`).** It was
+> `one-way | bidirectional` and it was the only direction column in the schema that could not
+> express a reverse flow — `claims.direction` and `connector_evidenced_pairs.direction` have both
+> been three-valued since they were created. **A = this row's `source_product_id`, B = its
+> `target_product_id`**, exactly as for a claim anchored to it (§5c).
+>
+> That gap was not academic. The review app orders an integration's endpoints by **who built the
+> connector**, so an edge whose builder is the data *consumer* — Power BI reading BigQuery, Tableau
+> reading Snowflake — had no correct value to store: it wrote `one-way` and the page rendered the
+> exact reverse (AECI-920, 14 rows confirmed from one keyword probe).
+>
+> The migration is a **pure re-spelling** — `one-way` → `a_to_b`, `bidirectional` → `both`, NULL →
+> NULL — and changed no row's meaning. Correcting the inverted rows is upstream work.
+>
+> Two things that did **not** change. `connector_pairs` (the *reachable* tier) still has no
+> `direction` column at all, because a pair asserting no delivery has no flow to orient. And the
+> **context-free presentation** spelling `one-way | bidirectional` survives on three surfaces that
+> list integrations with no context product — the home tile, the Algolia `direction` facet, and the
+> `?direction=` filter — via `presentedDirection()` in `packages/shared/src/integration-context.ts`.
+> `apps/api/src/test/d1.spec.ts` holds the three storage columns in lockstep.
 
 **Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
 Drizzle relations file declares

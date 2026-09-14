@@ -54,8 +54,15 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
           </h1>
         </header>
 
-        <!-- The rail: context (left) ⇄ other (right). Context is always left; the
-             per-lane arrows below carry direction. -->
+        <!-- The rail: context (left) | other (right). Context is always left; the
+             per-lane arrows below carry direction.
+
+             Hairline rule, not a glyph (AECI-919). The prototype is otherwise
+             frozen, but this line is reachable at /preview and it carried the
+             exact collision the shipped page was fixed for: the same character
+             directionGlyph('both') emits, at text-3xl, above lanes that use it
+             for direction. Leaving it would invite the pattern to be copied
+             forward out of a page whose whole subject is flow direction. -->
         <div
           class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-raised) p-6 md:gap-8 md:p-8"
         >
@@ -77,7 +84,7 @@ import { COPY, renderedGroups, type PairView, type ProductRef } from './integrat
               >Read reviews</a
             >
           </div>
-          <span class="font-display text-3xl text-(--text-tertiary)" aria-hidden="true">⇄</span>
+          <span class="h-12 w-px bg-(--border-default) md:h-16" aria-hidden="true"></span>
           <div class="flex flex-col items-center gap-2 text-center">
             <aec-logo-or-initial [name]="v.other.name" [src]="v.other.logo_url" size="lg" />
             <span class="font-display text-lg text-(--text-primary)">{{ v.other.name }}</span>

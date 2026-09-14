@@ -492,10 +492,15 @@ export class ProductPoweredHub {
     }
   }
 
-  /** One-way / Bidirectional for a hubless pair row; `''` when unknown. */
+  /** One-way / Bidirectional for a hubless pair row; `''` when unknown.
+   *
+   *  `pair.direction` is a `ContextDirection` (`outbound`/`inbound`/`both`), and
+   *  a hubless row has no hub to read that frame against — hence the collapse.
+   *  Since AECI-921 `directionLabel` accepts `both` directly, so only the two
+   *  arrows need synthesising. */
   protected pairDirectionLabel(pair: PoweredConnection): string {
     if (pair.direction === null) return '';
-    return directionLabel(pair.direction === 'both' ? 'bidirectional' : 'one-way');
+    return directionLabel(pair.direction === 'both' ? 'both' : 'one-way');
   }
 
   /**

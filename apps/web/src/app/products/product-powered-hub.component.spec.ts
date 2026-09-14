@@ -35,7 +35,7 @@ function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListI
     name: source.name + ' to ' + target.name,
     mechanism_kind: 'api',
     mechanism_name: null,
-    direction: 'one-way',
+    direction: 'a_to_b',
     source,
     target,
     via: null,

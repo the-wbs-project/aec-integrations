@@ -126,10 +126,17 @@ function evidencedListSelect(db: Db, where: SQL | undefined) {
       name: connectorEvidencedPairs.name,
       mechanismKind: sql<string | null>`NULL`.as('mechanism_kind'),
       mechanismName: connectorEvidencedPairs.mechanismName,
+      // AECI-921: emits the STORED vocabulary, in the POST-swap frame — the SQL
+      // twin of `orientEvidencedPair`, which likewise never returns `b_to_a`.
+      // `b_to_a` maps to `a_to_b` because the two CASEs below have already
+      // swapped this row's source and target, so the flow runs source -> target
+      // again. The mapper collapses it to the context-free spelling; doing that
+      // here instead would make this arm disagree with the `integrations` arm
+      // about what the column holds.
       direction: sql<string | null>`CASE "connector_evidenced_pairs"."direction"
-          WHEN 'a_to_b' THEN 'one-way'
-          WHEN 'b_to_a' THEN 'one-way'
-          WHEN 'both' THEN 'bidirectional'
+          WHEN 'a_to_b' THEN 'a_to_b'
+          WHEN 'b_to_a' THEN 'a_to_b'
+          WHEN 'both' THEN 'both'
         END`.as('direction'),
       sourceProductId: sql<string>`CASE WHEN "connector_evidenced_pairs"."direction" = 'b_to_a'
           THEN "connector_evidenced_pairs"."product_b_id"
@@ -276,6 +283,8 @@ async function hydrateUnionRows(db: Db, rows: UnionRow[]): Promise<IntegrationLi
       name: row.name && row.name.length > 0 ? row.name : `${source.name} → ${target.name}`,
       mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
       mechanism_name: row.mechanismName,
+      // The stored vocabulary (AECI-921). Both arms of the union feed this the
+      // same spelling — the evidenced arm's CASE emits it post-swap.
       direction: coerceDirection(row.direction),
       source,
       target,
@@ -311,7 +320,18 @@ export function createIntegrationsListHandler(
     if (query.sourceProductId) conds.push(eq(integrations.sourceProductId, query.sourceProductId));
     if (query.targetProductId) conds.push(eq(integrations.targetProductId, query.targetProductId));
     if (query.mechanism_kind) conds.push(eq(integrations.mechanismKind, query.mechanism_kind));
-    if (query.direction) conds.push(eq(integrations.direction, query.direction));
+    // AECI-921. This was `eq(integrations.direction, query.direction)` and it
+    // would have FAILED SILENTLY once the column stopped holding `one-way`:
+    // still a 200, still a well-formed list, just permanently empty for either
+    // filter value. `?direction=` is the context-free presentation vocabulary
+    // (it names a list surface with no context product), so it has to widen into
+    // the stored one — which is exactly the shape the evidenced arm of this same
+    // endpoint has always used (`evidencedListWhere`). The two arms now agree.
+    if (query.direction === 'one-way') {
+      conds.push(inArray(integrations.direction, ['a_to_b', 'b_to_a']));
+    } else if (query.direction === 'bidirectional') {
+      conds.push(eq(integrations.direction, 'both'));
+    }
     const where = conds.length ? and(...conds) : undefined;
 
     // ── The AECI-721 second source ────────────────────────────────────────────

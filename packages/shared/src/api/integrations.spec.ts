@@ -26,7 +26,7 @@ const validListItem = {
   name: 'Procore → BIM 360',
   mechanism_kind: 'native' as const,
   mechanism_name: null,
-  direction: 'one-way' as const,
+  direction: 'a_to_b' as const,
   source: productLink(1, 'Procore', 'procore'),
   target: productLink(2, 'BIM 360', 'bim-360'),
   created_at: '2026-01-01T00:00:00.000Z',

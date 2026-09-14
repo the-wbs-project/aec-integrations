@@ -1657,6 +1657,115 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     });
   });
 
+  // ── AECI-921: the direction vocabulary on the wire ──────────────────────────
+  describe('integration direction (AECI-921)', () => {
+    const promoteEdge = async (direction: string | null) => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            mechanismKind: 'native',
+            direction,
+            claims: [],
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      const [row] = await t.db.select().from(integrations);
+      return row!;
+    };
+
+    it('normalises the LEGACY wire spellings — the review app deploys separately', async () => {
+      // The review app is a different repo on a different deploy, so there is no
+      // moment at which both sides change spelling together. A promote carrying
+      // `one-way` mid-window must land, not 400.
+      expect((await promoteEdge('one-way')).direction).toBe('a_to_b');
+    });
+
+    it('normalises legacy `bidirectional` to `both`', async () => {
+      expect((await promoteEdge('bidirectional')).direction).toBe('both');
+    });
+
+    it('stores `b_to_a` — the value the old wire could not express', async () => {
+      // THE POINT OF AECI-921. Upstream orders endpoints by who BUILT the
+      // connector, so a read-only consumer edge keeps its authorship ordering and
+      // says the flow runs the other way. Before this it arrived as `one-way` and
+      // rendered backwards (AECI-920).
+      expect((await promoteEdge('b_to_a')).direction).toBe('b_to_a');
+    });
+
+    it('stores `a_to_b` unchanged', async () => {
+      expect((await promoteEdge('a_to_b')).direction).toBe('a_to_b');
+    });
+
+    it('stores `both` unchanged', async () => {
+      expect((await promoteEdge('both')).direction).toBe('both');
+    });
+
+    it('keeps null as null — nobody established it', async () => {
+      expect((await promoteEdge(null)).direction).toBeNull();
+    });
+
+    it('rejects a value in neither vocabulary', async () => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            direction: 'sideways',
+            claims: [],
+          },
+        ],
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('RE-ANCHORS `b_to_a` when routing to the evidenced tier', async () => {
+      // The evidenced table's A/B is the id-sorted canonical order, not the
+      // payload's source/target. So the wire value has to be re-anchored, and
+      // whether it flips depends on which endpoint sorts first.
+      const target = uuid(1);
+      const connector = uuid(2);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', {
+        productRole: 'connector',
+      });
+
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            poweredByProduct: { supabaseId: connector },
+            mechanismKind: 'marketplace-app',
+            direction: 'b_to_a',
+            listingUrl: 'https://useagave.com/x',
+            claims: [],
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+
+      const sourceId = (await t.db.select().from(products).where(eq(products.slug, 'revit')))[0]!
+        .id;
+      const [pair] = await t.db.select().from(connectorEvidencedPairs);
+      // Payload says "flows target -> source". If the payload's source is already
+      // endpoint A, that stays `b_to_a`; if the sort flips them, it becomes `a_to_b`.
+      expect(pair!.direction).toBe(sourceId < target ? 'b_to_a' : 'a_to_b');
+    });
+  });
+
   it('keeps a Convention-A self-referential edge in `integrations` (§13.2a)', async () => {
     // `powered_by` equal to one of its own endpoints — ~60 production rows (Aquifer,
     // Kroo). Routing it would render "Via Aquifer → Aquifer", and the destination's

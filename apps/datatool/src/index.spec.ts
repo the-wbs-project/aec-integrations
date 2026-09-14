@@ -269,7 +269,7 @@ describe('datatool routes', () => {
     h.raw
       .prepare(
         `INSERT INTO integrations (id, name, source_product_id, target_product_id, mechanism_kind, direction, created_at, updated_at)
-         VALUES (?, 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'one-way', ?, ?)`,
+         VALUES (?, 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'a_to_b', ?, ?)`,
       )
       .run(id, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     return id;

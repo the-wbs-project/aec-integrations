@@ -746,7 +746,7 @@ function makeEdge(source: ProductLink, target: ProductLink): ProductIntegrationI
     name: `${source.name} to ${target.name}`,
     mechanism_kind: 'native',
     mechanism_name: null,
-    direction: 'one-way',
+    direction: 'a_to_b',
     source,
     target,
     via: null,

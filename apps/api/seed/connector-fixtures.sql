@@ -290,7 +290,7 @@ ON CONFLICT (id) DO NOTHING;
 --     group whose only partner is the connector ("Via Agave → Agave").
 -- ---------------------------------------------------------------------------
 INSERT INTO integrations (id, source_product_id, target_product_id, name, mechanism_kind, mechanism_name, direction, powered_by_product_id, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-0000000008b1','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000802','Procore ↔ Bluebeam Revu','native','Native app','bidirectional',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-0000000008b2','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000806','Procore ↔ PlanGrid','iPaaS','via a parked automation platform','one-way',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-0000000008b3','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000791','Procore ↔ Agave','iPaaS','Ships a connector on Agave','one-way','00000000-0000-4000-8000-000000000791','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('00000000-0000-4000-8000-0000000008b1','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000802','Procore ↔ Bluebeam Revu','native','Native app','both',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008b2','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000806','Procore ↔ PlanGrid','iPaaS','via a parked automation platform','a_to_b',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008b3','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000791','Procore ↔ Agave','iPaaS','Ships a connector on Agave','a_to_b','00000000-0000-4000-8000-000000000791','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (id) DO NOTHING;

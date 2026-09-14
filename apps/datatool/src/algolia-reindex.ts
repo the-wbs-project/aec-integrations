@@ -189,7 +189,18 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
   const { results } = await db
     .prepare(
       `SELECT
-         i.id AS objectID, i.mechanism_kind, i.mechanism_name, i.direction, i.description,
+         i.id AS objectID, i.mechanism_kind, i.mechanism_name,
+         -- AECI-921: collapsed to the CONTEXT-FREE spelling the index facets on,
+         -- exactly as the Worker's \`toAlgoliaIntegration\` does. The column now
+         -- stores \`a_to_b\`/\`b_to_a\`/\`both\`; selecting it raw here would make the
+         -- two writers of this index disagree about the same attribute, which the
+         -- drift guard reports as every integration record being stale, forever.
+         CASE i.direction
+           WHEN 'a_to_b' THEN 'one-way'
+           WHEN 'b_to_a' THEN 'one-way'
+           WHEN 'both' THEN 'bidirectional'
+         END AS direction,
+         i.description,
          sp.name AS source_product_name, sp.slug AS source_product_slug,
          tp.name AS target_product_name, tp.slug AS target_product_slug,
          0 AS is_evidenced

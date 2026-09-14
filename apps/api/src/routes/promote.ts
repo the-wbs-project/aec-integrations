@@ -351,14 +351,26 @@ function planEvidencedPairWrite(args: {
   const sourceIsA = sourceId < targetId;
   const productAId = sourceIsA ? sourceId : targetId;
   const productBId = sourceIsA ? targetId : sourceId;
+  // RE-ANCHOR, not translate (AECI-921). `intg.direction` already speaks the
+  // stored vocabulary — `PromoteIntegrationSchema` normalises the legacy wire
+  // spelling on the way in — but it is anchored to the PAYLOAD's
+  // `sourceProduct` -> `targetProduct`, while this table's A/B is the id-sorted
+  // canonical order its unique index depends on. When the payload's source is
+  // NOT endpoint A, both arrows flip.
+  //
+  // Before AECI-921 this could only ever produce `a_to_b` or `b_to_a` from a
+  // single `one-way`, because the wire had no way to say the flow ran the other
+  // way. It can now, which is the whole point: a payload meaning `b_to_a` with a
+  // source that is already A lands as `b_to_a` instead of being silently
+  // straightened into `a_to_b`.
   const direction =
-    intg.direction === 'bidirectional'
-      ? 'both'
-      : intg.direction === 'one-way'
-        ? sourceIsA
+    intg.direction === null || intg.direction === undefined
+      ? null
+      : intg.direction === 'both'
+        ? 'both'
+        : (intg.direction === 'a_to_b') === sourceIsA
           ? 'a_to_b'
-          : 'b_to_a'
-        : null;
+          : 'b_to_a';
 
   // `compact()` keeps the promote contract's absent-means-untouched rule (§3.6):
   // an omitted key is not written, so a re-push that carries only some fields does

@@ -112,9 +112,9 @@ ON CONFLICT DO NOTHING;
 -- Integrations (both endpoints promoted → publicly visible)
 -- ---------------------------------------------------------------------------
 INSERT INTO "integrations" ("id","name","source_product_id","target_product_id","mechanism_kind","mechanism_name","direction","created_at","updated_at") VALUES
-  ('c0000000-0000-4000-8000-000000000001','Revit ↔ Navisworks','b0000000-0000-4000-8000-000000000001','b0000000-0000-4000-8000-000000000003','native','Model export','bidirectional', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('c0000000-0000-4000-8000-000000000002','Revit → Procore','b0000000-0000-4000-8000-000000000001','b0000000-0000-4000-8000-000000000004','marketplace-app','Procore + Autodesk Construction Cloud','one-way', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('c0000000-0000-4000-8000-000000000003','Procore ↔ Bluebeam Revu','b0000000-0000-4000-8000-000000000004','b0000000-0000-4000-8000-000000000005','api','REST API','bidirectional', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('c0000000-0000-4000-8000-000000000001','Revit ↔ Navisworks','b0000000-0000-4000-8000-000000000001','b0000000-0000-4000-8000-000000000003','native','Model export','both', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('c0000000-0000-4000-8000-000000000002','Revit → Procore','b0000000-0000-4000-8000-000000000001','b0000000-0000-4000-8000-000000000004','marketplace-app','Procore + Autodesk Construction Cloud','a_to_b', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('c0000000-0000-4000-8000-000000000003','Procore ↔ Bluebeam Revu','b0000000-0000-4000-8000-000000000004','b0000000-0000-4000-8000-000000000005','api','REST API','both', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("id") DO NOTHING;
 
 -- ---------------------------------------------------------------------------

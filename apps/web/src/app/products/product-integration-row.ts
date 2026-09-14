@@ -23,7 +23,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * foster-parented out by the browser's HTML tree builder (same pattern as
  * `ProductCard` / `IntegrationCard` / Angular CDK's `tr[cdk-row]`).
  *
- * Two columns + a trailing affordance:
+ * Two columns + a trailing affordance. **The affordance is a chevron, not an
+ * arrow** (AECI-919): an arrow glyph on this page means data-flow direction and
+ * nothing else, and since AECI-853 put a direction arrow on the meta line below,
+ * a trailing `→` made one row carry two arrows meaning two different things. See
+ * DESIGN.md §"Named Rules" → The Arrow Rule.
+ *
  *   1. **Integrates with** — the *other* product (monogram via `LogoOrInitial` +
  *      a name link to that product's page), over a muted meta line carrying the
  *      **direction** at every width and, below `md`, the mechanism as well.
@@ -172,7 +177,26 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       </span>
     </td>
     <td class="px-4 py-3 text-end align-middle">
-      <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true">→</span>
+      <!-- Navigation affordance, NOT direction (AECI-919). It was a right arrow,
+           the same character directionGlyph('outbound') emits, and since AECI-853
+           put a direction arrow on the meta line of this very row, one row carried
+           two arrows meaning two different things. A chevron is the site's existing
+           "there is more this way" mark and carries no direction vocabulary.
+           Hand-inlined Lucide chevron-right (DESIGN.md: Lucide only, no emoji),
+           aria-hidden because the stretched overlay link already names the
+           destination; rtl:-scale-x-100 keeps it pointing at the page edge. -->
+      <svg
+        class="inline-block size-4 text-(--text-tertiary) rtl:-scale-x-100"
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="m9 18 6-6-6-6" />
+      </svg>
     </td>
   `,
 })

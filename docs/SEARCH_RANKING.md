@@ -138,6 +138,16 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   3. `mechanism_name`
   4. `unordered(description)`
 - **Faceting:** `mechanism_kind`, `direction`, `searchable(source_product_name)`, `searchable(target_product_name)`
+
+  > **`direction` on the record is `one-way | bidirectional`, and stays that way (AECI-921).** The
+  > D1 column it comes from now stores `a_to_b | b_to_a | both`; both writers of this index —
+  > `toAlgoliaIntegration` in the Worker and `buildIntegrationRecords` in `apps/datatool` — collapse
+  > it on the way out, and they must keep agreeing or the drift guard reports every integration
+  > record as stale forever. A facet is **context-free**: with no product to read the arrow
+  > against, `a_to_b` names nothing a searcher can act on, and carrying both arrows would show
+  > "One-way" twice, split by an endpoint ordering the reader cannot see. `presentedDirection()`
+  > in `packages/shared/src/integration-context.ts` is the single rule. (The integrations tab is
+  > still hidden — `STAGE_1_SPEC.md` §7.5 — so this facet is not currently reachable in the UI.)
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
 
 ### 3.4 `pairs` (deferred to Stage 2, AECI-298)

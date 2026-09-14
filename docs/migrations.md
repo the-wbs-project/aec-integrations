@@ -455,6 +455,15 @@ SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
 
 **Run that query; do not reuse yesterday's answer.** `connector_pairs` had no cascade children on the morning of 2026-09-13 and had one by the evening: **AECI-891** added `claims.connector_pair_id` with `ON DELETE cascade`, which also puts `attestations` two levels below it. So `0032`'s cheap recreate is not precedent for the next one on that table. AECI-891's own migration, **`0033_solid_nightcrawler.sql`**, is a second `claims` recreate in the dangerous class — roughly **1,872 claims and 1,872 attestations** in production, `attestations` cascading from `claims` — and it carries both through `__carry_*` tables exactly as `0027` does.
 
+**A fifth rule, from the third one of these: a loud failure can hide a quiet one.** `0034_sloppy_dakota_north.sql` (AECI-921, the `integrations.direction` CHECK moving to `a_to_b | b_to_a | both`) is the second recreate of `integrations` and sits in the same dangerous class as `0027` — same table, same two-level `integrations` → `claims` → `attestations` cascade. What is new is the failure ordering, measured 2026-09-14:
+
+| What you apply | Result |
+| -- | -- |
+| the generated file, unedited | **aborts** on `integrations_direction_check` — the copy's straight `SELECT "direction"` carries `one-way` into a CHECK that no longer admits it. Nothing lost. |
+| the generated file with only the backfill `CASE` added | applies clean, `integrations` keeps every row, **`claims` and `attestations` are emptied** |
+
+So the abort is not the hazard. It is a tripwire in front of the hazard, and the obvious repair — drop the `CASE` into the generated `INSERT` and move on — is the one that steps over it. Two corollaries: a CHECK change that also needs a value backfill will always fail loudly on non-empty data first, so never read that abort as "the recreate is safe once the data is fixed"; and an empty database hides both halves, which is rule 3 again. `apps/api/src/test/migration-0034.spec.ts` guards the committed order by conservation.
+
 Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
 
 ### 3.4 Idempotency where cheap

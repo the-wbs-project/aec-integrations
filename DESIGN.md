@@ -279,6 +279,19 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 **The Borders-Not-Shadows Rule.** Cards, buttons, badges, inputs, and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on these elements are forbidden — they are an AI-design tell ("rounded rectangle with generic drop shadow") and do not match the editorial posture of the system.
 
+**The Arrow Rule** (AECI-919). **An arrow glyph means data-flow direction and nothing else.** The three directional glyphs — `→` outbound, `←` inbound, `⇄` both — come only from a direction helper, and every one of them is framed to the **context product** (`STAGE_1_5_SPEC.md` §3.2). There are three emitters today: `directionGlyph()` (`products/pair-direction-labels.ts`), `contextDirectionLabel()` (`search/mechanism-labels.ts`), and `pairGlyph()` (`products/product-powered-hub.ts`) — that last one is a hand-rolled copy of the first and should fold into it. Nothing else on a page may borrow the character.
+
+Two jobs keep reaching for an arrow and must not have one:
+
+| Job | Use | Never |
+| -- | -- | -- |
+| Separating a pair of things (the pair-page rail, any "A and B" header) | a hairline rule (`h-12 w-px bg-(--border-default)`), or nothing | `⇄`, `↔`, `+` |
+| "Activating this goes somewhere" (a row's click affordance, a card's read-more) | Lucide `chevron-right`, `aria-hidden`, with `rtl:-scale-x-100` | `→` |
+
+`+` is not an escape hatch for the first row: it is already spent on the version-diff `added` marker (see the Diff markers component). The rule exists because the pair page violated it twice at once — the rail rendered a hardcoded `⇄` at `text-3xl`, louder than the `⇄` a bidirectional mechanism earned below it, and the product-detail integrations row rendered a nav `→` in the same row as a direction `→`. Both are collisions of **meaning**, not of style, so a reader who learns the vocabulary in one place is actively misled in the other.
+
+A **display name is not exempt.** A mechanism heading, a card title or a badge label that carries `A → B` asserts a direction, and on a context-framed surface it asserts an absolute one that will contradict the relative arrow beside it. The pair page's card `h2` is the shipped case: the API strips a directional pair title rather than render it (`toMechanismHeading`, `apps/api/src/lib/drizzle-helpers.ts`).
+
 ## 5. Components
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.

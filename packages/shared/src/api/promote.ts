@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { CLAIM_DIRECTIONS, type ClaimDirection } from './integrations';
 import type { PromoteConnectorPageResponse } from './promote-connector';
 
 /**
@@ -87,20 +88,67 @@ export const MECHANISM_KINDS = [
   'partner',
   'integrator',
 ] as const;
-export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
-
 /**
  * Claim / attestation vocabularies (Stage 1.5 — `STAGE_1_5_SPEC.md` §3.2/§3.3).
- * A claim's `direction` is NOT the mechanism-row `INTEGRATION_DIRECTIONS` above:
- * it is anchored to the integration's endpoints, where **A = the integration's
- * `sourceProduct`** and **B = its `targetProduct`** (§3.1). The stored value is
- * canonical and never rewritten; the context-relative view (`inbound`/`outbound`)
- * is a pure translation that lives with the pair-page helpers (§7).
+ * A claim's `direction` is anchored to the integration's endpoints, where
+ * **A = the integration's `sourceProduct`** and **B = its `targetProduct`**
+ * (§3.1). The stored value is canonical and never rewritten; the
+ * context-relative view (`inbound`/`outbound`) is a pure translation that lives
+ * with the pair-page helpers (§7).
+ *
+ * **Since AECI-921 this is also the mechanism row's vocabulary.** It used to be
+ * the *contrast* — `INTEGRATION_DIRECTIONS` was `one-way | bidirectional`, and
+ * this comment opened by saying a claim's direction was "NOT" that. The two are
+ * now the same three values with the same A/B anchoring, because a two-value
+ * row-level direction could not say "flows target → source" and a whole class of
+ * edges needs to (AECI-920).
  */
-export const CLAIM_DIRECTIONS = ['a_to_b', 'b_to_a', 'both'] as const;
+export { CLAIM_DIRECTIONS };
+
+/**
+ * The mechanism row's stored direction on the promote wire, anchored to the
+ * payload's own `sourceProduct` / `targetProduct` exactly as `CLAIM_DIRECTIONS`
+ * is (AECI-921). Identical to `CLAIM_DIRECTIONS` by construction, and aliased
+ * rather than re-spelled so the two can never drift.
+ */
+export const INTEGRATION_DIRECTIONS = CLAIM_DIRECTIONS;
 
 /** A claim's stored direction, relative to the integration row's own endpoints (§3.2). */
-export type ClaimDirection = (typeof CLAIM_DIRECTIONS)[number];
+export type { ClaimDirection };
+
+/**
+ * The pre-AECI-921 wire spelling, still accepted. **Do not delete this without a
+ * decision**, and do not read the array's presence as a deprecation in progress:
+ * the review app is a separate repo on a separate deploy, so there is no moment
+ * at which both sides change spelling together. A promote that arrives mid-window
+ * carrying `one-way` must land, not 400.
+ *
+ * `docs/REVIEW_APP_PROMOTE_API.md` §3.4 states the window and what closes it.
+ */
+export const LEGACY_INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
+
+export type LegacyIntegrationDirection = (typeof LEGACY_INTEGRATION_DIRECTIONS)[number];
+
+/**
+ * Fold a wire direction — either spelling — into the stored vocabulary.
+ *
+ * `one-way` becomes `a_to_b` and `bidirectional` becomes `both`. That mapping is
+ * lossless in this direction only: every legacy value has exactly one new
+ * spelling, while `b_to_a` has no legacy one. Which is the point — the legacy
+ * vocabulary could not express a reverse flow, so a payload that means `b_to_a`
+ * has been arriving as `one-way` and rendering backwards (AECI-920).
+ *
+ * It anchors to the PAYLOAD's `sourceProduct` → `targetProduct`, not to any
+ * canonical ordering. The connector-evidenced-pair arm of promote re-anchors from
+ * here to its own id-sorted A/B; see `planConnectorEvidencedPairWrite`.
+ */
+export function normalizePromoteDirection(
+  direction: ClaimDirection | LegacyIntegrationDirection,
+): ClaimDirection {
+  if (direction === 'one-way') return 'a_to_b';
+  if (direction === 'bidirectional') return 'both';
+  return direction;
+}
 
 /**
  * Who attests a claim. In Stage 1.5 only `aeci` is ever written; `vendor_a` /
@@ -317,7 +365,15 @@ export const PromoteIntegrationSchema = z.object({
   poweredByProduct: EntityRefSchema.nullish(),
   mechanismKind: z.enum(MECHANISM_KINDS).nullish(),
   mechanismName: z.string().nullish(),
-  direction: z.enum(INTEGRATION_DIRECTIONS).nullish(),
+  // AECI-921: accepts BOTH spellings, and `.transform` normalises the legacy one
+  // in place so every downstream reader sees `a_to_b | b_to_a | both` and no
+  // ingest code has to know the window exists. `one-way` maps to `a_to_b` because
+  // the wire value has always been anchored to this payload's own
+  // `sourceProduct` → `targetProduct`, which is exactly what `a_to_b` means.
+  direction: z
+    .enum([...INTEGRATION_DIRECTIONS, ...LEGACY_INTEGRATION_DIRECTIONS])
+    .nullish()
+    .transform((d) => (d === null || d === undefined ? d : normalizePromoteDirection(d))),
   description: z.string().nullish(),
   listingUrl: z.string().nullish(),
   docsUrl: z.string().nullish(),

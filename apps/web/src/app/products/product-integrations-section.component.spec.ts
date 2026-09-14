@@ -41,7 +41,7 @@ function edge(
     name: 'Procore to ' + partner.name,
     mechanism_kind: 'native',
     mechanism_name: null,
-    direction: 'one-way',
+    direction: 'a_to_b',
     context_direction: null,
     source: PAGE,
     target: partner,

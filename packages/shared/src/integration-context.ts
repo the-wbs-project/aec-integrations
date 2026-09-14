@@ -43,25 +43,53 @@ export function orderedPairSlugs(a: string, b: string): [string, string] {
 /**
  * Translate a mechanism's **stored** integration direction into the page's
  * context frame (§3.2, applied at the integration-row level for Layer A).
- * Direction is stored on the row as `one-way` (flows from its `source` to its
- * `target`) or `bidirectional`; the pair page is viewed *from* a context
- * product, so:
  *
- * - `bidirectional` → `both` (regardless of which endpoint is the context).
- * - `one-way` → `outbound` when the context product is the row's **source**
- *   (data leaves the context product), else `inbound`.
- * - `null` (unknown stored direction — the column is nullable) → `null`.
+ * Since AECI-921 the row's stored vocabulary IS the claim vocabulary —
+ * `a_to_b` / `b_to_a` / `both`, anchored to the row's own `source_product_id`
+ * (endpoint A) and `target_product_id` (endpoint B) — so this is now a
+ * null-tolerant delegate to `claimDirectionForContext` rather than a second
+ * implementation. `null` (the column is nullable, meaning "nobody established
+ * it") passes straight through.
+ *
+ * Before AECI-921 the row stored `one-way | bidirectional`, which had no way to
+ * say "flows target → source". That is not a cosmetic difference: upstream
+ * orders a row's endpoints by **who built the connector**, so every edge whose
+ * builder is the data consumer — a BI tool reading a warehouse — stored
+ * `one-way` and rendered the exact reverse of the truth (AECI-920). The two
+ * functions are now the same function because the two vocabularies are the same
+ * vocabulary, which is what makes that class of row expressible at all.
  *
  * `contextIsSource` is whether the page's context product is the integration's
  * `source_product_id`. Pure — the stored value is never rewritten.
  */
 export function integrationDirectionForContext(
-  direction: IntegrationDirection | null,
+  direction: ClaimDirection | null,
   contextIsSource: boolean,
 ): ContextDirection | null {
+  return direction === null ? null : claimDirectionForContext(direction, contextIsSource);
+}
+
+/**
+ * Collapse a stored direction into the **context-free** presentation vocabulary,
+ * `one-way | bidirectional` (AECI-921).
+ *
+ * This is the one place the old spelling survives, and it survives on purpose.
+ * Three surfaces list integrations without a context product — the home page's
+ * recent-integrations tile, the Algolia integration record, and the
+ * `?direction=` filter on `GET /api/integrations` — and on those,
+ * "`a_to_b`" names nothing a reader can act on. Worse, exposing both arrows
+ * would split one user-meaningful bucket ("one-way") into two facet values that
+ * differ only by an endpoint ordering the reader cannot see.
+ *
+ * So the layering is: `a_to_b|b_to_a|both` is **storage**,
+ * `outbound|inbound|both` is the **context-relative** view (§3.2), and
+ * `one-way|bidirectional` is the **context-free** view. This function is the
+ * only bridge to the third, and it is deliberately lossy — `b_to_a` and `a_to_b`
+ * are indistinguishable once you have no frame to read them in.
+ */
+export function presentedDirection(direction: ClaimDirection | null): IntegrationDirection | null {
   if (direction === null) return null;
-  if (direction === 'bidirectional') return 'both';
-  return contextIsSource ? 'outbound' : 'inbound';
+  return direction === 'both' ? 'bidirectional' : 'one-way';
 }
 
 /**
@@ -195,10 +223,13 @@ export interface DirectionalClaim {
  * The **effective** context-relative direction for the product-detail
  * integrations table (§3.2). Claims are the more specific, richer signal — and
  * the one the pair page surfaces — so when the mechanism carries any, their
- * aggregate wins; otherwise fall back to the row's own stored
- * `one-way`/`bidirectional` translated to the context frame. `null` only when
- * there is neither claim nor stored direction (an honest "unknown", rendered as
- * an em-dash). Precomputing this here — the single home for direction framing —
+ * aggregate wins; otherwise fall back to the row's own stored direction
+ * translated to the context frame. `null` only when there is neither claim nor
+ * stored direction (an honest "unknown", rendered as an em-dash).
+ *
+ * Since AECI-921 both arguments speak the SAME vocabulary — the fallback is a
+ * `ClaimDirection` too — so the aggregate and the fallback can no longer
+ * disagree about what an endpoint ordering means. Precomputing this here — the single home for direction framing —
  * keeps the table and the pair page from drifting.
  *
  * **Refuted claims are excluded** (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3): once
@@ -210,7 +241,7 @@ export interface DirectionalClaim {
  * surfaces drifted once already (§7.1).
  */
 export function effectiveContextDirection(
-  storedDirection: IntegrationDirection | null,
+  storedDirection: ClaimDirection | null,
   claims: readonly DirectionalClaim[],
   contextIsSource: boolean,
 ): ContextDirection | null {

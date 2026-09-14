@@ -11,6 +11,7 @@ import {
   effectiveContextDirection,
   integrationDirectionForContext,
   orderedPairSlugs,
+  presentedDirection,
   type DirectionalClaim,
 } from './integration-context';
 
@@ -38,15 +39,60 @@ describe('orderedPairSlugs', () => {
   });
 });
 
-describe('integrationDirectionForContext', () => {
-  it('maps bidirectional to both regardless of which endpoint is the context', () => {
-    expect(integrationDirectionForContext('bidirectional', true)).toBe('both');
-    expect(integrationDirectionForContext('bidirectional', false)).toBe('both');
+describe('presentedDirection', () => {
+  // The context-FREE collapse (AECI-921): "how many ways", not "which way".
+  // Deliberately lossy — with no context product there is no frame to read an
+  // arrow in, and two facet values differing only by an invisible endpoint
+  // ordering would be worse than one honest bucket.
+  it('collapses both arrows to one-way and `both` to bidirectional', () => {
+    expect(presentedDirection('a_to_b')).toBe('one-way');
+    expect(presentedDirection('b_to_a')).toBe('one-way');
+    expect(presentedDirection('both')).toBe('bidirectional');
   });
 
-  it('maps one-way to outbound when the context is the source, inbound otherwise', () => {
-    expect(integrationDirectionForContext('one-way', true)).toBe('outbound');
-    expect(integrationDirectionForContext('one-way', false)).toBe('inbound');
+  it('passes null through', () => {
+    expect(presentedDirection(null)).toBeNull();
+  });
+
+  // The lossiness is the contract, not an accident: the home tile, the Algolia
+  // record and the ?direction= filter all depend on the two arrows being
+  // indistinguishable. If someone "fixes" this to emit three values, those
+  // surfaces start showing "One-way" twice.
+  it('is deliberately not injective — both arrows share one presented value', () => {
+    expect(presentedDirection('a_to_b')).toBe(presentedDirection('b_to_a'));
+  });
+});
+
+describe('integrationDirectionForContext', () => {
+  it('maps both to both regardless of which endpoint is the context', () => {
+    expect(integrationDirectionForContext('both', true)).toBe('both');
+    expect(integrationDirectionForContext('both', false)).toBe('both');
+  });
+
+  it('maps a_to_b to outbound when the context is the source, inbound otherwise', () => {
+    expect(integrationDirectionForContext('a_to_b', true)).toBe('outbound');
+    expect(integrationDirectionForContext('a_to_b', false)).toBe('inbound');
+  });
+
+  // AECI-921. THE reason the vocabulary widened: before it, a row could not say
+  // this at all, so an edge whose flow ran target -> source stored `one-way` and
+  // rendered the exact reverse (AECI-920).
+  it('maps b_to_a to inbound when the context is the source — the case the old vocabulary could not express', () => {
+    expect(integrationDirectionForContext('b_to_a', true)).toBe('inbound');
+    expect(integrationDirectionForContext('b_to_a', false)).toBe('outbound');
+  });
+
+  // It is now a null-tolerant delegate rather than a second implementation, and
+  // this is what says so: if someone re-forks the logic, the two drift and this
+  // fails. The two surfaces drifted once already (STAGE_1_5_SPEC.md §7.1).
+  it('agrees with claimDirectionForContext on every non-null input', () => {
+    for (const direction of ['a_to_b', 'b_to_a', 'both'] as const) {
+      for (const contextIsSource of [true, false]) {
+        expect(integrationDirectionForContext(direction, contextIsSource)).toBe(
+          claimDirectionForContext(direction, contextIsSource),
+        );
+      }
+    }
   });
 
   it('passes null through (nullable stored direction)', () => {
@@ -173,16 +219,21 @@ describe('effectiveContextDirection', () => {
     expect(effectiveContextDirection(null, [seeded('a_to_b'), seeded('b_to_a')], false)).toBe(
       'both',
     );
-    // Claims win even over a (stale/coarse) stored one-way.
-    expect(effectiveContextDirection('one-way', [seeded('a_to_b'), seeded('b_to_a')], true)).toBe(
+    // Claims win even over a (stale/coarse) stored one-way flow.
+    expect(effectiveContextDirection('a_to_b', [seeded('a_to_b'), seeded('b_to_a')], true)).toBe(
       'both',
     );
   });
 
   it('falls back to the stored row direction when there are no claims', () => {
-    expect(effectiveContextDirection('bidirectional', [], true)).toBe('both');
-    expect(effectiveContextDirection('one-way', [], true)).toBe('outbound');
-    expect(effectiveContextDirection('one-way', [], false)).toBe('inbound');
+    expect(effectiveContextDirection('both', [], true)).toBe('both');
+    expect(effectiveContextDirection('a_to_b', [], true)).toBe('outbound');
+    expect(effectiveContextDirection('a_to_b', [], false)).toBe('inbound');
+    // AECI-921: the fallback now speaks the same vocabulary as the claims above
+    // it, so a reverse-flow row falls back to the reverse arrow instead of
+    // borrowing the forward one.
+    expect(effectiveContextDirection('b_to_a', [], true)).toBe('inbound');
+    expect(effectiveContextDirection('b_to_a', [], false)).toBe('outbound');
   });
 
   it('is null only when there is neither a claim nor a stored direction', () => {
@@ -201,7 +252,7 @@ describe('effectiveContextDirection', () => {
   });
 
   it('falls back to the stored direction when every claim is refuted', () => {
-    expect(effectiveContextDirection('one-way', [refuted('both')], true)).toBe('outbound');
+    expect(effectiveContextDirection('a_to_b', [refuted('both')], true)).toBe('outbound');
   });
 
   it('is null when every claim is refuted and there is no stored direction', () => {

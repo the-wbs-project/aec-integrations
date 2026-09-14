@@ -318,26 +318,42 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
 
 /**
  * Resolve a canonical evidenced pair back into the oriented `source`/`target`
- * frame every read surface speaks, plus the `integrations` direction vocabulary.
+ * frame every read surface speaks.
  *
  * The exact inverse of the AECI-721 migration's CASE, and lossless: `b_to_a` is
  * the only value that swaps the endpoints, which is precisely the information
  * canonicalisation would otherwise discard. `both` and `null` both present A as
  * source — for `both` the orientation carries no meaning, and for `null` we have
  * no orientation to assert, so the stable canonical order is the honest choice.
+ *
+ * **It still swaps, and the returned direction is therefore never `b_to_a`**
+ * (AECI-921). Now that `integrations.direction` speaks this same vocabulary the
+ * swap looks redundant, and it is not: it is what makes
+ * `IntegrationListItem.source` mean "the flow's source" on this arm, which is
+ * what it has always meant here and what the wire shape's consumers read. Return
+ * `raw.direction` verbatim instead and `source` silently changes meaning for
+ * every evidenced pair — a public field's semantics quietly altered by a
+ * migration PR. The direction below is expressed in the POST-swap frame, so it
+ * and the endpoints agree.
+ *
+ * (The two arms of this list do disagree about what `source` means — on an
+ * `integrations` row it is the stored, authorship-ordered endpoint. That
+ * predates this change and is exactly why the direction is carried separately.)
  */
 export function orientEvidencedPair(raw: RawConnectorEvidencedPairRow): {
   source: RawProductLink;
   target: RawProductLink;
-  direction: 'one-way' | 'bidirectional' | null;
+  direction: ClaimDirection | null;
 } {
   switch (raw.direction) {
     case 'a_to_b':
-      return { source: raw.productA, target: raw.productB, direction: 'one-way' };
+      return { source: raw.productA, target: raw.productB, direction: 'a_to_b' };
     case 'b_to_a':
-      return { source: raw.productB, target: raw.productA, direction: 'one-way' };
+      // Endpoints swapped, so the flow now runs source -> target: `a_to_b` in the
+      // frame this function returns, NOT the `b_to_a` it read.
+      return { source: raw.productB, target: raw.productA, direction: 'a_to_b' };
     case 'both':
-      return { source: raw.productA, target: raw.productB, direction: 'bidirectional' };
+      return { source: raw.productA, target: raw.productB, direction: 'both' };
     default:
       // NULL is legal — the CHECK constrains only non-null values, and the
       // migration maps a null `integrations.direction` straight through.
@@ -356,6 +372,9 @@ export function toIntegrationListItemFromEvidencedPair(
     name: synthesizeIntegrationName(raw.name, source, target),
     mechanism_kind: null,
     mechanism_name: raw.mechanismName,
+    // The oriented stored direction — never `b_to_a`, because the endpoints above
+    // were swapped to match (see `orientEvidencedPair`). Both arms of this list
+    // must spell the same fact the same way; they land in one paginated response.
     direction,
     source: toProductLink(source),
     target: toProductLink(target),
@@ -397,6 +416,12 @@ export function toProductIntegrationItemFromEvidencedPair(
   return {
     ...item,
     context_direction: effectiveContextDirection(
+      // The ORIENTED stored direction (AECI-921) — expressed in the post-swap
+      // frame, so it is never `b_to_a` and it agrees with `item.source` /
+      // `item.target` above. `contextIsSource` is read against those same
+      // endpoints, which is what makes the pair of arguments coherent; the raw
+      // `raw.direction` would be anchored to the canonical A/B instead and is
+      // what the claims below are flipped out of.
       item.direction,
       raw.claims.map((claim) => {
         const direction = coerceClaimDirection(claim.direction, raw.id);
@@ -1179,8 +1204,28 @@ export function toMechanismKind(
   );
 }
 
-export function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null {
-  if (raw === 'one-way' || raw === 'bidirectional') return raw;
+/**
+ * Narrow `integrations.direction` to the stored claim vocabulary (AECI-921).
+ *
+ * **Accepts the pre-AECI-921 spellings too, and must keep doing so.** A D1
+ * migration and a Worker deploy are two separate CI steps in a fixed order, and
+ * whichever order you pick there is a window where the running code and the
+ * applied schema disagree: deploy-then-migrate leaves the new Worker reading
+ * `one-way` out of the old column, migrate-then-deploy leaves the old Worker
+ * reading `a_to_b`. Tolerating both here makes the first window a no-op. (The
+ * second is covered by this function's other half — it is fail-SOFT.)
+ *
+ * Fail-soft is the deliberate difference from `coerceClaimDirection` and
+ * `toMechanismKind`, which throw. Direction is nullable by design — "nobody
+ * established it" is a legal state rendered as an em-dash — so an unreadable
+ * value degrades into that same honest unknown rather than 500-ing a catalog
+ * page. An unknown `mechanism_kind` has no such resting place.
+ */
+export function coerceDirection(raw: string | null): ClaimDirection | null {
+  if (raw === 'a_to_b' || raw === 'b_to_a' || raw === 'both') return raw;
+  // Legacy spellings — see the rollout window above.
+  if (raw === 'one-way') return 'a_to_b';
+  if (raw === 'bidirectional') return 'both';
   return null;
 }
 
@@ -1237,6 +1282,8 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
     name: synthesizeIntegrationName(raw.name, raw.sourceProduct, raw.targetProduct),
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: raw.mechanismName,
+    // The STORED direction, anchored to this row's own source/target (AECI-921).
+    // Consumers that have a context frame it themselves; see the schema comment.
     direction: coerceDirection(raw.direction),
     source: toProductLink(raw.sourceProduct),
     target: toProductLink(raw.targetProduct),
@@ -1399,6 +1446,55 @@ function toProductPairClaim(
   };
 }
 
+/**
+ * Every glyph a curator has used to mean "flows this way" in a free-text title:
+ * the three Unicode arrow blocks, plus the ASCII forms people type when the
+ * keyboard is in the way.
+ *
+ *   `\u2190-\u21FF`  Arrows — covers → ← ↔ ⇄ ⇆ ⇌
+ *   `\u27F0-\u27FF`  Supplemental Arrows-A
+ *   `\u2900-\u297F`  Supplemental Arrows-B
+ *
+ * Written as codepoint escapes rather than literal glyphs. A character-class
+ * RANGE of arrows is unreadable inline, and a literal one is easy to mis-edit
+ * into a range that also swallows the en dash.
+ *
+ * Deliberately NOT the en dash (U+2013) or the hyphen: "Revit-to-Procore" and
+ * "Procore – Bluebeam" name a pair without asserting a direction, so stripping
+ * them would cost titles and fix nothing.
+ */
+const DIRECTIONAL_GLYPH_RE = /[\u2190-\u21FF\u27F0-\u27FF\u2900-\u297F]|<-+>|-+>|<-+|=>/u;
+
+/**
+ * The heading a pair-page mechanism card shows — **never a directional pair title**
+ * (AECI-919, `STAGE_1_5_SPEC.md` §7.1).
+ *
+ * Two columns feed this. `integrations.mechanism_name` is the mechanism's own label
+ * ("Power Query Google BigQuery connector"); `integrations.name` is the PAIR's title
+ * and upstream writes it source-first by authorship convention, so it reads
+ * "Power BI → BigQuery" on 56% of rows. The pair page frames everything relative to
+ * the context product, so an absolute A→B title in the card `h2` pointed the
+ * opposite way to the direction lane directly beneath it, with nothing saying the
+ * frame had switched. The rail above already names both products, so the title added
+ * no information and only the contradiction.
+ *
+ * This mapper used to read `raw.name ?? raw.mechanismName` — name FIRST. The order is
+ * now reversed and the `name` fallback is gated: it survives only when it carries no
+ * directional glyph, which keeps genuinely useful labels like "Autodesk Revit export"
+ * (3.5% of rows have no `mechanism_name` at all) and drops the arrow-bearing pair
+ * titles. `null` is a supported result — the pair template promotes the mechanism
+ * KIND label to the `h2` rather than rendering a blank heading.
+ *
+ * It cannot catch an arrow a curator typed into `mechanism_name` itself (2.5% of
+ * rows). That is their label for their mechanism and we render it verbatim; the
+ * upstream naming rule is the place to fix it, not a stripper here.
+ */
+function toMechanismHeading(name: string | null, mechanismName: string | null): string | null {
+  if (mechanismName) return mechanismName;
+  if (name && !DIRECTIONAL_GLYPH_RE.test(name)) return name;
+  return null;
+}
+
 /** Order claims for stable rendering: by the data_object's curated
  *  `display_order`, then name — independent of D1 row order. */
 function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
@@ -1410,9 +1506,9 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
 
 /** One mechanism row on the pair page, with its direction translated to the
  *  context product's frame (§3.2 / §7) and its `data_object` claims (§8).
- *  `mechanism_name` is the integration's own title, falling back to the
- *  mechanism label; source/target are redundant on the pair page (both are the
- *  page's endpoints) so they are not surfaced. */
+ *  `mechanism_name` is the mechanism's own label and is never a directional pair
+ *  title — see `toMechanismHeading` (AECI-919); source/target are redundant on the
+ *  pair page (both are the page's endpoints) so they are not surfaced. */
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
@@ -1422,7 +1518,7 @@ function toProductPairMechanism(
   return {
     id: raw.id,
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
-    mechanism_name: raw.name ?? raw.mechanismName,
+    mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
     description: raw.description,
     listing_url: raw.listingUrl,
@@ -1464,7 +1560,7 @@ function toProductPairMechanismFromEvidencedPair(
     id: raw.id,
     // Null by construction — see the section header. The connector is in `via`.
     mechanism_kind: null,
-    mechanism_name: raw.name ?? raw.mechanismName,
+    mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(direction, contextIsSource),
     description: raw.description,
     listing_url: raw.listingUrl,

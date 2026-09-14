@@ -70,7 +70,7 @@ beforeEach(async () => {
     targetProductId: REVIT,
     mechanismKind: 'native',
     mechanismName: 'Procore Connector',
-    direction: 'one-way',
+    direction: 'a_to_b',
   });
   await t.db
     .insert(taxonomyDataObjects)

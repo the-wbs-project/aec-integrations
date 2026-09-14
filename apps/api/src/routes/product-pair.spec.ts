@@ -57,7 +57,7 @@ async function integration(
     sourceProductId,
     targetProductId,
     mechanismKind: 'native',
-    direction: 'one-way',
+    direction: 'a_to_b',
     ...extra,
   });
 }
@@ -159,6 +159,50 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     expect(body.sync_headline).toEqual({ total: 0, confirmed: 0, single_source: 0 });
   });
 
+  // AECI-919 (\u00a77.1). `integrations.name` is the PAIR's title and upstream writes
+  // it source-first by authorship convention, so it reads "Power BI \u2192 BigQuery" on
+  // 56% of rows. This mapper used to prefer it over `mechanism_name`, which put an
+  // absolute A\u2192B arrow in the card h2 pointing the opposite way to the
+  // context-relative lane beneath it, with nothing saying the frame had switched.
+  describe('mechanism_name is the mechanism label, never a directional pair title', () => {
+    it('prefers mechanism_name over the arrow-bearing pair name', async () => {
+      await seedProducts();
+      await integration(u(10), u(1), u(2), {
+        name: 'Procore \u21c4 Revit',
+        mechanismName: 'Procore + Autodesk Construction Cloud',
+      });
+
+      const body = ProductPairResponseSchema.parse(
+        await (await get('/api/products/procore/integrations/revit')).json(),
+      );
+      expect(body.mechanisms[0]!.mechanism_name).toBe('Procore + Autodesk Construction Cloud');
+    });
+
+    it('nulls a pair name carrying a directional glyph when there is no mechanism_name', async () => {
+      await seedProducts();
+      await integration(u(10), u(1), u(2), { name: 'Procore \u21c4 Revit' });
+
+      const body = ProductPairResponseSchema.parse(
+        await (await get('/api/products/procore/integrations/revit')).json(),
+      );
+      // Null, not the arrow title \u2014 the pair template promotes the mechanism KIND
+      // label to the h2 rather than rendering a heading that contradicts the lane.
+      expect(body.mechanisms[0]!.mechanism_name).toBeNull();
+    });
+
+    it('keeps a non-directional pair name when there is no mechanism_name', async () => {
+      await seedProducts();
+      // 3.5% of upstream rows carry no `mechanism_name`, and their `name` is often
+      // a genuinely useful label. Only the arrow-bearing ones are dropped.
+      await integration(u(10), u(1), u(2), { name: 'Autodesk Revit export' });
+
+      const body = ProductPairResponseSchema.parse(
+        await (await get('/api/products/procore/integrations/revit')).json(),
+      );
+      expect(body.mechanisms[0]!.mechanism_name).toBe('Autodesk Revit export');
+    });
+  });
+
   it('translates a one-way direction relative to the context product', async () => {
     await seedProducts();
     // Stored source = Procore (A), target = Revit (B), one-way (A → B).
@@ -179,7 +223,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
 
   it('reports a bidirectional integration as "both" from either side', async () => {
     await seedProducts();
-    await integration(u(10), u(1), u(2), { direction: 'bidirectional' });
+    await integration(u(10), u(1), u(2), { direction: 'both' });
 
     for (const url of [
       '/api/products/procore/integrations/revit',
