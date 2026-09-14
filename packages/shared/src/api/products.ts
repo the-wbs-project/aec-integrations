@@ -137,6 +137,19 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // (§5.5) nulls `rating_overall_avg` / `rating_onboarding_avg` (inherited) when
   // `review_count < 5` — a single-review average is statistically misleading.
   reviews: z.array(PublicReviewSchema),
+  // The REACHABLE tier's one number (AECI-892 / Stage 1.5 §13.7): how many more
+  // products this one could be joined to through a connector, over and above the
+  // delivered edges in the two arrays above. Feeds exactly one unattributed
+  // sentence under the Integrations section and nothing else.
+  //
+  // It is NOT an integration count and must never be added to one. §13.5 is
+  // categorical: reachable never counts — not in the section heading, not in
+  // `integration_count`, not in a facet, not in the home stats. Publishing the
+  // tail would bury the products with real integrations underneath it.
+  //
+  // Defaulted so a database with no connector rows — every non-production
+  // environment today — parses as 0 rather than failing the schema.
+  reachable_pair_count: z.number().int().min(0).default(0),
   // The maintenance marker's inputs (AECI-616). Detail-only — the marker renders in
   // the page header, never on a card, so `ProductListItem` deliberately doesn't carry
   // them. `last_reviewed_at` is `null` for almost every product; that renders bare

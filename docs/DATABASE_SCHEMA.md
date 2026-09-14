@@ -2002,9 +2002,21 @@ that writes no catalogue *content*: `PATCH /api/admin/connector-catalogs/:id` (A
 
 **The first reader is `/admin/connectors` (AECI-722**, `ADMIN_PANEL_SPEC.md` §5.9). It also added
 the six tables' `relations()` entries plus the inverses on `productsRelations`, discharging the
-deferral recorded in `apps/api/src/db/schema.ts`. Note what its existence does *not* change: these
-tables still have no `Cache-Tag` vocabulary, because `/admin/*` is deliberately uncacheable
-(`CACHE_STRATEGY.md` §4). The tag set belongs to the first **public** reader, AECI-715 / 716.
+deferral recorded in `apps/api/src/db/schema.ts`. Note what its existence did *not* change: these
+tables had no `Cache-Tag` vocabulary, because `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4). The tag set belonged to the first **public** reader.
+
+⚠️ **That reader arrived 2026-09-14 (AECI-892):** `STAGE_1_5_SPEC.md` §13.7's endpoint summary
+line, *"N more pairs reachable via connectors"*, reads `connector_stub_mappings` joined to
+`connector_pairs` on every `/products/:slug` render. Two consequences for anyone touching these
+tables. **(a)** The promote arm now enqueues a cache purge — `product:{connectorSlug}` plus
+`product:{slug}` per moved endpoint, never `pair:*` and never `sitemap`
+(`CACHE_STRATEGY.md` §3 rule 5). **(b)** A change to `connector_stub_mappings.status` /
+`decided_by` / `product_id`, or to `connector_pairs.removed_at`, now moves a **public** page. The
+§9a.4 gate is therefore no longer admin-only in effect — though it is still not a *publication*
+gate for the reachable tier, which stays `curated`-only and unbuilt (AECI-716). The count carries
+no `surface` predicate at all, deliberately: all 669 Kroo Connector and Trimble AppXchange pairs
+are `derived`, and filtering to `curated` would report both catalogues as reaching nothing.
 
 **Mapping decisions are not writable from AECi, and the reason is in this table's own upsert.**
 The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`, `evidence_url`, `decided_by`,

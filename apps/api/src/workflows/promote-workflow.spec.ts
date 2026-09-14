@@ -430,6 +430,7 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
       wrote: true,
       bookmark: null,
       auditEntries: [],
+      purgeProductIds: [],
     }));
   }
 
@@ -452,6 +453,7 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
       wrote: true,
       bookmark: null,
       auditEntries: [],
+      purgeProductIds: [],
     }));
     const { promise, step } = runConnector({ connectorIngest });
     const result = await promise;

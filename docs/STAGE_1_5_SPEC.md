@@ -71,7 +71,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
 | §13.5 | AECI-721, AECI-789 | Count invariants — §12.5 resolved as B; the sixteen-site lockstep |
 | §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
-| §13.7 | AECI-715 / AECI-716 | Connector coverage surface + reachable-lane publication boundary |
+| §13.7 | AECI-715 / AECI-716 (first bullet: **AECI-892** *(done)*) | Connector coverage surface + reachable-lane publication boundary; AECI-892 shipped the endpoint reach line only |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -800,7 +800,8 @@ overstatement.
 
 **Status:** Approved — the build contract for AECI-707 / 713 / 715 / 716. **AECI-707 shipped
 2026-08-31** (§13.6 plus §13.4(2)) and **AECI-713 shipped 2026-09-02** (§13.3 plus §13.4(1) and
-§13.4(3)); 715 / 716 are unbuilt.
+§13.4(3)); **AECI-892 shipped §13.7's endpoint summary line on 2026-09-14** — that line is
+AECI-716's first bullet and is the only part of 716 that exists. 715 and the rest of 716 are unbuilt.
 **Extends** §12 (Addendum B) and the endpoint-table presentation inherited from `STAGE_1_SPEC.md`
 §7.5 / §3.1. **Amends** §12.2 / §12.3 with the self-exclusion rule of §13.4(2). **Resolves** §12.5's open
 count decision. Nothing in §3–§12 is superseded.
@@ -1440,6 +1441,18 @@ Presentation only; the data lands in AECI-714 and the curation in the review app
 - **One line on the endpoint page**, below the Integrations section: *"N more pairs reachable via
   connectors"*, linking **our** filtered view. Never a list, never a table row, never part of the
   §13.3 heading count.
+  - ✅ **Shipped by AECI-892 (2026-09-14), unlinked, and the link is deferred to AECI-716.** The
+    "filtered view" this bullet names has never existed as a route — `/admin/connectors` is the only
+    connector surface and `/admin/*` is deliberately uncacheable — and the only lawful target would
+    have been the curated pair set, which would have made this one sentence inherit every clause of
+    the publication gate below. It does not, so AECI-889's sweep waits on the count alone. The line
+    is `ProductIntegrationsSection`'s `reachLabel()`, fed by `ProductDetail.reachable_pair_count`.
+  - **Four message ids, not two.** On a section with **no** delivered rows there is nothing for the
+    reach to be *more* than, so the copy drops the word: *"N pairs reachable via connectors"*. That
+    is not an edge case — it is exactly the page the I24 sweep creates, a product whose only
+    connector-delivered edge has just been retired, and shipping *"3 more pairs"* above an
+    empty-integrations notice would contradict the screen it sits on.
+  - **Hidden at zero**, so the overwhelming majority of pages render nothing new.
 - **Never link out to a connector's own generated pair pages.** MindCloud publishes 104,186 of them;
   they carry no attribution, no comparison and nothing the reader cannot get better from us.
 - **Which reachable pairs publish** — the selection rule AECI-716 asks this addendum to own. A pair
@@ -1493,39 +1506,58 @@ gate is production rather than merge:
    `DATABASE_SCHEMA.md` §9a, `docs/migrations.md` §3.3a.)*
 3. Those two catalogues re-sync. `POST /api/promote/connector-catalog` is what carries `pairs[]`
    into the app-side table (`REVIEW_APP_PROMOTE_API.md` §3a); nothing else writes it.
-4. AECI-891 and AECI-892 ship **and reach production**.
+4. AECI-891 and AECI-892 ship **and reach production**. *(Both merged: AECI-891 on 2026-09-13,
+   AECI-892 on 2026-09-14. AECI-892's done-when is production, not merge, because the point is that
+   the reach renders before the delivered row is deleted.)*
 5. Only then does AECI-889 retire the remaining 113 duplicates, one catalogue per batch, each batch
    followed by a run of the AECI-882 retraction consumer.
 
 Retiring a row before its reach renders deletes the answer to "does X integrate with Y" rather than
 moving it to a better shelf. AECI-852 stopped the first sweep for exactly that reason.
 
-- **AECI-892 is not a predicate change, and what it asks for is AECI-716's first bullet above.**
+- ✅ **AECI-892 shipped 2026-09-14, re-scoped: it was never a predicate change, and what it asked
+  for is AECI-716's first bullet above.**
   `routeIntegrationLane` (`apps/web/src/app/products/connector-lane-grouping.ts`) routes rows that
   are already in the payload, and **both of its inputs are delivered-tier** — `via` from
   `connector_evidenced_pairs`, `powered_by_product` from `integrations`. Delete the delivered row
-  and there is nothing left to route, so no predicate can recover it. The fact needs a new
+  and there is nothing left to route, so no predicate can recover it. The fact needed a new
   **derived** reach read (`connector_stub_mappings` joined to `connector_pairs`) and a scalar on
-  `ProductDetail`.
-  - **It comes back as the summary line, not as a Via card.** AECI-892's own acceptance criterion
-    says the page should "still show reachable via Kroo Connector", and this section forbids that:
-    a per-connector group is a list, renders a table row, and enters the §13.3 heading count, which
-    is three of the first bullet's three prohibitions. The sanctioned form names **no connector** —
-    *"N more pairs reachable via connectors"*, unattributed, outside the count. A Via card that
-    survives its own delivered row would assert a delivery that I24 has just ruled does not exist.
-  - **Attribution:** the endpoint line is **AECI-716**, whose own title is "endpoint summary line +
-    curated undelivered pair pages". AECI-715 is the *connector's* page, reads
-    `catalogs → stubs → mappings` and never touches `connector_pairs`, and counts apps rather than
-    pairs. The two share one predicate, `publishableMapping` in
-    `apps/api/src/lib/admin-connectors.ts`, and nothing else.
+  `ProductDetail`, and that is what was built. **`connector-lane-grouping.ts` is untouched.**
+  - **It came back as the summary line, not as a Via card.** AECI-892's original acceptance
+    criterion said the page should "still show reachable via Kroo Connector", and this section
+    forbids that: a per-connector group is a list, renders a table row, and enters the §13.3 heading
+    count, which is three of the first bullet's three prohibitions. The sanctioned form names **no
+    connector** — *"N more pairs reachable via connectors"*, unattributed, outside the count. A Via
+    card that survives its own delivered row would assert a delivery that I24 has just ruled does
+    not exist. The issue was retitled and its AC rewritten rather than closed as a duplicate,
+    because the sequencing gate onto AECI-889 lives on it.
+  - **Attribution:** the endpoint line is **AECI-716**'s first bullet, whose own title is "endpoint
+    summary line + curated undelivered pair pages"; AECI-892 built that bullet and nothing else of
+    716. AECI-715 is the *connector's* page, reads `catalogs → stubs → mappings` and never touches
+    `connector_pairs`, and counts apps rather than pairs. The two share one predicate,
+    `publishableMapping` in `apps/api/src/lib/admin-connectors.ts`, and nothing else — which is why
+    that function was widened to `publishableMappingOn(t)` over an `alias()` rather than copied.
   - **The count carries no `surface` predicate; publication always filters to `curated`.** Two call
     sites, two rules, and both failures are silent: a `surface` filter leaking into the count
     reports Kroo Connector and Trimble AppXchange as **zero**, because all 669 of their pairs are
     `derived`; a missing filter on publication ships a page citing a vendor URL that does not exist.
-  - **Open, and it decides how much of AECI-716 the I24 sweep must wait for:** the first bullet says
-    the line links "our filtered view", and no such route exists. If the only lawful target is the
-    curated pair set, the summary line inherits everything publication is gated on. An unlinked line
-    does not. Settle this before AECI-889's Zapier batch, which is the largest at 110 live rows.
+    As built, the count is `reachablePartnerProductIds` in `apps/api/src/lib/connector-reach.ts` and
+    carries no `surface` clause at all; publication is unbuilt and belongs to AECI-716.
+  - **The read is two `UNION` branches and never an `OR`.** `connector_pairs` stores a canonical
+    pair (`stub_a_id < stub_b_id`), so roughly half of any product's reach sits on the b side, and
+    `stub_a_id = ? OR stub_b_id = ?` uses **neither** index. Split, the branches use
+    `connector_pairs_pair_idx` and `connector_pairs_stub_b_idx`. Two arms is well inside D1's
+    `SQLITE_MAX_COMPOUND_SELECT` of **5** (not better-sqlite3's 500); count the arms before adding
+    a third. A one-branch read returns a plausible, halved number and fails nothing.
+  - **"N MORE" means more, and the subtraction spans both delivered tables in both orientations.**
+    The delivered partners are read off `integrations_as_source` + `integrations_as_target`, which
+    already union `integrations` with `connector_evidenced_pairs` and are already oriented per
+    endpoint. A hand-written two-table, two-orientation `NOT EXISTS` would satisfy the same rule
+    while being a **fourth** independent copy of it — AECI-882 lost the table half and AECI-795 the
+    orientation half, both silently — so the subtraction reuses the arrays the page renders instead.
+  - **Resolved, and it is why the I24 sweep waits only for the count:** the first bullet's
+    "our filtered view" has no route, so the line ships **unlinked**. An unlinked line inherits
+    nothing from the publication gate. See that bullet for the record.
 - **A claim CAN anchor to reach, and AECi carries it (AECI-891, operator ruling 2026-09-13).**
   This bullet previously said the opposite, and the asymmetry it recorded is closed the mirroring
   way: `claims` gains a third anchor, `connector_pair_id` → `connector_pairs(id)` (§3.1's second
@@ -1650,9 +1682,12 @@ statement is an idempotent upsert keyed on the review record id.
 for that catalogue with `CATALOG_VENDOR_MANAGED`, before building a statement. This is what makes the
 handover a lane freeze rather than a data migration, per the full-mirror argument above.
 
-**Nothing renders it yet, and nothing counts it.** The sync dispatches no Algolia sync, no
-IndexNow or Google ping, no home-stats refresh and no cache purge — §13.5 holds unchanged. When
-§13.7's summary line ships, `CACHE_STRATEGY.md` §3 rule 4 now names the tag set it will need.
+**Nothing counts it, and until AECI-892 nothing rendered it.** The sync dispatches no Algolia
+sync, no IndexNow or Google ping and no home-stats refresh — §13.5 holds unchanged, and those three
+absences are permanent for this arm. ⚠️ **The fourth absence ended on 2026-09-14**: AECI-892 added
+the cache purge, because §13.7's summary line is now a cacheable route's output reading these rows.
+`dispatchConnectorHooks` has three hooks, not two, and `CACHE_STRATEGY.md` §3 rule 5 records the
+transfer it predicted.
 
 **What is still open.** The publication gate is provenance rather than confidence
 (`decided_by <> 'auto-name-match'`), so today's **13 confirmed** stubs are what would publish
@@ -1683,6 +1718,24 @@ inherit them.
 admin-only reader renders nothing cacheable. The obligation belongs to AECI-715 / 716, the first
 **public** reader. `CACHE_STRATEGY.md` is unchanged by this issue — recorded here explicitly, in
 the §13.8 spirit, so a reviewer can check the claim rather than infer it.
+
+⚠️ **Discharged 2026-09-14 by AECI-892**, which built the first public reader: §13.7's endpoint
+summary line. `dispatchConnectorHooks` now enqueues `product:{connectorSlug}` plus `product:{slug}`
+for each endpoint whose reach moved, and **never** `pair:*` (§13.7 forbids enumerating them) or
+`sitemap` (reachable pairs create no URLs). Three things about that emission are worth knowing
+before touching it:
+
+- **A page that writes nothing purges nothing.** The purge set is collected at the points a
+  statement is emitted, so §13.10's *"a re-sent page writes nothing at all"* extends to the cache.
+  Without that, a nightly six-catalogue re-sync would repaint the whole catalog.
+- **A pair row moving purges both its endpoints, even with no mapping on the page.** AECI-890 wrote
+  669 pair rows and touched not one mapping, so a mapping-only collector would have purged nothing
+  on the largest reach change made to date.
+- **Bounded gap, stated rather than left to be found.** Deleting a mapping purges the product that
+  lost it, not the partners that lost *it*. Closing that needs a pairs-by-stub read plus a mappings
+  read per partner stub — three round trips to repaint pages whose only change is one line's
+  integer. Same shape and same disposition as Addendum B's re-pointed-connector gap: those pages go
+  stale until TTL.
 
 **The publication gate is now inspectable, and still not decided here.** §13.10's "13 confirmed
 against 212 machine proposals" is exactly the number an operator can now see per catalogue:

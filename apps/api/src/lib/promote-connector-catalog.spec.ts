@@ -1036,3 +1036,237 @@ describe('the per-iPaaS management cutoff (AECI-720)', () => {
     t.dispose();
   });
 });
+
+/**
+ * The reach-line purge set (AECI-892).
+ *
+ * `CACHE_STRATEGY.md` §3 rule 5 parked the connector lane's cache obligation on the
+ * grounds that no cacheable route read these tables, and transferred it to the first
+ * public reader. §13.7's reach line is that reader, so these rows now change what a
+ * product page says and the page has to repaint.
+ *
+ * Two of these are regressions rather than coverage:
+ *
+ *  - a PAIR row moving must purge both its endpoints even though no mapping changed.
+ *    AECI-890 wrote 669 pair rows and not one mapping, so a mapping-only collector
+ *    would have purged nothing on the single largest reach change we have made;
+ *  - the `preread` batch is unpacked by POSITION. Adding this read anywhere but last
+ *    re-points every map below it, and the failure is silent in the worst direction:
+ *    `existingPairs` keys on `undefined`, change detection reports every pair as new,
+ *    and the "re-sent page writes nothing" property dies.
+ */
+describe('purgeProductIds — the reach-line cache set (AECI-892)', () => {
+  const STUB_PROCORE = 'recStubProcore01';
+  const STUB_ACUMATICA = 'recStubAcumati01';
+  const ACUMATICA_ID = '77777777-7777-4777-8777-777777777777';
+
+  async function seedThree(t: TestDb) {
+    await seedProducts(t);
+    await t.db.insert(products).values({ id: ACUMATICA_ID, slug: 'acumatica', name: 'Acumatica' });
+  }
+
+  const twoStubPage = (extra: Record<string, unknown> = {}) =>
+    makePage({
+      stubs: [
+        { id: STUB_ACUMATICA, slug: 'acumatica', label: 'Acumatica', ...STAMPS },
+        { id: STUB_PROCORE, slug: 'procore', label: 'Procore', ...STAMPS },
+      ],
+      ...extra,
+    });
+
+  it('is EMPTY for a page that changed nothing', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+
+    const replay = await planConnectorCatalogPage(t.db, makePage());
+    expect(replay.wrote).toBe(false);
+    expect(replay.purgeProductIds).toEqual([]);
+    t.dispose();
+  });
+
+  it('carries the catalogue connector on any page that wrote', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    const plan = await planConnectorCatalogPage(t.db, makePage());
+    expect(plan.purgeProductIds).toContain(CONNECTOR_ID);
+    t.dispose();
+  });
+
+  it('carries the product a new mapping names', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      makePage({
+        mappings: [
+          {
+            id: 'recMapProcore001',
+            stubId: STUB_PROCORE,
+            productId: PROCORE_ID,
+            status: 'mapped',
+            decidedBy: 'chris',
+          },
+        ],
+      }),
+    );
+    expect(plan.purgeProductIds).toContain(PROCORE_ID);
+    t.dispose();
+  });
+
+  it('carries BOTH sides when a mapping is re-pointed to a different product', async () => {
+    // Purging only the new one leaves the old page asserting reach it no longer has
+    // — the same shape as Addendum B's re-pointed-connector gap.
+    const t = await makeTestDb();
+    await seedThree(t);
+    const mapping = (productId: string) => ({
+      id: 'recMapProcore001',
+      stubId: STUB_PROCORE,
+      productId,
+      status: 'mapped' as const,
+      decidedBy: 'chris',
+    });
+    await commit(
+      t,
+      await planConnectorCatalogPage(t.db, makePage({ mappings: [mapping(PROCORE_ID)] })),
+    );
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      makePage({ mappings: [mapping(ACUMATICA_ID)] }),
+    );
+    expect([...plan.purgeProductIds].sort()).toEqual(
+      [CONNECTOR_ID, PROCORE_ID, ACUMATICA_ID].sort(),
+    );
+    t.dispose();
+  });
+
+  it('carries the deleted mapping’s product, read off the pre-read', async () => {
+    // The row is gone by the time anything downstream could look, so the pre-read is
+    // the only surviving copy of which product just lost reach.
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(
+      t,
+      await planConnectorCatalogPage(
+        t.db,
+        makePage({
+          mappings: [
+            {
+              id: 'recMapProcore001',
+              stubId: STUB_PROCORE,
+              productId: PROCORE_ID,
+              status: 'mapped',
+              decidedBy: 'chris',
+            },
+          ],
+        }),
+      ),
+    );
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      makePage({ deleted: { mappings: ['recMapProcore001'] } }),
+    );
+    expect(plan.purgeProductIds).toContain(PROCORE_ID);
+    t.dispose();
+  });
+
+  it('carries BOTH endpoints of a new pair, with no mapping on the page', async () => {
+    // THE regression. AECI-890 materialised 669 pair rows for Kroo Connector and
+    // Trimble AppXchange and touched not one mapping. A collector that only watched
+    // mappings would have purged nothing on the largest reach change to date.
+    const t = await makeTestDb();
+    await seedThree(t);
+    await commit(
+      t,
+      await planConnectorCatalogPage(
+        t.db,
+        twoStubPage({
+          mappings: [
+            {
+              id: 'recMapProcore001',
+              stubId: STUB_PROCORE,
+              productId: PROCORE_ID,
+              status: 'mapped',
+              decidedBy: 'chris',
+            },
+            {
+              id: 'recMapAcumatic1',
+              stubId: STUB_ACUMATICA,
+              productId: ACUMATICA_ID,
+              status: 'mapped',
+              decidedBy: 'chris',
+            },
+          ],
+        }),
+      ),
+    );
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      twoStubPage({
+        pairs: [
+          {
+            id: PAIR_ID,
+            stubAId: STUB_ACUMATICA,
+            stubBId: STUB_PROCORE,
+            surface: 'derived',
+            ...STAMPS,
+          },
+        ],
+      }),
+    );
+    expect(plan.counts.pairs.created).toBe(1);
+    expect(plan.counts.mappings.unchanged).toBe(0);
+    expect([...plan.purgeProductIds].sort()).toEqual(
+      [CONNECTOR_ID, PROCORE_ID, ACUMATICA_ID].sort(),
+    );
+    t.dispose();
+  });
+
+  it('carries both endpoints when a pair is TOMBSTONED', async () => {
+    // A pair is retired with `removed_at`, not with a delete — there is no
+    // `deleted.pairs` on the wire — so the retirement rides the upsert branch.
+    const t = await makeTestDb();
+    await seedThree(t);
+    const pair = (over: Record<string, unknown> = {}) => ({
+      id: PAIR_ID,
+      stubAId: STUB_ACUMATICA,
+      stubBId: STUB_PROCORE,
+      surface: 'derived' as const,
+      ...STAMPS,
+      ...over,
+    });
+    const mappings = [
+      {
+        id: 'recMapProcore001',
+        stubId: STUB_PROCORE,
+        productId: PROCORE_ID,
+        status: 'mapped' as const,
+        decidedBy: 'chris',
+      },
+      {
+        id: 'recMapAcumatic1',
+        stubId: STUB_ACUMATICA,
+        productId: ACUMATICA_ID,
+        status: 'mapped' as const,
+        decidedBy: 'chris',
+      },
+    ];
+    await commit(
+      t,
+      await planConnectorCatalogPage(t.db, twoStubPage({ mappings, pairs: [pair()] })),
+    );
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      twoStubPage({ mappings, pairs: [pair({ removedAt: '2026-09-13T00:00:00.000Z' })] }),
+    );
+    expect(plan.counts.pairs.updated).toBe(1);
+    expect([...plan.purgeProductIds].sort()).toEqual(
+      [CONNECTOR_ID, PROCORE_ID, ACUMATICA_ID].sort(),
+    );
+    t.dispose();
+  });
+});

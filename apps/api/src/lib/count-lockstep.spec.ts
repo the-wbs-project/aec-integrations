@@ -269,3 +269,55 @@ describe('integration_count lockstep — the sixteen sites (AECI-721, AECI-789 /
     t.dispose();
   });
 });
+
+/**
+ * The mirror of the rule above (AECI-892 / §13.5): **reachable NEVER counts.**
+ *
+ * The sixteen sites exist because a delivered edge must count from whichever table
+ * holds it. This block exists because the reachable tier must count from neither.
+ * §13.5 is categorical — "not in the heading, not in `integration_count`, not in a
+ * facet, not in the home stats" — and the reason is scale rather than taste: the
+ * `integration_count` facet buckets (`0 / 1–10 / 11–50 / 51+`) were calibrated
+ * against a catalogue topping out near 52, and MindCloud's catalogue alone is
+ * ~3,411 stubs. Letting reach into the count would not shift the numbers, it would
+ * destroy the scale.
+ *
+ * Written as a source scan rather than a behavioural test on purpose. A behavioural
+ * test can only prove the number did not move for the rows it happened to seed; the
+ * thing worth preventing is someone adding `reachable_pair_count` to an expression
+ * because it is on `ProductDetail` and looks like a sibling of `integration_count`.
+ */
+describe('reachable never counts — the §13.5 complement (AECI-892)', () => {
+  it('appears in no count expression, and the scan is not vacuous', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const read = (rel: string) =>
+      readFileSync(join(process.cwd(), rel), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+
+    // The lockstep sites that live in this repo as source, plus the two Algolia
+    // transform copies. Any of them gaining the reach scalar is the regression.
+    const COUNT_SITES = [
+      'src/lib/recompute-counts.ts',
+      'src/lib/home-stats.ts',
+      'src/lib/admin-catalog.ts',
+      'src/lib/metrics-snapshot.ts',
+      'src/lib/algolia-transforms.ts',
+      'src/lib/algolia-drift-deps.ts',
+      'src/routes/admin-overview.ts',
+      'scripts/reconcile-product-counts.ts',
+      'scripts/reconcile-algolia-drift.ts',
+    ];
+    for (const site of COUNT_SITES) {
+      expect(read(site), site).not.toContain('reachable_pair_count');
+      expect(read(site), site).not.toContain('reachablePartnerProductIds');
+    }
+
+    // Not vacuous: every one of those files does talk about the count it owns.
+    expect(read('src/lib/recompute-counts.ts')).toContain('integrationCount');
+    // And the scalar really does exist somewhere, so the assertion above is a
+    // statement about placement rather than about a name nothing uses.
+    expect(read('src/lib/drizzle-helpers.ts')).toContain('reachable_pair_count');
+  });
+});

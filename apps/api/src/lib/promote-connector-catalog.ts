@@ -138,6 +138,21 @@ export interface ConnectorPagePlan {
   counts: PromoteConnectorPageResponse['counts'];
   /** False when nothing changed. Gates the audit row and the caller's `wrote`. */
   wrote: boolean;
+  /**
+   * Products whose §13.7 reach line this page may have moved — a CACHE-KEY set,
+   * and nothing else (AECI-892).
+   *
+   * Deliberately NOT called `affectedProducts`. That name is absent from the
+   * connector ledger on purpose, because carrying it would let a replay call
+   * `recomputeProductCounts` and violate §13.5's "reachable never counts". These
+   * ids reach `cacheTagsForConnectorPage` and no counter.
+   *
+   * Ids rather than slugs: the planner's product read is scoped to the page's own
+   * references, and a pair can move the reach of a product no row on this page
+   * mentions. Slugs are resolved post-commit, where an extra read costs nothing
+   * and cannot touch the batch.
+   */
+  purgeProductIds: string[];
 }
 
 function emptyCounts(): PromoteConnectorTableCounts {
@@ -232,7 +247,11 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     products: chunked([...productIds]),
     stubs: chunked([...stubIds]),
     surfaces: chunked(page.surfaces.map((s) => s.id)),
-    mappings: chunked(page.mappings.map((m) => m.id)),
+    // The ids this page ASSERTS plus the ids it DELETES. The deleted half is only
+    // for AECI-892's purge set — a deleted row is the one place the pre-read holds
+    // the only surviving copy of which product just lost reach — and it is inert
+    // for change detection, which only ever looks up `page.mappings` ids.
+    mappings: chunked([...page.mappings.map((m) => m.id), ...(page.deleted?.mappings ?? [])]),
     pairs: chunked([...pairIds]),
     claimsById: chunked([...claimIds]),
     claimsByAnchor: chunked([...pairIds]),
@@ -271,6 +290,27 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
         // being a version stamp rather than a withdrawal.
         .where(and(inArray(attestations.claimId, c), liveAttestationsWhere)),
     ),
+    // LAST, and it stays last. Every read above is unpacked by POSITION via
+    // `take()`, so inserting a statement anywhere in the middle silently re-points
+    // every map below it — `existingPairs` ends up keyed on `undefined` and change
+    // detection reports every pair as new. Appending is the one edit that cannot
+    // do that.
+    //
+    // Every product currently mapped to a stub this page touches (AECI-892). A
+    // pair row can appear or vanish without any mapping changing — that is exactly
+    // what AECI-890's derived-pair materialisation did, 669 rows and not one
+    // mapping — and the reach of both its endpoints moves anyway. Keyed on
+    // `stub_id` rather than on the mapping id, so it answers "who is on this stub"
+    // rather than "what did the page send".
+    ...groups.stubs.map((c) =>
+      db
+        .select({
+          stubId: connectorStubMappings.stubId,
+          productId: connectorStubMappings.productId,
+        })
+        .from(connectorStubMappings)
+        .where(inArray(connectorStubMappings.stubId, c)),
+    ),
   ];
 
   const rows = (await db.batch(reads as BatchTuple)) as Record<string, unknown>[][];
@@ -300,6 +340,17 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     else liveAttestations.set(claimId, [row]);
   }
 
+  // Last take, matching the last read. See the note on that statement.
+  const mappedProductsByStub = new Map<string, Set<string>>();
+  for (const row of take(groups.stubs.length)) {
+    const productId = row.productId as string | null;
+    if (!productId) continue;
+    const stubId = row.stubId as string;
+    const set = mappedProductsByStub.get(stubId);
+    if (set) set.add(productId);
+    else mappedProductsByStub.set(stubId, new Set([productId]));
+  }
+
   return {
     existingCatalog,
     promotedProducts,
@@ -309,6 +360,7 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     existingPairs,
     existingClaims,
     liveAttestations,
+    mappedProductsByStub,
   };
 }
 
@@ -358,6 +410,7 @@ export async function planConnectorCatalogPage(
     existingPairs,
     existingClaims,
     liveAttestations,
+    mappedProductsByStub,
   } = await preread(db, page);
 
   // ── the AECI-720 cutoff ────────────────────────────────────────────────────
@@ -403,7 +456,7 @@ export async function planConnectorCatalogPage(
     counts.mappings.skipped = page.mappings.length;
     counts.pairs.skipped = page.pairs.length;
     counts.claims.skipped = pageClaims(page).length;
-    return { statements: [], audits: [], skipped, counts, wrote: false };
+    return { statements: [], audits: [], skipped, counts, wrote: false, purgeProductIds: [] };
   }
 
   // The claim vocabulary read is deliberately BELOW both early exits: a refused or
@@ -417,9 +470,36 @@ export async function planConnectorCatalogPage(
   const deletes: BatchStmt[] = [];
   const upserts: BatchStmt[] = [];
 
+  // ── the AECI-892 purge set ─────────────────────────────────────────────────
+  // Collected as the plan is built rather than derived from the response, because
+  // the response carries counts and no ids. Added to at exactly the points a
+  // statement is emitted, so a page that writes nothing collects nothing and
+  // purges nothing — §13.10's "a re-sent page writes nothing at all, including no
+  // `audit_log` row" extends to the cache.
+  const purgeProductIds = new Set<string>();
+  const purgeStubEndpoints = (...stubIds: string[]) => {
+    for (const stubId of stubIds) {
+      for (const productId of mappedProductsByStub.get(stubId) ?? [])
+        purgeProductIds.add(productId);
+    }
+  };
+
   for (const ids of chunked(page.deleted?.mappings ?? [])) {
     deletes.push(db.delete(connectorStubMappings).where(inArray(connectorStubMappings.id, ids)));
     counts.mappings.deleted += ids.length;
+    // The product loses reach through this stub, so its page moves. Read off the
+    // PRE-READ, which is the only surviving copy once the row is gone.
+    //
+    // BOUNDED GAP, stated rather than left to be found: this purges the product
+    // that lost the mapping, not the partners that lost IT. Closing that needs a
+    // pairs-by-stub read plus a mappings read for every partner stub, three round
+    // trips to repaint pages whose only change is one line's integer. The same
+    // shape as `CACHE_STRATEGY.md` §3 rule 4's re-pointed-connector gap, and the
+    // same disposition: those pages go stale until TTL.
+    for (const id of ids) {
+      const productId = existingMappings.get(id)?.productId as string | null | undefined;
+      if (productId) purgeProductIds.add(productId);
+    }
   }
   for (const ids of chunked(page.deleted?.surfaces ?? [])) {
     deletes.push(
@@ -602,6 +682,13 @@ export async function planConnectorCatalogPage(
       notes: m.notes ?? null,
     };
     if (tally(counts.mappings, existingMappings.get(m.id), values) === 'unchanged') continue;
+    // Both sides of a re-point: the product losing the mapping and the one
+    // gaining it. Purging only the new one leaves the old page asserting reach it
+    // no longer has, which is the same shape as Addendum B's re-pointed-connector
+    // gap (`CACHE_STRATEGY.md` §3 rule 4).
+    const priorProductId = existingMappings.get(m.id)?.productId as string | null | undefined;
+    if (priorProductId) purgeProductIds.add(priorProductId);
+    if (values.productId) purgeProductIds.add(values.productId);
     upserts.push(
       db
         .insert(connectorStubMappings)
@@ -638,6 +725,10 @@ export async function planConnectorCatalogPage(
       removedAt: p.removedAt ?? null,
     };
     if (tally(counts.pairs, existingPairs.get(p.id), values) === 'unchanged') continue;
+    // A pair row IS the reach, so both its endpoints' pages move — including on a
+    // `removed_at` tombstone, which is how a pair is retired (there is no
+    // `deleted.pairs` on the wire).
+    purgeStubEndpoints(p.stubAId, p.stubBId);
     upserts.push(
       db
         .insert(connectorPairs)
@@ -860,11 +951,23 @@ export async function planConnectorCatalogPage(
       ]
     : [];
 
+  // The catalogue's own connector product rides along whenever the page wrote
+  // anything, and unconditionally rather than by derivation.
+  // `CACHE_STRATEGY.md` §3 rule 5 names the tag set as
+  // `product:{connectorSlug}` PLUS the moved endpoints, and the connector is the
+  // one product no other rule reaches: it is not an endpoint of any pair here,
+  // and it is only in `purgeProductIds` by accident if it happens to be mapped as
+  // a stub somewhere. AECI-715's coverage surface will render on that page.
+  if (changed) purgeProductIds.add(connectorProductId);
+
   return {
     statements: [...deletes, ...upserts, ...attestationDeletes, ...attestationWrites],
     audits,
     skipped,
     counts,
     wrote: changed,
+    // Empty when nothing changed, by construction: every `add` above sits after
+    // an `unchanged` guard, and the connector id is gated on `changed`.
+    purgeProductIds: changed ? [...purgeProductIds] : [],
   };
 }

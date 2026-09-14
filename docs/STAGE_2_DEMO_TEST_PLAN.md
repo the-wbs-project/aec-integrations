@@ -144,7 +144,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 ## 8. Known non-issues — do not raise these as defects
 
 - Verified badge appears nowhere: production and demo have **zero** `verified = 1` vendors. The entitlement backfill is a confirmed no-op.
-- Connector coverage surfaces (AECI-715 / 716) are **unbuilt** — public "reaches N of M" pages do not exist yet.
+- Connector coverage surfaces (AECI-715 / 716) are **unbuilt** — public "reaches N of M" pages do not exist yet. The one exception since AECI-892 is the product page's unlinked *"N more pairs reachable via connectors"* line; it renders only where connector data exists.
 - Vendor-side connector authoring is not available: `/admin/connectors` is read-only until AECI-724.
 - Datadog dashboards going quiet is the intended AECI-651 outcome.
 - `/vendor` returning 404 on `www` is the dark launch, not the WAF.

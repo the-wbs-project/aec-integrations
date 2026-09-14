@@ -202,7 +202,9 @@ export async function runPromoteWorkflow(
       throw error;
     }
     rc.setBookmark(connectorResult.bookmark);
-    (deps.dispatchConnectorHooks ?? dispatchConnectorHooks)(rc, connectorResult);
+    // `deps` forwarded so the AECI-892 purge hook resolves its slugs through the
+    // same injected db factory the commit step used.
+    (deps.dispatchConnectorHooks ?? dispatchConnectorHooks)(rc, connectorResult, deps);
     emitJobOutcome(rc, jobId, 'complete', Date.now() - startedAt);
     return connectorResult.response;
   }

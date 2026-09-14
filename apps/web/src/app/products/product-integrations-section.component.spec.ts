@@ -63,20 +63,23 @@ function edge(
       slug="procore"
       [asSource]="asSource()"
       [asTarget]="asTarget()"
+      [reachableCount]="reachableCount()"
     ></section>
   `,
 })
 class Host {
   asSource = signal<readonly ProductIntegrationItem[]>([]);
   asTarget = signal<readonly ProductIntegrationItem[]>([]);
+  reachableCount = signal(0);
 }
 
-function setup(asSource: readonly ProductIntegrationItem[]) {
+function setup(asSource: readonly ProductIntegrationItem[], reachableCount = 0) {
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), provideRouter([])],
   });
   const fixture = TestBed.createComponent(Host);
   fixture.componentInstance.asSource.set(asSource);
+  fixture.componentInstance.reachableCount.set(reachableCount);
   fixture.detectChanges();
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
@@ -298,5 +301,88 @@ describe('ProductIntegrationsSection collapsible lanes', () => {
     for (const table of tables) {
       expect(el.querySelector('#' + table.getAttribute('aria-labelledby'))).not.toBeNull();
     }
+  });
+});
+
+/**
+ * §13.7's reach line (AECI-892). Every assertion here is a prohibition the
+ * section could violate while still looking right, which is why they are
+ * asserted rather than reviewed:
+ *
+ *  - it must not enter `Integrations (N)`. §13.5 is categorical that reachable
+ *    never counts, and the heading is the one number a reader can check;
+ *  - it must not be a table row or a card. A "Via {connector}" group that
+ *    outlives its own delivered row asserts a delivery the I24 ruling has just
+ *    said does not exist;
+ *  - it must name no connector;
+ *  - it must render on the EMPTY branch, which is the page the AECI-889 sweep
+ *    creates and the only reason this work exists.
+ */
+describe('ProductIntegrationsSection reach line (§13.7)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const reachText = (el: HTMLElement) =>
+    [...el.querySelectorAll('p')]
+      .map((p) => p.textContent ?? '')
+      .find((t) => t.includes('reachable'));
+
+  it('renders nothing at zero', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))], 0);
+    expect(reachText(el)).toBeUndefined();
+  });
+
+  it('renders one line beside a populated section, and says MORE', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))], 12);
+    expect(reachText(el)).toContain('12 more pairs reachable via connectors');
+  });
+
+  it('drops "more" when the section has no delivered rows', () => {
+    // The AECI-889 end state: the only connector-delivered edge was retired, so
+    // there is nothing for the reach to be MORE than. "3 more pairs" over an
+    // empty-integrations notice contradicts the screen it sits on.
+    const { el } = setup([], 3);
+    expect(reachText(el)).toContain('3 pairs reachable via connectors');
+    expect(reachText(el)).not.toContain('more');
+  });
+
+  it('renders a non-zero line with ZERO Via cards — the AECI-892 regression', () => {
+    const { el } = setup([], 3);
+    expect(el.querySelectorAll('aec-integration-group-card')).toHaveLength(0);
+    expect(reachText(el)).toBeDefined();
+  });
+
+  it('is singular at one, on both branches', () => {
+    expect(reachText(setup([edge(link('acumatica', 'Acumatica'))], 1).el)).toContain(
+      '1 more pair reachable via connectors',
+    );
+    TestBed.resetTestingModule();
+    expect(reachText(setup([], 1).el)).toContain('1 pair reachable via connectors');
+  });
+
+  it('never moves the section heading count', () => {
+    const { el } = setup(NINE, 99);
+    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (9)');
+  });
+
+  it('is not a table row and not a card', () => {
+    const { el } = setup([edge(link('acumatica', 'Acumatica'))], 5);
+    const line = [...el.querySelectorAll('p')].find((p) =>
+      (p.textContent ?? '').includes('reachable'),
+    )!;
+    expect(line.closest('table')).toBeNull();
+    expect(line.closest('aec-integration-group-card')).toBeNull();
+  });
+
+  it('names no connector and links nowhere', () => {
+    // §13.7 sanctions an UNATTRIBUTED line, and the "filtered view" it wants to
+    // link does not exist as a route. Naming a connector here is the Via card by
+    // another name; linking the curated pair set would make this line inherit
+    // everything publication is gated on. Both are deferred to AECI-716.
+    const { el } = setup([edge(AGAVE, { via: AGAVE })], 7);
+    const line = [...el.querySelectorAll('p')].find((p) =>
+      (p.textContent ?? '').includes('reachable'),
+    )!;
+    expect(line.textContent).not.toContain('Agave');
+    expect(line.querySelector('a')).toBeNull();
   });
 });

@@ -653,7 +653,7 @@ const HOOK_SETTLE_TIMEOUT_MS = 20_000;
  * invocation-killing hang into one `console.warn` line in Workers Observability,
  * which is the signal that was missing while this failure mode ran undetected.
  */
-function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unknown>): void {
+export function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unknown>): void {
   rc.waitUntil(
     new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
@@ -745,7 +745,7 @@ async function purgeAfterPromote(
   }
 }
 
-function logPurgeEnqueueFailure(rc: PromoteRunCtx, batch: string[], reason: string): void {
+export function logPurgeEnqueueFailure(rc: PromoteRunCtx, batch: string[], reason: string): void {
   logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.cache_purge_enqueue_failed',

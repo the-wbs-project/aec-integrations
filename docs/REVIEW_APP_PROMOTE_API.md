@@ -609,6 +609,15 @@ commit. What makes that safe is that every write is an upsert keyed on *your* re
 - a half-finished catalogue sync is always safe to simply re-run from page one;
 - **order does not matter**, though sending stub pages before pair/mapping pages avoids skips.
 
+**Since AECI-892 (2026-09-14) a page that changes anything also purges edge cache — and the wire
+shape is unchanged.** §13.7's endpoint reach line is the first public surface reading these tables,
+so the commit is followed by a cache purge for the connector product plus every endpoint whose reach
+moved. Nothing about that is visible to you: no new request field, no new response field, and the
+`counts` / `skipped` envelope is byte-identical. Two consequences worth knowing anyway. A re-sent
+page that changes nothing still purges **nothing**, so a nightly no-op sync costs no cache churn.
+And a page carrying only `pairs[]` — which is what a derived-pair materialisation looks like, 669
+rows and not one mapping — does repaint both endpoints of every pair it moves.
+
 Ceiling: **500 rows per page**, counted across `surfaces` + `stubs` + `mappings` + `pairs` +
 `claims` + `deleted`. Over that is a `400`.
 

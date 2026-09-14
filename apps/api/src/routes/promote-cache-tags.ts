@@ -185,3 +185,33 @@ export function cacheTagsForPromote(
 
   return [...tags];
 }
+
+/**
+ * The tags one connector-catalogue page invalidates (AECI-892).
+ *
+ * The obligation `CACHE_STRATEGY.md` §3 rule 5 parked when AECI-714 landed:
+ * *"no cacheable route's output depends on these rows yet … the obligation
+ * transfers to whichever issue first renders them."* §13.7's reach line is that
+ * first public reader, so this is the transfer.
+ *
+ * Three prohibitions, all from §13.7, and each is a way this could be wrong:
+ *
+ *   - **Never `pair:{a}__{b}`.** §13.7 forbids enumerating reachable pairs at
+ *     all, so no pair page renders one and the tag would purge a page whose
+ *     content did not move. The delivered tier keeps that tag; the reachable tier
+ *     has no URL to name.
+ *   - **Never `sitemap`.** Reachable pairs create no URLs. A sync of 3,573 stubs
+ *     would otherwise repaint `sitemap.xml` on every page of a 30-page run.
+ *   - **Never `index:products` and never `route:*`.** The reach line is on detail
+ *     pages only, and §3.3 reserves the coarse route tags for incidents.
+ *
+ * `product:{slug}` and `product:{connectorSlug}` are the whole vocabulary, and
+ * both already exist — this needs no new tag names, only the emission.
+ *
+ * Pure: the caller resolves ids to slugs.
+ */
+export function cacheTagsForConnectorPage(productSlugs: readonly string[]): string[] {
+  const tags = new Set<string>();
+  for (const slug of productSlugs) tags.add(`product:${slug}`);
+  return [...tags];
+}

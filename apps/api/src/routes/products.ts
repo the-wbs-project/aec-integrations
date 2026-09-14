@@ -27,6 +27,7 @@ import { products, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { reachablePartnerProductIds } from '../lib/connector-reach';
 import {
   buildProductsWhere,
   EMBED_REVIEWS_PAGE_SIZE,
@@ -114,7 +115,7 @@ export function createProductDetailHandler(
             limit: 6,
           });
 
-    const [relatedProducts, reviewRows] = await Promise.all([
+    const [relatedProducts, reviewRows, reachablePartners] = await Promise.all([
       relatedPromise,
       // First page of approved reviews, newest-first; `id` tiebreaks ties.
       db.query.reviews.findMany({
@@ -123,9 +124,20 @@ export function createProductDetailHandler(
         orderBy: [desc(reviews.createdAt), asc(reviews.id)],
         limit: EMBED_REVIEWS_PAGE_SIZE,
       }),
+      // §13.7's reach count (AECI-892). Its own promise rather than an entry in
+      // `productDetailConfig`, because the relational `with:` hydrates ROWS and
+      // this needs an aggregate — routing it through the shape contract would
+      // load hundreds of mapping rows to produce one integer. One extra D1 round
+      // trip, spent in parallel with the two above, so it costs no latency.
+      reachablePartnerProductIds(db, row.id),
     ]);
 
-    const body: ProductDetail = toProductDetail(row, relatedProducts, reviewRows);
+    const body: ProductDetail = toProductDetail(
+      row,
+      relatedProducts,
+      reviewRows,
+      reachablePartners,
+    );
 
     reportMissingVendors(c, [body, ...body.related_products]);
 
