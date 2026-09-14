@@ -972,10 +972,14 @@ Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI
 ### As built — the copy moves onto the house email layout (2026-09-14)
 
 The §9 build note above says the copy is assembled "via `toText()`/`toHtml()`". That is no
-longer true for `claim-approved`, which is now the first template rendered through
+longer true of **either** decision email. Both now render through
 **`apps/api/src/lib/email-layout.ts`** (`renderEmailHtml` / `renderEmailText`) — the
 shared shell ported from the sign-in email, `docs/email-templates/magic-link.html`.
-`claim-rejected` is unchanged and still uses `toText`/`toHtml`.
+`claim-approved` was the first template on it (AECI-914); `claim-rejected` followed the
+same day (AECI-924), because the decision pair has to move together. A claimant who
+receives a branded approval and an unbranded rejection is being told no in worse
+packaging than they would have been told yes, and this is the one §9 surface where that
+asymmetry is visible to a single person.
 
 What changed, and what did not:
 
@@ -992,8 +996,33 @@ What changed, and what did not:
   listed, the `invited` / `linked` branch is intact, and the verification framing is
   word-for-word what it was: an account status, never ranking or placement.
 
-The other 18 transactional templates are deliberately untouched. `docs/email.md`
-(§House layout) carries the standard, the twin-file rule, and the migration table.
+`claim-rejected` moved with two differences from its sibling:
+
+- **It ships no CTA, deliberately.** The Forest button is the layout's one action and a
+  rejection has none this AC permits. The copy says resubmission is welcome; a "Submit a
+  new claim" button would press harder than that. A layout with no `cta` renders no
+  button and no paste-able URL, so the email is a heading and two blocks with nothing to
+  click. It is the repo's reference for a CTA-less migration.
+- **The reviewer's `reason` is still absent, and the migration is the moment to say so
+  out loud.** The house layout offers a `note` slot and an optional `table`, either of
+  which would have been a natural-looking home for a decision note. Neither is used. The
+  §9 guarantee stays structural: `SendClaimDecisionEmail` carries no `reason`, so there
+  is nothing for a future edit to render by accident. A spec asserts the rendered body
+  carries no table row at all.
+
+§11a's `vendor-seat-invite` moved in the same change, and of everything migrated it is
+the one the shell mattered most for. Its copy is three defences against reading as
+phishing (name the inviter, name the address the link is bound to, say the link expires)
+and the legacy shell undercut all three: bare grey paragraphs, no logo, the sender named
+nowhere but the `From:`, and the redeem link as a naked inline anchor. The house shell
+names AECi in the body twice, as logo alt text and as the wordmark row, so it survives
+the images-off corporate mail security this audience sits behind. The redeem link is now
+the single Forest CTA with its URL spelled out underneath, which matters more here than
+on any other template because the recipient is being asked to trust a link from a
+directory they may not know.
+
+`docs/email.md` (§House layout) carries the standard, the twin-file rule, and the
+migration table: 6 templates on the layout, 13 still on the legacy formatters.
 
 ---
 

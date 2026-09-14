@@ -356,6 +356,19 @@ export function sendClaimApprovedEmail(
  *
  * Fail-open like every other send: an absent key/sender/recipient, or no
  * `PUBLIC_SITE_URL` to build the link from, is a silent `'skipped'`.
+ *
+ * **On the house layout since AECI-924, and of the migrated set this is the one that
+ * most needed it.** The three points above are all defences against reading as
+ * phishing, and the legacy shell undercut every one of them: bare grey paragraphs, no
+ * logo, no sender named anywhere but the `From:`, and the redeem link as a naked inline
+ * anchor. That is a description of a phishing email. The house shell puts the wordmark
+ * in the body twice (image and text), and the redeem link becomes the single Forest CTA
+ * with its URL spelled out underneath — which matters more here than anywhere else,
+ * because the recipient is being asked to trust a link from a directory they may not
+ * know.
+ *
+ * The binding and expiry lines stay as blocks rather than becoming table rows. They are
+ * instructions, not facts to scan.
  */
 export function sendVendorSeatInviteEmail(
   c: EmailContext,
@@ -384,21 +397,27 @@ export function sendVendorSeatInviteEmail(
 
   const capabilities =
     'A seat lets you edit the company profile, keep product details current, and add integration attestations.';
-  const binding = `The invite is tied to ${opts.to ?? 'this address'} — sign in with that address to accept it.`;
+  // Was an em dash. The house layout removed this template's sign-off, so this was the
+  // last one left, and PRODUCT.md bans them.
+  const binding = `The invite is tied to ${opts.to ?? 'this address'}. Sign in with that address to accept it.`;
   const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
+
+  const shared = {
+    preheader: opening,
+    heading: `You're invited to manage ${name}`,
+    cta: { label: 'Accept your invite', url: link },
+    note: expiry,
+  };
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'vendor-seat-invite',
     subject: `You're invited to manage ${name} on AEC Integrations`,
-    text: toText([opening, capabilities, `Accept your invite: ${link}`, binding, expiry]),
-    html: toHtml([
-      openingHtml,
-      capabilities,
-      `<a href="${escapeHtml(link)}">Accept your invite</a>`,
-      escapeHtml(binding),
-      escapeHtml(expiry),
-    ]),
+    text: renderEmailText({ ...shared, blocks: [opening, capabilities, binding] }),
+    html: renderEmailHtml({
+      ...shared,
+      blocks: [openingHtml, capabilities, escapeHtml(binding)],
+    }),
   });
 }
 
@@ -432,6 +451,20 @@ export async function sendSeatInvite(
  * nothing a reviewer types can leak. The claimant is told only that the claim
  * wasn't approved, and is invited to resubmit. Recipient is `submitter_email`;
  * absent → skip.
+ *
+ * **On the house layout since AECI-924.** It is the sibling of `claim-approved`, which
+ * AECI-914 migrated, so leaving it behind meant the same claimant got a branded email
+ * on approval and an unbranded one on rejection. That asymmetry reads as carelessness
+ * precisely where the recipient is already being told no.
+ *
+ * **It carries NO CTA, deliberately.** The Forest button is the layout's one action,
+ * and a rejection has no action to offer that the §9 AC permits: a "Submit a new claim"
+ * button would press harder than the copy, which only says resubmission is welcome.
+ * A layout with no `cta` renders no button and no paste-able URL, which is the whole
+ * shape of this email — heading, two blocks, nothing to click.
+ *
+ * The reviewer's `reason` is still absent, and the migration must never become the
+ * moment it acquires a `note` slot to sit in.
  */
 export function sendClaimRejectedEmail(
   c: EmailContext,
@@ -441,20 +474,20 @@ export function sendClaimRejectedEmail(
   const resubmit =
     "If you represent this vendor, you're welcome to submit a new claim with more detail.";
 
-  const textParagraphs = [
-    `Thank you for your claim for ${name}. After review, we weren't able to approve it.`,
-    resubmit,
-  ];
-  const htmlParagraphs = [
-    `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`,
-    resubmit,
-  ];
+  const opening = `Thank you for your claim for ${name}. After review, we weren't able to approve it.`;
+  const openingHtml = `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`;
+
+  const shared = {
+    preheader: `We reviewed your claim for ${name}.`,
+    heading: `Your claim for ${name} was not approved`,
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-rejected',
     subject: `Your claim for ${name} was not approved`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    text: renderEmailText({ ...shared, blocks: [opening, resubmit] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, resubmit] }),
   });
 }
 
@@ -971,10 +1004,16 @@ const STUCK_REASON_HELP: Record<string, string> = {
  *   3. It was the last operator alert still on the prose format, with
  *      `/admin/requests` as literal text rather than a link.
  *
- * Now: operator format (`opsSectionsText`/`opsSectionsHtml`), one table per stuck
- * request, the cause and its gloss, and real links when `PUBLIC_SITE_URL` is set.
- * The subject carries the reason when every row shares one, so triage can happen
- * from the inbox list without opening anything.
+ * Now: one section per stuck request, the cause and its gloss, and real links when
+ * `PUBLIC_SITE_URL` is set. The subject carries the reason when every row shares one,
+ * so triage can happen from the inbox list without opening anything.
+ *
+ * **On the house layout since AECI-924**, through the layout's `sections` (added for
+ * this shape: an alert about N things rather than one event). Two changes came with it.
+ * `/admin/requests` was a `Request queue` row repeated in every section; it is now the
+ * single CTA, which is honest because the queue is one page whatever N is. And the
+ * per-row `Listing` link is unchanged, including the rule that it appears only when the
+ * target still resolves.
  */
 export function sendStuckRequestAdminAlert(
   c: EmailContext,
@@ -992,16 +1031,13 @@ export function sendStuckRequestAdminAlert(
       ['Cause', describeStuckReason(r)],
       ['Request id', r.requestId],
     ];
-    if (base) {
-      detail.push(['Request queue', `${base}/admin/requests`]);
-      // Only when the target still resolves — a dead link on an alert about a
-      // missing row would be its own small lie.
-      if (r.targetSlug) {
-        const path = r.targetType === 'vendor' ? 'vendors' : 'products';
-        detail.push(['Listing', `${base}/${path}/${r.targetSlug}`]);
-      }
+    // Only when the target still resolves — a dead link on an alert about a
+    // missing row would be its own small lie.
+    if (base && r.targetSlug) {
+      const path = r.targetType === 'vendor' ? 'vendors' : 'products';
+      detail.push(['Listing', `${base}/${path}/${r.targetSlug}`]);
     }
-    return { heading: `${name} (${r.kind})`, rows: detail as OpsRows };
+    return { heading: `${name} (${r.kind})`, rows: detail };
   });
 
   const intro =
@@ -1010,12 +1046,21 @@ export function sendStuckRequestAdminAlert(
     `linear_issue_id=null and ${rows.length === 1 ? 'is' : 'are'} being retried every 15 minutes. ` +
     `Nothing is lost, but nobody was notified in Linear.`;
 
+  // One queue for every row, however many there are, so a single CTA is honest here.
+  // It replaces the per-row `Request queue` line, which repeated the same URL N times.
+  const shared = {
+    preheader: `${rows.length} request${plural} never reached Linear.`,
+    heading: `${rows.length} request${plural} stuck in the Linear pipeline`,
+    sections,
+    ...(base ? { cta: { label: 'Open the request queue', url: `${base}/admin/requests` } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stuck-request-alert',
     subject: `[AECi] ${rows.length} request${plural} stuck in the Linear pipeline${subjectReasonSuffix(rows)}`,
-    text: opsSectionsText(intro, sections),
-    html: opsSectionsHtml(intro, sections),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
   });
 }
 
@@ -1032,7 +1077,8 @@ function describeStuckReason(row: StuckRequestSummary): string {
   const retryNote = row.retried === false ? ' [not retried: the sweep could not rebuild it]' : '';
   if (!row.reason) return `unknown${retryNote}`;
   const help = STUCK_REASON_HELP[row.reason];
-  return help ? `${row.reason}${retryNote} — ${help}` : `${row.reason}${retryNote}`;
+  // Colon, not an em dash: PRODUCT.md bans them and nothing lints this file for it.
+  return help ? `${row.reason}${retryNote}: ${help}` : `${row.reason}${retryNote}`;
 }
 
 /** One un-started claim ticket, summarised for the founder digest (AECI-862). */
@@ -1068,6 +1114,13 @@ export interface StaleClaimSummary {
  * Every row carries both links, because the two answer different questions: the
  * Linear URL is where you accept the work, the admin URL is where you see the
  * claimant's evidence.
+ *
+ * **On the house layout since AECI-924**, through `sections`. The per-ticket links stay
+ * in the rows for the reason just given, and because with N tickets there is no single
+ * one to promote to the button. The CTA is `/admin/claims`, the same page whatever N is.
+ * `Ticket` also split into `Ticket` + `Title`: they were joined by an em dash PRODUCT.md
+ * bans, and they are used differently anyway, since the identifier is what you paste
+ * into Linear and the title is what you read.
  */
 export function sendStaleClaimTicketAlert(
   c: EmailContext,
@@ -1079,7 +1132,10 @@ export function sendStaleClaimTicketAlert(
   const sections = rows.map((r) => {
     const name = r.targetName ?? '(target removed)';
     const detail: Array<[string, string]> = [
-      ['Ticket', `${r.identifier} — ${r.title}`],
+      // Two rows, not one joined by an em dash: the identifier is what you paste into
+      // Linear and the title is what you read, and PRODUCT.md bans the dash anyway.
+      ['Ticket', r.identifier],
+      ['Title', r.title],
       ['Waiting', formatStuckAge(r.ageMinutes)],
       ['Still in', r.stateName ?? 'an un-started state'],
       ['Claimant', r.submitterEmail],
@@ -1087,7 +1143,7 @@ export function sendStaleClaimTicketAlert(
     ];
     if (r.issueUrl) detail.push(['Linear', r.issueUrl]);
     if (r.adminUrl) detail.push(['Administer', r.adminUrl]);
-    return { heading: `${name} (${r.kind})`, rows: detail as OpsRows };
+    return { heading: `${name} (${r.kind})`, rows: detail };
   });
 
   const intro =
@@ -1096,12 +1152,22 @@ export function sendStaleClaimTicketAlert(
     `The ticket${plural} exist${rows.length === 1 ? 's' : ''} in Linear and nothing is broken. ` +
     `${rows.length === 1 ? 'A vendor is' : 'Vendors are'} waiting on a reply.`;
 
+  // The per-ticket links stay in the rows: with N tickets there is no single one to
+  // promote. The CTA is the queue, which is the same page whatever N is.
+  const base = siteUrl(c.env);
+  const shared = {
+    preheader: `${rows.length} vendor${plural} waiting on a reply.`,
+    heading: `${rows.length} claim ticket${plural} un-started after 24 hours`,
+    sections,
+    ...(base ? { cta: { label: 'Open the claim queue', url: `${base}/admin/claims` } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stale-claim-ticket-alert',
     subject: `[AECi] ${rows.length} claim ticket${plural} un-started after 24h`,
-    text: opsSectionsText(intro, sections),
-    html: opsSectionsHtml(intro, sections),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
   });
 }
 
@@ -1182,7 +1248,23 @@ export function sendLandingSignupNotification(
  *
  * Carries the two §6.8 admin signals the reviewer would otherwise have to look up —
  * `domain_match` (submitter email domain vs the target vendor's website) and whether
- * this duplicates an open request. Operator format, en-US, never i18n'd.
+ * this duplicates an open request. en-US, never i18n'd.
+ *
+ * **On the house layout since AECI-924**, and the first operator alert to be. AECI-914
+ * had left all seven of them on `opsTable()` as an open question, on the argument that
+ * a data table for one reader is not a brand surface. This one is: it is the first mail
+ * a human reads on the claim intake path, and it goes to a shared support inbox where
+ * an unbranded `border="1"` grid is indistinguishable from a script's output.
+ *
+ * Two structural changes came with the shell. The facts move into the layout's `table`,
+ * which renders them hairline-separated rather than boxed and links any row whose value
+ * is a bare URL. And the `/admin/claims/:id` deep link becomes the single Forest CTA
+ * instead of an `Administer` row, because reviewing the claim is the one action this
+ * email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly
+ * as it previously meant no link rows.
+ *
+ * The plain-text part is materially unchanged: `renderEmailText` emits the same
+ * `Key: value` block `opsText` did, under a heading.
  */
 export function sendClaimSubmittedNotification(
   c: EmailContext,
@@ -1225,21 +1307,29 @@ export function sendClaimSubmittedNotification(
   if (host) rows.push(['Environment', host]);
   rows.push([
     'Linear issue',
-    opts.linearIssueUrl ?? 'not created yet — the reconciliation sweep will retry',
+    opts.linearIssueUrl ?? 'not created yet, the reconciliation sweep will retry',
   ]);
-  if (adminUrl) rows.push(['Administer', adminUrl]);
   if (base) {
     rows.push(['Review queue', `${base}/admin/claims`]);
     const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
     rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
   }
+
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
+  const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
+  const shared = {
+    preheader: intro,
+    heading: `New claim for ${opts.targetName}`,
+    table: rows,
+    ...(adminUrl ? { cta: { label: 'Review the claim', url: adminUrl } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
-    text: opsText(intro, rows),
-    html: opsTable(intro, rows),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
   });
 }
 
@@ -1447,40 +1537,6 @@ function opsTable(intro: string, rows: ReadonlyArray<readonly [string, string]>)
     .map(([k, v]) => `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`)
     .join('');
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p><table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">${body}</table></body></html>`;
-}
-
-type OpsRows = ReadonlyArray<readonly [string, string]>;
-
-/** Plain-text operator notification with one `Key: value` block per section. */
-function opsSectionsText(
-  intro: string,
-  sections: ReadonlyArray<{ heading: string; rows: OpsRows }>,
-): string {
-  const blocks = sections.map(
-    ({ heading, rows }) => `${heading}\n${rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`,
-  );
-  return `${intro}\n\n${blocks.join('\n\n')}`;
-}
-
-/** HTML operator notification with one bordered table per section. Mirrors
- *  `opsTable`'s markup; headings, keys and cell values are all escaped here. */
-function opsSectionsHtml(
-  intro: string,
-  sections: ReadonlyArray<{ heading: string; rows: OpsRows }>,
-): string {
-  const blocks = sections
-    .map(
-      ({ heading, rows }) =>
-        `<p style="margin:0 0 8px"><strong>${escapeHtml(heading)}</strong></p>` +
-        `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin:0 0 20px">${rows
-          .map(
-            ([k, v]) =>
-              `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`,
-          )
-          .join('')}</table>`,
-    )
-    .join('');
-  return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p>${blocks}</body></html>`;
 }
 
 // `escapeHtml` now lives in `./email-layout` (the layout is what interpolates) and is
