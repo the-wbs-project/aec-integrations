@@ -484,7 +484,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
 - **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
-- **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
+- **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
 - **Product taxonomy: a summary on the page, a modal to change it** (AECI-915, superseding the `aria-pressed` toggle-chip fieldsets AECI-522 shipped). The four facets used to render every term as a chip — **107 of them** across categories (32), audiences (36), phases (5) and trades (34) — so reading "what is this product tagged as" meant diffing pressed against unpressed, and the per-term `taxonomy_*.description` had nowhere to render. Four rules:
@@ -547,7 +547,7 @@ surfaces mount it — the real portal, the dev preview, and the shell's own spec
   actually ships.
 - **The slug is checked, not decorative.** `vendorMeResolver` takes the same
   not-found path for a 200 whose `vendor.slug` is not the one in the URL as it
-  does for a 401/403 — and does not put the payload in `TransferState`, so the
+  does for a 403 — and does not put the payload in `TransferState`, so the
   client branch cannot hydrate the dashboard the server refused to render.
   Rendering the session's dashboard under a URL naming a different vendor is how
   someone edits (or cites) the wrong listing.
@@ -896,6 +896,81 @@ the ownership-reads / capability-writes split. Routing it away would hide owned 
   combines every level's `paramMap` **observable** (not snapshots): picking a product is
   a same-route navigation, so a snapshot read would pin each section to whichever
   product was selected when it first rendered.
+
+### 6.6 As built — an expired session goes to login, not to a 404 (AECI-954 — 2026-09-14)
+
+Found in the demo portal on 2026-09-14: a seat whose access token had aged out
+reloaded the dashboard and got **"Page not found"**, with nothing to click. The gate
+was collapsing three different answers onto one render.
+
+**The cause.** The worker-level anon gate (`server-runtime.ts` `isVendorPath`) only
+bounces visitors with **no session cookie** — `hasSessionCookie` is a presence check
+by design, no crypto and no network. A cookie holding an expired access token sails
+past it, SSR runs, `GET /api/vendor/me` answers 401, and `isVendorGateRejection()`
+mapped 401 onto the same not-found render as 403.
+
+**The split.** 401 and 403 answer different questions, so they now get different
+answers.
+
+| Status | The question it answers | Response |
+|---|---|---|
+| 200 | You are this vendor | The dashboard |
+| **401** | **Nobody is signed in** | **`/auth/login?return=<url>`** |
+| 403 / 404 | You are signed in, but you are not this vendor | The 404 render, unchanged |
+| 5xx | The API is down | Rethrow, unchanged |
+
+Routing 401 to login **discloses nothing new**: the worker gate already sends a
+cookie-less visitor to exactly that address. §7.1's don't-reveal-the-surface rule is
+about 403 — "you are not this vendor" — and that branch is untouched. `requireVendor()`
+still rejects reviewers, banned seats, null-`vendor_id` seats and site admins onto the
+identical 404.
+
+**Three call sites, one rule.** `isVendorGateRejection()` (403/404) and the new
+`isUnauthenticated()` (401) live in `vendor-gate.ts`, and `vendorMeResolver`,
+`vendorHomeRedirectGuard` and — for the operator console — `adminSummaryResolver` all
+read them. The login `UrlTree` is built by `auth/login-redirect.ts`, which runs the
+return path through the same `safeReturnPath()` open-redirect guard the login page
+uses.
+
+#### The refresh, and why the two platforms differ
+
+A Supabase access token lives about an hour; the refresh token beside it in the same
+cookie lives weeks. So the ordinary "my login timed out" state is **recoverable** — and
+only the browser can recover it, because `@supabase/ssr` does the trade inside
+`getSession()` and rewrites the cookie. The SSR Worker forwards the inbound `Cookie`
+untouched and has no way to mint a token (AECI-689 closed with a grace window scoped to
+the `page_views` operator flag, not to `/api/*` authorization).
+
+- **Server branch.** Redirect straight to login. `@angular/ssr` emits a real 302
+  whenever the router's final URL differs from the requested one — the same mechanism
+  §6.2's bare-`/vendor` redirect already relies on.
+- **Client branch.** Probe first: `hasLiveSession()` (`auth/session-recovery.ts`)
+  refreshes the cookie and reports whether a session survived. One retry if it did,
+  redirect only if it did not.
+- **Login page.** Arriving with `?return=` **and** a session cookie, it paints a brief
+  "Restoring your session" panel instead of the sign-in form, probes once, and navigates
+  straight back. So the SSR bounce costs a flash, not a magic-link round trip. With no
+  `?return=` it always shows the form — a deliberate visit is never hijacked.
+
+> ⚠️ **Do not set `RESPONSE_INIT.status` on the redirect branch.** `@angular/ssr` feeds
+> that value into `createRedirectResponse()`, which throws in dev mode on any status
+> outside 301/302/303/307/308. The 404 write belongs to the reject branch only.
+
+> ⚠️ **The client probe is the loop breaker, not an optimization.** A verified JWT whose
+> `profiles` row is missing also 401s (`createAuthzMiddleware` treats an unauthorizable
+> identity as unauthenticated, deliberately — the AECI-652 `profile-ensure` seam is
+> non-fatal, so that state is reachable). Redirect on every 401 and that account rides
+> login → session found → return → 401 → login forever. Redirecting **only when the
+> probe reports signed out** bounds it: a signed-in caller retries once and then falls
+> through to the 404 render, which is terminal. Deleting the probe reintroduces an
+> infinite redirect.
+
+**Tests.** `vendor-me.resolver.component.spec.ts` and
+`admin-summary.resolver.component.spec.ts` each gain a 401-branch block covering the
+server redirect and all three client outcomes.
+`vendor-home-redirect.guard.component.spec.ts` is **new** — the guard had no spec at
+all — and pins its 200 / 403 / 401 / 5xx answers on both platforms.
+`login.component.spec.ts` gains the four silent-resume cases.
 
 ---
 

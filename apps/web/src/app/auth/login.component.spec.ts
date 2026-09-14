@@ -1,6 +1,6 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthService } from './auth.service';
@@ -22,20 +22,50 @@ function settle(): Promise<void> {
 
 interface AuthMock {
   isConfigured: ReturnType<typeof vi.fn>;
+  hasSessionCookie: ReturnType<typeof vi.fn>;
+  sessionSnapshot: ReturnType<typeof vi.fn>;
   sendMagicLink: ReturnType<typeof vi.fn>;
   signInWithGoogle: ReturnType<typeof vi.fn>;
 }
 
-function makeAuthMock(configured = true): AuthMock {
+/**
+ * `cookie` / `signedIn` drive the AECI-954 silent resume: the synchronous
+ * presence check, then the async probe that reports whether a session survived
+ * the refresh. Both default to "no session", which is the state every pre-954
+ * test assumed, so the resume never fires unless a test asks for it.
+ */
+function makeAuthMock(
+  configured = true,
+  opts: { cookie?: boolean; signedIn?: boolean } = {},
+): AuthMock {
   return {
     isConfigured: vi.fn(() => configured),
+    hasSessionCookie: vi.fn(() => opts.cookie ?? false),
+    sessionSnapshot: vi.fn(async () => ({
+      signedIn: opts.signedIn ?? false,
+      email: null,
+      userId: null,
+      avatarUrl: null,
+      fullName: null,
+    })),
     sendMagicLink: vi.fn(async () => undefined),
     signInWithGoogle: vi.fn(async () => undefined),
   };
 }
 
-async function setup(opts: { returnParam?: string | null; configured?: boolean } = {}) {
-  const auth = makeAuthMock(opts.configured ?? true);
+async function setup(
+  opts: {
+    returnParam?: string | null;
+    configured?: boolean;
+    cookie?: boolean;
+    signedIn?: boolean;
+  } = {},
+) {
+  const auth = makeAuthMock(opts.configured ?? true, {
+    cookie: opts.cookie,
+    signedIn: opts.signedIn,
+  });
+  const navigateByUrl = vi.fn(async () => true);
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -44,12 +74,20 @@ async function setup(opts: { returnParam?: string | null; configured?: boolean }
       { provide: AuthService, useValue: auth },
     ],
   });
+  // Stubbed rather than routed: the resume's contract is "which URL did it ask
+  // for", and a real navigation here would need every return target registered.
+  const router = TestBed.inject(Router);
+  vi.spyOn(router, 'navigateByUrl').mockImplementation(
+    navigateByUrl as unknown as Router['navigateByUrl'],
+  );
   const fixture = TestBed.createComponent(LoginPage);
   fixture.detectChanges();
-  // Drain afterNextRender (the isConfigured probe) before asserting.
+  // Drain afterNextRender (the isConfigured probe) and then the resume, which
+  // settles a few microtasks later than `whenStable()` resolves.
   await fixture.whenStable();
+  await settle();
   fixture.detectChanges();
-  return { fixture, auth, el: fixture.nativeElement as HTMLElement };
+  return { fixture, auth, navigateByUrl, el: fixture.nativeElement as HTMLElement };
 }
 
 function typeEmail(fixture: ComponentFixture<unknown>, value: string) {
@@ -183,5 +221,68 @@ describe('LoginPage', () => {
       b.textContent?.includes('Continue with Google'),
     ) as HTMLButtonElement;
     expect(google.disabled).toBe(true);
+  });
+});
+
+/**
+ * AECI-954 — the silent resume. A vendor or operator whose access token aged out
+ * is bounced here by the `/vendor` and `/admin` gates, but the refresh token in
+ * the same cookie is usually still good, so the page trades it for a fresh
+ * session and sends them back rather than asking for a magic link they do not
+ * need.
+ *
+ * The four cases below are the whole contract: it fires only with a `?return=`
+ * path AND a cookie, it shows the restoring panel instead of the form while it
+ * probes, it navigates on a live session, and it falls back to the form on a
+ * dead one.
+ */
+describe('LoginPage — silent resume', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('navigates to the return path when the session survives the refresh', async () => {
+    const { el, navigateByUrl } = await setup({
+      returnParam: '/vendor/summit-bim/overview',
+      cookie: true,
+      signedIn: true,
+    });
+
+    expect(navigateByUrl).toHaveBeenCalledWith('/vendor/summit-bim/overview');
+    // The panel stays up through the navigation so the form never flashes behind
+    // the outgoing view.
+    expect(el.textContent).toContain('Restoring your session');
+    expect(el.querySelector('#login-email')).toBeNull();
+  });
+
+  it('falls back to the sign-in form when the session is genuinely gone', async () => {
+    const { el, auth, navigateByUrl } = await setup({
+      returnParam: '/vendor/summit-bim/overview',
+      cookie: true,
+      signedIn: false,
+    });
+
+    expect(auth.sessionSnapshot).toHaveBeenCalled();
+    expect(navigateByUrl).not.toHaveBeenCalled();
+    expect(el.textContent).not.toContain('Restoring your session');
+    expect(el.querySelector('#login-email')).not.toBeNull();
+  });
+
+  it('never probes without a session cookie', async () => {
+    const { el, auth, navigateByUrl } = await setup({
+      returnParam: '/vendor/summit-bim/overview',
+      cookie: false,
+    });
+
+    expect(auth.sessionSnapshot).not.toHaveBeenCalled();
+    expect(navigateByUrl).not.toHaveBeenCalled();
+    expect(el.querySelector('#login-email')).not.toBeNull();
+  });
+
+  it('never probes on a deliberate visit to bare /auth/login', async () => {
+    // A signed-in visitor who clicks "Sign in" gets the form, not a bounce: with
+    // no `?return=` there is nowhere to send them.
+    const { el, auth } = await setup({ returnParam: null, cookie: true, signedIn: true });
+
+    expect(auth.sessionSnapshot).not.toHaveBeenCalled();
+    expect(el.querySelector('#login-email')).not.toBeNull();
   });
 });

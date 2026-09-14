@@ -333,7 +333,7 @@ New code in `packages/shared/src/errors/codes.ts` (precedent: `REVIEW_BANNED`, w
 
 ### 4.3 Reads are never gated
 
-**`GET /api/vendor/me` and `GET /api/vendor/seats` must not consult a capability.** `/vendor` is gated by `vendorMeResolver`, which maps 401/403/404 to a **404 render**. If `me` were ever capability-gated, a vendor whose entitlement lapsed would see a 404 for the entire dashboard — and could therefore never see the renewal notice this epic exists to show them. It is a one-line mistake with total blast radius on exactly the cohort you are trying to bill. **This is an acceptance criterion with its own test**, not a convention.
+**`GET /api/vendor/me` and `GET /api/vendor/seats` must not consult a capability.** `/vendor` is gated by `vendorMeResolver`, which maps 403/404 to a **404 render** (a 401 goes to `/auth/login` instead — AECI-954). If `me` were ever capability-gated, a vendor whose entitlement lapsed would see a 404 for the entire dashboard — and could therefore never see the renewal notice this epic exists to show them. It is a one-line mistake with total blast radius on exactly the cohort you are trying to bill. **This is an acceptance criterion with its own test**, not a convention.
 
 ### 4.4 As built (AECI-611 — 2026-08-18)
 

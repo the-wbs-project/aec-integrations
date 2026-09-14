@@ -60,6 +60,12 @@ Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement pres
 
 Seeded empty **by design** — it is filled by rehearsal findings, parked-claim observations, and dark-window telemetry. This is the stage's actual work; the admission test in §1 governs what lands here.
 
+**Findings so far:**
+
+| Issue | Found | What it fixes |
+|---|---|---|
+| **AECI-954** | 2026-09-14, demo portal | An expired vendor session rendered "Page not found" with no way forward, because the gate mapped a 401 onto the same not-found render as a 403. It now redirects to `/auth/login?return=<url>`, and the browser refreshes the cookie first so a still-valid session never has to re-authenticate. Covers `/admin` too, which carried the identical mapping and is the surface seats are granted from. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6. |
+
 ### 3.3 Moved-in close-out items (from Stage 2.5 §5)
 
 | Issue | What it closes | Why it moved |

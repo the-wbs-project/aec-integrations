@@ -66,7 +66,7 @@ wrangler d1 execute aeci-app-staging --remote --env staging \
 | # | Action | Expected | Code path |
 |---|---|---|---|
 | B1 | **Banned** user submits a review (`POST /api/reviews`) | `403` with code **`REVIEW_BANNED`** | `apps/api/src/lib/authz.ts` (ban check) |
-| B2 | **Non-admin** opens `/admin` (or `/admin/reviews`) | The **404 surface** (no admin UI revealed; not a 403) | `apps/web/src/app/admin/admin-shell.ts` (resolver maps 401/403 → 404) |
+| B2 | **Non-admin** opens `/admin` (or `/admin/reviews`) | The **404 surface** (no admin UI revealed; not a 403) | `apps/web/src/app/admin/admin-shell.ts` (resolver maps 403 → 404; since AECI-954 a **401** redirects to `/auth/login?return=<path>` instead) |
 | B3 | **Unauthenticated** opens `/products/<slug>/review` (and `/account`, `/admin`) | Redirect to `/auth/login?return=<path>` | `apps/web/src/server-runtime.ts` (SSR auth gate) |
 
 ---

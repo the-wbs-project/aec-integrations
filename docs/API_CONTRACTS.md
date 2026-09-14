@@ -4772,7 +4772,7 @@ export const VendorEntitlementBlockSchema = z.object({
 
 **`status: null` is materially different from a lapsed status**, and the dashboard renders them differently: `null` means there is no `vendor_entitlements` row at all (never arranged), which is an invitation; `expired` / `revoked` mean a term ended, which is a loss to acknowledge. Never read `null` as "unknown".
 
-**This read is never gated** (R13) — a `revoked` or `expired` entitlement still returns **200** here, carrying the downgraded block. Gating it would 404 the entire dashboard (`vendorMeResolver` maps 401/403/404 onto a 404 render) and hide the renewal notice from exactly the cohort being billed. That is an acceptance criterion with its own test, not a convention.
+**This read is never gated** (R13) — a `revoked` or `expired` entitlement still returns **200** here, carrying the downgraded block. Gating it would 404 the entire dashboard (`vendorMeResolver` maps 403/404 onto a 404 render; a 401 goes to `/auth/login` instead — AECI-954) and hide the renewal notice from exactly the cohort being billed. That is an acceptance criterion with its own test, not a convention.
 
 Errors: `NOT_FOUND` if the granted seat's vendor row has since been deleted.
 

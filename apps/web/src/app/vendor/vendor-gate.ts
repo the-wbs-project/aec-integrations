@@ -2,20 +2,44 @@ import { canonicalUrl } from '../core/canonical';
 import type { MetaService } from '../core/meta.service';
 
 /**
- * The two decisions the `/vendor` gate makes, shared by everything that guards
+ * The three decisions the `/vendor` gate makes, shared by everything that guards
  * the portal (`vendor-me.resolver.ts`, `vendor-home-redirect.guard.ts`) so the
- * "don't reveal the surface" rule has exactly one definition.
+ * "don't reveal the surface" rule has exactly one definition — and, since
+ * AECI-954, so does the line between "not this vendor" and "not signed in".
  */
 
 /**
- * Treat a 401/403 (and a defensive 404) from `requireVendor()` as "render the
- * not-found page" — same UX whether the caller is anonymous, a reviewer, a
- * banned seat, a half-granted seat with a null `vendor_id`, or a site admin.
- * Anything else (notably 5xx) is a real failure and must NOT be laundered into a
- * 404: faking not-found on an outage hides the outage.
+ * Treat a 403 (and a defensive 404) from `requireVendor()` as "render the
+ * not-found page" — same UX whether the caller is a reviewer, a banned seat, a
+ * half-granted seat with a null `vendor_id`, or a site admin. Anything else
+ * (notably 5xx) is a real failure and must NOT be laundered into a 404: faking
+ * not-found on an outage hides the outage.
+ *
+ * **401 is deliberately NOT in this set** (AECI-954). It used to be, and that is
+ * what turned an hour-old vendor session into a dead "Page not found" with no
+ * way forward. A 403 answers *"you are not this vendor"*, which is the answer the
+ * don't-reveal-the-surface rule exists to blur. A 401 answers *"you are nobody"*,
+ * about which the site is already loud: the worker-level gate 303s a cookie-less
+ * visitor straight to `/auth/login`, so routing a 401 there discloses nothing the
+ * anonymous path does not. See {@link isUnauthenticated}.
  */
 export function isVendorGateRejection(status: number): boolean {
-  return status === 401 || status === 403 || status === 404;
+  return status === 403 || status === 404;
+}
+
+/**
+ * A 401 from `requireVendor()` — the caller is not authenticated at all.
+ *
+ * Three things produce it, and the handling is the same for all three because
+ * none of them is an authorization decision about the portal: no token on the
+ * request, a token that fails verification (the expired-cookie case the worker's
+ * presence-only gate cannot see), and a verified token whose `profiles` row is
+ * missing. Callers bounce to `/auth/login?return=<path>` — on the client via
+ * `hasLiveSession()` (`auth/session-recovery.ts`) first, which both repairs a
+ * refreshable cookie and keeps the third case from looping.
+ */
+export function isUnauthenticated(status: number): boolean {
+  return status === 401;
 }
 
 /**
