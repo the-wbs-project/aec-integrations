@@ -28,6 +28,7 @@ import {
   products,
   profiles,
   statsCache,
+  vendorRequests,
 } from '../db/schema';
 import type { Env } from '../env';
 import {
@@ -152,6 +153,20 @@ async function overview(url = '/api/admin/overview', env?: Env, deps?: AdminOver
 }
 
 const codes = (body: AdminOverviewResponse): AdminNoteCode[] => body.notes.map((n) => n.code);
+
+/** A `vendor_requests` row with only the columns the moderation depths key off.
+ *  The target is `u(1)`, which `seedDay` creates. */
+function req(n: number, kind: 'claim' | 'correction', status: string) {
+  return {
+    id: u(n),
+    kind,
+    status,
+    targetType: 'product',
+    targetId: u(1),
+    submitterEmail: `s${n}@example.com`,
+    body: 'b',
+  };
+}
 
 describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance criterion)', () => {
   it('reports the same numbers the analytics digest email reports for that day', async () => {
@@ -549,7 +564,34 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     });
     expect(body.status.stats_freshness.computed_at).toBe('2026-08-11T01:00:00.000Z');
     expect(body.status.stats_freshness.stale).toBe(false);
-    expect(body.status.moderation).toEqual({ pending_reviews: 0, open_requests: 0 });
+    expect(body.status.moderation).toEqual({
+      pending_reviews: 0,
+      open_requests: 0,
+      open_claims: 0,
+    });
+  });
+
+  // AECI-922. `open_requests` links the operator to `/admin/requests`, which is
+  // CORRECTIONS ONLY, so an all-kinds count would name a number that page cannot
+  // show — and would double every open claim against the Operations nav badge
+  // beside it. The two kinds are one `vendor_requests` table, so only a fixture
+  // holding both catches a missing `kind` predicate.
+  it('splits the request backlog by kind, and counts only open rows', async () => {
+    await seedDay();
+    await t.db.insert(vendorRequests).values([
+      req(31, 'correction', 'open'),
+      req(32, 'correction', 'open'),
+      req(33, 'claim', 'open'),
+      req(34, 'claim', 'open'),
+      req(35, 'claim', 'open'),
+      // Neither is waiting on an operator's first look, so neither is a depth.
+      req(36, 'claim', 'in_review'),
+      req(37, 'correction', 'resolved'),
+    ]);
+
+    const body = await overview();
+    expect(body.status.moderation.open_requests).toBe(2);
+    expect(body.status.moderation.open_claims).toBe(3);
   });
 
   it('reports an empty stats_cache as stale rather than inventing an age', async () => {

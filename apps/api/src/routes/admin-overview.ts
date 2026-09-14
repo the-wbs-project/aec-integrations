@@ -47,7 +47,7 @@ import {
   type AdminNote,
   type AdminOverviewResponse,
 } from '@aeci/shared';
-import { and, count, eq, gte, isNull, lt } from 'drizzle-orm';
+import { and, count, gte, isNull, lt } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -59,7 +59,6 @@ import {
   mailingList,
   pageViews,
   products,
-  vendorRequests,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -99,6 +98,7 @@ import {
 import { HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from '../lib/page-view-predicates';
 import { readPosthogBrowserStarts, type BrowserStartsWindow } from '../lib/posthog-browser-starts';
 import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
+import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -193,7 +193,7 @@ export function createAdminOverviewHandler(
       weekHuman,
       priorWeekHuman,
       activeSubscribers,
-      openRequests,
+      queueDepths,
       catalog,
       freshness,
       notes,
@@ -207,7 +207,11 @@ export function createAdminOverviewHandler(
       countHumanViews(db, weekW),
       countHumanViews(db, priorWeekW),
       countAll(db, mailingList, isNull(mailingList.unsubscribedAt)),
-      countAll(db, vendorRequests, eq(vendorRequests.status, 'open')),
+      // AECI-922: the same three predicates the nav badges use, from the one
+      // implementation that owns them. An all-kinds `vendor_requests` count would
+      // send the operator to `/admin/requests`, which is corrections-only now, with
+      // a number that includes every open claim.
+      readAdminQueueCounts(db),
       catalogTotals(db),
       statsFreshness(db, now),
       trafficNotes(db, dayW, {
@@ -343,7 +347,11 @@ export function createAdminOverviewHandler(
         stats_freshness: freshness,
         moderation: {
           pending_reviews: metrics.pendingModeration,
-          open_requests: openRequests,
+          // Corrections and claims are counted apart because they are two screens.
+          // `pending_reviews` deliberately stays on the digest's own aggregate, so
+          // this tile and the 05:00 email lead with the identical number.
+          open_requests: queueDepths.pending_requests,
+          open_claims: queueDepths.pending_claims,
         },
         data_quality: dataQuality,
         algolia_drift: algoliaDrift,

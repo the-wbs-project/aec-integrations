@@ -102,7 +102,7 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
         environment: 'production',
       },
       stats_freshness: { computed_at: '2026-08-13T07:00:00.000Z', age_hours: 3, stale: false },
-      moderation: { pending_reviews: 4, open_requests: 2 },
+      moderation: { pending_reviews: 4, open_requests: 2, open_claims: 3 },
       data_quality: null,
       algolia_drift: null,
     },
@@ -638,11 +638,16 @@ describe('AdminOverview', () => {
       expect(status).not.toContain('0 of 0 failing');
     });
 
-    it('links the moderation depths to their queues', async () => {
+    // AECI-922: one link per Operations queue. Corrections and claims are counted
+    // apart because `/admin/requests` is corrections-only — a combined figure here
+    // would send the operator to a page holding fewer rows than the number they
+    // clicked, and would disagree with the nav badge beside it.
+    it('links each moderation depth to its own queue', async () => {
       const { el } = await setup(makeApiMock());
       const status = el.querySelector('[aria-labelledby="admin-overview-status-heading"]')!;
       expect(status.querySelector('a[href="/admin/reviews"]')?.textContent).toContain('4');
       expect(status.querySelector('a[href="/admin/requests"]')?.textContent).toContain('2');
+      expect(status.querySelector('a[href="/admin/claims"]')?.textContent).toContain('3');
     });
 
     it('flags an SSR/API build mismatch (AECI-92) and stays quiet when they agree', async () => {

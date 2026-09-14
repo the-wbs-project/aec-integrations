@@ -256,9 +256,10 @@ both would be the one place on the screen contradicting its own badge.
 `open | in_review | resolved | rejected`, and `in_review` is real — the inbound
 Linear webhook moves an actively-worked issue there. Both queue screens default
 their status filter to `open`, so a badge counting `in_review` would nag about rows
-the screen does not show; and `status.moderation.open_requests` on
-`GET /api/admin/overview` is already `open`-only, so counting it would make the
-badge and the §5.1 dashboard disagree about one backlog. The consequence for the
+the screen does not show; and the §5.1 dashboard's moderation depths are already
+`open`-only, so counting it would make the badge and the dashboard disagree about
+one backlog. *(Those depths were split by `kind` in the same change — see (6).)*
+The consequence for the
 client: `/admin/claims`'s **In review** tab can moderate a row that was never in
 the count, so both queue screens read the row's status *before* dropping it and
 decrement only when it was `open`. Decrementing unconditionally would walk the
@@ -283,6 +284,27 @@ holds one signal per queue plus the total; `seed()` leaves an **absent** key alo
 rather than zeroing it, which is what stops a rolling deploy — the SSR and API
 Workers ship separately — from emptying a badge when an older `/api/account` shape
 arrives carrying `pending_reviews` and nothing else.
+
+**(6) The §5.1 Overview status strip was split the same way.** Its moderation
+depth read `status.moderation.open_requests`, an all-kinds
+`vendor_requests.status = 'open'` count rendered as "N requests open" and **linked
+to `/admin/requests`**. Corrections-only made that link name a number the page
+cannot show — 12 clicked through to 5 rows beside a nav badge reading 5. The wire
+shape now carries `open_requests` (corrections) **and `open_claims`**, both from
+`readAdminQueueCounts`, and the strip renders one link per queue:
+
+| Strip link | Field | Destination |
+|---|---|---|
+| *N* reviews pending | `pending_reviews` | `/admin/reviews` |
+| *N* corrections open | `open_requests` | `/admin/requests` |
+| *N* claims open | `open_claims` | `/admin/claims` |
+
+`pending_reviews` deliberately stays on the digest's own aggregate rather than
+moving to `readAdminQueueCounts`, so this tile and the 05:00 email keep leading
+with the identical number. The `queue.requests_open` **stored** daily metric
+(`metrics_daily`, `DATABASE_SCHEMA.md`) is deliberately NOT split: it is a series
+with rows already written, and re-defining its predicate would silently re-base
+every one of them. It remains the whole request backlog, both kinds.
 
 ### 5.1 Overview
 

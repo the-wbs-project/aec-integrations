@@ -29,9 +29,15 @@
  * `in_review` is real: the inbound Linear webhook moves an actively-worked issue
  * there. It is deliberately NOT counted. Both queue screens default their status
  * filter to `open`, so a badge that counted `in_review` would nag about rows the
- * screen does not show — and `status.moderation.open_requests` on
- * `GET /api/admin/overview` is already `status = 'open'`, so counting it here
+ * screen does not show — and the `status.moderation` depths on
+ * `GET /api/admin/overview` are already `status = 'open'`, so counting it here
  * would make the badge and the dashboard disagree about the same backlog.
+ *
+ * That dashboard calls THIS function for its two request depths, for the other
+ * half of the same reason: its "requests open" figure linked to `/admin/requests`,
+ * which is corrections-only, so an all-kinds count named a number that page cannot
+ * show. Its `pending_reviews` deliberately stays on the digest's own aggregate so
+ * the tile and the 05:00 email lead with one number.
  */
 
 import { and, count, eq } from 'drizzle-orm';

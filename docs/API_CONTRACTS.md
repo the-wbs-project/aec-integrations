@@ -1122,10 +1122,11 @@ resolver's gate and the in-shell badge feed.
 **The three are disjoint, and the header badge SUMS them.** Requests and claims
 are one table split by `kind`, so `pending_requests` is corrections-only; an
 all-kinds count would put every open claim into the total twice. `in_review` is
-deliberately excluded: both queue screens default to `open`, and
-`status.moderation.open_requests` on `GET /api/admin/overview` is already
-`open`-only, so counting it here would make the badge and the dashboard disagree.
-All three are `null` together or numbers together — a `0` means an empty queue,
+deliberately excluded: both queue screens default to `open`, and the
+`status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
+so counting it here would make the badge and the dashboard disagree. Those depths
+are split on the same `kind` boundary (`open_requests` + `open_claims`) for the
+same reason. All three are `null` together or numbers together — a `0` means an empty queue,
 never "not allowed to know".
 
 Errors: `UNAUTHENTICATED`.
@@ -2979,7 +2980,7 @@ note, and `?recompute=1` runs them live:
 |---|---|---|---|
 | `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
 | `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
-| `moderation` | pending reviews + open `vendor_requests` | ✅ | ✅ |
+| `moderation` | pending reviews + open corrections + open claims (AECI-922; one field per Operations screen, on the `ADMIN_PANEL_SPEC.md` §5.0c predicates) | ✅ | ✅ |
 | `data_quality` | all §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
 | `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
 

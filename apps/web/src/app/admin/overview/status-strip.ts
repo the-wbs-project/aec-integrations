@@ -84,7 +84,13 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
         </dd>
       </div>
 
-      <!-- Moderation depth: the two queues an operator acts on today. -->
+      <!--
+        Moderation depth: the three Operations queues an operator acts on today,
+        one link each, on the same predicates the nav badges use (AECI-922).
+        Corrections and claims are counted apart because they are two screens. An
+        all-kinds "requests open" figure linked to the corrections-only
+        /admin/requests would name a number that page cannot show.
+      -->
       <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
         <dt
           class="text-xs font-bold text-(--text-secondary)"
@@ -106,8 +112,16 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
             class="tabular-nums text-(--text-primary) underline-offset-2 transition-colors
               hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.status.moderation.requests"
-            >{{ s.moderation.open_requests }} requests open</a
+            i18n="@@admin.status.moderation.corrections"
+            >{{ s.moderation.open_requests }} corrections open</a
+          >
+          <a
+            routerLink="/admin/claims"
+            class="tabular-nums text-(--text-primary) underline-offset-2 transition-colors
+              hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+              focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.status.moderation.claims"
+            >{{ s.moderation.open_claims }} claims open</a
           >
         </dd>
       </div>
