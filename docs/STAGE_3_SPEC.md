@@ -189,6 +189,8 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 - **Review translation** (`STAGE_1_SPEC.md` "Stage 3+" note) — stays out of Stage 3 unless a non-EN locale ships; its trigger is the same as AECI-635's.
 - **Public/partner write API** (boundary unchanged).
 - **Stack-aware discovery**, if §5(3) resolves to defer.
+- **Comparative vendor performance figures** (share of catalogue, category percentile) — Stage 3, possibly 4. Deferred from `VENDOR_PERFORMANCE_SPEC.md` §8 on 2026-09-14; the first release shows a vendor's own counts only, and showing platform totals to vendors needs its own disclosure decision.
+- **Emailed monthly vendor performance report** (Stage 4). The Stage 2.5 page ships an in-app CSV export and print view only (`VENDOR_PERFORMANCE_SPEC.md` §4.2).
 
 ## 5. Open decisions (settle before decomposition)
 

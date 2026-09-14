@@ -74,7 +74,7 @@ Per the standing review finding — most code-review noise is stale docs. One fo
 
 The surfaces that describe AECi to a careful reader, a search quality rater, or an answer engine. Tracked under the **AECI-788** epic (SEO and AI-answer-surface visibility), whose own "Doc debt" note asks for exactly this section: *"add a section covering the head/structured-data contract and the AI-surface routes to `docs/STAGE_2_5_SPEC.md`"*. That debt was recorded on the issue, never in this file, until AECI-804 closed.
 
-**This is the one admitted exception to §9's "no new surface area".** It is admitted under §1 test 4 (overdue quality gate), not test 2: nothing is blocked on it, but the process it documents is the product's strongest differentiator and shipping a directory that never states its own editorial standard is a gap, not a feature request. The exception is **one page**. Any further public surface is Stage 3 or AECI-634, not this section.
+**This is the first of §9's two admitted exceptions to "no new surface area"** (the second is the vendor Performance page, §10). It is admitted under §1 test 4 (overdue quality gate), not test 2: nothing is blocked on it, but the process it documents is the product's strongest differentiator and shipping a directory that never states its own editorial standard is a gap, not a feature request. The exception is **one page**. Any further public surface is Stage 3 or AECI-634, not this section.
 
 | Issue | What it adds | Priority |
 |---|---|---|
@@ -119,9 +119,26 @@ Three planned surfaces overlap, and without a rule they duplicate:
 - [ ] Procurement category live (AECI-559). ~~Retract semantics shipped~~ **done** — the upstream half closed as AECI-595 and the AECi consumer shipped as AECI-882. All 216 pending retractions are executed and confirmed — 214 on 2026-09-13, and the 2 held for AECI-891 on 2026-09-14 (AECI-909), once the 21 claims they carried had been re-anchored to the reach tier. ~~The invariant guard can fire~~ **done** (AECI-592).
 - [ ] The public-site screen-reader pass (AECI-244) logged — **the machine half is done** (`docs/ACCESSIBILITY_AUDIT.md`, 2026-09-09); what gates this box is the VoiceOver/NVDA run and its §4 run-log entry. The defects it found are **Stage 3** (AECI-829…832), so they do not gate 2.5. The four-doc de-stale sweep merged.
 - [ ] `/methodology` live, indexable and in the sitemap, with every assertion on it traceable to shipped behaviour (§7.1).
+- [ ] The vendor Performance page live for Verified vendors, its measurement foundation (AECI-930) and search-console channel (AECI-931) shipped, and the privacy-policy sentence published in the same release as the page (§10, `VENDOR_PERFORMANCE_SPEC.md`).
 
 ## 9. Out of scope
 
-Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly one named exception: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page.
+Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly two named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; and the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation.
 
 **Not out of scope, but not *in* Stage 2.5 either:** the Product Docs / Help Center (**AECI-634**) is **Stage 2 work** (`STAGE_2_SPEC.md` §2.6) that runs in the same calendar window — it was always sequenced after vendor-portal testing settles, and it must ship **before vendors are asked to do the work and pay**, because that ask has to come with support. Stage 2.5 neither blocks it nor absorbs it; the one touchpoint is §2 step 3 (the ranking-method page prefers the `/docs` trust section as its home).
+
+---
+
+## 10. Vendor performance reporting (admitted 2026-09-14)
+
+**This is the second admitted exception to §9's "no new surface area".** It is admitted by operator decision rather than under one of the four §1 tests, and the reasoning is recorded so the firewall stays legible: `STAGE_2_SPEC.md` §8.1(3) lists vendor analytics as a Verified benefit, the `analytics.view` capability has been declared with no consumer since AECI-610, and the paid pitch to the first vendors needs the benefit to exist. The exception is **one portal section** (`/vendor/:vendorSlug/performance`) plus the measurement changes it depends on, which are operator-facing and would pass §1 test 3 on their own. Anything comparative (share of catalogue, category percentile), any emailed report, and any enquiry or outcome layer stays out — `STAGE_3_SPEC.md` §4 records the first two.
+
+The build contract is **`docs/VENDOR_PERFORMANCE_SPEC.md`**; its §1.1 records the nine decisions settled on 2026-09-14 and its §1.2 maps the three epics. The rationale and the 2026-09-14 repository verification that shaped the contract are in `docs/design/vendor-performance-direction.md`, which stays a discovery record.
+
+| Epic | Scope | Gate |
+|---|---|---|
+| A — Measurement foundation (**AECI-930**) | Pair-page attribution on `page_views` (AECI-929, High), outbound-click ownership, vendor self-visit exclusion, the consented pair-page view event | Blocks C. |
+| B — Search-console channel (**AECI-931**) | Per-URL Google Search Console and Bing Webmaster data for every catalogue page, own storage, host-filtered | Independent of C; the page renders "not connected" without it. |
+| C — The page (**AECI-932**) | Wireframes via Mobbin first, then the read endpoint with its caveat envelope and CSV export, then the page, then the privacy-policy sentence and the `/methodology` update in the same release | Blocked by A. |
+
+Two rules carried from the contract, restated here because they are the ones a later editor is most likely to bend: the page reads the **same population definition** as the digest and `/admin/overview` (the AECI-872 classification record once agreed; the shared predicates until then) and adds no predicate of its own; and it is a **read**, outside the AECI-516 freshness cursor, with no audit row and no rate limit.

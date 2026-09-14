@@ -36,6 +36,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks, keyed by alert. PostHog alerts (hourly) + the CI liveness sweep are what page. Also the only surviving record of the 26 retired Datadog monitors' thresholds. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
 | [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) | Active | Post-launch daily/weekly monitoring runbook (AECI-279 / Phase 8.1): the operate-and-tune procedure over the shipped dashboards, monitors, and scheduled crons. |
 | [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md) | Log | Dated first-week/first-month health-report log fed by the monitoring runbook (AECI-279 / Phase 8.1). |
+| [`VENDOR_PERFORMANCE_SPEC.md`](./VENDOR_PERFORMANCE_SPEC.md) | Build contract | Vendor Performance page (Stage 2.5 §10): the measurement contract (views, crawls by purpose, outbound-click ownership, pair pages credited to both endpoints), the `GET /api/vendor/performance` read behind `analytics.view`, the search-console channel, the page and its states, and the privacy-policy sentence. Three epics; AECI-929 is the first blocker. |
 | [`ADMIN_PANEL_SPEC.md`](./ADMIN_PANEL_SPEC.md) | Active (v1.0) | Operator console over the data AECi already collects (traffic, audience, catalog, moderation, system health) — the consent-independent read surface for `page_views` plus a screen for the two cron digests. Build contract: **Phase 8.3**, `main` line, epic AECI-572 integrating on the `admin-panel` branch. |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
@@ -53,6 +54,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`design/v0-porting-rules.md`](./design/v0-porting-rules.md) | Active | v0.dev → Angular porting rules + token map. The contract a port is reviewed against. |
 | [`design/v0-system-prompt.md`](./design/v0-system-prompt.md) | Active | v0.dev account-level aesthetic directives / custom instructions. |
 | [`design/LESSONS.md`](./design/LESSONS.md) | Log | Append-only log of design-workflow lessons from ported screens. |
+| [`design/vendor-performance-direction.md`](./design/vendor-performance-direction.md) | Discovery record | The vendor performance proposal and the 2026-09-14 repository verification that shaped it (pair-page attribution gap, traffic scale, crawler labelling, console data). The build contract is `VENDOR_PERFORMANCE_SPEC.md`. |
 
 > Visual-system tokens live in the repo-root `DESIGN.md`; product/brand strategy in `PRODUCT.md`; Angular/TypeScript conventions in `ANGULAR_STYLE_GUIDE.md`; logo construction in `branding/logo-construction.md`. The root `CLAUDE.md` source-of-truth table is the complete index, including these root-level docs.
 
