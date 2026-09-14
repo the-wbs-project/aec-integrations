@@ -21,7 +21,7 @@ import {
   ProductFacetsResponseSchema,
   type ProductFacetsResponse,
 } from '@aeci/shared';
-import { asc, count, eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -39,6 +39,7 @@ import {
 import type { Env } from '../env';
 import { json } from '../http';
 import { textAsc } from '../lib/collation';
+import { displayOrderAsc } from '../lib/display-order';
 import { buildProductsWhere, toTaxonomyTermWithCount } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
@@ -84,7 +85,10 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyCategories.displayOrder,
         })
         .from(taxonomyCategories)
-        .orderBy(asc(taxonomyCategories.displayOrder), textAsc(taxonomyCategories.name)),
+        .orderBy(
+          ...displayOrderAsc(taxonomyCategories.displayOrder),
+          textAsc(taxonomyCategories.name),
+        ),
       db
         .select({ termId: productCategories.categoryId, value: count() })
         .from(productCategories)
@@ -100,7 +104,10 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyAudiences.displayOrder,
         })
         .from(taxonomyAudiences)
-        .orderBy(asc(taxonomyAudiences.displayOrder), textAsc(taxonomyAudiences.name)),
+        .orderBy(
+          ...displayOrderAsc(taxonomyAudiences.displayOrder),
+          textAsc(taxonomyAudiences.name),
+        ),
       db
         .select({ termId: productAudiences.audienceId, value: count() })
         .from(productAudiences)
@@ -116,7 +123,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyPhases.displayOrder,
         })
         .from(taxonomyPhases)
-        .orderBy(asc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)),
+        .orderBy(...displayOrderAsc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)),
       db
         .select({ termId: productPhases.phaseId, value: count() })
         .from(productPhases)
@@ -132,7 +139,7 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyTrades.displayOrder,
         })
         .from(taxonomyTrades)
-        .orderBy(asc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)),
+        .orderBy(...displayOrderAsc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)),
       db
         .select({ termId: productTrades.tradeId, value: count() })
         .from(productTrades)

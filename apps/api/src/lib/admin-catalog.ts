@@ -71,6 +71,7 @@ import {
   vendors,
 } from '../db/schema';
 import { textAsc } from './collation';
+import { displayOrderAsc } from './display-order';
 import { liveAttestationsWhere } from './drizzle-helpers';
 
 // ─── Correlated-subquery identifiers ─────────────────────────────────────────
@@ -365,7 +366,7 @@ async function facetUsage(
       value: correlatedCount(join.fk, table.id),
     })
     .from(table)
-    .orderBy(asc(table.displayOrder), textAsc(table.name));
+    .orderBy(...displayOrderAsc(table.displayOrder), textAsc(table.name));
 
   return rows.map((r) => ({
     id: r.id,
@@ -395,7 +396,10 @@ async function dataObjectUsage(db: Db): Promise<AdminTaxonomyTermUsage[]> {
       value: correlatedCount(claims.dataObjectId, taxonomyDataObjects.id),
     })
     .from(taxonomyDataObjects)
-    .orderBy(asc(taxonomyDataObjects.displayOrder), textAsc(taxonomyDataObjects.name));
+    .orderBy(
+      ...displayOrderAsc(taxonomyDataObjects.displayOrder),
+      textAsc(taxonomyDataObjects.name),
+    );
 
   return rows.map((r) => ({
     id: r.id,
