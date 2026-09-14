@@ -1093,6 +1093,8 @@ export interface AccountProfileResponse {
   display_name: string | null;
   role: string;
   pending_reviews: number | null;
+  pending_requests: number | null;
+  pending_claims: number | null;
 }
 ```
 
@@ -1100,15 +1102,31 @@ export interface AccountProfileResponse {
 `requireAuth()` on every request (AUTH_AND_RLS §4.5) — never a client claim. The
 web client reads it to decide whether to surface admin affordances.
 
-`pending_reviews` (AECI-617) is the moderation-queue count — the same aggregate
-`GET /api/admin/summary` serves — and is non-null **only** for `role === 'admin'`;
-a non-admin gets `null` and the `reviews` table is never counted. It rides along
-here so the header's account menu resolves "am I an admin, and how many reviews are
-waiting?" in ONE round trip. The former `/api/account` → `/api/admin/summary`
-chain paid two JWKS verifies and two `profiles` reads, and the second hop's
-latency was the visible lag before the Admin section appeared. `GET
-/api/admin/summary` is unchanged and remains the `/admin` SSR resolver's gate and
-the in-shell badge feed.
+The three counts (AECI-617, widened from one to three by **AECI-922**) are the
+Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
+through the same server-side implementation — and are non-null **only** for `role
+=== 'admin'`; a non-admin gets `null` on all three and neither table is counted.
+They ride along here so the header's account menu resolves "am I an admin, and how
+much is waiting?" in ONE round trip. The former `/api/account` →
+`/api/admin/summary` chain paid two JWKS verifies and two `profiles` reads, and
+the second hop's latency was the visible lag before the Admin section appeared.
+`GET /api/admin/summary` is unchanged in role and remains the `/admin` SSR
+resolver's gate and the in-shell badge feed.
+
+| Field | Counts |
+|---|---|
+| `pending_reviews` | `reviews.status = 'pending'` |
+| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
+| `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
+
+**The three are disjoint, and the header badge SUMS them.** Requests and claims
+are one table split by `kind`, so `pending_requests` is corrections-only; an
+all-kinds count would put every open claim into the total twice. `in_review` is
+deliberately excluded: both queue screens default to `open`, and
+`status.moderation.open_requests` on `GET /api/admin/overview` is already
+`open`-only, so counting it here would make the badge and the dashboard disagree.
+All three are `null` together or numbers together — a `0` means an empty queue,
+never "not allowed to know".
 
 Errors: `UNAUTHENTICATED`.
 
@@ -1116,7 +1134,7 @@ Errors: `UNAUTHENTICATED`.
 
 Update the editable profile fields (today: `display_name`). Audited
 (`profile.updated`). Returns the updated `AccountProfileResponse` — including
-`role` and the admin-only `pending_reviews`, on the same rules as `GET`.
+`role` and the three admin-only queue counts, on the same rules as `GET`.
 
 ```typescript
 export const UpdateAccountSchema = z.object({
@@ -1319,18 +1337,22 @@ All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middlewa
 
 #### `GET /api/admin/summary`
 
-The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 ships only the pending-review count (`STAGE_1_SPEC.md` §22.1); Phase 6 extends it with request counts. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
+The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 shipped only the pending-review count (`STAGE_1_SPEC.md` §22.1); **AECI-922** added the other two Operations queues, so the console's nav can show one number per screen and their sum on the closed Operations trigger. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
 
 ```typescript
 export const AdminSummaryResponseSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
+  pending_requests: z.number().int().nonnegative(),
+  pending_claims: z.number().int().nonnegative(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
-Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of three `COUNT(*)`s, and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
 
-**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
+**The three counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` is corrections-only. That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
+
+**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badges. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same counts now ride on `GET /api/account` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the numbers stay consistent.
 
 The header's caller is the shared `RoleStatus` probe (`apps/web/src/app/auth/role-status.ts`), which is also what resolves the vendor portal's door — one `GET /api/account` answers both role questions, so a signed-in page load makes one account request, not two.
 

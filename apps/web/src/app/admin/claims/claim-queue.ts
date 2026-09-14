@@ -11,6 +11,7 @@ import type {
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
+import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 
@@ -52,8 +53,14 @@ type FormMode = 'approve' | 'reject';
  * wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local dev and PR previews, since
  * AECI-530 CI-pushes it on staging/demo/production** — surfaced as an inline
  * "grant unavailable" message (reject still works). A 409 is
- * an identity conflict (already an admin / claims another vendor). Following the
- * requests precedent there is no summary badge.
+ * an identity conflict (already an admin / claims another vendor).
+ *
+ * **AECI-922 gave this queue a nav badge** — `pending_claims`, open claims only —
+ * so a successful approve or reject decrements `AdminSummaryStore` and the count
+ * ticks down without a round-trip, exactly as the reviews queue has always done.
+ * That number is one of the three the Operations category sums, which is why
+ * `/admin/requests` is corrections-only now: counting claims in both places would
+ * double them in the total.
  *
  * AECI-532 (`STAGE_2_PAID_TIERS_SPEC.md` §5) added an ENTITLEMENT column plus an
  * inline set/renew/clear control here, because `/admin/claims` was then the only
@@ -94,6 +101,7 @@ type FormMode = 'approve' | 'reject';
 export class ClaimQueue {
   private readonly api = inject(AdminClaimsApi);
   private readonly locale = inject(LOCALE_ID);
+  private readonly summaryStore = inject(AdminSummaryStore);
 
   /** The loaded claims (server order: newest-first). */
   private readonly claims = signal<readonly AdminClaim[]>([]);
@@ -307,19 +315,27 @@ export class ClaimQueue {
   }
 
   /** Shared approve/reject path: PATCH, then drop the moderated row (it leaves the
-   *  `open` view) and announce. Error handling is claim-specific (see below). */
+   *  `open` view), decrement the nav badge and announce. Error handling is
+   *  claim-specific (see below) — note the 422 branch drops the row WITHOUT
+   *  decrementing, since the admin who raced us already did. */
   private async moderate(
     id: string,
     input: ModerateClaimInput,
     announcement: string,
   ): Promise<void> {
     if (this.pendingActionId()) return;
+    // Read the status BEFORE the row is dropped. `pending_claims` counts `open`
+    // claims only, and the In review tab moderates rows that were never in it —
+    // decrementing there would walk the badge below the real backlog with nothing
+    // to resync it until the next full visit to /admin.
+    const wasOpen = this.claims().find((c) => c.id === id)?.status === 'open';
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
     try {
       await this.api.moderate(id, input);
       this.closeForm();
       this.removeRow(id);
+      if (wasOpen) this.summaryStore.decrement('claims');
       this.liveMessage.set(announcement);
     } catch (err) {
       this.handleModerateError(id, err);

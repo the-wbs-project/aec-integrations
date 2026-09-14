@@ -1570,7 +1570,7 @@ Brand tokens validated against WCAG AA contrast ratios:
   - One-click approve / reject buttons
   - Rejection reason field (required on reject)
 - Sortable by queue age, product, reviewer
-- "Pending count" badge visible in admin nav
+- "Pending count" badge visible in admin nav. **AECI-922 widened this to one badge per Operations queue** — pending reviews, open correction requests, open vendor claims — with their sum on the closed Operations category and on the header account menu. `ADMIN_PANEL_SPEC.md` §5.0c is the contract; the sum is only honest because `/admin/requests` became corrections-only, corrections and claims being two `kind`s of one `vendor_requests` table
 - ~~Slack alert on each new submission to a dedicated `#moderation` channel~~ — **no Slack (Phase 6 decision, 2026-06-10).** New claim/correction requests create a Linear issue (Vendor Requests project) → Linear's native email notifications; new reviews surface via the admin pending badge. See `STAGE_1_PHASE_6_SPEC.md` §10.
 
 ### 22.2 Profanity filter

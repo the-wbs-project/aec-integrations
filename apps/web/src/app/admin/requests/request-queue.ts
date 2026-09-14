@@ -5,19 +5,19 @@ import { RouterLink } from '@angular/router';
 
 import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 
+import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
 const QUEUE_PAGE_SIZE = 100;
 
-type KindFilter = 'all' | 'claim' | 'correction';
 type StatusFilter = 'open' | 'resolved' | 'rejected';
 
 /**
- * AECI-217 / Phase 6.10 — the admin vendor-request moderation queue (claims +
- * corrections), rendered in the `AdminShell` layout's outlet at `/admin/requests`.
- * The claims/corrections sibling of `/admin/reviews` (AECI-205).
+ * AECI-217 / Phase 6.10 — the admin vendor-request moderation queue, rendered in
+ * the `AdminShell` layout's outlet at `/admin/requests`. The corrections sibling
+ * of `/admin/reviews` (AECI-205) and of `/admin/claims` (AECI-521).
  *
  * Like the reviews queue, the gate + nav SSR via `adminSummaryResolver` (the parent
  * route), so this queue paints its shell during SSR and fetches the list
@@ -25,12 +25,26 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * carries the session cookie, which the API Worker's `requireAdmin()` verifies. It
  * never reads cookies or session state directly.
  *
- * Filters (`kind`, `status`) are query params re-fetched server-side (newest-first,
- * with `is_duplicate` / `target` hydration computed by the API). Resolve is a
+ * The `status` filter is a query param re-fetched server-side (newest-first, with
+ * `is_duplicate` / `target` hydration computed by the API). Resolve is a
  * one-click `PATCH`; reject reveals an OPTIONAL reason (the 6.9 API makes it
  * optional for both actions, unlike reviews). A successful action drops the row
- * (it leaves the `open` view). There is no summary badge for requests — the admin
- * summary endpoint only counts pending reviews — so nothing is decremented here.
+ * (it leaves the `open` view) and decrements `AdminSummaryStore`, so the nav
+ * badge ticks down without a round-trip.
+ *
+ * ── THIS QUEUE IS CORRECTIONS ONLY (AECI-922) ────────────────────────────────
+ * It carried a `kind` filter — All kinds / Claims / Corrections — defaulting to
+ * All, which made it a superset of `/admin/claims`. That was survivable while
+ * neither screen had a counter. It stopped being survivable when both got one:
+ * the nav shows a count per Operations screen and their SUM on the category
+ * trigger, and a Requests count that included claims would put every open claim
+ * into that sum twice.
+ *
+ * So the request always pins `kind: 'correction'` and the filter is gone. Claims
+ * are not hidden — `/admin/claims` is the richer surface for them, with duplicate
+ * detection, the product-role breakdown, the operator note and the grant/reject
+ * actions this screen's generic resolve/reject cannot express. Nothing here could
+ * do to a claim what that screen does.
  */
 @Component({
   selector: 'aec-request-queue',
@@ -39,6 +53,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
 })
 export class RequestQueue {
   private readonly api = inject(AdminRequestsApi);
+  private readonly summaryStore = inject(AdminSummaryStore);
 
   /** The loaded requests (server order: newest-first). */
   private readonly requests = signal<readonly AdminVendorRequest[]>([]);
@@ -59,14 +74,7 @@ export class RequestQueue {
   /** Polite live-region message — the row vanishes on success, so announce it. */
   protected readonly liveMessage = signal('');
 
-  protected readonly kindFilter = signal<KindFilter>('all');
   protected readonly statusFilter = signal<StatusFilter>('open');
-
-  protected readonly kindOptions: ReadonlyArray<{ key: KindFilter; label: string }> = [
-    { key: 'all', label: $localize`:@@admin.requests.filter.kind.all:All kinds` },
-    { key: 'claim', label: $localize`:@@admin.requests.filter.kind.claim:Claims` },
-    { key: 'correction', label: $localize`:@@admin.requests.filter.kind.correction:Corrections` },
-  ];
 
   protected readonly statusOptions: ReadonlyArray<{ key: StatusFilter; label: string }> = [
     { key: 'open', label: $localize`:@@admin.requests.filter.status.open:Open` },
@@ -89,12 +97,11 @@ export class RequestQueue {
     this.loadFailed.set(false);
     this.loading.set(true);
     const query: Partial<ListVendorRequestsQuery> = {
+      kind: 'correction',
       status: this.statusFilter(),
       page: 1,
       perPage: QUEUE_PAGE_SIZE,
     };
-    const kind = this.kindFilter();
-    if (kind !== 'all') query.kind = kind;
     try {
       const res = await this.api.listRequests(query);
       this.requests.set(res.data);
@@ -107,13 +114,6 @@ export class RequestQueue {
   }
 
   protected retry(): void {
-    void this.load();
-  }
-
-  protected setKind(kind: KindFilter): void {
-    if (this.kindFilter() === kind) return;
-    this.kindFilter.set(kind);
-    this.closeReject();
     void this.load();
   }
 
@@ -140,12 +140,6 @@ export class RequestQueue {
     return $localize`:@@admin.requests.age.days:${days}:COUNT: d`;
   }
 
-  protected kindLabel(kind: AdminVendorRequest['kind']): string {
-    return kind === 'claim'
-      ? $localize`:@@admin.requests.kind.claim:Claim`
-      : $localize`:@@admin.requests.kind.correction:Correction`;
-  }
-
   protected statusLabel(status: AdminVendorRequest['status']): string {
     switch (status) {
       case 'open':
@@ -170,19 +164,6 @@ export class RequestQueue {
   protected targetRouterLink(r: AdminVendorRequest): string[] | null {
     if (!r.target) return null;
     return r.target_type === 'product' ? ['/products', r.target.slug] : ['/vendors', r.target.slug];
-  }
-
-  protected domainMatchLabel(value: string): string {
-    switch (value) {
-      case 'match':
-        return $localize`:@@admin.requests.domain.match:Domain matches`;
-      case 'no_match':
-        return $localize`:@@admin.requests.domain.noMatch:Domain mismatch`;
-      case 'manual_review':
-        return $localize`:@@admin.requests.domain.manualReview:Manual review`;
-      default:
-        return $localize`:@@admin.requests.domain.pending:Domain check pending`;
-    }
   }
 
   // ── Moderation actions ─────────────────────────────────────────────────────
@@ -221,14 +202,22 @@ export class RequestQueue {
   }
 
   /** Shared resolve/reject path: PATCH, then drop the moderated row (it leaves the
-   *  `open` view) and announce. A 422 means another admin moderated it first — drop
-   *  the row too; anything else is a retryable inline failure. */
+   *  `open` view), decrement the nav badge and announce. A 422 means another admin
+   *  moderated it first — drop the row WITHOUT decrementing, since that admin's own
+   *  action already did (and the count resyncs on the next full visit). Anything
+   *  else is a retryable inline failure. */
   private async moderate(
     id: string,
     input: { action: 'resolve' | 'reject'; reason?: string },
     announcement: string,
   ): Promise<void> {
     if (this.pendingActionId()) return;
+    // Read the status BEFORE the row is dropped. `pending_requests` counts `open`
+    // corrections only, and `isActionable` also admits `in_review` — a status this
+    // screen's filter cannot currently select, but decrementing on one would walk
+    // the badge below the real backlog with nothing to resync it until the next
+    // full visit to /admin.
+    const wasOpen = this.requests().find((r) => r.id === id)?.status === 'open';
     this.failedAction.set(null);
     this.pendingActionId.set(id);
     try {
@@ -236,6 +225,7 @@ export class RequestQueue {
       this.rejectingId.set(null);
       this.rejectReason.set('');
       this.removeRow(id);
+      if (wasOpen) this.summaryStore.decrement('requests');
       this.liveMessage.set(announcement);
     } catch (err) {
       if (err instanceof HttpErrorResponse && err.status === 422) {

@@ -173,6 +173,18 @@ Per `API_CONTRACTS.md` §6.10. `requireAdmin` (Phase 5 / AECI-196). `ListVendorR
 
 Under the Phase 5 admin shell (AECI-203). Lists claims/corrections with: submitter, target (linked), **domain-match hint**, **duplicate flag**, Linear issue link, status, age; resolve/reject controls. i18n, both themes, axe-clean.
 
+> **Superseded in part by AECI-922 (2026-09-14) — this screen is CORRECTIONS ONLY.**
+> `ADMIN_PANEL_SPEC.md` §5.0c is the current contract. Claims moved to `/admin/claims`
+> (Stage 2, AECI-521) and this screen stopped listing them when the nav gained a count
+> per Operations queue: corrections and claims are two `kind`s of one `vendor_requests`
+> table, so a Requests badge that included claims would double them in the Operations
+> total. The screen now pins `kind: 'correction'`; the kind filter, the kind chip and
+> the **domain-match hint** are gone (the hint compared a *claimant's* email domain to
+> the vendor's, and a correction identifies nobody), the heading reads "Correction
+> requests", and a successful resolve/reject decrements the nav badge. The API
+> (`ListVendorRequestsQuerySchema`, §8.1) is unchanged and still accepts any `kind`.
+> "Both themes" is also stale repo-wide — AECI-226 made the site light-only.
+
 ---
 
 ## 9. Reviewer ban management

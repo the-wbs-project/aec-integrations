@@ -1,8 +1,14 @@
 /**
  * `GET /api/admin/summary` (AECI-203 / Phase 5.12) — the admin shell's badge feed.
  *
- * Admin-gated (`requireAdmin()`, registered in `index.ts`) read-only count of
- * `pending` reviews for the moderation-queue badge (`STAGE_1_SPEC.md` §22.1).
+ * Admin-gated (`requireAdmin()`, registered in `index.ts`) read-only counts of
+ * the three Operations queues — pending reviews (`STAGE_1_SPEC.md` §22.1), open
+ * correction requests, and open vendor claims (AECI-922). The console renders
+ * one per nav item and their SUM on the closed Operations trigger, which is only
+ * honest because the three sets are disjoint; `lib/admin-queue-counts.ts` owns
+ * that rule and is shared verbatim with `GET /api/account`, so the console badge
+ * and the header badge cannot report different backlogs.
+ *
  * `requireAdmin()` is the single enforcement point (`STAGE_1_PHASE_5_SPEC.md`
  * §7.1): it verifies the JWT (bearer or the `sb-…-auth-token` cookie the SSR
  * Worker forwards), loads `profiles.role`, and rejects non-admins with `403`
@@ -13,21 +19,21 @@
  * surface). Because it is a read, there is NO audit-log write and no cache
  * work.
  *
- * The full paginated moderation queue (`GET /api/admin/reviews`) is Phase 5.13 —
- * this endpoint deliberately exposes only the aggregate count the shell needs.
+ * The full paginated queues (`GET /api/admin/reviews`, `/requests`, `/claims`)
+ * live elsewhere — this endpoint deliberately exposes only the aggregate counts
+ * the shell's nav needs.
  *
  * Loose structural DB surface + the `getDb` test seam mirror
  * `routes/reviews.ts`.
  */
 
 import type { AdminSummaryResponse } from '@aeci/shared';
-import { count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { reviews } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
+import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import type { DbFactory } from '../lib/handler-utils';
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -39,11 +45,7 @@ export function createAdminSummaryHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const { db } = dbFor(c.env);
-    const rows = await db
-      .select({ value: count() })
-      .from(reviews)
-      .where(eq(reviews.status, 'pending'));
-    const body: AdminSummaryResponse = { pending_reviews: rows[0]?.value ?? 0 };
+    const body: AdminSummaryResponse = await readAdminQueueCounts(db);
     return json(body);
   };
 }

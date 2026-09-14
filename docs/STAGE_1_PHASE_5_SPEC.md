@@ -180,7 +180,7 @@ Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In on
 
 ### 7.1 `/admin` guard + shell (Phase 5.12)
 
-`/admin/*` is non-cacheable and gated on `role === 'admin'` (session → profile role; §4.5). Non-admins get 404 (don't reveal the surface). Minimal shell + nav with a **pending-count badge**.
+`/admin/*` is non-cacheable and gated on `role === 'admin'` (session → profile role; §4.5). Non-admins get 404 (don't reveal the surface). Minimal shell + nav with a **pending-count badge**. *(AECI-922: that is now one badge per Operations queue — reviews, correction requests, vendor claims — plus their sum on the closed category trigger. `ADMIN_PANEL_SPEC.md` §5.0c.)*
 
 ### 7.2 Admin reviews API (Phase 5.13)
 

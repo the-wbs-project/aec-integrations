@@ -52,6 +52,17 @@ export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
  *  Admin affordance appeared. A non-admin gets `null` and never touches the
  *  admin-gated endpoint.
  *
+ *  `pending_requests` / `pending_claims` (AECI-922) ride along on the identical
+ *  terms, because the header badge stopped being a review count: it now shows
+ *  the SUM of the three Operations queues, matching the console's own Operations
+ *  trigger. Shipping only `pending_reviews` here would leave the header showing
+ *  a smaller number than `/admin` for the same backlog. All three come from one
+ *  server-side implementation (`apps/api/src/lib/admin-queue-counts.ts`), and
+ *  `pending_requests` is corrections-ONLY — requests and claims are one table
+ *  split by `kind`, so an all-kinds count would double every open claim in the
+ *  sum. All three are `null` together for a non-admin; none is ever a `0` that
+ *  means "not allowed to know".
+ *
  *  `role` also answers the vendor portal's door: the web client reads it through
  *  one shared probe (`auth/role-status.ts`), so a signed-in page load makes a
  *  single account request no matter how many role-gated affordances the header
@@ -62,6 +73,8 @@ export interface AccountProfileResponse {
   display_name: string | null;
   role: string;
   pending_reviews: number | null;
+  pending_requests: number | null;
+  pending_claims: number | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

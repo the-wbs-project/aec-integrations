@@ -41,6 +41,8 @@ const ADMIN = {
   display_name: 'Ada',
   role: 'admin',
   pending_reviews: 3,
+  pending_requests: 2,
+  pending_claims: 1,
 };
 
 const REVIEWER = {
@@ -49,6 +51,8 @@ const REVIEWER = {
   display_name: 'Rey',
   role: 'reviewer',
   pending_reviews: null,
+  pending_requests: null,
+  pending_claims: null,
 };
 
 describe('AdminStatus', () => {
@@ -101,8 +105,12 @@ describe('AdminStatus', () => {
     fixture.detectChanges(); // the badge seed rides an effect, so flush it
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
+    // AECI-922: all three queues, and the header badge shows their sum.
     expect(store.pendingReviews()).toBe(3);
-    // The second hop is gone — the count rode along with the role.
+    expect(store.pendingRequests()).toBe(2);
+    expect(store.pendingClaims()).toBe(1);
+    expect(store.operationsTotal()).toBe(6);
+    // The second hop is gone — the counts rode along with the role.
     http.expectNone('/api/admin/summary');
   });
 
@@ -167,6 +175,29 @@ describe('AdminStatus', () => {
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
     expect(store.pendingReviews()).toBeNull();
+  });
+
+  // The same rolling-deploy hazard, one AECI-922 widened: an API still on the
+  // pre-922 shape sends `pending_reviews` and omits the other two. Seeding those
+  // as 0 would be a claim we cannot support; leaving them null lets the badge
+  // show the one real count it has.
+  it('seeds only the counts a pre-AECI-922 API actually sent', async () => {
+    const fixture = create();
+    const store = TestBed.inject(AdminSummaryStore);
+
+    signedIn.set(true);
+    fixture.detectChanges();
+    const { pending_requests: _r, pending_claims: _c, ...pre922 } = ADMIN;
+    http.expectOne('/api/account').flush(pre922);
+    await settle();
+    fixture.detectChanges();
+
+    expect(store.pendingReviews()).toBe(3);
+    expect(store.pendingRequests()).toBeNull();
+    expect(store.pendingClaims()).toBeNull();
+    // Nulls read as 0 in the sum, so the badge shows the backlog it knows about
+    // rather than nothing at all.
+    expect(store.operationsTotal()).toBe(3);
   });
 
   it('ensureProbed() fires nothing for an anonymous visitor', async () => {

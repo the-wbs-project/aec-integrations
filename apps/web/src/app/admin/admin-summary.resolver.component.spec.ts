@@ -33,7 +33,11 @@ import { adminSummaryResolver } from './admin-summary.resolver';
 
 const API_PATH = '/api/admin/summary';
 const STATE_KEY = 'aeci.admin-summary';
-const SUMMARY: AdminSummaryResponse = { pending_reviews: 5 };
+const SUMMARY: AdminSummaryResponse = {
+  pending_reviews: 5,
+  pending_requests: 2,
+  pending_claims: 1,
+};
 
 const ROUTE = {} as ActivatedRouteSnapshot;
 const STATE = {} as RouterStateSnapshot;

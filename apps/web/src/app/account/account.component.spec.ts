@@ -15,7 +15,10 @@ const PROFILE: AccountProfileResponse = {
   email: 'dana@example.com',
   display_name: 'Dana Reviewer',
   role: 'reviewer',
+  // AECI-922: all three queue counts, null together for a non-admin.
   pending_reviews: null,
+  pending_requests: null,
+  pending_claims: null,
 };
 
 const REVIEWS: AccountReview[] = [

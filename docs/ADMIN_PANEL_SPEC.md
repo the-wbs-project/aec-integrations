@@ -159,7 +159,7 @@ Nineteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **
 - **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appeared as their screens did, `Audience` last (AECI-586). A group with no items renders no heading either, so `Catalog` was absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and there is no second surface where these routes are discoverable, so nothing is lost by adding them one at a time. (For a period the header's "More" menu rendered the same array as a second surface; that menu was retired and `ADMIN_NAV_GROUPS` is back to one consumer — this shell.) The nav is a `readonly AdminNavGroup[]` (`ADMIN_NAV_GROUPS`, `apps/web/src/app/admin/admin-nav.ts`), so a later unit adds one array entry rather than editing markup.
 - **Group labels are `<p>` + `aria-labelledby`, not headings.** The shell owns the only `h1` and each screen owns the only `h2` (asserted by every queue's component spec). A heading in the nav would sit between them and break axe's heading-order rule for no navigational gain — the `<ul>` gets its accessible name from the label either way.
 
-The three Operations queues moved under a heading and are otherwise untouched.
+The three Operations queues moved under a heading and were otherwise untouched until AECI-922 gave each of them a count (§5.0c).
 
 ### 5.0a The nav is a horizontal row of category dropdowns — SHIPPED (AECI-694)
 
@@ -176,9 +176,9 @@ Four mechanics, all pinned by `admin-shell.component.spec.ts`:
 - **Group labels are disclosure BUTTONS, not headings** — the same conclusion as the sidebar's `<p>` + `aria-labelledby`, reached for the same reason. The shell owns the only `h1` and each screen owns the only `h2`; a heading in the nav would sit between them and break axe's heading-order rule. Each panel's `<ul>` names itself with `aria-label`, so a screen reader entering one knows which category it opened.
 - **The row does not scroll horizontally**, which departs from the vendor portal's section row and from `DESIGN.md`'s default for tab rows. Both reasons follow from collapsing eleven items into three: the row fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip the in-flow dropdown panels. A scrolling row would force every panel into a CDK overlay to escape the clip — complexity bought to solve a problem this row does not have. The last category's panel hangs from the **end** edge for the same viewport reason.
 
-The pending-review badge stays on Review queue inside the Operations panel **and is mirrored on the closed Operations trigger**. A collapsed panel would otherwise hide the console's only live signal, which is the one thing the nav exists to nag about. Both numbers are `aria-hidden`; a single visually-hidden sentence carries the count.
+The pending-review badge stays on Review queue inside the Operations panel **and is carried on the closed Operations trigger**. A collapsed panel would otherwise hide the console's only live signal, which is the one thing the nav exists to nag about. Every visible number is `aria-hidden`; a visually-hidden sentence carries each count. *(AECI-922 turned the trigger's number from a mirror of the review count into the SUM of three — see §5.0c.)*
 
-**Site-header entry point — one door, not a duplicated IA.** The header offers a single role-gated **"Admin portal"** link to `/admin` in the signed-in account menu (`layout/user-menu.ts` at `lg+`, the account block inside `layout/nav-menu.ts` below `lg`), beside the vendor portal's equivalent door. The pending-review badge sits on that menu's trigger; the exact count is announced via a visually-hidden description.
+**Site-header entry point — one door, not a duplicated IA.** The header offers a single role-gated **"Admin portal"** link to `/admin` in the signed-in account menu (`layout/user-menu.ts` at `lg+`, the account block inside `layout/nav-menu.ts` below `lg`), beside the vendor portal's equivalent door. The operator-backlog badge sits on that menu's trigger; the exact count is announced via a visually-hidden description. Since AECI-922 that badge is the same three-queue sum the Operations trigger shows, so the header and the console cannot report different backlogs (§5.0c).
 
 > **This supersedes the "More" menu arrangement (AECI-572).** That menu rendered **all** of the screens above inside a header dropdown, from this same `ADMIN_NAV_GROUPS` array, on the reasoning that *admin navigation belongs with site navigation and the account menu is for the person*. Two problems. The console **already** renders that array as its own sidebar, so the header was restating an eleven-screen IA — which is why the panel had to grow to a two-column `34rem` grid for an admin. And the row it hung from is public, cached, indexable chrome whose width is budgeted and closed, so a viewer-dependent item in it made the row's width depend on who was looking. The rule that replaced it: **the row is the site; the avatar is you and what you can operate** (`DESIGN.md` §Navigation → The Overflow Rule). A portal owns its own navigation; the header offers one door. `ADMIN_NAV_GROUPS` is consequently back to a single consumer, `admin-shell.ts`.
 
@@ -187,7 +187,7 @@ The door is gated on `AdminStatus.isAdmin()`, which is `false` during SSR / pre-
 **How `AdminStatus` resolves (AECI-617).** The gate cannot move to the server: the header renders on every route, most of them edge-cached and keyed by URL, so any server-rendered admin state would poison the cache for the next visitor. It is therefore a post-hydration client probe. The probe itself now lives in a shared `RoleStatus` service (`apps/web/src/app/auth/role-status.ts`) rather than in `AdminStatus`: the vendor portal's door asks the same endpoint the same question, so one `GET /api/account` answers both and one `ensureProbed()` re-arms both doors. `AdminStatus` is the admin-shaped view of that signal (`role() === 'admin'`) plus the one admin-only side effect, seeding the badge. It keeps three properties the original single-shot version lacked, each fixing an observed symptom of the Admin affordance appearing late or not at all:
 
 1. **Self-healing.** The probe latches on **success**, not on dispatch. The original set its `probed` flag before awaiting and swallowed every error, so one 401 / cold-isolate JWKS blip / timeout suppressed the Admin section for the entire life of the page — SPA navigation never re-ran it, and nothing else in the app set the flag. Not even landing on `/admin`, whose resolver has already proven the caller is an admin server-side. A failed probe now retries once on a short delay, and the account menu calls `ensureProbed()` when it opens, so the retry lands exactly when the visitor asks for the menu. (`VendorStatus` had the original bug until it moved onto `RoleStatus`; it inherits the fix.)
-2. **One round trip.** `GET /api/account` returns `role` **and** `pending_reviews` (API_CONTRACTS §6.8). The old `/api/account` → `/api/admin/summary` chain paid two JWKS verifies and two `profiles` reads; the second hop's latency was the lag between the menu becoming usable and the badge appearing. `GET /api/admin/summary` is unchanged — it remains this shell's badge feed and the `/admin` resolver's gate — and both paths seed the same `AdminSummaryStore`, so the count cannot disagree.
+2. **One round trip.** `GET /api/account` returns `role` **and** the queue counts (API_CONTRACTS §6.8) — `pending_reviews` from AECI-617, plus `pending_requests` and `pending_claims` from AECI-922. The old `/api/account` → `/api/admin/summary` chain paid two JWKS verifies and two `profiles` reads; the second hop's latency was the lag between the menu becoming usable and the badge appearing. `GET /api/admin/summary` is unchanged in role — it remains this shell's badge feed and the `/admin` resolver's gate — and both paths seed the same `AdminSummaryStore` from the same server-side implementation, so the counts cannot disagree.
 3. **Instant on repeat visits.** The resolved role is cached in `sessionStorage` and re-applied the moment `SessionStatus.signedIn()` flips, so an admin's second page load in a tab paints the Admin door with **zero** network. Deliberately not a cookie and not a server-side decision — `sessionStorage` never reaches the SSR Worker, so it cannot influence cached HTML (the same reasoning behind `analytics/consent.ts`). It is applied from inside the `signedIn()` effect, never at construction, so it lands strictly after hydration and cannot desync the hydrated DOM. It is dropped on sign-out.
 
 The cached role is a **UI hint, never an authorization input** — see `AUTH_AND_RLS.md` §4.5 for why the server-side role read must not be cached in KV, and why a forged or stale client-side role buys nothing.
@@ -216,6 +216,73 @@ Six mechanics, all pinned by `admin-breadcrumb.component.spec.ts` and `admin-she
 **Consequence for the detail screens.** With the trail carrying the way back, each detail `h2` stops saying the entity *type* ("Vendor", "Account", "Vendor claim", "Connector catalogue") and says *which one* — the name previously appeared only in a card further down the page. Until the fetch resolves it shows the same fallback word the trail does, from one definition (`ADMIN_DETAIL_FALLBACK_LABELS`, `app/admin/admin-nav.ts`); the per-screen `@@admin.*.detail.heading` and `@@admin.*.detail.back` message ids are retired. `/admin/claims/:id` is the one that needs a rule rather than a field: a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product.
 
 **What it deliberately does not do.** It is not a second navigation surface — every crumb is an ancestor of the current page, never a sibling, so §5.0a's "a portal owns its own navigation; the header offers one door" is untouched and the row remains the only way to change section. It also does not appear on the non-admin branch, which renders `<aec-not-found/>` and no console chrome at all.
+
+### 5.0c Each Operations queue carries its own count, and the category sums them — SHIPPED (AECI-922)
+
+`GET /api/admin/summary` served one number, `pending_reviews`, and the nav rendered
+it twice: on the Review queue entry, and mirrored onto the closed Operations
+trigger. Requests and Vendor claims sat beside it uncounted, so the two queues an
+operator is most likely to be behind on were the two the nav never mentioned.
+
+The endpoint now returns three counts and `GET /api/account` carries the same
+three (`API_CONTRACTS.md` §6.8 / §6.10). Each badged nav entry renders its own;
+the **Operations trigger renders their SUM**.
+
+| Nav entry | Count | Predicate |
+|---|---|---|
+| Review queue | `pending_reviews` | `reviews.status = 'pending'` |
+| Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
+| Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
+
+Five decisions, all of them load-bearing.
+
+**(1) `/admin/requests` became corrections-only, and that is what makes the sum
+honest.** Requests and claims are not two tables. They are two `kind`s of
+`vendor_requests`, and the Requests screen's kind filter defaulted to *All kinds* —
+making it a strict superset of `/admin/claims`. Harmless while neither screen had a
+counter; arithmetically wrong the moment both did, because every open claim would
+land in the Operations total twice. The screen now pins `kind: 'correction'`, the
+filter is gone, and the three queues are disjoint sets. Claims are not hidden:
+`/admin/claims` is the richer surface for them (duplicate detection, the
+product-role breakdown, the operator note, grant/reject), and this screen's generic
+resolve/reject could never do to a claim what that one does. Two things left with
+the filter — the kind chip, which read "Correction" on every row, and the
+domain-match hint, which compared a *claimant's* email domain to the vendor's and
+so never applied to a correction. The heading changed from "Vendor requests" to
+**"Correction requests"**: a claim is a vendor request too, and a heading claiming
+both would be the one place on the screen contradicting its own badge.
+
+**(2) `in_review` is deliberately not counted.** `vendor_requests.status` allows
+`open | in_review | resolved | rejected`, and `in_review` is real — the inbound
+Linear webhook moves an actively-worked issue there. Both queue screens default
+their status filter to `open`, so a badge counting `in_review` would nag about rows
+the screen does not show; and `status.moderation.open_requests` on
+`GET /api/admin/overview` is already `open`-only, so counting it would make the
+badge and the §5.1 dashboard disagree about one backlog. The consequence for the
+client: `/admin/claims`'s **In review** tab can moderate a row that was never in
+the count, so both queue screens read the row's status *before* dropping it and
+decrement only when it was `open`. Decrementing unconditionally would walk the
+badge below the real backlog with nothing to resync it until the next full visit.
+
+**(3) A zero renders no badge.** Previously a literal `0` appeared on the trigger
+and on the Review queue entry. With three queues that becomes four zeros in one
+open panel, which trains an operator to stop reading the numbers. The header
+account menu has always hidden its badge at zero; the console now matches it.
+
+**(4) The trigger sums the group's own entries, not a global total.** `AdminNavDropdown`
+adds up the counts of the badged items in *its* group rather than reading
+`AdminSummaryStore.operationsTotal()`. The number on a closed category is then, by
+construction, the numbers inside it added up — and a queue moved to another
+category would take its count with it.
+
+**(5) One server-side implementation, two endpoints.** `apps/api/src/lib/admin-queue-counts.ts`
+is the sole place the three predicates are written, and both `GET /api/admin/summary`
+and `GET /api/account` call it. The header badge and the console badge are the same
+sum of the same numbers, so they cannot drift. On the client, `AdminSummaryStore`
+holds one signal per queue plus the total; `seed()` leaves an **absent** key alone
+rather than zeroing it, which is what stops a rolling deploy — the SSR and API
+Workers ship separately — from emptying a badge when an older `/api/account` shape
+arrives carrying `pending_reviews` and nothing else.
 
 ### 5.1 Overview
 

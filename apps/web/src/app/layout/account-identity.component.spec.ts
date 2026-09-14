@@ -72,7 +72,10 @@ describe('AccountIdentity', () => {
       email: 'chris@example.com',
       display_name: displayName,
       role: 'reviewer',
+      // AECI-922: all three queue counts, null together for a non-admin.
       pending_reviews: null,
+      pending_requests: null,
+      pending_claims: null,
     };
   }
 

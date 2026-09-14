@@ -279,7 +279,7 @@ describe('ReviewQueue', () => {
 
   it('approves a review: calls the API, drops the row, decrements the badge', async () => {
     const { el, fixture, api, store } = await setup();
-    store.seed(3);
+    store.seed({ reviews: 3 });
     buttonByText(cardFor(el, 'Bravo'), 'Approve').click();
     await settle();
     fixture.detectChanges();
@@ -336,7 +336,7 @@ describe('ReviewQueue', () => {
 
   it('rejects with a reason: calls the API, drops the row, decrements the badge', async () => {
     const { el, fixture, api, store } = await setup();
-    store.seed(3);
+    store.seed({ reviews: 3 });
     buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
     fixture.detectChanges();
 
@@ -363,7 +363,7 @@ describe('ReviewQueue', () => {
     const api = makeApiMock();
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 422 }));
     const { el, fixture, store } = await setup(api);
-    store.seed(3);
+    store.seed({ reviews: 3 });
 
     buttonByText(cardFor(el, 'Bravo'), 'Approve').click();
     await settle();
