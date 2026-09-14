@@ -1204,7 +1204,11 @@ the hold cleared on a **sequence**, not on a single merge, and all three steps a
    21 claims on the reach tier — 12 on `connector_pairs` `recR26YP4tgDvNj6V`, 9 on
    `reczhKqHUJZTSlUI2`.
 3. AECI-909 ran the consumer over the remaining 2 entries on 2026-09-14: deleted, verified in both
-   tables, confirmed. `HELD_RETRACTIONS` was emptied in the same change.
+   tables, confirmed. `HELD_RETRACTIONS` was emptied in the same change, and the consumer's two
+   numeric guards — its shape gate and its cascade ceiling — were **reset to zero** in it as well,
+   so the next cohort refuses until an operator measures and pins it. A spent authorisation left
+   in the file is not a guard: a later cohort of the same shape would have matched it by
+   coincidence. See that lane's README, "Re-running this lane".
 
 **Step 2 is the one that cannot be checked the obvious way.** A `claims[]` entry naming a pair that
 does not exist here lands in `skipped[]` and the job still reports `complete`, which looks exactly

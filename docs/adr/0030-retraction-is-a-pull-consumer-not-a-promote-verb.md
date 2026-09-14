@@ -111,7 +111,9 @@ that clears it.
 > feed is at zero pending. The list mechanism stays — this decision is unchanged — but the
 > practice it proved is narrower than the decision: **empty a hold in the same change as the
 > run that releases it**, because a discharged hold left in place recreates exactly the
-> blind spot the bucket was built to remove.
+> blind spot the bucket was built to remove. The consumer's numeric guards were reset to
+> zero in the same change for the same reason — an authorisation is spent by the run that
+> used it, and a later cohort of the same shape would otherwise inherit it.
 
 ## Alternatives considered
 

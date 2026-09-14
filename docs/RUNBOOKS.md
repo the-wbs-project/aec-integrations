@@ -1700,6 +1700,14 @@ it. You are executing a decision, not making one.
   differs from the recorded ruling, when the cascade exceeds its ceiling, when a held id has
   vanished, when an id is in both tables, or when the sentinel edge moves. Re-establish the
   ruling before editing a constant to make it proceed.
+- **Expect the first refusal, every time.** `EXPECTED` and `MAX_CASCADE` rest at zero between
+  cohorts (reset 2026-09-14, AECI-909), so a new cohort refuses on the shape gate before it can
+  delete anything. That is not production having moved unexpectedly — it is the lane asking you
+  to measure this cohort and pin it. Reset both to zero again in the same change as the run that
+  used them, for the same reason you empty a discharged hold: a spent authorisation left in the
+  file would clear a later cohort of the same shape with nobody ruling on it. Raising
+  `MAX_CASCADE` is the one edit that can destroy data, so raise it only after confirming by count
+  that every claim it will cascade away already exists somewhere else.
 
 **Residue that is normal:** `stats_cache` reads high until the 07:00 cron, and `metrics_daily`
 history keeps the pre-delete totals (ADR 0027 — a snapshot is corrected, not final). A retracted

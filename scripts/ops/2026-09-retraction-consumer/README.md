@@ -105,18 +105,26 @@ wrangler d1 time-travel restore aeci-app-production --bookmark=00005819-0000001a
 The lane is written to refuse rather than adapt, so a second cohort cannot inherit the first
 cohort's authorisation. All three had to be re-pinned, and the diff is the record of the ruling:
 
-| Constant | Was (2026-09-13) | Now (2026-09-14) | Why |
-|---|---|---|---|
-| `HOLD` | the 2 Agave ids | `{}` | conditions met and checked above |
-| `EXPECTED` | `216 / 215 / 1` | `2 / 2 / 0` | 214 are deleted and confirmed; the feed holds only what was held back |
-| `MAX_CASCADE` | `1 / 1` | `21 / 21` | both rows carry claims by definition; the ceiling is the exact measured total |
+| Constant | 2026-09-13 run | 2026-09-14 run | Now, in the file | Why |
+|---|---|---|---|---|
+| `HOLD` | the 2 Agave ids | `{}` | `{}` | conditions met and checked above |
+| `EXPECTED` | `216 / 215 / 1` | `2 / 2 / 0` | `0 / 0 / 0` | the feed is empty, and zero is the only shape that fails closed |
+| `MAX_CASCADE` | `1 / 1` | `21 / 21` | `0 / 0` | the 21 were authorised for two named ids, and that authorisation is spent |
 
-`MAX_CASCADE` is the one to read twice. Raising it from 1 to 21 is not a relaxation **only
+`MAX_CASCADE` is the one to read twice. Raising it from 1 to 21 was not a relaxation **only
 because** the 21 superseding claims were verified present first. Without that check it is the
 single guard standing between a run and 21 rulings that exist nowhere else on earth.
 
+**Both numbers are back to zero now, and that is the resting state, not a leftover.** A
+spent authorisation left in the file stops being a guard: a later cohort of two pair entries
+carrying claims would have matched `2 / 2 / 0` by coincidence and cleared a `21 / 21` ceiling
+without anyone ruling on it. Zero refuses every non-empty plan, so the next operator has to
+measure the cohort in front of them. An empty feed is unaffected — the run returns at the
+`feed.length === 0` check long before the shape gate.
+
 **Re-measure all three before the next run.** AECI-889's I24 batches are expected to start
-journalling deletes, which moves every one of them.
+journalling deletes, which is exactly the cohort the zero pin is there to stop from
+inheriting this one's clearance.
 
 ### Live verification (2026-09-14, browser UA)
 
@@ -314,13 +322,15 @@ if the feed moved between the dry run and the apply, the run refuses.
 
 Guards that refuse rather than adapt: the shape gate (`EXPECTED`, which binds only when there
 is something to delete), the cascade ceiling (`MAX_CASCADE`), a held id missing from the plan,
-an id present in **both** tables, and the sentinel edge moving.
+an id present in **both** tables, and the sentinel edge moving. Entries that are not
+integration-class are parked before any of that — see "Why only those two tables".
 
-**`EXPECTED` and `MAX_CASCADE` are pinned to the last cohort that ran, and the next run will
-refuse until you re-measure them.** That is the design: a second cohort must not inherit the
-first cohort's authorisation. They currently read `2 / 2 / 0` and `21 / 21` from the
-2026-09-14 run, and AECI-889's I24 batches are expected to move both. Re-measuring
-`MAX_CASCADE` upward is the one edit here that can destroy data — raise it only after
-confirming, by count, that anything it will cascade away already exists somewhere else. Entries that are not integration-class are parked before any of
-that — see "Why only those two tables".
+**`EXPECTED` and `MAX_CASCADE` read `0 / 0 / 0` and `0 / 0`, so the next run refuses until
+you measure the cohort and re-pin them.** That is the design: an authorisation is spent by
+the run that used it, and a second cohort must never inherit the first cohort's clearance —
+including by matching its shape coincidentally. Raising `MAX_CASCADE` is the one edit in this
+lane that can destroy data, so raise it only after confirming, by count, that every claim it
+will cascade away already exists somewhere else. Reset both to zero in the same change as the
+run that used them, exactly as you would empty a discharged `HOLD`.
+
 Exit codes are `0` clean, `1` refusal, `2` could-not-check — and 2 outranks 1.

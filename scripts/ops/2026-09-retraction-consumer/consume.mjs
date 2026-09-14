@@ -124,10 +124,13 @@ const D1_ENVS = {
 // mirror the operator's standing ruling and the run REFUSES if reality has moved away
 // from them, rather than adapting to the new reality on its own.
 //
-// EVERY NUMBER BELOW IS RE-PINNED PER RUN. The 2026-09-13 run (AECI-882) was authorised
-// against a 216-entry feed; this one (AECI-909) is authorised against the 2 entries that
-// run held back. A ceiling or a shape carried over from a previous cohort is not a guard,
-// so the next operator to use this lane re-measures all three before applying.
+// EVERY NUMBER BELOW IS RE-PINNED PER RUN, AND RESET TO ZERO AFTER IT. The 2026-09-13 run
+// (AECI-882) was authorised against a 216-entry feed at a ceiling of 1 / 1; the 2026-09-14
+// run (AECI-909) against the 2 entries that run held back, at 21 / 21. Both authorisations
+// are spent, so both are back to zero and the next run refuses until an operator measures
+// the cohort in front of them. An authorisation carried over from a previous cohort is not
+// a guard — a later cohort of the same shape would match it by coincidence. The run record
+// lives in this lane's README; the guard holds only what the NEXT run is allowed to do.
 
 /**
  * Entries held back on a recorded decision, keyed by `supabaseId` — the AECi row id,
@@ -161,39 +164,44 @@ const HOLD_REASON =
   'preflight-*.json, which is the only place a future operator will look for it.';
 
 /**
- * The production shape this run was authorised against, measured 2026-09-14. A mismatch
- * means production moved, and the right response is to stop and re-establish the ruling
- * rather than to delete whatever is there now.
+ * The production shape this run is authorised against. A mismatch means production moved,
+ * and the right response is to stop and re-establish the ruling rather than to delete
+ * whatever is there now.
  *
- * The 214 entries the 2026-09-13 run took are deleted and confirmed, so the feed now holds
- * exactly the 2 it held back, both in `connector_evidenced_pairs`. **The next run of this
- * lane will refuse until these three numbers are re-measured** — AECI-889's I24 batches
- * are expected to start journalling deletes, which moves all of them.
+ * ZERO, because the feed is empty as of 2026-09-14 — that is the CURRENT shape, and it is
+ * also the only pin that fails closed. A shape carried over from the cohort that just ran
+ * is not a guard: the 2026-09-14 run was authorised against `2 / 2 / 0`, and leaving that
+ * here would have let the NEXT two-pair cohort match by coincidence and pass unruled.
+ * AECI-889's I24 batches are expected to start journalling deletes, so the next operator
+ * re-measures these three (and `MAX_CASCADE`) from the feed they actually see. What ran
+ * before is in this lane's README, not in the guard.
  *
- * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Both entries are edges,
- * so the two are the same number again. Parked entries (see step 1b) are outside the
- * cohort and cannot move it.
+ * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Parked entries (see step
+ * 1b) are outside the cohort and cannot move it. An empty feed never reaches this gate —
+ * the run returns at the `feed.length === 0` check well before it.
  */
-const EXPECTED = { total: 2, inPairs: 2, inIntegrations: 0 };
+const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
- * The cascade ceiling. Unlike every previous cohort, BOTH rows here carry claims — that is
- * the whole reason they were held — so the ceiling is the exact measured total rather than
- * a near-zero floor: 9 claims + 9 attestations on `a96bb827-…` and 12 + 12 on
- * `a3eb9e45-…`, read from production 2026-09-14. A plan that would cascade more than
- * 21 / 21 is reaching a row nobody has ruled on, and the run refuses.
+ * The cascade ceiling: the most curation data a single run is authorised to let go. ZERO,
+ * so any plan that would cascade even one claim refuses until an operator raises it
+ * deliberately for a cohort they have measured.
  *
- * **Raising this from the 2026-09-13 run's 1 / 1 is not a relaxation of the guard.** Those
- * 21 claims are not being destroyed, they are being SUPERSEDED. AECI-910 re-anchored all
- * 21 onto the reach-tier `connector_pairs` rows through the AECI-891 third claim arm
- * (`claims.connector_pair_id`), and those copies are live in production now — 12 on
- * `recR26YP4tgDvNj6V`, 9 on `reczhKqHUJZTSlUI2`. What this run deletes is the stale
- * delivered-tier copy.
+ * It is reset to zero after every run for the same reason `EXPECTED` is. The 2026-09-14
+ * run legitimately raised it to `21 / 21` — both held rows carried claims, which was why
+ * they were held — but that authorisation belonged to those two ids only. Left at 21 it
+ * would have silently pre-authorised 21 rulings' worth of cascade for whatever arrives
+ * next, which is the one edit in this lane that can destroy data.
  *
- * Verify the superseding copies exist BEFORE raising this number. Without them the guard
- * is the only thing standing between a run and 21 rulings that exist nowhere else.
+ * Raising it is a ruling, not a measurement. Before you do: confirm BY COUNT that every
+ * claim it will cascade away already exists somewhere else. The 2026-09-14 precedent is
+ * the shape to copy — AECI-910 had re-anchored all 21 claims onto the reach-tier
+ * `connector_pairs` rows through the AECI-891 third claim arm (`claims.connector_pair_id`),
+ * 12 on `recR26YP4tgDvNj6V` and 9 on `reczhKqHUJZTSlUI2`, and that was verified against a
+ * production count before the number moved. Without that check this guard is the only thing
+ * standing between a run and rulings that exist nowhere else on earth.
  */
-const MAX_CASCADE = { claims: 21, attestations: 21 };
+const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**
  * The AECI-878 negative sentinel. The upstream ruling that retracted
@@ -667,7 +675,7 @@ async function main() {
     console.warn(
       `\nSHAPE MISMATCH. Authorised against integration-class total ${EXPECTED.total} / pairs ` +
         `${EXPECTED.inPairs} / integrations ${EXPECTED.inIntegrations}.\n` +
-        'Production has moved since the 2026-09-13 ruling.',
+        'Production has moved since the ruling these numbers were pinned against.',
     );
   }
 
