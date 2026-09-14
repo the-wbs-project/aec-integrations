@@ -242,53 +242,82 @@ Auth lives in the single shared Supabase project (ADR 0017) and is **not** touch
 | Deployed but `/api/version` or `/_version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way (a stale `/_version` with a current `/api/version` is exactly the AECI-92 case the dual check catches). The smoke failure auto-rolls-back both Workers; inspect the deploy step logs. |
 | `pnpm algolia:apply-settings` exits non-zero | `deploy-prod-workers`, **after** the smoke gate | **The release is live and healthy** — this step runs after smoke and sits outside the auto-rollback guard (which fires only on `steps.smoke.outcome == 'failure'`), so nothing was reverted. Do **not** re-run the whole promote to retry one `setSettings`. Re-apply directly: `pnpm algolia:apply-settings --env production` (needs `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`). |
 
-### Request indexing by hand (Google) — after a promote
+### Request indexing by hand (Google) — work the `/admin/reindex` worklist
 
-**A promote that adds or changes public pages is not finished until someone asks Google to look.**
-This is a manual operator step with no automation behind it, and until AECI-799 it was recorded
-nowhere.
+**Google discovery is a manual step, and since AECI-946 it is a manual step off a list rather
+than out of memory.** Open `/admin/reindex`, work down it until Google's quota stops you, and
+click Done on each row as you go. The nav badge on **Operations** carries the depth, so an
+unworked backlog is visible from any admin screen.
+
+This section used to say "after a promote that adds or materially changes public pages,
+remember which URLs those were". That was undelegated, unmonitored **and invisible**. The
+invisible part is fixed; the other two are not, and are not going to be.
 
 **Why it is manual.** The two search engines are fed by different channels, deliberately:
 
 | Engine | Channel | Automated? |
 |---|---|---|
-| Bing / Yandex | IndexNow ping on the write-event pipeline (AECI-236, rebuilt in AECI-826) | **Yes, but unproven.** The promote's post-commit hook now **buffers** affected URLs into `indexnow_queue`; a `*/20` cron drains them in one request. Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. **Treat Bing discovery as sitemap-only until `aeci.indexnow.submit{outcome:ok}` is non-zero in production**, which needs a prod promote plus a real catalogue write |
-| Google | Search Console → **URL Inspection → Request Indexing** | **No** — a person, after the promote |
+| Bing / Yandex | IndexNow, buffered into `indexnow_queue` and drained by a `*/20` cron (AECI-236, rebuilt in AECI-826, second writer added in AECI-944) | **Yes, but unproven.** Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. **Treat Bing discovery as sitemap-only until `aeci.indexnow.submit{outcome:ok}` is non-zero in production**, which needs a prod promote plus a real catalogue write |
+| Google | Queued into `gsc_recrawl_queue`, then Search Console → **URL Inspection → Request Indexing** | **Half.** The machine knows what needs doing. A person does it |
 
 Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263
 ping submitted URLs that were discarded on arrival; **AECI-747 deleted it** (`STAGE_1_SPEC.md`
-§20.2). Nothing replaced it, because nothing can. The sitemap plus the crawlable hub pages
-(AECI-746) are the passive discovery path; Request Indexing is the only way to make Google look
-*now*.
+§20.2). Nothing replaced it, because nothing can. ADR 0031 records why the answer was a ranked
+worklist rather than a second automated push or a drain cron. The sitemap plus the crawlable hub
+pages (AECI-746) are the passive discovery path; Request Indexing is the only way to make Google
+look *now*.
 
 **The procedure.**
 
-1. Open Search Console and select the **`aecintegrations.com` Domain property**.
-2. Paste the full URL into the **URL inspection** bar at the top — it must be an absolute
-   `https://www.aecintegrations.com/...` URL, because a Domain property spans several hosts and
-   will not guess one.
-3. If it reports "URL is not on Google", click **Request Indexing**. If it reports the URL is
-   already indexed, request it anyway when the *content* changed (a retitled page, a new
-   attestation on a pair page) — indexed is not the same as current.
-4. Repeat for the pages the promote actually touched.
+1. Open **`/admin/reindex`**. Rows arrive most important first. Ordering is not client-selectable,
+   because a worklist whose order you can change is a worklist whose top row is no longer the
+   right next action.
+2. Open Search Console and select the **`aecintegrations.com` Domain property**.
+3. Copy the top row's URL and paste it into the **URL inspection** bar. The stored value is
+   already absolute, because a Domain property spans several hosts and will not guess one.
+4. If it reports "URL is not on Google", click **Request Indexing**. If it reports the URL is
+   already indexed, request it anyway. The row is here because the *content* changed, and
+   indexed is not the same as current.
+5. Click **Done** on that row and move to the next. Done **deletes** the row rather than flagging
+   it, so an empty screen means genuinely nothing is pending rather than nothing you have not
+   already dismissed. Nothing is lost: a later edit to the same page queues a fresh row.
+6. Stop when Google stops accepting requests. What is left below the cut is, by construction, the
+   lowest-value work on the list.
 
-**Which URLs are worth a request.** In priority order: newly promoted **product** pages, then the
-**integration-PAIR** pages those products created, then any hub page whose content changed
-materially. Everything else is the sitemap's job. Requesting a page whose content did not change
-spends quota for nothing.
+**Which URLs are worth a request? The list already decided.** Rows carry a tier, assigned from
+the event that queued them by an exhaustive map (`apps/api/src/lib/gsc-recrawl-priority.ts`). The
+ranking is a diagonal over what kind of page it is and how much it changed.
+
+| Tier | What it is |
+|---|---|
+| 1 | A new product page |
+| 2 | A new vendor page, or a material change to a product page |
+| 3 | A new pair page, a newly published trade page, or a material change to a vendor page |
+| 4 | A change to an existing pair page, or any minor edit |
+
+**Nothing is filtered out, and tier 4 may never be reached.** That is the design rather than a
+shortfall. A filter would be silently lossy, because you would never see what a rule decided to
+discard, so a wrong rule would be undetectable. Ranking keeps everything and spends the quota
+top-down. Two things follow. Hub pages like `/products` are **never** queued for Google, because
+Google re-crawls them constantly anyway and a slot spent there is a slot not spent on a page
+Google has never seen. And nothing ages a row out, unlike the IndexNow buffer's seven-day sweep,
+because a row dropped from this list is work no human ever saw.
 
 **The quota is real and Google does not publish the number.** There is a per-property daily
 ceiling on Request Indexing. Observed behaviour here: a light week uses a handful of requests, and
 a heavy session — working through a conference's worth of vendors — can hit the cap outright. When
 it is hit the console says so; stop and continue the next day. Do not treat the ceiling as a
-number to plan against, because Google changes it without notice.
+number to plan against, because Google changes it without notice. **This ceiling is the reason the
+ordering exists.** Ranking a list only matters when you cannot finish it.
 
-**The failure mode this step carries.** It is undelegated, unmonitored and invisible. If the
-operator stops doing it, nothing goes red: new products simply take longer to appear in Google,
-and the Googlebot sitemap-coverage figure in
-[`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3a-bis degrades with no alert. That
-figure is the only place the omission would ever surface, which is why the weekly read (§2a of the
-same doc) now names it.
+**The failure mode this step carries.** It is undelegated and unmonitored. Nothing but a person
+does the Search Console half, and nothing goes red if they stop. What has changed is that the
+omission is now *visible*: the Operations badge climbs, and `/admin/reindex` shows how old the
+oldest row is. There is deliberately no alert on queue depth, and `docs/RUNBOOKS.md` records why
+that was declined rather than forgotten. The slow, indirect signal is still the Googlebot
+sitemap-coverage figure in
+[`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3a-bis, which the weekly read (§2a of
+the same doc) names.
 
 ## Local dev: running the API Worker (D1)
 

@@ -192,6 +192,7 @@ export class AdminShell {
         reviews: s.pending_reviews,
         requests: s.pending_requests,
         claims: s.pending_claims,
+        reindex: s.pending_reindex,
       });
 
       // Admin (success) path only: private surface → noindex + a real title. The

@@ -19,6 +19,7 @@ const PROFILE: AccountProfileResponse = {
   pending_reviews: null,
   pending_requests: null,
   pending_claims: null,
+  pending_reindex: null,
 };
 
 const REVIEWS: AccountReview[] = [

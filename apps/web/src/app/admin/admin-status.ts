@@ -51,6 +51,7 @@ export class AdminStatus {
         ...(typeof me.pending_reviews === 'number' ? { reviews: me.pending_reviews } : {}),
         ...(typeof me.pending_requests === 'number' ? { requests: me.pending_requests } : {}),
         ...(typeof me.pending_claims === 'number' ? { claims: me.pending_claims } : {}),
+        ...(typeof me.pending_reindex === 'number' ? { reindex: me.pending_reindex } : {}),
       });
     });
   }

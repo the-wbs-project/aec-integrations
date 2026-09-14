@@ -126,8 +126,10 @@ import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
+import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 
@@ -917,6 +919,34 @@ export async function bufferIndexNowAfterPromote(
       urlList.length,
       error instanceof Error ? error.message : 'indexnow_enqueue_failed',
     );
+  }
+
+  // The Google half, in the SAME hook rather than a second one (AECI-945).
+  //
+  // Two reasons it rides along here instead of being dispatched separately.
+  // Both queues are fed by the same event and gated on the same pair, so a
+  // second `dispatchHook` would double the post-commit fan-out to say the same
+  // thing twice. And the trade publication read backing `tradeUrls` has already
+  // been awaited above, so sharing the hook means one D1 read rather than two.
+  //
+  // Its own try/catch, though: a Google-queue failure must not suppress a
+  // successful IndexNow buffer or vice versa. They are independent discovery
+  // channels and one being broken is not a reason to lose the other.
+  try {
+    const entries = gscRecrawlEntriesForPromote(response, siteUrl, await tradeUrls);
+    const touched = await enqueueGscRecrawl(db, entries, 'promote');
+    submitCount(rc, rc.env, rc.request, 'aeci.gsc_recrawl.queued', touched, ['source:promote']);
+  } catch (error) {
+    // Fail-open for the same reason the IndexNow half is: the promote is
+    // committed, and a missing worklist row costs the operator a manual
+    // Request Indexing they would otherwise have made. The sitemap's `<lastmod>`
+    // is still the passive discovery path underneath both (§20.5 step 5).
+    logToPosthog(rc, rc.env, rc.request, {
+      level: 'warn',
+      message: 'aeci.api.promote.gsc_recrawl_failed',
+      source: 'review-app-promote',
+      reason: error instanceof Error ? error.message : 'gsc_recrawl_enqueue_failed',
+    });
   }
 }
 

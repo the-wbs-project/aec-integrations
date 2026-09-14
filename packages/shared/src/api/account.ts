@@ -75,6 +75,7 @@ export interface AccountProfileResponse {
   pending_reviews: number | null;
   pending_requests: number | null;
   pending_claims: number | null;
+  pending_reindex: number | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

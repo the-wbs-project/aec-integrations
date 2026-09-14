@@ -43,6 +43,7 @@ const ADMIN = {
   pending_reviews: 3,
   pending_requests: 2,
   pending_claims: 1,
+  pending_reindex: 4,
 };
 
 const REVIEWER = {
@@ -53,6 +54,7 @@ const REVIEWER = {
   pending_reviews: null,
   pending_requests: null,
   pending_claims: null,
+  pending_reindex: null,
 };
 
 describe('AdminStatus', () => {
@@ -105,11 +107,13 @@ describe('AdminStatus', () => {
     fixture.detectChanges(); // the badge seed rides an effect, so flush it
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
-    // AECI-922: all three queues, and the header badge shows their sum.
+    // AECI-922: every queue, and the header badge shows their sum. AECI-946
+    // added the fourth.
     expect(store.pendingReviews()).toBe(3);
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingClaims()).toBe(1);
-    expect(store.operationsTotal()).toBe(6);
+    expect(store.pendingReindex()).toBe(4);
+    expect(store.operationsTotal()).toBe(10);
     // The second hop is gone — the counts rode along with the role.
     http.expectNone('/api/admin/summary');
   });
@@ -187,7 +191,7 @@ describe('AdminStatus', () => {
 
     signedIn.set(true);
     fixture.detectChanges();
-    const { pending_requests: _r, pending_claims: _c, ...pre922 } = ADMIN;
+    const { pending_requests: _r, pending_claims: _c, pending_reindex: _x, ...pre922 } = ADMIN;
     http.expectOne('/api/account').flush(pre922);
     await settle();
     fixture.detectChanges();

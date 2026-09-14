@@ -133,6 +133,7 @@ const NO_QUEUE_COUNTS: AccountQueueCounts = {
   pending_reviews: null,
   pending_requests: null,
   pending_claims: null,
+  pending_reindex: null,
 };
 
 /**

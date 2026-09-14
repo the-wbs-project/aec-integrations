@@ -40,6 +40,11 @@ type ResourceKind =
   // vendor-scoped 404s above there is nothing to hide here — a catalogue id is the
   // review app's own record id and the caller is an authenticated admin.
   | 'connector_catalog'
+  // A row on the Google re-crawl worklist (AECI-946). Nothing to hide here
+  // either: the caller is an authenticated admin and the id is an autoincrement
+  // the same screen just handed them. The 404 exists because the row may have
+  // been cleared by another operator, or another tab, between read and click.
+  | 'reindex_queue_row'
   | 'category'
   | 'audience'
   | 'phase'

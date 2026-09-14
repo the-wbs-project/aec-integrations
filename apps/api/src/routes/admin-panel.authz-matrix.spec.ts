@@ -38,6 +38,7 @@ import { fakeExecutionContext } from '../test/helpers';
 import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminClaimDetailHandler } from './admin-claims';
+import { createAdminReindexListHandler } from './admin-reindex';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
@@ -153,6 +154,12 @@ const ROUTES = [
   // not: this file is `get()`-shaped, and a write belongs with the rest of its
   // write semantics (`admin-claims.spec.ts`).
   { name: 'GET /api/admin/claims/:id', url: `/api/admin/claims/${CLAIM}` },
+  // AECI-946 — the §5.11 re-index worklist. ONE read; the Done button's DELETE
+  // is not here, for the same reason as the vendor DELETE and the AECI-720
+  // PATCH above: this file is `get()`-shaped, and a write belongs with the rest
+  // of its write semantics (`admin-reindex.spec.ts`, which runs the same deny
+  // matrix against both verbs).
+  { name: 'GET /api/admin/reindex', url: '/api/admin/reindex' },
 ] as const;
 
 let jwks: TestJwks;
@@ -304,6 +311,7 @@ function makeApp() {
     requireAdmin(guard),
     createAdminClaimDetailHandler(t.factory, noAuthAccounts),
   );
+  app.get('/api/admin/reindex', requireAdmin(guard), createAdminReindexListHandler(t.factory));
   return app;
 }
 

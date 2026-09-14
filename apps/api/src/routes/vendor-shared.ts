@@ -19,11 +19,15 @@ import type { ZodType } from 'zod';
 
 import type { Db } from '../db/client';
 import { productVendors, products, profiles, vendorRequests, vendors } from '../db/schema';
-import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
+import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
+import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
+import { publicSiteBase } from '../lib/public-urls';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -95,18 +99,144 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
 }
 
 /**
- * The post-commit tail every vendor write shares: purge, then forward to
- * PostHog. Both best-effort, both outside the batch.
+ * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
+ *
+ * Two lists rather than one, because the two channels have opposite economics.
+ * `indexNow` is free, batched and unranked, so it takes everything the edit
+ * touched including hub pages. `gsc` is quota-capped and worked by a human, so
+ * it takes entity detail pages only, each carrying the reason that ranks it. See
+ * `lib/gsc-recrawl-priority.ts` for why the Google list is ordered rather than
+ * filtered.
+ *
+ * Optional on {@link afterVendorWrite}: nine of its call sites are seat-invite
+ * and membership writes that change no public page at all, and they pass
+ * nothing.
+ */
+/**
+ * Whether this environment should buffer re-crawl URLs at all.
+ *
+ * **Gated on `INDEXNOW_KEY` AND `PUBLIC_SITE_URL`, including for the Google
+ * queue, which has nothing to do with IndexNow.** That reuse is deliberate and
+ * worth stating, because it looks wrong. The API Worker has no `ALLOW_INDEXING`
+ * var; that lives on the SSR Worker. `INDEXNOW_KEY` is provisioned *only* on the
+ * environment where `ALLOW_INDEXING="true"` (`env.ts` §INDEXNOW_KEY), so within
+ * this Worker it is the only available signal for "this environment is public
+ * and indexable". Inventing a second env var to express the same fact would mean
+ * five more wrangler blocks to keep in sync and a new way for them to drift.
+ *
+ * Exported so a handler can skip DERIVING the URLs on a gated environment — the
+ * product edit resolves the trade publication floor with a D1 read, and running
+ * it to feed a buffer that will not be written is pure waste on every preview
+ * and every local request.
+ */
+export function recrawlEnabled(env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'>): boolean {
+  return Boolean(env.INDEXNOW_KEY) && publicSiteBase(env) !== null;
+}
+
+export interface VendorRecrawl {
+  indexNow: readonly string[];
+  gsc: readonly GscRecrawlEntry[];
+}
+
+/**
+ * Buffer a vendor write's affected URLs into the two re-crawl queues.
+ *
+ * Gated by {@link recrawlEnabled} — see there for why a Google queue keys off an
+ * IndexNow secret.
+ *
+ * Best-effort in both halves, and independently so: these are post-commit hooks
+ * on an already-committed edit, and a missed buffer costs discovery latency
+ * rather than correctness. The sitemap's `<lastmod>` — which a vendor edit *does*
+ * move, because every vendor write stamps `products.updated_at` — remains the
+ * passive discovery path underneath both (§20.5 step 5).
+ *
+ * No `audit_log` row: both tables' INSERTs are ADR 0022 log-class, exactly as the
+ * promote path's are.
+ *
+ * Deliberately NOT wrapped in promote's `dispatchHook` watchdog. That helper
+ * takes a `PromoteRunCtx` rather than a Hono `Context`, and its 20-second timer
+ * exists to contain a wedged outbound `fetch`. These are local D1 inserts on a
+ * binding, with no connection to exhaust (AECI-666).
+ */
+async function bufferVendorRecrawl(
+  c: VendorContext,
+  db: Db,
+  pending: VendorRecrawl | Promise<VendorRecrawl>,
+): Promise<void> {
+  // Re-checked here as well as at the call site. The call-site check exists so a
+  // handler never does the WORK of deriving URLs on a gated environment; this one
+  // is the actual guard, so a future caller that forgets the first check still
+  // cannot write rows on a `noindex` tier.
+  if (!recrawlEnabled(c.env)) return;
+
+  // Awaited HERE rather than at the call site. A caller whose URL set depends on
+  // a post-commit read (the product handler's trade publication floor) hands the
+  // promise straight over, so the read never delays the response — it settles
+  // inside `waitUntil` alongside the inserts it feeds.
+  const recrawl = await pending;
+
+  if (recrawl.indexNow.length > 0) {
+    try {
+      const queued = await enqueueIndexNowUrls(db, recrawl.indexNow, 'vendor');
+      // Tagged `source:vendor` so the series splits by arm. Without this the
+      // metric would measure the promote arm alone while the table quietly
+      // filled from two writers — a rate that under-reports by an unknown factor
+      // is worse than no rate at all.
+      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.indexnow.queued', queued, [
+        'source:vendor',
+      ]);
+    } catch (error) {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'warn',
+        message: 'aeci.api.vendor.indexnow_failed',
+        outcome: error instanceof Error ? error.message : String(error),
+        urls_count: recrawl.indexNow.length,
+      });
+    }
+  }
+
+  if (recrawl.gsc.length > 0) {
+    try {
+      const touched = await enqueueGscRecrawl(db, recrawl.gsc, 'vendor');
+      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.gsc_recrawl.queued', touched, [
+        'source:vendor',
+      ]);
+    } catch (error) {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'warn',
+        message: 'aeci.api.vendor.gsc_recrawl_failed',
+        outcome: error instanceof Error ? error.message : String(error),
+        urls_count: recrawl.gsc.length,
+      });
+    }
+  }
+}
+
+/**
+ * The post-commit tail every vendor write shares: purge, forward to PostHog, and
+ * — since AECI-944 — buffer the affected URLs for re-crawl. All best-effort, all
+ * outside the batch.
  *
  * `entries` takes an array as well as a single entry because a write may emit
  * more than one `audit_log` row — AECI-301's `POST /api/vendor/claims` writes a
  * `claim.created` plus one `attestation.created` per owned slot, and §26.5 wants
  * every row forwarded, not just the headline one.
+ *
+ * **`recrawl` is the AECI-944 reversal.** Until then this tail deliberately did
+ * not ping a crawler: the comment on `productEditTags` said a vendor edit
+ * "repaints the edge but does not ask a crawler to re-fetch; the next promote
+ * touching that trade does". That was defensible while no vendor held a seat.
+ * It stops being defensible the moment a vendor can change a public page that no
+ * promote will touch again for weeks. Putting it HERE rather than at each call
+ * site means every present and future vendor write inherits it by default, and a
+ * writer that genuinely changes no public page opts out by passing nothing.
  */
 export function afterVendorWrite(
   c: VendorContext,
   tags: readonly string[],
   entries: AuditLogEntry | readonly AuditLogEntry[],
+  recrawl?: VendorRecrawl | Promise<VendorRecrawl>,
+  db?: Db,
 ): void {
   const list = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
   // ONE request per vendor for the whole entry set, not one per entry
@@ -119,6 +249,7 @@ export function afterVendorWrite(
   // are lost with no error at all. Each leg self-gates on its own key.
   logBatchToPosthog(c.executionCtx, c.env, c.req.raw, list.map(vendorAuditLogEvent));
   c.executionCtx.waitUntil(purgeTags(c, tags));
+  if (recrawl && db) c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl));
 }
 
 // ─── Scoping predicates shared by a handler and its freshness cursor ─────────

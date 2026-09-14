@@ -5,6 +5,7 @@ export * from './admin-connector-catalogs';
 export * from './admin-connectors';
 export * from './admin-entitlements';
 export * from './admin-panel';
+export * from './admin-reindex';
 export * from './admin-requests';
 export * from './admin-reviewers';
 export * from './admin-users';

@@ -143,6 +143,7 @@ describe('GET /api/account', () => {
       pending_reviews: null,
       pending_requests: null,
       pending_claims: null,
+      pending_reindex: null,
     });
   });
 
@@ -172,6 +173,7 @@ describe('GET /api/account', () => {
       // these three, so a requests count that swallowed claims would report 6.
       pending_requests: 1,
       pending_claims: 2,
+      pending_reindex: 0,
     });
   });
 
@@ -183,6 +185,7 @@ describe('GET /api/account', () => {
       pending_reviews: 0,
       pending_requests: 0,
       pending_claims: 0,
+      pending_reindex: 0,
     });
   });
 });

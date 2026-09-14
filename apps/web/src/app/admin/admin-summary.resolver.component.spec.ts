@@ -37,6 +37,7 @@ const SUMMARY: AdminSummaryResponse = {
   pending_reviews: 5,
   pending_requests: 2,
   pending_claims: 1,
+  pending_reindex: 2,
 };
 
 const ROUTE = {} as ActivatedRouteSnapshot;

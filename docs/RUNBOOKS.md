@@ -1761,11 +1761,23 @@ pair leaves a **noindexed empty pair page, not a 404**.
 names the submission count and how many were refused.
 
 **What it means:** the pages we changed are not reaching Bing or Yandex. IndexNow is the
-**only** automated discovery channel we have on either engine — AECI-747 deleted the Google
-Indexing ping, and Google discovery is a manual human step (`environments.md` → "Request
-indexing by hand"). Discovery falls back to ordinary sitemap crawling, which is measured in
-days rather than minutes. **Nothing is lost**: the buffered URLs stay in `indexnow_queue`
-and the next twenty-minute drain retries them, up to a seven-day ceiling.
+**only** automated discovery channel we have on either engine. AECI-747 deleted the Google
+Indexing ping, and Google discovery is still a manual human step, though since AECI-946 it is
+a **recorded** one: the URLs queue themselves into `gsc_recrawl_queue` and an operator works
+`/admin/reindex` (`environments.md` → "Request indexing by hand (Google)"). Discovery falls
+back to ordinary sitemap crawling, which is measured in days rather than minutes. **Nothing is
+lost**: the buffered URLs stay in `indexnow_queue` and the next twenty-minute drain retries
+them, up to a seven-day ceiling.
+
+**This alert says nothing about the Google side.** The two channels share a gate
+(`INDEXNOW_KEY` + `PUBLIC_SITE_URL`) and nothing else. A 100% IndexNow refusal leaves
+`gsc_recrawl_queue` filling normally, and a Google worklist nobody has touched in a month
+leaves this alert silent. Do not treat one as evidence about the other.
+
+**Since AECI-944 this alert has a second input.** Every vendor-portal write now appends to
+`indexnow_queue`, so the buffer is non-empty on days it used to be empty. The ≥3-submission
+floor therefore clears more often and the alert evaluates more often. The threshold has not
+moved (`OBSERVABILITY.md`).
 
 **This alert exists because its absence was the defect.** Production ran at a 100% HTTP 429
 failure rate from at least 2026-09-07 to 09 and nothing noticed, because the hook fails open
@@ -1822,3 +1834,36 @@ file-serving half independently of any submission.
 `aeci.indexnow.submit{source:cron,outcome:ok}` non-zero in production. Nothing else counts —
 not a green deploy, not a merged PR. It needs a real catalogue write to buffer something for
 the drain to send, so after a fix, promote a product and wait one tick.
+
+### There is no runbook for an unworked Google queue, and that is a decision
+
+**No alert exists on `gsc_recrawl_queue` depth, and none should.** This is recorded here rather
+than left as an omission, following the precedent `ADMIN_PANEL_SPEC.md` sets for declining a
+thing in writing.
+
+**The reason is that a healthy queue is a non-empty queue.** Every promote and every vendor
+write appends to it, and the operator drains it against a daily quota Google does not publish.
+Tier 4 is explicitly a bucket that may never be reached (`STAGE_1_SPEC.md` §20.2). So depth
+alone cannot separate "nobody has looked at this in three weeks" from "it is Saturday and the
+catalogue is busy". An alert on it would fire on ordinary days, and an alert that fires on
+ordinary days is the thing that trained everyone to ignore the review-queue zero.
+
+**What is in place instead**, in increasing order of latency:
+
+1. **A nav badge.** The Operations group carries the depth on every admin screen, and the
+   header account menu carries the same sum. Zero renders no badge.
+2. **A daily checklist row** (`POST_LAUNCH_MONITORING.md` §1, row 11). It is the one row on
+   that list that is work rather than a read.
+3. **The Googlebot sitemap-coverage figure** (§3a-bis of the same doc), read weekly. It is the
+   only *outcome* signal, and it degrades slowly.
+
+**Re-open this decision if** the badge proves ignorable, which would look like a tier-1 row
+sitting unworked for more than a week while the operator was active in the console. The signal
+to build first is **oldest tier-1 or tier-2 row age**, not total depth. Depth conflates a busy
+catalogue with a neglected queue; age does not.
+
+**If you are triaging a queue that has genuinely been abandoned**, there is nothing to repair.
+Rows do not expire, by design, so the work is all still there. Open `/admin/reindex`, filter
+`?priority=1`, and spend that day's quota from the top. The one thing to check first is that
+the queued hosts still match `PUBLIC_SITE_URL`, since an environment re-point leaves URLs the
+operator cannot paste into that Search Console property.

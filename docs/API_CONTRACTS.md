@@ -1129,6 +1129,7 @@ export interface AccountProfileResponse {
   pending_reviews: number | null;
   pending_requests: number | null;
   pending_claims: number | null;
+  pending_reindex: number | null;
 }
 ```
 
@@ -1136,8 +1137,8 @@ export interface AccountProfileResponse {
 `requireAuth()` on every request (AUTH_AND_RLS §4.5) — never a client claim. The
 web client reads it to decide whether to surface admin affordances.
 
-The three counts (AECI-617, widened from one to three by **AECI-922**) are the
-Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
+The four counts (AECI-617, widened from one to three by **AECI-922** and to four by
+**AECI-946**) are the Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
 through the same server-side implementation — and are non-null **only** for `role
 === 'admin'`; a non-admin gets `null` on all three and neither table is counted.
 They ride along here so the header's account menu resolves "am I an admin, and how
@@ -1152,16 +1153,24 @@ resolver's gate and the in-shell badge feed.
 | `pending_reviews` | `reviews.status = 'pending'` |
 | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
+| `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
 
-**The three are disjoint, and the header badge SUMS them.** Requests and claims
+**The four are disjoint, and the header badge SUMS them.** Requests and claims
 are one table split by `kind`, so `pending_requests` is corrections-only; an
 all-kinds count would put every open claim into the total twice. `in_review` is
 deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
 are split on the same `kind` boundary (`open_requests` + `open_claims`) for the
-same reason. All three are `null` together or numbers together — a `0` means an empty queue,
+same reason. All four are `null` together or numbers together — a `0` means an empty queue,
 never "not allowed to know".
+
+**`pending_reindex` needs no predicate, and that is the design rather than an
+omission.** The other three filter on a status column. `gsc_recrawl_queue` has none:
+a row is pending or it has been deleted, because the §5.11 Done button deletes rather
+than flagging. Its disjointness from the other three is also trivial rather than
+argued, since it is the only one of the four that counts a table other than `reviews`
+or `vendor_requests`.
 
 Errors: `UNAUTHENTICATED`.
 
@@ -1372,20 +1381,21 @@ All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middlewa
 
 #### `GET /api/admin/summary`
 
-The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 shipped only the pending-review count (`STAGE_1_SPEC.md` §22.1); **AECI-922** added the other two Operations queues, so the console's nav can show one number per screen and their sum on the closed Operations trigger. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
+The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 shipped only the pending-review count (`STAGE_1_SPEC.md` §22.1); **AECI-922** added the other two Operations queues, and **AECI-946** added the re-index worklist, so the console's nav can show one number per screen and their sum on the closed Operations trigger. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
 
 ```typescript
 export const AdminSummaryResponseSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
   pending_requests: z.number().int().nonnegative(),
   pending_claims: z.number().int().nonnegative(),
+  pending_reindex: z.number().int().nonnegative(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
-Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of three `COUNT(*)`s, and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of four `COUNT(*)`s, and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
 
-**The three counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` is corrections-only. That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
+**The four counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` is corrections-only. That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
 
 **Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badges. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same counts now ride on `GET /api/account` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the numbers stay consistent.
 
@@ -2690,6 +2700,102 @@ Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin
 themselves (a banned admin would lock themselves out of `requireAdmin()`).
+
+---
+
+#### `GET /api/admin/reindex` (AECI-946)
+
+The Google re-crawl worklist (`ADMIN_PANEL_SPEC.md` §5.11, `STAGE_1_SPEC.md` §20.2,
+ADR 0031). Contract in `packages/shared/src/api/admin-reindex.ts`; handler in
+`apps/api/src/routes/admin-reindex.ts`. Registers on `authAdmin` behind
+`requireAdmin()`.
+
+```
+GET /api/admin/reindex?page=1&perPage=25&priority=1
+→ 200 {
+    data: [
+      {
+        id: 412,
+        url: "https://www.aecintegrations.com/products/procore",
+        priority: 1,
+        reason: "product.created",
+        source: "promote",
+        queued_at: "2026-09-14T09:12:03.101Z"
+      }
+    ],
+    page: 1, perPage: 25, total: 37
+  }
+```
+
+**The envelope is the BARE `paginatedResponseSchema`**, not `admin-panel.ts`'s
+`.extend({ generated_at, source, notes })` console shape, per `ADMIN_PANEL_SPEC.md`
+§6's rule for surfaces added outside the panel epic. `notes` exists to qualify a
+number that might be wrong. A queue depth cannot be qualified: the rows are either
+there or they are not.
+
+**`url` is absolute**, deliberately. Search Console's URL Inspection bar rejects a
+relative URL, because a Domain property spans several hosts and will not guess one.
+The value the operator copies has to be paste-ready as it stands.
+
+**`reason` is an open `string`, not a `z.enum`.** Nothing prunes this table on a
+schedule, so a row can outlive the code that wrote its reason. A closed enum would
+make the reader fail on a row it should merely render. The client maps known values
+to labels and falls back to humanizing the slug. Known values today:
+`product.created`, `product.updated`, `product.minor`, `vendor.created`,
+`vendor.updated`, `vendor.minor`, `pair.created`, `pair.updated`,
+`trade.published`.
+
+**Ordering is `priority ASC, queued_at ASC, id ASC` and there is no `sort`
+parameter.** A worklist whose order the operator can change no longer has the right
+next action on top, which is the only thing this surface is for. The `id ASC` term is
+the AECI-825 rule rather than decoration: two rows written by the same promote share
+a `queued_at` to the millisecond, and a paginated list without a unique trailing term
+can drop or duplicate a row across page boundaries.
+
+`?priority=` (int 1–4) is the sole filter, and it is a convenience rather than the
+mechanism. Its use is "clear the tier-1 backlog first on a day when the quota is
+tight", which the default ordering already serves.
+
+Writes nothing, including no `audit_log` row (ADR 0022 / `ADMIN_PANEL_SPEC.md` §6).
+
+---
+
+#### `DELETE /api/admin/reindex/:id` (AECI-946)
+
+Mark one URL done and drop it.
+
+```
+DELETE /api/admin/reindex/412
+→ 204 No Content
+```
+
+**Done deletes rather than flagging.** A `requested_at` column would mean an
+empty-looking screen could still hold rows, so the nav badge would have to
+distinguish "pending" from "pending and not yet dismissed". Deleting makes an empty
+list mean exactly one thing. Nothing is lost: a later edit to the same page inserts a
+fresh row.
+
+**One `audit_log` row, in the SAME `db.batch` as the delete.**
+`action='reindex.cleared'`, `entity_type='gsc_recrawl_queue'`, `entity_id` the row
+id, `before_state` carrying the whole cleared row, `metadata.source='admin-panel'`,
+attributed to the **admin** rather than to `'system'`. The handler pre-reads the row
+because D1 does not return deleted rows and the audit statement must be built before
+the batch runs. This is **not** §26.1's scheduled-deletion exception, which allows one
+summary row per run: that allowance is for crons, and an operator clicking a button
+falls under the ordinary per-write invariant.
+
+**No `rateLimit()`**, matching every other `requireAdmin()` write
+(`waf-rate-limits.md` §6.2). The role is hand-granted with no anonymous path to it,
+and every write audits in-batch, so a limiter would add no protection while risking a
+429 partway through the burst this screen exists to support.
+
+No cache purge and no `workflow_instances` row. No public surface reads this table,
+and clearing a worklist row is not a workflow transition.
+
+Errors: `VALIDATION_FAILED` (400) on a non-integer or non-positive `:id`;
+`NOT_FOUND` (404) when the row is already gone, which is the ordinary outcome of two
+tabs clearing the same row. `id` is `AUTOINCREMENT` and SQLite never reuses it, so a
+stale click cannot land on a different row.
 
 ---
 
@@ -4364,8 +4470,16 @@ routine push would silently revert their work. Therefore:
   stays claimed.
 
 Blocked entities are **omitted** from `vendors[]` / `product` rather than marked
-with a new `operation`, which is what keeps them out of the cache purge, IndexNow,
-Google Indexing, and the Algolia sync (all four iterate the result arrays). So
+with a new `operation`, which is what keeps them out of the cache purge, the IndexNow
+buffer, the Google re-crawl worklist, and the Algolia sync (all four iterate the
+result arrays). *(This sentence named "Google Indexing" until AECI-945. That
+transport was deleted by AECI-747 and the fourth consumer is now `gsc_recrawl_queue`,
+which a person drains.)* **The omission is the only thing keeping a blocked entity
+off that worklist**, and it is worth saying out loud because there is no second
+guard. `gscRecrawlEntriesForPromote` iterates `response.vendors` unconditionally, so
+a future change that reported a blocked vendor with some new `operation` instead of
+omitting it would queue a claimed vendor's page for manual re-indexing with nothing
+downstream to catch it. So
 `product: null` now means either "no product was sent" or "the product was
 blocked"; the two are told apart by a `skipped[]` entry whose `ref` matches the
 product's, which only ever appears when a product *was* sent. Seat existence is

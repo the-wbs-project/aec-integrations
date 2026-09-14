@@ -42,7 +42,7 @@ Three shapes were considered:
 - **The caller-supplied job ID *is* the Workflow instance ID** — the idempotency key. `create({ id })` throws on a duplicate, so a replayed kick-off attaches to the existing instance and returns the same `jobId`. There is no code path that starts two instances for one job ID, and therefore none that commits twice. The review app stamps `promote_job_id` on the Airtable row *before* pushing (AECI-567), which is what makes the key durable on its side.
 - **The commit is one non-retried step.** `commit-promote` throws `NonRetryableError(message, code)` on any failure, so the engine never replays a half-planned create. The second argument becomes the error's `name` — the only field `instance.status().error` carries besides the message — which is how the structured `ApiErrorCode` (`SLUG_CONFLICT`, `INTERNAL_ERROR`) survives to the poll response.
 - **The ingest keeps its shape.** The 1,550-line plan-then-batch body is unchanged; only its dependency on Hono's `Context` was narrowed to a four-member `PromoteRunCtx` (`env` / `waitUntil` / `request` / `bookmark`). All five post-commit seams are untouched.
-- **Post-commit hooks stay fire-and-forget** (`ctx.waitUntil`: audit forwards, cache purge, Algolia, IndexNow, Google Indexing, home-stats), dispatched from `run()` *after* the step resolves rather than inside it — so a step replay cannot re-fire them, and the job reaches `complete` the moment the batch commits. The poller gets its IDs without waiting on Algolia or Cloudflare. **Fire-and-forget is not fire-and-ignore** — see the [2026-08-27 amendment](#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for the connection budget the dispatch must respect and the watchdog that keeps one wedged hook from killing the rest.
+- **Post-commit hooks stay fire-and-forget** (`ctx.waitUntil`: audit forwards, cache purge, Algolia, the IndexNow buffer, the Google re-crawl worklist, home-stats — this list read "IndexNow, Google Indexing" until AECI-945; both are D1 buffer writes now, and the Google transport was deleted by AECI-747), dispatched from `run()` *after* the step resolves rather than inside it — so a step replay cannot re-fire them, and the job reaches `complete` the moment the batch commits. The poller gets its IDs without waiting on Algolia or Cloudflare. **Fire-and-forget is not fire-and-ignore** — see the [2026-08-27 amendment](#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for the connection budget the dispatch must respect and the watchdog that keeps one wedged hook from killing the rest.
 - **Oversize bundles stage in KV.** Workflow event params cap at 1 MiB; above 512 KiB the validated payload goes to `promote:payload:{jobId}` (24h) and the params carry `payloadRef: 'kv'`. The committed ID map is also mirrored to `promote:result:{jobId}` (90 days) so the IDs outlive the 30-day instance retention. Both key spaces live in `apps/api/src/lib/promote-jobs.ts`.
 - **Job-level observability.** `aeci.api.promote.kickoff`, `aeci.api.promote.job`, `aeci.api.promote.job.duration_ms`, plus an explicit `aeci.api.promote.job_failed` error log from the Workflow. Necessary, not decorative: `aeci.api.query.duration_ms{endpoint:/api/promote}` now times only the kick-off, and a Workflow failure never passes through the router's `errorHandler`, so without the log `REVIEW_APP_PROMOTE_API.md` §6.3's "every rejected promote is logged" would quietly stop holding. *(That guarantee is vendor-independent and must survive the ADR 0024 Datadog → PostHog swap — it is item 7 of the migration's verification checklist.)*
 
@@ -164,7 +164,7 @@ invocation, and 5 invocations killed outright by the runtime hang detector
 (`"your Worker's code had hung and would never generate a response"`, 11.4s wall on
 0.32s CPU). All 63 commits landed and all 63 instances reported `complete` — the
 ledger and the retry semantics were never at fault. What was lost was the post-commit
-tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Silently.
+tail: Algolia upserts, cache purges, search-engine buffering, audit forwards. Silently.
 
 **What changed.**
 
@@ -179,6 +179,11 @@ tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Sile
 3. **Google Indexing publishes in bounded waves** rather than opening up to 100
    connections at once — it has no batch endpoint, so bounding concurrency
    (`mapWithConcurrency`, `packages/shared/src/concurrency.ts`) is the only lever.
+   *(**This hook no longer exists.** AECI-747 deleted the transport on 2026-09-01, and
+   AECI-945 replaced it with a D1 worklist a person drains, which makes no outbound
+   request at all — ADR 0031. The rule it demonstrates is unchanged and still binds the
+   GoTrue lookups; `mapWithConcurrency` is still the lever where an upstream has no
+   batch endpoint. Left in place because this is a record of what AECI-666 changed.)*
 4. **The cache purge enqueues via one `queue.sendBatch()`**, not a concurrent
    `send()` per batch. A Queue producer call counts against the same budget as
    `fetch`. Latent today — `CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote's tag
@@ -259,7 +264,7 @@ idempotent by construction — a create with no `supabaseId` mints a new row —
 why the ledger PK exists there and why the commit step must never be auto-retried.
 
 **Post-commit hooks: two, not seven.** The connector arm dispatches only the §26.5 audit
-forward and the skip report. No Algolia sync, no IndexNow, no Google Indexing, no home-stats
+forward and the skip report. No Algolia sync, no IndexNow buffer, no Google worklist row, no home-stats
 refresh, and no cache purge — `STAGE_1_5_SPEC.md` §13.5 is categorical that reachable data
 never counts anywhere, and no cacheable route depends on these rows until AECI-715/716. The
 absence is asserted by a source guard in `routes/promote-connector.spec.ts` rather than by a

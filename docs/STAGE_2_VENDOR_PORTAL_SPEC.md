@@ -256,10 +256,27 @@ trades that were set) and so purges every trade on the product. Both purge a sup
 stale; the rule is shared, the trigger is not. A trade the product already carried needs no
 explicit tag, because `/trades/{slug}` embeds a `product:{slug}` tag for every product it lists.
 
-**Not carried over from promote, deliberately:** the IndexNow / Google submission that
+**Carried over from promote after all (AECI-944, 2026-09-14).** This paragraph used to read:
+"*Not carried over from promote, deliberately: the IndexNow / Google submission that
 `POST /api/promote` fires for newly-published trade URLs. A vendor edit repaints the edge but
 does not ask a crawler to re-fetch; the next promote touching that trade does. Cheap to add if
-vendor-published trade pages prove slow to index.
+vendor-published trade pages prove slow to index.*"
+
+**What changed is that vendors got seats.** The original reasoning was sound while the vendor
+surface was dark, because every public page a vendor could reach was also a page a promote
+would touch again shortly. Once a seated vendor can rewrite a product description, that page
+may not be promoted again for weeks, and the edge repaint reaches no crawler at all. So the
+re-crawl announcement now rides `afterVendorWrite` rather than each call site, which means
+every present and future vendor write inherits it and a writer that changes no public page
+opts out by passing nothing.
+
+The two channels are fed differently, and the difference is the whole design. IndexNow is free
+and unranked, so it takes everything the edit touched. Google is quota-capped and worked by
+hand, so it takes entity detail pages only, each ranked by a `reason` (`gsc_recrawl_queue`,
+`DATABASE_SCHEMA.md` §9.8). A product edit still resolves the trade publication floor
+post-commit before announcing anything, exactly as promote does, so a sub-floor `noindex`
+trade page is never submitted. `STAGE_1_SPEC.md` §20.2 holds the full contract and ADR 0031
+holds the reasoning for the Google half.
 
 **The picker shows the full closed vocabulary**, unfiltered by the publication floor. That floor
 gates the SEO surfaces, not tagging — hiding a sub-floor trade would make it permanently

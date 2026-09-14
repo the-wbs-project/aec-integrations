@@ -1841,7 +1841,7 @@ create table indexnow_queue (
   id integer primary key autoincrement,  -- the drain's delete cursor; see below
   url text not null,                     -- ABSOLUTE public URL, e.g. https://www.aecintegrations.com/products/revit
   queued_at text not null,               -- drives the 7-day staleness sweep
-  source text not null default 'promote' -- what appended it; 'promote' is the only writer today
+  source text not null default 'promote' -- what appended it; 'promote' or, since AECI-944, 'vendor'
 );
 
 create unique index indexnow_queue_url_idx on indexnow_queue(url);
@@ -1898,10 +1898,18 @@ writes exactly one summary row in the **same `db.batch`**: `action='indexnow.dra
 `entity_type='indexnow_queue'`, `metadata.reason` of `submitted` or `expired`. A run that
 removes nothing writes no row.
 
-**Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit)
-and the drain (`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only — no public
-or admin surface queries it; its state is visible as the `aeci.indexnow.pending` gauge and
-the `job_runs` row for `indexnow-drain`.
+**There are two appenders since AECI-944, not one.** `bufferVendorRecrawl`
+(`apps/api/src/routes/vendor-shared.ts`) appends on every vendor-portal write that changes a
+public page, with `source = 'vendor'`. Five endpoints reach it: the profile PATCH, the product
+PATCH, the claim POST, and the attestation PUT and DELETE. Nothing else about this table
+changed, because the `url` unique index already dedupes across writers as well as within one.
+A page a vendor edits between two drain ticks is still submitted once.
+
+**Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit),
+`bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit) and the drain
+(`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only — no public or admin surface
+queries it; its state is visible as the `aeci.indexnow.pending` gauge and the `job_runs` row
+for `indexnow-drain`.
 
 ---
 
@@ -2462,6 +2470,111 @@ create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs
   way. AECI-721's migration is therefore a lossless CASE, not a straight copy:
   `one-way` with source = A → `a_to_b`; `one-way` with source = B → `b_to_a`; `bidirectional` →
   `both`; NULL → NULL.
+
+---
+
+### 9.8 `gsc_recrawl_queue`
+
+The Google re-crawl worklist (AECI-945; `STAGE_1_SPEC.md` §20.2, ADR 0031). Added by migration
+`apps/api/migrations/0036_youthful_vengeance.sql`, which is a pure `CREATE TABLE` plus two
+indexes and recreates nothing. A promote or a vendor write appends the entity pages it changed;
+the `/admin/reindex` screen (`ADMIN_PANEL_SPEC.md` §5.11) reads them in priority order, and its
+Done button deletes one row.
+
+```sql
+create table gsc_recrawl_queue (
+  id integer primary key autoincrement,  -- the row handle the Done button posts back; NOT a drain cursor
+  url text not null,                     -- ABSOLUTE public URL, e.g. https://www.aecintegrations.com/products/revit
+  priority integer not null,             -- 1 (most important) .. 4 (may never be reached); derived from `reason`
+  reason text not null,                  -- why it is here, e.g. product.created; drives the tier AND the screen's "why" column
+  source text not null,                  -- what appended it: 'promote' or 'vendor'
+  queued_at text not null                -- when the change happened; oldest-first inside a tier, PRESERVED on conflict
+);
+
+create unique index gsc_recrawl_queue_url_idx on gsc_recrawl_queue(url);
+create index gsc_recrawl_queue_priority_queued_at_idx on gsc_recrawl_queue(priority, queued_at);
+```
+
+**Why it is a separate table rather than a column on `indexnow_queue`.** Two structural
+reasons, and neither is tidiness. First, that table's drain **deletes** with
+`where id <= :maxId`, one bound parameter, chosen because D1 caps a query at 100 of them.
+Retaining rows for a second, slower consumer would break that cursor. Second, the two consumers
+want opposite things. IndexNow is free, batched and unranked, so it takes everything
+indiscriminately. Request Indexing is quota-capped, so this list has to be **ordered**, and a
+row may sit here for weeks without being reached. Those are different lifecycles on one row.
+
+**A person drains this one, and there is no cron.** Google's Indexing API accepts `JobPosting`
+and `BroadcastEvent` only, which is why AECI-747 deleted the ping we used to make. Nothing
+replaced it because nothing can. Search Console then URL Inspection then Request Indexing is a
+browser action, so the automation stops at *knowing what needs doing*.
+
+**Conflict RAISES priority; it does not ignore the conflict.** `url` is UNIQUE, so a page edited
+five times before the operator reaches it is one row rather than five. The statement is
+`on conflict (url) do update` taking `min(existing, incoming)`, because 1 is the most important
+tier. A page that had a logo swap (4) and is then renamed (2) must rise to 2. Under
+`do nothing` it would keep the logo swap's tier and stay buried at the bottom of a list nobody
+reaches, which is indistinguishable from never having queued it. The `reason` and `source`
+follow the priority, so the screen's "why" column explains the tier the row actually sorts at.
+
+**`queued_at` deliberately keeps its original value on conflict.** Ordering inside a tier is
+oldest-first. Refreshing the timestamp would let a page someone keeps editing starve an older
+one forever.
+
+**`priority` carries no CHECK constraint.** The exhaustive `reason` map in
+`apps/api/src/lib/gsc-recrawl-priority.ts` is the enforcement, and it is exhaustive at the type
+level, so a new reason cannot ship untiered. A CHECK here would force a destructive table
+recreate every time the tier count changed, which on D1 is the hazard ADR 0018 and migration
+`0027` exist to warn about.
+
+**Priority ranks, it never filters.** A filter is silently lossy: the operator never sees what
+was discarded, so a rule that turns out to be wrong is undetectable. Ranking keeps everything,
+spends the quota top-down, and leaves tier 4 unreached on a busy week. The failure mode becomes
+"I did not get to it", which is visible on the screen, rather than "it never existed".
+
+**No auto-prune, and there must not be one.** `indexnow_queue` ages rows out after
+`INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) because a missed ping is recoverable, since the sitemap covers
+the URL anyway. Here an aged-out row is work silently discarded that nobody ever saw. Rows
+persist until a human clears them. The screen displays age and nothing enforces it. The only
+other disposal path in the module is `deleteGscRecrawlForeignHosts`, which drops rows whose host
+no longer matches `PUBLIC_SITE_URL` after an environment re-point, because the operator cannot
+paste those into that Search Console property. **It has no caller today.** It is a statement
+builder waiting for one, and it is listed here so a reader does not mistake its absence from the
+call graph for a missing disposal rule. Wiring it is a one-line change at the admin read; wiring
+it to a cron would be the staleness sweep this section refuses.
+
+**The write side is chunked at 20 rows per statement, not 33.** Five columns are bound per row,
+so 20 rows is D1's 100-parameter cap exactly and one more row is a rejected statement.
+`INDEXNOW_INSERT_ROWS_PER_STATEMENT` is 33 because that table binds three columns; copying the
+constant across would bind 165 parameters and fail. It would fail **only in production**,
+because better-sqlite3's ceiling in the in-memory harness is 32,766. The specs therefore assert
+the emitted parameter count per statement rather than only that the rows landed.
+
+**One worklist read is capped at 200 rows.** That is sized for a screen a human works down, not
+for a machine drain. It is far more than a day's Request Indexing quota, so anything below the
+cut is by definition tier-4 work that was not going to be reached today.
+
+**`audit_log`: the INSERTs are exempt, the DELETE is not, and not for the usual reason.**
+Appending is derived, log-class and publicly invisible, so ADR 0022 exempts it like
+`indexnow_queue` and `job_runs`. The DELETE audits **per row**, `action='reindex.cleared'`,
+`entity_type='gsc_recrawl_queue'`, in the same `db.batch` as the delete, attributed to the
+admin rather than to `'system'`. Note this is **not** §26.1's scheduled-deletion exception,
+which allows one summary row per run. This is an operator action on an admin screen, so the
+ordinary per-write rule reaches it directly and the summary-row allowance never applies.
+
+**Absent from the `schema` barrel**, like `indexnowQueue` and `metricsDaily`. Every access is a
+direct `db.insert()` / `db.select()` / `db.delete()` and never `db.query.*`, so it needs no
+relational-query registration.
+
+**Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit) and
+`bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit), both through
+`enqueueGscRecrawl` (`apps/api/src/lib/gsc-recrawl-queue.ts`), and cleared one row at a time by
+`DELETE /api/admin/reindex/:id`. Both appenders gate on `INDEXNOW_KEY` **and**
+`PUBLIC_SITE_URL`, which looks wrong for a table that has nothing to do with IndexNow and is
+deliberate: the API Worker has no `ALLOW_INDEXING` var, and `INDEXNOW_KEY` is provisioned only
+where `ALLOW_INDEXING="true"`, so it is the only available "this environment is public and
+indexable" signal. **Read by** `GET /api/admin/reindex` (the worklist) and
+`readAdminQueueCounts` (`apps/api/src/lib/admin-queue-counts.ts`), which counts it with no
+predicate because every row is pending by construction.
 
 ---
 

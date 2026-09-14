@@ -59,6 +59,10 @@ import { createAdminAudienceHandler } from './routes/admin-audience';
 import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminSubscribersHandler } from './routes/admin-subscribers';
+import {
+  createAdminReindexListHandler,
+  createClearReindexRowHandler,
+} from './routes/admin-reindex';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -678,6 +682,14 @@ authAdmin.get('/api/admin/system', requireAdmin(), createAdminSystemHandler());
 authAdmin.get('/api/admin/audience', requireAdmin(), createAdminAudienceHandler());
 authAdmin.get('/api/admin/feedback', requireAdmin(), createAdminFeedbackHandler());
 authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHandler());
+
+// §5.11 / AECI-946 — the Google re-crawl worklist. The GET is a plain admin read;
+// the DELETE is the Done button and carries NO `rateLimit()`, matching every other
+// `requireAdmin()` write (`waf-rate-limits.md` §6.2: hand-granted role, no
+// anonymous path, and every write audits in-batch — a limiter would only risk
+// 429-ing the burst this screen exists to support).
+authAdmin.get('/api/admin/reindex', requireAdmin(), createAdminReindexListHandler());
+authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

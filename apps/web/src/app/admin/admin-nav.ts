@@ -127,6 +127,17 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: $localize`:@@admin.shell.nav.claims:Vendor claims`,
         badge: 'claims',
       },
+      // AECI-946. The fourth badged queue, and the first that counts rows in a
+      // table other than `vendor_requests` / `reviews` — so it cannot overlap the
+      // three above, which is what keeps the Operations sum honest. It sits here
+      // rather than under Insights because it is a chore with a backlog, not a
+      // number to read: every row is a URL an operator has to paste into Search
+      // Console by hand.
+      {
+        path: '/admin/reindex',
+        label: $localize`:@@admin.shell.nav.reindex:Re-index queue`,
+        badge: 'reindex',
+      },
       { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
       // AECI-692 takes the slot "Reviewer bans" held. `/admin/users?banned=true`
       // is the same `banned_at IS NOT NULL` set with filters, search and paging,

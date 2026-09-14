@@ -1,5 +1,6 @@
 /**
- * `AdminSummaryStore` (AECI-205, widened to three queues by AECI-922).
+ * `AdminSummaryStore` (AECI-205, widened to three queues by AECI-922 and to four
+ * by AECI-946).
  *
  * The render-level behaviour is pinned by `admin-shell.component.spec.ts` and the
  * three queue specs. What is covered here is the part no rendered surface makes
@@ -31,23 +32,25 @@ describe('AdminSummaryStore', () => {
     expect(store.pendingReviews()).toBeNull();
     expect(store.pendingRequests()).toBeNull();
     expect(store.pendingClaims()).toBeNull();
+    expect(store.pendingReindex()).toBeNull();
     expect(store.operationsTotal()).toBe(0);
   });
 
-  it('sums the three queues into the Operations total', () => {
-    store.seed({ reviews: 5, requests: 2, claims: 3 });
-    expect(store.operationsTotal()).toBe(10);
+  it('sums every queue into the Operations total', () => {
+    store.seed({ reviews: 5, requests: 2, claims: 3, reindex: 4 });
+    expect(store.operationsTotal()).toBe(14);
   });
 
   it('LEAVES an absent key alone rather than zeroing it', () => {
     // The rolling-deploy case: the API Worker is still on the pre-AECI-922 shape
     // and sends `pending_reviews` alone. Zeroing the other two here would empty
     // a badge that has real numbers in it.
-    store.seed({ reviews: 5, requests: 2, claims: 3 });
+    store.seed({ reviews: 5, requests: 2, claims: 3, reindex: 4 });
     store.seed({ reviews: 4 });
     expect(store.pendingReviews()).toBe(4);
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingClaims()).toBe(3);
+    expect(store.pendingReindex()).toBe(4);
   });
 
   it('treats an explicit undefined the same as absent', () => {
@@ -57,19 +60,31 @@ describe('AdminSummaryStore', () => {
   });
 
   it('CLEARS on an explicit null — that is the server saying "not an operator"', () => {
-    store.seed({ reviews: 5, requests: 2, claims: 3 });
-    store.seed({ reviews: null, requests: null, claims: null });
+    store.seed({ reviews: 5, requests: 2, claims: 3, reindex: 4 });
+    store.seed({ reviews: null, requests: null, claims: null, reindex: null });
     expect(store.pendingReviews()).toBeNull();
+    expect(store.pendingReindex()).toBeNull();
     expect(store.operationsTotal()).toBe(0);
   });
 
   it('decrements one queue without touching the others', () => {
-    store.seed({ reviews: 5, requests: 2, claims: 3 });
+    store.seed({ reviews: 5, requests: 2, claims: 3, reindex: 4 });
     store.decrement('claims');
     expect(store.pendingClaims()).toBe(2);
     expect(store.pendingReviews()).toBe(5);
     expect(store.pendingRequests()).toBe(2);
-    expect(store.operationsTotal()).toBe(9);
+    expect(store.pendingReindex()).toBe(4);
+    expect(store.operationsTotal()).toBe(13);
+  });
+
+  // AECI-946. The re-index worklist is the fourth key, and the only one whose
+  // rows live outside `vendor_requests` / `reviews` — so it can never overlap the
+  // other three, which is what keeps the Operations sum from double-counting.
+  it('decrements the re-index queue the same way', () => {
+    store.seed({ reindex: 2 });
+    store.decrement('reindex');
+    expect(store.pendingReindex()).toBe(1);
+    expect(store.count('reindex')()).toBe(1);
   });
 
   it('never decrements below zero, and never invents a count for an unseeded queue', () => {

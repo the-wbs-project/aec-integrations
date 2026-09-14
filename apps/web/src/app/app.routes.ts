@@ -316,6 +316,15 @@ export const routes: Routes = [
         path: 'claims/:id',
         loadComponent: () => import('./admin/claims/claim-detail').then((m) => m.ClaimDetail),
       },
+      // AECI-946 — the manual Google re-index worklist (`ADMIN_PANEL_SPEC.md`
+      // §5.11). Google publishes no API that accepts our content types, so a
+      // changed page is re-fetched only by a human pasting its URL into Search
+      // Console. One flat child, no resolver: `adminSummaryResolver` on the parent
+      // is the gate, and the worklist is fetched client-side.
+      {
+        path: 'reindex',
+        loadComponent: () => import('./admin/reindex/reindex-list').then((m) => m.ReindexList),
+      },
       // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
       // never filed a claim (which the claim queue structurally cannot reach), and
       // the detail page is where the entitlement control now lives. Two flat
