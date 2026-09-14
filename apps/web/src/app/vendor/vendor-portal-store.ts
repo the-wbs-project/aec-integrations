@@ -63,7 +63,7 @@ import type {
   VendorMeResponse,
   VendorNotification,
   VendorSeat,
-  VendorSeatInvite,
+  ManageableSeatInvite,
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
@@ -246,9 +246,9 @@ export class VendorPortalStore {
    * its write would get have to come from one source, the same rule
    * `vendor-capabilities.ts` follows for entitlement capabilities.
    */
-  private readonly invites = signal<readonly VendorSeatInvite[]>([]);
+  private readonly invites = signal<readonly ManageableSeatInvite[]>([]);
   private readonly manageSeats = signal(false);
-  readonly seatInvites: Signal<readonly VendorSeatInvite[]> = this.invites.asReadonly();
+  readonly seatInvites: Signal<readonly ManageableSeatInvite[]> = this.invites.asReadonly();
   readonly canManageSeats: Signal<boolean> = this.manageSeats.asReadonly();
 
   readonly meStatus: Signal<VendorPortalStatus> = this.statuses.me.asReadonly();

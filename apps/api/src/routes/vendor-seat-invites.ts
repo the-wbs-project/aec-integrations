@@ -2,9 +2,10 @@
  * The OWNER half of vendor seat management (AECI-664 /
  * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11a) — invite, un-invite, remove:
  *
- *   POST   /api/vendor/seats/invites      — invite a colleague (201).
- *   DELETE /api/vendor/seats/invites/:id  — revoke a pending invite (204).
- *   DELETE /api/vendor/seats/:userId      — remove a seat (204).
+ *   POST   /api/vendor/seats/invites            — invite a colleague (201).
+ *   POST   /api/vendor/seats/invites/:id/resend — mail it again (200, AECI-927).
+ *   DELETE /api/vendor/seats/invites/:id        — revoke a pending invite (204).
+ *   DELETE /api/vendor/seats/:userId            — remove a seat (204).
  *
  * The INVITEE half is `routes/seat-invites.ts`, and it lives on a different path
  * prefix for a load-bearing reason: a redeemer is not a `vendor_admin` yet, so it
@@ -50,7 +51,9 @@ import {
   ApiErrorCode,
   CreateSeatInviteSchema,
   CreateSeatInviteResponseSchema,
+  ResendSeatInviteResponseSchema,
   type CreateSeatInviteResponse,
+  type ResendSeatInviteResponse,
 } from '@aeci/shared';
 import { and, count, eq, gte } from 'drizzle-orm';
 
@@ -64,10 +67,15 @@ import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import {
   createInviteStatements,
   inviteExpiryFrom,
+  inviteResendState,
+  liveInvitesFor,
   normalizeInviteEmail,
   pendingInvitesFor,
+  resendCooldownSecondsRemaining,
+  resendInviteStatements,
   revokeInviteStatements,
   INVITE_DAILY_LIMIT,
+  INVITE_MAX_SENDS,
 } from '../lib/vendor-seat-invites';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import type { BatchTuple } from '../lib/audit';
@@ -141,6 +149,9 @@ export function createSeatInviteHandler(
     const owner = await requireSeatOwner(db, auth.userId, vendorId);
     const input = CreateSeatInviteSchema.parse(await c.req.json().catch(() => null));
     const email = normalizeInviteEmail(input.email);
+    // One clock for the duplicate probe, the expiry and the row, so the probe
+    // cannot decide an invite is live against an instant the insert disagrees with.
+    const now = new Date().toISOString();
 
     const vendor = await db.query.vendors.findFirst({
       columns: { id: true, companyName: true },
@@ -161,6 +172,14 @@ export function createSeatInviteHandler(
 
     // A second LIVE invite for one address is a no-op dressed as an action.
     //
+    // AECI-927: "live" now means `liveInvitesFor` — pending AND unexpired — and it
+    // is the SAME predicate the roster read uses. It used to be `pendingInvitesFor`
+    // alone, which omits expiry, while the roster has always filtered expired rows
+    // out. An invite that lapsed unredeemed was therefore invisible on the roster
+    // and still tripped this 409, so that address could never be invited again and
+    // the owner could not see, revoke, or re-send the row blocking them. Both
+    // callers share one predicate now precisely so they cannot drift apart again.
+    //
     // Note what is deliberately NOT checked: whether that address already holds a
     // seat. Seats are keyed by `auth.users` id, and the only email→id lookup is
     // the GoTrue seam, which needs `SUPABASE_SERVICE_ROLE_KEY` — the one
@@ -171,7 +190,7 @@ export function createSeatInviteHandler(
     // absent in local dev and on every PR preview is the wrong trade.
     const existingInvite = await db.query.vendorSeatInvites.findFirst({
       columns: { id: true },
-      where: and(pendingInvitesFor(vendorId), eq(vendorSeatInvites.email, email)),
+      where: and(liveInvitesFor(vendorId, now), eq(vendorSeatInvites.email, email)),
     });
 
     if (existingInvite) {
@@ -185,7 +204,7 @@ export function createSeatInviteHandler(
     // Rate limit: per-vendor invites in the rolling 24h, counted over the table we
     // already have rather than a KV counter or a new binding. This endpoint sends
     // mail on a customer's command, which is the classic abuse amplifier.
-    const since = new Date(Date.now() - 86_400_000).toISOString();
+    const since = new Date(Date.parse(now) - 86_400_000).toISOString();
     const [recent] = await db
       .select({ value: count() })
       .from(vendorSeatInvites)
@@ -208,7 +227,6 @@ export function createSeatInviteHandler(
       );
     }
 
-    const now = new Date().toISOString();
     const expiresAt = inviteExpiryFrom(now);
     const inviteId = crypto.randomUUID();
     const token = crypto.randomUUID();
@@ -246,11 +264,186 @@ export function createSeatInviteHandler(
         invited_by: owner.displayName,
         expires_at: expiresAt,
         created_at: now,
+        // Never re-sent, and inside its own cooldown — the mail left a moment
+        // ago. Computed by the shared verdict rather than hardcoded, so a freshly
+        // created row is not a special case the policy has to remember.
+        last_sent_at: null,
+        resend_state: inviteResendState({ lastSentAt: null, createdAt: now, sendCount: 1 }, now),
       },
     };
     validateResponseInDev(c.env, () => CreateSeatInviteResponseSchema.parse(body));
     return json(body, { status: 201 });
   };
+}
+
+// ─── POST /api/vendor/seats/invites/:id/resend ───────────────────────────────
+
+/**
+ * Mail a pending invite again (AECI-927 / §11a.9).
+ *
+ * The recovery path for the ordinary failure: it went to spam, it was deleted, or
+ * the colleague simply never acted on it. Before this existed the only move was
+ * revoke-then-re-invite, which minted a new token and spent one of the day's ten.
+ *
+ * ── SAME TOKEN, NEW EXPIRY ──────────────────────────────────────────────────
+ * The token is not rotated and nothing here touches it. It was never a bearer
+ * credential — the redeem is bound to the invited mailbox — so rotation buys no
+ * security, and it costs the exact failure this endpoint exists to fix: it kills
+ * a link the invitee may already be holding, with nothing on the dead one to say
+ * why. `expires_at` DOES move forward, because an invite re-sent on day 13 is
+ * barely worth sending and the email states its own expiry.
+ *
+ * ── THREE CAPS, AND WHY EACH IS A DIFFERENT MECHANISM ───────────────────────
+ * 1. The AECI-773 `write` bucket, keyed `by: 'vendor'` — the burst layer, shared
+ *    with the create route because the protected resource is the same
+ *    vendor-shared outbound Resend mail.
+ * 2. {@link RESEND_COOLDOWN_MINUTES} per invite — a per-row comparison against
+ *    `last_sent_at`, not a count, which is what lets the 429 carry an EXACT
+ *    `Retry-After` rather than the create route's window-shaped upper bound.
+ * 3. {@link INVITE_MAX_SENDS} per invite — the lifetime cap, and the one that
+ *    actually bounds volume. A cooldown alone bounds bursts: pending invites
+ *    accumulate for 14 days, so without a lifetime cap the daily total is in the
+ *    thousands.
+ *
+ * The third refusal is a **422, not a 429**, and the distinction is not
+ * pedantry: a 429 promises that waiting helps, and here it never does. The copy
+ * has to send the owner to revoke-and-re-invite, so the status has to agree.
+ *
+ * ── WHY THE ROW IS RE-READ AND RE-JUDGED ────────────────────────────────────
+ * `can_resend` on the roster is the same verdict from the same function, but it
+ * was computed at read time and the caller may have sat on the page. The handler
+ * is the authority; the flag only decides whether the control looks available.
+ */
+export function createResendSeatInviteHandler(
+  dbFor: DbFactory = getDb,
+  sendEmail: SendSeatInviteEmail = noopSendSeatInviteEmail,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const vendorId = sessionVendorId(c);
+    const { db } = dbFor(c.env);
+    const owner = await requireSeatOwner(db, auth.userId, vendorId);
+
+    const inviteId = requiredParam(c, 'id');
+    const now = new Date().toISOString();
+
+    // Scoped on `liveInvitesFor`, so an EXPIRED invite is a 404 rather than
+    // something a re-send silently revives. Reviving would contradict the roster,
+    // which does not show it, and would hand the lifetime cap a way around itself
+    // — an owner could park an address indefinitely by re-sending on expiry. An
+    // expired invite is over; the answer is a fresh one, under the daily cap.
+    const invite = await db.query.vendorSeatInvites.findFirst({
+      columns: {
+        id: true,
+        email: true,
+        token: true,
+        createdAt: true,
+        lastSentAt: true,
+        sendCount: true,
+        invitedById: true,
+      },
+      where: and(liveInvitesFor(vendorId, now), eq(vendorSeatInvites.id, inviteId)),
+    });
+    // A spent, expired or cross-vendor invite is a 404, not a 403 — the
+    // vendor-portal rule: a miss never reveals that the id exists elsewhere.
+    if (!invite) throw notFoundError('seat_invite', { id: inviteId });
+
+    const verdict = inviteResendState(invite, now);
+    if (verdict === 'send_limit') {
+      throw new ApiError(
+        422,
+        ApiErrorCode.INVALID_STATE_TRANSITION,
+        `This invite has already been sent ${INVITE_MAX_SENDS} times. Revoke it and send a new one.`,
+      );
+    }
+    if (verdict === 'cooling_down') {
+      throw new ApiError(
+        429,
+        ApiErrorCode.RATE_LIMITED,
+        'That invite was just sent. Give it a few minutes before sending it again.',
+        // Exact, unlike the create route's flat 86400: the last send is a column
+        // on the row we have already read, so there is no second query to buy.
+        { retryAfterSeconds: resendCooldownSecondsRemaining(invite, now) },
+      );
+    }
+
+    const vendor = await db.query.vendors.findFirst({
+      columns: { id: true, companyName: true },
+      where: eq(vendors.id, vendorId),
+    });
+    if (!vendor) throw notFoundError('vendor', { id: vendorId });
+
+    // Resolved ONCE and used by both the mail and the echo — they must name the
+    // same person, and this is a second D1 read either way.
+    const invitedByName = await inviterDisplayName(db, invite.invitedById, owner.displayName);
+
+    const expiresAt = inviteExpiryFrom(now);
+    const batch = resendInviteStatements(db, {
+      inviteId,
+      vendorId,
+      email: invite.email,
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      now,
+      expiresAt,
+      sendCountBefore: invite.sendCount,
+    });
+    await db.batch(batch.stmts as BatchTuple);
+
+    // Post-commit, best-effort, exactly like the create route. A send failure must
+    // not roll back the committed expiry refresh: the owner can try again after
+    // the cooldown, and the roster shows the new "sent" stamp either way.
+    afterVendorWrite(c, [], batch.auditEntry);
+    c.executionCtx.waitUntil(
+      sendEmail(c, {
+        to: invite.email,
+        vendorName: vendor.companyName,
+        // The ORIGINAL sender, not whoever pressed the button. The mail's job is
+        // to be recognisable to the recipient, and the name they may already have
+        // seen on the first copy is the one that does that. `requireSeatOwner`
+        // has already proven the caller may act; it is not the byline.
+        invitedByName,
+        token: invite.token,
+        expiresAt,
+      }),
+    );
+
+    const body: ResendSeatInviteResponse = {
+      invite: {
+        id: invite.id,
+        email: invite.email,
+        invited_by: invitedByName,
+        expires_at: expiresAt,
+        created_at: invite.createdAt,
+        last_sent_at: now,
+        // Just sent, so this is `cooling_down` — or `send_limit` if that was the
+        // last one it had. Computed from the POST-write row rather than hardcoded,
+        // so the verdict function stays the only place the policy is expressed.
+        resend_state: inviteResendState(
+          { lastSentAt: now, createdAt: invite.createdAt, sendCount: invite.sendCount + 1 },
+          now,
+        ),
+      },
+    };
+    validateResponseInDev(c.env, () => ResendSeatInviteResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+/** The invite's original sender's `display_name`, falling back to the caller's
+ *  when that account has been erased (`invited_by_id` is `ON DELETE SET NULL` —
+ *  the invite outlives its sender). One indexed read, and only on this path. */
+async function inviterDisplayName(
+  db: ReturnType<DbFactory>['db'],
+  invitedById: string | null,
+  fallback: string | null,
+): Promise<string | null> {
+  if (!invitedById) return fallback;
+  const row = await db.query.profiles.findFirst({
+    columns: { displayName: true },
+    where: eq(profiles.id, invitedById),
+  });
+  return row?.displayName ?? fallback;
 }
 
 // ─── DELETE /api/vendor/seats/invites/:id ────────────────────────────────────

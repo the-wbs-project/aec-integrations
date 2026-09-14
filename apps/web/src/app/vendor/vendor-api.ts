@@ -27,6 +27,7 @@ import type {
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
   CreateSeatInviteResponse,
+  ResendSeatInviteResponse,
   ListVendorSeatsResponse,
   TaxonomyResponse,
   UpdateVendorProductInput,
@@ -98,6 +99,22 @@ export class VendorApi {
   inviteSeat(email: string): Promise<CreateSeatInviteResponse> {
     return firstValueFrom(
       this.http.post<CreateSeatInviteResponse>('/api/vendor/seats/invites', { email }),
+    );
+  }
+
+  /** `POST /api/vendor/seats/invites/:id/resend` — mail a pending invite again
+   *  (AECI-927 / §11a.9). Same token, refreshed expiry. Owner-only server-side,
+   *  and refused with a 429 inside the per-invite cooldown or a 422 once the
+   *  lifetime send cap is reached — both rendered by the caller. */
+  resendInvite(inviteId: string): Promise<ResendSeatInviteResponse> {
+    return firstValueFrom(
+      this.http.post<ResendSeatInviteResponse>(
+        `/api/vendor/seats/invites/${inviteId}/resend`,
+        // No body: the invite is named by the path and everything else is server
+        // policy. `HttpClient.post` requires the argument, so it is an explicit
+        // `null` rather than an empty object that implies a shape.
+        null,
+      ),
     );
   }
 

@@ -343,6 +343,44 @@ export const VendorSeatInviteSchema = z.object({
 export type VendorSeatInvite = z.infer<typeof VendorSeatInviteSchema>;
 
 /**
+ * An invite as seen by the OWNER who can act on it (AECI-927) — the base plus the
+ * two fields that only mean something to a caller holding the re-send control.
+ *
+ * Split rather than folded into the base because the base has two other consumers
+ * — the admin user detail and the admin vendor detail — and **neither has a
+ * re-send action**. Shipping them `can_resend` would put a permission claim on a
+ * surface that cannot honour it, which is the same category of mistake as
+ * re-deriving `can_manage_seats` in the browser. The `.extend()` idiom is
+ * `AdminUserPendingInviteSchema`'s, for the same reason.
+ */
+export const ManageableSeatInviteSchema = VendorSeatInviteSchema.extend({
+  /** When it was last RE-sent; `null` means it has only ever gone out once, at
+   *  `created_at`. Render `last_sent_at ?? created_at` — a surface that reads
+   *  this alone reports "never sent" for every invite nobody re-sent. */
+  last_sent_at: z.string().datetime().nullable(),
+  /**
+   * May the CALLER re-send this invite right now, and if not, why not?
+   * Server-computed, for the same reason `can_manage_seats` is: the two send caps
+   * (a per-invite cooldown and a lifetime send limit) are server policy, and a
+   * client that re-derived them would hold a second copy of the numbers that
+   * drifts.
+   *
+   * **The reason travels, not just a boolean.** A disabled control with no
+   * explanation is a dead end, and the two refusals need opposite copy: a
+   * cooldown resolves on its own in minutes, while a spent invite never does and
+   * has to point the owner at revoke-and-re-invite. Collapsing them to
+   * `can_resend: false` would make that distinction unrenderable.
+   *
+   * Time-dependent, so it goes stale in a tab left open — deliberately in the
+   * safe direction. A stale `cooling_down` disables the control slightly too long
+   * until the next roster read; a stale `ok` earns the 429 the surface already
+   * renders. Neither can grant anything: the handler re-runs this same verdict.
+   */
+  resend_state: z.enum(['ok', 'cooling_down', 'send_limit']),
+});
+export type ManageableSeatInvite = z.infer<typeof ManageableSeatInviteSchema>;
+
+/**
  * The vendor's seat roster. A bare object — the list is bounded by how many seats
  * a vendor has, so it is never paginated at launch.
  *
@@ -353,7 +391,7 @@ export type VendorSeatInvite = z.infer<typeof VendorSeatInviteSchema>;
 export const ListVendorSeatsResponseSchema = z.object({
   seats: z.array(VendorSeatSchema),
   /** Live invites (neither accepted nor revoked, not past `expires_at`). */
-  pending_invites: z.array(VendorSeatInviteSchema),
+  pending_invites: z.array(ManageableSeatInviteSchema),
   /**
    * Whether the CALLER may invite and remove — `profiles.seat_owner` (§11a).
    * Server-computed and shipped so the UI's enabled state and the 403 its write
@@ -376,8 +414,26 @@ export const CreateSeatInviteSchema = z.object({
 export type CreateSeatInviteInput = z.infer<typeof CreateSeatInviteSchema>;
 
 /** `201` — echoes the created invite so the roster can append without refetching. */
-export const CreateSeatInviteResponseSchema = z.object({ invite: VendorSeatInviteSchema });
+export const CreateSeatInviteResponseSchema = z.object({ invite: ManageableSeatInviteSchema });
 export type CreateSeatInviteResponse = z.infer<typeof CreateSeatInviteResponseSchema>;
+
+// ─── POST /api/vendor/seats/invites/:id/resend ───────────────────────────────
+
+/**
+ * `200` — echoes the invite AFTER the re-send (AECI-927).
+ *
+ * There is no request schema, and that absence is the same argument
+ * `CreateSeatInviteSchema` makes in the other direction: the invite is named by
+ * the path, the vendor is the session's, and the new expiry is server policy, so
+ * a body could only carry a client-supplied value on an authorization path.
+ *
+ * The echo matters more here than on create, because a re-send CHANGES fields
+ * the caller is already displaying — `expires_at` moves forward and `can_resend`
+ * flips false for the cooldown. Returning the row lets the surface reconcile
+ * without inventing either value locally.
+ */
+export const ResendSeatInviteResponseSchema = z.object({ invite: ManageableSeatInviteSchema });
+export type ResendSeatInviteResponse = z.infer<typeof ResendSeatInviteResponseSchema>;
 
 // ─── GET/POST /api/seat-invites/:token ───────────────────────────────────────
 

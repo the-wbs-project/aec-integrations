@@ -271,13 +271,19 @@ parse exactly as before. The SSR Worker returns the API response object unmodifi
 | `rateLimit('write')` | `60` |
 | `POST /api/reviews` hourly cap | `3600` |
 | `POST /api/vendor/seats/invites` daily cap | `86400` |
+| `POST /api/vendor/seats/invites/:id/resend` cooldown | **computed** — the exact seconds left |
 
 The value is the **configured window**, not a computed time-to-reset. For the binding
 that is exact enough to be honest: the window is fixed rather than sliding and a denied
 request does not advance the counter, so the full period is a correct upper bound — the
-true wait may be shorter, never longer. For the two D1 caps the window is rolling, so the
-exact wait is until the oldest row ages out; computing it would cost a second aggregate on
-the same query, and the full window is again an upper bound.
+true wait may be shorter, never longer. For the two D1 **count** caps the window is
+rolling, so the exact wait is until the oldest row ages out; computing it would cost a
+second aggregate on the same query, and the full window is again an upper bound.
+
+The re-send cooldown (AECI-927) is the one row that reports a real time-to-reset, because
+it is not a count: it compares `vendor_seat_invites.last_sent_at` on the single row the
+handler has already read, so the exact answer is free. Where a cheap exact value exists,
+ship it — the upper-bound convention above is a concession to cost, not a house style.
 
 Set it via `ApiErrorOptions.retryAfterSeconds`. Deliberately a single typed number rather
 than a general header bag: a general bag would let any thrown error set any response
@@ -4692,11 +4698,21 @@ export const VendorSeatInviteSchema = z.object({
   created_at: z.string().datetime(),
 });
 
+// AECI-927. The base PLUS the two fields that only mean something to a caller
+// holding the re-send control. Split rather than folded in, because the base has
+// two other consumers — the admin user detail and the admin vendor detail — and
+// NEITHER has a re-send action.
+export const ManageableSeatInviteSchema = VendorSeatInviteSchema.extend({
+  last_sent_at: z.string().datetime().nullable(),   // null = only ever sent once,
+                                                    // at created_at
+  resend_state: z.enum(['ok', 'cooling_down', 'send_limit']),
+});
+
 export const ListVendorSeatsResponseSchema = z.object({
   seats: z.array(VendorSeatSchema),
-  pending_invites: z.array(VendorSeatInviteSchema),  // live only: not accepted,
-                                                    // not revoked, not expired
-  can_manage_seats: z.boolean(),                    // the caller's seat_owner
+  pending_invites: z.array(ManageableSeatInviteSchema),  // live only: not accepted,
+                                                         // not revoked, not expired
+  can_manage_seats: z.boolean(),                         // the caller's seat_owner
 });
 ```
 
@@ -4718,6 +4734,38 @@ The only field is the address: the vendor is the session's, the sender is the se
 **Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` → **429 `RATE_LIMITED`** with `Retry-After: 86400`. It stays a D1 count rather than moving onto the AECI-773 `ratelimits` binding for a structural reason: `simple.period` is a strict enum of 10 or 60 seconds, so **no binding window reaches 24 h**. AECI-773 added the burst bucket *in front of* this check, keyed **per vendor** rather than per seat — this is still the only endpoint on the surface that sends mail on a customer's command, so five seats must not buy five times the sends.
 
 Errors: `FORBIDDEN` (403, not an owner) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429 — **two** caps now: the AECI-773 burst bucket keyed **per vendor** with `Retry-After: 60`, and the 24 h `INVITE_DAILY_LIMIT` below with `Retry-After: 86400`) · `VALIDATION_FAILED` (400).
+
+**"Live" means pending AND unexpired** for the 409 above (AECI-927). It used to mean pending only, while `GET /api/vendor/seats` has always hidden expired invites — so an invite that lapsed unredeemed was invisible on the roster and still 409'd every future invite to that address. The owner could neither see the row blocking them, revoke it, nor re-send it: that address was permanently un-invitable. Both callers now share one predicate (`liveInvitesFor`).
+
+#### `POST /api/vendor/seats/invites/:id/resend`
+
+Mail a pending invite again (AECI-927 / §11a.9). Owner-only, **200** `{ invite: ManageableSeatInvite }`.
+No request body: the invite is named by the path, the vendor is the session's, and the new expiry is
+server policy.
+
+**The token is not rotated; `expires_at` is refreshed** to `now + 14 days`. The token was never a
+bearer credential — the redeem is bound to the invited mailbox — so rotating buys no security and
+costs the failure this endpoint exists to fix: it silently kills a link the invitee may already be
+holding. The expiry moves because an invite re-sent on day 13 is barely worth sending and the mail
+states its own expiry.
+
+**Three caps.** The AECI-773 `write` bucket keyed **per vendor**, shared with the create route (no
+`tag:` — separate budgets would let one owner spend both for twice the mail); a **5-minute per-invite
+cooldown** → 429 with an *exact* `Retry-After`; and a **lifetime cap of 4 sends including the
+original** → **422 `INVALID_STATE_TRANSITION`**, not a 429. That last distinction is load-bearing: a
+429 promises that waiting helps, and here it never does, so the status has to agree with copy that
+points at revoke-and-re-invite. The cooldown alone bounds bursts, not volume — pending invites
+accumulate for 14 days at up to 10/day — so the lifetime cap is what makes total mail a constant
+multiple of an already-capped creation rate.
+
+An **expired** invite is a **404**, not a revival: reviving would contradict the roster, which does
+not show it, and would let an owner park an address indefinitely by re-sending on each expiry.
+
+The mail names the **original** sender (`invited_by_id`), not whoever pressed the button — the
+recipient recognises the name from the first copy. Falls back to the caller once that account is
+erased.
+
+Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, spent, expired, cross-vendor or unknown — all indistinguishable) · `RATE_LIMITED` (429, cooldown) · `INVALID_STATE_TRANSITION` (422, lifetime cap).
 
 #### `DELETE /api/vendor/seats/invites/:id`
 

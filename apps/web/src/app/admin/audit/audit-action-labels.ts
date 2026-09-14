@@ -90,6 +90,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // account (`STAGE_2_SPEC.md` §8.9(2)).
   'vendor_seat.provisioned': $localize`:@@admin.audit.action.seatProvisioned:Portal seat added (no entitlement)`,
   'vendor_seat.invited': $localize`:@@admin.audit.action.seatInvited:Seat invitation sent`,
+  'vendor_seat.invite_resent': $localize`:@@admin.audit.action.seatInviteResent:Seat invitation re-sent`,
   'vendor_seat.invite_revoked': $localize`:@@admin.audit.action.seatInviteRevoked:Seat invitation revoked`,
   'vendor_seat.invite_accepted': $localize`:@@admin.audit.action.seatInviteAccepted:Seat invitation accepted`,
 

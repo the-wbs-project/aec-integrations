@@ -63,7 +63,7 @@ import {
   type VendorSeatInvite,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
-import { and, asc, count, desc, eq, gt, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
@@ -100,7 +100,7 @@ import {
   productRolesForVendor,
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
-import { pendingInvitesFor } from '../lib/vendor-seat-invites';
+import { liveInvitesFor } from '../lib/vendor-seat-invites';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { logToPosthog, submitCount } from '../posthog';
 import { ownedProductIds, seatsOf, vendorRequestsWhere } from './vendor-shared';
@@ -329,10 +329,12 @@ export function createAdminVendorDetailHandler(
         .from(profiles)
         .where(seatsOf(vendorId))
         .orderBy(asc(profiles.createdAt)),
-      // The expiry filter is in SQL because `pendingInvitesFor` covers only the
-      // two terminal columns — an invite that merely aged out is still
-      // `accepted_at IS NULL AND revoked_at IS NULL`, and showing it as pending
-      // would misreport the account's live invitations.
+      // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
+      // the latter covers only the two terminal columns, and an invite that merely
+      // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
+      // as pending would misreport the account's live invitations — and the shared
+      // predicate is what stops this read drifting from the vendor portal's, which
+      // is the AECI-927 defect.
       db
         .select({
           id: vendorSeatInvites.id,
@@ -343,7 +345,7 @@ export function createAdminVendorDetailHandler(
         })
         .from(vendorSeatInvites)
         .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
-        .where(and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now)))
+        .where(liveInvitesFor(vendorId, now))
         .orderBy(asc(vendorSeatInvites.createdAt)),
       // `product_count` AND the §5.2 role breakdown out of ONE grouped read
       // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
@@ -580,6 +582,7 @@ const VENDOR_METADATA_ACTIONS = [
   'vendor_claim.seat_revoked',
   'vendor_seat.provisioned',
   'vendor_seat.invited',
+  'vendor_seat.invite_resent',
   'vendor_seat.invite_revoked',
   'vendor_seat.invite_accepted',
 ] as const;

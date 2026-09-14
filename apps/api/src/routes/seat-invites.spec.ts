@@ -19,11 +19,13 @@ import { auditLog, profiles, vendorSeatInvites, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createAcceptSeatInviteHandler, createSeatInvitePreviewHandler } from './seat-invites';
 import {
   createRemoveSeatHandler,
+  createResendSeatInviteHandler,
   createRevokeSeatInviteHandler,
   createSeatInviteHandler,
 } from './vendor-seat-invites';
@@ -86,6 +88,7 @@ function app() {
     createVendorSeatsHandler(t.factory, async () => new Map()),
   );
   a.post('/api/vendor/seats/invites', createSeatInviteHandler(t.factory, sent));
+  a.post('/api/vendor/seats/invites/:id/resend', createResendSeatInviteHandler(t.factory, sent));
   a.delete('/api/vendor/seats/invites/:id', createRevokeSeatInviteHandler(t.factory));
   a.delete('/api/vendor/seats/:userId', createRemoveSeatHandler(t.factory));
   a.get('/api/seat-invites/:token', createSeatInvitePreviewHandler(t.factory));
@@ -100,15 +103,20 @@ async function call(
   path: string,
   init: RequestInit = {},
   auth: AuthzVariables['auth'] = OWNER_SESSION,
-): Promise<{ status: number; body: JsonBody }> {
+): Promise<{ status: number; body: JsonBody; headers: Headers }> {
   const req = new Request(`http://x${path}`, init) as Request & { __auth?: AuthzVariables['auth'] };
   req.__auth = auth;
   const execCtx = fakeExecutionContext();
   const res = await app().fetch(req, TEST_ENV, execCtx);
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
   const body = res.status === 204 ? {} : await res.json();
-  return { status: res.status, body: body as JsonBody };
+  // `headers` is here for the one assertion that needs it: `Retry-After` is a
+  // HEADER, never a body field (`errors.ts` — one field, one formatting site).
+  return { status: res.status, body: body as JsonBody, headers: res.headers };
 }
+
+const resend = (inviteId: string, auth = OWNER_SESSION) =>
+  call(`/api/vendor/seats/invites/${inviteId}/resend`, { method: 'POST' }, auth);
 
 const invite = (email: string, auth = OWNER_SESSION) =>
   call(
@@ -194,6 +202,16 @@ describe('POST /api/vendor/seats/invites', () => {
     expect((await invite('dana@acme.com')).status).toBe(201);
   });
 
+  it('allows a re-invite once the previous one EXPIRED (AECI-927 regression)', async () => {
+    // The defect: the duplicate probe used `pendingInvitesFor`, which is blind to
+    // expiry, while the roster has always hidden expired rows. So a lapsed invite
+    // 409'd every future invite to that address while being invisible — the owner
+    // could not see it, revoke it, or re-send it. Permanently stuck.
+    await seedInvite({ expiresAt: new Date(Date.now() - 1000).toISOString() });
+    expect((await invite('dana@acme.com')).status).toBe(201);
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(2);
+  });
+
   it('rate-limits per vendor per day (429)', async () => {
     for (let i = 0; i < 10; i++) {
       await seedInvite({ id: uuid(800 + i), token: `t${i}`, email: `p${i}@acme.com` });
@@ -214,6 +232,137 @@ describe('POST /api/vendor/seats/invites', () => {
       });
     }
     expect((await invite('dana@acme.com')).status).toBe(201);
+  });
+});
+
+describe('POST /api/vendor/seats/invites/:id/resend (AECI-927)', () => {
+  /** Past the 5-minute cooldown, so the default seed is re-sendable. */
+  const COOLED = () => new Date(Date.now() - 10 * 60_000).toISOString();
+
+  it('re-sends the SAME token, refreshes expiry, and counts the send', async () => {
+    const seeded = await seedInvite({ createdAt: COOLED(), sendCount: 1 });
+    const before = seeded.expiresAt;
+
+    const res = await resend(seeded.id);
+    expect(res.status).toBe(200);
+
+    // The token is NOT rotated: the invitee may already be holding that link, and
+    // the redeem is bound to their mailbox rather than to the token's secrecy.
+    expect(sent).toHaveBeenCalledOnce();
+    expect(sent.mock.calls[0]![1].token).toBe('tok-1');
+    // ...and it still never reaches the response body.
+    expect(JSON.stringify(res.body)).not.toContain('tok-1');
+
+    const [row] = await t.db.select().from(vendorSeatInvites);
+    expect(row!.token).toBe('tok-1');
+    expect(row!.sendCount).toBe(2);
+    expect(row!.lastSentAt).not.toBeNull();
+    // Expiry moves forward, or an invite re-sent on day 13 is barely worth sending.
+    expect(Date.parse(row!.expiresAt)).toBeGreaterThan(Date.parse(before));
+    expect(res.body.invite.expires_at).toBe(row!.expiresAt);
+    // Just sent, so the surface's control must come back disabled.
+    expect(res.body.invite.resend_state).toBe('cooling_down');
+  });
+
+  it('writes its audit row in the same batch (§26.1)', async () => {
+    const seeded = await seedInvite({ createdAt: COOLED() });
+    await resend(seeded.id);
+
+    const rows = await t.db.select().from(auditLog);
+    const entry = rows.find((r) => r.action === 'vendor_seat.invite_resent');
+    expect(entry).toBeDefined();
+    expect(entry!.entityType).toBe('vendor_seat_invite');
+    expect(entry!.entityId).toBe(seeded.id);
+    expect((entry!.metadata as { source: string }).source).toBe('vendor-portal');
+    // The transition, not just the result — one send is legible from the row alone.
+    expect(entry!.beforeState).toMatchObject({ send_count: 1 });
+    expect(entry!.afterState).toMatchObject({ send_count: 2 });
+  });
+
+  it('names the ORIGINAL sender in the mail, not whoever pressed the button', async () => {
+    const seeded = await seedInvite({ createdAt: COOLED(), invitedById: OWNER });
+    // A second owner does the re-send; the recipient should still see the name
+    // they saw on the first copy.
+    await t.db
+      .update(profiles)
+      .set({ seatOwner: true, displayName: 'Kim' })
+      .where(eq(profiles.id, MEMBER));
+    await resend(seeded.id, MEMBER_SESSION);
+
+    expect(sent.mock.calls[0]![1].invitedByName).toBe('Dana');
+  });
+
+  it('REFUSES a non-owner seat (403) and sends nothing', async () => {
+    const seeded = await seedInvite({ createdAt: COOLED() });
+    const res = await resend(seeded.id, MEMBER_SESSION);
+    expect(res.status).toBe(403);
+    expect(sent).not.toHaveBeenCalled();
+    expect((await t.db.select().from(vendorSeatInvites))[0]!.sendCount).toBe(1);
+  });
+
+  it('429s inside the cooldown, with an EXACT Retry-After', async () => {
+    // Sent one minute ago against a five-minute cooldown: ~240s remaining.
+    const seeded = await seedInvite({
+      createdAt: COOLED(),
+      lastSentAt: new Date(Date.now() - 60_000).toISOString(),
+      sendCount: 2,
+    });
+    const res = await resend(seeded.id);
+
+    expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe('RATE_LIMITED');
+    // Exact rather than the full window — the last send is a column on this row.
+    // The create route's daily cap can only offer a flat 86400 here.
+    const retryAfter = Number(res.headers.get('Retry-After'));
+    expect(retryAfter).toBeGreaterThan(200);
+    expect(retryAfter).toBeLessThanOrEqual(240);
+    expect(sent).not.toHaveBeenCalled();
+  });
+
+  it('422s — not 429 — once the lifetime send cap is reached', async () => {
+    // A 429 promises that waiting helps. Here it never does, so the status has to
+    // agree with the copy, which points at revoke-and-re-invite.
+    const seeded = await seedInvite({ createdAt: COOLED(), sendCount: INVITE_MAX_SENDS });
+    const res = await resend(seeded.id);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVALID_STATE_TRANSITION');
+    expect(sent).not.toHaveBeenCalled();
+  });
+
+  it('404s a cross-vendor invite, indistinguishable from an unknown id', async () => {
+    const seeded = await seedInvite({ createdAt: COOLED(), vendorId: OTHER_VENDOR });
+    expect((await resend(seeded.id)).status).toBe(404);
+    expect((await resend(uuid(999))).status).toBe(404);
+  });
+
+  it('404s a spent invite (accepted or revoked)', async () => {
+    const accepted = await seedInvite({
+      createdAt: COOLED(),
+      acceptedAt: new Date().toISOString(),
+    });
+    expect((await resend(accepted.id)).status).toBe(404);
+
+    const revoked = await seedInvite({
+      id: uuid(901),
+      token: 'tok-2',
+      email: 'other@acme.com',
+      createdAt: COOLED(),
+      revokedAt: new Date().toISOString(),
+    });
+    expect((await resend(revoked.id)).status).toBe(404);
+  });
+
+  it('404s an EXPIRED invite rather than reviving it', async () => {
+    // Reviving would contradict the roster, which does not show it, and would let
+    // an owner park an address indefinitely by re-sending on every expiry — a way
+    // around the lifetime cap. A fresh invite is the answer, under the daily cap.
+    const seeded = await seedInvite({
+      createdAt: COOLED(),
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect((await resend(seeded.id)).status).toBe(404);
+    expect(sent).not.toHaveBeenCalled();
   });
 });
 

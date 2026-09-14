@@ -22,7 +22,7 @@ import type {
   VendorNotification,
   VendorProduct,
   VendorSeat,
-  VendorSeatInvite,
+  ManageableSeatInvite,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -456,14 +456,43 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
   },
 ];
 
-/** One pending invite, so the preview renders the §11a pending list + revoke. */
-export const VENDOR_SEAT_INVITES_FIXTURE: readonly VendorSeatInvite[] = [
+/**
+ * Pending invites for the §11a list — one per `resend_state`, so the preview and
+ * the component specs render all three of the re-send control's states (AECI-927)
+ * rather than only the happy one. A surface reviewed with two of its three states
+ * unreachable is a surface reviewed at a third.
+ */
+export const VENDOR_SEAT_INVITES_FIXTURE: readonly ManageableSeatInvite[] = [
   {
     id: '00000000-0000-4000-8000-0000000052c1',
     email: 'jordan@summitbim.example.com',
     invited_by: 'Dana Ruiz',
     expires_at: '2099-01-01T00:00:00.000Z',
     created_at: '2026-08-20T10:00:00.000Z',
+    // Never re-sent — the ordinary case, and the one where the control is live.
+    last_sent_at: null,
+    resend_state: 'ok',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000052c2',
+    email: 'agency@example.com',
+    invited_by: 'Dana Ruiz',
+    expires_at: '2099-01-01T00:00:00.000Z',
+    created_at: '2026-08-20T10:00:00.000Z',
+    // Re-sent moments ago: disabled, and the hint says waiting fixes it.
+    last_sent_at: '2026-08-26T09:58:00.000Z',
+    resend_state: 'cooling_down',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000052c3',
+    email: 'never-replies@example.com',
+    invited_by: null,
+    expires_at: '2099-01-01T00:00:00.000Z',
+    created_at: '2026-08-14T10:00:00.000Z',
+    // Out of sends: disabled permanently, and the hint has to point at
+    // revoke-and-re-invite rather than at waiting.
+    last_sent_at: '2026-08-24T10:00:00.000Z',
+    resend_state: 'send_limit',
   },
 ];
 

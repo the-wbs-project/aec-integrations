@@ -65,7 +65,7 @@ import {
   type VendorProduct,
   type VendorRequestSummary,
   type VendorSeat,
-  type VendorSeatInvite,
+  type ManageableSeatInvite,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -74,7 +74,7 @@ import {
   type Capability,
   type EntitlementTier,
 } from '@aeci/shared/entitlements';
-import { and, asc, count, eq, gt, inArray } from 'drizzle-orm';
+import { asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
@@ -102,7 +102,7 @@ import { auditActorType, entitlementRequired, requireCapability } from '../lib/a
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
-import { pendingInvitesFor } from '../lib/vendor-seat-invites';
+import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
 import {
   AUDIT_SOURCE,
   afterVendorWrite,
@@ -619,20 +619,27 @@ export function createVendorSeatsHandler(
     // the two terminal columns, and an invite that merely aged out is still
     // `accepted_at IS NULL AND revoked_at IS NULL`. Showing it as pending would
     // offer a revoke button for something already dead.
+    //
+    // AECI-927 moved that filter into the SHARED `liveInvitesFor` predicate. The
+    // create route's duplicate probe used the expiry-blind one, so an invite this
+    // read hid still tripped that route's 409 — an address the owner could then
+    // never invite again and could not see the row blocking them. One predicate
+    // for both is what makes the two unable to drift apart again.
     const invitedBy = alias(profiles, 'invited_by_profile');
+    const invitesReadAt = new Date().toISOString();
     const inviteRows = await db
       .select({
         id: vendorSeatInvites.id,
         email: vendorSeatInvites.email,
         expiresAt: vendorSeatInvites.expiresAt,
         createdAt: vendorSeatInvites.createdAt,
+        lastSentAt: vendorSeatInvites.lastSentAt,
+        sendCount: vendorSeatInvites.sendCount,
         invitedByName: invitedBy.displayName,
       })
       .from(vendorSeatInvites)
       .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
-      .where(
-        and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, new Date().toISOString())),
-      )
+      .where(liveInvitesFor(vendorId, invitesReadAt))
       .orderBy(asc(vendorSeatInvites.createdAt));
 
     // Degrades to `email: null` when SUPABASE_SERVICE_ROLE_KEY is absent — the
@@ -655,12 +662,19 @@ export function createVendorSeatsHandler(
         }),
       ),
       pending_invites: inviteRows.map(
-        (row): VendorSeatInvite => ({
+        (row): ManageableSeatInvite => ({
           id: row.id,
           email: row.email,
           invited_by: row.invitedByName,
           expires_at: row.expiresAt,
           created_at: row.createdAt,
+          last_sent_at: row.lastSentAt,
+          // The SAME verdict function the re-send handler re-runs before writing
+          // (AECI-927), against the same instant as the query above. Shipped
+          // rather than re-derived in the browser for the reason `can_manage_seats`
+          // is: a client that re-computed the cooldown and the send cap would hold
+          // a second copy of two numbers that are server policy.
+          resend_state: inviteResendState(row, invitesReadAt),
         }),
       ),
       // Server-computed from the CALLER's own row, which the roster read already

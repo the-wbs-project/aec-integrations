@@ -1176,6 +1176,19 @@ export const vendorSeatInvites = sqliteTable(
     acceptedAt: text('accepted_at'),
     revokedAt: text('revoked_at'),
 
+    /** When the invite was last RE-sent (AECI-927). `null` means it has only
+     *  ever been mailed once, at `created_at` — so every read of "when did this
+     *  last go out?" is `last_sent_at ?? created_at`. Nullable rather than
+     *  backfilled to `created_at` because `ALTER TABLE ADD COLUMN` on SQLite
+     *  accepts only a constant default, and a nullable column keeps the
+     *  migration a plain ALTER instead of a table rebuild (§1.2 / R1). */
+    lastSentAt: text('last_sent_at'),
+
+    /** Total sends including the original, so a fresh row is `1` (AECI-927).
+     *  Bounds the lifetime mail per invite — the cooldown alone bounds bursts,
+     *  not volume. A constant default, so the ALTER stays additive. */
+    sendCount: integer('send_count').notNull().default(1),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
