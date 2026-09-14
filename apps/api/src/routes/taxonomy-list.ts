@@ -15,7 +15,6 @@
  */
 
 import { CategoriesListResponseSchema, type CategoriesListResponse } from '@aeci/shared';
-import { asc } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -36,6 +35,7 @@ import {
   type RawTaxonomyTermRow,
 } from '../lib/drizzle-helpers';
 import { textAsc } from '../lib/collation';
+import { displayOrderAsc } from '../lib/display-order';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 /** The four facet list endpoints, keyed by URL path segment. */
@@ -53,25 +53,31 @@ export function createTaxonomyListHandler(
       case 'categories':
         rows = await db.query.taxonomyCategories.findMany({
           ...categoryTermConfig,
-          orderBy: [asc(taxonomyCategories.displayOrder), textAsc(taxonomyCategories.name)],
+          orderBy: [
+            ...displayOrderAsc(taxonomyCategories.displayOrder),
+            textAsc(taxonomyCategories.name),
+          ],
         });
         break;
       case 'audiences':
         rows = await db.query.taxonomyAudiences.findMany({
           ...audienceTermConfig,
-          orderBy: [asc(taxonomyAudiences.displayOrder), textAsc(taxonomyAudiences.name)],
+          orderBy: [
+            ...displayOrderAsc(taxonomyAudiences.displayOrder),
+            textAsc(taxonomyAudiences.name),
+          ],
         });
         break;
       case 'phases':
         rows = await db.query.taxonomyPhases.findMany({
           ...phaseTermConfig,
-          orderBy: [asc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)],
+          orderBy: [...displayOrderAsc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)],
         });
         break;
       case 'trades':
         rows = await db.query.taxonomyTrades.findMany({
           ...tradeTermConfig,
-          orderBy: [asc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
+          orderBy: [...displayOrderAsc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
         });
         break;
     }

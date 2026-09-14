@@ -31,6 +31,12 @@ import type { TaxonomyTermWithCount } from '@aeci/shared';
  * information the picker exists to convey, and the alternative (`aria-describedby`
  * on a sibling) would put the description outside the click target.
  *
+ * The `<fieldset>` is deliberately NOT the scrolling element (AECI-925). Given
+ * `overflow-y: auto` it reports a scroll range and still refuses to clip, so with
+ * the full 33-term category vocabulary the rows painted straight down the page
+ * past the card's bottom edge. A plain `<div>` wrapper does the scrolling; the
+ * fieldset keeps the grouping semantics and nothing else.
+ *
  * ── SAVE PERSISTS. IT DOES NOT STAGE. ────────────────────────────────────────
  * {@link save} runs the real `PATCH /api/vendor/products/:id`. A Save that only
  * wrote into the parent form's model would be a lie: `apps/web` has no
@@ -87,7 +93,7 @@ import type { TaxonomyTermWithCount } from '@aeci/shared';
               <button
                 brnDialogClose
                 type="button"
-                class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="-me-1 -mt-1 shrink-0 cursor-pointer rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n-aria-label="@@vendor.product.taxonomy.editor.close"
                 aria-label="Close"
               >
@@ -118,37 +124,43 @@ import type { TaxonomyTermWithCount } from '@aeci/shared';
             }
           </div>
 
-          <fieldset class="min-h-0 flex-1 overflow-y-auto border-0 p-0">
-            <legend class="sr-only">{{ heading() }}</legend>
-            <ul>
-              @for (term of terms(); track term.slug) {
-                <li class="border-b border-(--border-default) last:border-b-0">
-                  <label
-                    class="flex cursor-pointer items-start gap-3 px-6 py-3 transition-colors hover:bg-(--surface-sunken) md:px-8"
-                  >
-                    <input
-                      type="checkbox"
-                      class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                      [checked]="isDrafted(term.slug)"
-                      (change)="toggle(term.slug)"
-                    />
-                    <span class="min-w-0 flex-1 sm:flex sm:items-start sm:gap-4">
-                      <span
-                        class="block text-sm font-medium text-(--text-primary) sm:w-56 sm:shrink-0"
-                        >{{ term.name }}</span
-                      >
-                      @if (term.description; as d) {
+          <!-- The scroll container is this DIV, not the fieldset inside it. A
+               fieldset given overflow-y:auto reports a scroll range but does not
+               CLIP, so the rows keep painting past the card's bottom edge and
+               over the page behind it. See the class doc (AECI-925). -->
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <fieldset class="border-0 p-0">
+              <legend class="sr-only">{{ heading() }}</legend>
+              <ul>
+                @for (term of terms(); track term.slug) {
+                  <li class="border-b border-(--border-default) last:border-b-0">
+                    <label
+                      class="flex cursor-pointer items-start gap-3 px-6 py-3 transition-colors hover:bg-(--surface-sunken) md:px-8"
+                    >
+                      <input
+                        type="checkbox"
+                        class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        [checked]="isDrafted(term.slug)"
+                        (change)="toggle(term.slug)"
+                      />
+                      <span class="min-w-0 flex-1 sm:flex sm:items-start sm:gap-4">
                         <span
-                          class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary) sm:mt-0 sm:min-w-0 sm:flex-1"
-                          >{{ d }}</span
+                          class="block text-sm font-medium text-(--text-primary) sm:w-56 sm:shrink-0"
+                          >{{ term.name }}</span
                         >
-                      }
-                    </span>
-                  </label>
-                </li>
-              }
-            </ul>
-          </fieldset>
+                        @if (term.description; as d) {
+                          <span
+                            class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary) sm:mt-0 sm:min-w-0 sm:flex-1"
+                            >{{ d }}</span
+                          >
+                        }
+                      </span>
+                    </label>
+                  </li>
+                }
+              </ul>
+            </fieldset>
+          </div>
 
           <div
             class="shrink-0 border-t border-(--border-default) p-6 md:p-8"
@@ -231,11 +243,11 @@ export class VendorTaxonomyFacetDialog {
   protected readonly saveFailed = signal(false);
 
   protected readonly triggerClass =
-    'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-(--radius-sm) border border-(--border-default) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-40';
+    'inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-(--radius-sm) border border-(--border-default) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-40';
   protected readonly cancelClass =
-    'rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly saveClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 
   protected readonly heading = computed(
     () => $localize`:@@vendor.product.taxonomy.editor.heading:Edit ${this.legend()}:FACET:`,

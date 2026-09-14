@@ -14,7 +14,6 @@
  */
 
 import { TaxonomyResponseSchema, type TaxonomyResponse } from '@aeci/shared';
-import { asc } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -34,6 +33,7 @@ import {
   tradeTermConfig,
 } from '../lib/drizzle-helpers';
 import { textAsc } from '../lib/collation';
+import { displayOrderAsc } from '../lib/display-order';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 const CACHE_KEY = 'taxonomy:v1';
@@ -58,19 +58,25 @@ export function createTaxonomyHandler(
     const [categories, audiences, phases, trades] = await Promise.all([
       db.query.taxonomyCategories.findMany({
         ...categoryTermConfig,
-        orderBy: [asc(taxonomyCategories.displayOrder), textAsc(taxonomyCategories.name)],
+        orderBy: [
+          ...displayOrderAsc(taxonomyCategories.displayOrder),
+          textAsc(taxonomyCategories.name),
+        ],
       }),
       db.query.taxonomyAudiences.findMany({
         ...audienceTermConfig,
-        orderBy: [asc(taxonomyAudiences.displayOrder), textAsc(taxonomyAudiences.name)],
+        orderBy: [
+          ...displayOrderAsc(taxonomyAudiences.displayOrder),
+          textAsc(taxonomyAudiences.name),
+        ],
       }),
       db.query.taxonomyPhases.findMany({
         ...phaseTermConfig,
-        orderBy: [asc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)],
+        orderBy: [...displayOrderAsc(taxonomyPhases.displayOrder), textAsc(taxonomyPhases.name)],
       }),
       db.query.taxonomyTrades.findMany({
         ...tradeTermConfig,
-        orderBy: [asc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
+        orderBy: [...displayOrderAsc(taxonomyTrades.displayOrder), textAsc(taxonomyTrades.name)],
       }),
     ]);
 
