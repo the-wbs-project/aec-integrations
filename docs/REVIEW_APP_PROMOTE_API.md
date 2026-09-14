@@ -1233,8 +1233,9 @@ gone. Those entries are **parked**: reported, never deleted, never confirmed. Th
 `ops:retract-product`, and leaving them pending is the harmless direction. An entry with a
 missing `entity` is parked for the same reason.
 
-Run state as of **2026-09-14: 216 of 216 deleted and confirmed, 0 held, feed empty.** It got
-there in two runs, and the gap between them is the part worth reading.
+Run state as of **2026-09-14: 233 of 233 deleted and confirmed, 0 held, feed empty.** It got
+there in three runs — 214, then the 2 that first run held back, then a further 17 — and the gap
+between the first two is the part worth reading.
 
 The 2026-09-13 run took 214 and **held 2** — the Agave ERP Sync connector pairs carrying 21 claims
 between them. At that moment the public promote contract could not land a claim anchored to a
@@ -1272,6 +1273,23 @@ yet — the reach-tier surface is AECI-716 and is unbuilt. So both pair pages
 serve **200 with `noindex`** rather than a delivered edge, which is the same outcome the other 213
 AECI-852 rows took and is correct: the pairs assert reach, not delivery. The data is in D1 waiting
 for the surface.
+
+**The third run is the one that shows what this lane is actually for.** The first two drained a
+backlog. On 2026-09-14 the lane took its first *routine* batch: AECI-889 batch 1 retired 17
+Agave ERP Sync duplicates that were simultaneously a built edge and a reachable pair, and the
+17 journal entries were consumed the same day they were written. That is the intended cadence,
+and AECI-889 has three catalogues left, so expect it to repeat.
+
+That batch also set the lane's cascade record — **169 claims and 169 attestations**, against the
+21 the previous hold agonised over. It was safe for one reason: upstream's `reanchor_claims`
+had already moved all 169 onto reach-tier `connector_pairs` rows through the AECI-891 third
+anchor, and each of the 17 evidenced pairs was matched to its `connector_pairs` twin and the two
+claim counts compared **row by row** before the ceiling moved. 169 = 169, no pair without a
+twin, no twin short. The reach population read 190 before the delete and 190 after.
+
+**Compare per pair, not in aggregate.** A cohort whose totals match while one pair is 12 over and
+another 12 short passes an aggregate check and destroys rulings anyway. The aggregate cannot
+see it; the per-pair join can. That is now the documented shape for raising the ceiling.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 
