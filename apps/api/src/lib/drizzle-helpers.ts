@@ -414,11 +414,13 @@ export function toProductIntegrationItemFromEvidencedPair(
   return {
     ...item,
     context_direction: effectiveContextDirection(
-      // The ORIENTED stored direction, re-read from the orienting helper rather
-      // than off `item` — `item.direction` is the context-free collapse now
-      // (AECI-921) and has thrown away which way the flow runs, which is the one
-      // thing this call needs.
-      orientEvidencedPair(raw).direction,
+      // The ORIENTED stored direction (AECI-921) — expressed in the post-swap
+      // frame, so it is never `b_to_a` and it agrees with `item.source` /
+      // `item.target` above. `contextIsSource` is read against those same
+      // endpoints, which is what makes the pair of arguments coherent; the raw
+      // `raw.direction` would be anchored to the canonical A/B instead and is
+      // what the claims below are flipped out of.
+      item.direction,
       raw.claims.map((claim) => {
         const direction = coerceClaimDirection(claim.direction, raw.id);
         return {

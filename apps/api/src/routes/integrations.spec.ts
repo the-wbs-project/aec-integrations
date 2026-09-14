@@ -157,6 +157,91 @@ describe('GET /api/integrations — connector-evidenced pairs (AECI-721)', () =>
   });
 });
 
+/**
+ * AECI-921 — the `?direction=` filter, over BOTH arms of the union.
+ *
+ * `direction` on this query is the **context-free presentation** vocabulary
+ * (`one-way | bidirectional`), because a list endpoint has no context product to
+ * frame an arrow against. The column it filters stores `a_to_b | b_to_a | both`,
+ * so each arm has to widen. Untested, that widening fails SILENTLY in every
+ * direction it can fail: a 200, a well-formed page, and a result set that is
+ * empty, inverted, or drawn from only one of the two tables. Nothing about the
+ * response shape says so, which is why these assertions pin the ids rather than
+ * the counts alone.
+ */
+describe('GET /api/integrations — ?direction= (AECI-921)', () => {
+  /** Three directions plus the NULL case, in `integrations` AND in
+   *  `connector_evidenced_pairs`. The evidenced rows need distinct product pairs
+   *  (`connector_evidenced_pairs_pair_idx` is unique) and canonical A/B ordering
+   *  (`product_a_id < product_b_id` is a CHECK), hence the sort. */
+  async function seedEveryDirection() {
+    await seedProducts();
+    await t.db.insert(products).values([
+      {
+        id: u(3),
+        slug: 'agave-erp-sync',
+        name: 'Agave ERP Sync',
+        productRole: 'connector',
+        promotionStatus: 'promoted',
+      },
+      { id: u(4), slug: 'bluebeam', name: 'Bluebeam', promotionStatus: 'promoted' },
+      { id: u(5), slug: 'sage-intacct', name: 'Sage Intacct', promotionStatus: 'promoted' },
+    ]);
+
+    await t.db.insert(integrations).values([
+      { id: u(11), sourceProductId: u(1), targetProductId: u(2), direction: 'a_to_b' },
+      { id: u(12), sourceProductId: u(1), targetProductId: u(2), direction: 'b_to_a' },
+      { id: u(13), sourceProductId: u(1), targetProductId: u(2), direction: 'both' },
+      { id: u(14), sourceProductId: u(1), targetProductId: u(2), direction: null },
+    ]);
+
+    const pair = (x: string, y: string) => {
+      const [a, b] = [x, y].sort();
+      return { productAId: a!, productBId: b! };
+    };
+    await t.db.insert(connectorEvidencedPairs).values([
+      { id: u(61), connectorProductId: u(3), ...pair(u(1), u(2)), direction: 'a_to_b' },
+      { id: u(62), connectorProductId: u(3), ...pair(u(1), u(4)), direction: 'b_to_a' },
+      { id: u(63), connectorProductId: u(3), ...pair(u(1), u(5)), direction: 'both' },
+      { id: u(64), connectorProductId: u(3), ...pair(u(2), u(4)), direction: null },
+    ]);
+  }
+
+  const ids = async (url: string) =>
+    IntegrationsListResponseSchema.parse(await (await get(listApp(), url)).json())
+      .data.map((i) => i.id)
+      .sort();
+
+  it('widens `one-way` to BOTH arrows, on both tables', async () => {
+    await seedEveryDirection();
+    // The whole point of the collapse: `a_to_b` and `b_to_a` are one bucket to a
+    // reader with no endpoint ordering in front of them. Dropping either — which
+    // the pre-AECI-921 `eq(direction, 'one-way')` did to both — is invisible.
+    expect(await ids('/api/integrations?direction=one-way')).toEqual(
+      [u(11), u(12), u(61), u(62)].sort(),
+    );
+  });
+
+  it('maps `bidirectional` to `both`, on both tables', async () => {
+    await seedEveryDirection();
+    expect(await ids('/api/integrations?direction=bidirectional')).toEqual([u(13), u(63)].sort());
+  });
+
+  it('excludes a NULL direction from every filter value but returns it unfiltered', async () => {
+    await seedEveryDirection();
+    // NULL means "nobody established it", so it is not one-way and not
+    // bidirectional — but it is still a real edge and must survive an unfiltered
+    // list. `IN (...)` and `=` both drop NULL in SQL; this pins that they do.
+    const oneWay = await ids('/api/integrations?direction=one-way');
+    const both = await ids('/api/integrations?direction=bidirectional');
+    for (const nullRow of [u(14), u(64)]) {
+      expect(oneWay).not.toContain(nullRow);
+      expect(both).not.toContain(nullRow);
+    }
+    expect(await ids('/api/integrations')).toHaveLength(8);
+  });
+});
+
 describe('GET /api/integrations', () => {
   it('lists with a synthesised name when the row name is null', async () => {
     await seedProducts();
