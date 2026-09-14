@@ -93,7 +93,10 @@
                  rather than a broken-image icon on nothing. The URL is hardcoded to
                  production on purpose: non-prod sits behind Cloudflare Access and would
                  403 in the recipient's mail client. PNG, not SVG, because Outlook and
-                 Gmail do not render SVG at all. -->
+                 Gmail do not render SVG at all. The PNG's own background is TRANSPARENT
+                 (AECI-924): a dark-mode client shifts this td's CSS colour but cannot
+                 touch pixels inside an image, so a baked-in fill renders the header as
+                 two different greens. -->
             <tr>
               <td
                 bgcolor="#1e3a2f"

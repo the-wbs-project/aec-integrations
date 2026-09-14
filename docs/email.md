@@ -66,10 +66,11 @@ the only brand-correct email in the product and the only one **not** sent by
 | Page background | `#F4F4F5` |
 | Card | 600px max, `#FFFFFF`, `1px solid #D4D4D8`, `border-radius: 6px`, `overflow: hidden` |
 | Preheader | Hidden `<div>` (`mso-hide: all`). The line the client shows in the message list |
-| Logo band | Full-bleed Forest `#1E3A2F` `<td>`, the 300x49 banner image, `alt="AEC Integrations"` |
+| Logo band | Full-bleed Forest `#1E3A2F` `<td>`, the 300x49 banner image on a **transparent** field, `alt="AEC Integrations"` |
 | Text wordmark | "AEC Integrations", 14px / 600, Forest, on the white card below the band |
 | Heading | 22px / 600 / 1.3, `#0A0A0A` |
 | Blocks | 15px / 1.6, `#52525B`. First block sits at 12px, later ones at 16px |
+| Detail table | Optional `table` rows. Label 13px `#71717A` at `width="35%"`, value 14px `#0A0A0A`, rows separated by a 1px `#D4D4D8` hairline, no outer box. A value that is a bare `https://` URL renders as a Forest link |
 | CTA | Forest fill, `#FFFFFF` label, 6px radius, plus the `[if mso]` `v:roundrect` twin Outlook for Windows needs |
 | Paste-able URL | Always rendered under a CTA. Corporate gateways strip buttons routinely |
 | Hairline | 1px `#D4D4D8` |
@@ -85,6 +86,13 @@ Four rules the module holds, each because of a specific failure:
   the already-served `monogram-light.svg` is unusable here. The asset is
   `apps/web/public/branding/email-logo-banner.png`; renaming or moving it breaks the
   header of every email already delivered.
+- **That PNG's background is transparent, and has to stay transparent (AECI-924).** It
+  shipped with a baked Forest field and the header rendered as two different greens the
+  same day. A client applying a dark-mode transform shifts the band `<td>`'s CSS
+  `#1E3A2F` (measured: to `#334D42`) and cannot touch pixels inside an image, so the logo
+  sat in a darker rectangle of its own. `color-scheme: light only` is a hint those
+  clients ignore. Alpha removes the seam, because whatever the band becomes shows
+  through. A re-export with a background fill brings the two-tone header straight back.
 - **The brand appears twice, as an image and as text.** The band's `<td>` carries the
   Forest fill and Bone `#F5F2EA` type styling so the alt text renders legibly *inside*
   the band when images are blocked, and the wordmark row repeats it on the card. An email
@@ -106,23 +114,33 @@ dashboard to take effect, per the magic-link section below.
 
 ### Migration status
 
-`claim-approved` is the first template on the layout (2026-09-14). The rest still render
-through the legacy formatters in `lib/email.ts`, which produce an unbranded `<body>` of
-`<p>` tags at an off-palette `#27272a`:
+`claim-approved` was the first template on the layout (2026-09-14, AECI-914) and
+`claim-submitted-alert` the second (AECI-924). The rest still render through the legacy
+formatters in `lib/email.ts`, which produce an unbranded `<body>` of `<p>` tags at an
+off-palette `#27272a`:
 
 | Formatter | Templates | Count |
 |---|---|---|
-| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved` | 1 |
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved`, `claim-submitted-alert` | 2 |
 | `toText` / `toHtml` (legacy reader-facing) | `review-submitted`, `review-approved`, `review-rejected`, `claim-rejected`, `vendor-seat-invite`, `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `entitlement-expiring` | 11 |
-| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `claim-submitted-alert`, `attestation-ops-alert`, `entitlement-expiring-admin` | 5 |
+| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `attestation-ops-alert`, `entitlement-expiring-admin` | 4 |
 | `opsSectionsText` / `opsSectionsHtml` (operator, multi-section) | `stuck-request-alert`, `stale-claim-ticket-alert` | 2 |
 
 Migrating a reader-facing template means re-cutting its copy around a heading, short
-blocks and **one** CTA, and it drops that template's sign-off. The **7 operator alerts
-are a separate question**: they are data tables for one reader, not brand surfaces, so
-they may not want the card treatment at all.
+blocks and **one** CTA, and it drops that template's sign-off.
 
-The two cron digests are also unmigrated and are a larger job: `lib/analytics-digest.ts`
+**The operator alerts are no longer a separate question.** AECI-914 left all seven on
+`opsTable` on the argument that a data table for one reader is not a brand surface;
+AECI-924 rejected that for `claim-submitted-alert`, which is the first mail a human reads
+on the claim intake path and lands in a shared support inbox, where an unbranded
+`border="1"` grid is indistinguishable from a script's output. What made the migration
+possible is the layout's optional `table`: an operator alert is a dozen labelled facts,
+and until then the shell could only carry prose. Migrating the remaining six is now
+mechanical — move the rows into `table`, promote the one actionable link to the `cta`,
+and leave the plain-text part alone, since `renderEmailText` emits exactly the
+`Key: value` block `opsText` did.
+
+The two cron digests are still unmigrated and are a larger job: `lib/analytics-digest.ts`
 carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.md token.
 
 ## Template catalogue
@@ -137,7 +155,7 @@ carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.m
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest. Operator format (`opsSectionsText`/`opsSectionsHtml`), one table per stuck request, carrying the failure **cause** and its plain-English gloss, whether a retry actually ran, and links to `/admin/requests` + the listing when `PUBLIC_SITE_URL` is set. The subject names the cause when every row shares one, e.g. `[AECi] 1 request stuck in the Linear pipeline (no_api_key)`. **Band-throttled since AECI-854** — one email at 60 min, one at 6 h, then one a day, not one per 15-minute sweep. Unthrottled it sent 96 a day per stuck row, against the same Resend account the Supabase magic-link sender uses, which is a sign-in hazard and not just noise. The `persistent_failure` metric and error log are deliberately **not** throttled. |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
-| `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only**; ALSO re-sent by the §6.7 reconciliation sweep when that is what finally created the issue (AECI-861) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. Operator format (`opsText`/`opsTable`) carrying the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet — the reconciliation sweep will retry` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
+| `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only**; ALSO re-sent by the §6.7 reconciliation sweep when that is what finally created the issue (AECI-861) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. **On the house layout since AECI-924** (the second template on it, and the first operator alert): the facts ride the layout's `table` rather than an unbranded `border="1"` grid, and the `/admin/claims/:id` deep link is the single Forest CTA ("Review the claim") rather than an `Administer` row, because reviewing the claim is the one action the email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly as it previously meant no link rows. The plain-text part is unchanged. Carries the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet, the reconciliation sweep will retry` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
 | `stale-claim-ticket-alert` | the `25 */6` `claim-stale-check` cron (`lib/claim-stale-check.ts`, AECI-862) | `FOUNDER_ALERT_EMAIL` | Founder escalation: claim tickets that **exist** in Linear and that nobody has started after 24 hours. A deliberate third recipient — `stuck-request-alert` means the pipeline is broken and goes to whoever fixes it, this means the pipeline worked and the humans did not, so merging them would bury a business-response problem inside an infrastructure alert. The intro says so in as many words ("nothing is broken"). Operator format, one section per ticket, carrying the Linear identifier and title, how long it has waited, the state it is stuck in, the claimant, and **both** links: Linear is where you accept the work, `/admin/claims/:id` is where the claimant's evidence is. Band-throttled by the caller (`lib/alert-bands.ts`) — once as the ticket crosses 24 h, then once a day, never four times a day. Staleness is read from **Linear**, not `vendor_requests.status`, because the local status depends on the §6.3 inbound webhook, which is not confirmed to be delivering. |
 | `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. **The first template on the house layout (2026-09-14)** — the portal moved from an inline link inside a sentence to the single Forest CTA, since it is the one action the email exists to prompt, and the copy re-cut into a heading plus three short blocks. No `PUBLIC_SITE_URL` means no button, exactly as it previously meant no link. Every §9 AC is unchanged. |
 | `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. |

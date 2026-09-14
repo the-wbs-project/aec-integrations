@@ -1182,7 +1182,23 @@ export function sendLandingSignupNotification(
  *
  * Carries the two §6.8 admin signals the reviewer would otherwise have to look up —
  * `domain_match` (submitter email domain vs the target vendor's website) and whether
- * this duplicates an open request. Operator format, en-US, never i18n'd.
+ * this duplicates an open request. en-US, never i18n'd.
+ *
+ * **On the house layout since AECI-924**, and the first operator alert to be. AECI-914
+ * had left all seven of them on `opsTable()` as an open question, on the argument that
+ * a data table for one reader is not a brand surface. This one is: it is the first mail
+ * a human reads on the claim intake path, and it goes to a shared support inbox where
+ * an unbranded `border="1"` grid is indistinguishable from a script's output.
+ *
+ * Two structural changes came with the shell. The facts move into the layout's `table`,
+ * which renders them hairline-separated rather than boxed and links any row whose value
+ * is a bare URL. And the `/admin/claims/:id` deep link becomes the single Forest CTA
+ * instead of an `Administer` row, because reviewing the claim is the one action this
+ * email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly
+ * as it previously meant no link rows.
+ *
+ * The plain-text part is materially unchanged: `renderEmailText` emits the same
+ * `Key: value` block `opsText` did, under a heading.
  */
 export function sendClaimSubmittedNotification(
   c: EmailContext,
@@ -1225,21 +1241,29 @@ export function sendClaimSubmittedNotification(
   if (host) rows.push(['Environment', host]);
   rows.push([
     'Linear issue',
-    opts.linearIssueUrl ?? 'not created yet — the reconciliation sweep will retry',
+    opts.linearIssueUrl ?? 'not created yet, the reconciliation sweep will retry',
   ]);
-  if (adminUrl) rows.push(['Administer', adminUrl]);
   if (base) {
     rows.push(['Review queue', `${base}/admin/claims`]);
     const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
     rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
   }
+
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
+  const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
+  const shared = {
+    preheader: intro,
+    heading: `New claim for ${opts.targetName}`,
+    table: rows,
+    ...(adminUrl ? { cta: { label: 'Review the claim', url: adminUrl } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
-    text: opsText(intro, rows),
-    html: opsTable(intro, rows),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
   });
 }
 

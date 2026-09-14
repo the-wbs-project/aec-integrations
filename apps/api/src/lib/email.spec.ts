@@ -16,6 +16,7 @@ import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { submitCount } from '../posthog';
+import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
   parseRecipients,
@@ -792,6 +793,65 @@ describe('sendClaimSubmittedNotification', () => {
     const html = String(lastBody(fetchSpy).html);
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
+  });
+
+  // AECI-924 — the house layout, and the first operator alert on it.
+  it('renders the house shell, not the unbranded ops table', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).toContain('AEC Integrations');
+    // The two tells of the formatter this migrated off.
+    expect(html).not.toContain('border="1"');
+    expect(html).not.toContain('#27272a');
+  });
+
+  it('makes the admin deep link the single CTA rather than a table row', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain(
+      'Review the claim: https://www.aecintegrations.com/admin/claims/req-9',
+    );
+    // Forest fill (DESIGN.md), and the row it replaced is gone.
+    expect(String(body.html)).toContain('background-color:#1e3a2f;color:#ffffff');
+    expect(String(body.text)).not.toContain('Administer');
+  });
+
+  it('renders no button when PUBLIC_SITE_URL is unset, rather than a dead one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      CLAIM,
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('Review the claim:');
+    expect(String(body.html)).not.toContain('Or paste this into your browser');
+  });
+
+  it('states the Linear issue is pending without an em dash PRODUCT.md bans', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, linearIssueUrl: null },
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Linear issue: not created yet, the reconciliation sweep will retry');
+    expect(text).not.toContain('—');
   });
 });
 
