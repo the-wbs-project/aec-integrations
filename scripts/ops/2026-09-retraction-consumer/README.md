@@ -1,8 +1,12 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889)
 
-**Status: RUN — complete, both tranches.** Applied to `aeci-app-production` on 2026-09-13
-(214 rows) and 2026-09-14 (the 2 held back). **The feed is at zero pending and no hold is
-active.**
+**Status: RUN — three tranches, all complete.** Applied to `aeci-app-production` on
+2026-09-13 (214 rows), 2026-09-14 (the 2 held back), and 2026-09-14 again (17 rows, AECI-889
+batch 1). **The feed is at zero pending and no hold is active.**
+
+The third tranche is the first one this lane took from a *routine* upstream batch rather than
+from a one-off cleanup, which is what it was built for. Expect more: AECI-889 has three
+catalogues left.
 
 Consumes the review app's retraction journal: reads `list_retractions`, deletes the live
 AECi rows it names, verifies they are gone in **both** delivered-tier tables, and only then
@@ -156,6 +160,128 @@ first run. For AECI-880: drift is now **62 missing**, down from 63. This run did
 Still nothing to purge. Production has no `exports` block in `apps/web/wrangler.jsonc`, so it
 serves uncached. Re-verified on 2026-09-14 rather than assumed.
 
+## What ran — 2026-09-14, 17 rows (AECI-889 batch 1, Agave ERP Sync)
+
+The first batch of the I24 sweep. Upstream re-anchored 169 claims onto reach-tier
+`connector_pairs` rows, re-sent the Agave catalogue, then deleted 17 integration records and
+journalled each one with the reason `I24 / AECI-889 batch 1 (Agave)`. This half deleted the 17
+live AECi rows those entries name.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 17
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 950 | 950 | 0 |
+| `connector_evidenced_pairs` | 62 | 45 | −17 |
+| `claims` | 2041 | 1872 | −169 |
+| `attestations` | 2041 | 1872 | −169 |
+| `claims` on `connector_pairs` (reach tier) | 190 | 190 | **0 — untouched** |
+| `audit_log` rows from this lane | 216 | 233 | +17 |
+| feed, pending | 17 | 0 | −17 |
+
+**13 products** had `integration_count` repaired and `updated_at` bumped.
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+Time Travel bookmark captured immediately before the delete, expires ~2026-10-14:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=00005854-00000068-000050e6-40e79eebe660187bed73a054a942e359
+```
+
+### All 17 resolved to `connector_evidenced_pairs`, none to `integrations`
+
+`resolve: integrations 0, connector_evidenced_pairs 17`. Upstream these are integration
+records; here they are evidenced pairs, because migration `0027` moved every connector-powered
+edge into that table with its id verbatim. That is the same split the 2026-09-13 tranche saw
+(215 of 216 in pairs), and it is why verify reads both tables — see "Why both tables".
+
+### The cascade was proved superseded before `MAX_CASCADE` moved
+
+The plan cascaded **169 claims and 169 attestations**, by far the largest this lane has
+authorised. Raising the ceiling to `169 / 169` was only safe because every one of those claims
+was counted on a reach-tier row *first*, per evidenced pair rather than in aggregate:
+
+| product pair | delivered claims (deleted) | reach `connector_pairs` id | reach claims (kept) |
+|---|---|---|---|
+| acumatica ↔ autodesk-build | 9 | `rectp91679rbueRBY` | 9 |
+| acumatica ↔ procore-project-management | 11 | `recX6kmGA9owPzELr` | 11 |
+| autodesk-build ↔ cmic | 9 | `rec8JIZreUjts6mhB` | 9 |
+| autodesk-build ↔ deltek-computerease | 9 | `reckB1a5K0g7BhmuU` | 9 |
+| autodesk-build ↔ quickbooks-online | 8 | `recftTf7M0eXnRIhn` | 8 |
+| autodesk-build ↔ sage-100-contractor | 9 | `rec2keYiupa85WwFk` | 9 |
+| autodesk-build ↔ sage-intacct | 9 | `rec4ksgzYcrlxXpIn` | 9 |
+| autodesk-build ↔ viewpoint-spectrum | 9 | `recqC1Vi5OpuoE2nU` | 9 |
+| autodesk-build ↔ viewpoint-vista | 9 | `recH4f2WSCCaG28y4` | 9 |
+| procore-project-management ↔ deltek-computerease | 12 | `rec6tLIcESrgKt2Po` | 12 |
+| procore-project-management ↔ quickbooks-desktop | 11 | `rec5JErj623cLlM8T` | 11 |
+| procore-project-management ↔ sage-100-contractor | 12 | `rec0sYX06TIhwi3DX` | 12 |
+| procore-project-management ↔ sage-intacct | 11 | `rece0nL1VldLBc53l` | 11 |
+| procore-project-management ↔ viewpoint-spectrum | 12 | `recdDKc84x6qv2pYE` | 12 |
+| procore-project-management ↔ viewpoint-vista | 12 | `recnhsQbS8NZrdIjT` | 12 |
+| quickbooks-desktop ↔ autodesk-build | 8 | `recLMhwcniRoSAZQM` | 8 |
+| sage-300-cre ↔ autodesk-build | 9 | `recvVNxzdjXkLCsdP` | 9 |
+| **total** | **169** | 17 pairs, all matched | **169** |
+
+Zero rows came back without a reach counterpart, and no counterpart was short. Then the whole
+population was re-counted after: `claims WHERE connector_pair_id IS NOT NULL` read **190 before
+and 190 after**, so the delete took the delivered copies and left the reach copies untouched.
+
+**Do not raise `MAX_CASCADE` on an aggregate.** 169 total claims on 169 total reach claims would
+also have been true if one pair had 12 spare and another had 12 missing. The per-pair match is
+what rules out that shape, and it is the only check that does.
+
+### The two guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 17, inPairs: 17, inIntegrations: 0 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 169, attestations: 169 }` | `{ 0, 0 }` |
+
+Both reset in the same change as the run that spent them, per the standing rule. Batch 2 is
+App Xchange and its cohort is a different size, so it re-measures from zero.
+
+### Algolia, third run
+
+```
+products      production_products        indexed 260   promoted 260    orphans 0
+vendors       production_vendors         indexed 169   promoted 169    orphans 0
+integrations  production_integrations    indexed 950   promoted 995    orphans 0
+```
+
+**Zero orphans** again, and for the third time the reason is that evidenced pairs have never
+been indexed. For AECI-880: drift is now **45 missing**, down from 62. Deleting evidenced pairs
+keeps shrinking that number without anyone closing it, which is worth saying out loud — the
+gap is narrowing because the unindexed population is being deleted, not because indexing
+improved.
+
+### Cache, third run
+
+Still nothing to purge. Re-checked in `apps/web/wrangler.jsonc` rather than assumed: the
+`exports` block exists in the `preview` and `staging` env blocks only, so `demo` and
+`production` serve uncached.
+
+### Verification, live (2026-09-14, browser UA)
+
+- `/products/procore-project-management/integrations/viewpoint-spectrum` → **200 with
+  `<meta name="robots" content="noindex">`**, zero occurrences of "Agave".
+- `/products/autodesk-build/integrations/sage-intacct` → same.
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, **indexable**, no robots meta.
+  The AECI-878 negative sentinel, asserted present in both orientations before and after.
+
+Both retired pair pages losing their delivered edge is the expected outcome. Their 169 claims
+now sit on reach-tier `connector_pairs` rows with no public surface, because AECI-716's reach
+render is unbuilt. Same state as the 213 AECI-852 rows and the 2 AECI-909 rows.
+
+### Daily audit after this run
+
+`pendingRetractions` **0**. Six of the seven stranded buckets **0**. The seventh,
+`evidencedPairSourceGone`, holds **2** — the Aquifer HeavyJob pairs already filed as
+**AECI-916**. Both were created 2026-09-09 and never updated, so they predate this run and are
+not its residue. Exit **1**, correctly, and it will stay 1 until AECI-916 is ruled.
+
 ## The order, and why it is not negotiable
 
 Delete → verify → confirm. Always.
@@ -303,8 +429,14 @@ retraction hides behind ids nobody re-reads.
 Post-run 2026-09-13: all six stranded buckets **0**, `pendingRetractions` **2, both held**,
 exit **0**.
 
-Post-run 2026-09-14: all six stranded buckets **0**, `pendingRetractions` **0**, zero publicly
-reachable stranded rows, 260 products reconciled with no unresolved reads, exit **0**.
+Post-run 2026-09-14 (AECI-909 tranche): all six stranded buckets **0**, `pendingRetractions`
+**0**, zero publicly reachable stranded rows, 260 products reconciled with no unresolved reads,
+exit **0**.
+
+Post-run 2026-09-14 (AECI-889 batch 1): `pendingRetractions` **0**, and every stranded bucket
+**0** except `evidencedPairSourceGone` at **2**, which is AECI-916 and predates this run. Exit
+**1** on those two. The seventh bucket did not exist when the lines above were written —
+AECI-897 added it, which is why "six" is correct for them and wrong for this one.
 
 ## Re-running this lane
 

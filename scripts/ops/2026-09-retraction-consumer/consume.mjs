@@ -126,8 +126,9 @@ const D1_ENVS = {
 //
 // EVERY NUMBER BELOW IS RE-PINNED PER RUN, AND RESET TO ZERO AFTER IT. The 2026-09-13 run
 // (AECI-882) was authorised against a 216-entry feed at a ceiling of 1 / 1; the 2026-09-14
-// run (AECI-909) against the 2 entries that run held back, at 21 / 21. Both authorisations
-// are spent, so both are back to zero and the next run refuses until an operator measures
+// run (AECI-909) against the 2 entries that run held back, at 21 / 21; the second 2026-09-14
+// run (AECI-889 batch 1, Agave) against 17 / 17 / 0 at 169 / 169. All three authorisations
+// are spent, so everything is back to zero and the next run refuses until an operator measures
 // the cohort in front of them. An authorisation carried over from a previous cohort is not
 // a guard — a later cohort of the same shape would match it by coincidence. The run record
 // lives in this lane's README; the guard holds only what the NEXT run is allowed to do.
@@ -170,11 +171,11 @@ const HOLD_REASON =
  *
  * ZERO, because the feed is empty as of 2026-09-14 — that is the CURRENT shape, and it is
  * also the only pin that fails closed. A shape carried over from the cohort that just ran
- * is not a guard: the 2026-09-14 run was authorised against `2 / 2 / 0`, and leaving that
- * here would have let the NEXT two-pair cohort match by coincidence and pass unruled.
- * AECI-889's I24 batches are expected to start journalling deletes, so the next operator
- * re-measures these three (and `MAX_CASCADE`) from the feed they actually see. What ran
- * before is in this lane's README, not in the guard.
+ * is not a guard: the AECI-889 batch-1 run was authorised against `17 / 17 / 0`, and leaving
+ * that here would have let the NEXT seventeen-pair cohort match by coincidence and pass
+ * unruled. AECI-889's I24 batches now DO journal deletes — batch 1 (Agave) is done and three
+ * catalogues remain — so the next operator re-measures these three (and `MAX_CASCADE`) from
+ * the feed they actually see. What ran before is in this lane's README, not in the guard.
  *
  * `total` counts the INTEGRATION-CLASS cohort, not the raw feed. Parked entries (see step
  * 1b) are outside the cohort and cannot move it. An empty feed never reaches this gate —
@@ -187,19 +188,25 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * so any plan that would cascade even one claim refuses until an operator raises it
  * deliberately for a cohort they have measured.
  *
- * It is reset to zero after every run for the same reason `EXPECTED` is. The 2026-09-14
- * run legitimately raised it to `21 / 21` — both held rows carried claims, which was why
- * they were held — but that authorisation belonged to those two ids only. Left at 21 it
- * would have silently pre-authorised 21 rulings' worth of cascade for whatever arrives
- * next, which is the one edit in this lane that can destroy data.
+ * It is reset to zero after every run for the same reason `EXPECTED` is. AECI-889 batch 1
+ * legitimately raised it to `169 / 169`, the largest this lane has authorised — but that
+ * belonged to those 17 ids only. Left at 169 it would have silently pre-authorised 169
+ * rulings' worth of cascade for whatever arrives next, which is the one edit in this lane
+ * that can destroy data.
  *
  * Raising it is a ruling, not a measurement. Before you do: confirm BY COUNT that every
- * claim it will cascade away already exists somewhere else. The 2026-09-14 precedent is
- * the shape to copy — AECI-910 had re-anchored all 21 claims onto the reach-tier
- * `connector_pairs` rows through the AECI-891 third claim arm (`claims.connector_pair_id`),
- * 12 on `recR26YP4tgDvNj6V` and 9 on `reczhKqHUJZTSlUI2`, and that was verified against a
- * production count before the number moved. Without that check this guard is the only thing
- * standing between a run and rulings that exist nowhere else on earth.
+ * claim it will cascade away already exists somewhere else — and confirm it PER PAIR, not
+ * in aggregate. A run whose total matches but whose per-pair split does not is a run that
+ * destroys rulings on one pair and over-counts another, and the aggregate cannot see it.
+ *
+ * The AECI-889 batch-1 precedent is the shape to copy. Upstream `reanchor_claims` moved all
+ * 169 claims onto reach-tier `connector_pairs` rows through the AECI-891 third claim arm
+ * (`claims.connector_pair_id`), and each of the 17 evidenced pairs was joined to its
+ * `connector_pairs` twin — via `connector_stub_mappings` on both stubs, same catalogue, same
+ * two products — and the two claim counts compared row by row. 169 = 169, zero pairs without
+ * a twin, zero twins short. The whole reach population was then re-counted after the delete
+ * and read 190 both times. Without that check this guard is the only thing standing between
+ * a run and rulings that exist nowhere else on earth.
  */
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
