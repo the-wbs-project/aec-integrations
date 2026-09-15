@@ -53,6 +53,12 @@
 -- a meta description: that is META_DESCRIPTION_MAX in apps/web/src/app/core/meta.helpers.ts,
 -- past which truncateAtWordBoundary() silently cuts at a word boundary and appends an
 -- ellipsis. The longest term here is 152. No apostrophes unless you escape them ('' in SQL).
+--
+-- ENFORCED, NOT REMEMBERED (AECI-962). src/test/taxonomy-seed-slugs.spec.ts parses this file
+-- and fails the build on any row whose description is NULL, blank, or over 155 characters.
+-- The live side is covered too: the 'taxonomy_missing_description' data-quality check
+-- (lib/data-quality.ts, severity error) reports any term in D1 with no description, which is
+-- what a promote-minted term looks like.
 
 INSERT INTO "taxonomy_categories" ("id","slug","name","description","display_order","created_at","updated_at") VALUES
   ('42ac2106-9994-5fad-8298-f82bbb85bc14', 'accounting-erp', 'Accounting & ERP', 'General ledger, AP/AR, payroll, and job-cost accounting for construction businesses. Pay applications and lien waivers belong under Payment Management.', 10, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -79,7 +85,7 @@ INSERT INTO "taxonomy_categories" ("id","slug","name","description","display_ord
   ('66df2fe0-ecf3-555c-a138-1077c3e0722a', 'prefabrication-modular', 'Prefabrication & Modular', 'Offsite fabrication, shop drawings, panelization, and modular assembly workflows. Automated machinery on the line belongs under Robotics.', 220, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('66360a76-bb37-59bc-9efe-af99d0b968eb', 'project-management', 'Project Management', 'Planning, tracking, and coordinating project work across tasks, budgets, and team workflow. All-in-one build platforms are Construction Management.', 230, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('930f27c4-5c8c-5b55-a5f3-bbbbbd4128dc', 'punch-list-qa-qc', 'Punch List & QA/QC', 'Quality inspections, observations, punch lists, and closeout verification. Worker safety programs belong under Safety & Compliance.', 240, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('39e40d09-b52b-52ae-ae00-28b3495e5980', 'reality-capture', 'Reality Capture (Scan-to-BIM)', 'Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.', 250, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('39e40d09-b52b-52ae-ae00-28b3495e5980', 'reality-capture', 'Reality Capture', 'Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.', 250, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('b63f4145-33e5-5ade-a50f-a3597ac47698', 'rfi-submittal-management', 'RFI & Submittal Management', 'Formal construction-administration workflows: RFIs, submittals, transmittals, and their review cycles and logs.', 260, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('440ea8b3-48e3-5a7c-b919-dc4243c6549f', 'robotics', 'Robotics', 'Physical robots and automated machinery for layout, fabrication, inspection, or installation on site or in the shop.', 270, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('1d2e88cc-3a36-5720-b445-dc1fa2303f9c', 'safety-compliance', 'Safety & Compliance', 'Toolbox talks, incident reporting, job hazard analyses, training records, and regulatory compliance. Quality defects belong under Punch List & QA/QC.', 280, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),

@@ -9,8 +9,8 @@
  * That is not hypothetical. `resolveTaxonomy` in `routes/promote.ts` mints a
  * missing category / audience / phase from `{ id, slug, name }` alone, leaving
  * `display_order` and `description` NULL. Production picked up exactly one such
- * row — a DUPLICATE of a seeded term, which is AECI-926's problem, not this
- * module's — and it opened the category list:
+ * row — a DUPLICATE of a seeded term, which was AECI-926's problem, not this
+ * module's, and was fixed 2026-09-15 — and it opened the category list:
  *
  *   Reality Capture (Scan-to-BIM)   ← display_order NULL, description NULL
  *   Accounting & ERP                ← display_order 10
@@ -19,6 +19,11 @@
  * A reader sees a list that is alphabetical apart from its first entry, and the
  * one out-of-place row is also the one with no description. Both symptoms come
  * from the same missing metadata, and the ordering half is fixable here.
+ *
+ * The example above is now historical — that row is gone — but the RULE is not.
+ * Promote can still mint, so the next uncurated term would open the list exactly
+ * the same way. The description half is watched at runtime by the
+ * `taxonomy_missing_description` data-quality check (`lib/data-quality.ts`).
  *
  * ── THE RULE ────────────────────────────────────────────────────────────────────
  * Curated terms first, in their curated sequence. Uncurated terms after them, in

@@ -56,6 +56,11 @@ import {
   productVendors,
   reviews,
   statsCache,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyDataObjects,
+  taxonomyPhases,
+  taxonomyTrades,
   vendorEntitlements,
   vendors,
 } from '../db/schema';
@@ -127,6 +132,55 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
     .where(notInArray(products.id, withVendor))
     .orderBy(textAsc(products.name));
   return { lines: rows.map((r) => `${r.name} (${r.slug})`) };
+}
+
+/**
+ * #12 — a LIVE taxonomy term with no description (AECI-962).
+ *
+ * ── WHY THIS IS NOT DEAD CODE ───────────────────────────────────────────────────
+ * AECI-592 retired two checks for being structurally unreachable, and the obvious
+ * reading of this one is that `seed/taxonomy.sql` populates all 73 terms so it can
+ * only ever return zero. That reading is wrong, and the distinction is the whole
+ * point: the seed is not the only writer. `resolveTaxonomy` (`routes/promote.ts`)
+ * resolves categories, audiences and phases FIND-OR-CREATE, and its mint writes
+ * `{ id, slug, name }` alone — no `description`, no `display_order`. So a promote
+ * whose incoming label does not slugify to a seeded slug silently creates a real
+ * term, with a real public browse URL, and no description.
+ *
+ * That is not hypothetical either. It is exactly how production came to hold a
+ * duplicate `Reality Capture (Scan-to-BIM)` category for weeks (AECI-926), found by
+ * eye in a screenshot rather than by any check.
+ *
+ * `severity: 'error'` because the string is not decoration: it is the paragraph on
+ * the browse page AND that page's meta description, so a null one puts an indexable
+ * page on the site-wide default.
+ *
+ * The seed half is guarded separately, at build time, by
+ * `src/test/taxonomy-seed-slugs.spec.ts`. Trades and data objects are included here
+ * even though they resolve find-only and cannot be minted — they are cheap, and the
+ * check is about the rendered page, not about who wrote the row. Note that
+ * `taxonomy_trades.description` is NOT NULL, so a trade can only ever fail on the
+ * blank-string arm; that arm is why the predicate is not a bare `IS NULL`.
+ */
+export async function checkTaxonomyMissingDescription(db: Db): Promise<CheckFinding> {
+  const tables = [
+    ['category', taxonomyCategories],
+    ['audience', taxonomyAudiences],
+    ['phase', taxonomyPhases],
+    ['trade', taxonomyTrades],
+    ['data_object', taxonomyDataObjects],
+  ] as const;
+
+  const lines: string[] = [];
+  for (const [kind, table] of tables) {
+    const rows = await db
+      .select({ slug: table.slug, name: table.name })
+      .from(table)
+      .where(or(isNull(table.description), eq(sql`trim(${table.description})`, '')))
+      .orderBy(textAsc(table.name));
+    lines.push(...rows.map((r) => `${r.name} (${kind}/${r.slug})`));
+  }
+  return { lines };
 }
 
 /**
@@ -434,6 +488,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Products with no associated vendor',
     severity: 'warn',
     run: ({ db }) => checkProductsWithoutVendor(db),
+  },
+  {
+    id: 'taxonomy_missing_description',
+    label: 'Live taxonomy terms with no description',
+    severity: 'error',
+    run: ({ db }) => checkTaxonomyMissingDescription(db),
   },
   {
     id: 'promotion_status_invariant',

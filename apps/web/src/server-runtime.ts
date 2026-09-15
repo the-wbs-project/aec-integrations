@@ -1428,6 +1428,12 @@ export function createApp(options: {
   // `docs/STAGE_3_SPEC.md` §2.6 (rebrand handling), whose mechanism is still
   // unchosen. If a second entry ever lands here, build that instead of adding a third.
   //
+  // AECI-926 landed that second entry (below). Read this as n = 2, not as permission
+  // for a third: the next one builds the table. Both survivors are one-off residue of
+  // a row being DELETED, both targets are immutable, and neither needs a `Cache-Tag`
+  // handle — which is exactly the case the STAGE_3 table exists to handle and these
+  // two do not.
+  //
   // Registered BEFORE the SSR catch-all so it wins, and it wins whether or not
   // the vendor row still exists — which is why it can be deployed ahead of the
   // production delete, leaving no window where the URL 404s.
@@ -1437,6 +1443,37 @@ export function createApp(options: {
       status: 301,
       headers: {
         Location: `${url.origin}/vendors/nemetschek-group`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+      },
+    });
+  });
+
+  // AECI-926 — the SECOND (and last permitted) per-entity 301; see the AECI-685
+  // comment above for why this is hard-coded rather than a redirect table.
+  //
+  // `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) resolves a category
+  // find-or-CREATE by `slugify(name)`. The upstream term was named
+  // `Reality Capture (Scan-to-BIM)`, which slugifies to
+  // `reality-capture-scan-to-bim` and so never matched the seeded
+  // `reality-capture`. Every promote re-missed and minted the same duplicate, which
+  // is where all 10 products ended up — while the curated description and
+  // `display_order` stayed on the seeded row nobody reached.
+  //
+  // AECI-926 took option A: the term was renamed upstream to `Reality Capture`, the
+  // joins re-pointed onto the seeded row, and the minted row deleted. Both slugs were
+  // in `sitemap.xml` at the time (`apps/web/src/server/sitemap.ts` emits one `<loc>`
+  // per live category with no gate), so the deleted one needs this 301 or an indexed
+  // URL becomes a 404.
+  //
+  // Deployed AHEAD of the data op, like the bluebeam redirect: it wins whether or not
+  // the row still exists, so there is no window where the URL 404s. The query string
+  // is preserved so a legacy link keeps its facet selection.
+  app.get('/categories/reality-capture-scan-to-bim', (c) => {
+    const url = new URL(c.req.url);
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/categories/reality-capture${url.search}`,
         'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
       },
     });

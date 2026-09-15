@@ -19,6 +19,11 @@ import {
   profiles,
   reviews,
   statsCache,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyDataObjects,
+  taxonomyPhases,
+  taxonomyTrades,
   vendorEntitlements,
   vendors,
 } from '../db/schema';
@@ -36,6 +41,7 @@ import {
   checkReviewsMissingAnonymizedAt,
   checkPromotionStatusInvariant,
   checkStaleStatsCache,
+  checkTaxonomyMissingDescription,
   checkVendorsWithoutProducts,
   hasErrors,
   hasFindings,
@@ -135,6 +141,92 @@ describe('checkProductsWithoutVendor', () => {
     await seedVendor({ id: 'v1' });
     await linkProductVendor('p1', 'v1');
     expect((await checkProductsWithoutVendor(t.db)).lines).toEqual([]);
+  });
+});
+
+// ── #12 taxonomy terms with no description (AECI-962 / AECI-926) ──────────────
+
+describe('checkTaxonomyMissingDescription', () => {
+  const stamp = { createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() };
+
+  it('flags a promote-minted term and leaves the seeded ones alone', async () => {
+    // The minted shape, exactly as `resolveTaxonomy` writes it: id, slug and name,
+    // with description and display_order left NULL.
+    await t.db.insert(taxonomyCategories).values([
+      {
+        id: 'c1',
+        slug: 'reality-capture',
+        name: 'Reality Capture',
+        description: 'Laser scanning, photogrammetry, and point clouds converted into models.',
+        displayOrder: 250,
+        ...stamp,
+      },
+      {
+        id: 'c2',
+        slug: 'reality-capture-scan-to-bim',
+        name: 'Reality Capture (Scan-to-BIM)',
+        ...stamp,
+      },
+    ]);
+
+    const { lines } = await checkTaxonomyMissingDescription(t.db);
+    expect(lines).toEqual(['Reality Capture (Scan-to-BIM) (category/reality-capture-scan-to-bim)']);
+  });
+
+  it('treats a whitespace-only description as missing', async () => {
+    // A blank string is not NULL, so `IS NULL` alone reads it as populated — and it
+    // renders as an empty paragraph and an empty meta description just the same.
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: 'ph1', slug: 'design', name: 'Design', description: '   ', ...stamp });
+
+    expect((await checkTaxonomyMissingDescription(t.db)).lines).toEqual(['Design (phase/design)']);
+  });
+
+  it('covers all five taxonomy tables, not just the mintable three', async () => {
+    await t.db
+      .insert(taxonomyCategories)
+      .values({ id: 'c1', slug: 'robotics', name: 'Robotics', ...stamp });
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: 'a1', slug: 'estimator', name: 'Estimator', ...stamp });
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: 'ph1', slug: 'design', name: 'Design', ...stamp });
+    await t.db
+      .insert(taxonomyTrades)
+      // `taxonomy_trades.description` is NOT NULL (schema.ts), so the only shape a
+      // trade can fail in is the blank string. That is why the check tests `trim() = ''`
+      // and not just `IS NULL`.
+      .values({ id: 'tr1', slug: 'roofing', name: 'Roofing', description: '', ...stamp });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: 'do1', slug: 'rfis', name: 'RFIs', ...stamp });
+
+    const { lines } = await checkTaxonomyMissingDescription(t.db);
+    expect(lines.sort()).toEqual([
+      'Design (phase/design)',
+      'Estimator (audience/estimator)',
+      'RFIs (data_object/rfis)',
+      'Robotics (category/robotics)',
+      'Roofing (trade/roofing)',
+    ]);
+  });
+
+  it('is clean when every term carries a description', async () => {
+    await t.db.insert(taxonomyCategories).values({
+      id: 'c1',
+      slug: 'robotics',
+      name: 'Robotics',
+      description: 'Physical robots.',
+      ...stamp,
+    });
+    expect((await checkTaxonomyMissingDescription(t.db)).lines).toEqual([]);
+  });
+
+  it('is registered at error severity — a null description ships a default meta tag', async () => {
+    const spec = CHECKS.find((c) => c.id === 'taxonomy_missing_description');
+    expect(spec?.severity).toBe('error');
   });
 });
 
