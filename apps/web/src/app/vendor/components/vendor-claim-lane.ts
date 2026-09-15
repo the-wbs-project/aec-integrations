@@ -45,7 +45,7 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
  * **Every state says what happens next** (AECI-961 / §6.2). `claimOutcomeLine`
  * turns the claim into one sentence naming the actual consequence — who gets
  * emailed, after how many days, and what the public listing shows meanwhile. It
- * renders in all seven states, not just the interesting ones, because the state
+ * renders in all nine states, not just the interesting ones, because the state
  * this issue was filed about is a *waiting* state: a vendor who denies a false
  * claim and sees no acknowledgement assumes nothing happened.
  *
