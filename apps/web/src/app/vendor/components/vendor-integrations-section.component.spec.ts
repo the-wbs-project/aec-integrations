@@ -231,7 +231,54 @@ describe('VendorIntegrationsSection — reconciliation', () => {
     // every write's result and can therefore say WHICH flow was saved.
     const message = TestBed.inject(VendorPortalAnnouncer).message();
     expect(message).toContain('RFIs');
-    expect(message).toContain('position saved');
+    expect(message).toContain('you confirmed this flow');
+  });
+
+  /**
+   * AECI-961. "Position saved" was true and useless: a vendor who had just denied
+   * a false claim heard that something was written, and nothing about whether
+   * anyone would act on it. The stance and the §6.2 outcome sentence now go out
+   * together, and the outcome half is the exact string the lane prints.
+   */
+  it('announces the stance and the consequence, differently for affirm and deny', async () => {
+    const fixture = await create();
+    const claim = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
+    const component = fixture.componentInstance as unknown as {
+      onClaimChanged(c: typeof claim): void;
+    };
+    const announcer = TestBed.inject(VendorPortalAnnouncer);
+
+    component.onClaimChanged({ ...claim, mine: [{ ...claim.mine[0], asserted: false }] });
+    fixture.detectChanges();
+    const denied = announcer.message();
+    expect(denied).toContain('you denied this flow');
+    expect(denied).toContain('on the next daily check');
+    // It names the counterparty, resolved from the store rather than passed down.
+    expect(denied).toContain('Procore');
+
+    component.onClaimChanged(claim);
+    fixture.detectChanges();
+    const affirmed = announcer.message();
+    expect(affirmed).toContain('you confirmed this flow');
+    expect(affirmed).not.toContain('you denied this flow');
+  });
+
+  it('degrades to the stance alone when the echo names an unloaded integration', async () => {
+    // The outcome sentence names the other product, and there is no honest
+    // wording for it without one.
+    const fixture = await create();
+    const claim = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
+    const component = fixture.componentInstance as unknown as {
+      onClaimChanged(c: typeof claim): void;
+    };
+
+    component.onClaimChanged({ ...claim, integration_id: 'not-a-loaded-integration' });
+    fixture.detectChanges();
+
+    const message = TestBed.inject(VendorPortalAnnouncer).message();
+    expect(message).toContain('you confirmed this flow');
+    expect(message).not.toContain('undefined');
+    expect(message).not.toContain('null');
   });
 });
 

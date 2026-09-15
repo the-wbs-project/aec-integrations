@@ -153,7 +153,15 @@ Two consequences worth knowing before touching a sort:
 
 **`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
 
-This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a missing category / audience / phase from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row today — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**, still open) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. The duplicate itself is a seed/upstream naming mismatch, guarded separately by `apps/api/src/test/taxonomy-seed-slugs.spec.ts`.
+This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a missing category / audience / phase from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* minted term out of the top slot.
+
+Three guards now cover the two halves of that defect, and none of them subsumes another:
+
+| Guard | Catches |
+| -- | -- |
+| `apps/api/src/test/taxonomy-seed-slugs.spec.ts` | a seeded term whose `slug` stops matching `slugify(name)`, which is what makes promote mint a duplicate; and, since AECI-962, a seed row with a blank or over-long `description` |
+| `taxonomy_missing_description` in `apps/api/src/lib/data-quality.ts` (severity `error`) | a **live** term in D1 with no description — the minted-row shape the seed test structurally cannot see |
+| `displayOrderAsc` + `display-order.spec.ts` | the ordering half, so a minted term never opens the list |
 
 **One place the rule does not reach: the browser.** `toTaxonomyTermWithCount` serialises `display_order` as `raw.displayOrder ?? 0`, because the wire schema types it `z.number().int()` — a client cannot tell "unordered" from "order 0". Consumers that re-sort in memory (`byDisplayOrder`, `apps/web/src/app/core/taxonomy/taxonomy-rank.ts`) therefore still float an uncurated term to the front. That path is used for `phases` only, which has no NULL rows; every other surface renders the wire order. Closing the gap means making `display_order` nullable on the wire, which is a contract change.
 
@@ -4935,7 +4943,7 @@ The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2
 **There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
 
 1. **Every field is a snapshot taken at send time**, not a live read. Nothing is re-joined, which is what makes the list cheap — and what keeps a year-old notification legible after the claim it names has been re-curated or deleted.
-2. **Ops-routed rows are invisible here.** The `aeci-denied` correction signal and the ops half of `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember.
+2. **Ops-routed rows are invisible here.** The ops halves of `claim-denied` and `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember. Note that since AECI-961 `claim-denied` writes **two** rows for one denial — an ops row and a counterparty row — and only the second is addressed to a vendor, so it is the only one this endpoint returns.
 
 Window and shape: the last **90 days** (deliberately wider than the 30-day suppression window, so a vendor can see the nudge currently suppressing a repeat), newest first, capped at **50** rows. No pagination contract at launch.
 
@@ -4943,7 +4951,7 @@ Window and shape: the last **90 days** (deliberately wider than the 30-day suppr
 export const VendorNotificationSchema = z.object({
   id: z.string().uuid(),                   // the audit_log row id — a stable list key
   detector: z.enum(ATTESTATION_DETECTORS), // silent-counterparty | open-conflict
-                                           // | stale-version | aeci-denied
+                                           // | stale-version | claim-denied
   claim_id: z.string().uuid(),
   integration_id: z.string().uuid(),
   data_object: NotificationProductRefSchema.nullable(),        // { slug, name }

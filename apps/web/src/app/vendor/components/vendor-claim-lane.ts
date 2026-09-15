@@ -16,6 +16,7 @@ import {
   counterpartyStanceLabel,
   ownStancePhrase,
 } from './vendor-attestation-labels';
+import { claimOutcomeLine } from './vendor-claim-outcome';
 
 /**
  * One `data_object` claim lane, as its own vendor sees it (AECI-606 / §6).
@@ -40,6 +41,20 @@ import {
  * is `--surface-sunken` + `--border-strong`, NOT `--status-error`: it is two
  * parties describing a flow differently, not a defect in either product, and
  * the vendor surface reserves red for the badge alone.
+ *
+ * **Every state says what happens next** (AECI-961 / §6.2). `claimOutcomeLine`
+ * turns the claim into one sentence naming the actual consequence — who gets
+ * emailed, after how many days, and what the public listing shows meanwhile. It
+ * renders in all nine states, not just the interesting ones, because the state
+ * this issue was filed about is a *waiting* state: a vendor who denies a false
+ * claim and sees no acknowledgement assumes nothing happened.
+ *
+ * It is **plain text, never a live region.** Standing state on this surface is
+ * plain text and events go through the shell's one `VendorPortalAnnouncer`
+ * channel (`STAGE_2_REALTIME_SPEC.md` §6.3, and the same reasoning written out at
+ * `vendor-attestation-control.ts`'s `divergentSlots` block). The section
+ * announces the same sentence when a write lands, which is why the copy lives in
+ * one function that both call rather than being written twice.
  *
  * ── THE OPTIMISTIC INTERIM (AECI-630) ───────────────────────────────────────
  * `STAGE_2_REALTIME_SPEC.md` §5 makes the three toggle-shaped writes optimistic:
@@ -103,6 +118,8 @@ import {
         <p class="text-xs text-(--text-secondary)">{{ counterpartyLine() }}</p>
       </div>
     </div>
+
+    <p class="mt-2 text-xs text-(--text-secondary)">{{ outcomeLine() }}</p>
 
     @if (claim().agreement === 'conflict' && claim().counterparty; as counterparty) {
       <div
@@ -200,6 +217,12 @@ export class VendorClaimLane {
     counterpartyColumnLabel(this.otherProductName()),
   );
   protected readonly ownPhrase = computed(() => ownStancePhrase(this.claim().mine));
+
+  /** §6.2's what-happens-next sentence. Shared verbatim with the section's
+   *  announcement so the printed and spoken receipts cannot drift. */
+  protected readonly outcomeLine = computed(() =>
+    claimOutcomeLine(this.claim(), this.otherProductName()),
+  );
   protected readonly ownNote = computed(() => this.claim().mine[0]?.note ?? null);
 
   protected readonly conflictHeading = computed(

@@ -21,6 +21,7 @@ import type { Env } from '../env';
 import {
   parseRecipients,
   sendAccountDeletionEmail,
+  sendAttestationClaimDeniedEmail,
   sendAttestationOpenConflictEmail,
   sendAttestationOpsAlertEmail,
   sendAttestationSilentCounterpartyEmail,
@@ -1361,6 +1362,37 @@ describe('attestation nudge templates', () => {
     expect(String(lastBody(fetchSpy).text)).toContain('rather than picking a side');
   });
 
+  it('tells the counterparty what was denied, without quoting the denier (AECI-961)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    expect(
+      await sendAttestationClaimDeniedEmail(
+        fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+        SUBJECT,
+      ),
+    ).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-claim-denied']]);
+
+    const text = String(lastBody(fetchSpy).text);
+    // The fact the lane promises: the flow is NOT removed, it stays unverified
+    // until AECi corrects the record (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2).
+    expect(text).toContain('stays on the listing as unverified');
+    expect(text).toContain('record your own position');
+    // Non-accusatory: the recipient has said nothing, so nothing asks them to
+    // defend a position they never took.
+    expect(text.toLowerCase()).not.toContain('dispute');
+  });
+
+  it('omits the claim-denied links when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationClaimDeniedEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('http');
+    expect(text).not.toContain('undefined');
+  });
+
   it('offers withdraw as an equal option on the stale-version nudge', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
@@ -1376,6 +1408,7 @@ describe('attestation nudge templates', () => {
       sendAttestationSilentCounterpartyEmail,
       sendAttestationOpenConflictEmail,
       sendAttestationStaleVersionEmail,
+      sendAttestationClaimDeniedEmail,
     ]) {
       await send(fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }), SUBJECT);
       const text = String(lastBody(fetchSpy).text).toLowerCase();
@@ -1392,7 +1425,7 @@ describe('attestation nudge templates', () => {
     expect(
       await sendAttestationOpsAlertEmail(c, {
         to: 'ops@aecintegrations.com',
-        detector: 'aeci-denied',
+        detector: 'claim-denied',
         dataObject: 'RFIs',
         productA: 'Revit',
         productB: 'Procore',
@@ -1406,7 +1439,7 @@ describe('attestation nudge templates', () => {
 
     const body = lastBody(fetchSpy);
     expect(body.subject).toContain('[AECi]');
-    expect(String(body.text)).toContain('Detector: aeci-denied');
+    expect(String(body.text)).toContain('Detector: claim-denied');
     expect(String(body.text)).toContain('Claim: claim-1');
     expect(String(body.text)).toContain('Mechanism: (unnamed)');
   });

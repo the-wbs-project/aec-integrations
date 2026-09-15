@@ -490,6 +490,10 @@ by `scripts/ops/2026-09-pair-endpoint-move-backfill/`.
 
 Closed vocabularies. **Code-managed reference data** — the vocabulary lives in version-controlled `apps/api/seed/taxonomy.sql` (idempotent upserts), applied to every environment via `wrangler d1 execute`. Not curator-owned and not seeded by the §13 promotion flow. No public write paths. See `docs/adr/0008-taxonomy-reference-data.md`.
 
+**One exception, and it is the one that bites: promote can CREATE a term.** `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) resolves `categories` / `audiences` / `phases` **find-or-create** by `slugify(name)`, and its mint writes `{ id, slug, name }` alone — no `description`, no `display_order`. So an upstream label that does not slugify to a seeded slug does not fail the promote; it silently adds a real row to a "closed" vocabulary, with a real public browse URL, ranked ahead of every curated term and carrying the site-wide default meta description. That is AECI-926, which shipped a duplicate `Reality Capture` category to production for a month. `taxonomy_trades` and `taxonomy_data_objects` are **find-only** and immune (`docs/TRADES_VOCABULARY.md` §3) — an unmatched value goes to `skipped[]`.
+
+Three guards, listed in `docs/API_CONTRACTS.md` §3.2: a build-time slug/`slugify` round-trip plus description assertion (`apps/api/src/test/taxonomy-seed-slugs.spec.ts`), the runtime `taxonomy_missing_description` data-quality check, and `displayOrderAsc`. Whether the mint should exist at all is an open question tracked on AECI-926.
+
 ### 5.1 `taxonomy_categories`
 
 ```sql

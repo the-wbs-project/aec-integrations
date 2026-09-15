@@ -147,7 +147,7 @@ describe('GET /api/vendor/notifications', () => {
   });
 
   it('never shows an AECi ops row (vendorId null) to any vendor', async () => {
-    await ledgerRow({ vendorId: null, detector: 'aeci-denied' });
+    await ledgerRow({ vendorId: null, detector: 'claim-denied' });
     await ledgerRow({ vendorId: null, detector: 'open-conflict', claimId: uuid(33) });
 
     expect((await get()).body.notifications).toEqual([]);

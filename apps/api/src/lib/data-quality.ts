@@ -1,7 +1,7 @@
 /**
  * The §23.1 daily data-quality suite (AECI-241 / Phase 7.6).
  *
- * Eleven read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
+ * Read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
  * (`scheduled.ts`) and summarised in the email digest (`data-quality-email.ts`).
  * **Report-only** — no auto-remediation; the digest + the per-check Datadog gauge
  * are how humans triage (§23.1).
@@ -10,7 +10,7 @@
  * an injected `fetch` for the logo probe and an injected closure for the reused
  * AECI-140 Algolia-drift count), so every check unit-tests against the in-memory
  * D1 harness (`test/d1.ts`) with no network. The orchestrator
- * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
+ * `runDataQualityChecks` runs them all best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
  * All but one check the *catalog*. `arrival_cf_coverage` (AECI-868) checks the *telemetry
@@ -56,6 +56,11 @@ import {
   productVendors,
   reviews,
   statsCache,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyDataObjects,
+  taxonomyPhases,
+  taxonomyTrades,
   vendorEntitlements,
   vendors,
 } from '../db/schema';
@@ -127,6 +132,55 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
     .where(notInArray(products.id, withVendor))
     .orderBy(textAsc(products.name));
   return { lines: rows.map((r) => `${r.name} (${r.slug})`) };
+}
+
+/**
+ * #13 — a LIVE taxonomy term with no description (AECI-962).
+ *
+ * ── WHY THIS IS NOT DEAD CODE ───────────────────────────────────────────────────
+ * AECI-592 retired two checks for being structurally unreachable, and the obvious
+ * reading of this one is that `seed/taxonomy.sql` populates all 73 terms so it can
+ * only ever return zero. That reading is wrong, and the distinction is the whole
+ * point: the seed is not the only writer. `resolveTaxonomy` (`routes/promote.ts`)
+ * resolves categories, audiences and phases FIND-OR-CREATE, and its mint writes
+ * `{ id, slug, name }` alone — no `description`, no `display_order`. So a promote
+ * whose incoming label does not slugify to a seeded slug silently creates a real
+ * term, with a real public browse URL, and no description.
+ *
+ * That is not hypothetical either. It is exactly how production came to hold a
+ * duplicate `Reality Capture (Scan-to-BIM)` category for weeks (AECI-926), found by
+ * eye in a screenshot rather than by any check.
+ *
+ * `severity: 'error'` because the string is not decoration: it is the paragraph on
+ * the browse page AND that page's meta description, so a null one puts an indexable
+ * page on the site-wide default.
+ *
+ * The seed half is guarded separately, at build time, by
+ * `src/test/taxonomy-seed-slugs.spec.ts`. Trades and data objects are included here
+ * even though they resolve find-only and cannot be minted — they are cheap, and the
+ * check is about the rendered page, not about who wrote the row. Note that
+ * `taxonomy_trades.description` is NOT NULL, so a trade can only ever fail on the
+ * blank-string arm; that arm is why the predicate is not a bare `IS NULL`.
+ */
+export async function checkTaxonomyMissingDescription(db: Db): Promise<CheckFinding> {
+  const tables = [
+    ['category', taxonomyCategories],
+    ['audience', taxonomyAudiences],
+    ['phase', taxonomyPhases],
+    ['trade', taxonomyTrades],
+    ['data_object', taxonomyDataObjects],
+  ] as const;
+
+  const lines: string[] = [];
+  for (const [kind, table] of tables) {
+    const rows = await db
+      .select({ slug: table.slug, name: table.name })
+      .from(table)
+      .where(or(isNull(table.description), eq(sql`trim(${table.description})`, '')))
+      .orderBy(textAsc(table.name));
+    lines.push(...rows.map((r) => `${r.name} (${kind}/${r.slug})`));
+  }
+  return { lines };
 }
 
 /**
@@ -425,7 +479,7 @@ interface CheckSpec {
   run: (deps: DataQualityDeps) => Promise<CheckFinding>;
 }
 
-/** The eleven checks in digest order (§23.1, less the two AECI-592 retired, plus the
+/** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 mirror guard and the AECI-868 telemetry tripwire). Severity drives the
  *  digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
@@ -434,6 +488,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Products with no associated vendor',
     severity: 'warn',
     run: ({ db }) => checkProductsWithoutVendor(db),
+  },
+  {
+    id: 'taxonomy_missing_description',
+    label: 'Live taxonomy terms with no description',
+    severity: 'error',
+    run: ({ db }) => checkTaxonomyMissingDescription(db),
   },
   {
     id: 'promotion_status_invariant',

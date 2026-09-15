@@ -25,10 +25,12 @@
  * ── SCOPING ─────────────────────────────────────────────────────────────────
  * `vendorId` comes from `c.get('auth')`, never the request — the AECI-520
  * invariant, and with no RLS behind it (ADR 0016) that filter *is* the
- * authorization. Ops-routed ledger rows (the `aeci-denied` correction signal and
- * the ops half of `open-conflict`) carry `metadata.vendorId = null`, so they can
- * never match a caller: the isolation is structural rather than a clause someone
- * has to remember.
+ * authorization. Ops-routed ledger rows (the ops halves of `claim-denied` and
+ * `open-conflict`) carry `metadata.vendorId = null`, so they can never match a
+ * caller: the isolation is structural rather than a clause someone has to
+ * remember. Note that since AECI-961 `claim-denied` writes **two** ledger rows
+ * for one denial — an ops row and a counterparty row — and only the second is
+ * addressed to a vendor id, so it is the only one this endpoint can return.
  *
  * **Not verified-gated.** `vendors.verified` gates authoring (§1), not reading —
  * an unverified vendor sees its own (probably empty) list rather than a 403 it

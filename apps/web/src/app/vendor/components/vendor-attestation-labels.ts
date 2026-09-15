@@ -71,13 +71,16 @@ export function ownStancePhrase(mine: VendorClaim['mine']): string {
 /**
  * Title for one in-portal notification.
  *
- * The `switch` is total over `AttestationDetector` on purpose. `aeci-denied` is
- * an ops-routed signal whose ledger rows carry `vendorId: null`, so it can never
- * match a vendor caller and `GET /api/vendor/notifications` documents that it
- * "never appears on this endpoint" — but it stays in the union, and a
- * non-exhaustive switch here would be a compile error the day a detector is
- * added. Returning an empty string is what makes the unreachable branch
- * harmless rather than inventing vendor-facing copy for an ops alert.
+ * The `switch` is total over `AttestationDetector` on purpose, so adding a
+ * detector is a compile error here rather than a blank row on a vendor's
+ * dashboard. `vendor-notifications-list.ts` drops any row whose title is empty,
+ * which is what makes a not-yet-written branch harmless.
+ *
+ * `claim-denied` was `aeci-denied` and returned `''` for exactly that reason: it
+ * was ops-routed, its ledger rows carried `vendorId: null`, and no vendor could
+ * ever receive one. AECI-961 gave the detector a **counterparty** finding, so
+ * its vendor-addressed rows are now real and need real copy. The ops row still
+ * carries a null vendor and still cannot reach this function.
  */
 export function detectorTitle(detector: AttestationDetector): string {
   switch (detector) {
@@ -87,7 +90,7 @@ export function detectorTitle(detector: AttestationDetector): string {
       return $localize`:@@vendor.attest.notify.openConflict:Vendors disagree about this flow`;
     case 'stale-version':
       return $localize`:@@vendor.attest.notify.staleVersion:Time to re-confirm this flow`;
-    case 'aeci-denied':
-      return '';
+    case 'claim-denied':
+      return $localize`:@@vendor.attest.notify.claimDenied:The other vendor says this flow does not exist`;
   }
 }

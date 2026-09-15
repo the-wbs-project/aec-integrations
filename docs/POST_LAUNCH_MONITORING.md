@@ -1038,6 +1038,20 @@ rather than holding a socket**, so the interval *is* the freshness contract and 
 operator-visible here. They are exported (rather than module-private literals) specifically so the
 component specs assert against the constant and an operator can grep one name.
 
+**Three of these now set vendor-facing copy, so a retune changes what the portal says
+(AECI-961).** `SILENT_COUNTERPARTY_DAYS`, `OPEN_CONFLICT_DAYS` and `STALE_VERSION_MONTHS` moved to
+`packages/shared/src/attestation-thresholds.ts`; `lib/attestation-detectors.ts` re-exports all three
+under their existing names, so nothing that imported them from there moved. The vendor portal's
+claim lane interpolates the same values into sentences like *"we ask {other} to answer after 14
+days"* (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2). Sharing them is what makes the copy structurally
+unable to drift from the detector, but it also means **retuning one is a user-visible copy change**:
+read §6.2's table before you move a number. The other three rows below are unaffected.
+
+**`aeci-denied` is now `claim-denied` (AECI-961).** The metric tag value changed with it, so
+`aeci.attestation.detector{detector:aeci-denied}` has no series after that deploy. The detector also
+stopped being ops-only: it now emails the counterparty vendor too, with no age threshold, which is
+the one detector row with no constant in this table.
+
 **Read the detector rows against adoption, not against the calendar.** Every detector keys off a *vendor's*
 attestation, and nothing in D1 has one yet (promote only ever writes `source='aeci'`), so all four
 fire on **zero rows** until the vendor portal is genuinely in use. Do not tighten anything on the
@@ -1053,9 +1067,9 @@ Ops-routed findings are unaffected.
 
 | Constant | File | Current | Retune signal |
 |---|---|---|---|
-| `SILENT_COUNTERPARTY_DAYS` | `lib/attestation-detectors.ts` | 14 | How long a claim may sit `single_source` before the silent side is nudged. Lower if vendors are responsive and the lag is the bottleneck; raise if nudges land before vendors have plausibly seen the portal. |
-| `OPEN_CONFLICT_DAYS` | `lib/attestation-detectors.ts` | 7 | An unresolved `conflict` past this nudges both disputants **and** raises AECi ops. Tightest of the three by design (lowest volume, highest signal). Raise only if ops finds it noisy. |
-| `STALE_VERSION_MONTHS` | `lib/attestation-detectors.ts` | 12 | Age at which a stampless vendor attestation is asked to re-confirm. **Do not lower without thinking about the corpus**: nothing carries version stamps, so this effectively schedules a re-confirm ask for *every* vendor attestation N months after it was made. 12 = annual cadence. |
+| `SILENT_COUNTERPARTY_DAYS` | `packages/shared/src/attestation-thresholds.ts` (re-exported by `lib/attestation-detectors.ts`; **rendered in portal copy**) | 14 | How long a claim may sit `single_source` before the silent side is nudged. Lower if vendors are responsive and the lag is the bottleneck; raise if nudges land before vendors have plausibly seen the portal. |
+| `OPEN_CONFLICT_DAYS` | `packages/shared/src/attestation-thresholds.ts` (re-exported by `lib/attestation-detectors.ts`; **rendered in portal copy**) | 7 | An unresolved `conflict` past this nudges both disputants **and** raises AECi ops. Tightest of the three by design (lowest volume, highest signal). Raise only if ops finds it noisy. |
+| `STALE_VERSION_MONTHS` | `packages/shared/src/attestation-thresholds.ts` (re-exported by `lib/attestation-detectors.ts`; **rendered in portal copy**) | 12 | Age at which a stampless vendor attestation is asked to re-confirm. **Do not lower without thinking about the corpus**: nothing carries version stamps, so this effectively schedules a re-confirm ask for *every* vendor attestation N months after it was made. 12 = annual cadence. |
 | `NOTIFICATION_SUPPRESSION_DAYS` | `lib/attestation-notify.ts` | 30 | The anti-nag control: how long a delivered notification blocks a repeat of the same (claim, detector, recipient). The single most important knob if vendors report feeling chased. |
 | `NOTIFY_BATCH_CAP` | `lib/attestation-notify.ts` | 200 | Sends per run. A first-adoption backstop, not a design limit — the next daily sweep continues the backlog, and a capped run logs the dropped count (`aeci.attestation.notify.capped`, a **warn log** — there is no metric, so it is invisible to every alert on both planes). Raise if that log recurs. |
 | `NOTIFICATION_HISTORY_DAYS` / `NOTIFICATION_PAGE_SIZE` | `routes/vendor-notifications.ts` | 90 / 50 | The in-portal list's window and cap. The window is deliberately longer than the suppression window so a vendor can see the nudge currently suppressing a repeat. |

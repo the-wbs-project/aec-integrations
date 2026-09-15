@@ -1673,7 +1673,9 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 > row, not the integrations pointing at it — once a product is off-`promoted`, finding its
 > edges is a follow-up query, not a second daily check.
 >
-> The roster is **eleven** checks as of this amendment. `ADMIN_PANEL_SPEC.md` §14.1 is the
+> The roster is **twelve** checks as of 2026-09-15 (AECI-962 added `taxonomy_missing_description`,
+> which catches a live taxonomy term with no description — the shape promote's find-or-create
+> mint writes, and the AECI-926 defect). `ADMIN_PANEL_SPEC.md` §14.1 is the
 > enumerated inventory; prose elsewhere deliberately does not restate the number, which had
 > drifted across nineteen sites in two months.
 
