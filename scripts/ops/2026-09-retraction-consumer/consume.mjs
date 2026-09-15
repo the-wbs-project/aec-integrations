@@ -233,9 +233,10 @@ const HOLD_REASON =
  * and the right response is to stop and re-establish the ruling rather than to delete
  * whatever is there now.
  *
- * ZERO, the resting state. The AECI-916 operator-ruling run pinned it to `2 / 2 / 0` and
- * this reset is part of that same change, per the standing rule. Zero is the only pin that
- * fails closed: a shape carried over from the cohort that just ran is not a guard, because
+ * ZERO, the resting state. The AECI-957 run pinned it to `1 / 0 / 1` — the first cohort
+ * since AECI-878 to resolve in `integrations` rather than in `connector_evidenced_pairs` —
+ * and this reset is part of that same change, per the standing rule. Zero is the only pin
+ * that fails closed: a shape carried over from the cohort that just ran is not a guard, because
  * a later cohort of the same size matches it by coincidence. The AECI-889 batch-1 run was
  * authorised against `17 / 17 / 0` and the batches 2 + 3 run against `21 / 21 / 0`, and
  * leaving either here would have let the next cohort of that size match by coincidence and
@@ -263,9 +264,12 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * so any plan that would cascade even one claim refuses until an operator raises it
  * deliberately for a cohort they have measured.
  *
- * It is reset to zero after every run for the same reason `EXPECTED` is. AECI-889 batch 1
- * legitimately raised it to `169 / 169`, the largest this lane has authorised — but that
- * belonged to those 17 ids only. Left at 169 it would have silently pre-authorised 169
+ * It is reset to zero after every run for the same reason `EXPECTED` is. It did NOT move
+ * for AECI-916 or for AECI-957: both dry runs read `0 claims, 0 attestations`, which the
+ * resting ceiling already permits, and a run that needs no raise should not get one.
+ * AECI-889 batch 1 legitimately raised it to `169 / 169`, the largest this lane has
+ * authorised — but that belonged to those 17 ids only. Left at 169 it would have
+ * silently pre-authorised 169
  * rulings' worth of cascade for whatever arrives next, which is the one edit in this lane
  * that can destroy data. The batches 2 + 3 run that followed needed only `4 / 4`, which is
  * the same point from the other side: a 21-row cohort is not a bigger cascade than a
