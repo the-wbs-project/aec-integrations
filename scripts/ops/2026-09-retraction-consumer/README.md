@@ -1,10 +1,11 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957)
 
-**Status: RUN — five tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — six tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
-batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), and 2026-09-14 a
-fourth time (2 rows, **AECI-916 — the first operator-ruling run**). **The feed is at
-zero pending and no hold is active.**
+batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
+fourth time (2 rows, **AECI-916 — the first operator-ruling run**), and 2026-09-15
+(1 row, **AECI-957 — the first cohort since AECI-878 to resolve in `integrations`**).
+**The feed is at zero pending and no hold is active.**
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
 than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
@@ -667,6 +668,110 @@ gate proves the operator knows how many rows the plan holds; the shape gate prov
 are in the **table** the ruling was measured against. A ruling written against two evidenced
 pairs that had since become one pair and one `integrations` row would clear
 `--confirm-count 2` and fail the shape gate, correctly.
+
+## What ran — 2026-09-15, 1 row (AECI-957, Utopia CDE Sync ↔ Aconex)
+
+One journal entry, `reckuwP85y3nVbMtm`, `supabaseId`
+`b87dcde4-ad83-4f98-a108-f600293bac7b` — `Oracle Aconex (via Utopia Digital CDE Sync)`,
+the Autodesk Construction Cloud ↔ Oracle Aconex edge retired under AECI-957 as not
+shipped. Zero cascade.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 1
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 955 | 953 | −2, **only −1 of it ours** |
+| `connector_evidenced_pairs` | 24 | 25 | +1, **none of it ours** |
+| `claims` | 1911 | 1911 | 0 |
+| `attestations` | 1911 | 1911 | 0 |
+| `claims` on `connector_pairs` (reach tier) | 202 | 202 | 0 — untouched |
+| `audit_log` rows from this lane | 256 | 257 | +1 |
+| feed, pending | 1 | 0 | −1 |
+
+**Two promotes landed inside the measurement window, so the raw table snapshots are not a
+clean −1.** `review-app-promote` audit rows at `05:54:55Z` and `05:55:22Z` created 2 products,
+1 integration, 3 claims and 13 attestations and moved one edge between the two delivered-tier
+tables; this lane's delete ran at `05:55:44Z`. Our own effect is the single
+`integration.deleted` audit row and `verify: integrations left 0, pairs left 0, orphan claims
+0`. Read the lane's own numbers, not the table totals, when the catalogue is being promoted
+underneath you — and take a fresh baseline immediately before the apply if you want the
+totals to reconcile.
+
+Time Travel bookmark captured immediately before the delete, expires ~2026-10-15:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=000059ce-00000050-000050e7-e866380391bc9f819617791caac26693
+```
+
+**2 products** had `integration_count` repaired and `updated_at` bumped —
+`autodesk-construction-cloud` (48 before) and `oracle-aconex` (13 before).
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+### The first cohort since AECI-878 to resolve in `integrations`
+
+`resolve: integrations 1, connector_evidenced_pairs 0, already gone 0`. The four runs before
+this one resolved entirely into `connector_evidenced_pairs`, because every one of them was a
+connector-lane retraction and migration `0027` moved those edges out of `integrations`. This
+row is a **native** edge that migration never touched, so it stayed put. That is why
+`EXPECTED` was pinned `1 / 0 / 1` rather than `1 / 1 / 0`, and it is a direct demonstration
+of why the shape gate is not redundant with `--confirm-count`: a count of 1 would have been
+satisfied by either table.
+
+### `MAX_CASCADE` did not move
+
+The dry run read `0 claims, 0 attestations`, which the resting ceiling of `0 / 0` already
+permits, so no raise was ruled on and none was made. Second run in a row where that is true.
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 1, inPairs: 0, inIntegrations: 1 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 0, attestations: 0 }` — **unchanged** | `{ 0, 0 }` |
+
+### Algolia, sixth run — and the first orphan since 2026-09-13
+
+```
+products      production_products        indexed 265   promoted 265    orphans 0
+vendors       production_vendors         indexed 171   promoted 171    orphans 0
+integrations  production_integrations    indexed 964   promoted 978    orphans 1
+```
+
+**One orphan, and it is ours** — `b87dcde4-…`, removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+The five runs before this one all reported **zero** orphans, and the reason was always the
+same: evidenced pairs have never been indexed, so deleting one cannot orphan an index record.
+This row was in `integrations`, which **is** indexed, so it did. **Expect an orphan whenever
+the cohort resolves in `integrations`, and expect none when it resolves in pairs.** For
+AECI-880: drift is **14 missing**, and it is no longer tracking the
+`connector_evidenced_pairs` count, because the concurrent promotes moved both numbers.
+
+### Cache, sixth run
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc` rather than assumed: the `exports`
+block sits at lines 109 and 176, inside the `preview` and `staging` env blocks only (opening
+at 85 and 155). `demo` and `production` have none, so they serve uncached.
+
+### Verification, live (2026-09-15, browser UA)
+
+- `/products/autodesk-construction-cloud/integrations/oracle-aconex` → **200 with
+  `<meta name="robots" content="noindex">`**, zero occurrences of "Utopia".
+- `/products/oracle-aconex/integrations/autodesk-construction-cloud` → same. Checked in
+  **both** orientations, because the pair route renders either way round.
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, **indexable**, no robots
+  meta. The AECI-878 negative sentinel, asserted present before and after.
+
+### Daily audit after this run
+
+**Exit 0. Every bucket empty**, `pendingRetractions` 0, `orphanChildren` 0c / 0a, **0 publicly
+reachable stranded rows**, and edge reconciliation **978/978 accounted** (952 integrations +
+26 evidenced pairs). Catalogue at the time: upstream 1,550 products / 2,524 integrations (978
+carry an id), prod 265 products / 171 vendors.
 
 ## The order, and why it is not negotiable
 
