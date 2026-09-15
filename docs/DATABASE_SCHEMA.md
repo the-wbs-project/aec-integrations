@@ -533,9 +533,11 @@ follows one redirect rather than one per rename. A cycle resolves to nothing at 
 returning the last link before the loop would 301 into a loop the edge then caches.
 
 **Writers.** None in code. Rows are seeded by migration or inserted by an operator; there
-is no admin action yet (the §6.2 "rename slug" action is still unbuilt). Consumers
-besides the resolvers: `sitemap.xml` and the IndexNow drain both withhold a `from_slug`,
-because a URL that only redirects should not be advertised or submitted for crawling.
+is no admin action yet (the §6.2 "rename slug" action is still unbuilt). Consumers besides
+the resolvers are the three discovery channels, which all withhold a `from_slug` because a
+URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
+the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for
+where each one filters and why they differ.
 
 ---
 

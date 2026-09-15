@@ -93,6 +93,30 @@ import { MetaService, type EntityKind } from './meta.service';
  */
 const SLUG_REDIRECT_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
 
+/**
+ * Run a retired-slug lookup, swallowing everything except its answer.
+ *
+ * `fetchOrNull` / `httpGetOrNull` map a `NOT_FOUND` envelope to `null` and RETHROW
+ * anything else — correct for an entity read, wrong here. This call is a lookup on a
+ * request that has already decided to 404: if the map is unreachable, or the API
+ * Worker predates the endpoint and answers 404 without the envelope, or D1 is having
+ * a bad minute, the right outcome is the ordinary 404 page. Letting it throw would
+ * turn a cheap, edge-cacheable 404 into an SSR render failure — a strictly worse
+ * page, caused by an enhancement that only ever applies to a handful of slugs.
+ *
+ * Deliberately silent rather than logged: this runs once per detail 404, and detail
+ * 404s are overwhelmingly crawler noise, so a log line here is a log flood with no
+ * reader behind it. The redirect's own correctness is covered by tests and by the
+ * `slug_redirects` read being trivial.
+ */
+async function lookUpRedirect<T>(lookup: () => Promise<T | null>): Promise<T | null> {
+  try {
+    return await lookup();
+  } catch {
+    return null;
+  }
+}
+
 export interface DetailResolverConfig<T extends { id: string }> {
   /** TransferState key prefix, e.g. `aeci.product-detail:`. The route param is
    *  appended so a future cross-route prefetch can't collide with the active
@@ -174,7 +198,9 @@ export function createDetailResolver<T extends { id: string }>(
       // from the surviving page lands on the one that just redirected and bounces
       // forward again. Same shape as AECI-953's moved-pair redirect.
       if (!entity && config.followSlugRedirect && router) {
-        const moved = await httpGetSlugRedirect(http, config.followSlugRedirect, param);
+        const moved = await lookUpRedirect(() =>
+          httpGetSlugRedirect(http, config.followSlugRedirect!, param),
+        );
         if (moved) {
           void router.navigateByUrl(`/${config.pathSegment}/${moved.to_slug}`, {
             replaceUrl: true,
@@ -214,7 +240,7 @@ export function createDetailResolver<T extends { id: string }>(
       // the ONLY place it is consulted, which is what makes §2.6's "never the hot
       // path" literally true: the read has already missed by the time we get here.
       const moved = config.followSlugRedirect
-        ? await fetchSlugRedirect(ctx.api, config.followSlugRedirect, param)
+        ? await lookUpRedirect(() => fetchSlugRedirect(ctx.api, config.followSlugRedirect!, param))
         : null;
       if (moved && responseInit) {
         responseInit.status = 301;
@@ -243,11 +269,21 @@ export function createDetailResolver<T extends { id: string }>(
         // 3xx to `ensureNoStore`, which only fills in a MISSING directive, so a
         // permanent mapping would otherwise be re-rendered on every crawler hit.
         headers.set('Cache-Control', SLUG_REDIRECT_CACHE_CONTROL);
-        // Tagged on the SURVIVOR, per `CACHE_STRATEGY.md` §2. The map is mutable —
-        // unlike every other redirect in the app, whose mapping is immutable — so
-        // it needs a purge handle, and the survivor is the entity whose own edit
-        // (a rename, another retirement) is what would make this 301 wrong.
-        headers.set('Cache-Tag', `${config.followSlugRedirect}:${moved.to_slug}`);
+        // BOTH slugs, per `CACHE_STRATEGY.md` §2. The map is mutable — unlike every
+        // other redirect in the app, whose mapping is immutable — so it needs a
+        // purge handle, and each slug answers a different way this 301 goes wrong:
+        //
+        //   - `{to_slug}` — the survivor is renamed or retired in turn, so the
+        //     destination stops being right.
+        //   - `{from_slug}` — the retired row COMES BACK. A re-promote of that slug
+        //     purges `product:{from_slug}` and nothing else, so without this tag the
+        //     edge keeps redirecting readers away from a page that is live again,
+        //     for the full 24h `s-maxage`. AECI-953 tags the OLD pair for exactly
+        //     this reason.
+        headers.set(
+          'Cache-Tag',
+          `${config.followSlugRedirect}:${param},${config.followSlugRedirect}:${moved.to_slug}`,
+        );
         return null;
       }
       if (responseInit) responseInit.status = 404;

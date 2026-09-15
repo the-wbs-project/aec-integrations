@@ -57,7 +57,7 @@ import type { Env } from '../env';
 import type { BatchStmt, BatchTuple } from './audit';
 import { auditInsert } from './audit';
 import { callIndexNow } from './indexnow';
-import { listSlugRedirects, retiredSlugPaths } from './slug-redirect';
+import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 import {
   countPendingIndexNowUrls,
   countStaleIndexNowUrls,
@@ -149,22 +149,6 @@ interface DrainDeps {
    *  production; instant in specs, which would otherwise wait out the full 1 s +
    *  4 s schedule on every throttled case and blow the default test timeout. */
   sleep?: (ms: number) => Promise<void>;
-}
-
-/**
- * Does this buffered absolute URL point at a path that now only redirects?
- *
- * Compared on the parsed `pathname`, not by substring: a query string or a
- * differing origin must not change the answer, and `/products/procore-x` must not
- * match a retirement of `/products/procore`. An unparseable URL is kept — the
- * transport is the right place for that to fail loudly.
- */
-function isRetired(url: string, retiredPaths: ReadonlySet<string>): boolean {
-  try {
-    return retiredPaths.has(new URL(url).pathname.replace(/\/+$/, ''));
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -287,7 +271,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   // teaches it a URL we are retiring.
   const retiredPaths = retiredSlugPaths(await listSlugRedirects(db));
   const sendable =
-    retiredPaths.size === 0 ? rows : rows.filter((r) => !isRetired(r.url, retiredPaths));
+    retiredPaths.size === 0 ? rows : rows.filter((r) => !isRetiredSlugUrl(r.url, retiredPaths));
   const retired = rows.length - sendable.length;
   if (retired > 0) {
     log({

@@ -112,3 +112,22 @@ const PATH_SEGMENT: Record<SlugRedirectEntity, string> = {
 export function retiredSlugPaths(redirects: readonly SlugRedirect[]): Set<string> {
   return new Set(redirects.map((r) => `/${PATH_SEGMENT[r.entity]}/${r.from_slug}`));
 }
+
+/**
+ * Does this absolute public URL point at a path that now only redirects?
+ *
+ * Compared on the parsed `pathname`, not by substring: a query string or a differing
+ * origin must not change the answer, and `/products/procore-x` must not match a
+ * retirement of `/products/procore`. An unparseable URL is treated as NOT retired —
+ * the consumer's own transport is the right place for that to fail loudly.
+ *
+ * Shared by the IndexNow drain and the Google re-crawl queue, which apply the same
+ * rule at their own choke points.
+ */
+export function isRetiredSlugUrl(url: string, retiredPaths: ReadonlySet<string>): boolean {
+  try {
+    return retiredPaths.has(new URL(url).pathname.replace(/\/+$/, ''));
+  } catch {
+    return false;
+  }
+}

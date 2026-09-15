@@ -144,8 +144,20 @@ export async function resolveSitemapEntries(
   // that window the page still renders — a live row beats a mapping — but the
   // sitemap should already have stopped nominating it as canonical, because it is
   // on its way out and the survivor is the URL we want indexed.
-  const retired = { product: new Set<string>(), vendor: new Set<string>() };
-  for (const r of slugRedirects.redirects) retired[r.entity].add(r.from_slug);
+  //
+  // A `Map` keyed by the RAW entity string, not a two-key object literal. AECI-979
+  // widens the D1 CHECK to the taxonomy kinds, and the API and SSR Workers deploy
+  // per-commit but NOT atomically — so an SSR Worker that predates that change can
+  // and will read a `category` row. Indexing a fixed literal would throw on it and
+  // take down the whole sitemap; an unknown kind here simply matches nothing, which
+  // is the pre-AECI-979 behaviour and the correct degradation.
+  const retired = new Map<string, Set<string>>();
+  for (const r of slugRedirects.redirects) {
+    const set = retired.get(r.entity) ?? new Set<string>();
+    set.add(r.from_slug);
+    retired.set(r.entity, set);
+  }
+  const isRetired = (entity: string, slug: string) => retired.get(entity)?.has(slug) === true;
 
   const entries: SitemapEntry[] = [
     // Index pages. AECI-165 removed the `/vendors` and `/integrations` index
@@ -182,7 +194,7 @@ export async function resolveSitemapEntries(
   ];
 
   for (const product of products) {
-    if (retired.product.has(product.slug)) continue;
+    if (isRetired('product', product.slug)) continue;
     entries.push({
       loc: `${base}/products/${product.slug}`,
       lastmod: product.updated_at,
@@ -192,7 +204,7 @@ export async function resolveSitemapEntries(
   }
 
   for (const vendor of vendors) {
-    if (retired.vendor.has(vendor.slug)) continue;
+    if (isRetired('vendor', vendor.slug)) continue;
     entries.push({
       loc: `${base}/vendors/${vendor.slug}`,
       lastmod: vendor.updated_at,

@@ -450,9 +450,13 @@ function registerSlugRedirectSuite<T>(
       // A mapping, not content — the same directive every other permanent redirect
       // in the app carries.
       expect(headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
-      // Tagged on the SURVIVOR: this map is mutable, so the survivor's own next
-      // edit is what has to be able to purge the redirect (`CACHE_STRATEGY.md` §2).
-      expect(headers.get('Cache-Tag')).toBe(`${entity}:${TO_SLUG}`);
+      // BOTH slugs (`CACHE_STRATEGY.md` §2). The survivor covers a rename of the
+      // destination; the RETIRED slug covers the row coming back — a re-promote of
+      // it purges `{entity}:{from_slug}` and nothing else, so without that tag the
+      // edge would redirect readers away from a live page for the full 24h.
+      expect(headers.get('Cache-Tag')).toBe(
+        `${entity}:${scenario.paramValue},${entity}:${TO_SLUG}`,
+      );
       // Not a 404: no noindex meta, because the reader is not being shown a page.
       expect(setNotFoundMeta).not.toHaveBeenCalled();
     });
@@ -473,6 +477,40 @@ function registerSlugRedirectSuite<T>(
       expect(await run()).toBeNull();
       expect(responseInit.status).toBe(404);
       expect(responseInit.headers.get('Location')).toBeNull();
+      expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
+    });
+
+    it('falls through to the ordinary 404 when the map lookup FAILS', async () => {
+      // The lookup is an enhancement on a request already headed for a 404. If the
+      // map is unreachable — D1 down, or an API Worker that predates the endpoint —
+      // the right outcome is the cheap edge-cacheable 404, not an SSR render
+      // failure. `fetchOrNull` rethrows anything that is not a NOT_FOUND envelope,
+      // so this only works because the resolver wraps the call.
+      const setNotFoundMeta = vi.fn();
+      const ctx = createRequestContext(
+        buildClient(async (path: string) => {
+          if (path === redirectPath) {
+            throw new ServerApiError({
+              status: 500,
+              code: 'INTERNAL_ERROR',
+              message: 'database unreachable',
+            });
+          }
+          throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+        }),
+      );
+      const responseInit = { status: 200, headers: new Headers() };
+
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit,
+        request: new Request(scenario.url),
+        meta: { setNotFoundMeta },
+      });
+
+      expect(await run()).toBeNull();
+      expect(responseInit.status).toBe(404);
       expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
     });
 
