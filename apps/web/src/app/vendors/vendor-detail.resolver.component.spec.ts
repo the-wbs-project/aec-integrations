@@ -123,6 +123,9 @@ registerDetailResolverSuite<VendorDetail>({
     slug: 'procore',
     canonical: 'https://aecintegrations.com/vendors/procore',
   },
+  // AECI-978 — this route IS the entity's canonical page, so it opts in to the
+  // retired-slug 301 and the harness registers that suite.
+  slugRedirect: { entity: 'vendor', pathSegment: 'vendors' },
 });
 
 /** The §9.1 description ladder for vendors (AECI-802). */

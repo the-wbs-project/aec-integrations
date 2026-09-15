@@ -484,6 +484,61 @@ the comparison is on the **unordered** pair, so AECI-920's direction corrections
 mint a redirect to the page they are already on. The 52 pre-existing moves are seeded once
 by `scripts/ops/2026-09-pair-endpoint-move-backfill/`.
 
+### 4.3b `slug_redirects` (AECI-978)
+
+Retired slug → surviving slug, so a deleted product or vendor 301s instead of 404ing.
+Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus **two seeded rows**, no
+recreate, no cascade.
+
+```sql
+CREATE TABLE slug_redirects (
+  entity      TEXT NOT NULL,
+  from_slug   TEXT NOT NULL,
+  to_slug     TEXT NOT NULL,
+  reason      TEXT,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (entity, from_slug),
+  CONSTRAINT slug_redirects_entity_check  CHECK (entity IN ('product', 'vendor')),
+  CONSTRAINT slug_redirects_distinct_check CHECK (from_slug <> to_slug)
+);
+```
+
+**The problem it solves.** §6.2 slug immutability means a RENAME never breaks a URL —
+promote's update branch reuses the existing slug. It cannot cover the row going *away*:
+an N:1 consolidation (Autodesk Construction Cloud merging into Autodesk Forma) or a
+vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the row and the indexed
+URL 404s with no successor. This is option B of `STAGE_3_SPEC.md` §2.6, the general map
+that `STAGE_1_PHASE_2_SPEC.md` §6.2 promised to Phase 6 and Phase 6 never shipped.
+
+**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`), over
+`GET /api/slug-redirects/:entity/:fromSlug`. That ordering is a correctness rule, not an
+optimisation: **a live row always beats a mapping**, which is what lets a redirect be
+seeded *ahead* of the data op that retires the row, leaving no window where the URL 404s
+and none where it redirects a page that still renders.
+
+**No foreign keys, deliberately.** `from_slug` names a row that is expected to be gone —
+an FK there would make a row insertable only while it is useless. `to_slug` is not one
+either, because `products.slug` and `vendors.slug` are two tables and `entity` is what
+says which; SQLite has no polymorphic FK.
+
+**`entity` admits only what is wired.** `product` and `vendor` are the two routes built
+on `createDetailResolver`. The taxonomy browse routes have their own resolver and are not
+wired, so admitting `category` would let an operator seed a row that silently does
+nothing. Widening the CHECK is a table recreate, which is cheap and safe here: no cascade
+children, a handful of rows.
+
+**The chain is followed, not stored flat.** `a` → `b` → `c` resolves to `c` in one
+answer, so adding a second retirement never requires rewriting the first and a reader
+follows one redirect rather than one per rename. A cycle resolves to nothing at all —
+returning the last link before the loop would 301 into a loop the edge then caches.
+
+**Writers.** None in code. Rows are seeded by migration or inserted by an operator; there
+is no admin action yet (the §6.2 "rename slug" action is still unbuilt). Consumers besides
+the resolvers are the three discovery channels, which all withhold a `from_slug` because a
+URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
+the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for
+where each one filters and why they differ.
+
 ---
 
 ## 5. Taxonomy tables

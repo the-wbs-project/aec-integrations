@@ -430,6 +430,73 @@ export const integrationEndpointMoves = sqliteTable(
   ],
 );
 
+/**
+ * Retired slug → surviving slug, for the 301 a detail resolver emits instead of a
+ * 404 (AECI-978 / `STAGE_3_SPEC.md` §2.6 option B).
+ *
+ * The §6.2 slug-immutability default means a RENAME never breaks a URL — promote's
+ * update branch reuses the existing slug. What it cannot cover is the row going
+ * away: an N:1 consolidation (Autodesk Construction Cloud merging into Autodesk
+ * Forma) or a vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the
+ * row, and the indexed URL 404s with no successor. Until this table those two cases
+ * were hand-written Worker routes, and the first one's comment said to build this
+ * rather than add a third.
+ *
+ * ── THIS IS READ ONLY ON THE NOT-FOUND BRANCH ─────────────────────────────────
+ *
+ * §2.6 specifies it that way and the reason is a correctness one, not a performance
+ * one: a live row must always beat a redirect. A slug that is mapped here AND has a
+ * row in `products` renders its page, because the resolver never reaches the lookup.
+ * That is what makes the map safe to deploy AHEAD of the data op that retires the
+ * row — exactly how the two hardcoded 301s it replaces were deployed — leaving no
+ * window where the URL 404s and none where it redirects a live page away.
+ *
+ * ── NO FOREIGN KEYS, ON PURPOSE ───────────────────────────────────────────────
+ *
+ * Neither slug is an FK. `from_slug` names a row that is expected to be gone, which
+ * is the entire premise; an FK there would make a row insertable only while it is
+ * useless and undeletable once it matters. `to_slug` is not an FK either, because
+ * `products.slug` and `vendors.slug` are two different tables and `entity` is what
+ * says which — SQLite has no polymorphic FK. A `to_slug` that resolves to nothing
+ * 301s the reader onto a 404, which is worse than a 404 but is an operator error
+ * this schema cannot prevent; the seeded rows are verified by hand.
+ *
+ * ── `entity` ADMITS ONLY WHAT IS WIRED ────────────────────────────────────────
+ *
+ * `product` and `vendor` — the two routes built on `createDetailResolver`, which is
+ * where the lookup lives. The taxonomy browse routes have their own resolver and are
+ * NOT wired, so admitting `category` here would let an operator seed a row that
+ * silently does nothing. Widening the CHECK later is a table recreate, which on this
+ * table is cheap and safe: it has no cascade children and holds a handful of rows.
+ * (`apps/api/src/test/d1.spec.ts` is what watches for a child appearing.)
+ */
+export const slugRedirects = sqliteTable(
+  'slug_redirects',
+  {
+    /** Which detail route the slugs belong to: `product` | `vendor`. */
+    entity: text('entity').notNull(),
+    /** The retired slug, as it appears in the URL path. */
+    fromSlug: text('from_slug').notNull(),
+    /** The surviving slug to 301 to. Resolved through a chain; see `lib/slug-redirect.ts`. */
+    toSlug: text('to_slug').notNull(),
+    /** Operator prose: why this slug retired. Not rendered anywhere. */
+    reason: text('reason'),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // One destination per retired slug per entity kind. The PK is also the lookup
+    // index — `(entity, from_slug)` is exactly the resolver's equality pair — so no
+    // separate index is declared.
+    primaryKey({ columns: [t.entity, t.fromSlug] }),
+    check('slug_redirects_entity_check', sql`"entity" IN ('product', 'vendor')`),
+    // A self-redirect is an infinite loop at the edge. The chain walker guards
+    // cycles too, but this is the one that cannot be forgotten.
+    check('slug_redirects_distinct_check', sql`"from_slug" <> "to_slug"`),
+  ],
+);
+
 // ===========================================================================
 // Taxonomy (§5)
 // ===========================================================================
@@ -3071,6 +3138,7 @@ export const schema = {
   products,
   integrations,
   integrationEndpointMoves,
+  slugRedirects,
   taxonomyCategories,
   taxonomyAudiences,
   taxonomyPhases,

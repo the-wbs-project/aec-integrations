@@ -148,6 +148,11 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
   pathSegment: 'products',
   entityKind: 'product',
   fetch: fetchProductBySlug,
+  // AECI-978 — `/products/:slug` IS the product's canonical page, so a retired slug
+  // 301s here rather than 404ing. `/products/:slug/review` reuses the same fetch and
+  // deliberately does NOT opt in: it would redirect to `/products/{to}` and drop the
+  // `/review` segment the reader asked for.
+  followSlugRedirect: 'product',
   applyMeta: (meta, product, canonical) => {
     meta.setEntityMeta({
       entity: 'product',

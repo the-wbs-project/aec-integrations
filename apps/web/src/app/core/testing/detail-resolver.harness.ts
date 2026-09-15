@@ -29,6 +29,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   ActivatedRouteSnapshot,
   type ResolveFn,
+  Router,
   RouterStateSnapshot,
   convertToParamMap,
 } from '@angular/router';
@@ -57,12 +58,24 @@ function buildRouteSnapshot(paramKey: 'slug' | 'id', paramValue: string): Activa
 
 const STATE = {} as RouterStateSnapshot;
 
+/** Drain the microtask queue so a resolver's NEXT await-chained request is issued.
+ *  `await Promise.resolve()` is not enough: `httpGetOrNull` awaits `firstValueFrom`
+ *  inside a try/catch, which is several microtasks deep. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 export interface DetailResolverSetupOpts {
   platform: 'server' | 'browser';
   ctx?: AeciRequestContext | null;
-  responseInit?: { status: number };
+  responseInit?: { status: number; headers?: HeadersInit };
   request?: Request | null;
   meta?: Partial<MetaService>;
+  /**
+   * Stub `Router`, for the AECI-978 client-side retired-slug redirect. Omitted by
+   * default ON PURPOSE: the resolver injects `Router` as `optional` and skips the
+   * redirect without one, so every pre-existing case keeps exercising the plain
+   * not-found path with no router in the TestBed.
+   */
+  router?: Pick<Router, 'navigateByUrl'>;
 }
 
 export interface DetailResolverHarness<T> {
@@ -88,6 +101,7 @@ export function createSetup<T>(
         { provide: RESPONSE_INIT, useValue: opts.responseInit ?? null },
         { provide: REQUEST, useValue: opts.request ?? null },
         { provide: MetaService, useValue: opts.meta ?? {} },
+        ...(opts.router ? [{ provide: Router, useValue: opts.router }] : []),
         // The client (in-app navigation) branch fetches via HttpClient against
         // the same-origin `/api/*` passthrough (AECI-151); mock it.
         provideHttpClient(),
@@ -129,6 +143,16 @@ export interface DetailResolverScenario<T> {
   expectedPageView: PageViewPayload;
   /** Expected argument to `setNotFoundMeta` on the 404 path. */
   notFound: { kind: EntityKind; slug: string; canonical: string };
+  /**
+   * Set when the resolver opts in to the retired-slug 301 (AECI-978). Absent for a
+   * route that reuses this scaffold without being the entity's canonical page.
+   */
+  slugRedirect?: {
+    /** The `slug_redirects` entity kind the resolver looks the param up under. */
+    entity: 'product' | 'vendor';
+    /** URL/API path segment, e.g. `products` — what the `Location` is built on. */
+    pathSegment: string;
+  };
 }
 
 /** Assign a `vi.fn()` jsonLd spy onto a meta stub by method name, if any. */
@@ -344,11 +368,216 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
           { error: { code: 'NOT_FOUND', message: 'missing' } },
           { status: 404, statusText: 'Not Found' },
         );
+      // AECI-978 — an opted-in resolver asks the retired-slug map before it settles
+      // on the not-found shell. Answer "no mapping", which is the ordinary case.
+      // `Router` is `providedIn: 'root'`, so the optional inject always finds one in
+      // a TestBed and this branch is never skipped.
+      if (scenario.slugRedirect) {
+        await settle();
+        httpMock
+          .expectOne(`/api/slug-redirects/${scenario.slugRedirect.entity}/${scenario.paramValue}`)
+          .flush(
+            { error: { code: 'NOT_FOUND', message: 'no redirect' } },
+            { status: 404, statusText: 'Not Found' },
+          );
+      }
       const result = await promise;
 
       expect(result).toBeNull();
       expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
       expect(setEntityMeta).not.toHaveBeenCalled();
+    });
+  });
+
+  if (scenario.slugRedirect) registerSlugRedirectSuite(scenario, setup);
+}
+
+/**
+ * The AECI-978 retired-slug cases, for a resolver that opts in with
+ * `followSlugRedirect` (`STAGE_3_SPEC.md` §2.6 option B).
+ *
+ * Split into its own function rather than folded into the six shared cases above,
+ * because it is conditional: `/products/:slug/review` reuses the same scaffold and
+ * deliberately does NOT opt in.
+ */
+function registerSlugRedirectSuite<T>(
+  scenario: DetailResolverScenario<T>,
+  setup: (opts: DetailResolverSetupOpts) => DetailResolverHarness<T>,
+): void {
+  const { entity, pathSegment } = scenario.slugRedirect!;
+  const redirectPath = `/api/slug-redirects/${entity}/${scenario.paramValue}`;
+  const TO_SLUG = 'the-survivor';
+  const origin = new URL(scenario.url).origin;
+
+  /** A client whose entity read 404s and whose redirect read answers `body`. */
+  function clientWithRedirect(body: unknown | null): ServerApiClient {
+    return buildClient(async (path: string) => {
+      if (path === redirectPath) {
+        if (body === null) {
+          throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'no redirect' });
+        }
+        return body;
+      }
+      throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+    });
+  }
+
+  describe(`${scenario.name}: retired-slug 301 (AECI-978)`, () => {
+    beforeEach(() => TestBed.resetTestingModule());
+
+    it('301s to the surviving slug instead of 404ing, with its own Cache-Control and Cache-Tag', async () => {
+      const setNotFoundMeta = vi.fn();
+      const ctx = createRequestContext(
+        clientWithRedirect({ entity, from_slug: scenario.paramValue, to_slug: TO_SLUG }),
+      );
+      const responseInit: { status: number; headers?: HeadersInit } = {
+        status: 200,
+        headers: new Headers(),
+      };
+
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit,
+        request: new Request(scenario.url),
+        meta: { setNotFoundMeta },
+      });
+
+      expect(await run()).toBeNull();
+      expect(responseInit.status).toBe(301);
+      const headers = responseInit.headers as Headers;
+      expect(headers.get('Location')).toBe(`${origin}/${pathSegment}/${TO_SLUG}`);
+      // A mapping, not content — the same directive every other permanent redirect
+      // in the app carries.
+      expect(headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
+      // BOTH slugs (`CACHE_STRATEGY.md` §2). The survivor covers a rename of the
+      // destination; the RETIRED slug covers the row coming back — a re-promote of
+      // it purges `{entity}:{from_slug}` and nothing else, so without that tag the
+      // edge would redirect readers away from a live page for the full 24h.
+      expect(headers.get('Cache-Tag')).toBe(
+        `${entity}:${scenario.paramValue},${entity}:${TO_SLUG}`,
+      );
+      // Not a 404: no noindex meta, because the reader is not being shown a page.
+      expect(setNotFoundMeta).not.toHaveBeenCalled();
+    });
+
+    it('still 404s an unmapped slug', async () => {
+      const setNotFoundMeta = vi.fn();
+      const ctx = createRequestContext(clientWithRedirect(null));
+      const responseInit = { status: 200, headers: new Headers() };
+
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit,
+        request: new Request(scenario.url),
+        meta: { setNotFoundMeta },
+      });
+
+      expect(await run()).toBeNull();
+      expect(responseInit.status).toBe(404);
+      expect(responseInit.headers.get('Location')).toBeNull();
+      expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
+    });
+
+    it('falls through to the ordinary 404 when the map lookup FAILS', async () => {
+      // The lookup is an enhancement on a request already headed for a 404. If the
+      // map is unreachable — D1 down, or an API Worker that predates the endpoint —
+      // the right outcome is the cheap edge-cacheable 404, not an SSR render
+      // failure. `fetchOrNull` rethrows anything that is not a NOT_FOUND envelope,
+      // so this only works because the resolver wraps the call.
+      const setNotFoundMeta = vi.fn();
+      const ctx = createRequestContext(
+        buildClient(async (path: string) => {
+          if (path === redirectPath) {
+            throw new ServerApiError({
+              status: 500,
+              code: 'INTERNAL_ERROR',
+              message: 'database unreachable',
+            });
+          }
+          throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+        }),
+      );
+      const responseInit = { status: 200, headers: new Headers() };
+
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit,
+        request: new Request(scenario.url),
+        meta: { setNotFoundMeta },
+      });
+
+      expect(await run()).toBeNull();
+      expect(responseInit.status).toBe(404);
+      expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
+    });
+
+    it('lets a LIVE row win over a mapping — the map is never consulted on a hit', async () => {
+      // The property that makes a mapping safe to seed BEFORE the data op that
+      // retires the row: while the row still resolves, its page renders and the
+      // redirect is inert. If the lookup ever moved ahead of the entity read, this
+      // is the test that fails.
+      const fixture = scenario.buildFixture();
+      const request = vi.fn(async (path: string) => {
+        if (path === redirectPath) throw new Error('the map must not be consulted on a hit');
+        return fixture;
+      });
+      const ctx = createRequestContext({ request } as unknown as ServerApiClient);
+      const responseInit = { status: 200, headers: new Headers() };
+
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit,
+        request: new Request(scenario.url),
+        meta: {
+          setEntityMeta: vi.fn(),
+          ...(scenario.jsonLdMethod ? { [scenario.jsonLdMethod]: vi.fn() } : {}),
+        },
+      });
+
+      expect(await run()).toEqual(fixture);
+      expect(responseInit.status).toBe(200);
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces the URL rather than pushing it, on a client navigation', async () => {
+      // A SPA nav has no HTTP status, so `replaceUrl` is the 301 equivalent: the
+      // retired URL must not enter the history stack, or Back from the survivor
+      // lands on it and bounces forward again.
+      const navigateByUrl = vi.fn();
+      const setNotFoundMeta = vi.fn();
+
+      const { run, httpMock } = setup({
+        platform: 'browser',
+        ctx: createRequestContext({ request: vi.fn() } as unknown as ServerApiClient),
+        request: new Request(scenario.url),
+        meta: { setNotFoundMeta },
+        router: { navigateByUrl } as unknown as Pick<Router, 'navigateByUrl'>,
+      });
+
+      const promise = run();
+      httpMock
+        .expectOne(scenario.apiPath)
+        .flush(
+          { error: { code: 'NOT_FOUND', message: 'missing' } },
+          { status: 404, statusText: 'Not Found' },
+        );
+      await settle();
+      httpMock
+        .expectOne(redirectPath)
+        .flush({ entity, from_slug: scenario.paramValue, to_slug: TO_SLUG });
+      const result = await promise;
+
+      expect(result).toBeNull();
+      expect(navigateByUrl).toHaveBeenCalledWith(`/${pathSegment}/${TO_SLUG}`, {
+        replaceUrl: true,
+      });
+      // The not-found shell must NOT also be announced — the reader is on their way
+      // to a real page.
+      expect(setNotFoundMeta).not.toHaveBeenCalled();
     });
   });
 }

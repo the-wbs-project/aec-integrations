@@ -22,6 +22,7 @@ export * from './promote';
 export * from './promote-connector';
 export * from './requests';
 export * from './reviews';
+export * from './slug-redirects';
 export * from './stats';
 export * from './taxonomy';
 export * from './vendor';

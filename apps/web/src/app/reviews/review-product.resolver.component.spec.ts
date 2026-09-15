@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProductDetail } from '@aeci/shared';
 
-import { ServerApiError } from '../../server-api-client';
+import { ServerApiError, type ServerApiClient } from '../../server-api-client';
 import { createRequestContext } from '../../server/request-context';
 import type { MetaService } from '../core/meta.service';
 import { buildClient, createSetup } from '../core/testing/detail-resolver.harness';
@@ -87,5 +87,33 @@ describe('reviewProductResolver (AECI-200)', () => {
     expect(result).toBeNull();
     expect(responseInit.status).toBe(404);
     expect(ctx.pageView).toBeNull();
+  });
+
+  it('does NOT follow a retired-slug redirect (AECI-978)', async () => {
+    // This route reuses `createDetailResolver` with the same fetch and the same
+    // `entityKind` as the product detail page, but it is not the product's
+    // canonical page. A 301 here would send the reader to `/products/{to}` and
+    // silently drop the `/review` segment they asked for — so the route omits
+    // `followSlugRedirect` and the map is never consulted at all.
+    const request = vi.fn(async (path: string) => {
+      if (path.startsWith('/api/slug-redirects')) {
+        throw new Error('the review route must not consult the retired-slug map');
+      }
+      throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+    });
+    const ctx = createRequestContext({ request } as unknown as ServerApiClient);
+    const responseInit = { status: 200 };
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      request: new Request('https://aecintegrations.com/products/procore/review'),
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

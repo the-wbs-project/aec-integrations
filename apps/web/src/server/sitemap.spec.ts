@@ -64,7 +64,13 @@ const ISO = '2026-03-04T05:06:07.000Z';
  * Mock `ServerApiClient` that answers each list/taxonomy path. Products are
  * split across two pages (total 150) to exercise pagination to completion.
  */
-function mockClient(): { client: ServerApiClient; paths: string[] } {
+function mockClient(
+  redirects: ReadonlyArray<{
+    entity: 'product' | 'vendor';
+    from_slug: string;
+    to_slug: string;
+  }> = [],
+): { client: ServerApiClient; paths: string[] } {
   const paths: string[] = [];
   const product = (i: number) => ({ id: `p${i}`, slug: `product-${i}`, updated_at: ISO });
   const page1 = Array.from({ length: 100 }, (_, i) => product(i));
@@ -103,6 +109,9 @@ function mockClient(): { client: ServerApiClient; paths: string[] } {
         perPage: 100,
         total: 1,
       };
+    }
+    if (p === '/api/slug-redirects') {
+      return { redirects };
     }
     if (p === '/api/taxonomy') {
       return {
@@ -164,6 +173,59 @@ describe('resolveSitemapEntries', () => {
         expect(locs).toContain('https://aecintegrations.com/phases/design');
       },
     );
+  });
+
+  // ── Retired slugs (AECI-978 / STAGE_3_SPEC.md §2.6) ───────────────────────
+  describe('the retired-slug exclusion', () => {
+    it('withholds a product slug that now only redirects', async () => {
+      // The row is still live — the list endpoint returns it — because a mapping is
+      // seeded BEFORE the data op that retires it, which is what removes the 404
+      // window. The page still renders during that window; the sitemap should
+      // already have stopped nominating it as canonical.
+      const { client } = mockClient([
+        { entity: 'product', from_slug: 'product-7', to_slug: 'product-8' },
+      ]);
+      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
+        (e) => e.loc,
+      );
+      expect(locs).not.toContain('https://aecintegrations.com/products/product-7');
+      expect(locs).toContain('https://aecintegrations.com/products/product-8');
+    });
+
+    it('withholds a vendor slug that now only redirects', async () => {
+      const { client } = mockClient([
+        { entity: 'vendor', from_slug: 'autodesk', to_slug: 'autodesk-group' },
+      ]);
+      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
+        (e) => e.loc,
+      );
+      expect(locs).not.toContain('https://aecintegrations.com/vendors/autodesk');
+    });
+
+    it('does not cross entity kinds', async () => {
+      // A VENDOR mapping must not suppress a product of the same slug. The two
+      // namespaces are independent and the table keys on `(entity, from_slug)`.
+      const { client } = mockClient([
+        { entity: 'vendor', from_slug: 'product-7', to_slug: 'somewhere' },
+      ]);
+      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
+        (e) => e.loc,
+      );
+      expect(locs).toContain('https://aecintegrations.com/products/product-7');
+    });
+
+    it("leaves the pair page alone — that is AECI-953's mechanism, not this one", async () => {
+      // A pair URL naming a retired endpoint is 301'd off `integration_endpoint_moves`,
+      // which resolves the destination live. Suppressing it here would have this map
+      // silently overreach into a lane it knows nothing about.
+      const { client } = mockClient([
+        { entity: 'product', from_slug: 'revit', to_slug: 'revit-2027' },
+      ]);
+      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
+        (e) => e.loc,
+      );
+      expect(locs).toContain('https://aecintegrations.com/products/procore/integrations/revit');
+    });
   });
 
   // ── Trade publication gate (AECI-546 / TRADES_VOCABULARY.md §6) ────────────
@@ -291,6 +353,11 @@ function sitemapApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
           });
         case '/api/integrations':
           return json({ data: [], page: 1, perPage: 100, total: 0 });
+        // AECI-978 — the retired-slug map. Empty here: the route test's subject is
+        // the headers and the full request path, and the exclusion has its own
+        // cases against `resolveSitemapEntries`.
+        case '/api/slug-redirects':
+          return json({ redirects: [] });
         case '/api/taxonomy':
           // One trade each side of the publication floor (AECI-546) so the route
           // test proves the gate survives the full request path, not just the

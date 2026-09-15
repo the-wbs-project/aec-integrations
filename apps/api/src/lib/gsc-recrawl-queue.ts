@@ -26,6 +26,7 @@ import { eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { gscRecrawlQueue } from '../db/schema';
+import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 
 import type { BatchStmt } from './audit';
 import {
@@ -166,9 +167,25 @@ export async function enqueueGscRecrawl(
 ): Promise<number> {
   const deduped = dedupeByBestPriority(entries);
   if (deduped.length === 0) return 0;
+
+  // AECI-978 — never queue a URL that only redirects. Google's Request Indexing
+  // quota is the tightest channel we have, and this list is what an operator works
+  // by hand, so a retired URL here costs a submission AND the operator's attention.
+  // The sitemap and the IndexNow drain apply the same rule on their own surfaces.
+  //
+  // Filtered at ENQUEUE rather than at the operator's read, unlike IndexNow's:
+  // this queue is drained by hand and its rows persist until cleared, so hiding a
+  // row at read time would leave it in the table disagreeing with the `/admin`
+  // count badge. Bounded residual: a URL queued BEFORE its mapping was seeded stays
+  // on the list. The operator sees the URL and can clear it, which is the whole
+  // interaction model of this queue.
+  const retired = retiredSlugPaths(await listSlugRedirects(db));
+  const sendable =
+    retired.size === 0 ? deduped : deduped.filter((e) => !isRetiredSlugUrl(e.url, retired));
+  if (sendable.length === 0) return 0;
   const queuedAt = now().toISOString();
   let touched = 0;
-  for (const stmt of gscRecrawlInsertStatements(db, deduped, queuedAt, source)) {
+  for (const stmt of gscRecrawlInsertStatements(db, sendable, queuedAt, source)) {
     touched += (await stmt).length;
   }
   return touched;

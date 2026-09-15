@@ -213,17 +213,25 @@ Admin tooling (Phase 6) gets an explicit "rename slug" action that creates a 301
 
 Phase 2 ships only the immutability default; the rename action and redirect table are Phase 6.
 
-> **Stale as written — corrected 2026-09-11.** Phase 6 shipped **without** the rename action and
-> without the redirect table, and nothing has replaced them. The immutability default did ship and
+> **Stale as written — corrected 2026-09-11, half of it closed 2026-09-15.** Phase 6 shipped
+> **without** the rename action and without the redirect table. The immutability default did ship and
 > works: promote's update branch reuses the existing slug (`apps/api/src/routes/promote.ts:1892`), so a
-> rename never breaks a URL. What is missing is the escape hatch for the cases immutability cannot
-> cover — N:1 consolidation and a genuine vendor rebrand. The only stand-in today is a **single
-> hardcoded 301** (`/vendors/bluebeam` → `/vendors/nemetschek-group`,
-> `apps/web/src/server-runtime.ts:1380`), whose comment instructs the next person to build the general
-> mutable slug→slug map rather than add a third entry. That map is now scoped as option B of
-> **`docs/STAGE_3_SPEC.md` §2.6** (**AECI-863**), where it sits beside the search-recall half this
+> rename never breaks a URL. What was missing is the escape hatch for the cases immutability cannot
+> cover — N:1 consolidation and a genuine vendor rebrand.
+>
+> **The redirect table now exists.** **AECI-978** built it as `slug_redirects`
+> (`docs/DATABASE_SCHEMA.md` §4.3b) — option B of **`docs/STAGE_3_SPEC.md` §2.6**, pulled forward
+> under that section's prod-fix rider when Autodesk Construction Cloud's retirement was about to 404
+> a live product page. The product and vendor detail resolvers consult it on their not-found branch
+> and answer 301, and the two hardcoded stand-ins this banner used to name are down to one: the
+> `/vendors/bluebeam` → `/vendors/nemetschek-group` case moved into the table, while
+> `/categories/reality-capture-scan-to-bim` (AECI-926) stays a Worker route because the map is wired
+> to the detail resolvers and taxonomy browse has its own.
+>
+> **Two things this section promised are still unbuilt.** The admin **"rename slug" action** — rows
+> are seeded by migration or inserted by an operator, with no UI. And the **search-recall** half this
 > section never considered: an immutable slug keeps the URL alive but does nothing for a reader who
-> searches the *old name*.
+> searches the *old name*. That is option A of §2.6 and it is still unchosen (**AECI-863**).
 
 ### 6.3 Slug generator
 

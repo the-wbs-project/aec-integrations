@@ -176,6 +176,49 @@ describe('enqueueGscRecrawl — the conflict rule', () => {
   });
 });
 
+// ─── Retired slugs (AECI-978) ────────────────────────────────────────────────
+
+describe('enqueueGscRecrawl — retired slugs', () => {
+  it('never queues a URL that only redirects', async () => {
+    // Migration 0039 seeds `autodesk-construction-cloud` -> `autodesk-forma`.
+    // Google's Request Indexing quota is the tightest channel we have, and this
+    // list is worked by hand, so a retired URL costs a submission AND the
+    // operator's attention.
+    const retired = `${BASE}/products/autodesk-construction-cloud`;
+    const live = `${BASE}/products/procore`;
+    const touched = await enqueueGscRecrawl(
+      t.db,
+      [
+        { url: retired, reason: 'product.updated' },
+        { url: live, reason: 'product.updated' },
+      ],
+      'promote',
+    );
+
+    expect(touched).toBe(1);
+    expect(await rowFor(retired)).toBeUndefined();
+    expect(await rowFor(live)).toBeDefined();
+  });
+
+  it('writes nothing when every entry has retired', async () => {
+    const touched = await enqueueGscRecrawl(
+      t.db,
+      [{ url: `${BASE}/products/autodesk-construction-cloud`, reason: 'product.updated' }],
+      'promote',
+    );
+    expect(touched).toBe(0);
+    expect(await queueDepth()).toBe(0);
+  });
+
+  it('matches the path exactly — a vendor mapping does not suppress a product URL', async () => {
+    // `bluebeam` is mapped as a VENDOR. `/products/bluebeam` is a different URL and
+    // must still queue.
+    const url = `${BASE}/products/bluebeam`;
+    await enqueueGscRecrawl(t.db, [{ url, reason: 'product.updated' }], 'promote');
+    expect(await rowFor(url)).toBeDefined();
+  });
+});
+
 // ─── The D1 bound-parameter cap ──────────────────────────────────────────────
 
 describe('gscRecrawlInsertStatements — the 100-bound-parameter cap', () => {

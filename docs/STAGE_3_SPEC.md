@@ -82,10 +82,19 @@ run against the scripted walkthroughs in `docs/a11y-manual-testing-checklist.md`
 under a "Trimble Unity" umbrella and raised the general question: *when a product or vendor is renamed,
 how does a reader researching the previous name still find it?* Today the answer is "they don't."
 
-> **This section is a bookmark, not a contract.** The option space below is surveyed and the
-> ground truth is verified, but **the mechanism is not chosen**. §5(6) holds the decisions that must
-> close before this pillar can be decomposed into issues. Do not treat the working recommendation as
-> settled. Tracked as **AECI-863**.
+> **This section is a bookmark, not a contract — with one exception, shipped 2026-09-15.**
+> The option space below is surveyed and the ground truth is verified, but **the mechanism is not
+> chosen**. §5(6) holds the decisions that must close before this pillar can be decomposed into
+> issues. Do not treat the working recommendation as settled. Tracked as **AECI-863**.
+>
+> **Option B exists.** Rider (a) below is the prod-fix-class carve-out that lets the redirect map
+> move forward alone when a live rebrand starts breaking a page, and **AECI-809 triggered it**:
+> Autodesk Construction Cloud merges into Autodesk Forma and the ACC record retires, which would
+> 404 `/products/autodesk-construction-cloud`. **AECI-978** built the map — `slug_redirects`
+> (`DATABASE_SCHEMA.md` §4.3b), `GET /api/slug-redirects*` (`API_CONTRACTS.md` §6.2a), the 301 on
+> the detail resolvers' not-found branch, the `Cache-Tag` rule (`CACHE_STRATEGY.md` §3 rule 6), and
+> the sitemap + IndexNow exclusion. **Options A, C, D and E are untouched**, and so are all four
+> §5(6) decisions except the consolidation half of (b) — see "What AECI-978 closed" below.
 
 **What already works, and why that was a surprise.** Promote's update branch writes the new `name` and
 **reuses the existing `slug`** (`apps/api/src/routes/promote.ts:1892`), so a straight rename never
@@ -98,7 +107,7 @@ immutable by default") working as designed.
 |---|---|---|
 | 1 | **Search recall is zero for the old name.** The product index's `searchableAttributes` carry no former-name attribute, so the pre-rename string matches nothing unless it happens to survive in `description`. | `packages/shared/src/algolia.ts:379` |
 | 2 | **Old names are unrecoverable after the fact.** The `product.updated` audit row promote writes carries no `beforeState`/`afterState`, so name history cannot be mined from `audit_log`. Whatever we build must capture the old name **at rename time**. | `apps/api/src/routes/promote.ts:1915` |
-| 3 | **The §6.2 escape hatch was never built.** That section promised an admin "rename slug" action creating a 301, and deferred it to Phase 6. Phase 6 shipped without it. The stand-in is the single hardcoded `/vendors/bluebeam` → `/vendors/nemetschek-group` 301, whose own comment instructs the next person to build the general map rather than add a third entry. | `docs/STAGE_1_PHASE_2_SPEC.md:207`, `apps/web/src/server-runtime.ts:1380` |
+| 3 | ~~**The §6.2 escape hatch was never built.**~~ **CLOSED by AECI-978 (2026-09-15)**, one half of it. The redirect map shipped as `slug_redirects` and the `/vendors/bluebeam` → `/vendors/nemetschek-group` case moved into it, so there is one mechanism rather than a growing list of hardcoded routes. The **admin "rename slug" action** §6.2 also promised is still unbuilt: rows are seeded by migration or inserted by an operator. | `apps/api/src/lib/slug-redirect.ts`, `apps/web/src/app/core/create-detail-resolver.ts` |
 | 4 | **A vendor cannot tell us they rebranded.** `name` is absent from `PRODUCT_COLUMN_MAP`, so the portal has no path for it, and `products.name` is writable only by promote. Every rename therefore originates upstream in **`aec-integrations-review`**, which makes any wire-carried solution a two-repo change. | `apps/api/src/routes/vendor.ts:775` |
 
 **A rebrand is four different problems, and only one of them is a rename.** This is the distinction the
@@ -121,8 +130,9 @@ design has to respect — Trimble Unity is row 2, not row 1:
   old name never reaches our search box, so the string has to be in indexable body copy. Cost: one
   migration, one optional promote field, one Algolia attribute, a **full reindex per environment**, and
   the review-app half. Solves gaps 1 and 2. Does **not** solve consolidation.
-- **B — the general slug→slug redirect map.** The unbuilt §6.2 promise: a small `slug_redirects` table
-  consulted **only on the not-found branch** (never the hot path), emitting 301, plus the admin action.
+- **B — the general slug→slug redirect map. SHIPPED 2026-09-15 (AECI-978).** The §6.2 promise: a small `slug_redirects` table
+  consulted **only on the not-found branch** (never the hot path), emitting 301, plus the admin action
+  (that last part is still unbuilt — see "What AECI-978 closed").
   Unlike every other redirect in `server-runtime.ts` this map is **mutable**, so it needs its own
   `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retires the
   Bluebeam hardcode. Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
@@ -147,6 +157,21 @@ design has to respect — Trimble Unity is row 2, not row 1:
 **Working recommendation, explicitly not a decision:** A as the core, B when the second per-entity
 redirect lands (the first real consolidation will force it), D as the Stage 3 content play, skip C,
 E opportunistically.
+
+**What AECI-978 closed, and what it did not.**
+
+| §5(6) decision | State after AECI-978 |
+|---|---|
+| (a) pick the mechanism set — A alone, A+B, or A+B+D | **Still open.** B shipping under rider (a) is a prod fix, not a selection: it says nothing about whether A or D are in. Any of A-alone, A+B, A+B+D remain choosable, and A+B is now cheaper by exactly B. |
+| (b) is N:1 consolidation in scope, or handled by hand until a second case appears | **Half closed.** The URL half is answered: a consolidation's dead URL is now a data row, not a hand-written route, and the second case (AECI-809) is what forced it. The **page** half is untouched — nothing merges content, chooses a survivor, or explains the merge to a reader. |
+| (c) who authors a former name — the promote wire, or an AECi-side admin action | **Untouched.** This map stores no name, only slugs. Rows are operator-inserted; the §6.2 admin action is still unbuilt. |
+| (d) confirm the `former_names` shape (flat list vs. dated entries) | **Untouched.** That is option A's column and does not exist. |
+
+Three things AECI-978 explicitly did **not** do, so they do not read later as oversights:
+
+- **Search recall is still zero for an old name.** A 301 helps a stale URL, not a typed query. That is gap 1 and it belongs to option A.
+- **`entity` admits `product` and `vendor` only.** The taxonomy browse routes have their own resolver, so the one surviving hardcoded 301 — `/categories/reality-capture-scan-to-bim` (AECI-926) — stays in `server-runtime.ts`. Widening the map to taxonomy is its own issue; the CHECK is deliberately narrow so an operator cannot seed a row that silently does nothing.
+- **No admin surface.** Seeding a mapping is a migration or an operator `INSERT`, and editing one purges no cache (`CACHE_STRATEGY.md` §3 rule 6 says what to do about that).
 
 **Why this landed in Stage 3 rather than Stage 2.5.** Option D is a trust/evidence surface and option A
 feeds §2.2's search-intent play, so the pillar's centre of gravity is here. Two riders, both recorded
@@ -207,6 +232,12 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
    admin action, noting that `products.name` is promote-only today; (d) confirm the `former_names`
    shape (flat string list vs. dated entries), because D needs dates and A does not, and choosing the
    flat list first makes D a migration. Until (a)–(d) are answered, **do not seed sub-issues.**
+
+   **Updated 2026-09-15.** Option **B shipped alone** under §2.6's rider (a), as **AECI-978** — the
+   second consolidation case (AECI-809) was about to 404 a live product page. That closes the **URL**
+   half of (b) and nothing else: (a), (c) and (d) are untouched, and B shipping does not imply it was
+   selected. §2.6's "What AECI-978 closed" table is the per-decision detail. Decomposition is still
+   blocked.
 
 ---
 
