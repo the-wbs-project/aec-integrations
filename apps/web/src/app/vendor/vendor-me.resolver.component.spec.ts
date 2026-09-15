@@ -5,7 +5,7 @@
  * `ServerApiClient` drives the server path, `HttpTestingController` the client
  * path, and `MetaService` / `RESPONSE_INIT` are stubs.
  *
- * The load-bearing contract (the vendor-portal gate): a 401/403/404 from
+ * The load-bearing contract (the vendor-portal gate): a 403/404 from
  * `GET /api/vendor/me` becomes a 404 render (don't reveal the surface), a 200
  * yields the payload + a TransferState handoff, and a 5xx rethrows (never a fake
  * 404 on an outage).
@@ -13,6 +13,12 @@
  * Since the portal moved to `/vendor/:vendorSlug/...`, a fourth branch joins
  * them: a 200 whose `vendor.slug` is not the slug in the URL takes the same
  * not-found path — see the ":vendorSlug check" block below.
+ *
+ * AECI-954 adds the fifth. A 401 is NOT an authorization answer — it means nobody
+ * is signed in — so it bounces to `/auth/login?return=<url>` rather than
+ * dead-ending an expired seat on "Page not found". On the client that decision is
+ * taken only after a session-refresh probe, which is also the loop breaker; the
+ * "AECI-954" block below pins every outcome.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -25,13 +31,21 @@ import {
   makeStateKey,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { convertToParamMap, ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
+import {
+  convertToParamMap,
+  ActivatedRouteSnapshot,
+  RedirectCommand,
+  Router,
+  RouterStateSnapshot,
+  provideRouter,
+} from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
 import { ServerApiError, type ServerApiClient } from '../../server-api-client';
 import { createRequestContext, type AeciRequestContext } from '../../server/request-context';
+import { AuthService } from '../auth/auth.service';
 import { MetaService } from '../core/meta.service';
 
 import { vendorMeResolver } from './vendor-me.resolver';
@@ -85,7 +99,31 @@ function routeFor(vendorSlug: string | null): ActivatedRouteSnapshot {
     paramMap: convertToParamMap(vendorSlug === null ? {} : { vendorSlug }),
   } as ActivatedRouteSnapshot;
 }
-const STATE = {} as RouterStateSnapshot;
+/** The router state the login bounce reads its `?return=` path off. */
+const STATE = { url: '/vendor/summit-bim/products/revit' } as RouterStateSnapshot;
+
+/**
+ * The `AuthService` seam the 401 branch probes. `signedIn` models what
+ * `getSession()` reports AFTER it has tried to refresh the cookie: `true` = the
+ * session was recoverable, `false` = it is genuinely gone.
+ */
+function authStub(signedIn: boolean): Partial<AuthService> {
+  return {
+    sessionSnapshot: vi.fn(async () => ({
+      signedIn,
+      email: null,
+      userId: null,
+      avatarUrl: null,
+      fullName: null,
+    })),
+  };
+}
+
+/** The login URL a redirect carries, for assertion against the router. */
+function redirectPath(result: unknown): string {
+  expect(result).toBeInstanceOf(RedirectCommand);
+  return TestBed.inject(Router).serializeUrl((result as RedirectCommand).redirectTo);
+}
 
 function buildClient(request: (path: string) => Promise<unknown>): ServerApiClient {
   return { request: vi.fn(request) as ServerApiClient['request'] };
@@ -102,6 +140,8 @@ function setup(opts: {
   meta?: Partial<MetaService>;
   /** The `:vendorSlug` the URL names. Omitted = slug-less route. */
   vendorSlug?: string | null;
+  /** Whether the post-401 session probe finds a session. Default: it does not. */
+  signedIn?: boolean;
 }): {
   run: () => Promise<VendorMeResponse | null>;
   transferState: TransferState;
@@ -114,6 +154,8 @@ function setup(opts: {
       { provide: RESPONSE_INIT, useValue: opts.responseInit ?? null },
       { provide: REQUEST, useValue: new Request('https://example.test/vendor') },
       { provide: MetaService, useValue: opts.meta ?? {} },
+      { provide: AuthService, useValue: authStub(opts.signedIn ?? false) },
+      provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
     ],
@@ -178,7 +220,11 @@ describe('vendorMeResolver — server path', () => {
     expect(JSON.parse(transferState.toJson())[STATE_KEY]).toBeNull();
   });
 
-  it('maps a 401 (expired/no session) to the same 404 render', async () => {
+  // AECI-954 — a 401 is "nobody is signed in", not "you are not this vendor", and
+  // gets the login page rather than the 404 render. The status stays untouched:
+  // `@angular/ssr` feeds `RESPONSE_INIT.status` into its redirect-response
+  // builder, which rejects anything outside 301/302/303/307/308.
+  it('redirects a 401 (expired/no session) to login, carrying the return path', async () => {
     const ctx = createRequestContext(
       buildClient(async () => {
         throw apiError(401, 'UNAUTHENTICATED');
@@ -187,16 +233,20 @@ describe('vendorMeResolver — server path', () => {
     const responseInit = { status: 200 };
     const setNotFoundMeta = vi.fn();
 
-    const { run } = setup({
+    const { run, transferState } = setup({
       platform: 'server',
       ctx,
       responseInit,
       meta: { setNotFoundMeta } as Partial<MetaService>,
     });
 
-    expect(await run()).toBeNull();
-    expect(responseInit.status).toBe(404);
-    expect(setNotFoundMeta).toHaveBeenCalled();
+    expect(redirectPath(await run())).toBe(
+      '/auth/login?return=%2Fvendor%2Fsummit-bim%2Fproducts%2Frevit',
+    );
+    expect(responseInit.status).toBe(200);
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    // Nothing hands off either: this response is a 302 and renders no page.
+    expect(JSON.parse(transferState.toJson())[STATE_KEY]).toBeUndefined();
   });
 
   it('rethrows a 5xx (never fakes a 404 on an outage)', async () => {
@@ -373,5 +423,107 @@ describe('vendorMeResolver — client (in-app navigation) path', () => {
       );
 
     await expect(promise).rejects.toBeTruthy();
+  });
+});
+
+/**
+ * AECI-954 — the client 401 branch. The browser is the only place that can trade
+ * an expired access token for a fresh one (`@supabase/ssr` does it inside
+ * `getSession()`), so a 401 is probed before it is acted on. Three outcomes:
+ * a session that comes back earns one retry; a session that does not goes to
+ * login; a retry that 401s again is authenticated-but-unauthorizable and renders
+ * not-found, which is what keeps the bounce from looping.
+ */
+/** Macrotask boundary — drains the session probe so the retry request is in
+ *  flight before the next `expectOne`. */
+function settleProbe(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
+describe('vendorMeResolver — the AECI-954 401 branch (client)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const flush401 = (httpMock: HttpTestingController): void =>
+    httpMock
+      .expectOne(API_PATH)
+      .flush(
+        { error: { code: 'UNAUTHENTICATED', message: 'no' } },
+        { status: 401, statusText: 'Unauthorized' },
+      );
+
+  it('retries once and succeeds when the session refresh lands', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      signedIn: true,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    flush401(httpMock);
+    await settleProbe();
+    httpMock.expectOne(API_PATH).flush(ME);
+
+    expect(await promise).toEqual(ME);
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+  });
+
+  it('redirects to login when the refresh finds no session', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      signedIn: false,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    flush401(httpMock);
+
+    expect(redirectPath(await promise)).toBe(
+      '/auth/login?return=%2Fvendor%2Fsummit-bim%2Fproducts%2Frevit',
+    );
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    httpMock.verify();
+  });
+
+  it('renders not-found (never a second bounce) when the retry 401s again', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      signedIn: true,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    flush401(httpMock);
+    await settleProbe();
+    flush401(httpMock);
+
+    expect(await promise).toBeNull();
+    expect(setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('never probes the session for a 403 \u2014 that caller IS signed in', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    httpMock
+      .expectOne(API_PATH)
+      .flush(
+        { error: { code: 'FORBIDDEN', message: 'no' } },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+    expect(await promise).toBeNull();
+    expect(TestBed.inject(AuthService).sessionSnapshot).not.toHaveBeenCalled();
+    expect(setNotFoundMeta).toHaveBeenCalled();
   });
 });

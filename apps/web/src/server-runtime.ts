@@ -1544,9 +1544,11 @@ export function createApp(options: {
     // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`.
     // The gate shipped ahead of the surface it guards; AECI-522 landed that
     // surface, and it carries the `/admin` resolver pattern as required —
-    // `vendorMeResolver` calls `GET /api/vendor/me` and maps a 401/403/404 to a
-    // 404 render. That is not optional, because this gate only stops ANONYMOUS
-    // visitors: an authenticated non-vendor reaches SSR either way.
+    // `vendorMeResolver` calls `GET /api/vendor/me` and maps a 403/404 to a
+    // 404 render, a 401 to `/auth/login?return=<url>` (AECI-954). That is not
+    // optional, because this gate only stops ANONYMOUS visitors: an
+    // authenticated non-vendor reaches SSR either way, and so does a visitor
+    // whose access token expired — `hasSessionCookie` is presence-only.
     // `isVendorPath` matches the deep section paths too
     // (`/vendor/:vendorSlug/products/:productSlug`,
     // `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2), so the bounce carries the whole

@@ -353,6 +353,38 @@ export async function requireAuth(request: Request, env: Env): Promise<AuthConte
 
 **Why hard-fail rather than soft-fail:** an unauthenticated request to an authenticated endpoint is either a bug in our own code, a misconfigured client, or someone probing. None of these benefit from being silently downgraded to anonymous.
 
+#### 4.1a What a 401 means to the *page* gates (AECI-954)
+
+The API's 401 is a hard fail. The SSR gates over it are not allowed to translate that
+into a dead end, and until 2026-09-14 they did.
+
+**401 and 403 answer different questions, so the surfaces answer them differently.**
+
+| From the guard | Question answered | `/vendor` and `/admin` response |
+|---|---|---|
+| 401 | Nobody is signed in | Redirect to `/auth/login?return=<url>` |
+| 403 | Signed in, wrong role | The global 404 render — **don't reveal the surface** |
+
+Redirecting a 401 discloses nothing new: the SSR Worker's own anon gate
+(`server-runtime.ts`, `isAdminPath` / `isVendorPath`) already 303s a **cookie-less**
+visitor to that exact address. What it could not see is an expired token, because
+`hasSessionCookie()` is a presence check by design — no crypto, no network — so the
+stale-cookie case fell through to SSR and rendered "Page not found".
+
+Two properties of that branch are load-bearing and must survive any refactor.
+
+1. **The client probes before it decides.** An access token lives about an hour; the
+   refresh token beside it lives weeks, and only the browser can trade one for the
+   other (`@supabase/ssr` does it inside `getSession()`). The client branch calls
+   `hasLiveSession()`, retries once when a session survives, and redirects only when
+   one does not.
+2. **That probe is the loop breaker.** §4.2's "a verified token with no `profiles` row
+   is 401, not anonymous treatment" means an identity can 401 permanently. Redirect on
+   every 401 and it rides login → session found → return → 401 → login forever.
+   Redirecting only on a signed-out probe bounds it to one round trip.
+
+Full rule, both surfaces: `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6.
+
 ### 4.2 Role and ban check before the write
 
 After JWT verification, the Worker loads the profile **from D1** and checks role and ban status. Banned users are rejected; non-admins on admin routes are rejected. This check runs in the Hono guard middleware (`requireAuth()` / `requireAdmin()`, `apps/api/src/lib/authz.ts`), **before** the handler runs — so before any write.
@@ -416,7 +448,7 @@ Two schema facts the rule has to survive: `product_vendors` is many-to-many, so 
 
 **Where the call site sits is not uniform, and that is deliberate.** On `PATCH /api/vendor/profile` the gate runs immediately after `sessionVendorId(c)`. On `PATCH /api/vendor/products/:id` it runs **after `requireOwnedProduct`**, because a 403 raised before ownership settles would confirm to a non-owner that the product exists — and **404-never-403 is the harder invariant** of this surface (§4.2a). The rule is "after ownership settles, wherever there is an ownership question", not "immediately after `sessionVendorId`".
 
-**Reads are never gated** — `GET /api/vendor/me` and `GET /api/vendor/seats` must not call `requireCapability`, and that is an acceptance criterion with its own test rather than a convention. `/vendor` is gated by `vendorMeResolver`, which maps 401/403/404 onto a **404 render**, so gating `me` would 404 the entire dashboard for a vendor whose entitlement lapsed — hiding the renewal notice from exactly the cohort being billed.
+**Reads are never gated** — `GET /api/vendor/me` and `GET /api/vendor/seats` must not call `requireCapability`, and that is an acceptance criterion with its own test rather than a convention. `/vendor` is gated by `vendorMeResolver`, which maps 403/404 onto a **404 render** (a 401 goes to `/auth/login` instead — AECI-954, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6), so gating `me` would 404 the entire dashboard for a vendor whose entitlement lapsed — hiding the renewal notice from exactly the cohort being billed.
 
 Full contract: `docs/STAGE_2_PAID_TIERS_SPEC.md` §3.3, §4.
 

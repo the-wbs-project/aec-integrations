@@ -1651,7 +1651,7 @@ unchanged.
 
 ## 9. Non-functional requirements
 
-1. **Authorization.** `requireAdmin()` is the single enforcement point. The SSR gate reuses the `adminSummaryResolver` pattern: a 401/403 renders the global 404 so the surface is never revealed.
+1. **Authorization.** `requireAdmin()` is the single enforcement point. The SSR gate reuses the `adminSummaryResolver` pattern: a **403** renders the global 404 so the surface is never revealed. A **401** does not — since AECI-954 it redirects to `/auth/login?return=<url>`, because "nobody is signed in" is not an answer worth hiding and an operator whose token aged out needs a way back in (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6 holds the full rule, both surfaces).
 2. **Caching.** `/admin/*` must remain absent from `ROUTE_CACHE_PATTERNS`, i.e. non-cacheable, cookie-forwarding, `private, no-store`. A cached admin response would be a visitor-state leak (§9.1a of the Stage 1 spec).
 3. **Audit.** Reads emit nothing — including the `?recompute=1` reads (§6, §13 D8). For the epic's cron-written tables, §26.1 applies **as scoped by ADR 0022**, not in its former absolute form: `metrics_daily` and `job_runs` are derived bookkeeping and are exempt, while the §7.4 scheduled prune emits one summary `audit_log` row per run in the same batch as its delete. Any *domain-state* write this panel might later grow still emits its `audit_log` row in the same `db.batch([...])`.
 4. **i18n.** All strings `i18n` / `$localize`, admin-only or not — the CLAUDE.md rule is unconditional.

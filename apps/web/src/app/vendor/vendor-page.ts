@@ -22,8 +22,10 @@ import { VendorPortalStore } from './vendor-portal-store';
  *     the URL is not this session's vendor. The resolver has already set
  *     `RESPONSE_INIT.status = 404` + the noindex 404 meta; render the global
  *     `<aec-not-found/>` so the surface is never revealed, with the URL left
- *     intact. (`requireVendor()` rejects anon, reviewers, banned seats,
- *     null-`vendor_id` seats, AND site admins.)
+ *     intact. (`requireVendor()` rejects reviewers, banned seats,
+ *     null-`vendor_id` seats, AND site admins. An unauthenticated caller is NOT
+ *     in that set — since AECI-954 the resolver redirects a 401 to
+ *     `/auth/login?return=<url>` and this component never renders.)
  *   - `me` set → seed {@link VendorPortalStore} and render the dashboard shell
  *     (the PO-chosen tabbed IA, AECI-522, on child routes since the portal gained
  *     real URLs).

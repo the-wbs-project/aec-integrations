@@ -264,9 +264,11 @@ export const routes: Routes = [
   // AECI-205 / Phase 5.14. Non-cacheable (fail-closed classifier — no change
   // needed) and RenderMode.Server (the `**` catch-all in app.routes.server.ts).
   // `adminSummaryResolver` calls `GET /api/admin/summary` (gated by
-  // `requireAdmin()`): a 401/403 → 404 render (don't reveal the surface); a 200 →
-  // the shell + pending-count badge. A logged-out visitor is bounced to login by
-  // the worker-level `isAdminPath` gate before SSR. `AdminShell` is the layout
+  // `requireAdmin()`): a 403 → 404 render (don't reveal the surface); a 200 →
+  // the shell + pending-count badge. A 401 redirects to `/auth/login?return=<url>`
+  // instead (AECI-954, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6) — the worker-level
+  // `isAdminPath` gate only catches a visitor with NO session cookie, so an
+  // expired token reaches the resolver. `AdminShell` is the layout
   // (gate + nav + badge + <router-outlet/>); the children render in the outlet.
   //
   // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console

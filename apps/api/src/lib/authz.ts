@@ -453,7 +453,8 @@ export type AuthzContext = Context<{ Bindings: Env; Variables: AuthzVariables }>
  *
  * **Reads are never gated** (§4.3 / R13). `GET /api/vendor/me` and
  * `GET /api/vendor/seats` must not call this: `/vendor` is gated by
- * `vendorMeResolver`, which maps 401/403/404 onto a 404 render, so gating `me`
+ * `vendorMeResolver`, which maps 403/404 onto a 404 render (a 401 goes to
+ * `/auth/login` instead — AECI-954), so gating `me`
  * would 404 the entire dashboard for a vendor whose entitlement lapsed — hiding
  * the renewal notice from exactly the cohort being billed.
  *

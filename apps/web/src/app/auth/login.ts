@@ -1,12 +1,13 @@
 import { Component, afterNextRender, inject, signal } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { z } from 'zod';
 
 import { AuthService } from './auth.service';
 import { safeReturnPath } from './return-path';
+import { hasLiveSession } from './session-recovery';
 
 /**
  * Magic-link model schema, local to the auth folder: there is no API endpoint
@@ -36,6 +37,26 @@ const MagicLinkSchema = z.object({
  * `afterNextRender` / user events, mirroring `SearchPage`. When the env has
  * no Supabase config the page degrades to a "temporarily unavailable" notice
  * with disabled actions, mirroring the Algolia-absent search path.
+ *
+ * ── SILENT RESUME (AECI-954) ────────────────────────────────────────────────
+ * Arriving here with `?return=` and a session that is still good means the
+ * visitor does NOT need to sign in — they need their access token refreshed. That
+ * is the ordinary "my login timed out" state: the access token lives about an
+ * hour, the refresh token beside it lives weeks, and only the browser can trade
+ * one for the other (`@supabase/ssr` does it inside `getSession()`).
+ *
+ * The `/vendor` and `/admin` gates cannot do that trade under SSR, so they bounce
+ * a 401 here. This page finishes the job: with a cookie present it paints a brief
+ * "restoring" panel instead of the form, probes once, and navigates straight back
+ * to the return path when a session survives. The visitor sees a flash, not a
+ * magic-link round trip. A probe that finds nothing falls through to the form,
+ * which is the correct answer for a genuinely dead session.
+ *
+ * Two properties keep this from misbehaving. It only runs with a `?return=`
+ * path — a deliberate visit to bare `/auth/login` always shows the form. And it
+ * cannot loop: the gates that send visitors here only redirect when their own
+ * session probe reports signed OUT, so a session this page successfully restores
+ * can never be bounced straight back (see `auth/session-recovery.ts`).
  */
 @Component({
   selector: 'aec-login-page',
@@ -45,6 +66,7 @@ const MagicLinkSchema = z.object({
 export class LoginPage {
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
 
@@ -65,6 +87,14 @@ export class LoginPage {
   /** Guards double-fires of the Google flow while the redirect is in flight. */
   protected readonly googlePending = signal(false);
 
+  /**
+   * True while the silent-resume probe is in flight — see the class docblock.
+   * Replaces the form with a short "restoring" panel so a visitor who is about to
+   * be sent onward never sees a sign-in form flash first. Stays `false` during
+   * SSR and for anyone with no session cookie, so the form is the default.
+   */
+  protected readonly resuming = signal(false);
+
   private readonly model = signal({ email: '' });
 
   protected readonly form = form(this.model, (p) => {
@@ -80,7 +110,30 @@ export class LoginPage {
     // signal stays false, so the cacheless SSR shell always paints the form.
     afterNextRender(() => {
       this.unavailable.set(!this.auth.isConfigured());
+      void this.resumeSession();
     });
+  }
+
+  /**
+   * The silent resume. Synchronous cookie check first so the panel swaps in the
+   * same tick as hydration — the async probe loads the ~58 kB `@supabase/ssr`
+   * chunk, and painting the form for that long only to replace it is the flicker
+   * this avoids.
+   */
+  private async resumeSession(): Promise<void> {
+    if (this.unavailable()) return;
+    if (this.returnPath === '/') return;
+    if (!this.auth.hasSessionCookie()) return;
+
+    this.resuming.set(true);
+    if (await hasLiveSession(this.auth)) {
+      // `navigateByUrl` resolves `false` when the router refuses or redirects the
+      // navigation. On success this component is being torn down, so leaving the
+      // panel up is what keeps the form from flashing behind the outgoing view;
+      // on refusal the form is the only thing left to offer.
+      if (await this.router.navigateByUrl(this.returnPath)) return;
+    }
+    this.resuming.set(false);
   }
 
   protected async onSubmit(): Promise<void> {

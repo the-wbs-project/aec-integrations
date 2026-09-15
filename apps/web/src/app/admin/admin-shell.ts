@@ -50,10 +50,11 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
  * they moved under a heading, nothing more.
  *
  * Data comes from `adminSummaryResolver` via `route.data['summary']`:
- *   - `summary === null` → the caller is NOT an admin (the resolver got a 401/403
+ *   - `summary === null` → the caller is NOT an admin (the resolver got a 403
  *     from `GET /api/admin/summary` and set `RESPONSE_INIT.status = 404` + the
  *     noindex 404 meta). Render the global `<aec-not-found/>` so the surface is
- *     never revealed (§7.1). URL stays at `/admin`.
+ *     never revealed (§7.1). URL stays at `/admin`. A 401 never reaches here —
+ *     since AECI-954 the resolver redirects it to `/auth/login?return=<url>`.
  *   - `summary` set → the caller is an admin. Render the shell + nav badges and let
  *     the outlet render the screen. The resolved counts seed `AdminSummaryStore`,
  *     so the badges are live: a moderation action in `ReviewQueue`, `RequestQueue`
