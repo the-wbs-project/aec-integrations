@@ -41,7 +41,7 @@ import {
  */
 
 /**
- * The seven distinct "what happens next" states, which are NOT the four
+ * The nine distinct "what happens next" states, which are NOT the four
  * agreement states. Agreement answers "what does the directory believe"; this
  * answers "what will the system do about it", and those differ: two claims can
  * both read `unverified` while one is waiting on the vendor and the other has a
@@ -51,14 +51,40 @@ import {
  * A lone affirmation is always `single_source` and a lone denial is always
  * `unverified` (`packages/shared/src/agreement.ts`), so `denied` can never pair
  * with `single_source` or `confirmed`.
+ *
+ * **Two of the nine are own-both / counterparty-denied splits of a neighbour, and
+ * both exist because the copy would otherwise promise mail nobody sends or deny
+ * mail that is already in flight.** Neither is a cosmetic distinction: see
+ * {@link ownsBothEndpoints} and the `denied-by-them` doc below.
  */
 export type ClaimOutcome =
   /** No position recorded, and nobody has been told anything. */
   | 'no-position'
+  /**
+   * No position recorded, and the counterparty has DENIED.
+   *
+   * Split out of `no-position` because it is the one unvoted state the §7 sweep
+   * acts on. A lone denial refutes the claim (`isClaimRefuted`), so
+   * `detectClaimDenied` raises AECi ops AND addresses this vendor as the
+   * counterparty on its unvoted slot — mail plus an in-portal `claim-denied`
+   * row. Folding it into `no-position` made the lane say "nothing is sent to
+   * anyone" on the same day we emailed them about it.
+   */
+  | 'denied-by-them'
   /** The counterparty affirmed and this vendor has not answered. */
   | 'awaiting-you'
   /** This vendor affirmed and the counterparty has not answered. */
   | 'awaiting-them'
+  /**
+   * This vendor affirmed and holds BOTH endpoints, so there is nobody to ask.
+   *
+   * The own-both twin of `awaiting-them`, and it exists for the same reason
+   * `denied-own-both` does: both slots are occupied, `unvotedSlots` is empty, and
+   * `detectSilentCounterparty` skips the claim on `silent.length === 0`. The
+   * `awaiting-them` sentence would have named the vendor's own other product as
+   * the party we were about to chase.
+   */
+  | 'awaiting-them-own-both'
   /** Both sides affirmed. */
   | 'confirmed'
   /** The two sides disagree. */
@@ -74,9 +100,11 @@ export type ClaimOutcome =
  * A write applies one position to every slot the caller owns (`§5.2`, and the
  * `divergentSlots` computation in `vendor-attestation-control.ts` reads the same
  * signal), so two own rows can only mean two owned slots. It matters here because
- * the §7 detector resolves the counterparty from the slots with no live vendor
- * attestation: when the denier holds both, that set is empty and no counterparty
- * mail is sent. Copy that promised one would be a lie.
+ * **both** §7 detectors that name a counterparty resolve it from `unvotedSlots`
+ * — the slots with no live vendor attestation — and when the caller holds both,
+ * that set is empty. So neither `detectClaimDenied`'s counterparty finding nor
+ * `detectSilentCounterparty` fires, and copy that promised either would be a lie.
+ * That is why this guard is read on the affirm branch as well as the deny one.
  */
 function ownsBothEndpoints(claim: VendorClaim): boolean {
   return claim.mine.length > 1;
@@ -107,8 +135,15 @@ export function claimOutcome(claim: VendorClaim): ClaimOutcome {
   if (claim.agreement === 'confirmed') return 'confirmed';
 
   const mine = claim.mine[0];
-  if (!mine) return claim.agreement === 'single_source' ? 'awaiting-you' : 'no-position';
-  if (mine.asserted) return 'awaiting-them';
+  if (!mine) {
+    if (claim.agreement === 'single_source') return 'awaiting-you';
+    // A lone counterparty denial refutes the claim, so the next sweep mails this
+    // vendor as the counterparty. `counterparty` is a lossy reduction of every
+    // other voter, but it can only reduce to `asserted: false` when no other
+    // voter affirmed — which is exactly `isClaimRefuted`.
+    return claim.counterparty?.asserted === false ? 'denied-by-them' : 'no-position';
+  }
+  if (mine.asserted) return ownsBothEndpoints(claim) ? 'awaiting-them-own-both' : 'awaiting-them';
   return ownsBothEndpoints(claim) ? 'denied-own-both' : 'denied';
 }
 
@@ -124,10 +159,16 @@ export function claimOutcomeLine(claim: VendorClaim, otherProductName: string): 
   switch (claimOutcome(claim)) {
     case 'no-position':
       return $localize`:@@vendor.attest.outcome.noPosition:Nothing is sent to anyone until you affirm or deny this flow.`;
+    case 'denied-by-them':
+      // Never restates their stance: the lane prints `counterpartyLabel` above
+      // this line, which already says the other vendor denies the flow.
+      return $localize`:@@vendor.attest.outcome.deniedByThem:We review denied flows and correct the listing. Until we act, this flow still shows as unverified on the public listing. Record your own position if you disagree.`;
     case 'awaiting-you':
       return $localize`:@@vendor.attest.outcome.awaitingYou:You have not answered. We email you a reminder after ${SILENT_COUNTERPARTY_DAYS}:days: days.`;
     case 'awaiting-them':
       return $localize`:@@vendor.attest.outcome.awaitingThem:We ask ${otherProductName}:other: to answer after ${SILENT_COUNTERPARTY_DAYS}:days: days.`;
+    case 'awaiting-them-own-both':
+      return $localize`:@@vendor.attest.outcome.awaitingThemOwnBoth:Nobody else holds this flow, so there is no one for us to ask. It shows on the public listing as confirmed by one vendor.`;
     case 'confirmed':
       return hasVersionStamps(claim)
         ? $localize`:@@vendor.attest.outcome.confirmed:Nothing further is needed.`

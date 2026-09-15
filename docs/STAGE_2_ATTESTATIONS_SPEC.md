@@ -1099,7 +1099,7 @@ the detector side:
 2. **`aeci-denied` is renamed `claim-denied` and loses its AECi-origin gate.** Any claim every live
    voter denies raises a finding.
 
-#### The seven states
+#### The nine states
 
 The states are **not** the four agreement states. Agreement answers what the directory believes;
 this answers what the pipeline will do. Two claims can both read `unverified` while one is waiting
@@ -1108,9 +1108,11 @@ identically is exactly what this section fixes.
 
 | Outcome | Reached when | Sentence |
 |---|---|---|
-| `no-position` | no own vote, `unverified` | Nothing is sent to anyone until you affirm or deny this flow. |
+| `no-position` | no own vote, `unverified`, counterparty silent | Nothing is sent to anyone until you affirm or deny this flow. |
+| `denied-by-them` | no own vote, `unverified`, counterparty denied | We review denied flows and correct the listing. Until we act, this flow still shows as unverified on the public listing. Record your own position if you disagree. |
 | `awaiting-you` | no own vote, `single_source` | You have not answered. We email you a reminder after 14 days. |
-| `awaiting-them` | own affirmation, `single_source` | We ask {Other} to answer after 14 days. |
+| `awaiting-them` | own affirmation, `single_source`, counterparty slot not ours | We ask {Other} to answer after 14 days. |
+| `awaiting-them-own-both` | own affirmation, we hold both slots | Nobody else holds this flow, so there is no one for us to ask. It shows on the public listing as confirmed by one vendor. |
 | `confirmed`, unstamped | `confirmed`, no version stamps | We ask you to re-confirm after 12 months. |
 | `confirmed`, stamped | `confirmed`, version stamps present | Nothing further is needed. |
 | `conflict` | `conflict` | If neither position changes within 7 days we email both vendors and review the listing ourselves. |
@@ -1128,6 +1130,14 @@ Three agreement/stance pairs are unreachable and deliberately have no state: a l
 always `single_source` and a lone denial is always `unverified` (§4.2), so `denied` can never pair
 with `single_source` or `confirmed`.
 
+**Two of the nine are splits of a neighbour, and both exist because the shorter list promised mail
+nobody sends or denied mail already in flight.** `denied-by-them` is the one unvoted state the sweep
+acts on: a lone counterparty denial refutes the claim, so `detectClaimDenied` addresses *this* vendor
+on its unvoted slot, and `no-position`'s "nothing is sent to anyone" would have been printed on the
+same day we emailed them. `awaiting-them-own-both` is the affirm-side twin of `denied-own-both`: both
+slots are occupied, `unvotedSlots` is empty, `detectSilentCounterparty` skips the claim, and the
+`awaiting-them` sentence would have named the vendor's own other product as the party being chased.
+
 #### Rules the copy is held to
 
 - **The thresholds are the detector's own.** `SILENT_COUNTERPARTY_DAYS`, `OPEN_CONFLICT_DAYS` and
@@ -1141,10 +1151,13 @@ with `single_source` or `confirmed`.
   it as `unverified`. The copy says so rather than implying a deletion that never happens.
 - **§6's copy discipline applies unchanged.** No ranking or placement implication, no search
   promise, "Verified" stays an account status. Sentence case, no em dashes.
-- **`denied-own-both` exists because the detector has no counterparty to tell.** A write applies one
+- **The own-both states exist because the detector has no counterparty to tell.** A write applies one
   position to every slot the caller owns (§5.2), so two own rows mean two owned slots, `unvotedSlots`
   is empty, and no counterparty mail is sent. `mine.length > 1` is how the lane knows, which is the
-  same signal `vendor-attestation-control.ts` reads for `divergentSlots`.
+  same signal `vendor-attestation-control.ts` reads for `divergentSlots`. **Both** detectors that
+  name a counterparty read `unvotedSlots`, so the guard is read on the affirm branch
+  (`awaiting-them-own-both`, no `silent-counterparty` mail) as well as the deny branch
+  (`denied-own-both`, no `claim-denied` counterparty mail).
 
 #### Two known imprecisions, accepted rather than closed
 
@@ -1180,12 +1193,14 @@ with `single_source` or `confirmed`.
 `role="status"`. Affirm and deny announce different sentences. The denial copy never promises
 removal. `docs/POST_LAUNCH_MONITORING.md` §3 records that a retune now moves portal copy.
 
-**Test coverage:** `apps/web/src/app/vendor/components/vendor-claim-outcome.component.spec.ts` (16 —
-all seven states, both confirmed branches, every threshold assertion interpolating the shared
-constant so a hardcoded number fails, the no-removal promise, and the ranking/placement/search
-sweep); `vendor-claim-lane.component.spec.ts` +4 (the four seeded states, the denial sentence, the
-no-live-region property, the read-only lane); `vendor-integrations-section.component.spec.ts` +2
-(affirm vs deny, and the unloaded-integration degradation);
+**Test coverage:** `apps/web/src/app/vendor/components/vendor-claim-outcome.component.spec.ts` (21 —
+all nine states, both confirmed branches, every threshold assertion interpolating the shared
+constant so a hardcoded number fails, the no-removal promise on a denial from EITHER side, the two
+own-both states asserting that no counterparty is named or chased, and the
+ranking/placement/search sweep); `vendor-claim-lane.component.spec.ts` +4 (the four seeded states,
+the denial sentence, the no-live-region property, the read-only lane);
+`vendor-integrations-section.component.spec.ts` +2 (affirm vs deny, and the unloaded-integration
+degradation);
 `vendor-notifications-list.component.spec.ts` two tests inverted from "filters the ops detector" to
 "renders and counts a `claim-denied` row". API side in §7.5.
 

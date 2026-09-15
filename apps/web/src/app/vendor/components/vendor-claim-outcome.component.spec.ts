@@ -9,7 +9,7 @@
  * expectation, so a retune in `@aeci/shared/attestation-thresholds` moves the
  * copy and the test together. A hardcoded number in either place fails.
  *
- * **The seven states are not the four agreement states.** Agreement answers what
+ * **The nine states are not the four agreement states.** Agreement answers what
  * the directory believes; this answers what the pipeline will do. Two claims can
  * both read `unverified` while one is waiting on the vendor and the other has a
  * denial queued for the next sweep, and the whole issue was filed because the
@@ -64,6 +64,15 @@ describe('claimOutcome', () => {
     expect(claimOutcome(claim())).toBe('no-position');
   });
 
+  it('reads no vote against a counterparty denial as denied-by-them', () => {
+    // A lone denial refutes the claim, so the sweep mails US as the counterparty
+    // on our unvoted slot. Folding this into `no-position` told a vendor nothing
+    // was sent on the same day we sent it.
+    expect(claimOutcome(claim({ counterparty: { asserted: false, note: null } }))).toBe(
+      'denied-by-them',
+    );
+  });
+
   it('reads no vote on a single_source claim as awaiting-you', () => {
     // Someone affirmed and it was not us, so the silence being waited on is ours.
     expect(claimOutcome(claim({ agreement: 'single_source' }))).toBe('awaiting-you');
@@ -73,6 +82,20 @@ describe('claimOutcome', () => {
     expect(claimOutcome(claim({ agreement: 'single_source', mine: [own()] }))).toBe(
       'awaiting-them',
     );
+  });
+
+  it('reads an affirmation across both our own slots as awaiting-them-own-both', () => {
+    // Same reasoning as `denied-own-both`: both slots are occupied, so
+    // `unvotedSlots` is empty and `detectSilentCounterparty` sends nothing. The
+    // `awaiting-them` sentence would have named our own other product.
+    expect(
+      claimOutcome(
+        claim({
+          agreement: 'single_source',
+          mine: [own({ slot: 'vendor_a' }), own({ slot: 'vendor_b' })],
+        }),
+      ),
+    ).toBe('awaiting-them-own-both');
   });
 
   it('reads a bilateral claim as confirmed', () => {
@@ -125,6 +148,22 @@ describe('claimOutcome', () => {
 describe('claimOutcomeLine', () => {
   it('says nothing is sent when no position is recorded', () => {
     expect(line()).toContain('Nothing is sent to anyone');
+  });
+
+  it('does not say nothing is sent when the counterparty has denied', () => {
+    const text = line({ counterparty: { asserted: false, note: null } });
+    expect(text).not.toContain('Nothing is sent to anyone');
+    expect(text).toContain('We review denied flows');
+    expect(text).toContain('still shows as unverified');
+  });
+
+  it('promises no counterparty ask when the affirmer owns both endpoints', () => {
+    const text = line({
+      agreement: 'single_source',
+      mine: [own({ slot: 'vendor_a' }), own({ slot: 'vendor_b' })],
+    });
+    expect(text).not.toContain(`after ${SILENT_COUNTERPARTY_DAYS} days`);
+    expect(text).not.toContain(OTHER);
   });
 
   it('quotes the real silent-counterparty threshold on both waiting states', () => {
@@ -200,11 +239,19 @@ describe('claimOutcomeLine', () => {
     // `isClaimRefuted` only stops the claim steering the product-detail arrow
     // (`packages/shared/src/integration-context.ts`). The pair page still renders
     // it. Copy that promised removal would be the one lie this file must not tell.
-    for (const mine of [
-      [own({ asserted: false })],
-      [own({ slot: 'vendor_a', asserted: false }), own({ slot: 'vendor_b', asserted: false })],
-    ]) {
-      const text = claimOutcomeLine(claim({ mine }), OTHER);
+    const denials: Partial<VendorClaim>[] = [
+      { mine: [own({ asserted: false })] },
+      {
+        mine: [
+          own({ slot: 'vendor_a', asserted: false }),
+          own({ slot: 'vendor_b', asserted: false }),
+        ],
+      },
+      // Theirs, not ours: the same promise has to hold on the receiving end.
+      { counterparty: { asserted: false, note: null } },
+    ];
+    for (const over of denials) {
+      const text = line(over);
       expect(text).toContain('still shows as unverified');
       expect(text.toLowerCase()).not.toContain('removed');
     }
@@ -223,6 +270,11 @@ describe('claimOutcomeLine', () => {
           own({ slot: 'vendor_a', asserted: false }),
           own({ slot: 'vendor_b', asserted: false }),
         ],
+      },
+      { counterparty: { asserted: false, note: null } },
+      {
+        agreement: 'single_source' as const,
+        mine: [own({ slot: 'vendor_a' }), own({ slot: 'vendor_b' })],
       },
     ];
     for (const over of states) {
