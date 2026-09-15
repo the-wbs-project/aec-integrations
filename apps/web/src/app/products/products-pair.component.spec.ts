@@ -111,6 +111,7 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
     // AECI-303: `null` = the §9 diff does not apply, which is the whole browser-side
     // suppression rule — no selectors, no markers, no history affordance.
     version_diff: null,
+    moved_to: null,
     ...overrides,
   };
 }

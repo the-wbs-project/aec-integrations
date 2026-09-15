@@ -361,6 +361,75 @@ export const integrations = sqliteTable(
   ],
 );
 
+/**
+ * Where a delivered edge USED to sit (AECI-953 / `STAGE_1_5_SPEC.md` §7.2).
+ *
+ * The pair page is keyed by two product slugs, not by the edge's id. So when a
+ * promote re-points an endpoint — AECI-726 moved 37 live edges off Procore Project
+ * Management onto the new Procore platform record, AECI-950 moved 15 more — the row
+ * updates in place and keeps its id, but its **URL moves**. The old URL then serves
+ * 200 + `noindex` with no redirect: the indexed page decays over weeks and the new
+ * one starts from nothing. This table is the record that lets the pair resolver 301
+ * the old URL instead.
+ *
+ * ── WHY A TABLE AND NOT A COLUMN PAIR ON `integrations` ────────────────────────
+ *
+ *   1. **An edge can move twice, and a column pair keeps only the last hop.** The
+ *      first URL then silently loses its redirect — which is precisely the equity
+ *      this table exists to keep.
+ *   2. **The lookup is keyed by the OLD pair**, so it wants its own two-column
+ *      index. Putting that on `integrations` — the largest table and the one every
+ *      read path touches — buys an index for a query that fires only on a pair page
+ *      that resolved to nothing.
+ *   3. **It is arm-agnostic.** The delivered tier spans `integrations` AND
+ *      `connector_evidenced_pairs` (§13.1), so a column pair would have to be added
+ *      to both and kept in lockstep across the AECI-888 cross-table move.
+ *
+ * ── ONLY THE `from` SIDE IS STORED, DELIBERATELY ───────────────────────────────
+ *
+ * There is no `moved_to` column. The destination is resolved at read time from the
+ * edge's LIVE row, which makes three problems disappear rather than be handled:
+ * a stored destination can go stale, a chain of moves needs following, and a 301
+ * could point at a page that no longer holds the edge. A live read is none of those
+ * — if the edge has since moved again the current row already says where, and if it
+ * was deleted there is no row and no redirect.
+ *
+ * `integration_id` therefore carries **no foreign key**: it names a row in either
+ * anchor table and no single FK target exists. An orphan row (edge deleted) is inert
+ * — the read finds no live location and the resolver serves the ordinary empty pair.
+ *
+ * The two `from_product_*` columns are stored in canonical **id** order
+ * (`from_product_a_id < from_product_b_id`, enforced by CHECK) so the lookup is one
+ * equality pair rather than an orientation `OR`, the same trick
+ * `connector_evidenced_pairs` uses.
+ */
+export const integrationEndpointMoves = sqliteTable(
+  'integration_endpoint_moves',
+  {
+    /** The edge's id — in `integrations` or `connector_evidenced_pairs`. No FK; see above. */
+    integrationId: text('integration_id').notNull(),
+    fromProductAId: text('from_product_a_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    fromProductBId: text('from_product_b_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    movedAt: text('moved_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // One row per (edge, old pair). A re-promote that re-states the same move is a
+    // no-op on the PK, which is what keeps the ingest's `INSERT OR IGNORE` honest.
+    primaryKey({ columns: [t.integrationId, t.fromProductAId, t.fromProductBId] }),
+    index('integration_endpoint_moves_from_idx').on(t.fromProductAId, t.fromProductBId),
+    check(
+      'integration_endpoint_moves_canonical_pair_check',
+      sql`"from_product_a_id" < "from_product_b_id"`,
+    ),
+  ],
+);
+
 // ===========================================================================
 // Taxonomy (§5)
 // ===========================================================================
@@ -3001,6 +3070,7 @@ export const schema = {
   vendors,
   products,
   integrations,
+  integrationEndpointMoves,
   taxonomyCategories,
   taxonomyAudiences,
   taxonomyPhases,

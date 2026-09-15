@@ -1478,6 +1478,61 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     expect(res.headers.get('cache-tag')).toBe('route:404');
   });
 
+  // ── AECI-953: an SSR render that asks for a redirect ─────────────────────────
+  // The moved-pair 301 is emitted from the pair resolver via `RESPONSE_INIT`, so it
+  // arrives here as a 3xx carrying a full HTML body Angular rendered anyway.
+  describe('a 3xx from the SSR render (AECI-953)', () => {
+    const redirectRenderer = (headers: Record<string, string>): SsrRenderer => {
+      return async () => new Response('<html>rendered anyway</html>', { status: 301, headers });
+    };
+
+    it('drops the body and keeps the render own Cache-Control and Cache-Tag', async () => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({
+        ssrRenderer: redirectRenderer({
+          Location: 'https://www.aecintegrations.com/products/procore/integrations/okta',
+          'Cache-Control': 'public, max-age=3600, s-maxage=86400',
+          'Cache-Tag': 'pair:okta__procore-project-management',
+        }),
+      });
+
+      const res = await app.fetch(
+        new Request(
+          'https://www.aecintegrations.com/products/procore-project-management/integrations/okta',
+        ),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(301);
+      expect(await res.text()).toBe('');
+      expect(res.headers.get('location')).toBe(
+        'https://www.aecintegrations.com/products/procore/integrations/okta',
+      );
+      // `ensureNoStore` only fills a MISSING directive, so the permanent mapping stays
+      // edge-cacheable with a purge handle rather than being re-rendered per crawl.
+      expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+      expect(res.headers.get('cache-tag')).toBe('pair:okta__procore-project-management');
+    });
+
+    it('still falls back to no-store for a 3xx that set no Cache-Control', async () => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({
+        ssrRenderer: redirectRenderer({ Location: 'https://www.aecintegrations.com/products' }),
+      });
+
+      const res = await app.fetch(
+        new Request('https://www.aecintegrations.com/products/procore'),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(301);
+      expect(await res.text()).toBe('');
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+    });
+  });
+
   it('leaves Cache-Tag at the path-derived value when ctx.embedded is empty', async () => {
     // Empty array is the common case for routes that haven't been wired with
     // a resolver yet — the merge must not introduce trailing commas or extra

@@ -555,6 +555,23 @@ export interface PromoteIntegrationResult {
    * just went stale. Do not treat it as the edge's current connector.
    */
   poweredBySlug?: string;
+  /**
+   * The two endpoint product slugs this edge moved **away from** (AECI-953), when this
+   * promote re-pointed an endpoint. Absent otherwise, and absent on responses from an
+   * API Worker that predates the field — consumers must tolerate that.
+   *
+   * **A purge target, not state.** Nothing stores these; they name the pair page whose
+   * content just vanished. The edge's row moved in place and keeps its id, but the pair
+   * page is keyed by two product slugs, so the OLD URL is the one that went stale and
+   * no other rule reaches it: it is not the promoted product, not a current endpoint,
+   * and not the new pair. `cacheTagsForPromote` turns them into `pair:{min}__{max}`
+   * plus a `product:` tag per slug. The durable half of the same event is the
+   * `integration_endpoint_moves` row the ingest writes, which is what makes the old URL
+   * 301 rather than merely repaint.
+   *
+   * Unordered — `pairCacheTag` sorts them.
+   */
+  movedFromSlugs?: [string, string];
 }
 
 export interface PromoteTaxonomyResult {

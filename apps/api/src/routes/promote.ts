@@ -88,6 +88,7 @@ import { getDb, type Db, type DbContext } from '../db/client';
 import {
   claims,
   connectorEvidencedPairs,
+  integrationEndpointMoves,
   integrations,
   productAudiences,
   productCategories,
@@ -584,6 +585,71 @@ function planIntegrationWrite(args: {
     id,
     operation: 'created',
     statements: [db.insert(integrations).values({ id, ...editable, ...linkData })],
+  };
+}
+
+/**
+ * Plan the **moved-from** record for an edge whose endpoints changed (AECI-953 /
+ * `STAGE_1_5_SPEC.md` §7.2).
+ *
+ * A re-pointed endpoint keeps the edge's id and updates its public row in place, but
+ * the pair page is keyed by the two product SLUGS — so the URL moves and the old one
+ * serves 200 + `noindex` with no redirect. AECI-726 did that to 37 live Procore edges
+ * and AECI-950 to 15 more. This row is what lets the pair resolver 301 instead.
+ *
+ * Returns `null` when nothing moved, and that is the load-bearing case: an ordinary
+ * re-promote restates the same endpoints, so it must plan no statement and no audit
+ * row. Comparing the two pairs UNORDERED is deliberate — a promote that merely swaps
+ * `source` and `target` (upstream orients rows by builder, and AECI-920 is correcting
+ * a population of inverted rows) changes the edge's direction, not its URL.
+ *
+ * Arm-agnostic by design: the delivered tier spans `integrations` and
+ * `connector_evidenced_pairs` (§13.1) and a pair page renders both, so both callers
+ * use this. `INSERT OR IGNORE` against the composite PK makes a replayed step or a
+ * repeated move a no-op rather than a constraint failure.
+ */
+/**
+ * The two endpoint product ids of a pre-update edge, whichever anchor table it sits
+ * in. `connector_evidenced_pairs` names them `product_a`/`product_b` and stores them
+ * canonically; `integrations` names them `source`/`target` and does not. Both are
+ * "the two products whose slugs make this pair's URL", which is all
+ * {@link planEndpointMove} needs.
+ */
+function locatedEndpointPair(located: LocatedEdge | null): readonly [string, string] | null {
+  if (!located) return null;
+  return located.table === 'integrations'
+    ? [located.row.sourceProductId, located.row.targetProductId]
+    : [located.row.productAId, located.row.productBId];
+}
+
+function planEndpointMove(args: {
+  db: Db;
+  edgeId: string;
+  /** The two endpoint product ids BEFORE this promote, in any order. */
+  from: readonly [string, string];
+  /** The two endpoint product ids AFTER it, in any order. */
+  to: readonly [string, string];
+}): { statement: BatchStmt; audit: AuditLogEntry } | null {
+  const [fromA, fromB] = [...args.from].sort();
+  const [toA, toB] = [...args.to].sort();
+  if (fromA === toA && fromB === toB) return null;
+
+  return {
+    statement: args.db
+      .insert(integrationEndpointMoves)
+      .values({ integrationId: args.edgeId, fromProductAId: fromA, fromProductBId: fromB })
+      .onConflictDoNothing(),
+    // Its own action rather than metadata on the enclosing `integration.updated`: that
+    // row's `metadata.movedFrom` already means "moved between anchor TABLES" (AECI-888),
+    // and an endpoint move is a different event that needs to be searchable on its own.
+    audit: {
+      actorType: 'system',
+      action: 'integration.endpoint_moved',
+      entityType: 'integration',
+      entityId: args.edgeId,
+      beforeState: { productIds: [fromA, fromB] },
+      afterState: { productIds: [toA, toB] },
+    },
   };
 }
 
@@ -2279,6 +2345,13 @@ export async function runPromoteIngest(
     sourceId: string;
     targetId: string;
     poweredById: string | null;
+    /**
+     * The two endpoint product ids this edge moved AWAY from, or `null` when it did
+     * not move (AECI-953). Resolved to slugs in the backfill pass below and echoed on
+     * the result so `cacheTagsForPromote` can purge the OLD pair page — the page whose
+     * content just vanished, and the one no other rule reaches.
+     */
+    movedFromIds: readonly [string, string] | null;
   }> = [];
   const affectedProducts = new Set<string>();
   if (productId) affectedProducts.add(productId);
@@ -2439,6 +2512,18 @@ export async function runPromoteIngest(
         existing: located,
       });
       stmts.push(...evidenced.statements);
+      // AECI-953 — did this edge's pair URL move? Planned before the audit block so the
+      // move row and its audit entry ride the same batch as the write that caused them.
+      const evidencedMove = planEndpointMove({
+        db,
+        edgeId: evidenced.id,
+        from: locatedEndpointPair(located) ?? [sourceId, targetId],
+        to: [sourceId, targetId],
+      });
+      if (evidencedMove) {
+        stmts.push(evidencedMove.statement);
+        audit(evidencedMove.audit);
+      }
       result = { ref: intg.ref, id: evidenced.id, operation: evidenced.operation };
       audit({
         actorType: 'system',
@@ -2499,6 +2584,7 @@ export async function runPromoteIngest(
         sourceId,
         targetId,
         poweredById: connectorId,
+        movedFromIds: evidencedMove ? (locatedEndpointPair(located) ?? null) : null,
       });
       affectedProducts.add(sourceId);
       affectedProducts.add(targetId);
@@ -2556,6 +2642,20 @@ export async function runPromoteIngest(
       existing: located,
     });
     stmts.push(...written.statements);
+    // AECI-953 — the case this feature exists for. `existing` (or, on a de-route, the
+    // evidenced row) carries the PRE-update endpoints; `sourceId`/`targetId` are the
+    // post-update ones. When they name a different pair the edge's public URL just
+    // moved, and the old one needs a 301 rather than an empty page.
+    const endpointMove = planEndpointMove({
+      db,
+      edgeId: written.id,
+      from: locatedEndpointPair(located) ?? [sourceId, targetId],
+      to: [sourceId, targetId],
+    });
+    if (endpointMove) {
+      stmts.push(endpointMove.statement);
+      audit(endpointMove.audit);
+    }
     const integrationId = written.id;
     result = { ref: intg.ref, id: written.id, operation: written.operation };
     audit({
@@ -2596,7 +2696,13 @@ export async function runPromoteIngest(
     const poweredById =
       movedFromEvidenced?.connectorProductId ??
       (poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value);
-    integrationEndpoints.push({ result, sourceId, targetId, poweredById });
+    integrationEndpoints.push({
+      result,
+      sourceId,
+      targetId,
+      poweredById,
+      movedFromIds: endpointMove ? (locatedEndpointPair(located) ?? null) : null,
+    });
 
     // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
     // Deferred to a single `planClaimIngest` call after this loop so the whole
@@ -2642,10 +2748,16 @@ export async function runPromoteIngest(
     const slugByProductId = new Map<string, string>();
     if (productId && productResult) slugByProductId.set(productId, productResult.slug);
     const needSlugs = new Set<string>();
-    for (const { sourceId, targetId, poweredById } of integrationEndpoints) {
+    for (const { sourceId, targetId, poweredById, movedFromIds } of integrationEndpoints) {
       if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
       if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
       if (poweredById && !slugByProductId.has(poweredById)) needSlugs.add(poweredById);
+      // AECI-953 — the OLD endpoints. One of the two is usually still an endpoint and
+      // already in the set; the one the edge moved away from is not, and it is the page
+      // that just went stale.
+      for (const id of movedFromIds ?? []) {
+        if (!slugByProductId.has(id)) needSlugs.add(id);
+      }
     }
     if (needSlugs.size) {
       const rows = await db.query.products.findMany({
@@ -2654,10 +2766,19 @@ export async function runPromoteIngest(
       });
       for (const row of rows) slugByProductId.set(row.id, row.slug);
     }
-    for (const { result, sourceId, targetId, poweredById } of integrationEndpoints) {
+    for (const { result, sourceId, targetId, poweredById, movedFromIds } of integrationEndpoints) {
       result.sourceSlug = slugByProductId.get(sourceId);
       result.targetSlug = slugByProductId.get(targetId);
       if (poweredById) result.poweredBySlug = slugByProductId.get(poweredById);
+      if (movedFromIds) {
+        const [a, b] = movedFromIds;
+        const fromA = slugByProductId.get(a);
+        const fromB = slugByProductId.get(b);
+        // Both or neither — `pairCacheTag` needs two slugs, and half a pair names no page.
+        if (fromA && fromB) {
+          result.movedFromSlugs = [fromA, fromB];
+        }
+      }
     }
   }
 

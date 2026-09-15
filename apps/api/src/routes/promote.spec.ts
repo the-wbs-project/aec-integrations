@@ -24,6 +24,7 @@ import {
   gscRecrawlQueue,
   indexnowQueue,
   integrations,
+  integrationEndpointMoves,
   productCategories,
   products,
   productTrades,
@@ -2659,6 +2660,166 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
 
     expect(res.status).toBe(200);
     expect(await t.db.select().from(claims)).toHaveLength(0);
+  });
+});
+
+// ── AECI-953: the moved-from record that makes the old pair URL 301 ────────────
+//
+// A re-pointed endpoint keeps the edge's id and updates its row in place, but the
+// pair page is keyed by two product SLUGS — so the URL moves and the old one served
+// 200 + `noindex`. AECI-726 did that to 37 live Procore edges; AECI-950 to 15 more.
+describe('runPromoteIngest — endpoint moves (AECI-953)', () => {
+  const OLD_SRC = uuid(3);
+  const NEW_SRC = uuid(4);
+  const TGT = uuid(1);
+  const INTG = uuid(2);
+
+  /** One edge OLD_SRC → TGT, already promoted, the AECI-726 starting state. */
+  const seedEdge = async () => {
+    await seedProduct(OLD_SRC, 'procore-project-management', 'Procore Project Management');
+    await seedProduct(NEW_SRC, 'procore', 'Procore');
+    await seedProduct(TGT, 'okta', 'Okta');
+    await t.db
+      .insert(integrations)
+      .values({ id: INTG, sourceProductId: OLD_SRC, targetProductId: TGT });
+  };
+
+  /** Re-promote the same edge with whichever source product. */
+  const repromote = (sourceId: string) =>
+    promote({
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: INTG,
+          sourceProduct: { supabaseId: sourceId },
+          targetProduct: { supabaseId: TGT },
+        },
+      ],
+    });
+
+  it('records the old pair when an endpoint is re-pointed', async () => {
+    await seedEdge();
+    const res = await repromote(NEW_SRC);
+    expect(res.status).toBe(200);
+
+    // The edge kept its id and moved in place — the premise the record rests on.
+    const [edge] = await t.db.select().from(integrations);
+    expect(edge).toMatchObject({ id: INTG, sourceProductId: NEW_SRC, targetProductId: TGT });
+
+    // Stored in canonical ID order, which is what the read's single equality pair needs.
+    const [a, b] = [OLD_SRC, TGT].sort();
+    expect(await t.db.select().from(integrationEndpointMoves)).toEqual([
+      expect.objectContaining({
+        integrationId: INTG,
+        fromProductAId: a,
+        fromProductBId: b,
+      }),
+    ]);
+  });
+
+  it('writes the move audit row in the SAME batch as the mutation (§26.1)', async () => {
+    await seedEdge();
+    await repromote(NEW_SRC);
+
+    const moved = (await t.db.select().from(auditLog)).filter(
+      (e) => e.action === 'integration.endpoint_moved',
+    );
+    expect(moved).toHaveLength(1);
+    expect(moved[0]).toMatchObject({ actorType: 'system', entityType: 'integration' });
+    expect(moved[0]!.entityId).toBe(INTG);
+    // Both endpoint sets, so the move is reconstructable from the log alone.
+    expect(moved[0]!.beforeState).toEqual({ productIds: [OLD_SRC, TGT].sort() });
+    expect(moved[0]!.afterState).toEqual({ productIds: [NEW_SRC, TGT].sort() });
+  });
+
+  it('writes NOTHING when a re-promote restates the same endpoints', async () => {
+    await seedEdge();
+    expect((await repromote(OLD_SRC)).status).toBe(200);
+
+    expect(await t.db.select().from(integrationEndpointMoves)).toEqual([]);
+    expect(
+      (await t.db.select().from(auditLog)).filter((e) => e.action === 'integration.endpoint_moved'),
+    ).toEqual([]);
+  });
+
+  it('writes NOTHING when source and target merely swap — direction moved, the URL did not', async () => {
+    // Upstream orients rows by who BUILT the connector, and AECI-920 is correcting a
+    // population of inverted rows. Those re-promotes must not mint a redirect to the
+    // page they are already on.
+    await seedEdge();
+    const res = await promote({
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: INTG,
+          sourceProduct: { supabaseId: TGT },
+          targetProduct: { supabaseId: OLD_SRC },
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const [edge] = await t.db.select().from(integrations);
+    expect(edge).toMatchObject({ sourceProductId: TGT, targetProductId: OLD_SRC });
+    expect(await t.db.select().from(integrationEndpointMoves)).toEqual([]);
+  });
+
+  it('is idempotent — re-sending the same move adds no second row and no second audit row', async () => {
+    await seedEdge();
+    await repromote(NEW_SRC);
+    expect((await repromote(NEW_SRC)).status).toBe(200);
+
+    // The second push restates the CURRENT endpoints, so it plans nothing at all —
+    // and even if it did, the composite PK's `ON CONFLICT DO NOTHING` would absorb it.
+    expect(await t.db.select().from(integrationEndpointMoves)).toHaveLength(1);
+    expect(
+      (await t.db.select().from(auditLog)).filter((e) => e.action === 'integration.endpoint_moved'),
+    ).toHaveLength(1);
+  });
+
+  it('echoes the old endpoint slugs so the OLD pair page gets purged', async () => {
+    await seedEdge();
+    const res = await repromote(NEW_SRC);
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.integrations[0]?.movedFromSlugs?.slice().sort()).toEqual([
+      'okta',
+      'procore-project-management',
+    ]);
+    // The whole point: `cacheTagsForPromote` reads the POST-update endpoints for
+    // everything else, so without this the old page served a cached copy of an edge
+    // it no longer holds — now, a cached 200 hiding a 301.
+    const tags = cacheTagsForPromote(body);
+    expect(tags).toContain('pair:okta__procore-project-management');
+    expect(tags).toContain('product:procore-project-management');
+    expect(tags).toContain('pair:okta__procore');
+  });
+
+  it('records the move when an edge crosses INTO the connector-evidenced tier with new endpoints', async () => {
+    // The evidenced arm renders on the same pair page (§13.1), so its endpoint moves
+    // have to be recorded too or half the delivered tier loses its redirects.
+    await seedEdge();
+    const connector = uuid(5);
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync');
+
+    const res = await promote({
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: INTG,
+          sourceProduct: { supabaseId: NEW_SRC },
+          targetProduct: { supabaseId: TGT },
+          poweredByProduct: { supabaseId: connector },
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(1);
+    const [a, b] = [OLD_SRC, TGT].sort();
+    expect(await t.db.select().from(integrationEndpointMoves)).toEqual([
+      expect.objectContaining({ integrationId: INTG, fromProductAId: a, fromProductBId: b }),
+    ]);
   });
 });
 

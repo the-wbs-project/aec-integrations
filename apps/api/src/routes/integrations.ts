@@ -36,6 +36,7 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { textAsc } from '../lib/collation';
+import { resolveMovedPair } from '../lib/pair-redirect';
 import {
   coerceDirection,
   connectorEvidencedPairPairConfig,
@@ -554,6 +555,15 @@ export function createProductPairHandler(
       evidencedRows,
       versions ?? undefined,
     );
+
+    // AECI-953 — an empty pair may be an empty pair, or it may be a page whose content
+    // moved. Consulted ONLY when both anchor tables came back empty: a pair that still
+    // has one mechanism is not a moved page, it is a smaller one, and redirecting it
+    // would hide live content. One indexed read on a table that is empty in every
+    // environment but production.
+    if (!body.mechanisms.length) {
+      body.moved_to = await resolveMovedPair(db, contextProduct, otherProduct);
+    }
 
     validateResponseInDev(c.env, () => {
       ProductPairResponseSchema.parse(body);

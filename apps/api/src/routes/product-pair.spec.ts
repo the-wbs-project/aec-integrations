@@ -11,6 +11,7 @@ import {
   attestations,
   claims,
   connectorEvidencedPairs,
+  integrationEndpointMoves,
   integrations,
   products,
   productVendors,
@@ -18,6 +19,7 @@ import {
   taxonomyDataObjects,
   vendors,
 } from '../db/schema';
+import { resolveMovedPair } from '../lib/pair-redirect';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductPairHandler } from './integrations';
@@ -1136,5 +1138,144 @@ describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI
       ).json();
       expect(authenticated).toEqual(anonymous);
     });
+  });
+});
+
+// ── AECI-953: an empty pair may be a MOVED pair ────────────────────────────────
+//
+// A promote that re-points an endpoint keeps the edge's id and updates its row in
+// place, but the pair page is keyed by two product SLUGS — so the URL moves and the
+// old one answered 200 with `mechanisms: []`. `integration_endpoint_moves` records
+// the pair the edge left; this read turns it back into a destination.
+describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
+  const PM = u(1); // procore-project-management, in this block
+  const OKTA = u(2); // revit, renamed in the assertions' minds only
+  const PLATFORM = u(3);
+
+  const seedThreeProducts = async () => {
+    await t.db.insert(products).values([
+      { id: PM, slug: 'procore-project-management', name: 'PM', promotionStatus: 'promoted' },
+      { id: OKTA, slug: 'okta', name: 'Okta', promotionStatus: 'promoted' },
+      { id: PLATFORM, slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
+    ]);
+  };
+
+  const recordMove = async (edgeId: string, from: [string, string]) => {
+    const [a, b] = [...from].sort();
+    await t.db
+      .insert(integrationEndpointMoves)
+      .values({ integrationId: edgeId, fromProductAId: a, fromProductBId: b });
+  };
+
+  const body = async (url: string) =>
+    ProductPairResponseSchema.parse(await (await get(url)).json());
+
+  it('points an emptied pair at the pair that now holds the edge', async () => {
+    await seedThreeProducts();
+    await integration(u(10), PLATFORM, OKTA);
+    await recordMove(u(10), [PM, OKTA]);
+
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.mechanisms).toEqual([]);
+    // Orientation is preserved: Okta stays where the reader put it.
+    expect(res.moved_to).toEqual({ context_slug: 'procore', other_slug: 'okta' });
+  });
+
+  it('keeps the reader frame when the CONTEXT endpoint is the survivor', async () => {
+    await seedThreeProducts();
+    await integration(u(10), PM, PLATFORM);
+    await recordMove(u(10), [PM, OKTA]);
+
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.moved_to).toEqual({
+      context_slug: 'procore-project-management',
+      other_slug: 'procore',
+    });
+  });
+
+  it('is null when the pair still has a mechanism — smaller is not moved', async () => {
+    // The AECI-726 Smartsheet case. One of two edges moved, so the old URL still has
+    // content and redirecting it would hide live rows. The move row stays inert.
+    await seedThreeProducts();
+    await integration(u(10), PLATFORM, OKTA);
+    await integration(u(11), PM, OKTA);
+    await recordMove(u(10), [PM, OKTA]);
+
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.mechanisms).toHaveLength(1);
+    expect(res.moved_to).toBeNull();
+  });
+
+  it('is null when the moved edge has since been deleted', async () => {
+    // A retraction leaves a noindexed empty pair, not a redirect — the destination is
+    // read live, so there is nothing to point at.
+    await seedThreeProducts();
+    await recordMove(u(10), [PM, OKTA]);
+
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.moved_to).toBeNull();
+  });
+
+  it('follows a chain — the live row is the answer, however many hops it took', async () => {
+    await seedThreeProducts();
+    await t.db.insert(products).values({
+      id: u(4),
+      slug: 'procore-project-financials',
+      name: 'PF',
+      promotionStatus: 'promoted',
+    });
+    await integration(u(10), u(4), OKTA);
+    await recordMove(u(10), [PM, OKTA]); // hop 1, recorded
+    await recordMove(u(10), [PLATFORM, OKTA]); // hop 2, recorded
+
+    // Either old URL lands on the CURRENT pair, with no chain-walking code.
+    expect(
+      (await body('/api/products/procore-project-management/integrations/okta')).moved_to,
+    ).toEqual({ context_slug: 'procore-project-financials', other_slug: 'okta' });
+    expect((await body('/api/products/procore/integrations/okta')).moved_to).toEqual({
+      context_slug: 'procore-project-financials',
+      other_slug: 'okta',
+    });
+  });
+
+  it('resolves an edge that crossed into connector_evidenced_pairs', async () => {
+    // The delivered tier spans both anchor tables (§13.1) and AECI-888 lets an edge
+    // cross between them keeping its id. A single-table read would report no move.
+    await seedThreeProducts();
+    const [a, b] = [PLATFORM, OKTA].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(10),
+      productAId: a,
+      productBId: b,
+      connectorProductId: u(1) === a ? u(1) : PM,
+    });
+    await recordMove(u(10), [PM, OKTA]);
+
+    // PM is the connector here, which is legal — it is neither endpoint of the pair.
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.moved_to).toEqual({ context_slug: 'procore', other_slug: 'okta' });
+  });
+
+  it('never redirects a pair to itself', async () => {
+    // An edge that moved away and came back. The empty-pair gate already makes this
+    // unreachable through the handler, so the guard is exercised directly — a redirect
+    // loop is the one failure worth being certain about rather than arguing about.
+    await seedThreeProducts();
+    await integration(u(10), PM, OKTA);
+    await recordMove(u(10), [PM, OKTA]);
+
+    const target = await resolveMovedPair(
+      t.db,
+      { id: PM, slug: 'procore-project-management' },
+      { id: OKTA, slug: 'okta' },
+    );
+    expect(target).toBeNull();
+  });
+
+  it('is null on a pair with no move record at all — the ordinary empty pair', async () => {
+    await seedThreeProducts();
+    const res = await body('/api/products/procore-project-management/integrations/okta');
+    expect(res.mechanisms).toEqual([]);
+    expect(res.moved_to).toBeNull();
   });
 });

@@ -225,7 +225,15 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     // The write announces through the SHELL's channel, not through anything the
     // lane renders — that is the whole point of the AECI-631 hoist, so asserting
     // on the announcer is also what proves the channel is wired end to end.
-    await expect(page.locator(ANNOUNCER)).toContainText('position saved');
+    //
+    // The expected copy is "you confirmed this flow", not "position saved":
+    // AECI-961 deliberately replaced the latter ("true and useless — it told a
+    // vendor who had just denied a flow that something had been saved") and
+    // updated the component specs but not this one. The string it asserts is the
+    // affirm half of `announceOutcome`
+    // (`vendor-integrations-section.ts` → `@@vendor.attest.live.affirmed`); the
+    // deny half is "you denied this flow".
+    await expect(page.locator(ANNOUNCER)).toContainText('you confirmed this flow');
 
     // Clear restores the seeded state, so the spec is re-runnable.
     await lane.getByRole('button', { name: 'Clear' }).click();

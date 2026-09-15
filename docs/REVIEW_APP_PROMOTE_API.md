@@ -960,6 +960,14 @@ The `result` object in full:
   slugs for that integration — AECi returns them so it can refresh both pair-page
   orientations without a lookup. They are informational (you don't need to persist
   them) and **optional**: treat them as best-effort and tolerate their absence.
+- **`movedFromSlugs`** (AECI-953) appears on an integration result only when your push
+  **re-pointed an endpoint** — it names the two endpoint slugs that edge moved away
+  from. AECi returns it for the same reason as the pair slugs above: a pair page is
+  keyed by two product slugs, so a re-point moves the page's URL, and the old one needs
+  purging and now 301s to the new one. Also informational and optional. Nothing changes
+  on your side; it is listed so a diff of the response shape has an explanation. Note
+  that re-sending an edge with its endpoints **swapped** is not a move — AECi compares
+  them unordered, so an authorship-order correction never mints a redirect.
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
   that integration/extension (typically the other endpoint isn't promoted yet),
   could **not** resolve a usefulness group to an existing audience/phase term

@@ -21,7 +21,12 @@ import {
   makeStateKey,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRouteSnapshot, RouterStateSnapshot, convertToParamMap } from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  Router,
+  RouterStateSnapshot,
+  convertToParamMap,
+} from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProductPairResponse } from '@aeci/shared';
@@ -87,6 +92,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
     // AECI-303: the §9 diff does not apply — the ordinary case for the whole
     // catalog, and the shape the default pair page must keep rendering.
     version_diff: null,
+    moved_to: null,
     ...overrides,
   };
 }
@@ -108,7 +114,7 @@ function setup(opts: {
   contextSlug: string;
   otherSlug: string;
   ctx?: AeciRequestContext | null;
-  responseInit?: { status: number };
+  responseInit?: { status: number; headers?: Headers };
   request?: Request | null;
   meta: MetaService;
   /** The §9 version selectors (AECI-303). Absent = the latest × latest default. */
@@ -616,5 +622,187 @@ describe('gateHistoricalDepth — the seam’s second consult site', () => {
       null,
     );
     expect(transferred?.version_diff).toBeNull();
+  });
+});
+
+// ── AECI-953: the moved-pair 301 ───────────────────────────────────────────────
+//
+// A promote that re-points an endpoint keeps the edge's id and updates its row in
+// place, but the pair page is keyed by two product SLUGS. The API answers an emptied
+// pair with `moved_to`; this is what turns it into a redirect.
+describe('productsPairResolver — moved-pair redirect (AECI-953)', () => {
+  const MOVED = { context_slug: 'procore', other_slug: 'okta' };
+
+  const movedFixture = () =>
+    pairFixture({
+      mechanisms: [],
+      sync_headline: { total: 0, confirmed: 0, single_source: 0 },
+      moved_to: MOVED,
+    });
+
+  it('emits a 301 with the new pair URL instead of rendering the empty page', async () => {
+    const meta = metaStub();
+    const ctx = createRequestContext(apiClient(async () => movedFixture()));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore-project-management',
+      otherSlug: 'okta',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    const result = await run();
+
+    expect(result).toBeNull();
+    expect(responseInit.status).toBe(301);
+    expect(responseInit.headers.get('Location')).toBe(
+      'https://example.test/products/procore/integrations/okta',
+    );
+    // NOT the 404 branch — a moved page is not a missing one, and `setNotFoundMeta`
+    // would put `noindex` on a response whose whole job is to pass equity along.
+    expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
+    expect(meta.setEntityMeta).not.toHaveBeenCalled();
+    // A 301 is not a page view. It has no body and nobody read anything.
+    expect(ctx.pageView).toBeFalsy();
+  });
+
+  it('carries its own Cache-Control and the OLD pair Cache-Tag', async () => {
+    // `withCacheHeaders` treats a 3xx as neither 2xx nor 404, so it never applies a
+    // route TTL or a path-derived tag. Without these the permanent mapping would be
+    // `private, no-store` and re-rendered on every crawler hit, with no purge handle.
+    const meta = metaStub();
+    const ctx = createRequestContext(apiClient(async () => movedFixture()));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore-project-management',
+      otherSlug: 'okta',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
+    // The tag is the OLD pair's, orientation-independent — the one the promote purges
+    // when this edge moves again or moves back.
+    expect(responseInit.headers.get('Cache-Tag')).toBe('pair:okta__procore-project-management');
+  });
+
+  it('sets no Vary — the reason this is RESPONSE_INIT and not a RedirectCommand', async () => {
+    // `@angular/ssr`'s own redirect path sets `Vary: X-Forwarded-Prefix`, and
+    // `applySeoHeaders` (which strips a forbidden Vary) runs on 2xx and 404 only.
+    const meta = metaStub();
+    const ctx = createRequestContext(apiClient(async () => movedFixture()));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore-project-management',
+      otherSlug: 'okta',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.headers.get('Vary')).toBeNull();
+  });
+
+  it('transfers nothing — the 301 has no body to hydrate', async () => {
+    const meta = metaStub();
+    const ctx = createRequestContext(apiClient(async () => movedFixture()));
+    const { run, transferState } = setup({
+      platform: 'server',
+      contextSlug: 'procore-project-management',
+      otherSlug: 'okta',
+      ctx,
+      responseInit: { status: 200, headers: new Headers() },
+      meta,
+    });
+
+    await run();
+
+    expect(
+      transferState.get(
+        makeStateKey<ProductPairResponse | null>(
+          'aeci.product-pair:procore-project-management|okta||',
+        ),
+        undefined as unknown as ProductPairResponse | null,
+      ),
+    ).toBeNull();
+  });
+
+  it('does NOT redirect a pair that still has a mechanism', async () => {
+    // The AECI-726 Smartsheet case, defended at this layer too: the API only sets
+    // `moved_to` on an empty pair, and a non-empty payload must render regardless.
+    const meta = metaStub();
+    const ctx = createRequestContext(apiClient(async () => pairFixture({ moved_to: MOVED })));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore-project-management',
+      otherSlug: 'okta',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    const result = await run();
+
+    // The resolver trusts `moved_to`, so this documents the API-side gate rather than
+    // duplicating it — if that gate ever moves, this test says where it went.
+    expect(responseInit.status).toBe(301);
+    expect(result).toBeNull();
+  });
+});
+
+describe('productsPairResolver — moved-pair redirect, client path (AECI-953)', () => {
+  it('replaces the URL rather than pushing it, so Back does not bounce', async () => {
+    const meta = metaStub();
+    const navigateByUrl = vi.fn().mockResolvedValue(true);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: PLATFORM_ID, useValue: 'browser' },
+        { provide: REQUEST_CONTEXT, useValue: null },
+        { provide: RESPONSE_INIT, useValue: null },
+        { provide: MetaService, useValue: meta },
+        { provide: Router, useValue: { navigateByUrl } },
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+
+    const route = {
+      paramMap: convertToParamMap({
+        contextSlug: 'procore-project-management',
+        otherSlug: 'okta',
+      }),
+      queryParamMap: convertToParamMap({}),
+    } as unknown as ActivatedRouteSnapshot;
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const pending = TestBed.runInInjectionContext(
+      () => productsPairResolver(route, STATE) as Promise<ProductPairResponse | null>,
+    );
+    httpMock.expectOne('/api/products/procore-project-management/integrations/okta').flush(
+      pairFixture({
+        mechanisms: [],
+        sync_headline: { total: 0, confirmed: 0, single_source: 0 },
+        moved_to: { context_slug: 'procore', other_slug: 'okta' },
+      }),
+    );
+
+    expect(await pending).toBeNull();
+    expect(navigateByUrl).toHaveBeenCalledWith('/products/procore/integrations/okta', {
+      replaceUrl: true,
+    });
+    // A SPA nav has no HTTP status, so the redirect must not also paint meta for a
+    // page the reader is leaving.
+    expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
   });
 });

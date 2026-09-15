@@ -424,6 +424,66 @@ named `relationName` is required because `products` ↔ `integrations` already h
 other relations (source and target endpoints) and Drizzle cannot otherwise
 disambiguate a third.
 
+### 4.3a `integration_endpoint_moves` (AECI-953)
+
+Where a delivered edge **used to sit**, so its old pair-page URL can 301 instead of
+going quiet. Migration `0038_military_susan_delgado.sql` — purely additive, one
+`CREATE TABLE` and one `CREATE INDEX`, no recreate.
+
+```sql
+CREATE TABLE integration_endpoint_moves (
+  integration_id     TEXT NOT NULL,
+  from_product_a_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  from_product_b_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  moved_at           TEXT NOT NULL,
+  PRIMARY KEY (integration_id, from_product_a_id, from_product_b_id),
+  CONSTRAINT integration_endpoint_moves_canonical_pair_check
+    CHECK (from_product_a_id < from_product_b_id)
+);
+CREATE INDEX integration_endpoint_moves_from_idx
+  ON integration_endpoint_moves (from_product_a_id, from_product_b_id);
+```
+
+**The problem it solves.** An edge's identity is its id, which a re-point preserves,
+but a **pair page is keyed by two product slugs**. So a promote that moves an endpoint
+updates the row in place and silently moves the page's URL. AECI-726 did that to 37
+live Procore edges and AECI-950 to 15 more; all 52 old URLs served 200 + `noindex` with
+no redirect. Contract: `STAGE_1_5_SPEC.md` §7.2a.
+
+**Why a table and not a column pair on `integrations`:**
+
+1. **An edge can move twice, and a column pair keeps only the last hop** — the first
+   URL then loses its redirect, which is exactly the equity this exists to keep.
+2. **The lookup is keyed by the OLD pair**, so it wants its own two-column index.
+   Adding one to `integrations` — the largest table, on every read path — buys an index
+   for a query that fires only on a pair page that resolved to nothing.
+3. **It is arm-agnostic.** The delivered tier spans `integrations` AND
+   `connector_evidenced_pairs` (§9a.6 / `STAGE_1_5_SPEC.md` §13.1), so a column pair
+   would have to be added to both and kept in lockstep across the AECI-888 cross-table
+   move. Both arms write this one table.
+
+**There is no `moved_to`, deliberately.** The destination is resolved at read time from
+the moved edge's **live** row (`apps/api/src/lib/pair-redirect.ts`). That makes a chain
+of moves resolve to its end with no chain-walking code, makes a deleted edge produce no
+redirect at all, and guarantees the redirect target actually holds the edge — because it
+is the edge's own row.
+
+**`integration_id` carries no foreign key**, and that is the one deliberate omission: the
+id names a row in *either* anchor table, so no single FK target exists. An orphan row
+(edge deleted) is inert — the read finds no live location and the pair renders as the
+ordinary empty page, which is what a retraction should look like.
+
+The two `from_product_*` columns are stored in canonical **id** order, enforced by CHECK,
+so the lookup is one equality pair rather than an orientation `OR` — the same trick
+`connector_evidenced_pairs` uses.
+
+**Writers.** `runPromoteIngest` only, in the **same `db.batch`** as the endpoint update,
+with an `integration.endpoint_moved` `audit_log` row beside it (§18 / §26.1). Nothing is
+written when the endpoints are restated, and nothing when source and target merely swap —
+the comparison is on the **unordered** pair, so AECI-920's direction corrections never
+mint a redirect to the page they are already on. The 52 pre-existing moves are seeded once
+by `scripts/ops/2026-09-pair-endpoint-move-backfill/`.
+
 ---
 
 ## 5. Taxonomy tables

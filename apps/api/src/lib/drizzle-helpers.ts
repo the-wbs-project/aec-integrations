@@ -1621,6 +1621,11 @@ export function toProductPairResponse(
     // able to speak for it, exactly as an `integrations` row can.
     maintenance: computePairMaintenance([...integrations, ...evidencedPairs]),
     version_diff: versions ? { ...versions.diff, counts: countVersionStatuses(claims) } : null,
+    // AECI-953. Always `null` here — the redirect is a property of the two SLUGS in the
+    // URL, not of the rows this mapper was handed, and it needs its own read. The pair
+    // handler fills it in on the empty branch only. Set explicitly rather than left to
+    // the schema default so this mapper keeps returning a complete response object.
+    moved_to: null,
   };
 }
 
