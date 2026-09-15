@@ -420,6 +420,106 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
 });
 
 /**
+ * AECI-960 / §6.7 — the portal points at what it edits.
+ *
+ * The portal reads and writes the catalog; before this it linked to none of it,
+ * so a vendor saved a profile and had no way to see the result. Two of the three
+ * link sites live here (the third is the integration card, covered in
+ * `vendor-integrations-section.component.spec.ts`).
+ *
+ * Every assertion below is about a property that fails SILENTLY. A dropped
+ * `target="_blank"` still renders a working link, and it costs the vendor the
+ * unsaved form state in the tab they navigated out of. A link nested into the
+ * `h1` still renders, and it corrupts the one string that names the page.
+ */
+describe('VendorDashboardTabbed — links out to the public listing (§6.7)', () => {
+  /** The SHELL's link, beside the company name. First in document order. */
+  const vendorLink = (harness: RouterTestingHarness) =>
+    root(harness).querySelector('aec-view-public-link a') as HTMLAnchorElement | null;
+
+  /** The PRODUCT section's link. Scoped, because the shell renders one too and
+   *  an unscoped query silently returns the shell's for every product case. */
+  const productLink = (harness: RouterTestingHarness): HTMLAnchorElement | null => {
+    const inPage = [
+      ...root(harness).querySelectorAll('aec-vendor-products-page aec-view-public-link a'),
+    ];
+    // The integrations section renders one of these per card, nested deeper in
+    // the same page. Exclude them by their card ancestor rather than by DOM
+    // depth, which would break the next time the header markup moves.
+    const own = inPage.find((a) => a.closest('aec-vendor-integration-card') === null);
+    return (own as HTMLAnchorElement | undefined) ?? null;
+  };
+
+  it('links the company name to its public vendor page, in a new tab', async () => {
+    const harness = await open('overview');
+    const link = vendorLink(harness);
+
+    expect(link?.getAttribute('href')).toBe(`/vendors/${SLUG}`);
+    // New tab because the portal holds unsaved form state and has no
+    // CanDeactivate guard; noopener because the new context otherwise gets a
+    // handle on this one.
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(link?.getAttribute('rel')).toBe('noopener');
+  });
+
+  it('keeps the link OUT of the h1, so the page heading stays the company name', async () => {
+    const el = root(await open('overview'));
+
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe(VENDOR_ME_FIXTURE.vendor.company_name);
+    expect(el.querySelector('h1 a')).toBeNull();
+  });
+
+  it('announces the new tab', async () => {
+    const el = root(await open('overview'));
+
+    expect(el.querySelector('aec-view-public-link')?.textContent).toContain('(opens in a new tab)');
+  });
+
+  it('leaves the once-per-page link unnamed by aria-label, so the visible text is the name', async () => {
+    // The uniform name is only safe where the link appears once. The
+    // integrations tab is the repeated case and carries a destination-specific
+    // name instead; this asserts the two rules did not get swapped.
+    expect(vendorLink(await open('overview'))?.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('links the selected product to its public product page', async () => {
+    const harness = await open('products/summit-field-issues');
+    const link = productLink(harness);
+
+    expect(link?.getAttribute('href')).toBe('/products/summit-field-issues');
+    expect(link?.getAttribute('target')).toBe('_blank');
+  });
+
+  it('follows the picker, so the link always names the product on screen', async () => {
+    const harness = await open('products/summit-field-issues');
+    await go(harness, 'products/summit-model-coordination');
+
+    // A stale href here would send the vendor to the page they were NOT editing,
+    // which reads as the save having failed.
+    expect(productLink(harness)?.getAttribute('href')).toBe('/products/summit-model-coordination');
+  });
+
+  it('renders no product link when the URL names a product the vendor does not own', async () => {
+    const harness = await open('products/someone-elses-product');
+
+    // The section renders its "not linked to your vendor" notice instead. A link
+    // here would be an assertion that the vendor has a listing they do not. The
+    // shell's vendor link is unaffected and still present.
+    expect(productLink(harness)).toBeNull();
+    expect(vendorLink(harness)).not.toBeNull();
+  });
+
+  it('renders no product link for a vendor with no products', async () => {
+    const none: VendorMeResponse = { ...VENDOR_ME_FIXTURE, products: [] };
+    const harness = await open('products', none);
+
+    // The vendor link in the shell header is still there; only the product one
+    // is absent, so scope the query to the section.
+    expect(productLink(harness)).toBeNull();
+  });
+});
+
+/**
  * AECI-631 / §6.3 — the a11y contract. ONE polite live region, in the shell.
  *
  * Two regions on one page make announcements race and duplicate: the screen

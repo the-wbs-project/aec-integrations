@@ -368,6 +368,105 @@ describe('VendorIntegrationsSection — copy discipline', () => {
   });
 });
 
+/**
+ * AECI-960 / §6.7 — each card links to the edge's own PUBLIC PAIR PAGE.
+ *
+ * Not to the counterpart product. What a vendor authors on this card is claims
+ * and attestations, and those render on the pair page; the counterpart's product
+ * page shows none of it, so linking there would answer "let me see my change"
+ * with a page the change is not on.
+ *
+ * The accessible name is destination-specific here and uniform at the other two
+ * portal link sites, because this card REPEATS. N links reading "View public
+ * page" and pointing N different places is `ACCESSIBILITY_AUDIT.md` finding A4
+ * (WCAG 2.4.4 Link Purpose) reproduced inside the portal, and a rotor or links
+ * list is where it bites. axe cannot see it, so these assertions are the guard.
+ */
+describe('VendorIntegrationCard — links to the public pair page (§6.7)', () => {
+  const cardFor = (fixture: ComponentFixture<VendorIntegrationsSection>, name: string) => {
+    const card = [...el(fixture).querySelectorAll('aec-vendor-integration-card')].find((c) =>
+      (c.textContent ?? '').includes(name),
+    );
+    if (!card) throw new Error(`no card for "${name}"`);
+    return card;
+  };
+
+  const linkIn = (card: Element) =>
+    card.querySelector('aec-view-public-link a') as HTMLAnchorElement | null;
+
+  it('builds the href context-slug first, other-slug second', async () => {
+    const fixture = await create();
+    const integration = VENDOR_INTEGRATIONS_FIXTURE.integrations.find(
+      (i) => i.other_product.name === 'Procore',
+    );
+    if (!integration) throw new Error('fixture lost its Procore edge');
+
+    // The pair route's two segments are POSITIONAL. Swapping them addresses the
+    // mirror page, which frames every direction the other way round, and it
+    // still returns 200 — so nothing downstream would catch the swap.
+    expect(linkIn(cardFor(fixture, 'Procore'))?.getAttribute('href')).toBe(
+      `/products/${integration.context_product.slug}/integrations/${integration.other_product.slug}`,
+    );
+  });
+
+  it('gives every card a link, in a new tab, with noopener', async () => {
+    const fixture = await create();
+    const cards = [...el(fixture).querySelectorAll('aec-vendor-integration-card')];
+
+    expect(cards.length).toBeGreaterThan(1);
+    for (const card of cards) {
+      const link = linkIn(card);
+      expect(link?.getAttribute('href')).toMatch(/^\/products\/[^/]+\/integrations\/[^/]+$/);
+      expect(link?.getAttribute('target')).toBe('_blank');
+      expect(link?.getAttribute('rel')).toBe('noopener');
+    }
+  });
+
+  it('names its destination in the accessible name, visible text first', async () => {
+    const fixture = await create();
+    const label = linkIn(cardFor(fixture, 'Procore'))?.getAttribute('aria-label') ?? '';
+
+    // Visible text leads, for WCAG 2.5.3 Label in Name and speech input.
+    expect(label.startsWith('View public page')).toBe(true);
+    expect(label).toContain('Procore');
+    // The new tab is stated, not left to be discovered.
+    expect(label).toContain('opens in a new tab');
+  });
+
+  it('gives no two cards the same accessible name — the A4 guard', async () => {
+    const fixture = await create();
+    const labels = [...el(fixture).querySelectorAll('aec-vendor-integration-card')].map((c) =>
+      linkIn(c)?.getAttribute('aria-label'),
+    );
+
+    expect(labels.every((l) => typeof l === 'string' && l.length > 0)).toBe(true);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('links a read-only connector-powered card too', async () => {
+    const fixture = await create();
+    const powered = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => !i.attestable);
+    if (!powered) throw new Error('fixture lost its connector-powered integration');
+
+    // `attestable: false` withholds the WRITE controls. The public pair page is
+    // a read, the edge is on it either way, and hiding the link would read as
+    // the edge not being published.
+    expect(linkIn(cardFor(fixture, powered.other_product.name))).not.toBeNull();
+  });
+
+  it('gives an owns-both edge a link framed from the endpoint its card is filed under', async () => {
+    const fixture = await create();
+    const both = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.slots.length === 2);
+    if (!both) throw new Error('fixture lost its owns-both integration');
+
+    // One position, two framings (§6.5). Each card links to its OWN framing;
+    // that is the correct answer, not a duplicate.
+    expect(linkIn(cardFor(fixture, both.other_product.name))?.getAttribute('href')).toBe(
+      `/products/${both.context_product.slug}/integrations/${both.other_product.slug}`,
+    );
+  });
+});
+
 // ─── AECI-705: connector-powered edges ───────────────────────────────────────
 
 describe('VendorIntegrationsSection — connector-powered edges', () => {

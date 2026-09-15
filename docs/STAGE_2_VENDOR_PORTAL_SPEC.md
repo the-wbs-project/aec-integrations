@@ -973,6 +973,84 @@ server redirect and all three client outcomes.
 all — and pins its 200 / 403 / 401 / 5xx answers on both platforms.
 `login.component.spec.ts` gains the four silent-resume cases.
 
+### 6.7 As built — the portal links out to the public listings (AECI-960 — 2026-09-15)
+
+Found by the operator on 2026-09-15: a vendor edits a product profile, saves, and
+has no way to see the result. `grep -rn '_blank' apps/web/src/app/vendor` returned
+nothing. The portal read and wrote the catalog and pointed at none of what the
+catalog renders, so seeing a save meant guessing the public URL or leaving the
+portal and searching for your own product. Stage 2.1 seats the first real vendors,
+so that friction was about to land on them.
+
+**Three link sites**, each a `<aec-view-public-link>`
+(`apps/web/src/app/shared/view-public-link/`):
+
+| Site | Component | Target |
+| -- | -- | -- |
+| Vendor company name (`<h1>`) | `vendor-dashboard-tabbed.ts` | `/vendors/:vendorSlug` |
+| Selected product name (`<h2>`) | `sections/vendor-products-page.ts` | `/products/:productSlug` |
+| Each integration card (`<h3>`) | `components/vendor-integration-card.ts` | `/products/:contextSlug/integrations/:otherSlug` |
+
+**The card links to the PAIR page, not to the counterpart product**, which is where
+the issue as filed pointed it. What a vendor authors on that card is claims and
+attestations, and those render on the pair page; the counterpart's own product page
+shows none of it. Linking there would answer "let me see my change" with a page the
+change is not on. Both slugs are already on the wire — `context_product` and
+`other_product` are `ProductLink`s — so this costs nothing. For an integration whose
+endpoints the vendor owns **both**, §6.5 emits one card per endpoint and each links
+to its own framing; the pair route's two segments are positional, so a swapped pair
+addresses the mirror page and still returns 200, which is why
+`vendor-integrations-section.component.spec.ts` pins the order rather than the shape.
+
+**No published/unpublished guard, and this is settled rather than deferred.** The
+issue asked whether a counterpart might be unpublished. It cannot be: `ProductLink`
+carries no publication status, the public product and pair handlers do not filter on
+`promotion_status` at all, and D1's catalog is written only by promote — so any
+product the portal can see has a live public page. A pair page with no edge on record
+renders `noindex` rather than 404ing (`products-pair.resolver.ts`), so the third link
+cannot land on a missing page either. Adding a guard would have meant widening `productLinkColumns`
+(shared by many surfaces) to carry a field for a state that does not occur.
+
+**The accessible name splits, deliberately.** The two once-per-page links carry the
+plain "View public page" with the sr-only "(opens in a new tab)" beside the anchor,
+copying the two shipped admin sites (`admin/vendors/vendor-detail.html`,
+`admin/vendors/vendor-products-table.html`) so the portal and the console read alike.
+The integration card cannot: it renders once per integration, so a uniform name would
+put N links reading "View public page" and pointing N different places into one rotor
+or `NVDA+F7` links list. That is `ACCESSIBILITY_AUDIT.md` finding **A4** (WCAG 2.4.4
+Link Purpose), currently open against the home page's three identical "Source" links,
+reproduced inside the portal. So the card passes an `ariaLabel` naming its pair, with
+the visible text leading so WCAG 2.5.3 Label in Name holds and speech input can target
+it — the shape `DESIGN.md` §"Disclosure group card" already pins. It is built with
+`$localize` **in TS**, never as an interpolated `i18n-aria-label`, which emits no
+attribute at all in this toolchain and would leave the link unnamed rather than merely
+uniform. **Exactly one of the two carries the new-tab disclosure, never both.** The
+sr-only span renders only on the unnamed link. A supplied `ariaLabel` has to state the
+new tab itself, because a rotor or links list never reads the sibling span, so keeping
+the span as well would announce the disclosure twice in browse mode.
+
+**The link is always a SIBLING of its title, never nested in it**, and the reason
+differs at each site: the `<h1>` is the page heading a screen reader reads to say what
+this page is (and a spec asserts it equals the company name exactly); the `<h2>`
+carries an interpolation-only `i18n` block that nesting would pull markup into; the
+`<h3>` is the `aria-labelledby` target of the integration card's `<article>`, so
+anything inside it is re-read as part of the region name on every entry.
+
+**Plain `href` and a new tab, not a `routerLink`.** The portal holds unsaved form
+state and `apps/web` has no `CanDeactivate` guard and no `beforeunload` handler (the
+same fact that made §6.1's taxonomy modal persist rather than stage), so a same-tab
+navigation can silently discard an edit. `rel="noopener"` because the new browsing
+context otherwise gets a handle on this one.
+
+**Tests.** `vendor-dashboard-tabbed.component.spec.ts` gains a §6.7 block covering the
+two once-per-page links, including that the product link follows the picker and that
+it is absent for an unknown or empty catalog while the vendor link survives.
+`vendor-integrations-section.component.spec.ts` gains the card block, including the
+positional-order assertion and an explicit "no two cards share an accessible name"
+A4 guard. `view-public-link.component.spec.ts` is new, and pins the one-disclosure-not-two rule. Every property asserted fails
+silently if it regresses — a dropped `target` still renders a working link — and axe
+sees none of them.
+
 ---
 
 ## 7. Moderation escalation — ban gate (AECI-524)
