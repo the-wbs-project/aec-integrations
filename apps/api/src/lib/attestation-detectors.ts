@@ -12,10 +12,12 @@
  *     nothing has moved. Both disputants get told, and AECi ops is raised.
  *   • `stale-version`      — an assertion has aged past a year with no version
  *     data, or asserts a flow whose deprecated version has already passed.
- *   • `aeci-denied`        — a vendor denies an AECi-seeded claim. This is a
- *     correction signal to **AECi**, not a vendor nudge: a denial-only claim
- *     computes `unverified` (§4.2), so it is invisible on every surface. Without
- *     this detector the vendor's "no, we don't do that" is silently swallowed.
+ *   • `claim-denied`       — every voting vendor denies a claim. A denial-only
+ *     claim computes `unverified` (§4.2), so it is invisible on every surface;
+ *     without this detector the vendor's "no, we don't do that" is silently
+ *     swallowed. Raises **AECi ops** and tells the **counterparty**, with no age
+ *     threshold. Renamed from `aeci-denied` by AECI-961, which also dropped its
+ *     AECi-origin gate — see the detector's own header for both reasons.
  *
  * **`cross-grain` is deliberately absent.** §7.1 required it be defined or
  * dropped; it is dropped. Its proposed definition — the same `data_object`
@@ -40,6 +42,9 @@
 import {
   computeAgreement,
   isClaimRefuted,
+  OPEN_CONFLICT_DAYS,
+  SILENT_COUNTERPARTY_DAYS,
+  STALE_VERSION_MONTHS,
   type AgreementAttestation,
   type AttestationDetector,
   type NotificationProductRef,
@@ -58,21 +63,24 @@ import { attestations, claims } from '../db/schema';
 
 const DAY_MS = 86_400_000;
 
-/** A claim one-sided (`single_source`) for longer than this nudges the silent
- *  slot's vendor. Long enough that a vendor who simply hasn't opened the portal
- *  yet is not chased, short enough that the context is still fresh. */
-export const SILENT_COUNTERPARTY_DAYS = 14;
-
-/** An unresolved `conflict` older than this nudges **both** disputants and raises
- *  AECi ops. Tighter than the silent threshold on purpose: a live vendor-vs-vendor
- *  disagreement is the lowest-volume, highest-signal state in the model. */
-export const OPEN_CONFLICT_DAYS = 7;
-
-/** A live vendor attestation older than this with **no** version data at all is
- *  asked to re-confirm — an annual cadence rather than a rolling nag. Note that
- *  nothing in D1 carries version stamps yet (AECI-607 shipped the columns; no
- *  backfill), so at launch this is the only clause that can ever match. */
-export const STALE_VERSION_MONTHS = 12;
+/**
+ * The three launch-tunable thresholds, **re-exported from `@aeci/shared`** under
+ * the names they have always had here (AECI-961).
+ *
+ * They moved because the vendor portal now quotes them verbatim: the claim lane
+ * tells a vendor "we ask {other} to answer after 14 days"
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2), and the browser bundle cannot import
+ * this module. A hand-copied second source would have made a retune silently
+ * turn that sentence into a lie. Retuning still means editing one number and
+ * deploying — it just now also edits what the portal says, so read §6.2 first.
+ *
+ * Every existing importer and spec kept working unchanged; keep it that way.
+ */
+export {
+  OPEN_CONFLICT_DAYS,
+  SILENT_COUNTERPARTY_DAYS,
+  STALE_VERSION_MONTHS,
+} from '@aeci/shared/attestation-thresholds';
 
 // ─── Findings ────────────────────────────────────────────────────────────────
 
@@ -273,6 +281,24 @@ function cutoff(now: Date, days: number): string {
   return new Date(now.getTime() - days * DAY_MS).toISOString();
 }
 
+/**
+ * The slots with **no live vendor attestation** — the side that has not spoken.
+ *
+ * Two detectors need exactly this set and must agree on it.
+ * `silent-counterparty` reads it as "who has not answered yet";
+ * `claim-denied` reads it as "who is the counterparty of the denial", which on a
+ * refuted claim is the same set by construction, because every live voter denied.
+ *
+ * It also carries the owns-both-endpoints guard for free. A vendor owning both
+ * slots writes every owned slot on one PUT (§5.2), so both slots are occupied and
+ * this returns empty — no self-nudge, and no "we told the other vendor" when
+ * there is no other vendor.
+ */
+function unvotedSlots(claim: DetectorClaim): readonly AttestationSlot[] {
+  const occupied = new Set<string>(vendorVotes(claim).map((v) => v.source));
+  return (['vendor_a', 'vendor_b'] as const).filter((slot) => !occupied.has(slot));
+}
+
 // ─── silent-counterparty ─────────────────────────────────────────────────────
 
 /**
@@ -302,8 +328,7 @@ export function detectSilentCounterparty(
     if (computeAgreement(votesForEngine(claim)) !== 'single_source') continue;
 
     const votes = vendorVotes(claim);
-    const occupied = new Set<string>(votes.map((v) => v.source));
-    const silent = (['vendor_a', 'vendor_b'] as const).filter((slot) => !occupied.has(slot));
+    const silent = unvotedSlots(claim);
     if (silent.length === 0) continue;
 
     if (!olderThan(oldestCreatedAt(votes.filter((v) => v.asserted)), cutoffIso)) continue;
@@ -456,34 +481,83 @@ export function detectStaleVersion(
   return out;
 }
 
-// ─── aeci-denied ─────────────────────────────────────────────────────────────
+// ─── claim-denied ────────────────────────────────────────────────────────────
 
 /**
- * An **AECi-seeded** claim every voting vendor denies. Ops-only, and deliberately
- * un-thresholded: this is a correction to AECi's own curation, and there is
- * nothing for the vendor to do that it has not already done.
+ * A claim every voting vendor denies: **one AECi ops finding, plus one finding
+ * per vendor on the unvoted slot.** Deliberately un-thresholded — it fires on the
+ * next daily sweep.
  *
  * `isClaimRefuted` rather than an `unverified` check, because `unverified`
  * conflates "nobody voted" with "everybody said no" (§4.5) — only the latter is
  * a signal, and the whole reason the detector exists is that the model renders
  * the two identically.
  *
- * `origin = 'vendor'` claims are excluded: a vendor denying a claim it created
- * itself is a self-correction the §5 API already handles by retraction, not an
- * AECi curation error.
+ * ── WHAT AECI-961 CHANGED, AND WHY ──────────────────────────────────────────
+ * This detector shipped as `aeci-denied`: ops-only, and gated on
+ * `claim.origin === 'aeci'`. Both halves were wrong, and the operator decision of
+ * 2026-09-15 removed them together (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2 / §7.1).
+ *
+ * **The origin gate left a dead state.** The reasoning was that a vendor denying
+ * a claim it created is a self-correction the §5 API handles by retraction. It
+ * does not: retraction withdraws a *position*, it does not remove the *claim*,
+ * and no vendor route deletes a claim. So a vendor-origin claim every voter
+ * denied reached nobody at all — not ops, not the counterparty — and sat on the
+ * pair page as `unverified` forever. Any refuted claim now raises ops.
+ *
+ * **Ops-only left the denier with no receipt.** The portal could not honestly
+ * tell a vendor what a Deny does, because the honest answer was "the other side
+ * is never told". The counterparty now gets a finding too, on the same sweep,
+ * with no age threshold: a delay would only make the lane's acknowledgement
+ * vaguer, which is the defect being fixed.
+ *
+ * Three properties fall out of {@link unvotedSlots} rather than from code here,
+ * and each has a test:
+ * - a denier owning **both** endpoints has attested on both slots, so there is no
+ *   unvoted slot and no vendor finding — only ops;
+ * - a counterparty product with no `product_vendors` row yields no vendor
+ *   finding, and the ops finding still fires;
+ * - a connector-powered edge loses the vendor finding to
+ *   {@link dropPromptsOnPoweredEdges} and keeps the ops one, with no code here.
+ *
+ * The one guard that *is* written out: a counterparty vendor id that also denied
+ * is skipped. Slot occupancy comes from `product_vendors`, so one company can own
+ * the unvoted product *and* have voted on the other slot, and emailing a vendor
+ * about its own denial is the exact self-nudge the ops finding already covers.
  */
-export function detectAeciDenied(claimRows: readonly DetectorClaim[]): DetectorFinding[] {
+export function detectClaimDenied(
+  claimRows: readonly DetectorClaim[],
+  slotVendors: ReadonlyMap<string, IntegrationSlotVendors>,
+): DetectorFinding[] {
   const out: DetectorFinding[] = [];
   for (const claim of claimRows) {
-    if (claim.origin !== 'aeci') continue;
     if (!isClaimRefuted(votesForEngine(claim))) continue;
+
     out.push({
-      detector: 'aeci-denied',
+      detector: 'claim-denied',
       claimId: claim.id,
       integrationId: claim.integrationId,
       vendorId: null,
       context: contextForOps(claim),
     });
+
+    const deniers = new Set(
+      vendorVotes(claim)
+        .map((v) => v.attestedByVendorId)
+        .filter((id): id is string => id !== null),
+    );
+    for (const slot of unvotedSlots(claim)) {
+      for (const vendorId of slotVendors.get(claim.integrationId)?.slots[slot] ?? []) {
+        if (deniers.has(vendorId)) continue;
+        out.push({
+          detector: 'claim-denied',
+          claimId: claim.id,
+          integrationId: claim.integrationId,
+          vendorId,
+          context: contextForSlot(claim, slot),
+        });
+      }
+    }
   }
   return out;
 }
@@ -516,11 +590,13 @@ function connectorPoweredIntegrationIds(claimRows: readonly DetectorClaim[]): Re
  * and the property is checkable by reading one function.
  *
  * **`vendorId === null` means AECi ops, and those findings survive on purpose.**
- * `aeci-denied` is ops-routed by definition (§7.1) and `open-conflict` raises an
- * ops finding alongside its two vendor nudges. Those are AECi's correction signal
- * on its *own* curation, not a nudge to someone who built nothing — suppressing
- * them would hide exactly the case an operator needs to see, which is a vendor
- * disputing a powered edge it attested before the edge became powered.
+ * Both `claim-denied` and `open-conflict` raise an ops finding alongside their
+ * vendor nudges. Those are AECi's correction signal on its *own* curation, not a
+ * nudge to someone who built nothing — suppressing them would hide exactly the
+ * case an operator needs to see, which is a vendor disputing a powered edge it
+ * attested before the edge became powered. (Since AECI-961 `claim-denied` also
+ * carries a counterparty nudge, and that half IS dropped here, correctly: a
+ * vendor who did not build the plumbing cannot answer for it either.)
  */
 function dropPromptsOnPoweredEdges(
   findings: readonly DetectorFinding[],
@@ -561,7 +637,7 @@ export async function runAttestationDetectors(deps: DetectorDeps): Promise<Detec
     ['silent-counterparty', () => detectSilentCounterparty(claimRows, slotVendors, now)],
     ['open-conflict', () => detectOpenConflict(claimRows, now)],
     ['stale-version', () => detectStaleVersion(claimRows, now)],
-    ['aeci-denied', () => detectAeciDenied(claimRows)],
+    ['claim-denied', () => detectClaimDenied(claimRows, slotVendors)],
   ];
 
   return registry.map(([detector, run]) => {

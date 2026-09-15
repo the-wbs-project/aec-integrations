@@ -862,10 +862,10 @@ export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse =
 /**
  * The §7 detector ledger as the in-portal list reads it.
  *
- * `aeci-denied` is absent on purpose: it is an ops-routed signal whose ledger
- * rows carry `vendorId: null`, so it can never match a vendor caller. It stays
- * in the type union, so the UI's `switch` must remain total — but no fixture
- * should imply a vendor will ever see one.
+ * All four detectors can appear. `claim-denied` joined the vendor-visible set in
+ * AECI-961: it emits an ops finding (`vendorId: null`, unreachable here) AND a
+ * counterparty finding addressed to a real vendor, so a fixture for it is not a
+ * lie the way an `aeci-denied` fixture would have been.
  */
 export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorNotification[] = [
   {

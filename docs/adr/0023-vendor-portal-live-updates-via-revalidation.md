@@ -18,7 +18,7 @@ So the first thing this epic did was enumerate every event that can change a ven
 | Event | Producer | Real latency need |
 |---|---|---|
 | The vendor's own edit (profile / product / attestation / claim) | the caller's own request | **zero transport** — the PATCH/PUT echo already carries post-edit state |
-| Detector nudge (`silent-counterparty`, `open-conflict`, `stale-version`, `aeci-denied`) | `ATTESTATION_NOTIFY_CRON = '0 10 * * *'` — **once a day** | ≤ minutes; email is the primary channel |
+| Detector nudge (`silent-counterparty`, `open-conflict`, `stale-version`, `claim-denied`) | `ATTESTATION_NOTIFY_CRON = '0 10 * * *'` — **once a day** | ≤ minutes; email is the primary channel |
 | Term-expiry warning | `ENTITLEMENT_EXPIRY_CRON = '0 11 * * *'` — **once a day** | ≤ minutes; email is primary |
 | Entitlement set/renew/clear (the concierge toggle) | a human admin, `PATCH /api/admin/vendors/:id/entitlement` | ≤ ~1 min — this is the *only* concrete latency need on the surface |
 | Counterparty attests / retracts | another vendor, human-paced | ≤ minutes |

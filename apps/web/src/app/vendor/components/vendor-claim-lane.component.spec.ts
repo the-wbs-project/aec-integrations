@@ -11,7 +11,12 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorClaim } from '@aeci/shared';
+import {
+  OPEN_CONFLICT_DAYS,
+  SILENT_COUNTERPARTY_DAYS,
+  STALE_VERSION_MONTHS,
+  type VendorClaim,
+} from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_INTEGRATIONS_FIXTURE } from '../vendor-fixtures';
@@ -160,6 +165,47 @@ describe('VendorClaimLane — a conflict is legible from the vendor’s side', (
     for (const claim of [UNVOTED, SINGLE_SOURCE, CONFIRMED]) {
       expect(text(create(claim))).not.toContain('describe this flow differently');
     }
+  });
+});
+
+describe('VendorClaimLane — what happens next (AECI-961)', () => {
+  // The issue this closes: a vendor denied a flow, read `You say this flow does
+  // not exist`, and had no way to know anyone would ever hear about it. The lane
+  // now names the consequence in every state, including the waiting ones.
+
+  it('names the consequence on all four seeded states', () => {
+    expect(text(create(UNVOTED))).toContain('Nothing is sent to anyone');
+    expect(text(create(SINGLE_SOURCE))).toContain(`after ${SILENT_COUNTERPARTY_DAYS} days`);
+    expect(text(create(CONFIRMED))).toContain(`after ${STALE_VERSION_MONTHS} months`);
+    expect(text(create(CONFLICT))).toContain(`within ${OPEN_CONFLICT_DAYS} days`);
+  });
+
+  it('tells a denier that we and the counterparty are both told', () => {
+    const denied: VendorClaim = {
+      ...SINGLE_SOURCE,
+      agreement: 'unverified',
+      mine: [{ ...SINGLE_SOURCE.mine[0], asserted: false }],
+    };
+    const body = text(create(denied));
+    expect(body).toContain('we tell Procore on the next daily check');
+    // Not a removal promise: a refuted claim still renders on the pair page.
+    expect(body).toContain('still shows as unverified');
+  });
+
+  it('is plain text, never a second live region', () => {
+    // `STAGE_2_REALTIME_SPEC.md` §6.3: standing state is plain text, events go
+    // through the shell's one `VendorPortalAnnouncer` channel. The section
+    // announces this same sentence when a write lands.
+    for (const claim of [UNVOTED, SINGLE_SOURCE, CONFIRMED, CONFLICT]) {
+      const el = create(claim).nativeElement as HTMLElement;
+      expect(el.querySelectorAll('[role="status"], [aria-live]')).toHaveLength(0);
+    }
+  });
+
+  it('renders on a read-only lane too — the consequence is not an authoring detail', () => {
+    expect(text(create(SINGLE_SOURCE, PROCORE.other_product.name, false))).toContain(
+      `after ${SILENT_COUNTERPARTY_DAYS} days`,
+    );
   });
 });
 

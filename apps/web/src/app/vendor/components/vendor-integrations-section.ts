@@ -22,6 +22,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
+import { claimOutcomeLine } from './vendor-claim-outcome';
 
 /**
  * The Integrations tab's body (AECI-606 / `STAGE_2_ATTESTATIONS_SPEC.md` §6):
@@ -380,10 +381,49 @@ export class VendorIntegrationsSection {
       .commit();
   }
 
+  /**
+   * The other endpoint's product name for a claim, or `null` when the echo names
+   * an integration the store has not loaded.
+   *
+   * Every entry for one integration shares an `other_product` in the caller's own
+   * frame, so the first match is the right one — the same assumption
+   * {@link applyClaim} makes when it splices into all of them.
+   */
+  private otherProductNameFor(claim: VendorClaim): string | null {
+    return (
+      this.store.integrations().find((integration) => integration.id === claim.integration_id)
+        ?.other_product.name ?? null
+    );
+  }
+
+  /**
+   * Announce what the write actually did, not that it was written (AECI-961).
+   *
+   * "Position saved" was true and useless: it told a vendor who had just denied a
+   * false claim nothing about whether anyone would hear about it. The stance and
+   * the §6.2 outcome sentence go through the one shell live region together, and
+   * the outcome half is the exact string the lane prints, so the spoken and the
+   * printed receipt cannot drift.
+   *
+   * The outcome names the counterparty product, so a claim whose integration is
+   * not in the store degrades to the stance alone rather than announcing a
+   * sentence with a hole in it.
+   */
+  private announceOutcome(claim: VendorClaim, stance: string): void {
+    const other = this.otherProductNameFor(claim);
+    this.announcer.announce(
+      other === null ? stance : `${stance} ${claimOutcomeLine(claim, other)}`,
+    );
+  }
+
   protected onClaimChanged(claim: VendorClaim): void {
     this.applyClaim(claim, 'replace');
-    this.announcer.announce(
-      $localize`:@@vendor.attest.live.saved:${claim.data_object_name}:dataObject: · position saved.`,
+    const asserted = claim.mine[0]?.asserted ?? false;
+    this.announceOutcome(
+      claim,
+      asserted
+        ? $localize`:@@vendor.attest.live.affirmed:${claim.data_object_name}:dataObject: · you confirmed this flow.`
+        : $localize`:@@vendor.attest.live.denied:${claim.data_object_name}:dataObject: · you denied this flow.`,
     );
   }
 
@@ -391,7 +431,8 @@ export class VendorIntegrationsSection {
     // Appended, not re-sorted: the new lane appears directly above the form the
     // vendor just used, where their attention already is.
     this.applyClaim(claim, 'append');
-    this.announcer.announce(
+    this.announceOutcome(
+      claim,
       $localize`:@@vendor.attest.live.added:${claim.data_object_name}:dataObject: · data flow added.`,
     );
     this.pendingFocusClaimId.set(claim.id);

@@ -151,13 +151,23 @@ export class VendorNotificationsList {
   protected readonly failed = this.store.notificationsFailed;
 
   /**
-   * `aeci-denied` is an ops signal — its ledger rows carry `vendorId: null`, so
-   * the endpoint can never return one to a vendor. Filtering defensively costs
-   * nothing and means a future routing change cannot surface an internal
-   * correction alert on a vendor's dashboard with an empty title.
+   * Every row with a title, which since AECI-961 is every row the endpoint can
+   * return.
+   *
+   * This used to drop `aeci-denied` defensively: that detector was ops-only, its
+   * ledger rows carried `vendorId: null`, and a row reaching a vendor would have
+   * rendered with an empty title. AECI-961 renamed it `claim-denied` and gave it
+   * a **counterparty** finding, so its vendor-addressed rows are now a real,
+   * expected part of this list and `detectorTitle` has real copy for it. The ops
+   * row still carries `vendorId: null` and still cannot match a caller, which is
+   * a server-side property, not something this filter was ever enforcing.
+   *
+   * The empty-title guard is kept rather than removed. It is the one thing that
+   * stops a detector added later, before its copy is written, from rendering a
+   * blank row here.
    */
   protected readonly visible = computed(() =>
-    this.notifications().filter((n) => n.detector !== 'aeci-denied'),
+    this.notifications().filter((n) => detectorTitle(n.detector) !== ''),
   );
 
   protected readonly summaryLabel = computed(() => {

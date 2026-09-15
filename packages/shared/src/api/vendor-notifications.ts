@@ -19,9 +19,11 @@ import { z } from 'zod';
  *    the claim it names has moved on.
  * 2. **`vendor_id` never crosses the wire.** As everywhere on `/api/vendor/*`,
  *    the caller's vendor comes from the session and scopes the query server-side.
- *    Ledger rows the sweep wrote for **AECi ops** (the `aeci-denied` correction
- *    signal and the ops half of `open-conflict`) carry a null vendor and can
- *    therefore never match a vendor caller.
+ *    Ledger rows the sweep wrote for **AECi ops** (the ops halves of
+ *    `claim-denied` and `open-conflict`) carry a null vendor and can therefore
+ *    never match a vendor caller. That is structural isolation, not a `WHERE`
+ *    clause someone has to remember: `claim-denied` writes BOTH an ops row and a
+ *    counterparty row, and only the second one is addressed to a vendor id.
  *
  * i18n note: framework-agnostic package (no `$localize`) — the Angular dashboard
  * (AECI-606) renders its own copy from `detector`.
@@ -34,14 +36,17 @@ import { z } from 'zod';
  * rows* on the same product pair — fires on legitimate data, since two mechanisms
  * genuinely can move the same object in opposite directions.
  *
- * `aeci-denied` never appears on this endpoint (it routes to AECi ops, not to a
- * vendor) but is part of the union because it is a real detector in the ledger.
+ * `claim-denied` was `aeci-denied` until AECI-961, which dropped both halves of
+ * that name: the detector is no longer gated on an AECi-seeded claim, and it is
+ * no longer ops-only — it now also notifies the counterparty vendor, so its rows
+ * DO appear on this endpoint. The rename was taken while production held zero
+ * attestation notifications; there were no ledger rows to migrate.
  */
 export const ATTESTATION_DETECTORS = [
   'silent-counterparty',
   'open-conflict',
   'stale-version',
-  'aeci-denied',
+  'claim-denied',
 ] as const;
 
 export type AttestationDetector = (typeof ATTESTATION_DETECTORS)[number];

@@ -4,7 +4,12 @@
  *
  * These rows are a 90-day archive of what was **emailed**, not live state, so
  * the load-bearing assertions are that it stays collapsed and says so, and that
- * the ops-only `aeci-denied` detector can never surface with an empty title.
+ * every detector the endpoint can return has a title.
+ *
+ * AECI-961 renamed `aeci-denied` to `claim-denied` and gave it a counterparty
+ * finding, so it is now a vendor-visible row rather than an ops-only one that had
+ * to be filtered out. The filter that remains is on the empty title, not on the
+ * detector name.
  *
  * AECI-631 adds the "N new" count (`STAGE_2_REALTIME_SPEC.md` §6.2). Its
  * assertions are mostly about what the count must NOT become: it starts at zero,
@@ -80,19 +85,20 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
   });
 
-  it('filters out the ops-only `aeci-denied` detector', async () => {
-    // Its ledger rows carry `vendorId: null`, so the endpoint can never return
-    // one — but a routing change must not surface an internal correction alert
-    // with an empty title.
-    const withOps: readonly VendorNotification[] = [
+  it('renders and counts a `claim-denied` row (AECI-961)', async () => {
+    // It used to be filtered out: the detector was ops-only, so a row reaching a
+    // vendor would have had no title. It now carries a counterparty finding, and
+    // the vendor is the party that most needs to read it.
+    const withDenial: readonly VendorNotification[] = [
       ...VENDOR_NOTIFICATIONS_FIXTURE,
-      { ...VENDOR_NOTIFICATIONS_FIXTURE[0], id: 'ops-row', detector: 'aeci-denied' },
+      { ...VENDOR_NOTIFICATIONS_FIXTURE[0], id: 'denied-row', detector: 'claim-denied' },
     ];
-    getNotifications.mockResolvedValue({ notifications: withOps });
+    getNotifications.mockResolvedValue({ notifications: withDenial });
 
     const fixture = await create();
-    expect(el(fixture).querySelectorAll('li')).toHaveLength(3);
-    expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
+    expect(el(fixture).querySelectorAll('li')).toHaveLength(4);
+    expect(el(fixture).textContent).toContain('The other vendor says this flow does not exist');
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
   });
 
   it('renders a row whose snapshot lost its data object and pair path', async () => {
@@ -223,14 +229,14 @@ describe('VendorNotificationsList — "N new" (§6.2)', () => {
     expect(outside).not.toContain('new');
   });
 
-  it('ignores the ops-only detector in the count, as it does in the total', async () => {
+  it('counts an arriving `claim-denied` row like any other (AECI-961)', async () => {
     const fixture = await create();
     await poll(fixture, [
-      { ...arrival('ops-row'), detector: 'aeci-denied' },
+      { ...arrival('denied-row'), detector: 'claim-denied' },
       ...VENDOR_NOTIFICATIONS_FIXTURE,
     ]);
 
-    expect(summary(fixture)).toContain('(3)');
-    expect(summary(fixture)).not.toContain('new');
+    expect(summary(fixture)).toContain('(4)');
+    expect(summary(fixture)).toContain('new');
   });
 });
