@@ -1139,4 +1139,13 @@ Before the first deploy:
 
 The API Worker declares `UPLOADS` in root plus preview, staging, demo and production. Root and preview use `aeci-uploads-preview`; other tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision all four private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. Per-PR Workers use the preview bucket, matching their shared preview environment.
 
+**The deploy token needs a new permission, and this is the first thing that breaks.** `wrangler deploy` resolves every `r2_buckets` entry against the Cloudflare API *before* it uploads, so a token without R2 access fails the deploy outright rather than degrading — the symptom is `A request to the Cloudflare API (/accounts/…/r2/buckets/aeci-uploads-preview) failed` with `Authentication error [code: 10000]`. Read that code carefully: **10000 is the token, not the bucket.** A bucket that genuinely does not exist reports a not-found error naming the bucket, so a 10000 means the token cannot see R2 at all and creating the bucket will not fix it. Add **`Workers R2 Storage: Edit`** to the `CLOUDFLARE_API_TOKEN` repo secret (account-scoped, alongside the existing Workers Scripts and D1 grants). Both steps are required and the order does not matter, but until the token is widened every tier's deploy — including `Deploy PR preview` on an ordinary PR — fails at this call.
+
+```bash
+wrangler r2 bucket create aeci-uploads-preview
+wrangler r2 bucket create aeci-uploads-staging
+wrangler r2 bucket create aeci-uploads-demo
+wrangler r2 bucket create aeci-uploads-production
+```
+
 Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.

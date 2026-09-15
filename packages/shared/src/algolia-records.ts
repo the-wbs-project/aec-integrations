@@ -1,4 +1,4 @@
-import { LogoReadUrlSchema } from './api/logos';
+import { LogoReadUrlSchema } from './api/logo-read';
 /**
  * Denormalized Algolia record shapes (AECI-137 / Phase 3.2).
  *

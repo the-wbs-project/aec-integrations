@@ -1,4 +1,4 @@
-import { LogoReadUrlSchema } from './logos';
+import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
 import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
