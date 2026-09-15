@@ -1209,3 +1209,7 @@ where pg_get_userbyid(defaclrole) in ('postgres', 'supabase_admin');
 - Security Advisor shows no "Public table without RLS" findings
 - Anon-key queries against `audit_log`, `page_views`, `profiles`, `vendor_requests`, `workflow_*` return `42501`
 - Anon-key queries against `vendors`, `products` return only promoted rows
+
+## Logo authorization (AECI-955)
+
+`POST /api/vendor/logo` composes requireVendor, authenticated write limiting, and profile.edit or product.edit before parsing bytes. `POST /api/admin/logo` and the two admin logo-only PATCH routes compose requireAdmin and the write limiter. The new routes require browser Origin to match the request URL origin exactly, including scheme and port. Requests without Origin require an explicit Bearer header, whose token is verified by the preceding guard. Multipart does not inherit a JSON-only CSRF assumption. Neither upload changes D1; vendor ownership still comes from the session on the existing PATCH routes and cross-vendor products remain 404. `GET /api/logos/:key` is intentionally public and not rate-limited. See STAGE_2_5_SPEC.md §11.

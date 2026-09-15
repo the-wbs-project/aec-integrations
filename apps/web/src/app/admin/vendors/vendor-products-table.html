@@ -155,6 +155,34 @@
           <span class="sr-only" i18n="@@admin.vendors.products.view.newTab">
             (opens in a new tab)
           </span>
+          <!--
+            AECI-955's disclosure lives HERE and not in the row header. A
+            `<th scope="row">` is announced before every data cell in the row, so
+            a control parked there is re-read six times per product.
+          -->
+          <button
+            type="button"
+            (click)="editingLogo.set(editingLogo() === row.id ? null : row.id)"
+            [attr.aria-expanded]="editingLogo() === row.id"
+            [attr.aria-controls]="'product-logo-' + row.id"
+            class="mt-1 block w-full rounded-(--radius-md) px-3 py-1.5 text-end text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.logo.editProduct"
+          >
+            Edit logo
+          </button>
+        </td>
+      </tr>
+      <tr [id]="'product-logo-' + row.id" [hidden]="editingLogo() !== row.id">
+        <td colspan="7" class="border-b border-(--border-default) py-4">
+          @if (editingLogo() === row.id) {
+          <aec-admin-logo-editor
+            kind="product"
+            [recordId]="row.id"
+            [logoUrl]="row.logo_url"
+            (logoSaved)="retry.emit()"
+            (announce)="announce.emit($event)"
+          />
+          }
         </td>
       </tr>
       }

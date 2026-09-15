@@ -1,3 +1,5 @@
+import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { LogoInput } from '../../shared/logo-input/logo-input';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 
 import {
@@ -104,7 +106,7 @@ const MAX_TERMS_PER_FACET = 10;
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [InfoHint, VendorTaxonomyFacetDialog],
+  imports: [LogoInput, InfoHint, VendorTaxonomyFacetDialog],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit.
@@ -158,33 +160,45 @@ const MAX_TERMS_PER_FACET = 10;
 
         @for (cfg of showFields() ? textFields : []; track cfg.key) {
           <div class="space-y-1.5">
-            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-            @if (cfg.control === 'textarea') {
-              <textarea
-                [id]="fieldId(cfg.key)"
-                rows="4"
-                [value]="model()[cfg.key]"
+            @if (cfg.key === 'logo_url') {
+              <aec-logo-input
+                [inputId]="fieldId(cfg.key)"
+                [value]="model()['logo_url'] ?? ''"
                 [readOnly]="!canEdit()"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="
-                  fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                "
-                [class]="controlClass()"
-              ></textarea>
-            } @else {
-              <input
-                [id]="fieldId(cfg.key)"
-                type="url"
-                [value]="model()[cfg.key]"
-                [readOnly]="!canEdit()"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="
-                  fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                "
-                [class]="controlClass()"
+                [disabled]="saving()"
+                (valueChange)="onLogoChange($event)"
+                (pendingChange)="logoPending.set($event)"
+                (announce)="announcer.announce($event)"
               />
+            } @else {
+              <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+              @if (cfg.control === 'textarea') {
+                <textarea
+                  [id]="fieldId(cfg.key)"
+                  rows="4"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!canEdit()"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="
+                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
+                  "
+                  [class]="controlClass()"
+                ></textarea>
+              } @else {
+                <input
+                  [id]="fieldId(cfg.key)"
+                  type="url"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!canEdit()"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="
+                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
+                  "
+                  [class]="controlClass()"
+                />
+              }
             }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -407,7 +421,9 @@ export class VendorProductForm {
     };
   });
 
+  protected readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly saving = signal(false);
+  protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
 
@@ -474,7 +490,12 @@ export class VendorProductForm {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
+    () =>
+      !this.canEdit() ||
+      this.saving() ||
+      this.logoPending() ||
+      !this.hasChanges() ||
+      this.hasErrors(),
   );
 
   /** The PATCH asserts `product.edit` before it ever looks at the facet arrays,
@@ -514,9 +535,13 @@ export class VendorProductForm {
       });
     });
 
-    // Register/withdraw this product's unsaved-edit protection.
+    // Register/withdraw this product's unsaved-edit protection. An in-flight
+    // logo upload counts as dirty even though the model has not moved yet: the
+    // store would otherwise push a fresh payload mid-upload and the re-seed
+    // above would drop the draft the upload is about to land on. Same guard as
+    // the profile form.
     effect(() => {
-      const dirty = this.hasChanges();
+      const dirty = this.hasChanges() || this.logoPending();
       untracked(() => {
         const id = this.product().id;
         if (dirty) this.store.markDirty('products', id);
@@ -577,6 +602,11 @@ export class VendorProductForm {
       if (!seen.has(slug)) rows.push({ slug, name: slug, description: null });
     }
     return rows;
+  }
+
+  protected onLogoChange(value: string): void {
+    this.model.update((m) => ({ ...m, logo_url: value }));
+    this.saved.set(false);
   }
 
   protected onInput(key: string, event: Event): void {

@@ -1,5 +1,6 @@
+import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
 import type { AdminVendorProductRow } from '@aeci/shared';
 
@@ -32,20 +33,20 @@ import { AdminPaginator } from '../admin-paginator';
  * points at the public page in a new tab — same rule as View Page in Basics: an
  * operator opens it to CHECK something, so navigating away is the wrong outcome.
  *
- * ── READ-ONLY, DELIBERATELY ──────────────────────────────────────────────────
- * There is no admin product-edit endpoint and this tab does not invent one.
- * Catalog data flows from the review app through `POST /api/promote`; the same
- * lockout the vendor page's docblock records applies here.
+ * AECI-955 adds the narrow logo-only content edit exception (Stage 2.5 §11).
  *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminPaginator, DatePipe, DecimalPipe],
+  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {
+  readonly announce = output<string>();
+  protected readonly editingLogo = signal<string | null>(null);
+
   readonly rows = input.required<readonly AdminVendorProductRow[]>();
   readonly page = input.required<number>();
   readonly perPage = input.required<number>();

@@ -123,7 +123,7 @@ Three planned surfaces overlap, and without a rule they duplicate:
 
 ## 9. Out of scope
 
-Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly two named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; and the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation.
+Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly three named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; and the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation; and the logo controls in §11, admitted 2026-09-15 under AECI-955.
 
 **Not out of scope, but not *in* Stage 2.5 either:** the Product Docs / Help Center (**AECI-634**) is **Stage 2 work** (`STAGE_2_SPEC.md` §2.6) that runs in the same calendar window — it was always sequenced after vendor-portal testing settles, and it must ship **before vendors are asked to do the work and pay**, because that ask has to come with support. Stage 2.5 neither blocks it nor absorbs it; the one touchpoint is §2 step 3 (the ranking-method page prefers the `/docs` trust section as its home).
 
@@ -142,3 +142,31 @@ The build contract is **`docs/VENDOR_PERFORMANCE_SPEC.md`**; its §1.1 records t
 | C — The page (**AECI-932**) | Wireframes via Mobbin first, then the read endpoint with its caveat envelope and CSV export, then the page, then the privacy-policy sentence and the `/methodology` update in the same release | Blocked by A. |
 
 Two rules carried from the contract, restated here because they are the ones a later editor is most likely to bend: the page reads the **same population definition** as the digest and `/admin/overview` (the AECI-872 classification record once agreed; the shared predicates until then) and adds no predicate of its own; and it is a **read**, outside the AECI-516 freshness cursor, with no audit row and no rate limit.
+
+## 11. Vendor and product logos (AECI-955)
+
+The third admitted surface exception adds logo editing to the vendor portal and the admin vendor detail and product roster. It permits only logo content writes in the admin panel. ADR 0032 records the validation decision.
+
+### 11.1 Upload and serving contract
+
+- `POST /api/vendor/logo` requires a vendor seat and `profile.edit` or `product.edit`. `POST /api/admin/logo` requires an admin. Both use the authenticated write limiter and a **new** same-origin check (`requireLogoOrigin`, `apps/api/src/routes/logos.ts`). It is new because the rest of the API leans on its JSON content type for CSRF: a cross-origin `<form>` can post `multipart/form-data` with no preflight, but it cannot post `application/json`. A request with no `Origin` header must carry a `Bearer` token instead.
+- Accept exactly one multipart field named `file`. Cap the complete request at 2 MiB + 16 KiB before multipart parsing, even without Content-Length. Cap the file at 2 MiB and each dimension at 2048 pixels. PNG, JPEG and static WebP only. Reject SVG, animated images, malformed structures, truncated files and trailing bytes. Determine format from bytes, never MIME or filename. Validation checks container structure, not full pixel decoding.
+- Store original bytes under their lowercase SHA-256 key using `UPLOADS`. Return `{logo_url: "/api/logos/<64 hex characters>"}`. Neither upload endpoint writes D1. An upload is not a catalog edit until a parent form saves.
+- `GET /api/logos/:key` is public and not rate-limited. Strictly validate the key. Derive a fixed image Content-Type from validated bytes, never object metadata. Return `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, and `Cache-Control: public, max-age=31536000, immutable`. Missing/invalid objects are non-cacheable errors. The SSR API proxy must preserve these headers.
+- URLs accept HTTPS addresses or exact `/api/logos/<hash>` paths, plus null for removal. The server never fetches external URLs. Existing stored URLs remain readable. Local paths must identify an existing validated object before being saved.
+- `GET /api/logos/:key` re-reads R2 and re-validates on every request, because the served `Content-Type` comes from the bytes and never from object metadata. Cloudflare does not edge-cache extensionless paths by default, so `immutable` buys browser caching only until a Cache Rule is added. `CACHE_STRATEGY.md` "Logo assets" holds that operator item.
+- Bind one private bucket per environment, `aeci-uploads-{preview,staging,demo,production}`, in all five Wrangler blocks. Root uses preview. Public access is through the API Worker only. No automatic expiry: a content-addressed object may be shared by many records. Unreferenced uploads may remain and require a future reference-aware cleanup job.
+
+### 11.2 Catalog writes and promote coexistence
+
+Both `vendors` and `products` gain nullable `logo_source`: null means promote-owned, `vendor` or `admin` means locally managed. Existing rows start null. A logo field explicitly supplied through a vendor save sets source vendor, including clearing to null. Omission leaves both columns unchanged. Admin `PATCH /api/admin/vendors/:id/logo` and `PATCH /api/admin/products/:id/logo` accept exactly `{logo_url}` and set source admin. These are logo-only exceptions to ADMIN_PANEL_SPEC §2 and the paid-tier catalog lockout.
+
+The logo, provenance and updated_at write share one Drizzle batch with the ordinary vendor.updated/product.updated audit row, carrying before/after state and actor. Post-commit cache purges cover vendor:{slug}, or product:{slug} and index:products. Vendor ownership and capability checks remain unchanged. Product timestamps feed the existing nightly Algolia sync. Logo edits do not request search-engine recrawls.
+
+Promote tests logo_source inside the SQL UPDATE so a local edit between planning and committing is preserved. It never writes logo_source. Clearing a logo stays protected. No reset-to-promote control is introduced.
+
+### 11.3 Shared control and validation
+
+`aec-logo-input` combines URL entry, file selection and drag/drop, preview, remove, pending feedback and localized errors. Keyboard users use the native file picker. Read-only users can read/copy the URL. Upload completion changes only the draft. Parent Save is unavailable while upload is pending; switching value or destroying the control cancels stale completion. Failed uploads keep the previous value. Form saves remain pessimistic.
+
+Validation includes adversarial format/size/dimension/trailing-data tests, multipart cardinality and bounded-body tests, authenticated upload and object-serving tests, ownership and promote fencing tests, and component interaction tests. Typecheck, lint and Angular build must pass before handoff.

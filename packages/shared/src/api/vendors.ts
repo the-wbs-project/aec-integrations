@@ -1,3 +1,4 @@
+import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
 import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
@@ -25,7 +26,7 @@ export const VendorListItemSchema = z.object({
   id: z.string().uuid(),
   slug: z.string().min(1),
   company_name: z.string().min(1),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   verified: z.boolean(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),

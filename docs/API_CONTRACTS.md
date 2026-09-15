@@ -191,12 +191,12 @@ export const LinkRefSchema = z.object({
 // NOT NULL DEFAULT false; powers the AECI-523 verified badge on the detail
 // surfaces). ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   verified: z.boolean(),
 });
 
 export const ProductLinkSchema = LinkRefSchema.extend({
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
 });
 ```
 
@@ -346,7 +346,7 @@ export const ProductListItemSchema = z.object({
   id: z.string().uuid(),
   slug: z.string().min(1),
   name: z.string().min(1),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   product_role: z.enum(['application', 'connector', 'hybrid']),
   vendor: VendorLinkSchema.nullable(), // null when the product has no ProductVendor link (AECI-115)
   integration_count: z.number().int().min(0),
@@ -433,7 +433,7 @@ export const VendorListItemSchema = z.object({
   id: z.string().uuid(),
   slug: z.string().min(1),
   company_name: z.string().min(1),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   verified: z.boolean(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
@@ -5006,7 +5006,7 @@ export const UpdateVendorProfileSchema = z
     parent_company: shortText.nullable().optional(),
     contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
     phone_number: shortText.nullable().optional(),
-    logo_url: editableUrl.nullable().optional(),
+    logo_url: LogoUrlSchema.nullable().optional(),
     // profile URLs: linkedin_url, x_url, facebook_url, instagram_url,
     // youtube_url, crunchbase_url, wiki_url  ·  plus github_org (shortText)
   })
@@ -5030,7 +5030,7 @@ export const UpdateVendorProductSchema = z
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
-    logo_url: editableUrl.nullable().optional(),
+    logo_url: LogoUrlSchema.nullable().optional(),
 
     category_slugs: termSlugList.optional(),   // max 10, [a-z0-9-]+
     audience_slugs: termSlugList.optional(),
@@ -5362,3 +5362,21 @@ No URL versioning (`/api/v1/`) at Stage 1. If external consumers appear in Stage
 - **OpenAPI generation** — possible to auto-generate from Zod schemas via `zod-to-openapi` if external consumers need it
 - **Rate limiting beyond WAF** — application-level limits per authenticated user (see `STAGE_1_SPEC.md` §15)
 - ~~**Subscription/streaming endpoints** — for live updates in Stage 2+ vendor portal (Server-Sent Events or WebSockets)~~ — **decided against, 2026-08-19 (ADR 0023).** The vendor portal goes live through **polling** a per-vendor freshness cursor (`GET /api/vendor/updates`, §6.14) and refetching only the scopes that moved; **SSE is rejected outright** (it holds a Worker invocation open *and* polls D1 inside it) and Durable-Object WebSockets are declined with a named re-open trigger. A dated decision, not a permanent no — re-propose only against one of ADR 0023's three triggers.
+
+## Logo upload and editing (AECI-955)
+
+Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `LogoReadUrlSchema` preserves existing absolute URL reads and adds exact `/api/logos/<64 lowercase hex>` paths. `LogoUrlSchema` permits HTTPS without embedded credentials or that exact local path. It rejects other relative paths, protocol-relative URLs, query/fragment suffixes on local paths, data and javascript URLs. Writes use null to clear.
+
+| Endpoint | Auth | Input | Response |
+|---|---|---|---|
+| `POST /api/vendor/logo` | Vendor seat + profile.edit or product.edit | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
+| `POST /api/admin/logo` | Admin | Same | Same |
+| `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
+| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null}` | `200 {logo_url}` |
+| `PATCH /api/admin/products/:id/logo` | Admin | Same | Same |
+
+Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension. Request bytes are bounded at 2 MiB + 16 KiB before parsing multipart, including requests without Content-Length. File MIME and filename are ignored. No upload writes D1. JSON success uses private, no-store. Logo GET returns hard-coded detected image MIME, nosniff, sandbox CSP and one-year immutable caching. Errors are private, no-store.
+
+Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `VALIDATION_FAILED` 400 for format/dimension/field/path errors, `PAYLOAD_TOO_LARGE` 413 for byte limits, `UNAUTHENTICATED` 401, `FORBIDDEN` 403 for role/origin, `ENTITLEMENT_REQUIRED` 403 for vendor capability, `RATE_LIMITED` 429, `NOT_FOUND` 404, and `DEPENDENCY_FAILURE` 503 when storage is unbound. Auth precedes write limiting and parsing. Reads are never rate-limited.
+
+Vendor profile/product PATCHes use LogoUrlSchema for logo_url, check local object existence/validation, and set logo_source=vendor only for explicitly supplied logo_url. Admin PATCHes set admin ownership. All catalog saves audit atomically and enqueue page purges after commit. Intentional clears retain ownership. Admin product roster rows now include nullable logo_url. Neither provenance nor protected catalog columns are client-writable.

@@ -108,6 +108,7 @@ interface ApiMock {
 
 function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductRow {
   return {
+    logo_url: null,
     id: '00000000-0000-4000-8000-000000000030',
     slug: 'revit',
     name: 'Revit',
@@ -267,7 +268,7 @@ describe('VendorDetail', () => {
     // the seats, and a decision about either needs both on screen.
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Basics', 'Entitlement', 'Seats']);
+    expect(headings).toEqual(['Vendor logo', 'Basics', 'Entitlement', 'Seats']);
   });
 
   describe('tabs', () => {

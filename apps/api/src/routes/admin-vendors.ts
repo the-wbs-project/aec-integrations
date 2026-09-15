@@ -493,6 +493,7 @@ export function createAdminVendorProductsHandler(
           id: products.id,
           slug: products.slug,
           name: products.name,
+          logoUrl: products.logoUrl,
           productRole: products.productRole,
           isPrimary: productVendors.isPrimary,
           promotionStatus: products.promotionStatus,
@@ -520,6 +521,7 @@ export function createAdminVendorProductsHandler(
           id: row.id,
           slug: row.slug,
           name: row.name,
+          logo_url: row.logoUrl,
           // Fails loud on a value outside the closed enum — the same coercion
           // the public product card uses, so a data defect surfaces identically
           // in the console rather than rendering as if it were understood.

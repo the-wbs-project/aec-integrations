@@ -260,6 +260,13 @@
       "when": 1789379096923,
       "tag": "0036_youthful_vengeance",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1789432556789,
+      "tag": "0037_ambiguous_frightful_four",
+      "breakpoints": true
     }
   ]
 }

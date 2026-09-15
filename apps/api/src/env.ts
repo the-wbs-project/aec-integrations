@@ -120,6 +120,8 @@ export type Env = {
    * a binding.
    */
   DB?: D1Database;
+  /** AECI-955: private content-addressed logo storage. */
+  UPLOADS?: R2Bucket;
   /**
    * Supabase service-role key (auth project only), used by every split-identity
    * seam via the Supabase Admin API — the register is `docs/AUTH_AND_RLS.md` §3.1

@@ -1,4 +1,9 @@
 import {
+  createGetLogoHandler,
+  createUploadLogoHandler,
+  createUpdateAdminLogoHandler,
+} from './routes/logos';
+import {
   ApiErrorCode,
   CategoryDetailSchema,
   AudienceDetailSchema,
@@ -158,6 +163,7 @@ app.use('*', bookmarkMiddleware());
 // canonical `docs/API_CONTRACTS.md` §3.3 envelope on the error path. Sub-app
 // errors don't bubble to a parent `onError`, so `phase28` keeps its own (below).
 app.onError(errorHandler());
+app.get('/api/logos/:key', createGetLogoHandler());
 
 // Legacy routes (predating Phase 2.8). `page-views` now throws `ApiError` /
 // `ZodError` (rendered by the root `onError` above into the §3.3 envelope).
@@ -599,6 +605,24 @@ authAdmin.patch(
 // write, and reuses `revokeSeatStatements`, so its audit row rides the same
 // `db.batch` and NO statement names `vendors` — a seat revoke is orthogonal to
 // the entitlement and never moves the mirror (§5.2).
+authAdmin.post(
+  '/api/admin/logo',
+  requireAdmin(),
+  rateLimit('write'),
+  createUploadLogoHandler('admin'),
+);
+authAdmin.patch(
+  '/api/admin/vendors/:id/logo',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateAdminLogoHandler('vendor'),
+);
+authAdmin.patch(
+  '/api/admin/products/:id/logo',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateAdminLogoHandler('product'),
+);
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
 authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
 authAdmin.get(
@@ -762,6 +786,12 @@ app.route('/', authAdmin);
 // way. Reads are never limited on any surface (ADR 0026).
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
+authVendor.post(
+  '/api/vendor/logo',
+  requireVendor(),
+  rateLimit('write'),
+  createUploadLogoHandler('vendor'),
+);
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
 authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
 authVendor.get(

@@ -1,3 +1,4 @@
+import { LogoReadUrlSchema } from './logo-read';
 import { z, type ZodType } from 'zod';
 
 /**
@@ -46,7 +47,7 @@ export type LinkRef = z.infer<typeof LinkRefSchema>;
  * `VendorListItem` / `VendorDetail`).
  */
 export const VendorLinkSchema = LinkRefSchema.extend({
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   verified: z.boolean(),
 });
 
@@ -59,7 +60,7 @@ export type VendorLink = z.infer<typeof VendorLinkSchema>;
  * cheap.
  */
 export const ProductLinkSchema = LinkRefSchema.extend({
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
 });
 
 export type ProductLink = z.infer<typeof ProductLinkSchema>;

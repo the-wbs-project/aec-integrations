@@ -1,3 +1,4 @@
+import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -95,6 +96,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'audit';
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AdminLogoEditor,
     RouterLink,
     AuditTrail,
     EntitlementControl,
@@ -105,6 +107,9 @@ export type AdminVendorTab = 'vendor' | 'products' | 'audit';
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail {
+  protected onVendorLogoSaved(logoUrl: string | null): void {
+    this.vendor.update((v) => (v ? { ...v, logo_url: logoUrl } : v));
+  }
   private readonly api = inject(AdminVendorsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);

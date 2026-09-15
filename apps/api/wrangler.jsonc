@@ -266,6 +266,7 @@
   // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
   // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
   // them with no `migrations_pattern` override.
+  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-preview" }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -354,6 +355,7 @@
       // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
       // `--env preview`, so this is the binding the bound local stack uses — a
       // LOCAL SQLite copy regardless of id; the real preview database is provisioned (AECI-256).
+      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-preview" }],
       "d1_databases": [
         {
           "binding": "DB",
@@ -456,6 +458,7 @@
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // deploy CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
+      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-staging" }],
       "d1_databases": [
         {
           "binding": "DB",
@@ -696,6 +699,7 @@
       ],
       // promote-to-demo CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-demo --env demo --remote`.
+      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-demo" }],
       "d1_databases": [
         {
           "binding": "DB",
@@ -899,6 +903,7 @@
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
       // aeci-app-production --env production --remote`.
+      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-production" }],
       "d1_databases": [
         {
           "binding": "DB",

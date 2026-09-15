@@ -104,10 +104,37 @@
                 // translated options stay out of the eager graph. Kept at 1.02MB
                 // rather than a round 1.1MB so the guard still catches a real
                 // regression; the 500kB WARNING is untouched and still fires.
+                //
+                // AECI-955: raised 1.02MB -> 1.05MB. Same verification as above,
+                // run again: no lazy-route component is in the initial set, and
+                // `aec-logo-input` in particular is NOT (grep the chunks named by
+                // `dist/browser/index.csr.html` for `aec-logo-input` -- it appears
+                // only in lazy chunks). The growth is the read schema itself:
+                // `LogoReadUrlSchema` has to accept BOTH an absolute URL and an
+                // `/api/logos/<sha256>` path, and it replaces a bare
+                // `z.string().url()` at five EAGER call sites (`VendorLink`,
+                // `ProductLink`, `ProductListItem`, `VendorListItem`, the Algolia
+                // records). A product card renders on the home page, so that cost
+                // is unavoidable.
+                //
+                // Two things were done before raising it rather than instead of
+                // raising it. The WRITE schemas were split out into
+                // `packages/shared/src/api/logo-read.ts` vs `./logos.ts`, because
+                // `sideEffects: false` (AECI-221) lets esbuild drop an entire
+                // unreferenced MODULE but NOT an unused `const` inside a module it
+                // has kept -- a Zod builder chain is a call expression and is not
+                // provably pure, so one eager import of `LogoReadUrlSchema` was
+                // pinning `LogoUrlSchema`, `UpdateLogoSchema` and
+                // `UploadLogoResponseSchema` onto every public page. That recovered
+                // 290 bytes. The remaining overage is real feature cost.
+                //
+                // 1.05MB and not 1.03MB because the same commit measures ~1.0197MB
+                // locally and ~1.0206MB on a CI runner -- a consistent ~1kB spread
+                // -- so a margin under ~2kB is a coin flip, not a guard.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.02MB"
+                  "maximumError": "1.05MB"
                 },
                 {
                   "type": "anyComponentStyle",

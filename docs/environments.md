@@ -1323,3 +1323,11 @@ Cross-references:
 - [`docs/access.md`](./access.md) — Cloudflare Access setup and service-token rotation.
 - [`docs/migrations.md`](./migrations.md) — D1/Drizzle migration workflow (§0); the legacy Supabase-CLI body is auth-project-only history.
 - [`CLAUDE.md`](../CLAUDE.md) — non-negotiable constraints (Drizzle over the D1 binding, `nodejs_compat` scope, `--var COMMIT_SHA` mandate, etc.).
+
+## Logo storage deployment (AECI-955)
+
+The API Worker declares `UPLOADS` in root plus preview, staging, demo and production. Root and preview use `aeci-uploads-preview`; other tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision all four private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. Per-PR Workers use the preview bucket, matching their shared preview environment.
+
+**The deploy token needs `Workers R2 Storage: Edit`, and that is the first thing that breaks.** `wrangler deploy` resolves every `r2_buckets` entry against the Cloudflare API before it uploads, so a token without R2 access fails the deploy rather than degrading. The symptom is `A request to the Cloudflare API (/accounts/…/r2/buckets/aeci-uploads-preview) failed` with `Authentication error [code: 10000]` — and **10000 is the token, not the bucket**: a bucket that does not exist reports a not-found error naming it, so creating the bucket will not clear a 10000. Full provisioning steps and the `wrangler r2 bucket create` lines are in `CICD_PLAN.md` "Logo storage deployment".
+
+Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.
