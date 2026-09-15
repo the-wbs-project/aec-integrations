@@ -269,6 +269,9 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     expect(body.data_quality).not.toBeNull();
     expect(body.data_quality?.checks.map((c) => c.id)).toEqual([
       'products_without_vendor',
+      // AECI-962 — a live taxonomy term with no description, which is the shape
+      // promote's find-or-create mint writes (AECI-926).
+      'taxonomy_missing_description',
       // AECI-592 — one invariant guard, replacing the two unreachable status checks
       // (`ready_products_unpromoted` and `broken_integration_refs`).
       'promotion_status_invariant',
