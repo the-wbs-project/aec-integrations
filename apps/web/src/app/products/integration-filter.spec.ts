@@ -150,6 +150,73 @@ describe('filterIntegrationLanes', () => {
     const unfiltered = view.direct.filter((r) => filtered.direct.includes(r));
     expect(filtered.direct).toEqual(unfiltered);
   });
+
+  /**
+   * AECI-966 — the reported defect. `mechanism_name` is rendered in the
+   * Connection column (visible from `md` up), so a query that matches only it
+   * must return the row rather than an empty list.
+   */
+  describe('matching the mechanism label (AECI-966)', () => {
+    const navisworks = link('navisworks', 'Navisworks');
+    const revit = link('revit', 'Revit');
+    const mechView = splitIntegrationLanes(
+      [
+        edge(page, navisworks, { mechanism_name: 'Navisworks DWG file reader' }),
+        edge(page, revit, { mechanism_name: 'IFC export' }),
+        edge(page, acme, { via: agave, mechanism_name: 'DWG round-trip' }),
+      ],
+      [],
+    );
+
+    it('returns the row whose mechanism label matches, not an empty list', () => {
+      const filtered = filterIntegrationLanes(mechView, 'DWG');
+      expect(filtered.direct.map((r) => r.other.slug)).toEqual(['navisworks']);
+      expect(filtered.via[0].rows.map((r) => r.other.slug)).toEqual(['acme-forms']);
+      expect(filtered.rowCount).toBe(2);
+    });
+
+    it('still matches the partner name, so the widening is additive', () => {
+      expect(filterIntegrationLanes(mechView, 'revit').rowCount).toBe(1);
+    });
+
+    it('folds case and accents on the mechanism label too', () => {
+      expect(filterIntegrationLanes(mechView, 'file reader').rowCount).toBe(1);
+      expect(filterIntegrationLanes(mechView, 'ífc').rowCount).toBe(1);
+    });
+
+    it('does not match a row whose mechanism label is null or blank', () => {
+      const blank = splitIntegrationLanes(
+        [
+          edge(page, navisworks, { mechanism_name: null }),
+          edge(page, revit, { mechanism_name: '   ' }),
+        ],
+        [],
+      );
+      // A blank normalizes to '', which is a substring of everything — the
+      // guard in `matches()` is what stops it matching every query.
+      expect(filterIntegrationLanes(blank, 'zzz').rowCount).toBe(0);
+      expect(filterIntegrationLanes(blank, 'q').rowCount).toBe(0);
+    });
+
+    /**
+     * A Via row renders ONE label (the representative edge's), so it must match
+     * on that one. Matching the whole collapsed set would surface a row whose
+     * visible Connection cell does not contain the query.
+     */
+    it('tests the representative edge of a collapsed Via row, not every edge', () => {
+      const collapsed = splitIntegrationLanes(
+        [
+          edge(page, acme, { via: agave, mechanism_name: 'Visible label' }),
+          edge(page, acme, { via: agave, mechanism_name: 'Hidden label' }),
+        ],
+        [],
+      );
+      expect(collapsed.via[0].rows).toHaveLength(1);
+      expect(collapsed.via[0].rows[0].integration.mechanism_name).toBe('Visible label');
+      expect(filterIntegrationLanes(collapsed, 'visible').rowCount).toBe(1);
+      expect(filterIntegrationLanes(collapsed, 'hidden').rowCount).toBe(0);
+    });
+  });
 });
 
 describe('filterPoweredHubView', () => {
@@ -204,5 +271,35 @@ describe('filterPoweredHubView', () => {
     expect(filtered.pairCount).toBe(
       filtered.groups.reduce((n, g) => n + g.partners.length, 0) + filtered.others.length,
     );
+  });
+
+  /**
+   * AECI-966 — the hub matches a label it does not render, so that the two
+   * adjacent sections behave identically. See `PoweredConnection.mechanismNames`.
+   */
+  describe('matching the mechanism label (AECI-966)', () => {
+    const mechView = groupPoweredIntegrations(
+      [
+        { ...poweredEdge(hub, sage), mechanism_name: 'DWG file reader' },
+        { ...poweredEdge(hub, esub), mechanism_name: 'IFC export' },
+        { ...poweredEdge(hub, acme), mechanism_name: null },
+        { ...poweredEdge(other, sage), mechanism_name: 'DWG round-trip' },
+      ],
+      connector.slug,
+    );
+
+    it('matches a partner row inside a hub card on its mechanism label', () => {
+      const filtered = filterPoweredHubView(mechView, 'DWG');
+      expect(filtered.groups[0].partners.map((p) => p.partner.slug)).toEqual(['sage-300-cre']);
+    });
+
+    it('matches a hubless pair on its mechanism label', () => {
+      expect(filterPoweredHubView(mechView, 'round-trip').others).toHaveLength(1);
+    });
+
+    it('leaves a pair with no mechanism label reachable by name only', () => {
+      expect(filterPoweredHubView(mechView, 'acme').pairCount).toBe(1);
+      expect(filterPoweredHubView(mechView, 'zzz').pairCount).toBe(0);
+    });
   });
 });

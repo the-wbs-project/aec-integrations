@@ -119,7 +119,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           i18n-label="@@products.detail.body.integrations.filter.label"
           label="Search these integrations"
           i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
-          placeholder="Filter by product name"
+          placeholder="Filter by product or connection"
           [(query)]="query"
           [shown]="filteredLanes().rowCount"
           [total]="lanes().rowCount"

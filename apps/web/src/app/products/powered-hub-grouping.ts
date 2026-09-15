@@ -42,6 +42,23 @@ export interface PoweredConnection {
    */
   readonly mechanismKinds: readonly IntegrationMechanismKind[];
   /**
+   * Distinct non-empty `mechanism_name` labels across the collapsed edges, in
+   * first-seen order.
+   *
+   * **This field exists to be MATCHED, not rendered (AECI-966).** The hub card
+   * shows `mechanismSummary()` — a kind label, or "3 connection types" — and has
+   * never shown the curator's free-text name; that is §12.3's deliberate choice,
+   * and the per-mechanism detail lives on the pair page. But the sibling
+   * `#integrations` section DOES render the name, so its filter had to learn to
+   * match it, and two filters behaving differently over two adjacent sections is
+   * the exact inconsistency AECI-848 removed. Carrying the labels here is what
+   * lets `filterPoweredHubView` match them without the hub growing a column.
+   *
+   * Empty when every collapsed edge had a null or blank `mechanism_name`, which
+   * is the common case.
+   */
+  readonly mechanismNames: readonly string[];
+  /**
    * Flow **relative to endpoint A**, merged across every collapsed edge:
    * `outbound` (A → B), `inbound` (A ← B), `both`, or `null` when no edge
    * carried a stored direction. Two one-way edges pointing opposite ways merge
@@ -116,6 +133,8 @@ interface MutableConnection {
   a: ProductLink;
   b: ProductLink;
   mechanismKinds: Set<IntegrationMechanismKind>;
+  /** Insertion-ordered so `freeze()` needs no sort — see `mechanismNames`. */
+  mechanismNames: Set<string>;
   direction: ContextDirection | null;
   edgeCount: number;
 }
@@ -143,12 +162,31 @@ export const MECHANISM_ORDER: readonly IntegrationMechanismKind[] = [
   'integrator',
 ];
 
+/**
+ * Add one edge's `mechanism_name` to a pair's set, skipping null and blank.
+ *
+ * A blank is skipped rather than stored because `filterPoweredHubView` tests
+ * substrings: an empty string is a substring of every query's target, so one
+ * whitespace-only label would make the pair match everything typed.
+ */
+function addMechanismName(names: Set<string>, value: string | null): void {
+  const trimmed = value?.trim();
+  if (trimmed) names.add(trimmed);
+}
+
+function newMechanismNames(value: string | null): Set<string> {
+  const names = new Set<string>();
+  addMechanismName(names, value);
+  return names;
+}
+
 function freeze(c: MutableConnection): PoweredConnection {
   return {
     key: c.key,
     a: c.a,
     b: c.b,
     mechanismKinds: MECHANISM_ORDER.filter((k) => c.mechanismKinds.has(k)),
+    mechanismNames: [...c.mechanismNames],
     direction: c.direction,
     edgeCount: c.edgeCount,
   };
@@ -229,6 +267,7 @@ export function groupPoweredIntegrations(
       existing.edgeCount += 1;
       existing.direction = mergeContextDirections(existing.direction, direction);
       if (i.mechanism_kind) existing.mechanismKinds.add(i.mechanism_kind);
+      addMechanismName(existing.mechanismNames, i.mechanism_name);
       continue;
     }
     pairs.set(key, {
@@ -236,6 +275,7 @@ export function groupPoweredIntegrations(
       a,
       b,
       mechanismKinds: new Set(i.mechanism_kind ? [i.mechanism_kind] : []),
+      mechanismNames: newMechanismNames(i.mechanism_name),
       direction,
       edgeCount: 1,
     });

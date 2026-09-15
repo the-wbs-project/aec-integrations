@@ -713,7 +713,17 @@ grouping, counting or render-condition rules.
    change to hint at it.
 4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
    *Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted.*
-   It matches partner names, and a hub whose *own* name matches keeps every partner under it —
+   It matches partner names — **and, since AECI-966 (2026-09-15), the pair's `mechanism_name`
+   labels as well**, collected across the collapsed edges as `PoweredConnection.mechanismNames`.
+   **That is a field this section does not render**, and deliberately so: a hub card summarises a
+   pair's mechanisms as a kind label or a count ("3 connection types"), never as the curator's free
+   text, because the per-mechanism detail belongs to the pair page. So the widening adds an
+   *invisible* match here rather than fixing a *visible* miss, which is the reverse of §13.3's case.
+   It was widened anyway for the reason item 2 of the AECI-848 amendment below gives: the two
+   sections sit side by side on a connector page, and one filter finding "DWG" while its neighbour
+   does not is exactly the inconsistency that amendment spent a threshold to remove. The placeholder
+   moved to "Filter by product or connection" in lockstep with §13.3's. And a hub whose *own* name
+   matches keeps every partner under it —
    typing the hub name is a request for that card, not for a partner that happens to share the
    name. The query is **component state and never a route query param**: `/products/:slug` is a
    cacheable SSR route keyed on path + query, so a `?q=` would mint an edge-cache entry per
@@ -1113,6 +1123,36 @@ right-aligned opposite the `<h2>`, and `INTEGRATION_FILTER_MIN_ROWS` was deleted
 that renders rows renders a filter**, including the single-lane page above. Both changes and the
 reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
 same component shape there.
+
+⚠️ **Amended again by AECI-966 (2026-09-15): the filter matches the mechanism label as well as the
+partner name.** Matching only `other.name` broke the filter's own promise against text the reader
+could see. This section renders `mechanism_name` in the **Connection** column, which is visible
+from `md` up. (Below `md` that column is hidden and only the mechanism *kind* joins the meta line —
+§13.3a — so on a narrow viewport a label match is an invisible one, the same trade §12.3 makes at
+every width.) Typing `DWG` on the AutoCAD Architecture page returned nothing while a row on screen
+read "Navisworks DWG file reader". The mechanism label is where the
+specific, memorable detail lives — a file format, a protocol, a named connector — and it is often
+the exact word the reader has in mind. Algolia's integrations index already made it searchable
+(`SEARCH_RANKING.md`, third searchable attribute), so site search found these rows and the on-page
+filter did not.
+
+- **The placeholder is now "Filter by product or connection"**, in both this section and §12.3's.
+  The `sr-only` labels ("Search these integrations" / "Search these connections") were already
+  field-agnostic and are unchanged. `DESIGN.md` records the placeholder as the justification for the
+  input's `w-96` width; the longer string still reads in full at that width.
+- **A collapsed Via row is matched on its REPRESENTATIVE edge's label, not on every collapsed
+  edge's.** The row renders exactly one label (`ProductIntegrationRow` binds
+  `integration().mechanism_name`), so testing the representative is what keeps the filter and the
+  screen agreeing. Matching the whole collapsed set would surface a row whose visible Connection
+  cell does not contain the query — the same broken promise, inverted.
+- **A null or blank label never matches.** A blank normalizes to the empty string, which is a
+  substring of every query's target, so one whitespace-only label would make its row match whatever
+  the reader typed.
+- **Nothing else moved.** Substring-not-token matching, accent folding, the pinned
+  `TEXT_SORT_LOCALE`, the group-name-matches-keeps-every-row rule, the `@defer` cut's
+  filter-lifts-the-limit behaviour, the query staying out of the URL, and the unfiltered heading
+  count are all as stated above. The `role="status"` "Showing N of M" line remains the only thing
+  that reports the filtered view.
 
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 
