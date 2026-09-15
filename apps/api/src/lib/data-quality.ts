@@ -1,7 +1,7 @@
 /**
  * The §23.1 daily data-quality suite (AECI-241 / Phase 7.6).
  *
- * Eleven read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
+ * Read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
  * (`scheduled.ts`) and summarised in the email digest (`data-quality-email.ts`).
  * **Report-only** — no auto-remediation; the digest + the per-check Datadog gauge
  * are how humans triage (§23.1).
@@ -10,7 +10,7 @@
  * an injected `fetch` for the logo probe and an injected closure for the reused
  * AECI-140 Algolia-drift count), so every check unit-tests against the in-memory
  * D1 harness (`test/d1.ts`) with no network. The orchestrator
- * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
+ * `runDataQualityChecks` runs them all best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
  * All but one check the *catalog*. `arrival_cf_coverage` (AECI-868) checks the *telemetry
@@ -135,7 +135,7 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
 }
 
 /**
- * #12 — a LIVE taxonomy term with no description (AECI-962).
+ * #13 — a LIVE taxonomy term with no description (AECI-962).
  *
  * ── WHY THIS IS NOT DEAD CODE ───────────────────────────────────────────────────
  * AECI-592 retired two checks for being structurally unreachable, and the obvious
@@ -479,7 +479,7 @@ interface CheckSpec {
   run: (deps: DataQualityDeps) => Promise<CheckFinding>;
 }
 
-/** The eleven checks in digest order (§23.1, less the two AECI-592 retired, plus the
+/** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 mirror guard and the AECI-868 telemetry tripwire). Severity drives the
  *  digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [

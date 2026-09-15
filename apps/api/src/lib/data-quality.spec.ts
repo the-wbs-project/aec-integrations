@@ -144,7 +144,7 @@ describe('checkProductsWithoutVendor', () => {
   });
 });
 
-// ── #12 taxonomy terms with no description (AECI-962 / AECI-926) ──────────────
+// ── #13 taxonomy terms with no description (AECI-962 / AECI-926) ──────────────
 
 describe('checkTaxonomyMissingDescription', () => {
   const stamp = { createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() };

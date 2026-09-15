@@ -19,8 +19,10 @@ import { describe, expect, it } from 'vitest';
  * That is not a thought experiment. `reality-capture` / `Reality Capture
  * (Scan-to-BIM)` was exactly this, in production: the seeded row held the curated
  * description and 0 products, while the minted `reality-capture-scan-to-bim` held
- * 10 products, 44 integrations and no description at all. AECI-926 resolved it by
- * renaming the term upstream to `Reality Capture`, so the exception list is empty.
+ * 10 products, 44 integrations and no description at all. AECI-926 takes option A —
+ * the term is renamed to `Reality Capture` upstream and in the seed — so the
+ * exception list below is empty. The duplicate row's own removal is a manual data
+ * op; `scripts/ops/2026-09-reality-capture-dedup/README.md` is its status of record.
  *
  * Nothing else catches it. The promote returns 200, the term renders, the browse
  * page is valid, and the only visible symptom is a list that is alphabetical apart
@@ -41,11 +43,11 @@ import { describe, expect, it } from 'vitest';
 const MINTABLE_FACETS = ['taxonomy_categories', 'taxonomy_audiences', 'taxonomy_phases'] as const;
 
 /**
- * Empty, and meant to stay that way. AECI-926 closed the one live offender
+ * Empty, and meant to stay that way. AECI-926 closes the one live offender
  * (`reality-capture` / `Reality Capture (Scan-to-BIM)`) by taking option A: the
- * upstream category was renamed to `Reality Capture`, the seed `name` followed,
- * the minted duplicate was deleted, and `/categories/reality-capture-scan-to-bim`
- * now 301s (`apps/web/src/server-runtime.ts`).
+ * upstream category is renamed to `Reality Capture`, the seed `name` follows, the
+ * minted duplicate is deleted by the dedup ops script, and
+ * `/categories/reality-capture-scan-to-bim` 301s (`apps/web/src/server-runtime.ts`).
  *
  * Adding an entry here is not the fix for a new mismatch. Fix the name or the slug.
  */

@@ -62,8 +62,11 @@ fi
 [ -x "$WRANGLER" ] || { echo "missing wrangler at $WRANGLER (run pnpm install)" >&2; exit 1; }
 
 d1() { "$WRANGLER" d1 execute "$DB" --remote --json --command "$1"; }
-num() { grep -oE "\"$1\": [0-9]+" | grep -oE '[0-9]+$'; }
-str() { grep -oE "\"$1\": \"[^\"]*\"" | sed 's/.*: "//; s/"$//'; }
+# Both swallow a no-match and return empty. Under `set -euo pipefail` a failing grep
+# inside `VAR="$(...)"` aborts the whole script with no message, which would take out
+# the "already clean" exit below before it could print anything.
+num() { grep -oE "\"$1\": [0-9]+" | grep -oE '[0-9]+$' || true; }
+str() { grep -oE "\"$1\": \"[^\"]*\"" | sed 's/.*: "//; s/"$//' || true; }
 
 echo "== target: $DB   mode: $([ "$APPLY" = 1 ] && echo APPLY || echo DRY-RUN)"
 
@@ -72,8 +75,8 @@ echo
 echo "-- footprint --"
 FOOTPRINT="$(d1 "
 SELECT
- (SELECT IFNULL(id,'')   FROM taxonomy_categories WHERE slug='$WINNER_SLUG') AS winner_id,
- (SELECT IFNULL(id,'')   FROM taxonomy_categories WHERE slug='$LOSER_SLUG')  AS loser_id,
+ IFNULL((SELECT id FROM taxonomy_categories WHERE slug='$WINNER_SLUG'),'') AS winner_id,
+ IFNULL((SELECT id FROM taxonomy_categories WHERE slug='$LOSER_SLUG'),'')  AS loser_id,
  (SELECT COUNT(*) FROM product_categories WHERE category_id=(SELECT id FROM taxonomy_categories WHERE slug='$WINNER_SLUG')) AS winner_products,
  (SELECT COUNT(*) FROM product_categories WHERE category_id=(SELECT id FROM taxonomy_categories WHERE slug='$LOSER_SLUG'))  AS loser_products,
  (SELECT COUNT(*) FROM product_categories a
