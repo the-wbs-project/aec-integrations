@@ -102,7 +102,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
           i18n-label="@@products.detail.body.powers.filter.label"
           label="Search these connections"
           i18n-placeholder="@@products.detail.body.powers.filter.placeholder"
-          placeholder="Filter by product name"
+          placeholder="Filter by product or connection"
           [(query)]="query"
           [shown]="filteredView().pairCount"
           [total]="view().pairCount"

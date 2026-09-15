@@ -1,6 +1,10 @@
 import { TEXT_SORT_LOCALE } from '@aeci/shared/text-sort';
 
-import type { ConnectorLaneGroup, IntegrationLaneView } from './connector-lane-grouping';
+import type {
+  ConnectorLaneGroup,
+  IntegrationLaneRow,
+  IntegrationLaneView,
+} from './connector-lane-grouping';
 import type { PoweredHubGroup, PoweredHubView } from './powered-hub-grouping';
 
 /**
@@ -33,6 +37,26 @@ import type { PoweredHubGroup, PoweredHubView } from './powered-hub-grouping';
  * relearn whether the next page earned one. The filter now lives in the section
  * heading row, right-aligned opposite the `<h2>`, so an idle one costs no
  * vertical space at all, which is the only cost the threshold was buying back.
+ *
+ * **It matches the mechanism label as well as the product name (AECI-966).** It
+ * originally matched names alone, which broke its own promise against text the
+ * reader could see: `#integrations` renders `mechanism_name` in the Connection
+ * column, which is visible from `md` up, so typing `DWG` on the AutoCAD
+ * Architecture page
+ * returned nothing while a row on screen read "Navisworks DWG file reader". The
+ * mechanism label is where the specific, memorable detail lives — a file format,
+ * a protocol, a named connector — and it is often the exact word the reader has
+ * in mind. Algolia's integrations index already made it searchable
+ * (`packages/shared/src/algolia.ts`), so site search found these rows and the
+ * on-page filter did not.
+ *
+ * **The hub half matches a label it does not render, deliberately.** §12.3's
+ * cards summarise a pair's mechanisms as a kind label or a count, never as the
+ * curator's free text, so widening `filterPoweredHubView` adds an invisible
+ * match rather than fixing a visible miss. It is widened anyway because the two
+ * sections sit side by side on a connector page: one box finding "DWG" and its
+ * neighbour not is the inconsistency AECI-848 spent a threshold to remove. See
+ * `PoweredConnection.mechanismNames`.
  */
 
 /**
@@ -67,9 +91,39 @@ export function isFilterActive(query: string): boolean {
  * reader types a prefix of ONE name rather than a bag of words. Splitting the
  * query on whitespace would make `sage 300` match a product called
  * `300 Sage Road`, which is a worse answer than no answer.
+ *
+ * `null` and blank never match. A blank would normalize to `''`, and `''` is a
+ * substring of every string, so one edge with a whitespace-only
+ * `mechanism_name` would make its row match whatever the reader typed.
  */
-function matches(name: string, needle: string): boolean {
+function matches(name: string | null | undefined, needle: string): boolean {
+  if (!name) return false;
   return normalizeFilterText(name).includes(needle);
+}
+
+/**
+ * Whether any of several fields matches — the row-level test.
+ *
+ * Exists because AECI-966 made every row multi-field: a row matches on the
+ * partner name OR on the mechanism label beside it.
+ */
+function matchesAny(values: readonly (string | null | undefined)[], needle: string): boolean {
+  return values.some((value) => matches(value, needle));
+}
+
+/**
+ * Whether one endpoint-lane row matches — partner name, or the mechanism label
+ * rendered beside it.
+ *
+ * **It reads the REPRESENTATIVE edge's `mechanism_name`, not every collapsed
+ * edge's.** A Via row stands for several edges but renders exactly one label —
+ * `ProductIntegrationRow` binds `integration().mechanism_name` — so testing the
+ * representative is what keeps the filter and the screen agreeing. Matching the
+ * whole collapsed set would surface a row whose visible label does not contain
+ * the query, which is the same broken promise as the original defect, inverted.
+ */
+function matchesRow(row: IntegrationLaneRow, needle: string): boolean {
+  return matchesAny([row.other.name, row.integration.mechanism_name], needle);
 }
 
 /**
@@ -92,14 +146,12 @@ export function filterIntegrationLanes(
   const needle = normalizeFilterText(query);
   if (needle === '') return view;
 
-  const direct = view.direct.filter((row) => matches(row.other.name, needle));
+  const direct = view.direct.filter((row) => matchesRow(row, needle));
 
   const via: ConnectorLaneGroup[] = [];
   for (const group of view.via) {
     const groupMatched = group.connector !== null && matches(group.connector.name, needle);
-    const rows = groupMatched
-      ? group.rows
-      : group.rows.filter((row) => matches(row.other.name, needle));
+    const rows = groupMatched ? group.rows : group.rows.filter((row) => matchesRow(row, needle));
     if (rows.length === 0) continue;
     via.push(rows === group.rows ? group : { ...group, rows });
   }
@@ -127,13 +179,15 @@ export function filterPoweredHubView(view: PoweredHubView, query: string): Power
     const hubMatched = matches(group.hub.name, needle);
     const partners = hubMatched
       ? group.partners
-      : group.partners.filter((row) => matches(row.partner.name, needle));
+      : group.partners.filter((row) =>
+          matchesAny([row.partner.name, ...row.mechanismNames], needle),
+        );
     if (partners.length === 0) continue;
     groups.push(partners === group.partners ? group : { ...group, partners });
   }
 
-  const others = view.others.filter(
-    (pair) => matches(pair.a.name, needle) || matches(pair.b.name, needle),
+  const others = view.others.filter((pair) =>
+    matchesAny([pair.a.name, pair.b.name, ...pair.mechanismNames], needle),
   );
 
   return {

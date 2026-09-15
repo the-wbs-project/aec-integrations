@@ -358,8 +358,9 @@ freed of its row threshold by AECI-848). The name filter over a section of group
 - **Shape:** a `type="search"` input (the browser supplies the clear control), `rounded.sm`, 0.5px
   `border-default`, `surface-base` fill, `text-sm`, `py-1.5` so it sits inside the heading's own
   line box rather than growing the row, `w-96` from `sm` up. That width is set by the placeholder
-  ("Filter by product name") reading in full rather than by the row's spare space, so the control
-  looks like somewhere to type.
+  ("Filter by product or connection") reading in full rather than by the row's spare space, so the
+  control looks like somewhere to type. *(AECI-966 widened that string from "Filter by product
+  name" when the filter learned to match the mechanism label; `w-96` still holds it in full.)*
 - **Label:** visually hidden. The section `<h2>` carries the visible name; a second visible label
   would be chrome.
 - **Result count:** a `role="status"` paragraph immediately left of the input, present from first

@@ -175,6 +175,31 @@ describe('groupPoweredIntegrations', () => {
     expect(acumaticaRow!.edgeCount).toBe(2);
   });
 
+  /**
+   * AECI-966 — `mechanismNames` is collected for `filterPoweredHubView` to match,
+   * not for the card to render. It has to survive the pair collapse, which is the
+   * step that used to drop it.
+   */
+  it('collects every distinct mechanism label across a collapsed pair', () => {
+    const { groups } = groupPoweredIntegrations(
+      [
+        { ...edge(procore, acumatica, 'native'), mechanism_name: 'DWG file reader' },
+        { ...edge(procore, acumatica, 'iPaaS'), mechanism_name: 'IFC export' },
+        // A duplicate label collapses; a blank and a null are dropped, because an
+        // empty string is a substring of every query.
+        { ...edge(procore, acumatica, 'api'), mechanism_name: 'DWG file reader' },
+        { ...edge(procore, acumatica, 'api'), mechanism_name: '   ' },
+        { ...edge(procore, sage, 'native'), mechanism_name: null },
+      ],
+      CONNECTOR,
+    );
+
+    const acumaticaRow = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
+    expect(acumaticaRow!.mechanismNames).toEqual(['DWG file reader', 'IFC export']);
+    const sageRow = groups[0]!.partners.find((p) => p.partner.slug === 'sage-intacct');
+    expect(sageRow!.mechanismNames).toEqual([]);
+  });
+
   it('keeps a pair whose edges carry NO kind, with an empty badge set (AECI-721)', () => {
     // Every connector-evidenced pair hits this: `connector_evidenced_pairs` has no
     // `mechanism_kind` column at all, so the payload row is null-kinded by

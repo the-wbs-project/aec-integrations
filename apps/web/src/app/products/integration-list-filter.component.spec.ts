@@ -19,7 +19,7 @@ import { IntegrationListFilter } from './integration-list-filter';
     <aec-integration-list-filter
       inputId="test-filter"
       label="Search these integrations"
-      placeholder="Filter by product name"
+      placeholder="Filter by product or connection"
       [(query)]="query"
       [shown]="shown()"
       [total]="total()"
@@ -43,7 +43,7 @@ describe('IntegrationListFilter', () => {
     const { el } = setup();
     const input = el.querySelector<HTMLInputElement>('input#test-filter')!;
     expect(input.type).toBe('search');
-    expect(input.getAttribute('placeholder')).toBe('Filter by product name');
+    expect(input.getAttribute('placeholder')).toBe('Filter by product or connection');
     const label = el.querySelector<HTMLLabelElement>('label[for="test-filter"]')!;
     expect(label.textContent).toContain('Search these integrations');
   });
