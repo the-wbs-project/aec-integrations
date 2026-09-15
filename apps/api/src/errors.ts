@@ -57,6 +57,10 @@ type ResourceKind =
   // another vendor", and a spent token must look exactly like an unknown one.
   | 'seat'
   | 'seat_invite'
+  // A mapping in `slug_redirects` (AECI-978). The 404 here is the ORDINARY case,
+  // not an error: the detail resolvers ask this endpoint about every slug that
+  // already missed, and almost all of them are junk.
+  | 'slug_redirect'
   | 'profile';
 
 export type ApiErrorOptions = {

@@ -26,8 +26,8 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 
 | Tag | Attached to |
 |---|---|
-| `product:{slug}` | The product detail page for that slug |
-| `vendor:{slug}` | The vendor detail page for that slug |
+| `product:{slug}` | The product detail page for that slug. **Since AECI-978 it also rides the retired-slug 301** (§3 rule 6): when `/products/{retired}` redirects, the response is tagged `product:{to_slug}` — the SURVIVOR, not the retired slug — so an edit to the surviving product purges the redirect. Set by the resolver on `RESPONSE_INIT`, not by `withCacheHeaders`, for the same reason the moved-pair 301 is: a 3xx gets no path-derived tag there. |
+| `vendor:{slug}` | The vendor detail page for that slug. Carries the AECI-978 retired-slug 301 on the same terms as `product:{slug}` above — this is where the `bluebeam` → `nemetschek-group` mapping lives now that it is data rather than a Worker route. |
 | `pair:{min}__{max}` | The Stage 1.5 consolidated product-**pair** page (`/products/:context/integrations/:other`). `{min}`/`{max}` are the two product slugs in **alphabetical** order (`min` = context), so the tag is **orientation-independent** — both `/products/A/integrations/B` and its mirror carry the same `pair:` tag. The page also embeds `product:{slug}` for **both** products, so a promote touching either product — or a claim on the integration — purges it. Emitted by both the pair page SSR (AECI-294) and the promote deriver (`promote-cache-tags.ts` → `pairCacheTag`, AECI-297), which must stay in lockstep. **Since AECI-953 it also rides the moved-pair 301** (`STAGE_1_5_SPEC.md` §7.2a): when a promote re-points an endpoint the old URL redirects to the new pair, and the redirect carries the **old** pair's tag so the same promote can purge it. That tag is set by the resolver on `RESPONSE_INIT`, not by `withCacheHeaders` — a 3xx is neither 2xx nor 404 there, so it gets no path-derived tag and no route TTL. |
 | `integration:{id}` | Stage 1.5 (AECI-294) retired the `/integrations/:id` detail page; this tag now rides the **301 redirect** to the pair page (so a promote on that integration can purge the cached redirect). |
 | `category:{slug}` | Category browse page |
@@ -82,6 +82,20 @@ Codified so callers don't re-derive the rules per surface:
    - **A pair row moving purges BOTH its endpoints**, even when no mapping rides the page. AECI-890 wrote 669 pair rows and touched not one mapping; a mapping-only collector would have purged nothing on the largest reach change to date.
 
    **Bounded gap:** deleting a mapping purges the product that lost it, not the partners that lost *it*. Closing that needs a pairs-by-stub read plus a mappings read per partner stub — three round trips to repaint pages whose only change is one line's integer. Same shape and disposition as rule 4's re-pointed-connector gap: those pages go stale until TTL. **Note also that `demo` and `production` currently run uncached** (no `exports` block, §1), so this emission is live on preview and staging only today.
+
+6. **A retired-slug 301 is tagged on the SURVIVOR** (AECI-978, `STAGE_3_SPEC.md` §2.6 option B). `slug_redirects` maps a retired product/vendor slug to the one that replaced it, and the detail resolver emits a 301 on its not-found branch rather than a 404.
+
+   Every other permanent redirect in the app is **immutable** — `/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id` — and carries no tag on that basis, because there is nothing an edit could make wrong. This map is the exception §2.6 predicted: an operator can add, retarget or delete a row, so the redirect needs a purge handle.
+
+   The handle is the **destination**, `{entity}:{to_slug}`, and not the retired slug. Three consequences:
+
+   - **The retired slug has no page and no writer.** Nothing will ever purge `product:{from_slug}` — the row behind it is deleted, so no promote, no vendor edit and no cron ever names it. A tag nobody emits is not an invalidation handle.
+   - **The survivor's own edit is the event that matters.** A rename or a further retirement of the destination is what makes this 301 point somewhere wrong, and that write already purges `{entity}:{to_slug}` through the ordinary rules.
+   - **Editing the map itself is an operator action with no automatic purge.** Changing a `slug_redirects` row purges nothing — there is no writer to hook. Follow it with `POST /admin/purge` on the destination tag, or wait out the 24h `s-maxage`.
+
+   The redirect carries `public, max-age=3600, s-maxage=86400` — a mapping, not content — set on `RESPONSE_INIT` by the resolver, because `withCacheHeaders` hands a 3xx to `ensureNoStore`, which only fills in a *missing* directive.
+
+   **Neither the sitemap nor IndexNow advertises a `from_slug`.** `sitemap.xml` filters them out of the product and vendor loops, and the IndexNow drain drops a buffered URL whose path now only redirects — the last gate before the wire, and the only one that catches a URL buffered by a promote *before* the mapping was seeded.
 
 ### Cache-Tag header construction helper
 

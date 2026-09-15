@@ -57,6 +57,7 @@ import type { Env } from '../env';
 import type { BatchStmt, BatchTuple } from './audit';
 import { auditInsert } from './audit';
 import { callIndexNow } from './indexnow';
+import { listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 import {
   countPendingIndexNowUrls,
   countStaleIndexNowUrls,
@@ -114,6 +115,13 @@ export interface IndexNowDrainResult {
   deleted: number;
   /** Rows dropped by the staleness sweep before the read. */
   expired: number;
+  /**
+   * Rows read but NOT submitted because their URL now only redirects (AECI-978).
+   * They are still deleted — the buffer entry is consumed either way — so this is
+   * the only place the drop is visible. Non-zero is normal for a tick or two after
+   * a retirement and suspicious if it persists.
+   */
+  retired: number;
   /** Buffer depth after the run, counted rather than inferred. `0` on a clean
    *  full drain; non-zero when a promote buffered mid-run or the buffer was
    *  deeper than one batch. */
@@ -141,6 +149,22 @@ interface DrainDeps {
    *  production; instant in specs, which would otherwise wait out the full 1 s +
    *  4 s schedule on every throttled case and blow the default test timeout. */
   sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Does this buffered absolute URL point at a path that now only redirects?
+ *
+ * Compared on the parsed `pathname`, not by substring: a query string or a
+ * differing origin must not change the answer, and `/products/procore-x` must not
+ * match a retirement of `/products/procore`. An unparseable URL is kept — the
+ * transport is the right place for that to fail loudly.
+ */
+function isRetired(url: string, retiredPaths: ReadonlySet<string>): boolean {
+  try {
+    return retiredPaths.has(new URL(url).pathname.replace(/\/+$/, ''));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -214,6 +238,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     submitted: 0,
     deleted: 0,
     expired: 0,
+    retired: 0,
     pending: 0,
     status: 0,
     attempts: 0,
@@ -254,11 +279,39 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     return { ...empty, expired, pending: 0 };
   }
 
+  // AECI-978 — drop any buffered URL whose slug has since retired. This is the last
+  // gate before the wire and the only one that covers every producer: a URL can be
+  // buffered by a promote minutes before an operator seeds the `slug_redirects` row,
+  // so filtering at enqueue time would miss exactly the case that matters. Asking an
+  // engine to crawl a 301 wastes one of a strictly limited number of submissions and
+  // teaches it a URL we are retiring.
+  const retiredPaths = retiredSlugPaths(await listSlugRedirects(db));
+  const sendable =
+    retiredPaths.size === 0 ? rows : rows.filter((r) => !isRetired(r.url, retiredPaths));
+  const retired = rows.length - sendable.length;
+  if (retired > 0) {
+    log({
+      level: 'info',
+      message: 'aeci.indexnow.retired_skipped',
+      reason: `dropped ${retired} URL(s) whose slug now redirects`,
+      urls_count: retired,
+    });
+  }
+
+  // Everything in the batch was retired. The rows are still CONSUMED — leaving them
+  // buffered would make the same filter run again every twenty minutes forever — so
+  // this takes the ordinary delete path with no submission behind it.
+  if (sendable.length === 0) {
+    await commitDrain(db, rows, 0);
+    const pendingAfter = await countPendingIndexNowUrls(db);
+    return { ...empty, expired, retired, deleted: rows.length, pending: pendingAfter };
+  }
+
   const outcome = await callIndexNow(fetchImpl, {
     host,
     key,
     keyLocation,
-    urlList: rows.map((r) => r.url),
+    urlList: sendable.map((r) => r.url),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
   });
 
@@ -275,15 +328,16 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
       level: 'warn',
       message: 'aeci.indexnow.submit_failed',
       reason: `indexnow_${outcome.status}: ${outcome.message}`,
-      urls_count: rows.length,
+      urls_count: sendable.length,
       status: outcome.status,
       attempts: outcome.attempts,
       pending,
     });
     return {
-      submitted: rows.length,
+      submitted: sendable.length,
       deleted: 0,
       expired,
+      retired,
       pending,
       status: outcome.status,
       attempts: outcome.attempts,
@@ -299,9 +353,10 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   // gauge that detects a stuck channel incapable of ever showing one.
   const pending = await countPendingIndexNowUrls(db);
   return {
-    submitted: rows.length,
+    submitted: sendable.length,
     deleted: rows.length,
     expired,
+    retired,
     pending,
     status: outcome.status,
     attempts: outcome.attempts,

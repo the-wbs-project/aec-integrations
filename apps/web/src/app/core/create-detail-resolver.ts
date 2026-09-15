@@ -35,6 +35,26 @@
  * What stays server-only: `RESPONSE_INIT.status` (a SPA nav has no HTTP status),
  * `ctx.embedded` cache tags (edge concern), and the page-view payload (client
  * navigations are counted by `PageViewTracker`, not here).
+ *
+ * ── AECI-978: A MISS MAY BE A RETIRED SLUG ──────────────────────────────────
+ * A route that opts in with `followSlugRedirect` asks `slug_redirects` before it
+ * 404s, and 301s to the surviving slug on a hit (`STAGE_3_SPEC.md` §2.6 option B).
+ * Three things about it are load-bearing:
+ *
+ *   1. **It runs AFTER the entity read, never before.** A live row must beat a
+ *      mapping, which is what lets a redirect be deployed ahead of the data op that
+ *      retires the row — the same "no window where the URL 404s" property the two
+ *      hardcoded 301s it replaces had. It also means the map costs nothing on the
+ *      hot path: the lookup fires only on a request already headed for a 404.
+ *   2. **It is `RESPONSE_INIT`, not `RedirectCommand`** — the same reasoning
+ *      AECI-953 wrote out in `products-pair.resolver.ts`: Angular's own redirect
+ *      path sets `Vary: X-Forwarded-Prefix`, which `CLAUDE.md` forbids, and
+ *      `applySeoHeaders` (the thing that strips it) does not run on a 3xx.
+ *   3. **It is OPT-IN per route, not automatic.** `/products/:slug/review` reuses
+ *      this scaffold with the same fetch and the same `entityKind`, and a redirect
+ *      there would send a reader to `/products/{to}` — dropping the `/review`
+ *      segment they asked for. Only a route that IS the entity's canonical page
+ *      sets the flag.
  */
 import { isPlatformServer } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -46,13 +66,32 @@ import {
   inject,
   makeStateKey,
 } from '@angular/core';
-import { ResolveFn } from '@angular/router';
+import { ResolveFn, Router } from '@angular/router';
 
 import type { ServerApiClient } from '../../server-api-client';
 import type { AeciRequestContext } from '../../server/request-context';
 import { httpGetOrNull } from './api/http-get-or-null';
+import {
+  fetchSlugRedirect,
+  httpGetSlugRedirect,
+  type RedirectableEntity,
+} from './api/slug-redirects';
 import { canonicalUrl } from './canonical';
 import { MetaService, type EntityKind } from './meta.service';
+
+/**
+ * `Cache-Control` for a retired-slug 301 (AECI-978).
+ *
+ * The same `public, max-age=3600, s-maxage=86400` every other permanent redirect in
+ * the app carries — the SSR Worker's `/integrations/:id` and `/disciplines` routes,
+ * and AECI-953's moved-pair 301. A redirect is a mapping, not content: it changes
+ * only when an operator edits `slug_redirects`, and the `Cache-Tag` below is the
+ * handle for that. No `stale-while-revalidate` — redirects deliberately omit it.
+ *
+ * Written as a literal because `buildCacheControl` lives in `server-runtime.ts`,
+ * which app code cannot import (it pulls in the Worker `Bindings` types).
+ */
+const SLUG_REDIRECT_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
 
 export interface DetailResolverConfig<T extends { id: string }> {
   /** TransferState key prefix, e.g. `aeci.product-detail:`. The route param is
@@ -79,6 +118,15 @@ export interface DetailResolverConfig<T extends { id: string }> {
    *  the client (a SPA navigation produces no HTTP response to tag). Optional:
    *  omit on a non-cacheable route, which has no `Cache-Tag` to contribute. */
   pushEmbedded?: (ctx: AeciRequestContext, entity: T) => void;
+  /**
+   * Opt in to the retired-slug 301 (AECI-978). The value is the `slug_redirects`
+   * entity kind to look the param up under — `'product'` or `'vendor'` — which is
+   * narrower than `entityKind` on purpose: only those two routes are wired to the
+   * map, and naming the kind here rather than reusing `entityKind` keeps a route
+   * that is NOT the entity's canonical page (the review form) from opting in by
+   * accident. Omitted → the resolver 404s exactly as before.
+   */
+  followSlugRedirect?: RedirectableEntity;
   /** Whether a successful server-side resolve records a `POST /api/page-views`
    *  for this entity. Defaults to `true`. Set `false` on a route that reuses an
    *  entity fetch but is NOT that entity's canonical page (e.g. the review form
@@ -105,15 +153,35 @@ export function createDetailResolver<T extends { id: string }>(
 
     // ── Client path: in-app navigation or initial hydration. ────────────────
     if (!isPlatformServer(platformId)) {
+      // Both injected HERE, before any await — `inject()` only works while the
+      // injection context is live. `Router` is `optional` because the
+      // component-spec harness runs these resolvers without one; the app always
+      // has a router, and a null one simply skips the redirect and renders the
+      // not-found shell (the pre-AECI-978 behaviour).
+      const http = inject(HttpClient);
+      const router = inject(Router, { optional: true });
+
       // Hydration / back-nav → reuse the SSR-stored value (entity or real null).
       // Genuine client nav (no key) → fetch from the browser via the same-origin
-      // `/api/*` passthrough. `inject()` runs before the await, in context.
+      // `/api/*` passthrough.
       const entity = transferState.hasKey(stateKey)
         ? transferState.get(stateKey, null)
-        : await httpGetOrNull<T>(
-            inject(HttpClient),
-            `/api/${config.pathSegment}/${encodeURIComponent(param)}`,
-          );
+        : await httpGetOrNull<T>(http, `/api/${config.pathSegment}/${encodeURIComponent(param)}`);
+
+      // AECI-978 — the client half of the retired-slug redirect. A SPA navigation
+      // has no HTTP status, so the equivalent of a 301 is a `replaceUrl`
+      // navigation: the retired URL must not sit in the history stack, or Back
+      // from the surviving page lands on the one that just redirected and bounces
+      // forward again. Same shape as AECI-953's moved-pair redirect.
+      if (!entity && config.followSlugRedirect && router) {
+        const moved = await httpGetSlugRedirect(http, config.followSlugRedirect, param);
+        if (moved) {
+          void router.navigateByUrl(`/${config.pathSegment}/${moved.to_slug}`, {
+            replaceUrl: true,
+          });
+          return null;
+        }
+      }
 
       // Re-apply head metadata client-side. Idempotent on hydration; on a client
       // navigation it is the ONLY thing that refreshes <title>/canonical/JSON-LD
@@ -142,6 +210,46 @@ export function createDetailResolver<T extends { id: string }>(
     transferState.set(stateKey, entity);
 
     if (!entity) {
+      // AECI-978 — ask the retired-slug map before committing to the 404. This is
+      // the ONLY place it is consulted, which is what makes §2.6's "never the hot
+      // path" literally true: the read has already missed by the time we get here.
+      const moved = config.followSlugRedirect
+        ? await fetchSlugRedirect(ctx.api, config.followSlugRedirect, param)
+        : null;
+      if (moved && responseInit) {
+        responseInit.status = 301;
+        // `ResponseInit.headers` is typed `HeadersInit | undefined`, though
+        // `@angular/ssr` always builds a real `Headers` and hands the SAME object
+        // to both DI and the final `new Response(...)`. Normalising rather than
+        // casting keeps that an assumption we can be wrong about without losing
+        // the headers.
+        const headers =
+          responseInit.headers instanceof Headers ? responseInit.headers : new Headers();
+        responseInit.headers = headers;
+        // The origin comes off `canonical`, built ABOVE while the injection
+        // context was still live. Calling `canonicalUrl` here would throw — it
+        // injects `REQUEST`, and the awaits above have ended that context.
+        //
+        // The query string is deliberately DROPPED. WC-4 strips the query from the
+        // shared edge cache key on a non-listing path like `/products/:slug`, so a
+        // `Location` that varied by query would collapse onto whichever one warmed
+        // the entry first — the trap the `/disciplines` redirect had to go
+        // `private` to avoid. A detail URL carries no content-bearing params.
+        headers.set(
+          'Location',
+          `${new URL(canonical).origin}/${config.pathSegment}/${moved.to_slug}`,
+        );
+        // Set HERE rather than left to the SSR Worker: `withCacheHeaders` hands a
+        // 3xx to `ensureNoStore`, which only fills in a MISSING directive, so a
+        // permanent mapping would otherwise be re-rendered on every crawler hit.
+        headers.set('Cache-Control', SLUG_REDIRECT_CACHE_CONTROL);
+        // Tagged on the SURVIVOR, per `CACHE_STRATEGY.md` §2. The map is mutable —
+        // unlike every other redirect in the app, whose mapping is immutable — so
+        // it needs a purge handle, and the survivor is the entity whose own edit
+        // (a rename, another retirement) is what would make this 301 wrong.
+        headers.set('Cache-Tag', `${config.followSlugRedirect}:${moved.to_slug}`);
+        return null;
+      }
       if (responseInit) responseInit.status = 404;
       meta.setNotFoundMeta({ kind: config.entityKind, slug: param, canonical });
       return null;

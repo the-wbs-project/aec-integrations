@@ -102,6 +102,10 @@ import {
   createPromoteKickoffHandler,
 } from './routes/promote-kickoff';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
+import {
+  createSlugRedirectResolveHandler,
+  createSlugRedirectsListHandler,
+} from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
 import { createLinearWebhookHandler } from './routes/webhooks';
@@ -199,6 +203,13 @@ phase28.get('/api/products/:slug/integrations/:otherSlug/timeline', createPairTi
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());
+
+// AECI-978 — the retired-slug map (`STAGE_3_SPEC.md` §2.6 option B). The resolve
+// route is called by the product/vendor detail resolvers ONLY after their own read
+// missed; the list route feeds `sitemap.xml` and the IndexNow drain. The bare list
+// path is registered first so `slug-redirects` is never captured as an `:entity`.
+phase28.get('/api/slug-redirects', createSlugRedirectsListHandler());
+phase28.get('/api/slug-redirects/:entity/:fromSlug', createSlugRedirectResolveHandler());
 
 phase28.get('/api/integrations', createIntegrationsListHandler());
 phase28.get('/api/integrations/:id', createIntegrationDetailHandler());

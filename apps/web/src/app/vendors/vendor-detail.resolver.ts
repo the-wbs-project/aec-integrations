@@ -87,6 +87,10 @@ export const vendorDetailResolver = createDetailResolver<VendorDetail>({
   pathSegment: 'vendors',
   entityKind: 'vendor',
   fetch: fetchVendorBySlug,
+  // AECI-978 — this is where the `bluebeam` -> `nemetschek-group` 301 lives now. It
+  // was a hardcoded Worker route in `server-runtime.ts` until this issue moved it
+  // into `slug_redirects`, which is what that route's own comment asked for.
+  followSlugRedirect: 'vendor',
   applyMeta: (meta, vendor, canonical) => {
     meta.setEntityMeta({
       entity: 'vendor',

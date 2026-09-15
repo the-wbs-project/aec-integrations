@@ -1427,52 +1427,38 @@ export function createApp(options: {
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
 
-  // AECI-685 — retraction residue. Bluebeam is a Nemetschek brand; both Bluebeam
-  // products were re-parented to Nemetschek Group, leaving the `bluebeam` vendor
-  // with zero products but still promoted, indexed, in `sitemap.xml`, and
-  // rendering an empty product grid. The row is being deleted; this 301 keeps the
-  // indexed URL pointing somewhere true instead of 404ing it, on the same
-  // reasoning as AECI-165 above.
+  // AECI-978 — THE PER-ENTITY 301s MOVED OUT OF THIS FILE.
   //
-  // Hard-coded on purpose. This is the FIRST per-entity redirect in the app —
-  // every other one here is a whole route class — and one entity does not justify
-  // a redirect subsystem. The general case (a mutable slug→slug map, which would
-  // need a `Cache-Tag` handle precisely because it is NOT immutable like the
-  // mappings above) has no owner today. It does NOT belong to the retraction path:
-  // AECI-595 closed 2026-09-07 upstream, and its remainder shipped as AECI-882 —
-  // a consumer that DELETES rows, which leaves a noindexed empty page rather than a
-  // redirect, and mints no slug mapping at all. The redirect table is option B of
-  // `docs/STAGE_3_SPEC.md` §2.6 (rebrand handling), whose mechanism is still
-  // unchosen. If a second entry ever lands here, build that instead of adding a third.
+  // `/vendors/bluebeam` -> `/vendors/nemetschek-group` (AECI-685) used to be a
+  // hardcoded route right here, and its own comment said that if a second entry
+  // ever landed, the next person should build the general slug->slug map instead
+  // of adding a third. AECI-809 was that second entry — Autodesk Construction Cloud
+  // merging into Autodesk Forma — so the map got built: `slug_redirects`
+  // (`STAGE_3_SPEC.md` §2.6 option B, `apps/api/src/db/schema.ts`), read by the
+  // product and vendor detail resolvers on their not-found branch and emitting the
+  // same 301 with the same `Cache-Control`.
   //
-  // AECI-926 landed that second entry (below). Read this as n = 2, not as permission
-  // for a third: the next one builds the table. Both survivors are one-off residue of
-  // a row being DELETED, both targets are immutable, and neither needs a `Cache-Tag`
-  // handle — which is exactly the case the STAGE_3 table exists to handle and these
-  // two do not.
+  // Two consequences worth knowing before adding anything here:
   //
-  // AECI-953 is not the third, and does not move the count. It redirects a PAIR page
-  // whose edges were re-pointed onto another product — both slugs unchanged, the edge
-  // is what moved — off `integration_endpoint_moves`, emitted from the pair resolver
-  // rather than from a Worker route here. A slug→slug map for a renamed entity is
-  // still unowned.
+  //   - **A retired product or vendor slug is now a DATA change, not a deploy.**
+  //     Insert a `slug_redirects` row. Do not add a route.
+  //   - **The map is read only after the entity read missed**, so it can still be
+  //     seeded ahead of the data op that deletes the row — the property that made
+  //     the hardcoded routes safe to ship early is preserved, not lost.
   //
-  // Registered BEFORE the SSR catch-all so it wins, and it wins whether or not
-  // the vendor row still exists — which is why it can be deployed ahead of the
-  // production delete, leaving no window where the URL 404s.
-  app.get('/vendors/bluebeam', (c) => {
-    const url = new URL(c.req.url);
-    return new Response(null, {
-      status: 301,
-      headers: {
-        Location: `${url.origin}/vendors/nemetschek-group`,
-        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
-      },
-    });
-  });
+  // The redirects that remain in this file are whole route CLASSES with immutable
+  // mappings (`/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id`)
+  // plus one taxonomy term, below. Those are not per-entity retirements and do not
+  // belong in the table as it stands.
 
-  // AECI-926 — the SECOND (and last permitted) per-entity 301; see the AECI-685
-  // comment above for why this is hard-coded rather than a redirect table.
+  // AECI-926 — the one per-entity 301 still hard-coded, and the reason is a seam,
+  // not a policy: `slug_redirects` is wired to `createDetailResolver`, which serves
+  // `/products/:slug` and `/vendors/:slug` only. The taxonomy browse routes have
+  // their own resolver, so `entity` in that table admits `product` and `vendor` and
+  // nothing else — deliberately, so an operator cannot seed a `category` row that
+  // silently does nothing. Wiring the browse resolver is AECI-979; until then this
+  // stays, and a NEW category retirement goes here beside it rather than into the
+  // table.
   //
   // `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) resolves a category
   // find-or-CREATE by `slugify(name)`. The upstream term was named

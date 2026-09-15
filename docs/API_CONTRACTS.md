@@ -664,6 +664,56 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 Errors: `NOT_FOUND`.
 
+### 6.2a Slug redirects (AECI-978)
+
+The retired-slug map behind `STAGE_3_SPEC.md` §2.6 option B. Two public, unauthenticated
+reads over `slug_redirects` (`DATABASE_SCHEMA.md` §4.3b).
+
+```typescript
+export const SlugRedirectEntitySchema = z.enum(['product', 'vendor']);
+
+export const SlugRedirectSchema = z.object({
+  entity: SlugRedirectEntitySchema,
+  from_slug: z.string(),
+  to_slug: z.string(),          // the TERMINAL slug of the chain, not the next hop
+});
+
+export const SlugRedirectsListResponseSchema = z.object({
+  redirects: z.array(SlugRedirectSchema),
+});
+```
+
+#### `GET /api/slug-redirects/:entity/:fromSlug`
+
+Returns `SlugRedirect`, resolving a chain (`a` → `b` → `c` answers `c`) so a reader
+follows **one** redirect however many times the entity has been retired. A cycle answers
+`NOT_FOUND` rather than the last link before it — returning that would 301 into a loop the
+edge then caches.
+
+Errors: `NOT_FOUND` — for an unmapped slug, for a slug mapped under the *other* entity
+kind, and for an unknown `:entity`. All three are the same answer on purpose: the caller is
+our own detail resolver, and "no redirect" degrades to the ordinary 404 page, where a 400
+or a 500 would not.
+
+**The 404 here is the ordinary case, not an error.** The product and vendor resolvers ask
+about every slug that already missed, and almost all of them are junk.
+
+#### `GET /api/slug-redirects`
+
+Returns `SlugRedirectsListResponse` — every mapping, unpaginated. The table holds one row
+per retirement ever performed, and both callers (`sitemap.xml`, the IndexNow drain) need
+the whole `from_slug` set rather than a lookup.
+
+Errors: none beyond the shared envelope.
+
+**Why an endpoint rather than a field on the 404.** The obvious alternative was to put
+`moved_to` in the `NOT_FOUND` envelope `GET /api/products/:slug` already throws, mirroring
+AECI-953's `moved_to` on the pair payload. The pair case can carry it on a **200** — an
+emptied pair still renders — whereas a retired product has no body at all, so the hint
+would ride an error shape four other consumers parse structurally. And §2.6 asks for the
+map to be consulted "only on the not-found branch": a separate call makes that literally
+true, where an enriched envelope makes every product read pay for the lookup.
+
 ### 6.3 Integrations
 
 #### `GET /api/integrations`

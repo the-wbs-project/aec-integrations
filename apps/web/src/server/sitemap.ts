@@ -19,6 +19,12 @@
  * `updated_at` anywhere in the API, so those entries carry no `<lastmod>` —
  * the field is optional in the sitemap protocol (AECI-63 decision).
  *
+ * **A retired slug is withheld** (AECI-978). `slug_redirects` maps a retired
+ * product/vendor slug to its survivor, and the detail resolvers 301 on it. A URL
+ * that only redirects does not belong in a sitemap, so `from_slug`s are filtered out
+ * of the product and vendor loops — which matters only in the window where the
+ * mapping is seeded but the row has not been deleted yet.
+ *
  * **Trades are the one count-gated facet** (AECI-546). A `/trades/:slug` term is
  * listed only once it clears `TRADE_PUBLISH_MIN_PRODUCTS` — a sub-floor page
  * renders `noindex`, and advertising a noindex'd URL in the sitemap is the
@@ -34,6 +40,7 @@ import type {
   IntegrationListItem,
   PaginatedResponse,
   ProductListItem,
+  SlugRedirectsListResponse,
   TaxonomyResponse,
   VendorListItem,
 } from '@aeci/shared';
@@ -121,12 +128,24 @@ export async function resolveSitemapEntries(
 ): Promise<SitemapEntry[]> {
   const base = baseUrl.replace(/\/+$/, '');
 
-  const [products, vendors, integrations, taxonomy] = await Promise.all([
+  const [products, vendors, integrations, taxonomy, slugRedirects] = await Promise.all([
     paginate<ProductListItem>(client, '/api/products'),
     paginate<VendorListItem>(client, '/api/vendors'),
     paginate<IntegrationListItem>(client, '/api/integrations'),
     client.request<TaxonomyResponse>('/api/taxonomy'),
+    client.request<SlugRedirectsListResponse>('/api/slug-redirects'),
   ]);
+
+  // AECI-978 — never advertise a URL that only redirects. A retired slug is usually
+  // absent from the list endpoints anyway, because the row behind it was deleted;
+  // this filter covers the window BEFORE that happens. A `slug_redirects` row is
+  // seeded ahead of the data op that retires the row (that ordering is what removes
+  // the 404 window), so for a day or so the slug is both mapped and live. During
+  // that window the page still renders — a live row beats a mapping — but the
+  // sitemap should already have stopped nominating it as canonical, because it is
+  // on its way out and the survivor is the URL we want indexed.
+  const retired = { product: new Set<string>(), vendor: new Set<string>() };
+  for (const r of slugRedirects.redirects) retired[r.entity].add(r.from_slug);
 
   const entries: SitemapEntry[] = [
     // Index pages. AECI-165 removed the `/vendors` and `/integrations` index
@@ -163,6 +182,7 @@ export async function resolveSitemapEntries(
   ];
 
   for (const product of products) {
+    if (retired.product.has(product.slug)) continue;
     entries.push({
       loc: `${base}/products/${product.slug}`,
       lastmod: product.updated_at,
@@ -172,6 +192,7 @@ export async function resolveSitemapEntries(
   }
 
   for (const vendor of vendors) {
+    if (retired.vendor.has(vendor.slug)) continue;
     entries.push({
       loc: `${base}/vendors/${vendor.slug}`,
       lastmod: vendor.updated_at,

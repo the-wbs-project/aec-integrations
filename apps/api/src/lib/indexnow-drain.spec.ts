@@ -23,7 +23,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, indexnowQueue } from '../db/schema';
+import { auditLog, indexnowQueue, slugRedirects } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
@@ -171,6 +171,84 @@ describe('drainIndexNowQueue', () => {
     expect(body.keyLocation).toBe('https://www.aecintegrations.com/a1b2c3d4e5f6a7b8.txt');
     expect(result).toMatchObject({ ok: true, submitted: 4, deleted: 4, pending: 0 });
     expect(await queued()).toEqual([]);
+  });
+
+  it('does not submit a URL whose slug has retired (AECI-978)', async () => {
+    // Migration 0039 seeds `autodesk-construction-cloud` -> `autodesk-forma`. A
+    // promote can buffer the old URL minutes before the retirement row lands, so
+    // this drain-time filter is the only gate that catches it. Asking an engine to
+    // crawl a 301 spends one of a strictly limited number of submissions.
+    await enqueueIndexNowUrls(t.db, [url('autodesk-construction-cloud'), url('revit')]);
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    const body = JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1].body);
+    expect(body.urlList).toEqual([url('revit')]);
+    // Submitted counts what went on the wire; deleted counts what left the buffer.
+    // The retired row is CONSUMED — leaving it would re-run this filter forever.
+    expect(result).toMatchObject({ ok: true, submitted: 1, retired: 1, deleted: 2 });
+    expect(await queued()).toEqual([]);
+    expect(s.logs).toContainEqual(
+      expect.objectContaining({ message: 'aeci.indexnow.retired_skipped', urls_count: 1 }),
+    );
+  });
+
+  it('makes no request at all when every buffered URL has retired', async () => {
+    await enqueueIndexNowUrls(t.db, [url('autodesk-construction-cloud')]);
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, submitted: 0, retired: 1, deleted: 1 });
+    expect(await queued()).toEqual([]);
+  });
+
+  it('matches the retired path exactly, never by prefix', async () => {
+    // `/products/procore-x` must survive a retirement of `/products/procore`, and a
+    // vendor mapping must not suppress a product URL of the same slug.
+    await t.db.insert(slugRedirects).values({
+      entity: 'product',
+      fromSlug: 'procore',
+      toSlug: 'procore-platform',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await enqueueIndexNowUrls(t.db, [
+      url('procore'),
+      url('procore-x'),
+      'https://www.aecintegrations.com/vendors/procore',
+    ]);
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    const body = JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1].body);
+    expect(body.urlList).toEqual([
+      url('procore-x'),
+      'https://www.aecintegrations.com/vendors/procore',
+    ]);
   });
 
   it('emits aeci.indexnow.submit{source:cron,outcome:ok} on success', async () => {
