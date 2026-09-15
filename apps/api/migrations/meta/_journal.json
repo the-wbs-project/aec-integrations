@@ -267,6 +267,13 @@
       "when": 1789432556789,
       "tag": "0037_ambiguous_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1789448375960,
+      "tag": "0038_military_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

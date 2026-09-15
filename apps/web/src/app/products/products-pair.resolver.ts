@@ -19,6 +19,31 @@
  *     resolved): a `WebPage` naming both endpoints in `about` plus the visible
  *     breadcrumb trail, emitted only when the page is indexable.
  *
+ * ── AECI-953: AN EMPTY PAIR MAY BE A MOVED PAIR ─────────────────────────────
+ * A promote that re-points an endpoint keeps the edge's id and updates its row in
+ * place, but the pair page is keyed by two product SLUGS — so the URL moves and the
+ * old one served 200 + `noindex` with no redirect. AECI-726 did that to 37 live
+ * Procore edges and AECI-950 to 15 more. The API now answers an empty pair with
+ * `moved_to` when `integration_endpoint_moves` says the content went somewhere, and
+ * this resolver turns that into a **301** on the server and a `replaceUrl` navigation
+ * on the client.
+ *
+ * Two things about the server branch are load-bearing:
+ *
+ *   1. **It is `RESPONSE_INIT`, not `RedirectCommand`.** Angular's own redirect path
+ *      (`@angular/ssr`'s `createRedirectResponse`) unconditionally sets
+ *      `Vary: X-Forwarded-Prefix`. `CLAUDE.md` forbids any `Vary` value but
+ *      `Accept-Language`, and `withCacheHeaders` runs `applySeoHeaders` — the thing
+ *      that strips a forbidden `Vary` — on 2xx and 404 only, so a 3xx would carry it
+ *      to the edge. The same call also discards the headers set here.
+ *   2. **It runs before the `!pair` 404 branch and before the TransferState write.**
+ *      The Worker drops the body on a 3xx, so a transferred payload would serialise a
+ *      page nobody renders.
+ *
+ * A pair with even one surviving mechanism never redirects — Smartsheet kept one of
+ * its two Procore Project Management edges through AECI-726, and that page is smaller,
+ * not moved.
+ *
  * ── AECI-303: THE VERSION SELECTORS (§9) ────────────────────────────────────
  * `?context_version=` / `?other_version=` are forwarded to the API, which resolves
  * them and answers with `version_diff`. Three things about that are load-bearing:
@@ -69,7 +94,7 @@ import {
   inject,
   makeStateKey,
 } from '@angular/core';
-import { ResolveFn } from '@angular/router';
+import { ResolveFn, Router } from '@angular/router';
 
 import {
   orderedPairSlugs,
@@ -92,6 +117,33 @@ import {
 import { httpGetOrNull } from '../core/api/http-get-or-null';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+
+/**
+ * `Cache-Control` for the moved-pair 301 (AECI-953).
+ *
+ * The same `public, max-age=3600, s-maxage=86400` the SSR Worker's other permanent
+ * redirects carry (`server-runtime.ts` — `/integrations/:id`, `/vendors/bluebeam`,
+ * `/disciplines`), rather than a detail page's 900s. A redirect is a mapping, not
+ * content: it changes only when a promote moves the edge again, and that promote
+ * purges the `pair:` tag below. No `stale-while-revalidate` — `RESILIENCE` deliberately
+ * omits it on redirects.
+ *
+ * Written as a literal because `buildCacheControl` lives in `server-runtime.ts`, which
+ * app code cannot import (it pulls in the Worker `Bindings` types).
+ */
+const MOVED_PAIR_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
+
+/**
+ * The pair-page path a moved pair redirects to. One spelling for both branches, so the
+ * `Location` header and the client-side `navigateByUrl` can never disagree.
+ *
+ * The API has already oriented the two slugs for the requesting URL, so this does NOT
+ * canonicalise them — the endpoint the reader asked for stays in frame, and the new
+ * page's own `<link rel=canonical>` handles the alphabetical rule (§7.1/§11.2).
+ */
+function movedPairPath(movedTo: { context_slug: string; other_slug: string }): string {
+  return `/products/${movedTo.context_slug}/integrations/${movedTo.other_slug}`;
+}
 
 /** `<title>` name — "{context} and {other} integrations". */
 function pairMetaName(pair: ProductPairResponse): string {
@@ -255,6 +307,11 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
 
   // ── Client path: in-app navigation or initial hydration. ──────────────────
   if (!isPlatformServer(platformId)) {
+    // Injected HERE, before the fetch — `inject()` only works while the injection
+    // context is live, and the first `await` below ends it. `optional` because the
+    // component-spec harness runs this resolver without a router; the app itself
+    // always has one, and a null router simply skips the redirect and renders.
+    const router = inject(Router, { optional: true });
     const fetched = transferState.hasKey(stateKey)
       ? transferState.get(stateKey, null)
       : await httpGetOrNull<ProductPairResponse>(
@@ -263,6 +320,16 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
         );
     // Idempotent on a hydration hit — the server already gated what it transferred.
     const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
+
+    // AECI-953 — the client half of the moved-pair redirect. A SPA navigation has no
+    // HTTP status, so the equivalent of a 301 is a `replaceUrl` navigation: the moved
+    // URL must not sit in the history stack, or Back from the new page lands on the
+    // page that just redirected and bounces forward again.
+    const movedTo = pair?.moved_to;
+    if (movedTo && router) {
+      void router.navigateByUrl(movedPairPath(movedTo), { replaceUrl: true });
+      return null;
+    }
 
     if (pair) applyResolvedMeta(pair);
     else meta.setNotFoundMeta({ kind: 'integration', slug: notFoundSlug, canonical });
@@ -282,6 +349,35 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
   // Gate BEFORE the transfer: `TransferState` is serialised into the SSR document,
   // which is the artefact that lands in the shared edge-cache entry.
   const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
+
+  // ── AECI-953: the moved-pair 301, before anything else the server does ──────
+  // Checked ahead of the `!pair` 404 branch and ahead of the TransferState write:
+  // this response has no readable body, so transferring a payload into it would
+  // serialise a page nobody renders.
+  const movedTo = pair?.moved_to;
+  if (movedTo && responseInit) {
+    responseInit.status = 301;
+    // `ResponseInit.headers` is typed `HeadersInit | undefined`, though `@angular/ssr`
+    // always builds a real `Headers` and hands the SAME object to both DI and the final
+    // `new Response(...)`. Normalising rather than casting keeps that an assumption we
+    // can be wrong about without losing the headers.
+    const headers = responseInit.headers instanceof Headers ? responseInit.headers : new Headers();
+    responseInit.headers = headers;
+    // The origin comes off `canonical`, which `canonicalUrl` already built ABOVE, in
+    // the injection context. Calling `canonicalUrl` here would throw — it injects
+    // `REQUEST`, and the `await` on the fetch has ended that context.
+    headers.set('Location', `${new URL(canonical).origin}${movedPairPath(movedTo)}`);
+    // Set HERE rather than left to the SSR Worker. `withCacheHeaders` treats a 3xx as
+    // neither 2xx nor 404 and hands it to `ensureNoStore`, which only fills in a
+    // Cache-Control when one is absent — so a permanent mapping would otherwise be
+    // re-rendered on every crawler hit. The tag is the OLD pair's, which is what the
+    // promote purges when the edge moves again or moves back.
+    headers.set('Cache-Control', MOVED_PAIR_CACHE_CONTROL);
+    headers.set('Cache-Tag', `pair:${minSlug}__${maxSlug}`);
+    transferState.set(stateKey, null);
+    return null;
+  }
+
   transferState.set(stateKey, pair);
 
   if (!pair) {

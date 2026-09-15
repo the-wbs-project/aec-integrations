@@ -181,6 +181,23 @@ export function cacheTagsForPromote(
     // page must repaint too. Absent for edges with no powered-by product (and on
     // older responses) — guard.
     if (integration.poweredBySlug) tags.add(`product:${integration.poweredBySlug}`);
+    // AECI-953 — the pair page the edge moved OFF. Closes the "endpoint-move gap" that
+    // `CACHE_STRATEGY.md` §3 rule 4 and `STAGE_1_5_SPEC.md` §12.4 both name: the loop
+    // above derives its tags from the POST-update endpoints, so the old pair page kept
+    // serving a cached copy of an edge it no longer holds until TTL. Since this promote
+    // also wrote the `integration_endpoint_moves` row, that stale copy is now hiding a
+    // 301 rather than an empty page — so purging it is what makes the redirect visible.
+    //
+    // Both old endpoints get a `product:` tag too. One of them is the product that lost
+    // the row from its own integrations table and is otherwise unreachable here: it is
+    // neither endpoint of the edge any more, and on a promote of the OTHER endpoint it
+    // is not `response.product` either.
+    if (integration.movedFromSlugs) {
+      const [fromA, fromB] = integration.movedFromSlugs;
+      tags.add(pairCacheTag(fromA, fromB));
+      tags.add(`product:${fromA}`);
+      tags.add(`product:${fromB}`);
+    }
   }
 
   return [...tags];

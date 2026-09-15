@@ -316,6 +316,28 @@ export const ProductPairResponseSchema = z.object({
    * parses a response from an API Worker that predates the field.
    */
   version_diff: PairVersionDiffSchema.nullable().default(null),
+  /**
+   * Where this pair's content went (AECI-953 / `STAGE_1_5_SPEC.md` §7.2), or `null`.
+   *
+   * Set **only** on an empty pair whose edges were re-pointed onto another product by
+   * a promote — the AECI-726 / AECI-950 shape, where the edge keeps its id and updates
+   * in place but the two-slug URL moves. The SSR resolver turns it into a **301** to
+   * `/products/{context_slug}/integrations/{other_slug}` instead of rendering the
+   * 200 + `noindex` empty page.
+   *
+   * Three things it is not:
+   *   - **Not a slug alias.** A renamed product is a different problem and stays with
+   *     `STAGE_3_SPEC.md` §2.6 (mechanism unchosen).
+   *   - **Not set on a pair that still has a mechanism.** A pair that lost one edge of
+   *     two is smaller, not moved, and redirecting it would hide live content.
+   *   - **Not a guess.** It is read from the moved edge's live row, so it always names
+   *     a pair that currently holds that edge.
+   *
+   * Already oriented for the requesting URL — the endpoint that did not move stays in
+   * the reader's frame. `.default(null)` so an SSR Worker on this schema still parses a
+   * response from an API Worker that predates the field.
+   */
+  moved_to: z.object({ context_slug: z.string(), other_slug: z.string() }).nullable().default(null),
 });
 
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;

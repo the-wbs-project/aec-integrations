@@ -1750,7 +1750,10 @@ it. You are executing a decision, not making one.
 
 **Residue that is normal:** `stats_cache` reads high until the 07:00 cron, and `metrics_daily`
 history keeps the pre-delete totals (ADR 0027 — a snapshot is corrected, not final). A retracted
-pair leaves a **noindexed empty pair page, not a 404**.
+pair leaves a **noindexed empty pair page, not a 404** — and, unlike a re-pointed endpoint,
+not a redirect either. AECI-953 301s an emptied pair only when `integration_endpoint_moves`
+says the edge moved somewhere; a retraction deletes the edge, writes no move row, and has
+nowhere to point.
 
 ---
 

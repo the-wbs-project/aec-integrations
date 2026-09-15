@@ -691,7 +691,24 @@ function withCacheHeaders(
   const isOk = response.status >= 200 && response.status < 300;
   const is404 = response.status === 404;
 
-  if (!isOk && !is404) return ensureNoStore(response);
+  if (!isOk && !is404) {
+    // A redirect the SSR render itself asked for (AECI-953's moved-pair 301, via
+    // `RESPONSE_INIT`). Angular always hands back the rendered HTML stream, so drop
+    // the body: a 301 with a page in it is wasted bytes, and the `Location` is the
+    // whole message. Its own `Cache-Control`/`Cache-Tag` came through `RESPONSE_INIT`
+    // and are preserved — `ensureNoStore` only fills in a missing directive, so a
+    // redirect that set none still degrades to `private, no-store`.
+    if (response.status >= 300 && response.status < 400) {
+      return ensureNoStore(
+        new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        }),
+      );
+    }
+    return ensureNoStore(response);
+  }
 
   const ttl = is404 ? NOT_FOUND_TTL : routeTtl;
   const headers = new Headers(response.headers);
@@ -1427,6 +1444,12 @@ export function createApp(options: {
   // redirect, and mints no slug mapping at all. The redirect table is option B of
   // `docs/STAGE_3_SPEC.md` §2.6 (rebrand handling), whose mechanism is still
   // unchosen. If a second entry ever lands here, build that instead of adding a third.
+  //
+  // AECI-953 is NOT that second entry and does not discharge this. It redirects a
+  // PAIR page whose edges were re-pointed onto another product — both slugs unchanged,
+  // the edge is what moved — off `integration_endpoint_moves`, emitted from the pair
+  // resolver rather than from a Worker route. A slug→slug map for a renamed entity is
+  // still unowned.
   //
   // Registered BEFORE the SSR catch-all so it wins, and it wins whether or not
   // the vendor row still exists — which is why it can be deployed ahead of the

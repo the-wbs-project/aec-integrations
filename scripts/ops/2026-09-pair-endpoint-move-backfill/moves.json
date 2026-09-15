@@ -1,0 +1,306 @@
+{
+  "issue": "AECI-953",
+  "recordedAt": "2026-09-15",
+  "note": "The 52 endpoint moves that happened BEFORE the promote learned to record them. Slugs only: the Linear comments name upstream `rec…` review-app ids, which are not the app-DB ids, so the cohort is keyed on the pair URLs instead. Sources: AECI-726 comment 2026-09-14 (37 rows) and AECI-950 comment 2026-09-15 (15 rows).",
+  "moves": [
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "signnow",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "appfolio",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "aquifer",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "arcoro-onboarding",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "billy-insurance-compliance",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "buildots",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "cupixworks",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "digibuild",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "document-crunch",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "docusign",
+      "issue": "AECI-726"
+    },
+    { "from": "procore-project-management", "to": "procore", "other": "domo", "issue": "AECI-726" },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "dronedeploy",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "exaktime",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "gcpay-integration",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "goformz",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "inspectmind-ai",
+      "issue": "AECI-726"
+    },
+    { "from": "procore-project-management", "to": "procore", "other": "join", "issue": "AECI-726" },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "kroo-connector",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "matterport",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "miter",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "monday-com",
+      "issue": "AECI-726"
+    },
+    { "from": "procore-project-management", "to": "procore", "other": "okta", "issue": "AECI-726" },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "openasset-connector",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "openspace",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "outbuild",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "pipedrive",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "precogs",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "propeller",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "quickbase",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "salesforce",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "smartapp",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "smartsheet",
+      "issue": "AECI-726",
+      "note": "The old pair page SURVIVES — Smartsheet keeps a second edge on the SKU. The row is recorded and stays inert; the redirect gate is `no mechanisms`, not `a move row exists`."
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "structured-ai",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "teamweave",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "touchplan",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "treblehook",
+      "issue": "AECI-726"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "wrike",
+      "issue": "AECI-726"
+    },
+
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "clearstory",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "deltek-computerease",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "field-materials-ai",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "jonas-enterprise",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "myob-accountright-business-connector-by-0link",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "netsuite-connector-by-appficiency",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "projectsos-for-architecture-engineering-design",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "projectsos-for-construction",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-project-financials",
+      "other": "sage-intacct-construction",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-quality-safety",
+      "other": "datubim",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-quality-safety",
+      "other": "elas",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-quality-safety",
+      "other": "provizual",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore-quality-safety",
+      "other": "salus",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "adp-workforce-now",
+      "issue": "AECI-950"
+    },
+    {
+      "from": "procore-project-management",
+      "to": "procore",
+      "other": "paylocity",
+      "issue": "AECI-950"
+    }
+  ]
+}

@@ -859,8 +859,9 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair. **Claims whose `version_status` is `removed` are excluded from all three counts** (AECI-303): they still render, struck through, but "N data objects sync" must not count a flow that has stopped. Filtered at the single `computeSyncHeadline` call site in `toProductPairResponse`, not inside the shared engine.
 - **`version_diff`** (AECI-303 / §9) is **non-`null` only when a pair has BOTH at least one product release AND at least one live version-stamped attestation.** Both facts are server-side only, which is why the decision is not left to the browser: that one null is the entire suppression rule, and it makes "latest × latest renders identically to today for claims with no version data" structural rather than a rendering discipline. Promote does not ingest versions (§11) and the only writer is the Verified-vendor API, so today this is `null` for the whole catalog.
 - **Presence and the diff apply UNIFORMLY, including at latest × latest.** A claim is present at (vA, vB) when, for each attesting side, `introduced_version <= selected` and (`deprecated_version` is null **or** `selected < deprecated_version`); **a claim with no version stamps is always present.** A claim present at neither the selected nor the previous pair is **dropped from the response entirely** — otherwise a pair with a long release history would render every flow it ever had. Ordering and every comparison key off `sort_key` through `compareProductVersions` (`@aeci/shared/version-diff`), never the label and never the nullable `released_at`; `sort_key` is packed per-product, so comparing it *across* the two products is meaningless.
-- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
-- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2).
+- **`moved_to`** (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a) is `{ context_slug, other_slug }` when this pair is **empty AND its edges were re-pointed onto another product**, else `null`. A re-pointed endpoint keeps the edge's id and updates its row in place, but a pair page is keyed by two product slugs — so the URL moves and the old one used to serve 200 + `noindex` forever. The SSR resolver turns a non-null value into a **301**. Four rules: it is set **only** when both anchor tables returned nothing (a pair that lost one edge of two is smaller, not moved, and redirecting it would hide live rows); it is read from the moved edge's **live** row, so it always names a pair that currently holds that edge and a chain of moves resolves to its end; a deleted edge yields `null`, so a retraction still leaves a noindexed empty page; and it is **already oriented** for the requesting URL — the endpoint that did not move stays in the reader's frame, because §7.1's alphabetical rule is a canonical concern the destination page applies itself. It is **not** a slug alias: a renamed product is `STAGE_3_SPEC.md` §2.6 and unbuilt.
+- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only.
 
 #### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
 
@@ -4382,7 +4383,14 @@ export interface PromoteResponse {
   // other tag rule reaches. It is a PURGE TARGET, not a read-back of the stored
   // column: on an AECI-888 de-route (explicit `poweredByProduct: null` moving an
   // edge out of `connector_evidenced_pairs`) the column lands NULL and this carries
-  // the connector moved away from. All three are optional; tolerate absence.
+  // the connector moved away from.
+  // movedFromSlugs (AECI-953) are the two ENDPOINT slugs an edge moved away from,
+  // present only when this promote re-pointed an endpoint. Same discipline as
+  // poweredBySlug: a purge target, not state. The pair page is keyed by two slugs, so
+  // a re-point moves its URL and the OLD page goes stale — and no other rule reaches
+  // it. The deriver turns them into the old `pair:{min}__{max}` plus a `product:` tag
+  // each; the durable half of the same event is the `integration_endpoint_moves` row.
+  // Unordered. All four are optional; tolerate absence.
   integrations: {
     ref: string;
     id: string;
@@ -4390,6 +4398,7 @@ export interface PromoteResponse {
     sourceSlug?: string;
     targetSlug?: string;
     poweredBySlug?: string;
+    movedFromSlugs?: [string, string];
   }[];
   taxonomy: {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
