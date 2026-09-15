@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, untracked } from '@angular/core';
 import { ActivatedRoute, Router, RouterOutlet } from '@angular/router';
 
+import { ViewPublicLink } from '../../shared/view-public-link/view-public-link';
 import { VendorProductNav } from '../vendor-product-nav';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -37,7 +38,7 @@ import { vendorProductContext } from './vendor-product-context';
  */
 @Component({
   selector: 'aec-vendor-products-page',
-  imports: [RouterOutlet, VendorProductNav],
+  imports: [RouterOutlet, VendorProductNav, ViewPublicLink],
   template: `
     @if (me()) {
       <div>
@@ -50,12 +51,23 @@ import { vendorProductContext } from './vendor-product-context';
             That product isn't linked to your vendor. Pick one from the Products menu.
           </p>
         } @else if (ctx.product(); as product) {
-          <h2
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.product"
-          >
-            {{ product.name }}
-          </h2>
+          <!--
+            The link is a SIBLING of the h2, outside its i18n block (AECI-960,
+            section 6.7). That block wraps an interpolation-only body, so nesting
+            the link would pull it into the message and make the translated
+            string carry markup it has no business carrying. One product is shown
+            at a time, so this link appears once per page and the uniform
+            accessible name is unambiguous.
+          -->
+          <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+            <h2
+              class="font-display text-xl font-semibold text-(--text-primary)"
+              i18n="@@vendor.section.product"
+            >
+              {{ product.name }}
+            </h2>
+            <aec-view-public-link [href]="'/products/' + product.slug" />
+          </div>
 
           <aec-vendor-product-nav [productName]="product.name" />
 

@@ -10,6 +10,8 @@ import type {
 import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
+import { ViewPublicLink } from '../../shared/view-public-link/view-public-link';
+
 import { VendorAddClaimForm, type DuplicateClaimHit } from './vendor-add-claim-form';
 import { VendorClaimLane } from './vendor-claim-lane';
 
@@ -31,7 +33,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
  */
 @Component({
   selector: 'aec-vendor-integration-card',
-  imports: [VendorAddClaimForm, VendorClaimLane],
+  imports: [VendorAddClaimForm, VendorClaimLane, ViewPublicLink],
   styles: [':host { display: block; }'],
   template: `
     <article
@@ -42,12 +44,31 @@ import { VendorClaimLane } from './vendor-claim-lane';
         <p class="aec-overline text-(--text-secondary)">
           {{ integration().context_product.name }}
         </p>
-        <h3
-          [id]="fieldId('heading')"
-          class="mt-1 font-display text-lg font-semibold text-(--text-primary)"
-        >
-          {{ integration().other_product.name }}
-        </h3>
+        <!--
+          The link is a SIBLING of the h3, never inside it (AECI-960, section
+          6.7). The h3 is this article's aria-labelledby target, so anything
+          nested in it is re-read as part of the region name on every entry.
+
+          It points at the PAIR page, not at the counterpart product. What a
+          vendor edits on this card is claims and attestations, and those render
+          on the pair route, not on the counterpart product page. Linking there
+          would answer "see my change" with a page the change is not on. Both
+          slugs are already on the wire.
+
+          The accessible name is destination-specific BECAUSE this card repeats:
+          one per integration, so N links sharing the name "View public page"
+          reproduces ACCESSIBILITY_AUDIT.md finding A4 (WCAG 2.4.4) inside the
+          portal. The two once-per-page portal links can and do stay uniform.
+        -->
+        <div class="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <h3
+            [id]="fieldId('heading')"
+            class="font-display text-lg font-semibold text-(--text-primary)"
+          >
+            {{ integration().other_product.name }}
+          </h3>
+          <aec-view-public-link [href]="pairPageHref()" [ariaLabel]="pairPageAriaLabel()" />
+        </div>
         <p class="mt-1 text-xs text-(--text-secondary)">
           <span>{{ mechanismLabel() }}</span>
           @if (ownsBothEndpoints()) {
@@ -132,6 +153,43 @@ export class VendorIntegrationCard {
   protected readonly pivotNotice = signal<string | null>(null);
 
   protected readonly ownsBothEndpoints = computed(() => this.integration().slots.length === 2);
+
+  /**
+   * The public pair page for this edge — `/products/:contextSlug/integrations/:otherSlug`
+   * (`app.routes.ts`), which is where the claims and attestations authored on
+   * this card actually render.
+   *
+   * Context first, other second, and the order is not cosmetic: the pair route's
+   * two segments are positional, so swapping them addresses the mirror page,
+   * which frames every direction the other way round. For an integration whose
+   * endpoints this vendor owns BOTH, the list emits one card per endpoint and
+   * each one links to its own framing — which is the correct answer, not a
+   * duplicate.
+   *
+   * No published/unpublished guard, deliberately. `ProductLink` carries no
+   * publication status, the public handlers do not filter on `promotion_status`,
+   * and D1's catalog is written only by promote — so a product this card can see
+   * always has a live page. A pair page with no edge on record renders `noindex`
+   * rather than 404ing, so the link cannot land on a missing page either.
+   */
+  protected readonly pairPageHref = computed(() => {
+    const integration = this.integration();
+    return `/products/${integration.context_product.slug}/integrations/${integration.other_product.slug}`;
+  });
+
+  /**
+   * Built in TS rather than as an interpolated `i18n-aria-label` — an
+   * interpolated `i18n-*` attribute emits no attribute at all in this toolchain,
+   * so the link would end up unnamed rather than merely uniform. The visible
+   * text leads so WCAG 2.5.3 Label in Name holds and speech input can target it
+   * (`DESIGN.md` §"Integration group card").
+   */
+  protected readonly pairPageAriaLabel = computed(() => {
+    const integration = this.integration();
+    const context = integration.context_product.name;
+    const other = integration.other_product.name;
+    return $localize`:@@vendor.attest.card.viewPublic.aria:View public page: the ${context}:CONTEXT: and ${other}:OTHER: integration (opens in a new tab)`;
+  });
 
   /**
    * Whether this card may author at all: the vendor-level Verified capability

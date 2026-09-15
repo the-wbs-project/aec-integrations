@@ -3,6 +3,8 @@ import { RouterOutlet } from '@angular/router';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
+import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
+
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorPortalNav } from './vendor-portal-nav';
 
@@ -61,17 +63,29 @@ import { VendorPortalNav } from './vendor-portal-nav';
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
-  imports: [RouterOutlet, VendorPortalNav],
+  imports: [RouterOutlet, VendorPortalNav, ViewPublicLink],
   template: `
     @let m = me();
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
       <header class="pb-4">
         <p class="aec-overline text-(--text-secondary)" i18n="@@vendor.eyebrow">Vendor</p>
-        <h1
-          class="mt-2 font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
-        >
-          {{ m.vendor.company_name }}
-        </h1>
+        <!--
+          The link sits BESIDE the h1, never inside it (AECI-960, section 6.7).
+          Inside, its text would join the page heading, which is the one string a
+          screen reader uses to say what this page is, and it would break the
+          spec assertion that the h1 reads exactly the company name. One per
+          page, so the uniform "View public page" accessible name is unambiguous
+          here and needs no destination-naming aria-label. The integrations tab
+          is the case that does.
+        -->
+        <div class="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <h1
+            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
+          >
+            {{ m.vendor.company_name }}
+          </h1>
+          <aec-view-public-link [href]="'/vendors/' + m.vendor.slug" />
+        </div>
       </header>
 
       <aec-vendor-portal-nav [products]="m.products" />
