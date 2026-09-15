@@ -124,8 +124,10 @@ export const VENDOR_SECTION_ROUTES: Routes = [
  * the store and the live-sync; the sections are its children.
  *
  * `vendorMeResolver` calls `GET /api/vendor/me` (gated by `requireVendor()`): a
- * 401/403/404 → a 404 render that never reveals the surface, a 200 → the
- * dashboard, a 5xx rethrows. It ALSO 404s a `:vendorSlug` that is not the
+ * 403/404 → a 404 render that never reveals the surface, a 401 →
+ * `/auth/login?return=<url>` (AECI-954, §6.6 — an expired token clears the
+ * worker's cookie-presence gate and must not dead-end), a 200 → the dashboard,
+ * a 5xx rethrows. It ALSO 404s a `:vendorSlug` that is not the
  * session's own vendor, so a URL can never render someone else's dashboard.
  *
  * Bare `/vendor` keeps working — both header menus link to it, and neither has a
@@ -144,7 +146,9 @@ export const VENDOR_SECTION_ROUTES: Routes = [
  *
  * A logged-out visitor is bounced to `/auth/login` by the worker-level gate
  * before SSR (`server-runtime.ts` `isVendorPath`, which already covers the
- * sub-paths). Non-cacheable + `Cache-Tag`-free by the fail-closed classifier —
+ * sub-paths). That gate is a cookie-PRESENCE check, so an expired token reaches
+ * SSR instead; the resolver's own 401 branch finishes the bounce (AECI-954).
+ * Non-cacheable + `Cache-Tag`-free by the fail-closed classifier —
  * no `server-runtime.ts` change was needed for the deeper paths.
  */
 export const VENDOR_ROUTES: Routes = [

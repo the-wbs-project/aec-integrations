@@ -21,7 +21,8 @@
  *     is unreachable from Playwright without provisioning a second Supabase
  *     account. It is covered instead by `admin-shell.component.spec.ts` (a null
  *     summary renders `<aec-not-found/>` with zero admin chrome) and
- *     `admin-summary.resolver.component.spec.ts` (401/403 → 404 + noindex head).
+ *     `admin-summary.resolver.component.spec.ts` (403 → 404 + noindex head; a
+ *     401 redirects to `/auth/login` instead, AECI-954).
  *     Same posture the AECI-203 / AECI-205 admin specs already document.
  */
 import { expect, test } from '@playwright/test';

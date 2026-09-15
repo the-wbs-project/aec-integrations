@@ -1287,10 +1287,13 @@ Three diagnostic facts worth carrying forward:
   hang. Useful trick: the `kid` query param on an Access redirect **is** the app's AUD tag,
   so one unauthenticated `curl -I` identifies which Access app guards a hostname, with no
   Access API permission needed.
-- **A lapsed app sign-in 404s `/admin/*` and `/vendor/*` by design** (`admin-shell.ts`
-  renders `<aec-not-found/>` on 401/403 from `GET /api/admin/summary`, ADMIN_PANEL_SPEC
-  §7.1; `vendor-gate.ts` likewise). A working admin URL that starts 404ing is a lapsed
-  session, not a broken deploy — probe `/api/vendor/me`.
+- **A lapsed app sign-in bounces `/admin/*` and `/vendor/*` to `/auth/login?return=<url>`**
+  since AECI-954 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6). A working admin URL that starts
+  redirecting to login is a lapsed session, not a broken deploy — probe `/api/vendor/me`.
+  A **404** on those paths is the other answer and means something different: the session
+  is live but the account is not an admin or not that vendor (`admin-shell.ts` renders
+  `<aec-not-found/>` on a 403 from `GET /api/admin/summary`, ADMIN_PANEL_SPEC §7.1;
+  `vendor-gate.ts` likewise).
 
 Finally, no workflow targets a hand-built tier, so nothing emits a PostHog deploy marker
 for you. `scripts/ci/posthog-deploy-marker.sh` accepts any tier value and always exits 0;
