@@ -1,3 +1,4 @@
+import { LogoReadUrlSchema } from './logos';
 import { z } from 'zod';
 
 import {
@@ -63,7 +64,7 @@ export const ProductListItemSchema = z.object({
   id: z.string().uuid(),
   slug: z.string().min(1),
   name: z.string().min(1),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
   product_role: ProductRoleSchema,
   vendor: VendorLinkSchema.nullable(),
   primary_category: LinkRefSchema.nullable(),

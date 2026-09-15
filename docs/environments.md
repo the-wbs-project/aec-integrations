@@ -1320,3 +1320,9 @@ Cross-references:
 - [`docs/access.md`](./access.md) — Cloudflare Access setup and service-token rotation.
 - [`docs/migrations.md`](./migrations.md) — D1/Drizzle migration workflow (§0); the legacy Supabase-CLI body is auth-project-only history.
 - [`CLAUDE.md`](../CLAUDE.md) — non-negotiable constraints (Drizzle over the D1 binding, `nodejs_compat` scope, `--var COMMIT_SHA` mandate, etc.).
+
+## Logo storage deployment (AECI-955)
+
+The API Worker declares `UPLOADS` in root plus preview, staging, demo and production. Root and preview use `aeci-uploads-preview`; other tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision all four private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. Per-PR Workers use the preview bucket, matching their shared preview environment.
+
+Apply additive migration `0037_ambiguous_frightful_four.sql` before the Worker update. Rollback can leave the two nullable columns and bucket intact. The old Worker lacks the ownership fence, so pause promote while rolling back. Do not configure age-only lifecycle deletion: live logos may reference old objects. Uploads abandoned before saving remain unreferenced objects until a reference-aware cleanup is designed. Verify authenticated upload, public image headers and a save/repromote cycle in preview before promoting tiers.

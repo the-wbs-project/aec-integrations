@@ -200,6 +200,7 @@ create table vendors (
 
   -- Brandfetch / logo (mirrors products.logo_url)
   logo_url text,
+  logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Operational
   verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
@@ -271,7 +272,8 @@ create table products (
   product_role text not null default 'application' check (product_role in ('application', 'connector', 'hybrid')),
 
   -- Brandfetch / logo
-  logo_url text, -- typically a Brandfetch CDN URL
+  logo_url text, -- HTTPS image URL or /api/logos/<sha256>
+  logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Aggregates (denormalized, kept in sync by app code via recomputeProductCounts(); triggers deferred to Phase 2 — see §11.2)
   integration_count integer not null default 0,
@@ -2830,3 +2832,7 @@ return json({ row: updated });
 The enqueue is best-effort: a failed or absent purge must never roll back the write — the queue binding is unset on local dev / PR previews, where `?.send` is a graceful no-op. Log failures; surface via the `aeci.cache.purge` metric. The URL-map `invalidateForEntity()` helper this section once showed was **never built and is superseded** — see `docs/CACHE_STRATEGY.md` §5 for the full native-Workers-Cache invalidation model (ADR 0020).
 
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
+
+### Logo ownership (AECI-955)
+
+Migration `0037_ambiguous_frightful_four.sql` adds nullable `logo_source` to products and vendors without changing existing values. Drizzle restricts writers to `vendor` or `admin`; the physical text column is nullable. Explicit logo saves, including clear, claim ownership. Omitted logo fields preserve it. Promote never writes provenance and conditionally updates logo_url only while logo_source IS NULL at SQL execution time. Uploads themselves write no D1 rows. See STAGE_2_5_SPEC.md §11.

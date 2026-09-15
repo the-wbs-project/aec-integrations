@@ -1,3 +1,4 @@
+import { LogoReadUrlSchema } from './api/logos';
 /**
  * Denormalized Algolia record shapes (AECI-137 / Phase 3.2).
  *
@@ -74,7 +75,7 @@ export const AlgoliaProductRecordSchema = z.object({
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),
   has_api_docs: z.boolean(),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;
@@ -168,7 +169,7 @@ export const AlgoliaVendorRecordSchema = z.object({
   company_name_sort: z.string().min(1),
   product_count: z.number().int().min(0),
   integration_count: z.number().int().min(0),
-  logo_url: z.string().url().nullable(),
+  logo_url: LogoReadUrlSchema.nullable(),
 });
 
 export type AlgoliaVendorRecord = z.infer<typeof AlgoliaVendorRecordSchema>;

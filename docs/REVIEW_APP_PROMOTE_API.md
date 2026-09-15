@@ -261,6 +261,8 @@ So:
 Every vendor in this array becomes a vendor **of the product** (a
 `product_vendor` link). Order matters only for the primary flag.
 
+**AECI-955 logo exception:** vendor/product `logoUrl` updates apply only when stored `logo_source IS NULL`. Vendor/admin choices and explicit removal survive promote. See “Logo ownership override” below.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; referenced by `product` and `builtByVendor`. |
@@ -1842,3 +1844,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] **Send a reach claim in `claims[]` on the connector arm, anchored by `connectorPairId`** (§3a, AECI-891) — never as an `integrations[]` claim. The two anchors mean different things: one says somebody built the integration, the other says only that the two ends are joinable. Send the pair before the claim, or expect a re-sendable `kind: "claim"` skip.
 - [ ] **Set `pairs[].surface` to `derived` on any pair you enumerated rather than found** (§3a, AECI-906). `unknown` promises a page exists and nobody read it; `derived` says no page exists. AECi counts `derived` toward reach and publishes it nowhere, so mislabelling it as `unknown` puts a non-existent vendor page into the publication candidate set.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).
+
+## Logo ownership override (AECI-955)
+
+`logoUrl` remains optional nullable text on vendor/product promote payloads. New records remain upstream-owned. On updates, the Worker writes it only when `logo_source IS NULL`, evaluated inside SQL rather than from a planning read. Vendor/admin edits and deliberate clears are preserved. Promote does not accept or write logo_source. The vendor-seat promote block still applies independently. No upstream payload change is required. See STAGE_2_5_SPEC.md §11 and ADR 0032.

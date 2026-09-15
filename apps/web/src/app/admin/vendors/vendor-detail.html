@@ -77,6 +77,22 @@
   </nav>
 
   @if (tab() === 'vendor') {
+  <section class="mt-6" aria-labelledby="admin-vendor-logo-heading">
+    <h3
+      id="admin-vendor-logo-heading"
+      class="mb-4 text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.logo.vendorHeading"
+    >
+      Vendor logo
+    </h3>
+    <aec-admin-logo-editor
+      kind="vendor"
+      [recordId]="v.id"
+      [logoUrl]="v.logo_url"
+      (logoSaved)="onVendorLogoSaved($event)"
+      (announce)="liveMessage.set($event)"
+    />
+  </section>
 
   <!-- ── Basics ───────────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-basics">
@@ -570,6 +586,7 @@
     </p>
 
     <aec-vendor-products-table
+      (announce)="liveMessage.set($event)"
       [rows]="productRows()"
       [page]="productPage()"
       [perPage]="productPerPage"

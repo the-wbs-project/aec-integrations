@@ -122,6 +122,7 @@ export const vendors = sqliteTable(
     contactEmail: text('contact_email'),
 
     logoUrl: text('logo_url'),
+    logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
 
     verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
     promotionStatus: text('promotion_status').notNull().default('pending'),
@@ -173,6 +174,7 @@ export const products = sqliteTable(
 
     productRole: text('product_role').notNull().default('application'),
     logoUrl: text('logo_url'),
+    logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
 
     integrationCount: integer('integration_count').notNull().default(0),
     reviewCount: integer('review_count').notNull().default(0),

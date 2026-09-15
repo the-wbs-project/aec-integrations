@@ -388,7 +388,7 @@ Post-commit, enqueue the **full** grant tag set via the shared `lib/vendor-cache
 
 `loadClaimedVendorIds` (`apps/api/src/lib/claimed-vendors.ts`) defines "claimed" as ≥1 **active** seat — deliberately not `verified` — and `POST /api/promote` refuses to write a claimed vendor. Clearing an entitlement leaves the seats, so the promote block stays in force while the portal writes now 403. **Result: nobody can edit that vendor.**
 
-This is the same shape as the banned-seat lockout AECI-520 already solved (which is why banned seats don't count as claimed), reappearing through a new door. There is no admin vendor-edit endpoint to fall back on. Since un-verify is rare and deliberate, the **accepted** mitigation at launch is: re-activate the entitlement → edit → clear again, or use `apps/datatool`. **It is recorded here as a known consequence with the escape hatch named** — closing it properly (exempt lapsed-but-seated vendors from the promote block, or add an admin vendor-edit endpoint) is §11.
+This is the same shape as the banned-seat lockout AECI-520 already solved (which is why banned seats don't count as claimed), reappearing through a new door. AECI-955 supplies a logo-only admin fallback (STAGE_2_5_SPEC.md §11). There is no general admin vendor-edit endpoint. Since un-verify is rare and deliberate, the **accepted** mitigation at launch is: re-activate the entitlement → edit → clear again, or use `apps/datatool`. **It is recorded here as a known consequence with the escape hatch named** — closing it properly (exempt lapsed-but-seated vendors from the promote block, or add an admin vendor-edit endpoint) is §11.
 
 ### 5.5 As built (AECI-532 — 2026-08-19)
 
@@ -498,7 +498,7 @@ Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_S
 
 #### 5.6.4 What this section does NOT do
 
-- **It does not close the §5.4 lockout.** No admin vendor-edit endpoint is added, so a cleared-but-still-seated vendor is still uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
+- **It does not close the §5.4 lockout.** AECI-955 later adds a logo-only admin exception. Other fields of a cleared-but-still-seated vendor remain uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
 - **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
 - **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
 - **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stays `open`, because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
@@ -550,7 +550,7 @@ Trail** — over one panel:
   splitting them would make the operator hold one in their head while reading the other.
 - **Products** is new, and reads `GET /api/admin/vendors/:id/products` (§5.6.1) —
   paginated, name-ordered, every `product_vendors` row with `is_primary` on the row.
-  Read-only: there is no admin product-edit endpoint, and §5.6.4's catalog lockout is
+  Read-only except for AECI-955 logo editing (STAGE_2_5_SPEC.md §11): there is no general admin product-edit endpoint, and §5.6.4's catalog lockout is
   unchanged by this.
 - **Audit Trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
 

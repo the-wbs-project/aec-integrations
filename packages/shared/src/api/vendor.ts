@@ -1,3 +1,4 @@
+import { LogoUrlSchema } from './logos';
 import { z } from 'zod';
 
 import { VendorEntitlementBlockSchema } from './admin-entitlements';
@@ -245,7 +246,7 @@ export const UpdateVendorProfileSchema = z
     parent_company: shortText.nullable().optional(),
     contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
     phone_number: shortText.nullable().optional(),
-    logo_url: editableUrl.nullable().optional(),
+    logo_url: LogoUrlSchema.nullable().optional(),
 
     linkedin_url: editableUrl.nullable().optional(),
     x_url: editableUrl.nullable().optional(),
@@ -286,7 +287,7 @@ export const UpdateVendorProductSchema = z
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
-    logo_url: editableUrl.nullable().optional(),
+    logo_url: LogoUrlSchema.nullable().optional(),
 
     category_slugs: termSlugList.optional(),
     audience_slugs: termSlugList.optional(),

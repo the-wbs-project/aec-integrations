@@ -1,3 +1,4 @@
+import { assertStoredLogo } from './logos';
 /**
  * Vendor portal API (`/api/vendor/*`, AECI-520 / Stage 2) — Drizzle/D1.
  *
@@ -751,6 +752,10 @@ export function createUpdateVendorProfileHandler(
     if (!before) throw notFoundError('vendor', { id: vendorId });
 
     const { columns } = splitPatch(payload, VENDOR_COLUMN_MAP, session.entitlementTier);
+    if (payload.logo_url !== undefined) {
+      await assertStoredLogo(c.env, payload.logo_url);
+      columns.logoSource = 'vendor';
+    }
     // `updatedAt` is stamped rather than left to `$onUpdate` so the response can
     // be built from data already in hand (see the product handler). It is kept
     // OUT of `columns` so the audit row records the vendor's edit and not a
@@ -856,6 +861,10 @@ export function createUpdateVendorProductHandler(
     ]);
 
     const { columns } = splitPatch(payload, PRODUCT_COLUMN_MAP, session.entitlementTier);
+    if (payload.logo_url !== undefined) {
+      await assertStoredLogo(c.env, payload.logo_url);
+      columns.logoSource = 'vendor';
+    }
     // ALWAYS stamp `updated_at`, even for a taxonomy-only edit that touches no
     // `products` column. Two things depend on it and both fail silently and
     // permanently otherwise: the nightly Algolia sync selects rows by

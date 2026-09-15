@@ -1,3 +1,5 @@
+import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { LogoInput } from '../../shared/logo-input/logo-input';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
 
@@ -86,7 +88,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-profile-form',
-  imports: [Listbox, Option],
+  imports: [LogoInput, Listbox, Option],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
       @if (updatedElsewhere()) {
@@ -123,35 +125,47 @@ interface FieldConfig {
 
         @for (cfg of profileFields; track cfg.key) {
           <div class="space-y-1.5">
-            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-            @if (cfg.control === 'textarea') {
-              <textarea
-                [id]="fieldId(cfg.key)"
-                rows="4"
-                [value]="model()[cfg.key]"
+            @if (cfg.key === 'logo_url') {
+              <aec-logo-input
+                [inputId]="fieldId(cfg.key)"
+                [value]="model()['logo_url'] ?? ''"
                 [readOnly]="!canEdit()"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="
-                  fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                "
-                [class]="controlClass()"
-              ></textarea>
-            } @else {
-              <input
-                [id]="fieldId(cfg.key)"
-                [type]="inputType(cfg.control)"
-                [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
-                [attr.autocomplete]="cfg.autocomplete ?? null"
-                [value]="model()[cfg.key]"
-                [readOnly]="!canEdit()"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="
-                  fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                "
-                [class]="controlClass()"
+                [disabled]="saving()"
+                (valueChange)="onLogoChange($event)"
+                (pendingChange)="logoPending.set($event)"
+                (announce)="announcer.announce($event)"
               />
+            } @else {
+              <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+              @if (cfg.control === 'textarea') {
+                <textarea
+                  [id]="fieldId(cfg.key)"
+                  rows="4"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!canEdit()"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="
+                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
+                  "
+                  [class]="controlClass()"
+                ></textarea>
+              } @else {
+                <input
+                  [id]="fieldId(cfg.key)"
+                  [type]="inputType(cfg.control)"
+                  [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
+                  [attr.autocomplete]="cfg.autocomplete ?? null"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!canEdit()"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="
+                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
+                  "
+                  [class]="controlClass()"
+                />
+              }
             }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -371,7 +385,9 @@ export class VendorProfileForm {
   /** Aria listbox value (always an array; `['']` = "Not specified"). */
   protected readonly publicPrivateSel = signal<string[]>(['']);
 
+  protected readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly saving = signal(false);
+  protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
 
@@ -440,7 +456,12 @@ export class VendorProfileForm {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
+    () =>
+      !this.canEdit() ||
+      this.saving() ||
+      this.logoPending() ||
+      !this.hasChanges() ||
+      this.hasErrors(),
   );
 
   /** The store deferred a fresh vendor payload because THIS form is holding it. */
@@ -470,7 +491,7 @@ export class VendorProfileForm {
     // Tell the store when there is something to protect. `hasChanges` is a
     // computed boolean, so this only runs on the transitions.
     effect(() => {
-      if (this.hasChanges()) untracked(() => this.store.markDirty('profile'));
+      if (this.hasChanges() || this.logoPending()) untracked(() => this.store.markDirty('profile'));
       else untracked(() => this.store.clearDirty('profile'));
     });
   }
@@ -499,6 +520,11 @@ export class VendorProfileForm {
       default:
         return 'text';
     }
+  }
+
+  protected onLogoChange(value: string): void {
+    this.model.update((m) => ({ ...m, logo_url: value }));
+    this.saved.set(false);
   }
 
   protected onInput(key: string, event: Event): void {

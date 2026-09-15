@@ -344,6 +344,7 @@ export type AdminVendorProductsQuery = z.infer<typeof AdminVendorProductsQuerySc
  * data-quality check asserts nightly.
  */
 export const AdminVendorProductRowSchema = z.object({
+  logo_url: z.string().nullable(),
   id: z.string().uuid(),
   slug: z.string().min(1),
   name: z.string().min(1),

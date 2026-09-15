@@ -1739,6 +1739,11 @@ export async function runPromoteIngest(
             companyName: v.companyName,
             promotionStatus: 'promoted',
             ...vendorEditableData(v),
+            ...(v.logoUrl !== undefined
+              ? {
+                  logoUrl: sql`CASE WHEN ${vendors.logoSource} IS NULL THEN ${v.logoUrl} ELSE ${vendors.logoUrl} END`,
+                }
+              : {}),
           })
           .where(eq(vendors.id, v.supabaseId)),
       );
@@ -2093,6 +2098,11 @@ export async function runPromoteIngest(
               promotionStatus: 'promoted',
               usefulness: usefulnessData,
               ...productEditableData(p),
+              ...(p.logoUrl !== undefined
+                ? {
+                    logoUrl: sql`CASE WHEN ${products.logoSource} IS NULL THEN ${p.logoUrl} ELSE ${products.logoUrl} END`,
+                  }
+                : {}),
             }),
             // Set-once (AECI-581 / §13 D6). This branch re-asserts
             // `promotion_status: 'promoted'` on EVERY re-promote — `product.updated`

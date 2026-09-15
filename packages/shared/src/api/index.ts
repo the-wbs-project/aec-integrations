@@ -31,3 +31,5 @@ export * from './vendor-updates';
 export * from './vendors';
 export * from './version';
 export * from './webhooks';
+
+export * from './logos';

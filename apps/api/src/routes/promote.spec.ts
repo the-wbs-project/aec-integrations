@@ -4081,3 +4081,111 @@ describe('createPromoteHandler — verified is not review-app writable', () => {
     expect(row?.verified).toBe(false);
   });
 });
+
+describe('AECI-955 promote logo ownership', () => {
+  it.each(['vendor', 'admin'] as const)(
+    'preserves %s replacements and intentional clears',
+    async (source) => {
+      const vendorId = uuid(800);
+      const productId = uuid(801);
+      await seedVendor(vendorId, 'logo-vendor', 'Logo vendor');
+      await seedProduct(productId, 'logo-product', 'Logo product');
+      for (const logoUrl of ['https://local.example/logo.png', null]) {
+        await t.db
+          .update(vendors)
+          .set({ logoUrl, logoSource: source })
+          .where(eq(vendors.id, vendorId));
+        await t.db
+          .update(products)
+          .set({ logoUrl, logoSource: source })
+          .where(eq(products.id, productId));
+        const response = await promote({
+          vendors: [
+            {
+              ref: 'v',
+              supabaseId: vendorId,
+              companyName: 'Logo vendor',
+              logoUrl: 'https://upstream.example/vendor.png',
+            },
+          ],
+          product: {
+            ref: 'p',
+            supabaseId: productId,
+            name: 'Logo product',
+            logoUrl: 'https://upstream.example/product.png',
+          },
+        });
+        expect(response.status).toBe(200);
+        expect(
+          await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
+        ).toMatchObject({ logoUrl, logoSource: source });
+        expect(
+          await t.db.query.products.findFirst({ where: eq(products.id, productId) }),
+        ).toMatchObject({ logoUrl, logoSource: source });
+      }
+    },
+  );
+  it('updates upstream-owned logos and leaves provenance null', async () => {
+    const vendorId = uuid(800);
+    const productId = uuid(801);
+    await seedVendor(vendorId, 'logo-vendor', 'Logo vendor');
+    await seedProduct(productId, 'logo-product', 'Logo product');
+    const logoUrl = 'https://upstream.example/logo.png';
+    expect(
+      (
+        await promote({
+          vendors: [{ ref: 'v', supabaseId: vendorId, companyName: 'Logo vendor', logoUrl }],
+          product: { ref: 'p', supabaseId: productId, name: 'Logo product', logoUrl },
+        })
+      ).status,
+    ).toBe(200);
+    expect(await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) })).toMatchObject({
+      logoUrl,
+      logoSource: null,
+    });
+    expect(
+      await t.db.query.products.findFirst({ where: eq(products.id, productId) }),
+    ).toMatchObject({ logoUrl, logoSource: null });
+  });
+  it('preserves a local save made after planning but before the batch commits', async () => {
+    const vendorId = uuid(800);
+    const productId = uuid(801);
+    await seedVendor(vendorId, 'logo-vendor', 'Logo vendor');
+    await seedProduct(productId, 'logo-product', 'Logo product');
+    // The planner sees null ownership; only SQL-time checks can preserve this save.
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
+      t.raw
+        .prepare("UPDATE vendors SET logo_url = ?, logo_source = 'admin' WHERE id = ?")
+        .run('https://local.example/vendor.png', vendorId);
+      t.raw
+        .prepare("UPDATE products SET logo_url = NULL, logo_source = 'vendor' WHERE id = ?")
+        .run(productId);
+      return original(queries);
+    });
+    const response = await promote({
+      vendors: [
+        {
+          ref: 'v',
+          supabaseId: vendorId,
+          companyName: 'Logo vendor',
+          logoUrl: 'https://upstream.example/vendor.png',
+        },
+      ],
+      product: {
+        ref: 'p',
+        supabaseId: productId,
+        name: 'Logo product',
+        logoUrl: 'https://upstream.example/product.png',
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) })).toMatchObject({
+      logoUrl: 'https://local.example/vendor.png',
+      logoSource: 'admin',
+    });
+    expect(
+      await t.db.query.products.findFirst({ where: eq(products.id, productId) }),
+    ).toMatchObject({ logoUrl: null, logoSource: 'vendor' });
+  });
+});
