@@ -105,7 +105,12 @@ export type EmailTemplate =
   | 'attestation-silent-counterparty'
   | 'attestation-open-conflict'
   | 'attestation-stale-version'
-  // The AECi-facing half of the same sweep: the `aeci-denied` correction signal
+  // AECI-961: the counterparty half of `claim-denied`. §7.2 named three vendor
+  // ids; this is the fourth, and it exists because the denial nudge is a
+  // different message to a different party than the three above — it tells a
+  // vendor what someone ELSE recorded about their product.
+  | 'attestation-claim-denied'
+  // The AECi-facing half of the same sweep: the `claim-denied` correction signal
   // and the ops escalation of an unresolved `open-conflict`. §7.2 named only the
   // three vendor ids above; ops mail needs its own id because the id IS the
   // `template:` metric tag and the `docs/email.md` catalogue key, and an ops
@@ -667,12 +672,64 @@ export function sendAttestationStaleVersionEmail(
 }
 
 /**
+ * `claim-denied` (§7.1), vendor half: the counterparty has recorded that this
+ * flow does not exist.
+ *
+ * AECI-961 added this. Before it, a denial reached AECi ops and nobody else, so
+ * the vendor portal could not honestly tell a denying vendor what their Deny
+ * does — see `STAGE_2_ATTESTATIONS_SPEC.md` §6.2 for the lane copy this email is
+ * the other end of.
+ *
+ * Two copy rules, both load-bearing:
+ *
+ * - **Non-accusatory**, on the `open-conflict` precedent. The recipient has not
+ *   disagreed with anyone: they have said nothing at all. The mail informs and
+ *   invites a position, it does not ask them to defend one.
+ * - **Stance only, never the denier's note.** `attestation-open-conflict` does
+ *   not carry notes either. The note is visible on the public pair page, so this
+ *   is not a confidentiality rule; it is that a free-text note quoted into an
+ *   email lands as an accusation in a way the same words on a provenance
+ *   disclosure do not.
+ *
+ * It also states what a reader would otherwise have to guess: the flow stays on
+ * the listing as unverified until AECi corrects the record. Nothing here may
+ * imply the denial changes ranking, placement, or search.
+ */
+export function sendAttestationClaimDeniedEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `${opts.counterpart} has recorded that ${opts.dataObject} does not move between ${opts.product} and ${opts.counterpart}${via}.`;
+  const stance =
+    'AEC Integrations is reviewing the record. Until we act, the flow stays on the listing as unverified.';
+  const ask = 'If you disagree, record your own position. If you agree, no action is needed.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-claim-denied',
+    subject: `${opts.counterpart} says ${opts.dataObject} does not move to ${opts.product}`,
+    text: toText([lead, stance, ask, ...links.text]),
+    html: toHtml([
+      `<strong>${escapeHtml(opts.counterpart)}</strong> has recorded that ${escapeHtml(opts.dataObject)} does not move between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
+      stance,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
  * The AECi-facing half of the sweep, one email per finding. Two detectors route
  * here and the body names which:
  *
- * - `aeci-denied` — a vendor denies a claim **AECi** seeded. The claim then
- *   computes `unverified` (§4.2), which is indistinguishable from "nobody voted"
- *   on every surface, so without this mail the correction is simply lost.
+ * - `claim-denied` — every voting vendor denies a claim. The claim then computes
+ *   `unverified` (§4.2), which is indistinguishable from "nobody voted" on every
+ *   surface, so without this mail the correction is simply lost. Since AECI-961
+ *   the same detector also mails the counterparty
+ *   ({@link sendAttestationClaimDeniedEmail}); this row is the ops copy, and it
+ *   no longer asserts the claim was AECi-seeded, because the origin gate is gone.
  * - `open-conflict` — the §7.1 escalation that accompanies the two vendor nudges.
  *
  * Operator format (`opsText`/`opsTable`), not the vendor prose format: this is a
@@ -683,7 +740,7 @@ export function sendAttestationOpsAlertEmail(
   c: EmailContext,
   opts: {
     to: string;
-    detector: 'aeci-denied' | 'open-conflict';
+    detector: 'claim-denied' | 'open-conflict';
     dataObject: string;
     productA: string;
     productB: string;
@@ -693,9 +750,9 @@ export function sendAttestationOpsAlertEmail(
     pairSlugs: readonly [string, string];
   },
 ): Promise<EmailOutcome> {
-  const denied = opts.detector === 'aeci-denied';
+  const denied = opts.detector === 'claim-denied';
   const intro = denied
-    ? 'A vendor has denied a claim AECi seeded. A denial-only claim renders as unverified, so it is invisible on the site until someone corrects the curation.'
+    ? 'Every vendor voting on this claim has denied it. A denial-only claim renders as unverified, so it is invisible on the site until someone corrects the curation. The counterparty has been told separately.'
     : 'Two vendors have been in unresolved disagreement about a claim past the notification threshold. Both have been nudged; this is the ops copy.';
 
   const rows: ReadonlyArray<readonly [string, string]> = [
@@ -712,7 +769,7 @@ export function sendAttestationOpsAlertEmail(
     to: opts.to,
     template: 'attestation-ops-alert',
     subject: denied
-      ? `[AECi] Vendor denied a seeded claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
+      ? `[AECi] Vendor denied a claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
       : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
     text: opsText(intro, rows),
     html: opsTable(intro, rows),

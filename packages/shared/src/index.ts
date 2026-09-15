@@ -1,5 +1,6 @@
 export * from './agreement';
 export * from './api';
+export * from './attestation-thresholds';
 export * from './audit-log';
 export * from './cache-purge';
 export * from './concurrency';

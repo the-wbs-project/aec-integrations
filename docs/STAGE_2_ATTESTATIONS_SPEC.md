@@ -53,6 +53,7 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 | §10 | AECI-608 | Docs: attestation authz + API/schema contract sweep |
 | §13 | AECI-616 | Maintenance marker: real `last_reviewed_at` + vendor-maintained branch (**migration 3**) |
 | §14 | AECI-705 | Connector-powered edges are not attestable (gate over the shipped epic; no migration) |
+| §6.2 | AECI-961 | The outcome contract: what each position does next, and the `claim-denied` widening of §7.1 (no migration) |
 
 **Build order.**
 
@@ -1038,6 +1039,9 @@ Decisions taken at build that §6 did not pre-specify:
   prominently a stale "Vendors disagree" nudge would sit above a lane whose badge reads `confirmed`.
   The ops-only `aeci-denied` detector is filtered defensively even though its ledger rows carry
   `vendorId: null` and can never match a caller.
+  *(**Superseded 2026-09-15, AECI-961.** That detector is now `claim-denied` and carries a
+  **counterparty** finding, so its vendor-addressed rows are an expected part of this list and have
+  real copy. The filter that remains is on an empty title, not on a detector name — see §6.2.)*
   *(**Relocated by `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5**, 2026-08-27: it moved out of the
   Integrations tab — which followed the product down a level — into the new vendor-level
   **Messages** section, alongside claim/correction status. So §7.2's "surfaced on the §6 tab" now
@@ -1077,6 +1081,116 @@ correctly but empty). Suites green: `apps/api` 104 files / 1825 tests, `packages
 
 ---
 
+### 6.2 The outcome contract — what each position does next (AECI-961 — 2026-09-15)
+
+**Needs §7.** No migration, no new surface, no new route. One sentence per claim lane, plus the
+matching change to what the write announces.
+
+**The defect.** A seated vendor clicked Deny and the lane said `Your position: You say this flow
+does not exist`. Nothing said whether the counterparty was told, whether AECi was told, or what the
+public listing showed meanwhile. The §7 pipeline was real and entirely invisible. Correcting bad
+catalog data is the most valuable thing a seated vendor does for us, and the action had no receipt.
+That loop is the whole of the Stage 2.1 rehearsal (`STAGE_2_1_SPEC.md` §1).
+
+**Two operator decisions taken with it, both widening §7.1** — see §7.5's 2026-09-15 correction for
+the detector side:
+
+1. **A denial now notifies the counterparty vendor**, not only AECi ops.
+2. **`aeci-denied` is renamed `claim-denied` and loses its AECi-origin gate.** Any claim every live
+   voter denies raises a finding.
+
+#### The seven states
+
+The states are **not** the four agreement states. Agreement answers what the directory believes;
+this answers what the pipeline will do. Two claims can both read `unverified` while one is waiting
+on the vendor and the other has a denial queued for the next sweep, and rendering those two
+identically is exactly what this section fixes.
+
+| Outcome | Reached when | Sentence |
+|---|---|---|
+| `no-position` | no own vote, `unverified` | Nothing is sent to anyone until you affirm or deny this flow. |
+| `awaiting-you` | no own vote, `single_source` | You have not answered. We email you a reminder after 14 days. |
+| `awaiting-them` | own affirmation, `single_source` | We ask {Other} to answer after 14 days. |
+| `confirmed`, unstamped | `confirmed`, no version stamps | We ask you to re-confirm after 12 months. |
+| `confirmed`, stamped | `confirmed`, version stamps present | Nothing further is needed. |
+| `conflict` | `conflict` | If neither position changes within 7 days we email both vendors and review the listing ourselves. |
+| `denied` | refuted, counterparty slot not ours | We review denied flows and correct the listing, and we tell {Other} on the next daily check. Until we act, this flow still shows as unverified on the public listing. |
+| `denied-own-both` | refuted, we hold both slots | We review denied flows and correct the listing. Until we act, this flow still shows as unverified on the public listing. |
+
+**Every sentence starts at the consequence and never restates the stance.** The lane prints
+`Your position: …` directly below it and the agreement badge directly above it, and the
+announcement prefixes its own "you denied this flow" — so a sentence opening "You confirm this
+flow" said the same thing twice in a row out loud. That was caught in the browser, not in a test,
+which is why `vendor-claim-outcome.component.spec.ts` now asserts it. Read a new sentence back in
+both places before adding one.
+
+Three agreement/stance pairs are unreachable and deliberately have no state: a lone affirmation is
+always `single_source` and a lone denial is always `unverified` (§4.2), so `denied` can never pair
+with `single_source` or `confirmed`.
+
+#### Rules the copy is held to
+
+- **The thresholds are the detector's own.** `SILENT_COUNTERPARTY_DAYS`, `OPEN_CONFLICT_DAYS` and
+  `STALE_VERSION_MONTHS` moved to `packages/shared/src/attestation-thresholds.ts`;
+  `apps/api/src/lib/attestation-detectors.ts` re-exports all three under their existing names, and
+  `apps/web/src/app/vendor/components/vendor-claim-outcome.ts` interpolates the same values. A
+  number written into the copy, or rounded into words, is the bug this arrangement exists to make
+  impossible. Retuning a threshold now also edits what the portal says — read this table first.
+- **A denial does not remove the flow.** `isClaimRefuted` only stops the claim steering the
+  product-detail arrow (`packages/shared/src/integration-context.ts`); the pair page still renders
+  it as `unverified`. The copy says so rather than implying a deletion that never happens.
+- **§6's copy discipline applies unchanged.** No ranking or placement implication, no search
+  promise, "Verified" stays an account status. Sentence case, no em dashes.
+- **`denied-own-both` exists because the detector has no counterparty to tell.** A write applies one
+  position to every slot the caller owns (§5.2), so two own rows mean two owned slots, `unvotedSlots`
+  is empty, and no counterparty mail is sent. `mine.length > 1` is how the lane knows, which is the
+  same signal `vendor-attestation-control.ts` reads for `divergentSlots`.
+
+#### Two known imprecisions, accepted rather than closed
+
+- **The version-stamp branch reads only what is on the wire.** `VendorOwnAttestation` carries
+  `introduced_version_id` and `deprecated_version_id`; the server's `hasVersionData` also counts the
+  dormant `introduced_at` / `deprecated_at` columns, which have no authoring path and no backfill
+  (§8.4) and are null in practice. The gap can only over-promise a re-confirm nudge, never deny one.
+  Widening `VendorOwnAttestationSchema` for it was judged not worth a wire change.
+- **`denied` says the counterparty is told even when their product has no seated vendor.**
+  `detectClaimDenied` yields no vendor finding in that case and the ops finding still fires. The
+  sentence describes the intent, which is accurate about what AECi does; whether we can reach them
+  is our outreach problem, not something to qualify in a vendor's receipt.
+
+#### Where it renders
+
+- **On the lane, as plain text, in every state.** Not a live region. Standing state on this surface
+  is plain text and events go through the shell's one `VendorPortalAnnouncer` channel
+  (`STAGE_2_REALTIME_SPEC.md` §6.3, and the reasoning written out at the `divergentSlots` block in
+  `vendor-attestation-control.ts`). It renders on a read-only lane too: the consequence is not an
+  authoring detail.
+- **In the announcement, appended to a stance.** `vendor-integrations-section.ts` replaced
+  `@@vendor.attest.live.saved` ("position saved") with `@@vendor.attest.live.affirmed` /
+  `@@vendor.attest.live.denied`, each followed by the same `claimOutcomeLine` string the lane
+  prints, so the spoken and printed receipts cannot drift. The counterparty name is resolved from
+  `VendorPortalStore` by `integration_id`; an echo naming an unloaded integration degrades to the
+  stance alone rather than announcing a sentence with a hole in it.
+- **In the notification list.** `claim-denied` now has a vendor-facing title
+  (`@@vendor.attest.notify.claimDenied`), and `vendor-notifications-list.ts` no longer filters the
+  detector by name. It filters on an empty title instead, which is what still protects the list from
+  a detector added before its copy is written.
+
+**Acceptance.** Every state names its consequence, quoting the real thresholds. No second
+`role="status"`. Affirm and deny announce different sentences. The denial copy never promises
+removal. `docs/POST_LAUNCH_MONITORING.md` §3 records that a retune now moves portal copy.
+
+**Test coverage:** `apps/web/src/app/vendor/components/vendor-claim-outcome.component.spec.ts` (16 —
+all seven states, both confirmed branches, every threshold assertion interpolating the shared
+constant so a hardcoded number fails, the no-removal promise, and the ranking/placement/search
+sweep); `vendor-claim-lane.component.spec.ts` +4 (the four seeded states, the denial sentence, the
+no-live-region property, the read-only lane); `vendor-integrations-section.component.spec.ts` +2
+(affirm vs deny, and the unloaded-integration degradation);
+`vendor-notifications-list.component.spec.ts` two tests inverted from "filters the ops detector" to
+"renders and counts a `claim-denied` row". API side in §7.5.
+
+---
+
 ## 7. Detector + notification pipeline (AECI-302)
 
 **Needs §2 and §4.** Turns conflict and staleness into outbound vendor nudges. **Email-only at
@@ -1094,7 +1208,18 @@ Run as one daily sweep. Each yields `(claim, recipient vendor, detector kind)`.
 | **silent-counterparty** | a claim sits at `single_source` for > N days — nudge the *silent* slot's vendor |
 | **open-conflict** | a claim is at `conflict` for > N days, unresolved — nudge **both** vendors and raise it to AECi ops |
 | **stale-version** | an attestation is older than N months with no version stamps, or its `deprecated_version` has passed — nudge the attesting vendor to re-confirm |
-| **aeci-denied** | a vendor **denies** an AECi-seeded claim — this is a correction signal to **AECi**, not a vendor nudge; route it to the ops surface, since a denial-only claim renders `unverified` (§4.2) and would otherwise be invisible |
+| **claim-denied** | every live voter **denies** a claim — raise it to AECi ops **and** tell the counterparty vendor, since a denial-only claim renders `unverified` (§4.2) and would otherwise be invisible. No age threshold: it fires on the next sweep |
+
+*(**Amended 2026-09-15, AECI-961.** The row above read `aeci-denied`: "a vendor denies an
+**AECi-seeded** claim — this is a correction signal to AECi, **not a vendor nudge**; route it to the
+ops surface". Both halves were withdrawn by operator decision, and the detector was renamed while
+production held zero attestation notifications. The origin gate left a dead state — retraction
+withdraws a position, no vendor route deletes a claim, so a vendor-origin claim every voter denied
+reached nobody at all. Ops-only left the denier with no receipt, because the honest answer the
+portal could give was "the other side is never told". The counterparty nudge is un-thresholded for
+the same reason: a delay would only make §6.2's acknowledgement vaguer. §7.5 carries the as-built
+detail, and **§6.2 is the vendor-facing half — the lane's sentences quote these thresholds
+verbatim, so the two cannot be changed independently.**)*
 
 > **✅ `cross-grain` is DROPPED (resolved at build, AECI-302, 2026-08-17).** The callout below is
 > kept because the reasoning is the decision. `STAGE_2_SPEC.md` §2.4 listed "cross-grain" as a
@@ -1115,12 +1240,18 @@ Run as one daily sweep. Each yields `(claim, recipient vendor, detector kind)`.
 
 **Every vendor-addressed finding on a connector-powered edge is dropped (AECI-705 / §14)**, by one
 filter in `runAttestationDetectors` rather than four edits inside four detectors. The **ops-routed**
-findings survive — `aeci-denied` entirely, and `open-conflict`'s AECi finding alongside its two
+findings survive — both `claim-denied`'s and `open-conflict`'s AECi findings, alongside their
 suppressed vendor nudges — because those are AECi's correction signal on its own curation, not a
-nudge to a vendor who built nothing.
+nudge to a vendor who built nothing. *(Amended 2026-09-15: `claim-denied` used to survive the gate
+**entirely**, being ops-only. Its AECI-961 counterparty nudge is vendor-addressed and is dropped
+here, correctly — a vendor who did not build the plumbing cannot answer for it either.)*
 
 Thresholds (`N`) are launch-tunable constants, documented in `docs/POST_LAUNCH_MONITORING.md`
-alongside the other tunables.
+alongside the other tunables. **Since AECI-961 they live in
+`packages/shared/src/attestation-thresholds.ts`**, re-exported from
+`apps/api/src/lib/attestation-detectors.ts` under their existing names, because §6.2's lane copy
+quotes them verbatim and the browser bundle cannot import the detector module. Retuning one still
+means editing a number and deploying; it now also edits what the vendor portal says.
 
 ### 7.2 Delivery
 
@@ -1204,9 +1335,21 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   row has no seat to email — that is AECi's outreach problem, not a nudge. And, **since AECI-705**,
   the edge is connector-powered, so the silent slot's vendor is silent about plumbing it did not
   build (§14.4). The third is the only one of the three enforced *outside* the detector.
-- **`aeci-denied` uses `isClaimRefuted`, not an `unverified` check**, and excludes
-  `origin = 'vendor'` claims: a vendor denying a claim it created itself is a self-correction the
-  §5 retract path handles, not an error in AECi's curation.
+- **`claim-denied` uses `isClaimRefuted`, not an `unverified` check.** `unverified` conflates
+  "nobody voted" with "everybody said no"; only the second is a signal, and the whole reason the
+  detector exists is that the model renders the two identically. ~~*and excludes `origin = 'vendor'`
+  claims: a vendor denying a claim it created itself is a self-correction the §5 retract path
+  handles, not an error in AECi's curation.*~~
+  *(**Corrected 2026-09-15, AECI-961 — and the detector renamed from `aeci-denied`.** The origin
+  exclusion was wrong on its own premise: the §5 retract path withdraws a **position**, and no
+  vendor route deletes a **claim**. A vendor-origin claim every live voter denied therefore reached
+  nobody — not ops, not the counterparty — and sat on the pair page as `unverified` indefinitely.
+  Any refuted claim now raises ops. The same change made the detector emit a **counterparty**
+  finding alongside the ops one, so it is no longer ops-routed by definition, and the name stopped
+  being true on both counts. Three no-counterparty cases still yield ops only, all from
+  `unvotedSlots`: the denier owns both endpoints, the counterparty product has no `product_vendors`
+  row, or the counterparty vendor is the denier itself through co-ownership. §6.2 is the
+  vendor-facing contract this feeds.)*
 - **The inverse slot→vendors lookup landed where §2.5 asked for it.**
   `vendorsForIntegrationSlots(db, integrationIds)` in `apps/api/src/lib/attestation-authority.ts`
   — a different query from the forward resolver (it has no vendor to filter on) but folded through
@@ -1222,6 +1365,13 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`
   (vendor prose, with the pair + portal links) plus **`attestation-ops-alert`** (operator
   `opsText`/`opsTable` format, naming the detector, one email per finding to `ADMIN_ALERT_EMAIL`).
+  *(**AECI-961 added a fifth, `attestation-claim-denied`** — the counterparty half of
+  `claim-denied`, vendor prose. Non-accusatory on the `open-conflict` precedent, because the
+  recipient has not disagreed with anyone, they have said nothing at all. **Stance only, never the
+  denier's note**: the note is public on the pair page, so this is not confidentiality, it is that
+  free text quoted into an email lands as an accusation in a way the same words on a provenance
+  disclosure do not. It states what §6.2's lane copy states — the flow stays on the listing as
+  unverified until AECi corrects the record.)*
 - **The ledger metadata carries more than `{ detector, vendorId }`** — also `integrationId`,
   `dataObject`, `counterpartProduct` and `pairSlugs`. This is what makes §7.2's "gives the
   in-portal list its backing query for free" literally true: `GET /api/vendor/notifications`
@@ -1237,7 +1387,7 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   co-admins can see a colleague is locked out; a banned seat fails every `/api/vendor/*` call and
   so cannot act on a nudge.
 - **`NOTIFY_BATCH_CAP = 200` sends per run**, ordered most-signal-first (open-conflict →
-  aeci-denied → silent-counterparty → stale-version) so the cap drops the least urgent work, and
+  claim-denied → silent-counterparty → stale-version) so the cap drops the least urgent work, and
   **logging the dropped count** — no silent truncation. Suppression is applied *before*
   the cap so a suppressed backlog cannot starve findings that need sending.
 - **Cron slot `0 10 * * *`** (10:00 UTC = 05:00 EST), last of the daily jobs so a nudge describes
@@ -2023,7 +2173,9 @@ Opening the portal without a rule fails in two directions at once:
   your confirmation".
 - **Rendered conflicts on true facts.** An endpoint vendor denying a real connector-powered edge
   drops the claim from the product-detail direction readout (`isClaimRefuted`, §4.5) and fires the
-  `aeci-denied` ops signal against curation that was correct.
+  `claim-denied` ops signal against curation that was correct. *(Since AECI-961 the same detector
+  would also nudge the counterparty — except that half is vendor-addressed and this section's gate
+  drops it, which is the right answer for the same reason.)*
 
 **Acceptance:** no vendor is ever prompted to confirm or deny plumbing it did not build, and powered
 edges render the AECi-curated state unchanged.
@@ -2152,9 +2304,10 @@ One post-filter at the registry rather than four edits inside four detectors. It
 transcription of the acceptance criterion, any detector added later inherits it without anyone
 remembering to, and the property is checkable by reading one function.
 
-**`vendorId === null` means AECi ops, and those findings survive on purpose.** `aeci-denied` is
-ops-routed by definition (§7.1) and `open-conflict` raises an ops finding alongside its two vendor
-nudges. Those are AECi's correction signal on its *own* curation, not a nudge to someone who built
+**`vendorId === null` means AECi ops, and those findings survive on purpose.** Both `claim-denied`
+and `open-conflict` raise an ops finding alongside their vendor nudges.
+*(Amended 2026-09-15: `claim-denied` was `aeci-denied` and was ops-routed **by definition**, so it
+survived this gate whole. AECI-961 gave it a counterparty nudge, and that half is dropped here.)* Those are AECi's correction signal on its *own* curation, not a nudge to someone who built
 nothing — suppressing them would hide precisely the case an operator needs to see, which is a vendor
 disputing an edge that became powered after it attested.
 
@@ -2229,7 +2382,7 @@ iPaaS edges §14.2 over-includes) is a separate, untracked opportunity, not part
   does not exist.
 - An unverified vendor on a powered edge gets the **connector** 403, not the verified one.
 - No vendor-addressed detector finding survives on a powered edge, for any of the three vendor
-  detectors; the `aeci-denied` and `open-conflict` **ops** findings do.
+  detectors; the `claim-denied` and `open-conflict` **ops** findings do.
 - The portal renders a powered card with no attestation control and no add-claim form, names the
   connector (or falls back to `mechanism_name`), and excludes its claims from the awaiting count —
   while the direct cards beside it stay fully writable.
@@ -2263,7 +2416,8 @@ Notes worth keeping:
 
 **Test coverage:** `lib/connector-powered.spec.ts` (5 — the truth table, both real production
 populations, the nullable kind); `lib/attestation-detectors.spec.ts` (+6 — both signals on
-silent-counterparty, the open-conflict ops survivor, the `aeci-denied` survivor, stale-version, and a
+silent-counterparty, the open-conflict ops survivor, the `claim-denied` ops survivor (whose
+counterparty nudge AECI-961 added and this gate drops), stale-version, and a
 direct edge left alone); `routes/vendor-attestations.spec.ts` (+9 — POST and PUT 403 by both signals,
 the DELETE carve-out, the gate order against an unverified vendor, the non-owner 404, and the two
 list shapes); `packages/shared/src/api/vendor-attestations.spec.ts` (+2 — the fields and their

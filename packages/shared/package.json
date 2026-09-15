@@ -25,6 +25,10 @@
       "types": "./src/agreement.ts",
       "default": "./src/agreement.ts"
     },
+    "./attestation-thresholds": {
+      "types": "./src/attestation-thresholds.ts",
+      "default": "./src/attestation-thresholds.ts"
+    },
     "./entitlements": {
       "types": "./src/entitlements.ts",
       "default": "./src/entitlements.ts"

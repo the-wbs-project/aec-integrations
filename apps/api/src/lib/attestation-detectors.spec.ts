@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  detectAeciDenied,
+  detectClaimDenied,
   detectOpenConflict,
   detectSilentCounterparty,
   detectStaleVersion,
@@ -416,39 +416,71 @@ describe('detectStaleVersion', () => {
   });
 });
 
-// ─── aeci-denied ─────────────────────────────────────────────────────────────
+// ─── claim-denied ────────────────────────────────────────────────────────────
 
-describe('detectAeciDenied', () => {
+describe('detectClaimDenied', () => {
   it('finds nothing when there is nothing to find', async () => {
-    expect(detectAeciDenied([])).toEqual([]);
+    expect(detectClaimDenied([], await slots())).toEqual([]);
   });
 
-  it('raises ops when every vendor voter denies an AECi-seeded claim', async () => {
+  it('raises ops AND tells the counterparty when every vendor voter denies', async () => {
     await seedOwnership();
     await seedClaim([
       { source: 'aeci', asserted: true },
       { source: 'vendor_b', asserted: false, by: GLOBEX },
     ]);
 
-    const findings = detectAeciDenied(await load());
-    expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({
-      detector: 'aeci-denied',
-      claimId: CLAIM,
-      vendorId: null,
-    });
+    const findings = detectClaimDenied(await load(), await slots());
+    expect(findings).toHaveLength(2);
+    expect(findings[0]).toMatchObject({ detector: 'claim-denied', claimId: CLAIM, vendorId: null });
+    // ACME owns Procore, the slot GLOBEX did not vote on. It is told what GLOBEX
+    // recorded about the pair, framed from its own endpoint.
+    expect(findings[1]).toMatchObject({ detector: 'claim-denied', claimId: CLAIM, vendorId: ACME });
+    expect(findings[1].context.subjectProduct.name).toBe('Procore');
+    expect(findings[1].context.counterpartProduct.name).toBe('Revit');
   });
 
-  it('ignores a denied claim the VENDOR created — that is a self-correction', async () => {
+  // AECI-961. This was excluded on the theory that a vendor denying its own claim
+  // is a self-correction the §5 API handles by retraction. It is not: retraction
+  // withdraws a POSITION, no vendor route deletes a CLAIM, and the row then sat
+  // on the pair page as `unverified` having reached nobody at all.
+  it('raises a denied claim the VENDOR created — it used to reach nobody', async () => {
     await seedOwnership();
     await seedClaim([{ source: 'vendor_b', asserted: false, by: GLOBEX }], { origin: 'vendor' });
-    expect(detectAeciDenied(await load())).toEqual([]);
+
+    const findings = detectClaimDenied(await load(), await slots());
+    expect(findings.map((f) => f.vendorId)).toEqual([null, ACME]);
   });
 
   it('ignores a claim with an affirmation, however one-sided', async () => {
     await seedOwnership();
     await seedClaim([{ source: 'vendor_a', asserted: true, by: ACME }]);
-    expect(detectAeciDenied(await load())).toEqual([]);
+    expect(detectClaimDenied(await load(), await slots())).toEqual([]);
+  });
+
+  // The three no-counterparty cases. Each must still raise ops: the correction is
+  // AECi's to make, and it is the only thing that can make it.
+  it('raises ops only when the denier owns BOTH endpoints', async () => {
+    await seedOwnership({ source: ACME, target: ACME });
+    await seedClaim([
+      { source: 'vendor_a', asserted: false, by: ACME },
+      { source: 'vendor_b', asserted: false, by: ACME },
+    ]);
+    expect(detectClaimDenied(await load(), await slots()).map((f) => f.vendorId)).toEqual([null]);
+  });
+
+  it('raises ops only when the counterparty product has no vendor', async () => {
+    await t.db.insert(productVendors).values({ productId: REVIT, vendorId: GLOBEX });
+    await seedClaim([{ source: 'vendor_b', asserted: false, by: GLOBEX }]);
+    expect(detectClaimDenied(await load(), await slots()).map((f) => f.vendorId)).toEqual([null]);
+  });
+
+  it('never tells a vendor about its own denial through the other slot', async () => {
+    // GLOBEX voted on slot B and also owns the product on slot A. Slot occupancy
+    // is `product_vendors`, so without the guard it would be its own counterparty.
+    await seedOwnership({ source: GLOBEX, target: GLOBEX });
+    await seedClaim([{ source: 'vendor_b', asserted: false, by: GLOBEX }]);
+    expect(detectClaimDenied(await load(), await slots()).map((f) => f.vendorId)).toEqual([null]);
   });
 });
 
@@ -464,7 +496,7 @@ describe('runAttestationDetectors', () => {
       'silent-counterparty',
       'open-conflict',
       'stale-version',
-      'aeci-denied',
+      'claim-denied',
     ]);
     expect(results.every((r) => r.findings.length === 0 && !r.error)).toBe(true);
   });
@@ -484,7 +516,7 @@ describe('runAttestationDetectors', () => {
     const byDetector = new Map(results.map((r) => [r.detector, r.findings.length]));
     expect(byDetector.get('silent-counterparty')).toBe(1);
     expect(byDetector.get('open-conflict')).toBe(0);
-    expect(byDetector.get('aeci-denied')).toBe(0);
+    expect(byDetector.get('claim-denied')).toBe(0);
   });
 });
 
@@ -577,16 +609,25 @@ describe('runAttestationDetectors — connector-powered edges (AECI-705)', () =>
     expect(findings.map((f) => f.vendorId)).toEqual([null]);
   });
 
-  it('keeps the ops-routed aeci-denied finding on a powered edge', async () => {
+  it('drops the claim-denied counterparty nudge but KEEPS the ops finding', async () => {
     await seedOwnership();
     await seedClaim([{ source: 'vendor_a', asserted: false, by: ACME }]);
-    await makePowered('fk');
 
-    const findings = findingsFor(
-      await runAttestationDetectors({ db: t.db, now: NOW }),
-      'aeci-denied',
-    );
-    expect(findings.map((f) => f.vendorId)).toEqual([null]);
+    // Two findings on a direct edge — ops, plus the counterparty on slot B.
+    expect(
+      findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'claim-denied').map(
+        (f) => f.vendorId,
+      ),
+    ).toEqual([null, GLOBEX]);
+
+    await makePowered('fk');
+    // GLOBEX did not build the plumbing and cannot answer for it, so its nudge
+    // goes. AECi still needs to see a vendor disputing an edge it curated.
+    expect(
+      findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'claim-denied').map(
+        (f) => f.vendorId,
+      ),
+    ).toEqual([null]);
   });
 
   it('drops the stale-version nudge on a powered edge', async () => {

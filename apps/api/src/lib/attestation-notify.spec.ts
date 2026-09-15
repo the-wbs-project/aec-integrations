@@ -128,7 +128,7 @@ function detectors(findings: DetectorFinding[]) {
     },
     { detector: 'open-conflict', findings: findings.filter((f) => f.detector === 'open-conflict') },
     { detector: 'stale-version', findings: findings.filter((f) => f.detector === 'stale-version') },
-    { detector: 'aeci-denied', findings: findings.filter((f) => f.detector === 'aeci-denied') },
+    { detector: 'claim-denied', findings: findings.filter((f) => f.detector === 'claim-denied') },
   ];
 }
 
@@ -198,7 +198,7 @@ describe('runAttestationNotifySweep — delivery', () => {
   });
 
   it('routes an ops finding to ADMIN_ALERT_EMAIL with vendorId null on the ledger', async () => {
-    await sweep([finding({ detector: 'aeci-denied', vendorId: null })]);
+    await sweep([finding({ detector: 'claim-denied', vendorId: null })]);
 
     expect(sentTo()).toEqual(['ops@aecintegrations.com']);
     const rows = await ledgerRows();
@@ -312,7 +312,7 @@ describe('runAttestationNotifySweep — fail-open', () => {
   });
 
   it('skips an ops finding when ADMIN_ALERT_EMAIL is unset', async () => {
-    const result = await sweep([finding({ detector: 'aeci-denied', vendorId: null })], {
+    const result = await sweep([finding({ detector: 'claim-denied', vendorId: null })], {
       env: { ADMIN_ALERT_EMAIL: undefined },
     });
     expect(result).toMatchObject({ skipped: 1, sent: 0 });
@@ -368,7 +368,7 @@ describe('runAttestationNotifySweep — metrics', () => {
       ['aeci.attestation.detector', 1, ['detector:silent-counterparty']],
       ['aeci.attestation.detector', 0, ['detector:open-conflict']],
       ['aeci.attestation.detector', 0, ['detector:stale-version']],
-      ['aeci.attestation.detector', 0, ['detector:aeci-denied']],
+      ['aeci.attestation.detector', 0, ['detector:claim-denied']],
     ]);
     expect(count).toHaveBeenCalledWith('aeci.attestation.notify.sent', 1, [
       'detector:silent-counterparty',

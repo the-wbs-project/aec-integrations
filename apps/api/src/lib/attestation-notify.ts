@@ -57,6 +57,7 @@ import {
 } from './attestation-notify-metrics';
 import {
   parseRecipients,
+  sendAttestationClaimDeniedEmail,
   sendAttestationOpenConflictEmail,
   sendAttestationOpsAlertEmail,
   sendAttestationSilentCounterpartyEmail,
@@ -107,7 +108,7 @@ const SEAT_LOOKUP_CHUNK = 50;
  */
 const DETECTOR_PRIORITY: readonly AttestationDetector[] = [
   'open-conflict',
-  'aeci-denied',
+  'claim-denied',
   'silent-counterparty',
   'stale-version',
 ];
@@ -301,10 +302,11 @@ function sendForFinding(
       return sendAttestationOpenConflictEmail(c, shared);
     case 'stale-version':
       return sendAttestationStaleVersionEmail(c, shared);
-    case 'aeci-denied':
-      // Ops-only detector; a vendor address never reaches this branch (guarded by
-      // `finding.vendorId === null` at the call site), but the switch stays total.
-      return sendOpsForFinding(c, finding, to);
+    case 'claim-denied':
+      // Reachable with a real vendor since AECI-961: `claim-denied` emits an ops
+      // finding AND a counterparty finding, and the call site routes on
+      // `finding.vendorId`, so an ops row never lands here.
+      return sendAttestationClaimDeniedEmail(c, shared);
   }
 }
 
@@ -315,7 +317,7 @@ function sendOpsForFinding(
 ): Promise<EmailOutcome> {
   return sendAttestationOpsAlertEmail(c, {
     to,
-    detector: finding.detector === 'aeci-denied' ? 'aeci-denied' : 'open-conflict',
+    detector: finding.detector === 'claim-denied' ? 'claim-denied' : 'open-conflict',
     dataObject: finding.context.dataObject.name,
     productA: finding.context.subjectProduct.name,
     productB: finding.context.counterpartProduct.name,
