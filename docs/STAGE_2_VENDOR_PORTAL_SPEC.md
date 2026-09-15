@@ -1007,8 +1007,8 @@ issue asked whether a counterpart might be unpublished. It cannot be: `ProductLi
 carries no publication status, the public product and pair handlers do not filter on
 `promotion_status` at all, and D1's catalog is written only by promote — so any
 product the portal can see has a live public page. A pair page with no edge on record
-renders `noindex` rather than 404ing (AECI-795), so the third link cannot land on a
-missing page either. Adding a guard would have meant widening `productLinkColumns`
+renders `noindex` rather than 404ing (`products-pair.resolver.ts`), so the third link
+cannot land on a missing page either. Adding a guard would have meant widening `productLinkColumns`
 (shared by many surfaces) to carry a field for a state that does not occur.
 
 **The accessible name splits, deliberately.** The two once-per-page links carry the
@@ -1021,10 +1021,13 @@ or `NVDA+F7` links list. That is `ACCESSIBILITY_AUDIT.md` finding **A4** (WCAG 2
 Link Purpose), currently open against the home page's three identical "Source" links,
 reproduced inside the portal. So the card passes an `ariaLabel` naming its pair, with
 the visible text leading so WCAG 2.5.3 Label in Name holds and speech input can target
-it — the shape `DESIGN.md` §"Integration group card" already pins. It is built with
+it — the shape `DESIGN.md` §"Disclosure group card" already pins. It is built with
 `$localize` **in TS**, never as an interpolated `i18n-aria-label`, which emits no
 attribute at all in this toolchain and would leave the link unnamed rather than merely
-uniform.
+uniform. **Exactly one of the two carries the new-tab disclosure, never both.** The
+sr-only span renders only on the unnamed link. A supplied `ariaLabel` has to state the
+new tab itself, because a rotor or links list never reads the sibling span, so keeping
+the span as well would announce the disclosure twice in browse mode.
 
 **The link is always a SIBLING of its title, never nested in it**, and the reason
 differs at each site: the `<h1>` is the page heading a screen reader reads to say what
@@ -1044,7 +1047,7 @@ two once-per-page links, including that the product link follows the picker and 
 it is absent for an unknown or empty catalog while the vendor link survives.
 `vendor-integrations-section.component.spec.ts` gains the card block, including the
 positional-order assertion and an explicit "no two cards share an accessible name"
-A4 guard. `view-public-link.component.spec.ts` is new. Every property asserted fails
+A4 guard. `view-public-link.component.spec.ts` is new, and pins the one-disclosure-not-two rule. Every property asserted fails
 silently if it regresses — a dropped `target` still renders a working link — and axe
 sees none of them.
 

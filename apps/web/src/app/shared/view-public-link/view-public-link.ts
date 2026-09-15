@@ -23,6 +23,11 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * ── THE NEW TAB IS ANNOUNCED, AND `ariaLabel` IS NOT OPTIONAL POLISH ────────
  * The sr-only "(opens in a new tab)" sits BESIDE the anchor, not inside it,
  * matching the two shipped admin sites so the portal and the console read alike.
+ * It renders ONLY on the unnamed link. A caller-supplied `ariaLabel` states the
+ * new tab itself (it has to — the sibling span is not read in a rotor or links
+ * list, which is the whole reason that name exists), so keeping the span there
+ * too would announce the disclosure twice in browse mode. One of the two always
+ * carries it; never both.
  *
  * `ariaLabel` exists because that uniform name is only safe where the link
  * appears ONCE on a page. The vendor header and the product header qualify. The
@@ -37,7 +42,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * The name is built with `$localize` at the CALL SITE, never as an interpolated
  * `i18n-aria-label` attribute — an interpolated `i18n-*` attribute emits no
  * attribute at all in this toolchain, which would leave the link unnamed rather
- * than badly named. `DESIGN.md` §"Integration group card" pins the shape: the
+ * than badly named. `DESIGN.md` §"Disclosure group card" pins the shape: the
  * accessible name begins with the visible text so WCAG 2.5.3 Label in Name holds
  * and speech input can target it.
  *
@@ -59,7 +64,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       i18n="@@shared.viewPublicLink.label"
       >View public page</a
     >
-    <span class="sr-only" i18n="@@shared.viewPublicLink.newTab">(opens in a new tab)</span>
+    @if (!ariaLabel()) {
+      <span class="sr-only" i18n="@@shared.viewPublicLink.newTab">(opens in a new tab)</span>
+    }
   `,
   styles: `
     :host {

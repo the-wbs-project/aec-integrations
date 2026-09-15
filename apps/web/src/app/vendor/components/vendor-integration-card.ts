@@ -182,7 +182,7 @@ export class VendorIntegrationCard {
    * interpolated `i18n-*` attribute emits no attribute at all in this toolchain,
    * so the link would end up unnamed rather than merely uniform. The visible
    * text leads so WCAG 2.5.3 Label in Name holds and speech input can target it
-   * (`DESIGN.md` §"Integration group card").
+   * (`DESIGN.md` §"Disclosure group card").
    */
   protected readonly pairPageAriaLabel = computed(() => {
     const integration = this.integration();

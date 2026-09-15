@@ -75,6 +75,18 @@ describe('ViewPublicLink', () => {
     // The visible text is unchanged; only the announced name narrows.
     expect(link.textContent?.trim()).toBe('View public page');
   });
+
+  it('drops the sr-only note when the name already states the new tab', async () => {
+    const fixture = await create(
+      '/products/revit/integrations/procore',
+      'View public page: the Revit and Procore integration (opens in a new tab)',
+    );
+
+    // Both would announce the disclosure in browse mode, one after the other.
+    // The name has to carry it (a rotor or links list never reads the sibling
+    // span), so the span is the one that goes.
+    expect((fixture.nativeElement as HTMLElement).querySelector('.sr-only')).toBeNull();
+  });
 });
 
 function link_contains_note(host: HTMLElement): boolean {
