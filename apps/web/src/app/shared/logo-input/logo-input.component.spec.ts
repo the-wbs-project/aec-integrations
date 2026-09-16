@@ -50,7 +50,7 @@ describe('LogoInput', () => {
     input.dispatchEvent(new Event('change'));
     fixture.detectChanges();
   }
-  it('uploads multipart and updates only the draft after success', () => {
+  it('uploads multipart and switches the draft to a protected uploaded-image state', async () => {
     const fixture = mount();
     choose(fixture);
     expect(fixture.componentInstance.pending()).toBe(true);
@@ -59,10 +59,20 @@ describe('LogoInput', () => {
     expect(request.request.body).toBeInstanceOf(FormData);
     const path = `/api/logos/${'a'.repeat(64)}`;
     request.flush({ logo_url: path });
-    fixture.detectChanges();
+    await fixture.whenStable();
     expect(fixture.componentInstance.value()).toBe(path);
     expect(fixture.componentInstance.pending()).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Save your changes');
+    expect(fixture.nativeElement.textContent).toContain('Uploaded image');
+    expect(fixture.nativeElement.textContent).not.toContain(path);
+    expect(fixture.nativeElement.querySelector('#test-logo')).toBeNull();
+    expect(fixture.nativeElement.querySelector('input[type=file]')).toBeNull();
+
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.value()).toBe('');
+    expect(fixture.nativeElement.querySelector('#test-logo')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('input[type=file]')).toBeTruthy();
   });
   it('keeps the original value after an upload error', () => {
     const fixture = mount();
@@ -98,25 +108,41 @@ describe('LogoInput', () => {
     http.expectNone('/api/vendor/logo');
     expect(fixture.nativeElement.querySelector('[role=alert]').textContent).toContain('2 MiB');
   });
-  it('allows copying in read-only mode and hides upload actions', () => {
+  it('allows copying in read-only mode and hides upload actions', async () => {
     const fixture = mount();
     fixture.componentInstance.readonly.set(true);
-    fixture.detectChanges();
+    fixture.componentInstance.value.set(`/api/logos/${'c'.repeat(64)}`);
+    await fixture.whenStable();
     expect(fixture.nativeElement.querySelector('#test-logo').readOnly).toBe(true);
+    expect(fixture.nativeElement.querySelector('#test-logo').disabled).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Uploaded image reference');
     expect(fixture.nativeElement.querySelector('input[type=file]')).toBeNull();
   });
-  it('clears the draft and prevents unsafe preview URLs', () => {
+  it('uses native disabled semantics', async () => {
+    const fixture = mount();
+    fixture.componentInstance.disabled.set(true);
+    await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('#test-logo').disabled).toBe(true);
+    expect(fixture.nativeElement.querySelector('#test-logo').readOnly).toBe(false);
+  });
+  it('clears the draft and describes invalid preview URLs', async () => {
     const fixture = mount();
     (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
-    fixture.detectChanges();
+    await fixture.whenStable();
     expect(fixture.componentInstance.value()).toBe('');
     fixture.componentInstance.value.set('javascript:alert(1)');
-    fixture.detectChanges();
+    await fixture.whenStable();
     expect(fixture.nativeElement.querySelector('img')).toBeNull();
+    expect(fixture.nativeElement.querySelector('#test-logo').getAttribute('aria-describedby')).toBe(
+      'test-logo-help test-logo-error',
+    );
+    expect(fixture.nativeElement.querySelector('#test-logo-error').getAttribute('role')).toBe(
+      'alert',
+    );
   });
-  it('accepts a drop and rejects a multi-file drop', () => {
+  it('accepts a drop and rejects a multi-file drop after returning to upload mode', async () => {
     const fixture = mount();
-    const dropZone = fixture.nativeElement.querySelector('div.border-dashed') as HTMLElement;
+    let dropZone = fixture.nativeElement.querySelector('div.border-dashed') as HTMLElement;
     const event = new Event('drop', { cancelable: true });
     const file = new File(['abc'], 'logo.png');
     Object.defineProperty(event, 'dataTransfer', {
@@ -125,7 +151,10 @@ describe('LogoInput', () => {
     dropZone.dispatchEvent(event);
     fixture.detectChanges();
     http.expectOne('/api/vendor/logo').flush({ logo_url: `/api/logos/${'b'.repeat(64)}` });
-    fixture.detectChanges();
+    await fixture.whenStable();
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    dropZone = fixture.nativeElement.querySelector('div.border-dashed') as HTMLElement;
     const many = new Event('drop', { cancelable: true });
     Object.defineProperty(many, 'dataTransfer', {
       value: { files: { length: 2, item: () => file } },
