@@ -156,9 +156,23 @@ describe('VendorProductForm', () => {
     // The AECI-911 copy that separates adjacent terms reaches the vendor here.
     // The accessible name IS the description, so it is not hover-only.
     const fixture = create();
+    const termHints = Array.from(
+      fixture.nativeElement.querySelectorAll('li aec-info-hint'),
+    ) as HTMLElement[];
+    const headingHints = Array.from(
+      fixture.nativeElement.querySelectorAll('h3 + aec-info-hint'),
+    ) as HTMLElement[];
+
     expect(hints(fixture)).toContain(
       'Tools that create and edit the model itself, discipline by discipline. Clash detection and federation belong under BIM coordination.',
     );
+    // Term names can wrap, so align the hint to the first line rather than
+    // centring it against the whole text block. Heading hints already sit in an
+    // `items-center` row and must not inherit this caller-specific correction.
+    expect(termHints.length).toBeGreaterThan(0);
+    expect(termHints.every((hint) => hint.classList.contains('mt-0.5'))).toBe(true);
+    expect(headingHints.length).toBeGreaterThan(0);
+    expect(headingHints.every((hint) => !hint.classList.contains('mt-0.5'))).toBe(true);
   });
 
   it('puts every facet hint behind its heading, including the trades rule', () => {

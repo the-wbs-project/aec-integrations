@@ -268,7 +268,7 @@ const MAX_TERMS_PER_FACET = 10;
                         <li class="flex items-start gap-1.5 text-sm text-(--text-primary)">
                           <span class="min-w-0">{{ term.name }}</span>
                           @if (term.description; as description) {
-                            <aec-info-hint [text]="description" />
+                            <aec-info-hint class="mt-0.5" [text]="description" />
                           }
                         </li>
                       }
