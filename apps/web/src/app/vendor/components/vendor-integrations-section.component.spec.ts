@@ -575,3 +575,30 @@ describe('VendorIntegrationsSection — per-product scoping', () => {
     expect(api.getIntegrations).toHaveBeenCalledWith();
   });
 });
+
+/**
+ * AECI-967 — the card is what carries the context product's SLUG down to the
+ * lane, which holds only a UUID and display names of its own. The lane's spec
+ * sets the input directly, so this is the only place the wiring is checked.
+ */
+describe('VendorIntegrationCard — feeds the conflict correction link (AECI-967)', () => {
+  it('passes the context slug down, so the lane addresses the right listing', async () => {
+    const fixture = await create();
+    const integration = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) =>
+      i.claims.some((c) => c.agreement === 'conflict'),
+    );
+    if (!integration) throw new Error('fixture lost its conflict claim');
+
+    const links = [
+      ...el(fixture).querySelectorAll('li[aec-vendor-claim-lane] a[href$="/correction"]'),
+    ];
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      // The CONTEXT product, never the counterpart. Nothing downstream would
+      // catch the swap: both slugs resolve and both pages return 200.
+      expect(link.getAttribute('href')).toBe(
+        `/products/${integration.context_product.slug}/correction`,
+      );
+    }
+  });
+});

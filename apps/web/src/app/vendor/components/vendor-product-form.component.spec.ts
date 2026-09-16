@@ -142,6 +142,38 @@ describe('VendorProductForm', () => {
     fixture.detectChanges();
   }
 
+  // ── AECI-967: the rename hint is a LINK ───────────────────────────────────
+  // Every property below fails silently if it regresses. A dropped `target`
+  // still renders a working link, a dropped `aecRequestTrigger` still navigates,
+  // and axe sees none of it.
+  describe('the rename hint (AECI-967)', () => {
+    function renameLink(fixture: ComponentFixture<VendorProductForm>): HTMLAnchorElement | null {
+      return fixture.nativeElement.querySelector('a[href$="/correction"]');
+    }
+
+    it("points at the product's own correction form", () => {
+      const link = renameLink(create());
+      expect(link?.getAttribute('href')).toBe(`/products/${PRODUCT.slug}/correction`);
+      expect(link?.textContent).toContain('file a correction request');
+    });
+
+    // The href is the no-JS fallback and it really does navigate, over a form
+    // with unsaved state and no CanDeactivate guard behind it.
+    it('opens the fallback in a new tab, with noopener and the disclosure', () => {
+      const link = renameLink(create());
+      expect(link?.getAttribute('target')).toBe('_blank');
+      expect(link?.getAttribute('rel')).toBe('noopener');
+      expect(link?.querySelector('.sr-only')?.textContent).toContain('opens in a new tab');
+    });
+
+    // The identity card as a whole is suppressed on the Taxonomy projection
+    // (the product name is already the page heading there), and the link goes
+    // with it rather than being orphaned under a different heading.
+    it('is absent on the taxonomy projection', () => {
+      expect(renameLink(create(VENDOR_TAXONOMY_FIXTURE, PRODUCT, 'taxonomy'))).toBeNull();
+    });
+  });
+
   it('summarises each facet with the assigned terms only, in vocabulary order', () => {
     const fixture = create();
 

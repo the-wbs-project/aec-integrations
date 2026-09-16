@@ -97,6 +97,20 @@ export class RequestFormBody implements OnInit {
   readonly slug = input.required<string>();
   readonly variant = input<Variant>('page');
 
+  /**
+   * Seed text for `body` (AECI-967), supplied by the surface that opened the
+   * drawer. Read ONCE in `ngOnInit`, before `form()` is built, and then never
+   * again — unlike the `submitter_email` prefill below there is no async probe to
+   * race, so there is nothing to latch against.
+   *
+   * The routed `/…/{claim,correction}` page never passes one. It could only come
+   * from a query param, and free text in the URL would join the SSR cache key
+   * (`cacheKeyFor`, WC-4) and the request logs for a page that is otherwise
+   * ordinary. The routed page is the no-JS fallback; an empty body there is what
+   * ships today and stays correct.
+   */
+  readonly bodyPrefill = input<string | null>(null);
+
   /** Emitted from the drawer-variant dismiss actions (success "Close" button). The
    *  drawer listens to close the overlay; the routed page ignores it. */
   readonly done = output<void>();
@@ -154,6 +168,11 @@ export class RequestFormBody implements OnInit {
   }
 
   ngOnInit(): void {
+    // Seed BEFORE `form()` so the field's initial value is the seeded one and the
+    // schema validates against it from the first render.
+    const seed = this.bodyPrefill();
+    if (seed) this.model.update((m) => ({ ...m, body: seed }));
+
     runInInjectionContext(this.injector, () => {
       // Validate the whole model against the shared Zod schema — the single source
       // of validation truth (client + server). `kind` is fixed per instance, so the

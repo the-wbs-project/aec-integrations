@@ -107,6 +107,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
               [claim]="claim"
               [otherProductName]="integration().other_product.name"
               [contextProductId]="integration().context_product.id"
+              [contextProductSlug]="integration().context_product.slug"
               [vendorName]="vendorName()"
               [canWrite]="canAttest()"
               [versions]="versions()"

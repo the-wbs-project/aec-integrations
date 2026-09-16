@@ -9,6 +9,8 @@ import {
   type VendorAccount,
 } from '@aeci/shared';
 
+import { RequestTrigger } from '../../requests/request-trigger';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -88,9 +90,41 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-profile-form',
-  imports: [LogoInput, Listbox, Option],
+  imports: [LogoInput, Listbox, Option, RequestTrigger, NewTabIcon],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
+      <!--
+        AECI-967 (section 6.9). The product form has always said what to do about
+        its AECi-owned identity fields; this form said nothing at all, so a vendor
+        looking for their company name simply did not find it and had no idea why.
+        Same mechanism as the product hint: the anchor opens the shared correction
+        drawer in place, and its href is the no-JS fallback with the new-tab
+        treatment because that path navigates over an unsaved form.
+
+        entity: 'vendor' is what makes the subject the company, so the request
+        targets /vendors/:slug. No bodyPrefill. The request already carries
+        (target_type, slug), which is the whole of the context.
+      -->
+      <p
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-xs leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.profile.identityHint"
+      >
+        Your company name and the address of your public listing are on record with AEC
+        Integrations, so they are not editable here. To change either,
+        <a
+          aecRequestTrigger
+          [entity]="'vendor'"
+          [kind]="'correction'"
+          [slug]="vendor().slug"
+          [href]="'/vendors/' + vendor().slug + '/correction'"
+          target="_blank"
+          rel="noopener"
+          class="text-(--accent-primary) underline underline-offset-2"
+          >send us a correction request
+          <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
+        >.
+      </p>
+
       @if (updatedElsewhere()) {
         <div
           class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
