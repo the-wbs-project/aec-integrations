@@ -234,14 +234,14 @@ Callers of `/admin/purge`:
 above**, from the same builder: `vendorPurgeTags` was promoted out of
 `admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
 because this epic added a second writer of it, and duplicated tag construction is how
-a badge goes stale on one path and not the other. **No new tag** — the verified badge
+a label goes stale on one path and not the other. **No new tag** — the account-status label
 renders on the vendor hero, the product-detail vendor card and both pair rails, all of
 which are already covered by `vendor:{slug}` + every owned `product:{slug}` +
 `index:products`.
 
 Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
 that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5), and a
-missed purge there leaves a Verified badge on every cached product page of a vendor
+missed purge there leaves an active-account label on every cached product page of a vendor
 who is no longer paying. And the purge is **not gated on whether the mirror actually
 flipped** — on a drifted vendor a redundant purge costs one cache miss, while a missed
 one is a wrong badge with a full TTL behind it. **`renew` is the exception and skips
@@ -325,7 +325,7 @@ pages at once but on the `/search` Vendors-tab card only after the next sync
 direction, stamped explicitly inside the same guarded `WHERE verified = <old>` rather
 than left to `$onUpdate`. Both halves earn their keep — a second-seat grant or a term
 renewal must *not* bump it (needless nightly re-push of an unchanged record), and an
-**un-verify must**, or a lapsed vendor keeps a Verified badge in search indefinitely.
+**deactivation must**, or a lapsed vendor keeps an active-account label in search indefinitely.
 That second direction is the one AECI-529 never reasoned about, because until AECI-532
 nothing could clear the bit.
 

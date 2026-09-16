@@ -12,7 +12,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
+import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 
 import { VendorProductRow } from './vendor-product-row';
@@ -70,7 +70,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     RequestTrigger,
     RouterLink,
     VendorProductRow,
-    VerifiedBadge,
+    VendorAccountBadge,
   ],
   template: `
     @let v = vendor();
@@ -131,7 +131,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 {{ v.company_name }}
               </h1>
-              <aec-verified-badge [verified]="v.verified" />
+              <aec-vendor-account-badge [active]="v.verified" />
             </div>
           </div>
 
@@ -355,7 +355,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 class="text-xs leading-relaxed text-(--text-secondary)"
                 i18n="@@vendors.detail.metadata.claimedNote"
               >
-                Already managed by a verified vendor. Request access if you work there too.
+                Already managed through an active vendor account. Request access if you work there
+                too.
               </p>
             }
           </section>

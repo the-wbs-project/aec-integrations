@@ -173,8 +173,8 @@ export class VendorClaimLane {
    *  endpoint-A fallback. */
   readonly contextProductId = input.required<string>();
   readonly vendorName = input.required<string>();
-  /** `false` for an unverified vendor: the lane still renders its real data, but
-   *  the authoring control is withheld (`GET` is not Verified-gated; authoring
+  /** `false` for a vendor without active account access: the lane still renders its real data, but
+   *  the authoring control is withheld (`GET` is not account-access-gated; authoring
    *  is). */
   readonly canWrite = input.required<boolean>();
   readonly versions = input.required<readonly ProductVersion[]>();

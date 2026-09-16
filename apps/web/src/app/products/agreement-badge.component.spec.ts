@@ -96,10 +96,8 @@ describe('AgreementBadge', () => {
     expect(svg!.getAttribute('aria-hidden')).toBe('true');
   });
 
-  // DESIGN.md reserves the `rounded-full` pill for `VerifiedBadge`, which means
-  // something else entirely (a verified vendor *account*). The two must not be
-  // confusable at a glance.
-  it('stays a rounded.sm chip, never the VerifiedBadge pill', () => {
+  // Account status and claim agreement remain distinct through wording and tone.
+  it('stays a rounded.sm claim-state chip', () => {
     for (const state of AGREEMENT_STATES) {
       const className = chipOf(render(state)).className;
       expect(className).toContain('rounded-(--radius-sm)');

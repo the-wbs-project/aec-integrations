@@ -34,7 +34,7 @@
  *
  * ── PURGE ───────────────────────────────────────────────────────────────────────
  * The FULL grant tag set via the shared `lib/vendor-cache-tags.ts`, not just
- * `vendor:{slug}`: the verified badge renders on the vendor hero, the product-detail
+ * `vendor:{slug}`: the account-status label renders on the vendor hero, the product-detail
  * vendor card and both pair rails, so a vendor-only purge leaves a stale badge on
  * every cached product page (§5.3).
  *

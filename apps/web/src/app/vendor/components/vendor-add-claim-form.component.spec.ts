@@ -287,7 +287,7 @@ describe('VendorAddClaimForm — the duplicate pivot', () => {
 });
 
 describe('VendorAddClaimForm — failures and copy', () => {
-  it('surfaces a 403 as a verification message, never a ranking one', async () => {
+  it('surfaces a 403 as an account-access message, never a ranking one', async () => {
     createClaim.mockRejectedValue(
       new HttpErrorResponse({
         status: 403,
@@ -302,7 +302,7 @@ describe('VendorAddClaimForm — failures and copy', () => {
 
     const message =
       (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent ?? '';
-    expect(message).toContain('verified account');
+    expect(message).toContain('active vendor access');
     expect(message).not.toMatch(/rank|placement/i);
   });
 

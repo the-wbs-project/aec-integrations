@@ -486,7 +486,7 @@ app.route('/', authAccount);
 //     (`PATCH /api/admin/claims/:id`) and the invite redeem
 //     (`POST /api/seat-invites/:token/accept`) write it too, but only behind a
 //     claim or an owner's invite — and it opens NO `vendor_entitlements`
-//     row, so the verified badge never lights — which is the whole point: a pure
+//     row, so the public account label never appears — which is the whole point: a pure
 //     connector vendor is never sold verification (§8.9(1)), and every prior path
 //     to a seat opened an entitlement on the way, which is why §5.2 had to tell
 //     operators not to press Grant. Two statements in one batch, neither naming

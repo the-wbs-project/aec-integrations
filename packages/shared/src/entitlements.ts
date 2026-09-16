@@ -104,7 +104,7 @@ export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capabi
  * list, and conflating them is a live incoherence rather than a tidiness point.
  * `unclaimed` is defined as the **absence** of an entitlement (§3.1), but a
  * `vendor_entitlements` row at that tier would still carry `status: 'active'` —
- * which flips the `vendors.verified` mirror and lights the Verified badge (§2.1)
+ * which flips the `vendors.verified` mirror and shows the public account label (§2.1)
  * while `tierFor` resolves the row to **zero** capabilities. That is a vendor
  * billed for a badge that unlocks nothing.
  *

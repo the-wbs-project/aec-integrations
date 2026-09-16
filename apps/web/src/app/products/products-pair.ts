@@ -22,7 +22,7 @@ import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
-import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
+import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
@@ -337,7 +337,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     NotFound,
     PairVersionSelect,
     RouterLink,
-    VerifiedBadge,
+    VendorAccountBadge,
   ],
   template: `
     @let v = view();
@@ -469,9 +469,11 @@ function writePairViewCookie(mode: PairViewMode): void {
               <aec-logo-or-initial [name]="context.name" [src]="context.logo_url" size="lg" />
               <span class="font-display text-lg text-(--text-primary)">{{ context.name }}</span>
               @if (context.vendor) {
-                <span class="inline-flex items-center gap-1.5 text-xs text-(--text-tertiary)">
+                <span
+                  class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
+                >
                   {{ context.vendor.name }}
-                  <aec-verified-badge [verified]="context.vendor.verified" variant="compact" />
+                  <aec-vendor-account-badge [active]="context.vendor.verified" variant="compact" />
                 </span>
               }
               @if (context.rating_overall_avg !== null) {
@@ -496,9 +498,11 @@ function writePairViewCookie(mode: PairViewMode): void {
               <aec-logo-or-initial [name]="other.name" [src]="other.logo_url" size="lg" />
               <span class="font-display text-lg text-(--text-primary)">{{ other.name }}</span>
               @if (other.vendor) {
-                <span class="inline-flex items-center gap-1.5 text-xs text-(--text-tertiary)">
+                <span
+                  class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
+                >
                   {{ other.vendor.name }}
-                  <aec-verified-badge [verified]="other.vendor.verified" variant="compact" />
+                  <aec-vendor-account-badge [active]="other.vendor.verified" variant="compact" />
                 </span>
               }
               @if (other.rating_overall_avg !== null) {

@@ -36,7 +36,7 @@ export class AdminClaimsApi {
     return firstValueFrom(this.http.get<ListVendorClaimsResponse>('/api/admin/claims', { params }));
   }
 
-  /** `PATCH /api/admin/claims/:id` — approve (grant a verified account) / reject a
+  /** `PATCH /api/admin/claims/:id` — approve (grant an active vendor account) / reject a
    *  claim. Approve runs the AECI-519 grant batch; the optional `entitlement`
    *  records the offline PO/invoice arrangement in the grant's audit metadata. */
   moderate(id: string, input: ModerateClaimInput): Promise<ModerateClaimResponse> {

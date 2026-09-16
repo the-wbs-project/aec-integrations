@@ -100,7 +100,7 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
  * ── COPY ────────────────────────────────────────────────────────────────────
  * §6's discipline, enforced here and in `vendor-attestation-labels.ts`: no
  * instant-search promise, nothing implying attestation affects ranking or
- * placement, and "Verified" framed as an account status arranged with AEC
+ * placement, and active access framed as an account status arranged with AEC
  * Integrations.
  */
 @Component({
@@ -127,8 +127,8 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
         <div class="rounded-(--radius-md) border border-(--border-default) p-4">
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
             You can review everything on record here. Confirming data flows and adding new ones
-            opens up once your account is verified. Verification is an account status arranged with
-            AEC Integrations, not something you switch on from this portal.
+            opens up with active vendor access. That access is arranged with AEC Integrations, not
+            something you switch on from this portal.
           </p>
         </div>
       }

@@ -262,7 +262,7 @@ Update the "last updated" date. Ships in the same release as AECI-941, never bef
 
 `STAGE_2_5_SPEC.md` §7.1 point 5 currently **forbids** the page from claiming `analytics.view` does anything, and the shipped page says nothing about analytics at all — verified 2026-09-14: `apps/web/src/content/methodology.md` contains no analytics sentence, and `methodology.component.spec.ts` pins the `integration.version_diff` halves, not this. So AECI-942 **adds** a sentence rather than editing one:
 
-> Verified vendors can see aggregate attention statistics for their own listings. Those statistics have no effect on ranking, placement, or badges.
+> Vendors with active analytics access can see aggregate attention statistics for their own listings. Those statistics have no effect on ranking, placement, or account-status labels.
 
 Amend `STAGE_2_5_SPEC.md` §7.1 point 5 in the same PR so the prohibition it states no longer contradicts the page, and pin the new sentence in `methodology.component.spec.ts` the way point 5's other halves are pinned.
 

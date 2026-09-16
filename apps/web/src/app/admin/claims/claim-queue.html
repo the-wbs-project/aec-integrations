@@ -34,9 +34,9 @@
     </div>
   </div>
 
-  <!-- Reviewer-assisted verification — a human decides on the assembled signals. -->
+  <!-- Reviewer-assisted claim review — a human decides on the assembled signals. -->
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.claims.intro">
-    Review the verification signals, then approve to grant a verified vendor account or reject the
+    Review the identity and ownership signals, then approve to activate vendor access or reject the
     claim. No claim is granted automatically.
   </p>
 
@@ -451,7 +451,7 @@
         <!-- §5.2: on a pure-connector vendor BOTH actions are wrong, so the
              warning repeats here rather than only in the signals list above —
              the mistake is made at these buttons and it is one-way (Grant opens a
-             verified entitlement and lights the badge; Reject sends a real
+             paid entitlement and shows the account label; Reject sends a real
              decline email). The buttons stay enabled deliberately: `product_role`
              is curated upstream, so a mis-roled record must not hard-block a
              legitimate endpoint vendor's claim. -->
@@ -469,10 +469,10 @@
             class="mt-1 text-xs leading-relaxed text-(--text-secondary)"
             i18n="@@admin.claims.connectorGuard.body"
           >
-            Every product this vendor owns is a connector, so verification is not sold to them.
-            Granting opens a verified entitlement and lights the badge; rejecting sends a real
-            decline email. Leave this claim open, keep the linked Linear issue in an unstarted
-            state, and reply directly about the partnership track.
+            Every product this vendor owns is a connector, so paid vendor access is not sold to
+            them. Granting opens a paid entitlement and turns on the public account label; rejecting
+            sends a real decline email. Leave this claim open, keep the linked Linear issue in an
+            unstarted state, and reply directly about the partnership track.
           </p>
         </div>
         }

@@ -29,7 +29,7 @@ import { detectorTitle } from './vendor-attestation-labels';
  * pattern): the list, its load state and its retry are owned there so a
  * revalidation can bring new nudges in without a reload, and so re-opening the
  * tab does not re-request a 90-day archive that has not changed. The endpoint is
- * not Verified-gated, and a failure degrades to a retry rather than taking the
+ * not account-access-gated, and a failure degrades to a retry rather than taking the
  * tab down.
  *
  * ── "N NEW", AND WHY IT IS ONLY THAT (AECI-631 / §6.2) ──────────────────────

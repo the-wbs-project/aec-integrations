@@ -90,7 +90,7 @@ retired the arrow buttons.
 ### 3.6 Search
 - [ ] Search returns results; facets (category, audience, phase, trade) filter correctly.
 - [ ] `?sort=` still works from the listing toolbar.
-- [ ] Verified badge appears on vendor records in search — **expect none**, since production has zero `verified = 1` vendors. Confirm the absence rather than a broken badge.
+- [ ] Account label appears on vendor records in search — **expect none**, since production has zero `verified = 1` vendors. Confirm the absence rather than a broken label.
 - [ ] Autocomplete works (note: it lost telemetry in AECI-717).
 
 ---
@@ -143,7 +143,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 
 ## 8. Known non-issues — do not raise these as defects
 
-- Verified badge appears nowhere: production and demo have **zero** `verified = 1` vendors. The entitlement backfill is a confirmed no-op.
+- Account label appears nowhere: production and demo have **zero** `verified = 1` vendors. The entitlement backfill is a confirmed no-op.
 - Connector coverage surfaces (AECI-715 / 716) are **unbuilt** — public "reaches N of M" pages do not exist yet. The one exception since AECI-892 is the product page's unlinked *"N more pairs reachable via connectors"* line; it renders only where connector data exists.
 - Vendor-side connector authoring is not available: `/admin/connectors` is read-only until AECI-724.
 - Datadog dashboards going quiet is the intended AECI-651 outcome.

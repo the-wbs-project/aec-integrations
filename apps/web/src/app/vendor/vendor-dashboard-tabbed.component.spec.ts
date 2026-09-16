@@ -219,7 +219,7 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
   it('passes the verified flag down rather than gating in the shell', async () => {
     // The stock unverified fixture carries an EMPTY catalog, and Integrations
     // now lives under a product (AECI-666) — so it is given one here. The claim
-    // under test is about the read-only copy an unverified vendor sees, not about
+    // under test is about the read-only copy a vendor without active access sees, not about
     // having no products.
     const unverifiedWithProduct = {
       ...VENDOR_ME_UNVERIFIED_FIXTURE,
@@ -230,7 +230,7 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     // The shell stays presentational: the section renders either way and
     // decides for itself what to withhold.
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
-    expect(el.textContent).toContain('once your account is verified');
+    expect(el.textContent).toContain('with active vendor access');
   });
 });
 
@@ -262,7 +262,7 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
 
     expect(el.querySelector('aec-vendor-plan-panel')).not.toBeNull();
-    expect(el.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe('Renew verification');
+    expect(el.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe('Renew access');
     expect(el.textContent).toContain('no longer active');
   });
 
@@ -318,18 +318,18 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
     expect(el.querySelector('form button[type="submit"]')).toBeNull();
   });
 
-  it('moves the plan panel from lapsed to verified on the overview section', async () => {
+  it('moves the plan panel from lapsed to active on the overview section', async () => {
     const harness = await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE);
     const el = root(harness);
 
     expect(el.textContent).toContain('no longer active');
-    expect(el.querySelector('aec-verified-badge')).toBeNull();
+    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
     expect(el.textContent).not.toContain('no longer active');
-    expect(el.querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el.querySelector('aec-vendor-account-badge')).not.toBeNull();
   });
 
   it('opens the Integrations controls, because `verified` is a mirror of the same row', async () => {
@@ -338,12 +338,12 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
       VENDOR_ME_DOWNGRADED_FIXTURE,
     );
     const el = root(harness);
-    expect(el.textContent).toContain('once your account is verified');
+    expect(el.textContent).toContain('with active vendor access');
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
-    expect(el.textContent).not.toContain('once your account is verified');
+    expect(el.textContent).not.toContain('with active vendor access');
   });
 
   it('takes the capability list from the payload rather than re-deriving the tier ladder', async () => {

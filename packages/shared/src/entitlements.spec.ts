@@ -240,7 +240,7 @@ describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
   // `TIERS` and "what you can sell someone" are different lists, and conflating them
   // is a live incoherence, not a tidiness point: an `active` vendor_entitlements row
   // at a zero-capability tier flips the `vendors.verified` mirror and lights the
-  // Verified badge (§2.1) while `tierFor` resolves it to no capabilities at all — a
+  // public account label (§2.1) while `tierFor` resolves it to no capabilities at all — a
   // vendor billed for a badge that unlocks nothing. `SetVendorEntitlementSchema.tier`
   // therefore derives from PAID_TIERS, while the session block and grant summary keep
   // reading TIERS because they must be able to REPORT `unclaimed`.

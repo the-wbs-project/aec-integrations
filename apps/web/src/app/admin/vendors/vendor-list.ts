@@ -143,8 +143,8 @@ export class VendorList {
 
   protected readonly verifiedOptions: readonly AecSelectOption[] = [
     { value: 'any', label: $localize`:@@admin.vendors.filter.verified.any:Any status` },
-    { value: 'true', label: $localize`:@@admin.vendors.filter.verified.yes:Verified` },
-    { value: 'false', label: $localize`:@@admin.vendors.filter.verified.no:Not verified` },
+    { value: 'true', label: $localize`:@@admin.vendors.filter.verified.yes:Account active` },
+    { value: 'false', label: $localize`:@@admin.vendors.filter.verified.no:Account inactive` },
   ];
 
   protected readonly isEmpty = computed(() => !this.loading() && this.vendors().length === 0);

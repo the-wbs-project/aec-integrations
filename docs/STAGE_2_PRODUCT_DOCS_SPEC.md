@@ -14,7 +14,7 @@ A **reader-facing product documentation surface** ("the docs") supporting the pr
 Three audiences, in priority order:
 
 1. **Vendors** — the Stage 2 addition and the reason this exists now: claiming a profile, the dashboard, attesting to integrations, product versions, plans & entitlements, notifications.
-2. **Readers** (AEC firms evaluating integrations) — how the directory works: taxonomy, agreement states, the verified badge, what ranking does and does not reward.
+2. **Readers** (AEC firms evaluating integrations) — how the directory works: taxonomy, agreement states, the vendor account-status label, what ranking does and does not reward.
 3. **Reviewers** — dual reviews, requesting integrations/corrections.
 
 Trust content is first-class, not an afterthought: "how ranking works and what paid does **not** buy" (§8.1(4) of `STAGE_2_SPEC.md`) gets its own pages. Documentation is part of the trust surface.

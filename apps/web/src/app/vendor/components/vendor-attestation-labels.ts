@@ -14,8 +14,8 @@ import type { AttestationDetector, CounterpartyAttestation, VendorClaim } from '
  *    directory *says*, never where a product *sits*. AECi does not sell
  *    placement, and the vendor-facing surface is exactly where that promise
  *    would be quietly broken.
- *  - **"Verified" is an account status**, arranged with AEC Integrations — not
- *    a quality signal and not something the dashboard grants.
+ *  - **Active vendor access is an account status**, arranged with AEC Integrations.
+ *    It is not a quality signal and not something the dashboard grants.
  *
  * Agreement-state copy deliberately lives in `products/agreement-badge.ts`
  * instead: the vendor's view of a claim and the public pair page's view must not

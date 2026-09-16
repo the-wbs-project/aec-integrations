@@ -61,22 +61,22 @@ describe('SearchVendorCard', () => {
     expect(el.textContent).not.toContain('2002');
   });
 
-  it('renders the verified badge when the vendor is verified (AECI-529)', () => {
+  it('renders the account label when the legacy verified field is true (AECI-529)', () => {
     const el = setup({ ...baseRecord, verified: true });
-    expect(el.querySelector('aec-verified-badge')).not.toBeNull();
-    expect(el.textContent).toContain('Verified vendor');
+    expect(el.querySelector('aec-vendor-account-badge')).not.toBeNull();
+    expect(el.textContent).toContain('Vendor account active');
   });
 
-  it('hides the verified badge when the vendor is not verified', () => {
+  it('hides the account label when the legacy verified field is false', () => {
     const el = setup({ ...baseRecord, verified: false });
-    expect(el.querySelector('aec-verified-badge')).toBeNull();
-    expect(el.textContent).not.toContain('Verified vendor');
+    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(el.textContent).not.toContain('Vendor account active');
   });
 
-  it('hides the verified badge for a stale record missing the field', () => {
+  it('hides the account label for a stale record missing the field', () => {
     // Records indexed before AECI-529 carry no `verified` field, so it reads as
     // `undefined` at runtime — the `@if` guard must treat that as unverified.
     const el = setup({ ...baseRecord, verified: undefined as unknown as boolean });
-    expect(el.querySelector('aec-verified-badge')).toBeNull();
+    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
   });
 });

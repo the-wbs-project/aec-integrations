@@ -129,7 +129,7 @@ A small set of cross-cutting principles. Component-level implementation lives in
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.
 - **No emoji in UI chrome.** Use Lucide icons exclusively. Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
 - **No stock photography of construction sites, hard hats, or blueprints.** The AEC software visual cliché. The brand is editorial — diagrams, screenshots, and original photography only.
-- **No pay-for-placement visual tells.** Featured/verified badges follow product rules (`docs/STAGE_1_SPEC.md`), not vendor spend.
+- **No pay-for-placement visual tells.** Paid vendor access uses a neutral account-status label. It never uses verification iconography, endorsement color, or promoted treatment (`DESIGN.md` §Badges).
 
 ---
 

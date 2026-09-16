@@ -254,7 +254,7 @@ describe('sendClaimApprovedEmail', () => {
     expect(body.to).toBe('owner@vendor.com');
     expect(body.subject).toBe('Your claim for Autodesk, Inc. is approved');
     const text = String(body.text);
-    expect(text).toContain('now verified');
+    expect(text).toContain('vendor account is now active');
     expect(text).toContain('data corrections');
     expect(text).toContain('https://aecintegrations.com/vendor');
     expect(String(body.html)).toContain('https://aecintegrations.com/vendor');
@@ -1481,7 +1481,7 @@ describe('entitlement expiry templates', () => {
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('Nothing changes automatically');
-    expect(text).toContain("don't switch verification off");
+    expect(text).toContain("don't switch access off");
     // Nothing that reads as a threat or a countdown to removal.
     expect(text.toLowerCase()).not.toContain('will be removed');
     expect(text.toLowerCase()).not.toContain('will expire');
@@ -1509,7 +1509,7 @@ describe('entitlement expiry templates', () => {
     expect(String(lastBody(fetchSpy).text)).toContain(phrase);
   });
 
-  it('never implies verification affects ranking or placement', async () => {
+  it('never implies account access verifies quality or affects ranking', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
     await sendEntitlementExpiringEmail(
@@ -1518,10 +1518,10 @@ describe('entitlement expiry templates', () => {
     );
 
     const text = String(lastBody(fetchSpy).text);
-    // It says the opposite, explicitly — the same framing the badge tooltip and
-    // the `claim-approved` email use.
+    // It says the opposite, explicitly. This matches the public account label
+    // tooltip and the claim-approved email.
     expect(text).toContain("doesn't affect search ranking or placement");
-    expect(text).toContain('not an endorsement');
+    expect(text).toContain('does not verify product quality or integration accuracy');
   });
 
   it('omits the dashboard link entirely when PUBLIC_SITE_URL is unset', async () => {

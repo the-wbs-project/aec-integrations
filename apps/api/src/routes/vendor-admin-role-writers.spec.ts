@@ -9,7 +9,7 @@
  * ── WHY IT IS WORTH A TEST ───────────────────────────────────────────────────
  * `vendors.verified` is a denormalized mirror of `vendor_entitlements` that flips
  * on `status = 'active'` — **not on `tier`** (`lib/vendor-entitlement.ts`). So
- * *any* active entitlement row lights the verified badge, whatever it contains,
+ * *any* active entitlement row turns on the public account label, whatever it contains,
  * and "a seat but no badge" is not expressible through the entitlement table at
  * all. §8.9(1) says a pure connector vendor is **never** sold verification; §8.9(2)
  * therefore fences its seat off from `vendor_entitlements` entirely.

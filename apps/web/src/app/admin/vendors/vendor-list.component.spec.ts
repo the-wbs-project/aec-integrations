@@ -8,7 +8,7 @@
  *
  * The filter cases carry the weight. This screen exists so an operator can find a
  * vendor that never filed a claim, so "search finds nothing" and "the Unverified
- * filter returns verified vendors" are both failures of the whole point.
+ * filter returns active-account vendors" are both failures of the whole point.
  *
  * AECI-694 turned the cards into a table with two sortable headers, so the
  * structural assertions target `tbody tr` rather than `article`, and the sort
@@ -132,7 +132,7 @@ describe('VendorList', () => {
     const { el } = await setup(
       makeApiMock([makeRow({ verified: true, tier: null, status: null, period_end: null })]),
     );
-    expect(el.textContent).toContain('Verified');
+    expect(el.textContent).toContain('Active');
     expect(el.textContent).toContain('No entitlement');
   });
 
@@ -287,7 +287,7 @@ describe('VendorList', () => {
       const labels = [
         'Vendor',
         'Slug',
-        'Verified',
+        'Account active',
         'Entitlement',
         'Products',
         'Term ends',

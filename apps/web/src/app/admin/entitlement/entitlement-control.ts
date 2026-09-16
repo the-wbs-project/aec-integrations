@@ -87,7 +87,7 @@ export class EntitlementControl {
   protected readonly failedMessage = signal('');
 
   /** Whether the vendor currently holds the paid entitlement. `active` is the ONLY
-   *  status that grants capabilities and the only one that mirrors onto the badge
+   *  status that grants capabilities and the only one that mirrors onto the public label
    *  (§2.2) — every other status, and no row at all, reads as "not entitled". */
   protected readonly entitled = computed(() => this.entitlement()?.status === 'active');
 
@@ -95,7 +95,7 @@ export class EntitlementControl {
   protected readonly statusLabel = computed(() => {
     switch (this.entitlement()?.status) {
       case 'active':
-        return $localize`:@@admin.claims.ent.status.active:Verified: entitlement active`;
+        return $localize`:@@admin.claims.ent.status.active:Account active: entitlement active`;
       case 'pending':
         return $localize`:@@admin.claims.ent.status.pending:Arrangement pending`;
       case 'expired':

@@ -25,7 +25,7 @@
  * guarded `WHERE verified = <old>` — so a second-seat grant, a renewal, and a
  * drifted self-heal all leave it alone (no needless nightly Algolia re-push), while a
  * real flip in EITHER direction bumps it. The un-verify direction is the one AECI-529
- * never reasoned about: without the bump, a lapsed vendor keeps a Verified badge in
+ * never reasoned about: without the bump, a lapsed vendor keeps an active-account label in
  * search indefinitely.
  *
  * ── NO WORKFLOW ROW ────────────────────────────────────────────────────────────

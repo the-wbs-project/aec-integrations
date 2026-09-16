@@ -7,7 +7,7 @@
  * it — gets exactly one caller, so the blast radius is greppable.
  *
  * The action's whole property — a seat with **no** `vendor_entitlements` row, so
- * the Verified badge never lights (`STAGE_2_SPEC.md` §8.9(2)) — is enforced
+ * the public account label never appears (`STAGE_2_SPEC.md` §8.9(2)) — is enforced
  * server-side and pinned by `apps/api/src/routes/vendor-admin-role-writers.spec.ts`.
  * Nothing here re-implements it; the control renders its outcome, including the
  * `entitlement_granted: false` the response states out loud.

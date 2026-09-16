@@ -116,11 +116,11 @@
         class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       ></textarea>
     </div>
-    <!-- Verification is an account status, and search is nightly (§5.3 / R2). -->
+    <!-- Vendor access is an account status, and search is nightly (§5.3 / R2). -->
     <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.form.setHelp">
-      Granting an entitlement shows the Verified badge and unlocks the vendor's portal editing. It
-      is an account status, never an endorsement, and it never affects search ranking or placement.
-      Search results catch up within a day.
+      Granting an entitlement shows the public account label and unlocks the vendor's portal
+      editing. It never verifies product quality or integration accuracy, and it never affects
+      search ranking or placement. Search results catch up within a day.
     </p>
     <div class="flex flex-wrap gap-3 pt-1">
       <button
@@ -161,9 +161,9 @@
     class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
   >
     <p class="text-sm text-(--text-primary)" i18n="@@admin.claims.ent.clear.keepsAccess">
-      Clearing removes the Verified badge and blocks portal editing. It does not remove anyone's
-      seat: the vendor's team keeps their logins and their portal, read-only. To ban one person
-      instead, use Banned reviewers.
+      Clearing removes the public account label and blocks portal editing. It does not remove
+      anyone's seat: the vendor's team keeps their logins and their portal, read-only. To ban one
+      person instead, use Banned reviewers.
     </p>
     <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.clear.lockout">
       While an entitlement is cleared, a vendor whose team still holds seats can't be edited by

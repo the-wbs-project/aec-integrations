@@ -7,7 +7,7 @@
  * Source-Serif display tagline, a one-line lede, and the search field as the single
  * primary affordance. The tagline states only what is true at Stage 1 launch: it
  * does NOT claim dual-vendor verification (out of scope until the Stage 2 vendor-
- * claim flow — spec §1 "Out of scope for Stage 1"; §4.2 "Verified badge (placeholder
+ * claim flow — spec §1 "Out of scope for Stage 1"; §4.2 "account label (placeholder
  * — none verified in Stage 1)"), and avoids an "every …" completeness claim the
  * partial launch catalog can't back.
  *

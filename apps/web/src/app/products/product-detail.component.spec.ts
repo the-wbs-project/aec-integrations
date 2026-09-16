@@ -771,8 +771,8 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
 
 /**
  * The Actions-sidebar claim CTA. `vendors.verified` is the only public signal
- * that a listing is claimed, so it drives the copy: an unverified vendor gets
- * "Claim this listing", a verified one gets "Request access to this listing"
+ * that a listing is claimed, so it drives the copy: an inactive vendor account gets
+ * "Claim this listing", an active one gets "Request access to this listing"
  * plus a note. Both open the same `kind:'claim'` request — seats are
  * admin-granted and multi-seat (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the
  * claim form stays the only route in for a second person at the vendor.
@@ -783,16 +783,16 @@ describe('ProductDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
 
-  it('offers to claim the listing when the built-by vendor is unverified', () => {
+  it('offers to claim the listing when the built-by vendor account is inactive', () => {
     const { el } = setup(buildProduct());
     const section = actions(el);
 
     expect(section.textContent).toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
-    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+    expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
 
-  it('offers to request access when the built-by vendor is verified', () => {
+  it('offers to request access when the built-by vendor account is active', () => {
     const { el } = setup(
       buildProduct({
         vendor: {
@@ -808,7 +808,7 @@ describe('ProductDetailPage claim CTA', () => {
 
     expect(section.textContent).toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Claim this listing');
-    expect(section.textContent).toContain('Already managed by a verified vendor');
+    expect(section.textContent).toContain('Already managed through an active vendor account');
 
     // Copy only: the CTA still targets the same claim route/kind.
     const cta = section.querySelector<HTMLAnchorElement>('a[href="/products/procore/claim"]');
@@ -822,7 +822,7 @@ describe('ProductDetailPage claim CTA', () => {
     const section = actions(el);
 
     expect(section.textContent).toContain('Claim this listing');
-    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+    expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
 });
 

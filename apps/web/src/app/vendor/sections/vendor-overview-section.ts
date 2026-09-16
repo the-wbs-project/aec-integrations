@@ -4,7 +4,7 @@ import { VendorPlanPanel } from '../components/vendor-plan-panel';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
- * `…/overview` — the portal's landing section: verification state, the three
+ * `…/overview` — the portal's landing section: account-access state, the three
  * headline counts, and the state of any claim/correction against this vendor.
  *
  * Lifted out of `vendor-dashboard-tabbed.ts`'s `@switch` when the portal moved
@@ -25,9 +25,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
         <div>
           <h2
             class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.verification"
+            i18n="@@vendor.section.accountAccess"
           >
-            Verification
+            Account access
           </h2>
           <div class="mt-4">
             <aec-vendor-plan-panel [entitlement]="m.entitlement" />
