@@ -595,6 +595,43 @@ After editing the allow-list, re-request the magic link — the email's `redirec
 should now carry the staging callback, not localhost. No deploy is needed (it's
 project config, not a Worker secret).
 
+## Deployed Supabase Auth: email templates (dashboard)
+
+Like the redirect allow-list above, the auth email bodies are **dashboard state**.
+`supabase/config.toml`'s `[auth.email.template.*]` blocks configure only the local
+`supabase start` stack; Authentication → Emails is the source of truth for the deployed
+project, and nothing in CI can see it.
+
+There are **two** slots to fill, not one, and they must hold identical content:
+
+| Slot | Fires when | Holds |
+|---|---|---|
+| Authentication → Emails → **Magic Link** | the address already exists in `auth.users` | `docs/email-templates/magic-link.html` |
+| Authentication → Emails → **Confirm signup** | the address has never been seen | the same file, verbatim |
+
+Subject on **both**: `Sign in to AEC Integrations`.
+
+`/auth/login` offers one button for both cases (`signInWithOtp` with
+`shouldCreateUser: true`), so a divergence here means first-time and returning users get
+materially different email from the same click. That was live until **AECI-984**; see
+`docs/email.md` §"Two templates, one file" for the full reasoning, including why turning
+Confirm email off is the wrong fix.
+
+Also confirm **Email OTP Expiration** is `3600`. The template states "60 minutes" in
+prose and that number is not derived from anything — if the dashboard value changes, the
+email starts lying.
+
+Verify the setting that selects the slot (read-only, anon key, no deploy needed):
+
+```bash
+curl -s "https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/settings" -H "apikey: $SUPABASE_ANON_KEY"
+```
+
+`mailer_autoconfirm: false` means Confirm email is on and **both** slots are live.
+
+One shared project serves every tier (ADR 0017), so editing either template edits
+**production** immediately. There is no staging copy to rehearse on.
+
 ## Deployed Supabase Auth: Google OAuth provider (dashboard)
 
 > **DONE — verified 2026-09-10 (AECI-850).** The Google provider **is enabled** on
@@ -791,7 +828,10 @@ The following must be done by hand (Supabase and Cloudflare dashboards + `gh sec
 > shared project, `ktuhnlypztujpsseujzx`. Provision it on a **paid tier** (Free
 > pauses + caps MAU), configure its redirect-URL allow-list + Site URL (see
 > "Deployed Supabase Auth: redirect-URL configuration" above), wire Resend custom
-> SMTP (`docs/email.md`) and Google OAuth, then point `SUPABASE_URL` (both
+> SMTP (`docs/email.md`) and Google OAuth, paste
+> `docs/email-templates/magic-link.html` into **both** the Magic Link and Confirm
+> signup email slots (see "Deployed Supabase Auth: email templates" above —
+> AECI-984), then point `SUPABASE_URL` (both
 > `wrangler.jsonc`s, already flipped) at it and set the single un-suffixed
 > `SUPABASE_ANON_KEY` GH secret (one value, every env — `deploy.yml` /
 > `promote-to-prod.yml` / `promote-to-demo.yml` / `pr-preview.yml` all push it)

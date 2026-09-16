@@ -2,9 +2,19 @@
 <!--
   AECi sign-in magic link: the Supabase Auth (GoTrue) template.
 
-  WHERE THIS IS DEPLOYED: Supabase dashboard -> Authentication -> Emails -> Magic Link.
-  It is NOT read from this repo at runtime. This file exists so the deployed copy has a
-  reviewable source of truth; if you edit the dashboard, edit this file in the same PR.
+  WHERE THIS IS DEPLOYED: Supabase dashboard -> Authentication -> Emails, in TWO places:
+  "Magic Link" AND "Confirm signup". Both get this exact HTML and the same subject,
+  "Sign in to AEC Integrations". It is NOT read from this repo at runtime. This file
+  exists so the deployed copy has a reviewable source of truth; if you edit the
+  dashboard, edit this file in the same PR -- and paste it into BOTH slots.
+
+  WHY TWO SLOTS (AECI-984): the app calls signInWithOtp with shouldCreateUser: true, and
+  while "Confirm email" is on (GET /auth/v1/settings reports mailer_autoconfirm: false)
+  GoTrue picks "Confirm signup" for an address it has never seen and "Magic Link" for
+  every other one. The user pressed the same button either way and cannot tell which
+  they triggered, so the two templates must be identical. Leaving "Confirm signup" at
+  the Supabase default sent every first-time user an unbranded registration email for a
+  page that never mentioned registration.
 
   THIS IS THE HOUSE TEMPLATE, and it has a TypeScript twin: apps/api/src/lib/email-layout.ts.
   That module is a port of this shell, and it is what every Resend-sent email renders into.
@@ -13,7 +23,7 @@
   from every other email. docs/email.md (§House layout) is the contract.
 
   ONE PROJECT SERVES EVERY TIER (ADR 0017), so this template must never name an
-  environment. `{{ .ConfirmationURL }}` already carries the right per-request redirect.
+  environment. .ConfirmationURL already carries the right per-request redirect.
 
   GoTrue variables used below: .Email and .ConfirmationURL (in double braces).
   Also available if needed: .Token (6 digits, otp_length), .TokenHash, .SiteURL, .RedirectTo.

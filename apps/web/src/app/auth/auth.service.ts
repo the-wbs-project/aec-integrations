@@ -192,6 +192,13 @@ export class AuthService {
    * passwordless flow signup-capable (Phase 5 has no separate register page).
    * Throws on transport/Supabase errors — the caller renders the retryable
    * error notice.
+   *
+   * One consequence lives outside this repo (AECI-984): with Supabase's
+   * "Confirm email" on, GoTrue answers this call with its **Confirm signup**
+   * template for an address it has never seen, and **Magic Link** for every
+   * other one. The user pressed the same button either way, so both dashboard
+   * templates must hold `docs/email-templates/magic-link.html` verbatim. See
+   * `docs/email.md` §"Two templates, one file".
    */
   async sendMagicLink(email: string, returnPath: string | null): Promise<void> {
     const { error } = await (

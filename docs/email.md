@@ -111,7 +111,8 @@ Four rules the module holds, each because of a specific failure:
 runs Go templates and cannot import TypeScript, so **the two are hand-kept twins: change
 the shell in one and change it in the other in the same PR**, or the sign-in email drifts
 from every other email. That file additionally has to be pasted into the Supabase
-dashboard to take effect, per the magic-link section below.
+dashboard to take effect — into **two** slots, Magic Link and Confirm signup, per the
+magic-link section below.
 
 ### Migration status
 
@@ -367,7 +368,9 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 ### The template itself lives in `docs/email-templates/magic-link.html`
 
 The dashboard is where it **runs**; that file is where it is **reviewed**. Edit both in the
-same PR, or the repo copy becomes a lie. Paste it into Authentication → Emails → Magic Link.
+same PR, or the repo copy becomes a lie. Paste it into Authentication → Emails → **Magic
+Link** *and* Authentication → Emails → **Confirm signup** — the same HTML in both, and the
+same subject in both. The next subsection is why.
 
 What the template does beyond the GoTrue default, and why:
 
@@ -384,6 +387,45 @@ What the template does beyond the GoTrue default, and why:
 
 **Subject line:** `Sign in to AEC Integrations`. It names the brand, which is what makes the
 message findable later by search.
+
+### Two templates, one file (AECI-984)
+
+`apps/web`'s `sendMagicLink` calls `signInWithOtp({ shouldCreateUser: true })`
+(`apps/web/src/app/auth/auth.service.ts`), so one visible button — "Email me a sign-in
+link" — covers first-time and returning users alike. **GoTrue does not treat them alike.**
+While **Confirm email** is on, it sends:
+
+| The address is | GoTrue sends | Dashboard slot |
+|---|---|---|
+| already in `auth.users` | the sign-in link | Authentication → Emails → **Magic Link** |
+| never seen before | a signup confirmation | Authentication → Emails → **Confirm signup** |
+
+Until AECI-984 only Magic Link was customised, so the **first** email anyone ever received
+from AECi was the Supabase default, worded as account registration, for a page that never
+mentioned registration. Both slots now carry `docs/email-templates/magic-link.html`
+verbatim, with the subject `Sign in to AEC Integrations` on both. `{{ .Email }}` and
+`{{ .ConfirmationURL }}` are valid in either context, so the HTML needs no variant — and a
+single file is deliberate, because two near-identical auth templates drifting apart is the
+defect being fixed.
+
+**Read the live setting** — this is the one value that decides which slot fires, and it is
+dashboard state no repo check can see:
+
+```bash
+curl -s "https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/settings" -H "apikey: $SUPABASE_ANON_KEY"
+```
+
+`mailer_autoconfirm: false` means **Confirm email is on** and both slots are live. Verified
+`false` on 2026-09-16. If it ever reads `true`, only Magic Link fires and Confirm signup
+becomes dead config — do not delete it, because the setting can be flipped back from the
+dashboard without a deploy.
+
+**Why not just turn Confirm email off.** It would collapse the two slots into one, and
+AECI-984 rejected it. With `mailer_autoconfirm: true` GoTrue's public
+`POST /auth/v1/signup` returns an **immediately usable password account for any address**,
+including one the caller does not own (`disable_signup` is `false`). Vendor claim grants
+resolve claimants by email — `AUTH_AND_RLS.md` §3.1 seam #4a — so a squatted address could
+later inherit a vendor seat. One dashboard paste is cheaper than that exposure.
 
 **Known gap, deliberately not solved here.** Corporate link scanners (Mimecast, Proofpoint,
 Defender) prefetch URLs to inspect them, and a magic link is single-use, so a scanner can
@@ -402,7 +444,12 @@ outside the Resend dashboard.
 
 Custom SMTP is configured at the **project** level, so it carries *every*
 GoTrue-originated mail (magic link, confirm signup, recovery, invite) — not just magic
-links. Today magic link is the only one AECi actually triggers.
+links. AECi triggers **two** of those four: magic link for a known address and confirm
+signup for an unknown one, which is why both slots carry the same template (above).
+Recovery and invite are never triggered — there is no password-reset flow, and vendor
+claimants are provisioned silently (below). *(Corrected 2026-09-16, AECI-984. This
+paragraph previously ended "Today magic link is the only one AECi actually triggers",
+which is what let the Confirm-signup default ship unnoticed.)*
 
 ### The vendor-claim account is provisioned WITHOUT a GoTrue email (AECI-527)
 
