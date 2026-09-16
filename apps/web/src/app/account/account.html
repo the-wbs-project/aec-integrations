@@ -204,27 +204,6 @@
       } }
     </div>
 
-    <!-- ── Sign out ────────────────────────────────────────────────────────── -->
-    <div class="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        (click)="onSignOut()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@account.signOut"
-      >
-        Sign out
-      </button>
-      @if (signOutFailed()) {
-      <p
-        class="text-sm font-medium text-(--text-primary)"
-        role="alert"
-        i18n="@@account.signOut.failed"
-      >
-        Couldn't sign out. Please try again.
-      </p>
-      }
-    </div>
-
     <!-- ── Delete account ──────────────────────────────────────────────────── -->
     <div class="rounded-(--radius-md) border border-(--border-strong) p-6">
       <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.delete.heading">
