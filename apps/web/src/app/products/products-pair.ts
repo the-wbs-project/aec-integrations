@@ -22,6 +22,7 @@ import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { AgreementBadge } from './agreement-badge';
@@ -334,6 +335,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     LogoOrInitial,
     MailingListSignup,
     MaintenanceMarker,
+    NewTabIcon,
     NotFound,
     PairVersionSelect,
     RouterLink,
@@ -805,19 +807,32 @@ function writePairViewCookie(mode: PairViewMode): void {
                   }
                 }
 
+                <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule").
+                     AECI-980 pulled these two off accent and off the arrow glyph.
+                     Off accent because a second accent-coloured thing competes
+                     with the one primary action on the page. Off the glyph
+                     because this card also renders a real direction arrow, so two
+                     arrow characters sat in one card meaning two unrelated things
+                     (the Arrow Rule). The rel gained both nofollow and noreferrer:
+                     these are vendor-controlled destinations and the external
+                     recipe covers both axes, which the old pair only half did. -->
                 @if (m.listingUrl || m.docsUrl) {
-                  <ul class="flex flex-wrap gap-4 text-sm">
+                  <ul class="-mx-3 flex flex-wrap gap-1">
                     @if (m.listingUrl) {
                       <li>
                         <a
                           [href]="m.listingUrl"
                           target="_blank"
-                          rel="noopener nofollow"
+                          rel="noopener noreferrer nofollow"
                           aecTrackExternalLink="pair_detail"
-                          class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
+                          class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+                            text-xs font-medium text-(--text-secondary) underline
+                            decoration-(--border-strong) underline-offset-4 transition-colors
+                            hover:text-(--text-primary) focus-visible:outline-2
+                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         >
-                          <ng-container i18n="@@pair.mechanism.listing">View listing</ng-container>
-                          <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
+                          <span i18n="@@pair.mechanism.listing">View listing</span>
+                          <aec-new-tab-icon />
                         </a>
                       </li>
                     }
@@ -826,12 +841,16 @@ function writePairViewCookie(mode: PairViewMode): void {
                         <a
                           [href]="m.docsUrl"
                           target="_blank"
-                          rel="noopener nofollow"
+                          rel="noopener noreferrer nofollow"
                           aecTrackExternalLink="pair_detail"
-                          class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
+                          class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+                            text-xs font-medium text-(--text-secondary) underline
+                            decoration-(--border-strong) underline-offset-4 transition-colors
+                            hover:text-(--text-primary) focus-visible:outline-2
+                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         >
-                          <ng-container i18n="@@pair.mechanism.docs">Documentation</ng-container>
-                          <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
+                          <span i18n="@@pair.mechanism.docs">Documentation</span>
+                          <aec-new-tab-icon />
                         </a>
                       </li>
                     }

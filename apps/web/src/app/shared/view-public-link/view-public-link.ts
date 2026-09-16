@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
+import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
+
 /**
  * `ViewPublicLink` (AECI-960) — "View public page", the portal's one way out to
  * the catalog it edits (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.7).
@@ -16,28 +18,31 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * §6.1's taxonomy-modal reasoning), so a same-tab navigation can silently
  * discard an edit. And the intent is a LOOKUP rather than a destination: the
  * vendor has not finished with the page they are on. `rel="noopener"` because a
- * new browsing context otherwise gets a handle on this one. This is the same
- * call, and the same markup, the admin console made in
+ * new browsing context otherwise gets a handle on this one — and `noopener`
+ * ALONE, with no `noreferrer nofollow`, because the destination is our own
+ * catalog (`DESIGN.md` → "The Link Treatment Rule", internal recipe). This is
+ * the same call, and the same markup, the admin console made in
  * `admin/vendors/vendor-detail.html` and `admin/vendors/vendor-products-table.html`.
  *
- * ── THE NEW TAB IS ANNOUNCED, AND `ariaLabel` IS NOT OPTIONAL POLISH ────────
- * The sr-only "(opens in a new tab)" sits BESIDE the anchor, not inside it,
- * matching the two shipped admin sites so the portal and the console read alike.
- * It renders ONLY on the unnamed link. A caller-supplied `ariaLabel` states the
- * new tab itself (it has to — the sibling span is not read in a rotor or links
- * list, which is the whole reason that name exists), so keeping the span there
- * too would announce the disclosure twice in browse mode. One of the two always
- * carries it; never both.
+ * ── THE NEW TAB IS DRAWN AND ANNOUNCED, AND `ariaLabel` IS NOT POLISH ───────
+ * AECI-980 added `aec-new-tab-icon`. Until then this link disclosed the new tab
+ * to a screen reader and showed a sighted reader nothing, which is the half of
+ * the problem no audit tool reports. The icon component carries both halves: the
+ * drawn Lucide `arrow-up-right` and the `sr-only` note, now INSIDE the anchor so
+ * the note reaches a rotor and an `NVDA+F7` links list. See that component for
+ * why inside beats beside, and why the old `@if (!ariaLabel())` guard is gone.
  *
- * `ariaLabel` exists because that uniform name is only safe where the link
- * appears ONCE on a page. The vendor header and the product header qualify. The
- * integrations tab does not: it renders one card per integration, so N links
+ * `ariaLabel` exists because the uniform visible name is only safe where the
+ * link appears ONCE on a page. The vendor header and the product header qualify.
+ * The integrations tab does not: it renders one card per integration, so N links
  * would share the accessible name "View public page" while pointing at N
  * different pair pages. `ACCESSIBILITY_AUDIT.md` finding A4 is open against the
  * home page for exactly that shape (three "Source (opens in a new tab)" links to
  * three different destinations, WCAG 2.4.4 Link Purpose), and a rotor or
  * `NVDA+F7` links list is where it bites. So a caller rendering this in a
- * repeated context MUST pass a name that identifies its destination.
+ * repeated context MUST pass a name that identifies its destination — and that
+ * name must state the new tab itself, because an `aria-label` replaces the
+ * anchor's contents and so suppresses the icon's note.
  *
  * The name is built with `$localize` at the CALL SITE, never as an interpolated
  * `i18n-aria-label` attribute — an interpolated `i18n-*` attribute emits no
@@ -46,27 +51,31 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * accessible name begins with the visible text so WCAG 2.5.3 Label in Name holds
  * and speech input can target it.
  *
+ * ── STYLING IS THE "STANDALONE LINK" ROLE, NOT A LOCAL CHOICE ──────────────
+ * The class list below is the shipped spelling of `DESIGN.md`'s standalone-link
+ * role. Quiet, secondary-coloured, underlined. It is deliberately NOT accent —
+ * accent belongs to the one primary action on a surface ("Visit website"), and
+ * AECI-980 pulled three other links off accent to restore that. Change it here
+ * and in `DESIGN.md` together, never here alone.
+ *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-view-public-link',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NewTabIcon],
   template: `
     <a
       [href]="href()"
       target="_blank"
       rel="noopener"
       [attr.aria-label]="ariaLabel()"
-      class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium
-        text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4
-        transition-colors hover:text-(--text-primary) focus-visible:outline-2
+      class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs
+        font-medium text-(--text-secondary) underline decoration-(--border-strong)
+        underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2
         focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@shared.viewPublicLink.label"
-      >View public page</a
-    >
-    @if (!ariaLabel()) {
-      <span class="sr-only" i18n="@@shared.viewPublicLink.newTab">(opens in a new tab)</span>
-    }
+      ><span i18n="@@shared.viewPublicLink.label">View public page</span> <aec-new-tab-icon
+    /></a>
   `,
   styles: `
     :host {
@@ -81,7 +90,8 @@ export class ViewPublicLink {
   /**
    * Accessible name, REQUIRED wherever this link is rendered more than once on a
    * page (see the class comment). `null` falls back to the visible "View public
-   * page" text, which is correct only for a once-per-page link.
+   * page" text plus the icon's "(opens in a new tab)" note, which is correct only
+   * for a once-per-page link.
    */
   readonly ariaLabel = input<string | null>(null);
 }

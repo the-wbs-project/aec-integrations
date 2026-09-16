@@ -168,7 +168,7 @@ Cacheable (public, approved-only). On approval/rejection the product's review ta
 
 ### 6.1 `/account` (Phase 5.11, frontend)
 
-Non-cacheable, auth-gated. Shows the user's profile (display name, email — read-only from the session), theme preference (already wired), their submitted reviews + statuses, sign-out, and the **Delete account** action (confirmation step).
+Non-cacheable, auth-gated. Shows the user's profile (display name, email — read-only from the session), theme preference (already wired), their submitted reviews + statuses, and the **Delete account** action (confirmation step). *(AECI-986 removed the page's standalone sign-out action — session exit belongs to the persistent account menu in the site header, desktop `layout/user-menu.ts` and mobile `layout/nav-menu.ts`.)*
 
 ### 6.2 `DELETE /api/account` (Phase 5.11, backend)
 

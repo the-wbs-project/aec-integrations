@@ -1364,16 +1364,13 @@ describe('attestation nudge templates', () => {
 
   it('tells the counterparty what was denied, without quoting the denier (AECI-961)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
 
-    expect(
-      await sendAttestationClaimDeniedEmail(
-        fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
-        SUBJECT,
-      ),
-    ).toBe('sent');
+    expect(await sendAttestationClaimDeniedEmail(c, SUBJECT)).toBe('sent');
     expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-claim-denied']]);
 
-    const text = String(lastBody(fetchSpy).text);
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
     // The fact the lane promises: the flow is NOT removed, it stays unverified
     // until AECi corrects the record (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2).
     expect(text).toContain('stays on the listing as unverified');
@@ -1381,6 +1378,13 @@ describe('attestation nudge templates', () => {
     // Non-accusatory: the recipient has said nothing, so nothing asks them to
     // defend a position they never took.
     expect(text.toLowerCase()).not.toContain('dispute');
+    // The portal is the single CTA, not an inline link.
+    expect(text).toContain('Record your position: https://www.aecintegrations.com/vendor');
+    // The house shell, not the legacy formatter.
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('#27272a');
+    expect(html).not.toContain('The AEC Integrations team');
   });
 
   it('omits the claim-denied links when PUBLIC_SITE_URL is unset', async () => {
@@ -1418,7 +1422,7 @@ describe('attestation nudge templates', () => {
     }
   });
 
-  it('renders the ops alert in the operator format, naming the detector', async () => {
+  it('renders the ops alert on the house shell, naming the detector', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
 
@@ -1442,6 +1446,11 @@ describe('attestation nudge templates', () => {
     expect(String(body.text)).toContain('Detector: claim-denied');
     expect(String(body.text)).toContain('Claim: claim-1');
     expect(String(body.text)).toContain('Mechanism: (unnamed)');
+    // The house shell, not the unbranded ops table.
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('border="1"');
+    expect(html).not.toContain('#27272a');
   });
 
   it('skips every nudge when the transport is unconfigured', async () => {

@@ -3,9 +3,9 @@ import type { AuthService } from './auth.service';
 
 /**
  * Shared sign-out action (AECI-259) — used by the desktop user menu
- * (`layout/user-menu.ts`), the mobile overlay (`layout/nav-menu.ts`) AND
- * `AccountPage.onSignOut()` (folded in by AECI-649), so the flow lives in one
- * place and can't drift.
+ * (`layout/user-menu.ts`) and the mobile overlay (`layout/nav-menu.ts`), so
+ * the flow lives in one place and can't drift. The account page's own
+ * sign-out button was removed (AECI-986); session exit is menu-only.
  *
  * Clear the Supabase session, drop the PostHog identity, then leave for home.
  * The redirect is a **hard `location.assign('/')`, not a `Router.navigate`,

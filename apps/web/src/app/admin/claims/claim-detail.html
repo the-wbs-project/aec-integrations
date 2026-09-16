@@ -68,13 +68,13 @@
     >
       <div class="flex flex-wrap items-center gap-2">
         <span
-          class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
           >{{ statusLabel(c.status) }}</span
         >
         @if (c.is_duplicate) {
         <a
           href="#admin-claim-duplicate"
-          class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) no-underline transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) no-underline transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.claims.detail.duplicateChip"
           >Possible duplicate — see why</a
         >
@@ -132,37 +132,37 @@
           [href]="c.submitter_linkedin_url"
           target="_blank"
           rel="noopener noreferrer nofollow"
-          class="inline-flex items-center rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.claims.detail.linkedin.supplied"
-          >LinkedIn profile the claimant gave ↗</a
-        >
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ><span i18n="@@admin.claims.detail.linkedin.supplied"
+            >LinkedIn profile the claimant gave</span
+          >
+          <aec-new-tab-icon
+        /></a>
         } @else {
         <a
           [href]="linkedInSearchUrl(c)"
           target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.claims.detail.linkedin.search"
-          >Search LinkedIn for this person ↗</a
-        >
+          rel="noopener noreferrer nofollow"
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ><span i18n="@@admin.claims.detail.linkedin.search">Search LinkedIn for this person</span>
+          <aec-new-tab-icon
+        /></a>
         } @if (c.source_url) {
         <a
           [href]="c.source_url"
           target="_blank"
           rel="noopener noreferrer nofollow"
-          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.claims.detail.sourceUrl"
-          >Source link ↗</a
-        >
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ><span i18n="@@admin.claims.detail.sourceUrl">Source link</span> <aec-new-tab-icon
+        /></a>
         } @if (c.linear_issue_url) {
         <a
           [href]="c.linear_issue_url"
           target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.claims.detail.linearIssue"
-          >Linear issue ↗</a
-        >
+          rel="noopener noreferrer nofollow"
+          class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ><span i18n="@@admin.claims.detail.linearIssue">Linear issue</span> <aec-new-tab-icon
+        /></a>
         }
       </div>
     </div>
@@ -354,7 +354,7 @@
         [value]="noteDraft()"
         (input)="onNoteInput($event)"
         [disabled]="notePending()"
-        class="mt-3 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:opacity-50"
+        class="mt-3 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)"
       ></textarea>
 
       <div class="mt-3 flex flex-wrap items-center gap-3">

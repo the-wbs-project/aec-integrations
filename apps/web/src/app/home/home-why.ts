@@ -38,6 +38,8 @@
  */
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
+
 /** A primary source behind a figure: the verifiable link and its citation. */
 interface ProblemSource {
   /** Citation shown on hover/focus and announced to screen readers. */
@@ -57,6 +59,7 @@ interface ProblemStat {
 @Component({
   selector: 'aec-home-why',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NewTabIcon],
   host: { class: 'block' },
   template: `
     <section class="bg-(--surface-base)">
@@ -109,15 +112,22 @@ interface ProblemStat {
                 reveal is pure CSS, so the band stays static and edge-cache-neutral.
               -->
               <span class="group relative mt-4 inline-flex">
+                <!-- Citation role (DESIGN.md, "The Link Treatment Rule"): the
+                     standalone-link recipe without the padding, because this one
+                     hangs off the end of a figure rather than sitting in a row of
+                     its own. AECI-980 gave it the drawn cue. It had announced the
+                     new tab to a screen reader and shown a sighted reader nothing
+                     since AECI-285. The rel was completed to the external recipe
+                     in the same change. -->
                 <a
                   [href]="s.source.url"
                   target="_blank"
-                  rel="noopener nofollow"
+                  rel="noopener noreferrer nofollow"
                   [attr.aria-describedby]="s.id + '-source'"
-                  class="rounded-(--radius-sm) text-xs text-(--text-secondary) underline decoration-(--border-strong) underline-offset-2 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="inline-flex items-center gap-1.5 rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >
                   <span i18n="@@home.why.sourceLabel">Source</span>
-                  <span class="sr-only" i18n="@@home.why.sourceNewTab">(opens in a new tab)</span>
+                  <aec-new-tab-icon />
                 </a>
                 <span
                   [id]="s.id + '-source'"

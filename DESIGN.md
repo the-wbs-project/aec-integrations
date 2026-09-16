@@ -292,6 +292,43 @@ Two jobs keep reaching for an arrow and must not have one:
 
 A **display name is not exempt.** A mechanism heading, a card title or a badge label that carries `A → B` asserts a direction, and on a context-framed surface it asserts an absolute one that will contradict the relative arrow beside it. The pair page's card `h2` is the shipped case: the API strips a directional pair title rather than render it (`toMechanismHeading`, `apps/api/src/lib/drizzle-helpers.ts`).
 
+**The Link Treatment Rule** (AECI-980). **A link's styling states its ROLE, and every new tab is both drawn and announced.** Before AECI-980 the app spelled one job four ways, spelled the new-tab cue three ways, and spelled `rel` four ways. None of that was a decision; it was six years of local choices.
+
+There are four roles. Pick by what the link does, never by where it sits.
+
+| Role | Recipe | Where |
+| -- | -- | -- |
+| **Primary action** | solid `accent-primary` fill, `border-strong`, `px-4 py-2`, `text-sm font-bold`, `text-(--surface-base)`, `no-underline` | **One per surface.** Today that is "Visit website" on product and vendor detail. |
+| **Standalone link** | `text-xs font-medium`, `text-(--text-secondary)`, `underline decoration-(--border-strong) underline-offset-4`, `px-3 py-1.5`, `rounded-(--radius-md)`, `hover:text-(--text-primary)` | Every "go look at a page" link. `aec-view-public-link` is the reference spelling. |
+| **Citation** | the standalone recipe minus the padding, on `rounded-(--radius-sm)` | A source hanging off a figure or a stat. The home band's "Source" is the only one. |
+| **Admin metadata chip** | `rounded-full border`, `px-3 py-1`, `text-xs font-medium`, `no-underline` | **Admin console only**, and only inside a `flex flex-wrap` chip row that also holds non-link chips. The pill is load-bearing there: flattening it would break the row's grammar. |
+
+**Accent is spent on the primary action and nowhere else.** A second accent-coloured link on a surface competes with the one thing the reader is meant to do. AECI-980 pulled three links off accent for this: the pair page's "View listing" and "Documentation", and the integration group card's "View product".
+
+**When a link opens a new tab.** Two cases, and only two.
+
+1. **The destination is not ours.** Any third-party site. We do not control what it does with the reader's session or their back button.
+2. **The reader is mid-task on an editing surface.** The vendor portal and the admin console hold unsaved form state, `apps/web` has no `CanDeactivate` guard and no `beforeunload` handler, and a same-tab navigation silently discards an edit. The link is a lookup, not a destination.
+
+Everything else stays in the tab. A link from a read-only public page to another public page is a destination, and opening it in a new tab steals the reader's back button for nothing.
+
+**Every new-tab link carries `aec-new-tab-icon`** (`apps/web/src/app/shared/new-tab-icon/new-tab-icon.ts`). It is the ONLY place the Lucide `arrow-up-right` is drawn, and it carries the `sr-only` "(opens in a new tab)" note in the same breath — because the two halves kept shipping apart. Seven links disclosed the new tab to a screen reader and showed a sighted reader nothing; eight drew a `↗` text character instead of the glyph. The note sits **inside** the anchor, not beside it: a sibling span is not read in a VoiceOver rotor or an `NVDA+F7` links list, so a disclosure parked outside reaches browse mode and nowhere else.
+
+The text `↗` is retired. It is not a direction glyph, but it sits one character from the vocabulary the Arrow Rule above reserves, and on the pair page it rendered in the same card as a real `→`. A drawn icon cannot be confused with the direction set.
+
+**A caller-supplied `aria-label` overrides the note**, because an `aria-label` replaces the anchor's contents for assistive tech. So any link that passes one must state the new tab in that name itself, and the name must begin with the visible text (WCAG 2.5.3 Label in Name).
+
+**The one exception is a brand-glyph icon button** — the vendor hero's social links. A 9x9 icon button has no room for a second mark, and adding one would read as a sixth platform. Those disclose the new tab in the accessible name only, which is also their only name.
+
+**`rel` has exactly two recipes.** Nothing else.
+
+| Destination | `rel` |
+| -- | -- |
+| Our own pages (portal or admin linking out to the public catalog) | `noopener` |
+| Anything external | `noopener noreferrer nofollow` |
+
+`noopener` is never optional: without it the new browsing context gets a handle on this one. `nofollow` on the external recipe is a deliberate SEO position, and it was previously half-applied — "Visit website" passed link equity to vendor sites while the pair page's "View listing" did not, which meant the same decision was made twice, differently, by accident.
+
 ## 5. Components
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
@@ -336,10 +373,14 @@ group's rows.
 - **A link never nests inside the header button.** When the group's subject has its own page, that
   link sits beside the button in the same header bar as a compact "View product" anchor.
 - **That anchor opens in a new tab**, because it is a lookup rather than a destination: the reader
-  has not finished with the page they are on. Plain `href` (not `routerLink`) + `target="_blank"` +
-  `rel="noopener"`, a drawn Lucide `arrow-up-right` for the sighted cue, and the new tab stated in
-  the accessible name. **The accessible name begins with the visible text** ("View product: Agave
-  ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name holds and speech input can target it.
+  has not finished with the page they are on. It is the **standalone-link role** under the Link
+  Treatment Rule above, so: plain `href` (not `routerLink`) + `target="_blank"` + `rel="noopener"`
+  + `aec-new-tab-icon`. The drawn `arrow-up-right` this card used to inline is the one AECI-980
+  made canonical; the SVG now lives in that component and this card consumes it. The new tab is
+  also stated in the accessible name, which it must be — an `aria-label` replaces the anchor's
+  contents, so the icon's own note is suppressed here. **The accessible name begins with the
+  visible text** ("View product: Agave ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name
+  holds and speech input can target it.
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
 
@@ -464,7 +505,7 @@ Phase 5 adds the authenticated surfaces — sign-in, review submission + display
 
 - **Review CTA** (`<aec-review-cta>`, `reviews/review-cta.ts`) — the **cache-neutral** call-to-action embedded in the (cacheable) product page. SSR / pre-hydration renders a neutral "Write a review"; **client-side hydration** (`afterNextRender`) reconciles to `anon` ("Sign in to review" → `/auth/login?return=…`) or `authed` ("Submit a review"), so the cached HTML never carries session state.
 
-- **Account** (`<aec-account-page>`, `account/account.ts`) — the `/account` page (non-cacheable): a read-only email, an editable display name (Signal Forms `PATCH`), sign-out, and a **delete-account** flow gated behind a Spartan dialog confirmation that calls the GDPR `DELETE /api/account` (anonymizes the user's reviews).
+- **Account** (`<aec-account-page>`, `account/account.ts`) — the `/account` page (non-cacheable): a read-only email, an editable display name (Signal Forms `PATCH`), and a **delete-account** flow gated behind a Spartan dialog confirmation that calls the GDPR `DELETE /api/account` (anonymizes the user's reviews). Sign-out is menu-only (AECI-986): the page manages profile, review history, and deletion; session exit lives in the account menus (§Navigation → The Overflow Rule).
 
 - **Admin shell** (`<aec-admin-shell>`, `admin/admin-shell.ts`) — the `/admin` layout + role gate. A non-admin resolver result renders the global 404 surface (the admin area is never *revealed* to non-admins); an admin sees the header, nav, and **live queue badges** seeded from `GET /api/admin/summary` and decremented in-place by each queue via `AdminSummaryStore` (no round-trip). Since AECI-922 that is one badge per Operations queue — pending reviews, open correction requests, open vendor claims — with their **sum** on the closed Operations category trigger and on the header account menu; a zero renders no badge at all (`ADMIN_PANEL_SPEC.md` §5.0c).
 
@@ -506,11 +547,37 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 ### Vendor portal (Stage 2)
 
-The signed-in vendor's portal (`apps/web/src/app/vendor/`): the AECI-522 tabbed dashboard (Vendor Overview / Profile / Products / Integrations / Seats) plus the AECI-606 Integrations section. Gated by `vendorMeResolver`, `noindex`, non-cacheable.
+The signed-in vendor's portal (`apps/web/src/app/vendor/`): the vendor-level row
+(Vendor Overview / Profile / Products / Messages / Seats) and the product-level row
+(Profile / Taxonomy / Integrations), plus the AECI-606 Integrations section. Gated by
+`vendorMeResolver`, `noindex`, non-cacheable.
 
 **Every section has its own address: `/vendor/:vendorSlug/<section>`** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). The sections are `routerLink` anchors over a `<router-outlet/>`, not buttons over an in-page switch, so a section is linkable, bookmarkable, and reachable with Back — and `aria-current="page"` is driven by `routerLinkActive` rather than by hand. The vendor slug leads because the address should say which company is being edited; bare `/vendor` resolves the caller's own vendor and redirects. The nav's first item reads **"Vendor Overview"**, not "Overview": it sits inside a page whose `h1` is the company name, and it has to stay self-describing in a screen-reader's link list and a history entry.
 
-**The nav is a horizontal tab row under the company name** (`vendor/vendor-portal-nav.ts`, §6.4) — a 14rem side rail spent a seventh of a wide page on five short links, and the editors it fronts are what want the width. The active item carries the 2px `accent-primary` bottom border over the row's hairline (`-mb-px` + `border-b-2`, the `/search` entity-tab treatment); the header gives up its own rule so the row reads as attached to the panel it switches. Narrow viewports **scroll the row sideways** rather than wrapping it — a wrapped tab row breaks its own underline across two lines — and there is exactly one row at every width, never a `md:hidden` duplicate. It is deliberately **not sticky**: `section-nav.ts` is sticky because it is an in-page jump nav on a long scroll, and a router nav has no such coupling.
+**The primary nav is a horizontal tab row under the company name**
+(`vendor/vendor-portal-nav.ts`, §6.4) — a 14rem side rail spent a seventh of a wide
+page on five short links, and the editors it fronts are what want the width. The
+active item carries the 2px `accent-primary` bottom border over the row's hairline
+(`-mb-px` + `border-b-2`, the `/search` entity-tab treatment); the header gives up
+its own rule so the row reads as attached to the panel it switches. Narrow viewports
+**scroll the row sideways** rather than wrapping it — a wrapped tab row breaks its
+own underline across two lines — and `overflow-y-hidden` prevents a second scrollbar
+axis. There is exactly one row at every width, never a `md:hidden` duplicate. It is
+deliberately **not sticky**: `section-nav.ts` is sticky because it is an in-page jump
+nav on a long scroll, and a router nav has no such coupling.
+
+**A selected product gets a compact segmented route nav**
+(`<aec-segmented-route-nav>`, §6.5 / AECI-959). The shared primitive renders a
+content-width `surface-sunken` track with a `border-default`, `radius-md`, four-pixel
+inset and `radius-sm` segments. Inactive segments use `text-secondary`; the current
+segment uses a Forest (`accent-primary`) fill with `surface-base` text. This visual
+change makes Profile / Taxonomy / Integrations subordinate to the underlined vendor
+row without adding a card around content that already contains cards. At narrow
+widths the track keeps `max-width: 100%`, `overflow-x-auto`, `overflow-y-hidden` and
+`whitespace-nowrap`. It is still route navigation: a named `<nav>` containing
+ordinary relative links, `routerLinkActive`, and `aria-current="page"`, with visible
+focus treatment and no tab, button or `aria-pressed` semantics. The product wrapper
+keeps the localized `<product> sections` landmark name and its `mt-4 mb-8` spacing.
 
 > **The underline colour is `.aec-nav-tab[aria-current]` in `styles.css`, not a Tailwind utility.** `styles.css` sets `border-color` on `*` **outside any cascade layer**, and an unlayered rule beats every layered rule regardless of specificity — so `border-transparent` and `border-(--accent-primary)` silently never reach the tab and it renders `border-default` grey in both states. This defeats every border-color utility in the app (~165 usages, the `/search` tabs included); the real fix is moving that `*` rule into `@layer base`, which is an app-wide visual change and wants its own issue.
 
@@ -523,7 +590,7 @@ The signed-in vendor's portal (`apps/web/src/app/vendor/`): the AECI-522 tabbed 
 
 **It is not a static page — it live-updates while it is open** (AECI-516, shipped 2026-08-19; `docs/STAGE_2_REALTIME_SPEC.md`, transport decision ADR 0023). A poll loop (`vendor-live-sync.ts`) reads a per-vendor freshness cursor — every 20 s focused, 60 s unfocused, **paused with no timer when the tab is hidden** — and asks the shared store (`vendor-portal-store.ts`) to refetch only the sections that actually moved, so a claim approved or a plan activated by an admin lands without a reload. There is no socket. Two visual consequences are binding: **a background refresh must never reflow the control under the pointer or steal focus** (staleness is the lesser harm), and **a section holding unsaved edits is never overwritten** — it defers and offers a quiet "Updated elsewhere — reload this section" affordance instead. Toggle-shaped writes (Affirm / Deny / Clear) render optimistically and **roll back with a visible error**; form-shaped writes stay pessimistic, because "Saved" before it saved is a worse lie than a short wait.
 
-**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. AECI-959's secondary route control adapts the repository's existing segmented-control vocabulary, so it does not introduce a second anchor. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
 
 - **Integrations section** (`<aec-vendor-integrations-section>`, `vendor/components/`) — one card per integration touching a product the vendor owns: their own product as the eyebrow, the counterpart as the `h3`, the mechanism beneath. Inside, a lane per `data_object` claim.
 
@@ -548,10 +615,10 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 - **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
 - **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
 - **Error:** border shifts to 1px solid `status-error` (`#B3261E`, 6.54:1 on white — see §2 → Status); accompanied by an inline label and an icon (color is never the sole error signal).
-- **Disabled:** background fades to `surface-sunken`, text-secondary text. Pointer events disabled.
+- **Disabled:** background fades to `surface-sunken`, text-secondary text. Pointer events disabled. **Never via opacity** (AECI-982): `disabled:opacity-50` on the Logo URL field took `#0A0A0A` over white to ~3.7:1 — below the AA 4.5:1 floor — and no token review can pin an opacity's ratio because it composites against whatever sits behind the element. The token pair is measurable: text-secondary on surface-sunken is 7.0:1. Axe cannot catch this class of defect — it exempts disabled controls from color-contrast — so field text treatments are regression-tested as class assertions.
 - **Help text:** `text-xs text-(--text-secondary)`, directly under the control, always rendered. Optional-field marking (`(optional)` on the label) is unchanged — unmarked still means required.
 
-**Named rule — constraints are stated, never discovered.** Any field carrying a rule the user can trip — a minimum length, a range, a format, an expected kind of answer — states it in persistent help text under the control, with the constraint sentence itself set in `<strong class="text-(--text-primary)">` so it survives a skim of the surrounding guidance. A requirement that only appears in the error message after the user has already failed is a defect, not a validation strategy: the user writes an answer, gets rejected, and has to reverse-engineer what was wanted. The rule has an a11y half that is not optional: the hint's `id` is in the field's `aria-describedby` **from first render**, and the error `id` is *appended* to it when the error fires (`'x-hint x-error'`) rather than replacing it — so the requirement is announced on focus and survives the failure. Because the hint now carries the requirement, the error states the *failure* tersely ("Add at least 20 characters.") instead of restating the instruction — the two render stacked, and a paraphrase of the hint reads as noise. Shipped on every field in the app with a length floor: the claim body and correction body (20 chars, `requests/request-form-body.html`) and the review headline (5–100) and review body (50, `reviews/review-form.html`).
+**Named rule — URL and read-only field text stays readable in every state (AECI-982).** A field that displays a URL, a stored reference, or any value the reader may need to copy back out keeps WCAG AA contrast in every state it can render: default, hover, focus, read-only, disabled, invalid, browser-autofilled, and long-overflow. Read-only uses the sunken-surface tell with `--text-primary` text (the §8 promise that a downgraded vendor's data is still there and still readable); disabled uses the recipe above; invalid keeps the field's own text tokens and carries the failure in the `--status-error` border, inline label and icon, never by dimming the value. Browser autofill is pinned by the global `:-webkit-autofill` guard in `styles.css`, which repaints the UA's autofill background with `--surface-base` so the declared text token keeps its measured ratio. The shipped case was the shared Logo URL field (`apps/web/src/app/shared/logo-input/logo-input.ts`), whose disabled dim was the AECI-982 production defect. Any field carrying a rule the user can trip — a minimum length, a range, a format, an expected kind of answer — states it in persistent help text under the control, with the constraint sentence itself set in `<strong class="text-(--text-primary)">` so it survives a skim of the surrounding guidance. A requirement that only appears in the error message after the user has already failed is a defect, not a validation strategy: the user writes an answer, gets rejected, and has to reverse-engineer what was wanted. The rule has an a11y half that is not optional: the hint's `id` is in the field's `aria-describedby` **from first render**, and the error `id` is *appended* to it when the error fires (`'x-hint x-error'`) rather than replacing it — so the requirement is announced on focus and survives the failure. Because the hint now carries the requirement, the error states the *failure* tersely ("Add at least 20 characters.") instead of restating the instruction — the two render stacked, and a paraphrase of the hint reads as noise. Shipped on every field in the app with a length floor: the claim body and correction body (20 chars, `requests/request-form-body.html`) and the review headline (5–100) and review body (50, `reviews/review-form.html`).
 
 ### Badges
 
@@ -739,6 +806,13 @@ Rules that ride with it:
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts). In a horizontal ROUTER nav the concrete form is `-mb-px border-b-2` on the item over the row's `border-b`, so the item's own border replaces the hairline beneath it rather than stacking above it; narrow viewports scroll the row (`overflow-x-auto whitespace-nowrap`) rather than wrapping, which would break the underline across two lines. Shipped three times: the `/search` entity tabs, the vendor portal's section row, and the admin console's category row (AECI-694). Watch the cascade trap recorded under "Vendor portal (Stage 2)" — `border-color` on `*` is unlayered in `styles.css`, so a border-color *utility* cannot set this colour.
   - **The admin console's row is the one exception to the scroll rule, and it is a consequence not a preference.** With only three items it fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip its in-flow dropdown panels — forcing every panel into a CDK overlay to escape a clip the row does not need. It wraps rather than scrolls. Any row that both scrolls *and* drops down has to portal its panels; decide which one it is before writing the markup.
+- **Secondary route groups may use `<aec-segmented-route-nav>`.** The content-width
+  sunken track, compact rounded segments and Forest current state distinguish a child
+  route level from an underlined primary row. It remains a named navigation landmark
+  containing relative anchors with `aria-current="page"`; segmented styling does not
+  turn route links into tabs or pressed buttons. The track never wraps, scrolls on the
+  x axis when constrained, and explicitly hides y overflow so the browser does not
+  synthesize a second scrollbar.
 - **The row:** `Home · Products · Categories · Trades · Audiences · Phases`. The four taxonomy facets are the directory's spine and lead. The row is **public-only** — every item is a public directory surface, and it renders identically for every viewer. It used to end in a `More▾` overflow menu; that was retired (see The Overflow Rule below).
 - **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same six entries, with the four facets as tap-to-expand disclosures, plus search and the account block. Below `lg` the hamburger is the only menu control, so it also carries the pending-review badge.
 - **All four dropdowns in this row behave identically** — hover opens, mouseleave closes, Escape closes and returns focus to the trigger, and focus leaving the host closes. That contract is a shared base (`layout/nav-disclosure.ts`); a new dropdown **in the public primary nav** extends it rather than reimplementing it. The **trigger shape is the implementor's**, not the base's: the four public facets follow the clean editorial convention of Yahoo Finance navigation — one text link that navigates to the facet index and carries `aria-expanded`/`aria-controls`/`aria-haspopup`, with no separate arrow button (which cost width and cluttered the row), and ArrowDown on that link opens the panel and moves focus into it (`layout/nav-flyout-trigger.ts`). The admin console's row keeps a `button` trigger that toggles, since its items are not themselves destinations — but it carries **no arrow icon either**: the whole site's horizontal menus dropped them, so a triangle in one row and none in another would read as two different products. (The arrow stays on *form controls* — `aec-select`, the sort/version pickers, the review form's combobox — and on the mobile overlay's tap-to-expand rows, where it is the only cue that the row expands rather than navigates.) A row where one dropdown opens on hover and its neighbour only on click reads as a bug. (It had a fifth implementor, `More▾`, until that menu was retired.)

@@ -1,4 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { Tab, TabContent, TabList, TabPanel, Tabs } from '@angular/aria/tabs';
 import { BrnButton } from '@spartan-ng/brain/button';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
@@ -61,6 +63,7 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
     Tab,
     TabPanel,
     TabContent,
+    NewTabIcon,
   ],
   templateUrl: './vendor-detail.html',
 })

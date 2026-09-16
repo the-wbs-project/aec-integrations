@@ -16,7 +16,6 @@ import { UpdateAccountSchema, type AccountProfileResponse, type AccountReview } 
 
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
-import { signOutAndGoHome } from '../auth/sign-out';
 import { AccountApi } from './account-api';
 import { ReviewStatusBadge } from './review-status-badge';
 
@@ -26,8 +25,11 @@ const REVIEWS_PER_PAGE = 24;
 /**
  * `/account` (AECI-202 / Phase 5.11) — the signed-in user's account surface:
  * identity (email read-only from the session, editable display name), the
- * user's own reviews list (all statuses, AECI-225), sign-out, and the GDPR
- * **delete account** flow (a confirmation dialog).
+ * user's own reviews list (all statuses, AECI-225), and the GDPR **delete
+ * account** flow (a confirmation dialog). Sign-out is deliberately NOT here
+ * (AECI-986): it lives in the persistent account menu (desktop
+ * `layout/user-menu.ts`, mobile `layout/nav-menu.ts`), both via the shared
+ * `signOutAndGoHome` helper.
  *
  * Auth + cacheability: the SSR Worker 303s an unauthenticated visitor to
  * `/auth/login?return=/account` before this ever renders, and `/account` is
@@ -80,9 +82,6 @@ export class AccountPage {
   /** Delete-account flow state. */
   protected readonly deleting = signal(false);
   protected readonly deleteFailed = signal(false);
-
-  /** Sign-out failure (rare; surfaced as a retryable notice). */
-  protected readonly signOutFailed = signal(false);
 
   /** The caller's own reviews (all statuses), accumulated across pages. */
   protected readonly reviews = signal<readonly AccountReview[]>([]);
@@ -187,15 +186,6 @@ export class AccountPage {
       }
       return undefined;
     });
-  }
-
-  /** Delegates to the shared helper (AECI-649) so this page can't drift from
-   *  the header menus — in particular it can't forget the PostHog identity
-   *  reset that must happen before the hard redirect (`ANALYTICS.md` §8). */
-  protected async onSignOut(): Promise<void> {
-    this.signOutFailed.set(false);
-    const ok = await signOutAndGoHome(this.auth, this.analytics);
-    if (!ok) this.signOutFailed.set(true);
   }
 
   /** Confirmed from the dialog. Deletes the account, signs out, redirects home. */

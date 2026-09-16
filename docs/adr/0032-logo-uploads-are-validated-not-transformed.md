@@ -12,6 +12,8 @@ Identify format from magic bytes, validate container boundaries and dimensions, 
 
 Use SHA-256 content addressing and serve with hard-coded image Content-Type, nosniff, sandbox CSP and immutable caching. Client filenames and MIME types never decide paths or response headers. External HTTPS URLs are references only; the Worker never fetches them.
 
+Treat `/api/logos/<sha256>` paths as opaque storage references in editing UI. After an upload, the shared vendor/admin control presents an uploaded-image state with the preview and removal action instead of placing the path in the editable URL field. A genuinely read-only surface may expose the exact reference for copying, but labels it as an uploaded-image reference and keeps it `readonly`. Every catalog PATCH that carries a local path re-reads the object and validates it before building the write batch, so a shaped but nonexistent or corrupt key cannot be published.
+
 ## Catalog ownership
 
 Uploading does not write the catalog. Saving the parent form writes logo_url and logo_source with its audit row atomically. Null source remains upstream-owned. Vendor/admin choices, including removal, survive promote through SQL-time conditional logo assignment. Admin gains a narrow logo-only content write exception.

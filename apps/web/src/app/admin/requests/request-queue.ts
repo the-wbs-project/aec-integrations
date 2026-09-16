@@ -3,6 +3,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+
 import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
@@ -48,7 +50,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, NewTabIcon, RouterLink],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {

@@ -199,7 +199,7 @@ Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defi
 
 All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
 
-- **Logo editing amendment (AECI-955):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. Existing PATCH routes accept exact local logo paths and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
+- **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
 - **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
 - **Cross-vendor access returns `404`, not `403`.** A non-owner must not learn that another vendor's product exists. Ownership is proven against `product_vendors` in its own read wave, before anything else runs.
 - **A site `admin` is rejected with `403`.** No impersonation at launch; admins act through `/api/admin/*` so the audit trail names the real actor. A `vendor_admin` with a null `vendor_id` is likewise rejected.
@@ -492,6 +492,7 @@ Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slu
 
   1. **The page is a summary, two columns from `md` up.** One card per facet: the facet name, a pencil, and one row per **assigned** term. The full vocabulary is not on the page at all.
   2. **Every explanation is an `<aec-info-hint>`** (`shared/info-hint/`), whose **accessible name is the text**, not a `title` attribute and not an `aria-describedby` on the panel — the same contract `shared/relative-time/` established, so a keyboard or screen-reader user gets the copy without the overlay ever mounting. Two levels of it: the AECI-913 **facet hint** beside the heading, and each assigned term's **AECI-911 `description`** beside its row. The picker (`vendor-taxonomy-facet-dialog.ts`) then writes the facet hint out in full at the top and gives every term its description as its own column, because that is the moment the guidance is actually wanted.
+     Assigned-term rows keep `items-start` so long names can wrap; their hint alone carries `mt-0.5` to align its 16px trigger with the first 20px text line. The heading hint remains unoffset inside its `items-center` row, and the shared `InfoHint` geometry stays context-neutral.
   3. **A picker row is a `<label>` around a real `<input type="checkbox">`**, not `role="checkbox"` on a button. Clicking anywhere in the row toggles it, Space works, and the description sits inside the label so it is part of the control's accessible name rather than outside the click target.
   4. **The picker scrolls in a `<div>`, never in the `<fieldset>`.** A `<fieldset>` given `overflow-y: auto` reports a scroll range and still refuses to clip: Chrome applies `overflow` to the anonymous fieldset content box, so with the full 33-term category vocabulary the rows painted straight down the page, past the card's bottom edge and over the page behind it (AECI-925, verified in Chrome 152). The fieldset keeps the grouping semantics and nothing else; a plain `<div class="min-h-0 flex-1 overflow-y-auto">` wraps it and does the scrolling. The sibling dialogs (`vendor-seat-invite-dialog.ts`, `home-feedback-dialog.ts`) never hit this because they put `max-h`/`overflow` on the card itself — this is the only one with a sticky header and footer around a scrolling middle.
   5. **The modal's Save persists; it does not stage.** It runs the real `PATCH` for **one facet's** full replacement set, so the Taxonomy tab has **no Save button of its own**. Staging was rejected on a concrete ground: `apps/web` has no `CanDeactivate` guard and no `beforeunload` handler, so a Save that only wrote into the form model would let a vendor click Save, switch tabs, and lose the edit silently. A failed save keeps the modal open with the draft intact and puts the error inside it, next to the work that failed. The consequence upstream is that the form's facet state is a `computed` off the baseline rather than a writable signal — unsaved facet state is now unrepresentable, and the AECI-628 dirty-edit registration covers the text fields alone.
@@ -667,9 +668,10 @@ makes the nav a horizontal tab row under the company name, and moves the product
 choice into it as a dropdown with a search box.
 
 **The row** (`vendor/vendor-portal-nav.ts`, extracted from the shell). One `<ul>`
-at every width, `overflow-x-auto whitespace-nowrap` so narrow viewports scroll it
-sideways rather than wrapping it (a wrapped tab row breaks its own underline
-across two lines). Deliberately **not sticky**: `shared/section-nav/section-nav.ts`
+at every width, `overflow-x-auto overflow-y-hidden whitespace-nowrap` so narrow
+viewports scroll it sideways rather than wrapping it (a wrapped tab row breaks
+its own underline across two lines) without exposing a stray vertical scrollbar.
+Deliberately **not sticky**: `shared/section-nav/section-nav.ts`
 is sticky because it is an in-page jump nav on a long editorial scroll, where the
 target moves under the reader; a router nav has no such coupling and the sections
 are short. Deliberately **no `md:hidden` mobile duplicate**, which would put every
@@ -784,14 +786,42 @@ a product a **place** rather than a parameter, and moves the Integrations tab in
 **The portal row is now:** Vendor Overview · Profile · Products · **Messages** · Seats. (Products is a disclosure, but it renders no arrow icon — see `DESIGN.md` §Navigation.)
 **A product gains its own row:** Profile · Taxonomy · Integrations.
 
-Both rows come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
-`VENDOR_PRODUCT_NAV_ITEMS`) and share `VENDOR_NAV_ITEM_CLASS`, so they cannot drift
-into looking like a nav and an imitation of one. The second row is rendered by
+Both route lists come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
+`VENDOR_PRODUCT_NAV_ITEMS`). The product row is rendered by
 `vendor/vendor-product-nav.ts` and is a **second nav landmark**, named for its product
 ("Summit Field Issues sections") — two landmarks both called "Portal sections" would
 make the landmark list useless. Its `aria-label` is built with `$localize` at the call
 site, not as an `i18n-aria-label` attribute, because an *interpolated* `i18n-*`
 attribute emits no attribute at all in this toolchain.
+
+#### AECI-959 — the product row becomes a segmented route control (2026-09-16)
+
+The two levels originally shared `VENDOR_NAV_ITEM_CLASS`. In use, identical full-width
+hairlines, active underlines, type and spacing made the rows look like duplicate peer
+navigation. The information architecture and both item arrays remain unchanged, but
+their presentation now states the hierarchy:
+
+- **Vendor-level navigation stays primary.** `vendor-portal-nav.ts` keeps the
+  underlined horizontal route row from §6.4 and adds `overflow-y-hidden` alongside
+  its horizontal overflow, preserving the AECI-958 scrollbar safeguard.
+- **Product-level navigation is segmented.** `shared/segmented-route-nav/` owns the
+  compact `surface-sunken`, `border-default`, `radius-md` track and `radius-sm`
+  segments. Resting links use secondary text; the current link uses Forest
+  (`accent-primary`) with `surface-base` text. The track sizes to its contents up to
+  the available width, then scrolls horizontally without wrapping and clips vertical
+  overflow. `vendor-product-nav.ts` is a thin product-specific wrapper with the same
+  `mt-4 mb-8` spacing as before.
+- **The control is navigation.** It renders ordinary relative `routerLink` anchors in
+  a named `<nav>` and lets `routerLinkActive` set `aria-current="page"`. It does not
+  claim tab, pressed-button or application-widget semantics, and every link keeps a
+  visible focus outline.
+- **No container was added around product content.** Profile, Taxonomy and Integrations
+  already render card surfaces, so wrapping them in another card would create the
+  nested-card treatment prohibited by `DESIGN.md`.
+
+Option B was selected for AECI-959. No new Mobbin anchor is required: the route control
+adapts the repository's existing segmented-control vocabulary and the rest of the
+vendor portal keeps its recorded anchor.
 
 #### Why Integrations moved
 
@@ -1011,6 +1041,18 @@ renders `noindex` rather than 404ing (`products-pair.resolver.ts`), so the third
 cannot land on a missing page either. Adding a guard would have meant widening `productLinkColumns`
 (shared by many surfaces) to carry a field for a state that does not occur.
 
+> **AMENDED 2026-09-16 (AECI-980).** Two details below are superseded and are kept
+> because the reasoning around them still governs. First, the sr-only note is no longer
+> **beside** the anchor — it moved **inside**, carried by the shared `aec-new-tab-icon`
+> component, because a sibling span is not read in a rotor or an `NVDA+F7` links list
+> and so reached browse mode and nowhere else. Second, "exactly one of the two carries
+> the disclosure, never both" is no longer enforced by an `@if`, and does not need to
+> be: an `aria-label` **replaces** the anchor's contents for assistive tech, so the note
+> cannot be announced twice. The obligation that survives is the one that always
+> mattered — a caller passing `ariaLabel` must state the new tab in that name itself.
+> The same change added the drawn `arrow-up-right` cue these links never had.
+> `DESIGN.md` → "The Link Treatment Rule" is now canonical for all of it.
+
 **The accessible name splits, deliberately.** The two once-per-page links carry the
 plain "View public page" with the sr-only "(opens in a new tab)" beside the anchor,
 copying the two shipped admin sites (`admin/vendors/vendor-detail.html`,
@@ -1050,6 +1092,33 @@ positional-order assertion and an explicit "no two cards share an accessible nam
 A4 guard. `view-public-link.component.spec.ts` is new, and pins the one-disclosure-not-two rule. Every property asserted fails
 silently if it regresses — a dropped `target` still renders a working link — and axe
 sees none of them.
+
+---
+
+### 6.8 As built — the tab rows pair `overflow-y-hidden` with `overflow-x-auto` (AECI-958 — 2026-09-16)
+
+Both nav rows — the vendor row (`vendor/vendor-portal-nav.ts`) and the product row
+(`vendor/vendor-product-nav.ts`) — painted a short vertical scrollbar at their right
+edge. Two CSS facts combined: per CSS Overflow, `overflow-x: auto` makes the other
+axis's `visible` **compute** to `auto`, so the row was also a vertical scroll
+container; and `VENDOR_NAV_ITEM_CLASS`'s `-mb-px` (§6.4's active treatment) pushes
+each item 1px past the row's content box. 1px of vertical overflow inside an
+`overflow-y: auto` box is a scrollbar — permanently, on macOS with "Show scroll
+bars: Always". The same fact is documented in `admin/admin-shell.ts` as the reason
+the admin row deliberately does not scroll.
+
+**The fix is `overflow-y-hidden` beside `overflow-x-auto` on the row `<ul>`** —
+the legal pairing that keeps the sideways scroll §6.4 requires — on both portal rows
+and on the third copy of the pattern, the admin vendor-detail tab row
+(`admin/vendors/vendor-detail.html`). §6.4's "overflow-x-auto whitespace-nowrap" is
+now that plus `overflow-y-hidden`. **`-mb-px` is untouched**: it is what pulls the
+tab's underline over the row's hairline, and removing it would trade a scrollbar for
+a broken tab treatment.
+
+**Tests.** Both nav component specs (`vendor-portal-nav.component.spec.ts`,
+`vendor-product-nav.component.spec.ts`) now assert the row carries `overflow-y-hidden`,
+so the pairing is not separable by a later edit — including the AECI-959 nav restyle,
+which touches the same two components and must carry this pairing through it.
 
 ---
 

@@ -694,29 +694,50 @@ export function sendAttestationStaleVersionEmail(
  * It also states what a reader would otherwise have to guess: the flow stays on
  * the listing as unverified until AECi corrects the record. Nothing here may
  * imply the denial changes ranking, placement, or search.
+ *
+ * **On the house layout.** The pair-page reference link stays as a block (it is
+ * informational, not the action), and the vendor portal becomes the single Forest
+ * CTA, because recording a position is the one action this email exists to prompt.
+ * No `PUBLIC_SITE_URL` means no CTA and no pair-page block, exactly as it
+ * previously meant no link lines. The three sibling nudges (`silent-counterparty`,
+ * `open-conflict`, `stale-version`) remain on the legacy formatters for now.
  */
 export function sendAttestationClaimDeniedEmail(
   c: EmailContext,
   opts: AttestationEmailSubject,
 ): Promise<EmailOutcome> {
   const via = viaMechanism(opts.mechanismName);
-  const links = attestationLinks(c, opts.pairSlugs);
+  const pair = pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]);
+  const portal = portalUrl(c.env);
   const lead = `${opts.counterpart} has recorded that ${opts.dataObject} does not move between ${opts.product} and ${opts.counterpart}${via}.`;
   const stance =
     'AEC Integrations is reviewing the record. Until we act, the flow stays on the listing as unverified.';
   const ask = 'If you disagree, record your own position. If you agree, no action is needed.';
 
+  const blocks: string[] = [lead, stance, ask];
+  const blocksHtml: string[] = [
+    `<strong>${escapeHtml(opts.counterpart)}</strong> has recorded that ${escapeHtml(opts.dataObject)} does not move between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
+    stance,
+    ask,
+  ];
+  if (pair) {
+    blocks.push(`See how it currently reads: ${pair}`);
+    blocksHtml.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
+  }
+
+  const heading = `${opts.counterpart} says ${opts.dataObject} does not move to ${opts.product}`;
+  const shared = {
+    preheader: lead,
+    heading,
+    ...(portal ? { cta: { label: 'Record your position', url: portal } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'attestation-claim-denied',
-    subject: `${opts.counterpart} says ${opts.dataObject} does not move to ${opts.product}`,
-    text: toText([lead, stance, ask, ...links.text]),
-    html: toHtml([
-      `<strong>${escapeHtml(opts.counterpart)}</strong> has recorded that ${escapeHtml(opts.dataObject)} does not move between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
-      stance,
-      ask,
-      ...links.html,
-    ]),
+    subject: heading,
+    text: renderEmailText({ ...shared, blocks }),
+    html: renderEmailHtml({ ...shared, blocks: blocksHtml }),
   });
 }
 
@@ -732,9 +753,12 @@ export function sendAttestationClaimDeniedEmail(
  *   no longer asserts the claim was AECi-seeded, because the origin gate is gone.
  * - `open-conflict` — the §7.1 escalation that accompanies the two vendor nudges.
  *
- * Operator format (`opsText`/`opsTable`), not the vendor prose format: this is a
- * triage record, and every value in it is escaped because product and mechanism
- * names are vendor-supplied.
+ * **On the house layout.** The facts ride the layout's `table` (hairline-separated,
+ * not the unbranded `border="1"` grid), and a value that is a bare URL auto-links.
+ * There is no CTA: the pair page is informational reference, and the action this
+ * email prompts — correcting the curation — happens in the review app, not on a
+ * page this email can link to. The plain-text part is unchanged, because
+ * `renderEmailText` emits the same `Key: value` block `opsText` did.
  */
 export function sendAttestationOpsAlertEmail(
   c: EmailContext,
@@ -765,14 +789,25 @@ export function sendAttestationOpsAlertEmail(
     ['Pair page', pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
   ];
 
+  const heading = denied
+    ? `Vendor denied a claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
+    : `Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`;
+  const shared = {
+    preheader: denied
+      ? 'Every vendor denied a claim. It renders as unverified and is invisible until corrected.'
+      : 'Two vendors remain in disagreement past the notification threshold.',
+    heading,
+    table: rows,
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'attestation-ops-alert',
     subject: denied
       ? `[AECi] Vendor denied a claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
       : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
-    text: opsText(intro, rows),
-    html: opsTable(intro, rows),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
   });
 }
 
@@ -1563,8 +1598,10 @@ function pairUrl(env: Env, slugA: string, slugB: string): string | null {
  *
  * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
  * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
- * that. These two remain only for the templates not yet migrated; `docs/email.md`
- * (§House layout) carries the migration list.
+ * that. These two remain only for the templates not yet migrated — the three sibling
+ * attestation nudges, the review/account/mailing-list templates, and the three remaining
+ * operator alerts (`landing-signup`, `landing-feedback`, `entitlement-expiring-admin`);
+ * `docs/email.md` (§House layout) carries the migration list.
  *
  * Note the sign-off: the house layout deliberately has none, because its footer wordmark
  * names the sender. It also carries an em dash, which PRODUCT.md bans — the em-dash lint

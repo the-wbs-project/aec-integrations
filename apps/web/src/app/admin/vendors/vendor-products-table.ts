@@ -4,6 +4,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 
 import type { AdminVendorProductRow } from '@aeci/shared';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
 
 /**
@@ -40,7 +41,7 @@ import { AdminPaginator } from '../admin-paginator';
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe],
+  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, NewTabIcon],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {

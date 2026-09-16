@@ -48,15 +48,25 @@ describe('ViewPublicLink', () => {
     expect(link.getAttribute('rel')).toBe('noopener');
   });
 
-  it('announces the new tab', async () => {
+  it('announces the new tab INSIDE the anchor', async () => {
     const fixture = await create('/vendors/acme');
     const host = fixture.nativeElement as HTMLElement;
     const note = host.querySelector('.sr-only');
 
     expect(note?.textContent?.trim()).toBe('(opens in a new tab)');
-    // Beside the anchor, not inside it, matching the two shipped admin sites
-    // (admin/vendors/vendor-detail.html, vendor-products-table.html).
-    expect(link_contains_note(host)).toBe(false);
+    // AECI-980 moved this note from beside the anchor to inside it. A sibling
+    // span is not read in a VoiceOver rotor or an NVDA+F7 links list, so the
+    // old placement disclosed the new tab in browse mode and nowhere else.
+    expect(link_contains_note(host)).toBe(true);
+  });
+
+  it('draws the new tab for a sighted reader', async () => {
+    const link = anchor(await create('/vendors/acme'));
+
+    // The half no audit tool reports: before AECI-980 this link told a screen
+    // reader about the new tab and told a sighted reader nothing at all.
+    expect(link.querySelector('svg')).not.toBeNull();
+    expect(link.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('falls back to the visible text as the accessible name when unnamed', async () => {
@@ -64,7 +74,7 @@ describe('ViewPublicLink', () => {
 
     // Correct ONLY for a once-per-page link. The repeated case must pass a name.
     expect(link.hasAttribute('aria-label')).toBe(false);
-    expect(link.textContent?.trim()).toBe('View public page');
+    expect(visibleText(link)).toBe('View public page');
   });
 
   it('applies a caller-supplied accessible name', async () => {
@@ -73,22 +83,30 @@ describe('ViewPublicLink', () => {
 
     expect(link.getAttribute('aria-label')).toBe(label);
     // The visible text is unchanged; only the announced name narrows.
-    expect(link.textContent?.trim()).toBe('View public page');
+    expect(visibleText(link)).toBe('View public page');
   });
 
-  it('drops the sr-only note when the name already states the new tab', async () => {
+  it('keeps the sr-only note under a caller-supplied name, which suppresses it anyway', async () => {
     const fixture = await create(
       '/products/revit/integrations/procore',
       'View public page: the Revit and Procore integration (opens in a new tab)',
     );
 
-    // Both would announce the disclosure in browse mode, one after the other.
-    // The name has to carry it (a rotor or links list never reads the sibling
-    // span), so the span is the one that goes.
-    expect((fixture.nativeElement as HTMLElement).querySelector('.sr-only')).toBeNull();
+    // AECI-980 deleted the old `@if (!ariaLabel())` guard. An aria-label REPLACES
+    // the anchor's contents for assistive tech, so the note cannot be announced
+    // twice and does not need removing. The caller's name states the new tab
+    // itself, which is why it must — nothing in the markup can do it for them.
+    expect((fixture.nativeElement as HTMLElement).querySelector('.sr-only')).not.toBeNull();
   });
 });
 
 function link_contains_note(host: HTMLElement): boolean {
   return host.querySelector('a .sr-only') !== null;
+}
+
+/** The anchor's text with the sr-only new-tab note stripped back out. */
+function visibleText(link: HTMLAnchorElement): string {
+  const clone = link.cloneNode(true) as HTMLAnchorElement;
+  clone.querySelectorAll('.sr-only').forEach((n) => n.remove());
+  return clone.textContent?.trim() ?? '';
 }

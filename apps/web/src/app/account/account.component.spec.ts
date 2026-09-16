@@ -201,18 +201,9 @@ describe('AccountPage', () => {
     expect(button.disabled).toBe(false);
   });
 
-  it('signs out and redirects home', async () => {
-    const { el, auth } = await setup();
-    const signOutBtn = [...el.querySelectorAll('button[type="button"]')].find((b) =>
-      b.textContent?.trim().startsWith('Sign out'),
-    ) as HTMLButtonElement;
-    signOutBtn.click();
-    await settle();
-
-    expect(auth.signOut).toHaveBeenCalledTimes(1);
-    expect(resetIdentitySpy).toHaveBeenCalledTimes(1);
-    expect(assignSpy).toHaveBeenCalledWith('/');
-  });
+  // The standalone Sign out button was removed (AECI-986) — sign-out lives in
+  // the persistent account menus, and the delete flow below still exits the
+  // session itself.
 
   it('deletes the account, then signs out and redirects home', async () => {
     const { fixture, api, auth } = await setup();

@@ -156,7 +156,14 @@ describe('VendorPortalNav', () => {
     const list = root(harness).querySelector('nav ul')!;
 
     expect(list.className).toContain('overflow-x-auto');
+    expect(list.className).toContain('overflow-y-hidden');
     expect(list.className).toContain('whitespace-nowrap');
+    // AECI-958: `overflow-x-auto` computes `overflow-y` to `auto` on its own,
+    // and the items' `-mb-px` overflows the row by exactly 1px — enough to
+    // paint a permanent vertical scrollbar under "Show scroll bars: Always".
+    // The two utilities are one pairing; this is what stops a later edit
+    // separating them.
+    expect(list.className).toContain('overflow-y-hidden');
     expect(root(harness).querySelectorAll('nav')).toHaveLength(1);
     expect(items(harness)).toHaveLength(5);
   });

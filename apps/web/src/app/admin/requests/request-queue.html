@@ -155,11 +155,10 @@
           <a
             [href]="r.linear_issue_url"
             target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.requests.linear"
-            >Tracked in Linear</a
-          >
+            rel="noopener noreferrer nofollow"
+            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.requests.linear">Tracked in Linear</span> <aec-new-tab-icon
+          /></a>
           } @else {
           <!-- Fallback: linked by UUID but no URL persisted (created before AECI-261,
                or the link-back hasn't run) — non-clickable presence indicator. -->
@@ -173,10 +172,9 @@
             [href]="r.source_url"
             target="_blank"
             rel="noopener noreferrer nofollow"
-            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.requests.sourceUrl"
-            >Source link</a
-          >
+            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.requests.sourceUrl">Source link</span> <aec-new-tab-icon
+          /></a>
           }
         </div>
 

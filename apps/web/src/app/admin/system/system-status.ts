@@ -1,6 +1,8 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+
 import type {
   AdminCronRun,
   AdminDataQualityCheck,
@@ -62,7 +64,7 @@ const UNKNOWN_SHA = 'unknown';
  */
 @Component({
   selector: 'aec-system-status',
-  imports: [DatePipe, DecimalPipe, AdminNotes],
+  imports: [DatePipe, DecimalPipe, AdminNotes, NewTabIcon],
   templateUrl: './system-status.html',
 })
 export class SystemStatus {

@@ -87,12 +87,12 @@
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <span
-                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
                 >{{ statusLabel(r.status) }}</span
               >
               @if (r.is_duplicate) {
               <span
-                class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
+                class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
                 i18n="@@admin.claims.duplicate"
                 >Possible duplicate</span
               >
@@ -170,12 +170,12 @@
               <dd class="mt-1">
                 @if (r.domain_match === 'no_match') {
                 <span
-                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
                   >{{ domainMatchLabel(r.domain_match) }}</span
                 >
                 } @else {
                 <span
-                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
                   >{{ domainMatchLabel(r.domain_match) }}</span
                 >
                 }
@@ -210,13 +210,13 @@
                 >
                 } @else if (r.product_roles.total === 0) {
                 <span
-                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
                   i18n="@@admin.claims.roles.none"
                   >No products on record — role unknown</span
                 >
                 } @else if (r.is_pure_connector_vendor) {
                 <span
-                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
                   i18n="@@admin.claims.roles.pureConnector"
                   >Pure connector vendor</span
                 >
@@ -263,7 +263,7 @@
                     <span>{{ seatDisplayName(seat.display_name) }}</span>
                     @if (seat.work_email_verified) {
                     <span
-                      class="inline-flex items-center rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium"
+                      class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium"
                       i18n="@@admin.claims.seat.verified"
                       >work email verified</span
                     >
@@ -327,18 +327,20 @@
               target="_blank"
               rel="noopener noreferrer nofollow"
               class="inline-flex items-center gap-1.5 rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.claims.linkedin.supplied"
-              >LinkedIn profile the claimant gave ↗</a
-            >
+              ><span i18n="@@admin.claims.linkedin.supplied"
+                >LinkedIn profile the claimant gave</span
+              >
+              <aec-new-tab-icon
+            /></a>
             } @else {
             <a
               [href]="linkedInSearchUrl(r)"
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noopener noreferrer nofollow"
               class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.claims.linkedin"
-              >Search LinkedIn for this person ↗</a
-            >
+              ><span i18n="@@admin.claims.linkedin">Search LinkedIn for this person</span>
+              <aec-new-tab-icon
+            /></a>
             }
           </div>
         </div>
@@ -404,10 +406,9 @@
             [href]="r.source_url"
             target="_blank"
             rel="noopener noreferrer nofollow"
-            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.claims.sourceUrl"
-            >Source link</a
-          >
+            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.claims.sourceUrl">Source link</span> <aec-new-tab-icon
+          /></a>
         </div>
         }
 

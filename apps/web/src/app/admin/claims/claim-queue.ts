@@ -3,6 +3,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+
 import type {
   AdminClaim,
   ListVendorClaimsQuery,
@@ -95,7 +97,7 @@ type FormMode = 'approve' | 'reject';
  */
 @Component({
   selector: 'aec-claim-queue',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, NewTabIcon, RouterLink],
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {
