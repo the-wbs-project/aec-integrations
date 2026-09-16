@@ -996,6 +996,13 @@ The `result` object in full:
   Surface it to a curator once rather than alerting on it: the useful action is to
   stop maintaining a copy that no longer ships, and there is no "take it back"
   control by design.
+- **In the common case you will see `skipped[] { kind: "product" }` instead, and
+  no `preserved[]` entry at all.** A vendor can only author the block while it
+  holds a portal seat, and a claimed vendor's products are already blocked
+  wholesale (§4a) — so the whole product is skipped and nothing reaches the
+  usefulness fence. The `kind: "usefulness"` entry is what you see once that
+  claim is gone (a banned or revoked seat, §4a's last paragraph), which is
+  exactly the moment promote would otherwise overwrite copy the vendor wrote.
 - **That entry is advisory, and one-sided.** The guard that decides the write is
   evaluated inside the SQL UPDATE; this receipt comes from a read taken a moment
   earlier in the same request. A vendor save landing between the two means the

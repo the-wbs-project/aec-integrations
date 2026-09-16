@@ -286,15 +286,34 @@ export class VendorUsefulnessDialog {
     () => $localize`:@@vendor.product.usefulness.editor.trigger:Edit ${this.legend()}:FACET:`,
   );
 
+  /**
+   * One row per vocabulary term, plus a trailing row for any drafted slug the
+   * vocabulary does not know — labelled with the slug, exactly as
+   * `VendorProductForm.selectedTermsFor` does for the facet cards.
+   *
+   * That tail is not defensive padding. `terms()` is a snapshot of
+   * `GET /api/taxonomy`, which is KV-cached for five minutes and then held by
+   * the open page, while promote MINTS audience/phase terms and can write a
+   * usefulness group for a brand-new one in that window. Building the list from
+   * the vocabulary alone would make such a group invisible here and delete it
+   * from the published page on Done, with nothing shown to the vendor. Unticking
+   * such a row drops it from the list for good, which is the vendor deliberately
+   * deleting a group the vocabulary cannot offer them again.
+   */
   protected readonly rows = computed<readonly DraftRow[]>(() => {
     const d = this.draft();
-    return this.terms().map((term) => ({
+    const known = this.terms().map((term) => ({
       slug: term.slug,
       name: term.name,
       description: term.description,
       checked: d.has(term.slug),
       text: d.get(term.slug) ?? '',
     }));
+    const seen = new Set(known.map((row) => row.slug));
+    const unknown = [...d]
+      .filter(([slug]) => !seen.has(slug))
+      .map(([slug, text]) => ({ slug, name: slug, description: null, checked: true, text }));
+    return [...known, ...unknown];
   });
 
   private readonly checkedRows = computed(() => this.rows().filter((r) => r.checked));

@@ -612,12 +612,22 @@ export class VendorProductForm {
 
   protected readonly hasChanges = computed(() => Object.keys(this.diff()).length > 0);
 
-  /** Defensive backstop only: the dialog will not emit a draft its own checks
-   *  reject. It exists because every other field on this form has one, and because
-   *  a Save that 400s is a worse failure than a Save button that stays disabled. */
+  /**
+   * Defensive backstop only: the dialog will not emit a draft its own checks
+   * reject. It exists because every other field on this form has one, and because
+   * a Save that 400s is a worse failure than a Save button that stays disabled.
+   *
+   * Reads the DIFF, never the staged model. Promote enforces none of
+   * `VendorUsefulnessSchema`'s caps (`PromoteUsefulnessGroupSchema` bounds
+   * nothing but "at least one point"), so an already-promoted block can exceed
+   * them. Validating the staged model would fail on that untouched server copy
+   * the moment the form seeded, and `hasErrors` would disable Save for EVERY
+   * field on the product — logo, links, description — with nothing rendered to
+   * say why. Only a value actually being sent can block the save.
+   */
   private readonly usefulnessInvalid = computed(() => {
-    const wire = toWireUsefulness(this.usefulnessModel());
-    return wire !== null && !VendorUsefulnessSchema.safeParse(wire).success;
+    const wire = this.diff().usefulness;
+    return wire != null && !VendorUsefulnessSchema.safeParse(wire).success;
   });
 
   protected readonly hasErrors = computed(

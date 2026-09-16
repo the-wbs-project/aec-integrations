@@ -4470,7 +4470,6 @@ export interface PromoteResponse {
     kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
     reason: string;
   }[];
-  // `kind` here gained 'usefulness' with AECI-963: 'claim' | 'attestation' | 'usefulness'.
   // AECI-604: the inverse of `skipped` — existing vendor-owned claims/attestations
   // this promote deliberately left alive. `ref` is the enclosing integration's;
   // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
@@ -4482,7 +4481,12 @@ export interface PromoteResponse {
   // advisory — the authoritative guard is a CASE WHEN inside the UPDATE, evaluated
   // after the read this is derived from — and the error is one-sided: it can be
   // missing for a value that WAS preserved, never present for one that was not.
-  preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
+  preserved: {
+    ref: string;
+    kind: 'claim' | 'attestation' | 'usefulness';
+    reason: string;
+    count: number;
+  }[];
   // AECI-730. NOT `skipped[]`: the integration WAS written, only this one optional
   // link was left out of the write. `outcome: 'unset'` = created, so the column is
   // NULL; `'preserved'` = updated and the column was left exactly as it was (the

@@ -241,6 +241,33 @@ describe('VendorUsefulnessDialog', () => {
     expect(areas()[0]!.value).toBe('Existing point');
   });
 
+  it('keeps a group whose term the loaded vocabulary does not know', async () => {
+    // `terms()` is a five-minute-cached `/api/taxonomy` snapshot held by an open
+    // page, while promote MINTS audience terms and can write a group for a brand
+    // new one. Building the list from the vocabulary alone would hide that group
+    // here and delete it from the published page on Done, silently.
+    const fixture = await open(
+      create({
+        audiences: [
+          { slug: 'architects', name: 'Architects', points: ['Existing point'] },
+          { slug: 'owners-reps', name: "Owners' reps", points: ['Minted after we loaded'] },
+        ],
+        phases: [],
+      }),
+    );
+
+    expect(boxes()).toHaveLength(TERMS.length + 1);
+    expect(boxes().at(-1)!.checked).toBe(true);
+    expect(overlay()?.textContent).toContain('owners-reps');
+
+    footerButton('Done').click();
+    await settle(fixture);
+    expect(applied).toHaveBeenCalledWith([
+      { slug: 'architects', points: ['Existing point'] },
+      { slug: 'owners-reps', points: ['Minted after we loaded'] },
+    ]);
+  });
+
   it('cannot be opened when disabled', () => {
     const fixture = create(VALUE, { disabled: true });
     expect(trigger(fixture).disabled).toBe(true);

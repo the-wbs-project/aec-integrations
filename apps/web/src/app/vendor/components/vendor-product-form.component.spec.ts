@@ -509,6 +509,42 @@ describe('VendorProductForm', () => {
       expect(saveButton(fixture)?.disabled).toBe(true);
     });
 
+    it('still saves other fields when the STORED block breaks a cap it never had', async () => {
+      // Promote enforces none of `VendorUsefulnessSchema`'s caps, so a promoted
+      // block can arrive over-long. Validating the untouched server copy would
+      // disable Save for every field on the product, with nothing saying why.
+      const overCap = {
+        ...PRODUCT,
+        usefulness: {
+          audiences: [
+            { slug: 'architects', name: 'Architects', points: ['x'.repeat(240)] },
+            ...Array.from({ length: 10 }, () => ({
+              slug: 'architects',
+              name: 'Architects',
+              points: ['still fine'],
+            })),
+          ],
+          phases: [],
+        },
+      };
+      const fixture = create(VENDOR_TAXONOMY_FIXTURE, overCap);
+      updateProduct.mockResolvedValue({ product: overCap } as UpdateVendorProductResponse);
+      setInput(fixture, DESCRIPTION_ID, 'An unrelated edit');
+      expect(saveButton(fixture)?.disabled).toBe(false);
+
+      saveButton(fixture)?.click();
+      await settle(fixture);
+      expect(updateProduct).toHaveBeenCalledWith(overCap.id, {
+        description: 'An unrelated edit',
+      });
+    });
+
+    it('still blocks a save that would SEND an over-cap block', () => {
+      const fixture = create();
+      apply(fixture, 'phases', [{ slug: 'design', points: ['x'.repeat(240)] }]);
+      expect(saveButton(fixture)?.disabled).toBe(true);
+    });
+
     it('disables the pencil for a vendor whose account access has lapsed', () => {
       const fixture = create();
       fixture.componentRef.setInput('canEdit', false);

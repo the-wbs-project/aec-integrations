@@ -336,7 +336,7 @@ It buys nothing *today*, and that is expected: `products.created_at` already ans
 
 Neither column is indexed: both are read with the row and never filtered or sorted on.
 
-`usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. Both writers resolve each group to an existing taxonomy term and store the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-stored labels stale until the record is written again.
+`usefulness` is a nullable JSON column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. Both writers resolve each group to an existing taxonomy term and store the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-stored labels stale until the record is written again.
 
 **The physical column is `text` with Drizzle `{ mode: 'json' }`, not `jsonb`.** D1 is SQLite and has no `jsonb` type; the declaration above said `jsonb` until AECI-963 because it was carried over from the retired Supabase/Postgres schema. Behaviourally identical, but the type name now matches the shipped DDL (`apps/api/migrations/0000_init.sql`). This matters in one place: inside a raw `sql` template Drizzle's json encoder does NOT run, so a value interpolated there must be `JSON.stringify`ed by hand — see `routes/promote.ts`.
 
@@ -2959,8 +2959,10 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
 
-### Logo ownership (AECI-955)
+### Usefulness ownership (AECI-963)
 
-Migration `0040_superb_norman_osborn.sql` adds nullable `usefulness_source` to products on exactly the same pattern (AECI-963): one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the paragraph below says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
+Migration `0040_superb_norman_osborn.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
+
+### Logo ownership (AECI-955)
 
 Migration `0037_ambiguous_frightful_four.sql` adds nullable `logo_source` to products and vendors without changing existing values. Drizzle restricts writers to `vendor` or `admin`; the physical text column is nullable. Explicit logo saves, including clear, claim ownership. Omitted logo fields preserve it. Promote never writes provenance and conditionally updates logo_url only while logo_source IS NULL at SQL execution time. Uploads themselves write no D1 rows. See STAGE_2_5_SPEC.md §11.
