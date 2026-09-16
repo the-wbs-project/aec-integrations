@@ -34,6 +34,13 @@ import {
  * `/vendor/:vendorSlug/products/:productSlug` and the preview's mount of the
  * same section routes.
  *
+ * ── WHY overflow-y-hidden SITS BESIDE overflow-x-auto (AECI-958) ────────────
+ * `overflow-x-auto` alone makes the row a vertical scroll container too (one
+ * axis other than `visible` forces the other to COMPUTE to `auto`), and the
+ * shared item class's `-mb-px` overflows the row's content box by exactly 1px —
+ * enough to paint a permanent scrollbar under "Show scroll bars: Always". The
+ * `overflow-y-hidden` keeps the sideways scroll without the vertical one.
+ *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
@@ -42,7 +49,9 @@ import {
   imports: [RouterLink, RouterLinkActive],
   template: `
     <nav [attr.aria-label]="navLabel()" class="mt-4 mb-8 border-b border-(--border-default)">
-      <ul class="m-0 flex list-none gap-x-6 overflow-x-auto p-0 whitespace-nowrap">
+      <ul
+        class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap"
+      >
         @for (item of navItems; track item.path) {
           <li class="shrink-0">
             <a

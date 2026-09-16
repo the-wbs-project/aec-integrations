@@ -101,6 +101,19 @@ describe('VendorProductNav', () => {
     expect(byLabel('Profile').getAttribute('aria-current')).toBeNull();
   });
 
+  it('scrolls sideways but not vertically — overflow-x-auto is paired with overflow-y-hidden', async () => {
+    // AECI-958: `overflow-x-auto` computes `overflow-y` to `auto` on its own,
+    // and the shared item class's `-mb-px` overflows the row's content box by
+    // exactly 1px, painting a permanent vertical scrollbar under macOS "Show
+    // scroll bars: Always". `overflow-x: auto` + `overflow-y: hidden` is the
+    // legal pairing that keeps the sideways scroll; this pins it so the two
+    // utilities cannot be separated by a later edit.
+    const list = root(await mount()).querySelector('nav ul')!;
+    expect(list.className).toContain('overflow-x-auto');
+    expect(list.className).toContain('overflow-y-hidden');
+    expect(list.className).toContain('whitespace-nowrap');
+  });
+
   it('uses the SAME item classes as the portal row', async () => {
     // Two tab rows on one page that differ in weight, padding or underline read
     // as a nav and an imitation of one. Identical treatment plus position is what

@@ -54,13 +54,16 @@
 
     One row at every width, scrolled sideways rather than wrapped (the vendor
     portal's nav rule): a wrapped tab row breaks its own underline over two lines.
+    `overflow-y-hidden` beside `overflow-x-auto` (AECI-958): one axis other than
+    `visible` computes the other to `auto`, and the tabs' `-mb-px` overflows the
+    row by exactly 1px — enough to paint a permanent vertical scrollbar.
   -->
   <nav
     class="mt-4 border-b border-(--border-default)"
     i18n-aria-label="@@admin.vendors.detail.tabs.aria"
     aria-label="Vendor sections"
   >
-    <ul class="m-0 flex list-none gap-x-6 overflow-x-auto p-0 whitespace-nowrap">
+    <ul class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap">
       @for (item of tabs; track item.key) {
       <li class="shrink-0">
         <a

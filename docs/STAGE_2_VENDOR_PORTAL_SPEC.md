@@ -1054,6 +1054,33 @@ sees none of them.
 
 ---
 
+### 6.8 As built — the tab rows pair `overflow-y-hidden` with `overflow-x-auto` (AECI-958 — 2026-09-16)
+
+Both nav rows — the vendor row (`vendor/vendor-portal-nav.ts`) and the product row
+(`vendor/vendor-product-nav.ts`) — painted a short vertical scrollbar at their right
+edge. Two CSS facts combined: per CSS Overflow, `overflow-x: auto` makes the other
+axis's `visible` **compute** to `auto`, so the row was also a vertical scroll
+container; and `VENDOR_NAV_ITEM_CLASS`'s `-mb-px` (§6.4's active treatment) pushes
+each item 1px past the row's content box. 1px of vertical overflow inside an
+`overflow-y: auto` box is a scrollbar — permanently, on macOS with "Show scroll
+bars: Always". The same fact is documented in `admin/admin-shell.ts` as the reason
+the admin row deliberately does not scroll.
+
+**The fix is `overflow-y-hidden` beside `overflow-x-auto` on the row `<ul>`** —
+the legal pairing that keeps the sideways scroll §6.4 requires — on both portal rows
+and on the third copy of the pattern, the admin vendor-detail tab row
+(`admin/vendors/vendor-detail.html`). §6.4's "overflow-x-auto whitespace-nowrap" is
+now that plus `overflow-y-hidden`. **`-mb-px` is untouched**: it is what pulls the
+tab's underline over the row's hairline, and removing it would trade a scrollbar for
+a broken tab treatment.
+
+**Tests.** Both nav component specs (`vendor-portal-nav.component.spec.ts`,
+`vendor-product-nav.component.spec.ts`) now assert the row carries `overflow-y-hidden`,
+so the pairing is not separable by a later edit — including the AECI-959 nav restyle,
+which touches the same two components and must carry this pairing through it.
+
+---
+
 ## 7. Moderation escalation — ban gate (AECI-524)
 
 **The gate check ships with §4** (`banned_at` → 403 in the guard, ahead of the role check). This section owns the ban **action** + policy.
