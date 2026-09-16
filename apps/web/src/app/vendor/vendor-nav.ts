@@ -2,12 +2,11 @@
  * The vendor portal's information architecture as data — the single source of
  * truth for the dashboard's nav rows.
  *
- * **Two rows since AECI-666**: {@link VENDOR_NAV_ITEMS} is the vendor-level row
- * under the company name, and {@link VENDOR_PRODUCT_NAV_ITEMS} is the row that
- * appears beneath it once a product is selected. They share the item classes
- * below so the two read as one system rather than as a nav and an imitation of
- * one; they do NOT share a list, because their paths resolve against different
- * routes.
+ * **Two route levels since AECI-666**: {@link VENDOR_NAV_ITEMS} is the vendor-level
+ * row under the company name, and {@link VENDOR_PRODUCT_NAV_ITEMS} appears once a
+ * product is selected. AECI-959 gives the product level a segmented treatment so
+ * the hierarchy is visible; the arrays remain separate because their paths
+ * resolve against different routes.
  *
  * Mirrors `admin/admin-nav.ts`. The paths are **relative**, deliberately: the
  * shell renders them with `routerLink` from a component whose `ActivatedRoute`
@@ -81,10 +80,10 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
 ];
 
 /**
- * Rest-state classes for one item in the horizontal row, shared by the four link
- * items and by the Products disclosure button. Exported rather than written
- * twice because the row has two kinds of control in it now, and a row where one
- * item sits a pixel higher than its neighbours reads as a bug.
+ * Rest-state classes for one item in the primary vendor row, shared by the four
+ * link items and by the Products disclosure button. Exported rather than written
+ * twice because the row has two kinds of control in it, and a row where one item
+ * sits a pixel higher than its neighbours reads as a bug.
  *
  * `-mb-px` + `border-b-2` pulls the item's own bottom border over the row's
  * hairline, which is what turns "a link that is coloured differently" into a

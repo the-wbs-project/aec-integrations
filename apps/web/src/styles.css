@@ -357,6 +357,23 @@ h3 {
   border-bottom-color: var(--accent-primary);
 }
 
+/* `routerLinkActive` adds the segmented control's active utilities beside its
+   resting text and hover utilities. Tailwind orders those declarations by the
+   generated stylesheet rather than by class-attribute order, so the resting
+   colour wins at rest and the light hover background wins while the newly
+   selected link remains under the pointer. Keep the route state as the source
+   of truth and resolve both collisions at the same unlayered cascade seam as
+   `.aec-nav-tab` above. */
+.aec-segmented-route-item[aria-current] {
+  background-color: var(--accent-primary);
+  color: var(--surface-base);
+}
+
+.aec-segmented-route-item[aria-current]:hover {
+  background-color: var(--accent-primary);
+  color: var(--surface-base);
+}
+
 hr {
   border-color: var(--border-default);
 }

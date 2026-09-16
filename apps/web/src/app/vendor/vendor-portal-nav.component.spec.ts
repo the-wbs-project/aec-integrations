@@ -156,6 +156,7 @@ describe('VendorPortalNav', () => {
     const list = root(harness).querySelector('nav ul')!;
 
     expect(list.className).toContain('overflow-x-auto');
+    expect(list.className).toContain('overflow-y-hidden');
     expect(list.className).toContain('whitespace-nowrap');
     // AECI-958: `overflow-x-auto` computes `overflow-y` to `auto` on its own,
     // and the items' `-mb-px` overflows the row by exactly 1px — enough to
