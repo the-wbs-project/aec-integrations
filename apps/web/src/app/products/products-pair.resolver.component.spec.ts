@@ -806,3 +806,238 @@ describe('productsPairResolver — moved-pair redirect, client path (AECI-953)',
     expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
   });
 });
+
+// ── AECI-991: a pair 404 may be a retired ENDPOINT slug ───────────────────────
+//
+// `moved_to` only ever rides a 200, so it cannot answer a pair URL whose endpoint
+// product row is gone — the API resolves both slugs before anything else and 404s.
+// That is what a merge-then-retire leaves behind: AECI-809 re-pointed 44 edges onto
+// Autodesk Forma, then retracted the ACC record, and 44 indexed pair URLs went to
+// 404 while `/products/autodesk-construction-cloud` itself still 301'd correctly.
+describe('productsPairResolver — retired-endpoint pair rewrite (AECI-991)', () => {
+  const ACC = 'autodesk-construction-cloud';
+  const FORMA = 'autodesk-forma';
+
+  /**
+   * A server API stub that 404s the pair read and answers `slug_redirects` from a
+   * map. Anything the map doesn't hold 404s too, which is the ordinary case.
+   */
+  const apiWithRedirects = (map: Record<string, string>) =>
+    apiClient(async (path: string) => {
+      const match = /^\/api\/slug-redirects\/product\/(.+)$/.exec(path);
+      const to = match ? map[decodeURIComponent(match[1]!)] : undefined;
+      if (to) return { entity: 'product', from_slug: decodeURIComponent(match![1]!), to_slug: to };
+      throw new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+    });
+
+  it('301s to the surviving slug when the CONTEXT endpoint retired', async () => {
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({ [ACC]: FORMA }));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: ACC,
+      otherSlug: 'power-bi',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(301);
+    expect(responseInit.headers.get('Location')).toBe(
+      `https://example.test/products/${FORMA}/integrations/power-bi`,
+    );
+    // Not the 404 branch — a moved page is not a missing one.
+    expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
+  });
+
+  it('301s when the OTHER endpoint retired — both orientations are indexable (§11.2)', async () => {
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({ [ACC]: FORMA }));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'power-bi',
+      otherSlug: ACC,
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.status).toBe(301);
+    expect(responseInit.headers.get('Location')).toBe(
+      `https://example.test/products/power-bi/integrations/${FORMA}`,
+    );
+  });
+
+  it('carries its own Cache-Control and both pair tags plus the two product tags', async () => {
+    // `withCacheHeaders` applies neither a route TTL nor a path-derived tag to a 3xx,
+    // so without these the permanent mapping is `private, no-store` with no purge
+    // handle — and the OLD pair tag is what clears this redirect if the retired slug
+    // ever comes back (`CACHE_STRATEGY.md` §3 rule 6).
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({ [ACC]: FORMA }));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: ACC,
+      otherSlug: 'power-bi',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
+    const tags = responseInit.headers.get('Cache-Tag')!.split(',');
+    expect(tags).toEqual([
+      `pair:${ACC}__power-bi`,
+      `pair:${FORMA}__power-bi`,
+      `product:${ACC}`,
+      `product:${FORMA}`,
+    ]);
+    // No forbidden `Vary` — `applySeoHeaders` does not run on a 3xx.
+    expect(responseInit.headers.get('Vary')).toBeNull();
+  });
+
+  it('follows a chain to the terminal slug in one hop', async () => {
+    // The map's own chain walker answers `c` for `a`, so the reader takes ONE redirect
+    // rather than one per retirement.
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({ [ACC]: 'autodesk-unity' }));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: ACC,
+      otherSlug: 'power-bi',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.headers.get('Location')).toBe(
+      'https://example.test/products/autodesk-unity/integrations/power-bi',
+    );
+  });
+
+  it('refuses a rewrite that collapses the two endpoints into one product', async () => {
+    // A merge whose survivor IS the pair's other endpoint. `/products/x/integrations/x`
+    // is a guaranteed 404, and a 301 onto one is worse than the 404 we already have.
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({ [ACC]: FORMA }));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: ACC,
+      otherSlug: FORMA,
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    expect(meta.setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('404s as before when neither slug is mapped — most pair 404s are junk', async () => {
+    const meta = metaStub();
+    const ctx = createRequestContext(apiWithRedirects({}));
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'nope',
+      otherSlug: 'also-nope',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    expect(responseInit.headers.get('Location')).toBeNull();
+  });
+
+  it('never consults the map when the pair renders — a live page beats a mapping', async () => {
+    const meta = metaStub();
+    const request = vi.fn(async (_path: string) => pairFixture());
+    const ctx = createRequestContext({
+      request: request as unknown as ServerApiClient['request'],
+    });
+    const responseInit = { status: 200, headers: new Headers() };
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit,
+      meta,
+    });
+
+    await run();
+
+    expect(responseInit.status).toBe(200);
+    expect(request.mock.calls.some((call) => String(call[0]).includes('slug-redirects'))).toBe(
+      false,
+    );
+  });
+
+  it('replaces the URL on the client rather than pushing it', async () => {
+    const meta = metaStub();
+    const navigateByUrl = vi.fn().mockResolvedValue(true);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: PLATFORM_ID, useValue: 'browser' },
+        { provide: REQUEST_CONTEXT, useValue: null },
+        { provide: RESPONSE_INIT, useValue: null },
+        { provide: MetaService, useValue: meta },
+        { provide: Router, useValue: { navigateByUrl } },
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+
+    const route = {
+      paramMap: convertToParamMap({ contextSlug: ACC, otherSlug: 'power-bi' }),
+      queryParamMap: convertToParamMap({}),
+    } as unknown as ActivatedRouteSnapshot;
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const pending = TestBed.runInInjectionContext(
+      () => productsPairResolver(route, STATE) as Promise<ProductPairResponse | null>,
+    );
+    httpMock
+      .expectOne(`/api/products/${ACC}/integrations/power-bi`)
+      .flush(
+        { error: { code: 'NOT_FOUND', message: 'missing' } },
+        { status: 404, statusText: 'Not Found' },
+      );
+    // The two map lookups are issued after the pair read settles, so let the
+    // microtask queue drain before asserting on them.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Both go out in ONE wave — they are independent and this request has already
+    // decided to 404.
+    httpMock
+      .expectOne(`/api/slug-redirects/product/${ACC}`)
+      .flush({ entity: 'product', from_slug: ACC, to_slug: FORMA });
+    httpMock
+      .expectOne('/api/slug-redirects/product/power-bi')
+      .flush(
+        { error: { code: 'NOT_FOUND', message: 'missing' } },
+        { status: 404, statusText: 'Not Found' },
+      );
+
+    expect(await pending).toBeNull();
+    expect(navigateByUrl).toHaveBeenCalledWith(`/products/${FORMA}/integrations/power-bi`, {
+      replaceUrl: true,
+    });
+    expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
+  });
+});

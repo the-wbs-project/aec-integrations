@@ -562,7 +562,7 @@ export function createProductPairHandler(
     // would hide live content. One indexed read on a table that is empty in every
     // environment but production.
     if (!body.mechanisms.length) {
-      body.moved_to = await resolveMovedPair(db, contextProduct, otherProduct);
+      body.moved_to = await resolveMovedPair(db, contextSlug, otherSlug);
     }
 
     validateResponseInDev(c.env, () => {

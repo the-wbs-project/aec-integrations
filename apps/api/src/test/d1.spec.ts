@@ -938,6 +938,24 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('keeps `integration_endpoint_moves` free of foreign keys — AECI-991', async () => {
+    // The redirect is keyed on the pair the edge moved AWAY from, so a foreign key to
+    // either endpoint is a delete of the redirect whenever that endpoint retires. Both
+    // columns carried `REFERENCES products(id) ON DELETE CASCADE` until 0041, and a
+    // merge-then-retire (AECI-809) silently took all 44 Autodesk Construction Cloud
+    // move rows with the retracted product — 44 indexed pair URLs 404ing instead of
+    // 301ing, with nothing logged.
+    //
+    // Re-adding an FK here would look like tightening integrity. It is the opposite:
+    // the row's whole purpose is to outlive the rows it names.
+    const t = await makeTestDb();
+    const fks = t.raw
+      .prepare(`SELECT * FROM pragma_foreign_key_list('integration_endpoint_moves')`)
+      .all();
+    expect(fks).toEqual([]);
+    t.dispose();
+  });
+
   it('rejects every out-of-vocabulary connector-lane enum value', async () => {
     const t = await makeTestDb();
     await seedCatalog(t);

@@ -74,6 +74,7 @@ import { httpGetOrNull } from './api/http-get-or-null';
 import {
   fetchSlugRedirect,
   httpGetSlugRedirect,
+  lookUpRedirect,
   type RedirectableEntity,
 } from './api/slug-redirects';
 import { canonicalUrl } from './canonical';
@@ -92,30 +93,6 @@ import { MetaService, type EntityKind } from './meta.service';
  * which app code cannot import (it pulls in the Worker `Bindings` types).
  */
 const SLUG_REDIRECT_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
-
-/**
- * Run a retired-slug lookup, swallowing everything except its answer.
- *
- * `fetchOrNull` / `httpGetOrNull` map a `NOT_FOUND` envelope to `null` and RETHROW
- * anything else — correct for an entity read, wrong here. This call is a lookup on a
- * request that has already decided to 404: if the map is unreachable, or the API
- * Worker predates the endpoint and answers 404 without the envelope, or D1 is having
- * a bad minute, the right outcome is the ordinary 404 page. Letting it throw would
- * turn a cheap, edge-cacheable 404 into an SSR render failure — a strictly worse
- * page, caused by an enhancement that only ever applies to a handful of slugs.
- *
- * Deliberately silent rather than logged: this runs once per detail 404, and detail
- * 404s are overwhelmingly crawler noise, so a log line here is a log flood with no
- * reader behind it. The redirect's own correctness is covered by tests and by the
- * `slug_redirects` read being trivial.
- */
-async function lookUpRedirect<T>(lookup: () => Promise<T | null>): Promise<T | null> {
-  try {
-    return await lookup();
-  } catch {
-    return null;
-  }
-}
 
 export interface DetailResolverConfig<T extends { id: string }> {
   /** TransferState key prefix, e.g. `aeci.product-detail:`. The route param is
