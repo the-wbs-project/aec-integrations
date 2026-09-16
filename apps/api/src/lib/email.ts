@@ -1282,8 +1282,20 @@ function subjectReasonSuffix(rows: readonly StuckRequestSummary[]): string {
 // Internal ops mail, en-US (not i18n'd — the CLAUDE.md i18n rule is for rendered
 // `apps/web` templates).
 
-/** Operator alert: a fresh mailing-list signup (`POST /api/subscribe`, on a real
- *  insert — not the idempotent already-listed no-op). */
+/**
+ * Operator alert: a fresh mailing-list signup (`POST /api/subscribe`, on a real
+ * insert — not the idempotent already-listed no-op).
+ *
+ * **On the house layout (`lib/email-layout.ts`), not the old `opsTable()` grid.** The
+ * facts move into the layout's `table`, which draws them hairline-separated and links
+ * any row whose value is a bare URL — so the `Referrer` row is now clickable instead of
+ * being a string the operator copy-pastes. The plain-text part is unchanged: the same
+ * `Key: value` block `opsText()` emitted, under the heading.
+ *
+ * The single Forest CTA is `/admin/audience`, which is this alert's screen equivalent
+ * (AECI-586) and the one action it prompts. No `PUBLIC_SITE_URL` means no button, which
+ * is the same degradation every other migrated template takes.
+ */
 export function sendLandingSignupNotification(
   c: EmailContext,
   opts: {
@@ -1305,12 +1317,21 @@ export function sendLandingSignupNotification(
     ['Campaign', opts.utmCampaign ?? '—'],
     ['Referrer', opts.referrer ?? '—'],
   ];
+  const base = siteUrl(c.env);
+  const intro = 'Someone just joined the AEC Integrations mailing list.';
+  const shared = {
+    preheader: `${opts.email} joined the mailing list.`,
+    heading: 'New mailing list signup',
+    table: rows,
+    ...(base ? { cta: { label: 'Open the audience panel', url: `${base}/admin/audience` } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: c.env.ADMIN_ALERT_EMAIL ?? '',
     template: 'landing-signup',
     subject: '[AECi] New mailing list signup',
-    text: opsText('Someone just joined the AEC Integrations mailing list.', rows),
-    html: opsTable('Someone just joined the AEC Integrations mailing list.', rows),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
   });
 }
 
@@ -1599,8 +1620,8 @@ function pairUrl(env: Env, slugA: string, slugB: string): string | null {
  * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
  * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
  * that. These two remain only for the templates not yet migrated — the three sibling
- * attestation nudges, the review/account/mailing-list templates, and the three remaining
- * operator alerts (`landing-signup`, `landing-feedback`, `entitlement-expiring-admin`);
+ * attestation nudges, the review/account/mailing-list templates, and the two remaining
+ * operator alerts (`landing-feedback`, `entitlement-expiring-admin`);
  * `docs/email.md` (§House layout) carries the migration list.
  *
  * Note the sign-off: the house layout deliberately has none, because its footer wordmark
