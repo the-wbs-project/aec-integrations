@@ -19,6 +19,20 @@ export interface RequestDrawerTarget {
   readonly kind: RequestKind;
   readonly slug: string;
   readonly claimed?: boolean;
+  /** Seed text for the free-text `body` field (AECI-967). DRAWER-ONLY and
+   *  optional: it is context the *opening surface* knows and the request record
+   *  does not. The submitted request already carries `(target_type, slug)`, so a
+   *  trigger whose context is just "this product" passes nothing — the vendor
+   *  portal's rename hint is exactly that case. The vendor-portal conflict lane
+   *  is the case that earns it: which disputed data flow, and against which
+   *  counterpart, is recorded nowhere in a correction.
+   *
+   *  It is a SEED, not a value. The vendor may edit or clear it, and it is
+   *  validated like anything else the visitor typed.
+   *
+   *  The routed `/…/{claim,correction}` fallback page has no equivalent, and that
+   *  is deliberate — see `RequestFormBody.bodyPrefill`. */
+  readonly bodyPrefill?: string;
 }
 
 /**

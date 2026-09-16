@@ -1122,6 +1122,109 @@ which touches the same two components and must carry this pairing through it.
 
 ---
 
+### 6.9 As built — the correction sentences get a way to file one (AECI-967 — 2026-09-16)
+
+Found by the operator on 2026-09-15, one day after §6.7 and from the same family:
+the portal **named an action twice and routed to it neither time**. The product
+profile said "To change the product name, file a correction request" and the
+conflict lane said "If you think theirs is wrong, send us a correction request",
+both as flat prose. `/products/:slug/correction` has existed and been public since
+AECI-128. A vendor reading either sentence had to leave the portal, find their own
+public listing, and locate the correction link there.
+
+Renaming a product is a normal request we have deliberately made non-self-serve
+(§6.1: `name`/`slug` are AECi-owned because a rename breaks the URL, the Algolia
+record and every inbound link). Telling someone to do a thing while hiding the way
+to do it turns a small policy friction into a dead end, and the correction is what
+we lose.
+
+**Three link sites, not the two the issue named.**
+
+| Site | File | Target | Prefill |
+| -- | -- | -- | -- |
+| Product rename hint | `components/vendor-product-form.ts` | `/products/:productSlug/correction` | none |
+| Company identity hint (**new copy**) | `components/vendor-profile-form.ts` | `/vendors/:vendorSlug/correction` | none |
+| Conflict disclosure | `components/vendor-claim-lane.ts` | `/products/:contextProductSlug/correction` | yes |
+
+The third site is new ground. `vendor-profile-form.ts` renders no company-name
+field at all, for the same reason the product form renders its name read-only, and
+until now it said nothing whatever about that. The absence read as an omission
+rather than a policy. The new `@@vendor.profile.identityHint` states the fact and
+carries the route.
+
+**The mechanism is the in-place drawer, NOT a new tab, and that is a correction to
+the issue as filed.** The anchors carry `aecRequestTrigger` (AECI-128,
+`requests/request-trigger.ts`) and `<aec-request-drawer/>` is mounted once in the
+shell. An unmodified left click is `preventDefault()`ed and opens the overlay, so
+**nothing navigates**: the unsaved form state and its `VendorPortalStore.markDirty`
+registration cannot be lost, and the vendor keeps the thing they are correcting on
+screen behind the panel. That is strictly better than the new tab `DESIGN.md` →
+"The Link Treatment Rule" case 2 prescribes, and the rule now says so.
+
+**The `href` fallback still gets the full new-tab treatment** — `target="_blank"`,
+`rel="noopener"` (alone, no `noreferrer nofollow`; the destination is our own
+catalog) and `<aec-new-tab-icon/>`. That path is the no-JS and pre-hydration one
+and it really does navigate, which is exactly the case the rule covers. A
+modified click (cmd/middle) is left to the browser by the directive, so it lands
+there too.
+
+**The drawer is mounted in BOTH shells** — `vendor-dashboard-tabbed.ts` and
+`vendor-dashboard-single.ts`. Both concepts compose `vendor-product-form` and
+`vendor-claim-lane`, and a trigger with no drawer mounted `preventDefault()`s into
+nothing. §6.1's rule that the single-page concept never silently loses what the
+tabbed one has is what makes the second mount non-optional, and the failure it
+prevents is a dead click rather than a missing section.
+
+**Only the conflict link prefills, and the asymmetry is the point.** A correction
+request already carries `(target_type, slug)`, so an admin always knows which
+product. Restating the product identity in the body would be padding. What a
+correction cannot carry is **which disputed data flow, against which counterpart** —
+`vendor-claim-lane.ts`'s `correctionPrefill()` names both and leaves the vendor a
+line to complete. It is a seed, not a value: the vendor may edit or clear it, and it
+is validated like anything else they typed.
+
+Plumbing it cost one optional field on three shared types — `bodyPrefill` on
+`RequestDrawerTarget`, on `RequestTrigger`, and on `RequestFormBody`, where it
+seeds the model **inside `ngOnInit` before `form()` runs** (the Signal Forms schema
+callback runs once at creation, §6.1's `vendor-product-form` note applies).
+
+**The routed fallback page is deliberately NOT prefilled.** A seed could only reach
+it as a query param, and free text in the URL joins the SSR cache key
+(`cacheKeyFor`, WC-4) and the request logs. The fallback is the no-JS path; an
+empty body there is what shipped before this and stays correct.
+
+**`vendor-claim-lane.ts` gained a `contextProductSlug` input.** It held
+`contextProductId` (a UUID) and two display names, and a correction addresses its
+target by `(entity, slug)` — never a UUID. The slug was already on the wire one
+level up (`vendor-integration-card.ts` builds its §6.7 pair href from the same
+field), so the card passes it down and nothing new is fetched.
+
+**What was deliberately left out.** The issue floated a **product-header actions
+menu** as the eventual home for these plus §6.7's link. Not built: the house rule
+routes an application menu (commands acting on the page) to `@angular/aria/menu`,
+which nothing in the repo uses yet, so it is a real adoption rather than a line of
+markup — and two links do not yet justify one. The header row keeps `<h2>` +
+`ViewPublicLink`. The **denied** state's copy stays with AECI-961.
+
+**Tests, and the one gap.** `vendor-product-form`, `vendor-profile-form` and
+`vendor-claim-lane` specs each pin the href, the `target`, the `rel` and the
+sr-only disclosure; the lane's block also pins that the link targets the **context**
+product rather than the counterpart (both slugs resolve and both pages return 200,
+so nothing downstream would catch a swap) and that it renders in no other agreement
+state. `vendor-integrations-section.component.spec.ts` pins the card→lane slug
+wiring, which is the only place that wiring is real. `request-trigger` and
+`request-form` specs pin the `bodyPrefill` hop and the seeding.
+
+The gap is the **open drawer itself**: `BrnDialog.open()` inside an `effect()`
+throws NG0602 under TestBed, so `RequestDrawer` cannot be rendered open in a
+component spec anywhere in the app (it works in a real browser, which is how
+product detail has shipped it since AECI-128). Coverage therefore stops at the
+trigger's inputs and the anchor's attributes, and the overlay is verified by hand.
+Every attribute asserted here fails **silently** if it regresses — a dropped
+`target` still renders a working link — and axe sees none of them.
+
+---
+
 ## 7. Moderation escalation — ban gate (AECI-524)
 
 **The gate check ships with §4** (`banned_at` → 403 in the guard, ahead of the role check). This section owns the ban **action** + policy.

@@ -3,6 +3,7 @@ import { RouterOutlet } from '@angular/router';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
+import { RequestDrawer } from '../requests/request-drawer';
 import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
@@ -63,7 +64,7 @@ import { VendorPortalNav } from './vendor-portal-nav';
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
-  imports: [RouterOutlet, VendorPortalNav, ViewPublicLink],
+  imports: [RouterOutlet, VendorPortalNav, ViewPublicLink, RequestDrawer],
   template: `
     @let m = me();
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
@@ -109,6 +110,23 @@ import { VendorPortalNav } from './vendor-portal-nav';
         pointer already travelling toward it.
       -->
       <p class="sr-only" role="status">{{ liveMessage() }}</p>
+
+      <!--
+        The portal's correction drawer (AECI-967, section 6.9). Mounted once in
+        the shell, like the live region and for the same reason: the shell
+        survives every section change, and the sections that raise a correction
+        (the product form's rename hint, the conflict lane) are two router hops
+        apart. It renders nothing until an aecRequestTrigger opens it, and it
+        never opens during SSR.
+
+        This is the portal's answer to "I need to leave and file something":
+        an overlay, not a navigation. The portal holds unsaved form state and
+        apps/web has no CanDeactivate guard, so a same-tab trip to
+        /products/:slug/correction would silently discard an edit. The
+        anchors keep that URL as their no-JS fallback, with the new-tab
+        treatment, because THAT path does navigate.
+      -->
+      <aec-request-drawer />
     </section>
   `,
   styles: [':host { display: block; }'],

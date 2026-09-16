@@ -8,6 +8,8 @@ import {
   directionGlyph,
   directionHeading,
 } from '../../products/pair-direction-labels';
+import { RequestTrigger } from '../../requests/request-trigger';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import { VendorAttestationControl } from './vendor-attestation-control';
 import {
@@ -88,7 +90,7 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
   // rule disabled below.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'li[aec-vendor-claim-lane]',
-  imports: [AgreementBadge, VendorAttestationControl],
+  imports: [AgreementBadge, VendorAttestationControl, RequestTrigger, NewTabIcon],
   host: {
     '[class]': 'rowClass()',
     '[attr.aria-labelledby]': 'fieldId("name")',
@@ -146,9 +148,33 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
             }
           </div>
         </dl>
+        <!--
+          AECI-967 (section 6.9). The second sentence named an action the portal
+          gave no route to. The anchor opens the shared correction drawer in
+          place; the href is the no-JS fallback and carries the new-tab
+          treatment because that path navigates and the portal has no
+          CanDeactivate guard.
+
+          This is the ONE correction link that passes a bodyPrefill. Which data
+          flow is disputed, and against which counterpart, is recorded nowhere in
+          a correction request, unlike the product identity, which the request
+          already carries as (target_type, slug).
+        -->
         <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.attest.conflict.next">
-          Update your position below if it is out of date. If you think theirs is wrong, send us a
-          correction request.
+          Update your position below if it is out of date. If you think theirs is wrong,
+          <a
+            aecRequestTrigger
+            [entity]="'product'"
+            [kind]="'correction'"
+            [slug]="contextProductSlug()"
+            [bodyPrefill]="correctionPrefill()"
+            [href]="'/products/' + contextProductSlug() + '/correction'"
+            target="_blank"
+            rel="noopener"
+            class="text-(--accent-primary) underline underline-offset-2"
+            >send us a correction request
+            <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
+          >.
         </p>
       </div>
     }
@@ -172,6 +198,12 @@ export class VendorClaimLane {
    *  against the endpoint the vendor is authoring from rather than the server's
    *  endpoint-A fallback. */
   readonly contextProductId = input.required<string>();
+  /** The `context_product.slug` of the same listing (AECI-967). A correction
+   *  request addresses its target by `(entity, slug)` — never a UUID — so the id
+   *  above cannot serve. Both are on the wire at the card level
+   *  (`vendor-integration-card.ts` builds its pair href from the same field), so
+   *  this costs nothing to pass down. */
+  readonly contextProductSlug = input.required<string>();
   readonly vendorName = input.required<string>();
   /** `false` for a vendor without active account access: the lane still renders its real data, but
    *  the authoring control is withheld (`GET` is not account-access-gated; authoring
@@ -228,6 +260,25 @@ export class VendorClaimLane {
   protected readonly conflictHeading = computed(
     () =>
       $localize`:@@vendor.attest.conflict.heading:You and ${this.otherProductName()}:other: describe this flow differently.`,
+  );
+
+  /**
+   * Seed text for the correction drawer's free-text body (AECI-967).
+   *
+   * Built with `$localize` in TS rather than an interpolated `i18n-bodyPrefill`
+   * attribute, which emits no attribute at all in this toolchain and would leave
+   * the field empty rather than merely untranslated.
+   *
+   * It names the two things a correction request cannot otherwise carry: the
+   * disputed `data_object` and the counterpart product. The target product is
+   * deliberately NOT restated — the request already holds `(target_type, slug)`.
+   * The trailing prompt is what makes this a scaffold rather than a submission:
+   * the vendor is being asked for the part only they know. Comfortably past
+   * `CorrectionFormSchema`'s 20-character floor either way.
+   */
+  protected readonly correctionPrefill = computed(
+    () =>
+      $localize`:@@vendor.attest.conflict.correction.prefill:The recorded ${this.claim().data_object_name}:dataObject: flow with ${this.otherProductName()}:other: is wrong.\n\nWhat is actually correct: `,
   );
 
   protected readonly rowClass = computed(() => {

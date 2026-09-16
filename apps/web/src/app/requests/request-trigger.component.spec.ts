@@ -37,6 +37,23 @@ class TriggerHost {}
 })
 class ClaimedTriggerHost {}
 
+/** AECI-967: a trigger that carries context the request record cannot. The
+ *  vendor portal's conflict lane is the only shipped one. */
+@Component({
+  selector: 'aec-prefill-trigger-host',
+  imports: [RequestTrigger],
+  template: `<a
+    aecRequestTrigger
+    [entity]="'product'"
+    [kind]="'correction'"
+    [slug]="'acme'"
+    [bodyPrefill]="'The recorded Budget flow with Procore is wrong.'"
+    href="/products/acme/correction"
+    >Send us a correction request</a
+  >`,
+})
+class PrefillTriggerHost {}
+
 function setup(platform: 'browser' | 'server' = 'browser') {
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: platform }],
@@ -108,6 +125,30 @@ describe('RequestTrigger', () => {
       slug: 'acme',
       claimed: true,
     });
+  });
+
+  // AECI-967. The seed is context the OPENING SURFACE knows and the request
+  // record does not, so it has to survive the hop into the drawer intact.
+  it('forwards `bodyPrefill` so the drawer opens with the body seeded', () => {
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: PLATFORM_ID, useValue: 'browser' }],
+    });
+    const fixture = TestBed.createComponent(PrefillTriggerHost);
+    fixture.detectChanges();
+    const anchor = (fixture.nativeElement as HTMLElement).querySelector('a') as HTMLAnchorElement;
+    const drawer = TestBed.inject(RequestDrawerService);
+
+    expect(click(anchor)).toBe(true);
+    expect(drawer.target()?.bodyPrefill).toBe('The recorded Budget flow with Procore is wrong.');
+  });
+
+  // The default. Most triggers have no context beyond the target, which the
+  // request already carries as (target_type, slug) — passing an empty string
+  // would seed the field with nothing and defeat the 20-character floor's hint.
+  it('omits `bodyPrefill` entirely when the trigger supplies none', () => {
+    const { anchor, drawer } = setup('browser');
+    click(anchor);
+    expect(drawer.target()?.bodyPrefill).toBeUndefined();
   });
 
   it('leaves modified clicks (new-tab) to the browser — no preventDefault, no drawer', () => {
