@@ -105,6 +105,8 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 | Clay deep `#A14D22` | Bone `#F5F2EA` | ~5.2 : 1 | AA normal |
 | Goldenrod `#DAA520` | White `#FFFFFF` | ~2.2 : 1 | Below the 3:1 graphic floor — **decorative star glyphs only** (`aria-hidden`; value carried by numeral + `aria-label`). See §5.1 |
 | Text tertiary `#71717A` | White `#FFFFFF` | ~4.8 : 1 | AA normal (re-pointed from `#A1A1AA` ≈ 2.6:1, AECI-230) |
+| Text secondary `#52525B` | Sunken `#F4F4F5` | ~7.0 : 1 | AAA — the read-only/disabled field-text pairing; disabled/read-only field text never dims via opacity (AECI-982: `disabled:opacity-50` measured ~3.7:1, below AA) |
+| Text primary `#0A0A0A` | Sunken `#F4F4F5` | ~18 : 1 | AAA — read-only field values keep the primary token; "not editable" is carried by the sunken surface, never by dimming the text |
 | Forest `#1E3A2F` | Forest soft `#ECF1EE` | ~10.8 : 1 | AAA (selected/active wash, AECI-230) |
 | Error `#B3261E` | White `#FFFFFF` | ~6.5 : 1 | AA normal (status token, AECI-230) |
 | Ink `#0F1419` | Bone `#F5F2EA` | ~17 : 1 | AAA (Bone accent surface) |
