@@ -1,0 +1,30 @@
+-- AECI-988 — the remembered Cards/Table listing preference on `profiles`. Purely additive.
+-- Contract: docs/API_CONTRACTS.md (`PATCH /api/account`) + docs/DATABASE_SCHEMA.md.
+--
+-- ⚠️ HAND-AUTHORED BODY — this is NOT raw `drizzle-kit generate` output, and
+-- regenerating over it would reintroduce a migration that destroys data. Same
+-- reasoning as 0023_chilly_joseph.sql; see docs/migrations.md §0 (when
+-- drizzle-kit wants to recreate a table). The new CHECK constraint puts
+-- drizzle-kit on the SQLite table-recreate path (`CREATE __new_profiles` →
+-- `INSERT…SELECT` → `DROP TABLE profiles` → `RENAME`), and that is unusable here:
+--
+--   1. `DROP TABLE profiles` reaches EIGHT inbound FKs. Three are ON DELETE SET
+--      NULL — `reviews.reviewer_id`, `vendor_entitlements.granted_by` and
+--      `vendor_seat_invites.invited_by_id` — so the drop would NULL the author of
+--      every review in the database. Nothing errors and nothing rolls back: the
+--      migration reports success with the authorship silently gone. The other
+--      five (`audit_log.actor_id`, `workflow_transitions.actor_id`,
+--      `workflow_instances.initiated_by`, `reviews.moderated_by`,
+--      `vendor_requests.resolved_by`) are NO ACTION, which raises instead — a
+--      half-applied migration rather than a quiet one.
+--   2. D1 does not support `PRAGMA foreign_keys = on|off` (only
+--      `defer_foreign_keys`), so the guard drizzle-kit wraps the drop in is inert
+--      there — the SET NULLs in (1) actually fire. `defer_foreign_keys` would not
+--      help either: it defers the CONSTRAINT CHECK, never the referential ACTION.
+--
+-- The statement below is the additive equivalent and matches
+-- `meta/0040_snapshot.json`, so `db:generate` stays a no-op and drift-check passes.
+--
+-- No backfill: NULL is the intended "never toggled" state and reads as the site
+-- default (`cards`), so every existing row is already correct.
+ALTER TABLE `profiles` ADD `listing_view_preference` text CONSTRAINT "profiles_listing_view_preference_check" CHECK("listing_view_preference" IN ('cards', 'table'));

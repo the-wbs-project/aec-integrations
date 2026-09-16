@@ -156,7 +156,10 @@ and leave a header comment in the migration saying it is hand-authored and why
 (`0021_lyrical_leper_queen.sql` and `0022_slim_iron_lad.sql` are the references — those were
 `0016`/`0017` until the AECI-750 renumber below).
 `0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
-statement.
+statement. `0040_wealthy_the_professor.sql` is the most recent one and the clearest single-statement
+example: one nullable `profiles` column with a CHECK, where the generated recreate would have
+`DROP TABLE profiles` and NULL `reviews.reviewer_id` on every row. `apps/api/src/test/migration-0040.spec.ts`
+is the tripwire that fails if the body is ever regenerated.
 
 #### Renumbering a migration (parallel epic branches)
 

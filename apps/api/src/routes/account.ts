@@ -105,7 +105,7 @@ export function createGetAccountHandler(
     const { db } = dbFor(c.env);
 
     const profile = await db.query.profiles.findFirst({
-      columns: { displayName: true },
+      columns: { displayName: true, listingViewPreference: true },
       where: eq(profiles.id, session.userId),
     });
 
@@ -113,6 +113,7 @@ export function createGetAccountHandler(
       user_id: session.userId,
       email: session.email ?? null,
       display_name: profile?.displayName ?? null,
+      listing_view_preference: profile?.listingViewPreference ?? null,
       role: session.role,
       ...(await queueCountsForSession(db, session.role)),
     };
@@ -168,9 +169,36 @@ export function createUpdateAccountHandler(
     const { db } = writeDb(c, dbFor);
 
     const before = await db.query.profiles.findFirst({
-      columns: { displayName: true },
+      columns: { displayName: true, listingViewPreference: true },
       where: eq(profiles.id, userId),
     });
+
+    // Present-key semantics (the schema guarantees at least one key): only the
+    // fields the PATCH actually carries are written, so a listing-page toggle
+    // click can persist `listing_view_preference` alone without re-sending the
+    // display name — and an account-form save can't clobber the remembered
+    // view with a stale client copy it never held.
+    const updates: {
+      displayName?: string | null;
+      listingViewPreference?: 'cards' | 'table' | null;
+    } = {};
+    if (payload.display_name !== undefined) updates.displayName = payload.display_name;
+    if (payload.listing_view_preference !== undefined)
+      updates.listingViewPreference = payload.listing_view_preference;
+
+    // The audit mirrors exactly the touched keys, with their before-values —
+    // an untouched field never appears (so a toggle click doesn't log a no-op
+    // display_name change).
+    const beforeState: Record<string, unknown> = {};
+    const afterState: Record<string, unknown> = {};
+    if (payload.display_name !== undefined) {
+      beforeState.display_name = before?.displayName ?? null;
+      afterState.display_name = payload.display_name;
+    }
+    if (payload.listing_view_preference !== undefined) {
+      beforeState.listing_view_preference = before?.listingViewPreference ?? null;
+      afterState.listing_view_preference = payload.listing_view_preference;
+    }
 
     const auditEntry: AuditLogEntry = {
       actorId: userId,
@@ -178,13 +206,13 @@ export function createUpdateAccountHandler(
       action: 'profile.updated',
       entityType: 'profile',
       entityId: userId,
-      beforeState: { display_name: before?.displayName ?? null },
-      afterState: { display_name: payload.display_name },
+      beforeState,
+      afterState,
       metadata: { source: 'account' },
     };
 
     await db.batch([
-      db.update(profiles).set({ displayName: payload.display_name }).where(eq(profiles.id, userId)),
+      db.update(profiles).set(updates).where(eq(profiles.id, userId)),
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
@@ -193,7 +221,18 @@ export function createUpdateAccountHandler(
     const body: AccountProfileResponse = {
       user_id: userId,
       email: session.email ?? null,
-      display_name: payload.display_name,
+      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
+      // documented way to drop the name), and `??` would treat it as "absent"
+      // and echo back the name the row no longer holds.
+      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
+      // documented way to drop the name), and `??` would treat it as "absent"
+      // and echo back the name the row no longer holds.
+      display_name:
+        payload.display_name !== undefined ? payload.display_name : (before?.displayName ?? null),
+      listing_view_preference:
+        payload.listing_view_preference !== undefined
+          ? payload.listing_view_preference
+          : (before?.listingViewPreference ?? null),
       role: session.role,
       ...(await queueCountsForSession(db, session.role)),
     };

@@ -921,6 +921,16 @@ create table profiles (
   -- Theme preference (defaults to system preference)
   theme_preference text not null default 'system' check (theme_preference in ('system', 'light', 'dark')),
 
+  -- The user's remembered Cards/Table listing preference (AECI-988; `?view=` on /products +
+  -- taxonomy browse; migration 0040, whose body is HAND-AUTHORED as a plain ADD
+  -- COLUMN — the generated recreate would DROP TABLE profiles and NULL the
+  -- reviewer on every review; see docs/migrations.md §0). Null = never toggled, so the site default
+  -- (`cards`) is a stored fact the user can return to. Written ONLY by
+  -- PATCH /api/account; read by GET /api/account and applied post-hydration in the
+  -- browser as the `?view=` default — never an SSR input, so it cannot poison the
+  -- URL-keyed edge cache (CACHE_STRATEGY.md §6.1).
+  listing_view_preference text check (listing_view_preference in ('cards', 'table')),
+
   -- Moderation flags
   banned_at timestamptz,
   ban_reason text,

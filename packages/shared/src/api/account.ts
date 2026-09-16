@@ -27,14 +27,24 @@ import { ReviewStatusSchema } from './reviews';
  * reviewer" fallback. The server trims and stores `''`-after-trim as a rejected
  * value (min length 1) — pass an explicit `null` to clear.
  */
-export const UpdateAccountSchema = z.object({
-  display_name: z
-    .string()
-    .trim()
-    .min(1, 'Display name must be at least 1 character.')
-    .max(80, 'Keep your display name under 80 characters.')
-    .nullable(),
-});
+export const UpdateAccountSchema = z
+  .object({
+    display_name: z
+      .string()
+      .trim()
+      .min(1, 'Display name must be at least 1 character.')
+      .max(80, 'Keep your display name under 80 characters.')
+      .nullable()
+      .optional(),
+    /** The remembered Cards/Table listing preference (`?view=` on `/products` +
+     *  taxonomy browse). `null` clears it back to the site default (`cards`).
+     *  Present-key semantics: omitted = leave unchanged, so a toggle click
+     *  PATCHes ONLY this field without having to re-send the display name. */
+    listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
+  })
+  .refine((v) => v.display_name !== undefined || v.listing_view_preference !== undefined, {
+    message: 'Provide at least one updatable field.',
+  });
 export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
 
 /** Returned by `GET /api/account` and `PATCH /api/account`. `email` is read-only
@@ -71,6 +81,10 @@ export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  /** The signed-in user's remembered Cards/Table listing preference, or `null`
+   *  when they never toggled. Read post-hydration by the listing view controller
+   *  (`listing-view.ts`) to seed `?view=`; never an SSR input (cache-neutral). */
+  listing_view_preference: 'cards' | 'table' | null;
   role: string;
   pending_reviews: number | null;
   pending_requests: number | null;
