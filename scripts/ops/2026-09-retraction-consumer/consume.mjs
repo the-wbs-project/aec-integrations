@@ -233,9 +233,9 @@ const HOLD_REASON =
  * and the right response is to stop and re-establish the ruling rather than to delete
  * whatever is there now.
  *
- * ZERO, the resting state. The AECI-957 run pinned it to `1 / 0 / 1` — the first cohort
- * since AECI-878 to resolve in `integrations` rather than in `connector_evidenced_pairs` —
- * and this reset is part of that same change, per the standing rule. Zero is the only pin
+ * ZERO, the resting state. The AECI-809 run pinned it to `3 / 0 / 3` — three native edges
+ * retired by the Autodesk Construction Cloud → Forma product merge — and this reset is part
+ * of that same change, per the standing rule. Zero is the only pin
  * that fails closed: a shape carried over from the cohort that just ran is not a guard, because
  * a later cohort of the same size matches it by coincidence. The AECI-889 batch-1 run was
  * authorised against `17 / 17 / 0` and the batches 2 + 3 run against `21 / 21 / 0`, and
@@ -267,6 +267,16 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * It is reset to zero after every run for the same reason `EXPECTED` is. It did NOT move
  * for AECI-916 or for AECI-957: both dry runs read `0 claims, 0 attestations`, which the
  * resting ceiling already permits, and a run that needs no raise should not get one.
+ * AECI-809 raised it to `7 / 7`, and that run is the one to read if your cohort is a product
+ * MERGE rather than a retirement, because its three rows needed TWO different proofs. Two were
+ * collision losers and were proved superseded per pair against the surviving product's edge —
+ * compared object by object AND direction by direction, which is what caught one claim widening
+ * from `b_to_a` to `both` that a 2 = 2 count match would have hidden. The third was the
+ * self-edge BETWEEN the two merging records, and it has no post-merge counterpart by
+ * construction: the boundary its claims crossed stops existing. For that row the proof is a
+ * named human's ruling that the claims are rename artifacts (AECI-809, 2026-09-15), not a
+ * superseding row. Do not generalise that to any row whose counterpart you merely failed to
+ * find — it applies to a self-edge of the merge itself and nothing else.
  * AECI-889 batch 1 legitimately raised it to `169 / 169`, the largest this lane has
  * authorised — but that belonged to those 17 ids only. Left at 169 it would have
  * silently pre-authorised 169
