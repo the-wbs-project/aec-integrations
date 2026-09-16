@@ -144,6 +144,30 @@ and fix the pipeline first.** A day that failed this check is not comparable wit
 that passed, and no later re-run can recover it — the columns are not reconstructable
 from D1.
 
+**The lead-capture write has its own tripwire, and it is weaker on purpose (AECI-876).**
+Cloudflare context reaches D1 down two independent paths. The one above is the SSR
+arrival write into `page_views`. The other is `POST /api/subscribe`, which fills seven
+`mailing_list` columns from the trusted `LANDING_CF_HEADERS` the SSR Worker sets — and
+nothing checked that they arrived. `landing_cf_coverage` (severity **`warn`**) now does,
+probing `mailing_list.asn` over a **30-day** window, passing below a **10-row** minimum,
+and failing under a **0.90** floor. Read it on `/admin/system` beside its sibling.
+
+Three differences, and each one costs something you should know about. It is **`warn`, so
+it never alerts** — the only reader of `mailing_list.asn` is the `/admin/audience` ASN
+breakdown, so a failure is a lost attribute rather than an invalidated day, and §1 row 5a routes WARN to the dashboard and
+the digest only. The **window is thirty days with a row minimum**, because `mailing_list`
+is deduplicated by email and a day's signups are not a denominator a ratio can stand on;
+the floor and the minimum below were chosen as a pair so one legitimate NULL cannot trip
+it. And therefore **detection takes days, not a day** — at a few signups a day a total
+loss needs roughly three to five days to pull the window under the floor. That is the
+honest latency of a low-volume ratio, and no threshold buys both stability and same-day
+detection. Unlike the arrival case, a failure here does **not** invalidate any figure you
+are asked to read; fix the pipeline, but do not stop reading the numbers.
+
+One thing it does not cover, deliberately: `feedback`. That table stores no `asn` column
+at all, and both tables are filled by the same `readLandingCfFromHeaders` call on the same
+hop, so a break NULLs them together and one probe sees it.
+
 The rest of the outstanding operator checklist (the internal-user exclusion, running
 `apply.sh` against production, deleting the two unused `POSTHOG_KEY_*` GitHub secrets)
 is in `observability/posthog/README.md`. The `phx_` personal key is **done** —
@@ -175,7 +199,7 @@ data today, with the PostHog successor in brackets.
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) *(PostHog: prefer the **histogram-buckets** widget over the reconstructed p95 — see §2.7)* | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no alert — dashboard-only)*. ⚠️ **This signal narrows at AECI-651**: the RUM action is consent-independent, its `search_performed` successor is consented-only. Read it as a funnel from then on, not a census |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift / sync-failed / sync-not-running / orphan-cap monitors. **After the cutover:** sync-failed folds into the combined cron alert, drift becomes **dashboard-only**, liveness moves to the CI sweep, orphan-cap stays its own alert |
-| 5a | **Data quality (the §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only. **`arrival_cf_coverage` (AECI-868, `error`) is the §0b telemetry precondition and is read differently from the rest**: it says the day's traffic numbers are unusable, not that a catalog row needs fixing. Triage it before anything else on this list |
+| 5a | **Data quality (the §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only. **`arrival_cf_coverage` (AECI-868, `error`) is the §0b telemetry precondition and is read differently from the rest**: it says the day's traffic numbers are unusable, not that a catalog row needs fixing. Triage it before anything else on this list. **`landing_cf_coverage` (AECI-876, `warn`) is its lead-capture sibling and is the opposite case** — it is `warn` precisely because it invalidates nothing, so it lands in "dashboard + digest, no alert" above and will never wake anyone. Read it here or in the digest; a failing run means new `mailing_list` rows are losing their network metadata, not that today's traffic figures are suspect |
 | 6 | **Scheduled-job health (15 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors today; the **combined** cron-failure alert + the sweep after |
 | 6a | **The CI liveness sweep itself** | GitHub Actions → `posthog-liveness-sweep` (every 3 h). Read the **latest run's conclusion**, not just the alert inbox | green | **exit 1** = a heartbeat MISSING or STALE, with a `::error::` naming the cron. **exit 2** = the sweep could not run — "UNCHECKED, **not** a pass". Expect exit 2 on every run until the `phx_` key is provisioned (§0a) |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` *(PostHog: "AECi — Vendor requests and their Linear issues")* | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
@@ -592,8 +616,16 @@ email says so in both renderings.
 | Constant | Value | Where | Why |
 |---|---|---|---|
 | `ARRIVAL_CF_COVERAGE_MIN` | `0.95` | `apps/api/src/lib/arrival-coverage.ts` | The share of a day's full-document arrivals that must carry a `cf_asn`. Not 1.0, because a small NULL tail is legitimate and permanent — `request.cf` is absent on a non-Cloudflare runtime and the row is still written. The observed healthy state is ~100% and the defect took it to **0%**, so any threshold in this region separates the two. Low enough that normal noise never fires, high enough to catch a partial regression (one entrypoint, one route class) before a human notices a missing bot split |
+| `LANDING_CF_COVERAGE_MIN` | `0.9` | `apps/api/src/lib/data-quality.ts` | The share of a 30-day window's `mailing_list` signups that must carry an `asn` (AECI-876). Lower than the arrival floor **because the denominator is smaller, not because the bar is softer.** Read it with the row minimum below — they were chosen as a pair, and neither is meaningful alone |
+| `LANDING_CF_COVERAGE_MIN_ROWS` | `10` | `apps/api/src/lib/data-quality.ts` | Below this many signups in the window the check reports "nothing to measure" and passes (AECI-876). For one legitimate NULL to be survivable the denominator must satisfy `N >= 1 / (1 - floor)`; at `0.9` that is ten. **Raising the floor to `0.95` without raising this to twenty would make one odd row a failing run** |
 
-**One constant, four readers**, and that is the point of it being exported rather than restated: the
+**The landing pair has one reader**, unlike the four below — the nightly check and nothing
+else. That is why it lives beside the check in `data-quality.ts` rather than in its own
+module: AECI-876 deliberately added no `metrics_daily` series, no digest line and no admin
+tile, because nothing downstream consumes the figure the way four surfaces consume the
+arrival one.
+
+**`ARRIVAL_CF_COVERAGE_MIN`: one constant, four readers**, and that is the point of it being exported rather than restated: the
 nightly `arrival_cf_coverage` data-quality check (§0b), the digest's health line, the
 `/admin/overview` tile envelope, and `readDegradedArrivalDays`. Change it in one place and every
 surface re-decides, **including every past day** — which is exactly why `metrics_daily` stores the

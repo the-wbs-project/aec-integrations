@@ -951,11 +951,14 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
 - `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
 
-**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the eleven
+**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
-anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate vendor/product candidates, a
-Brandfetch logo-404 sample, the reused AECI-140 Algolia drift, the AECI-609 `entitlement_mirror_drift`
-guard, and the AECI-868 `arrival_cf_coverage` tripwire). The job **does not auto-repair** — humans
+the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
+`stats_cache`, duplicate vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140
+Algolia drift, the AECI-609 `entitlement_mirror_drift` guard, and the two telemetry tripwires —
+AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
+stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
+two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
 triage. The email digest to Chris + Bill carries the offending rows.
 
 > **`promotion_status_invariant` is not a data-repair finding either — it means something wrote a column
@@ -1005,8 +1008,12 @@ triage. The email digest to Chris + Bill carries the offending rows.
 
 **Repair:** report-only — triage the digest and fix the underlying data (attach a vendor to an orphan
 product, stamp a missing `anonymized_at`, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.);
-the next daily run auto-detects the fix. Two checks are the exception and are diagnosed at the writer,
-not the row — `promotion_status_invariant` and `arrival_cf_coverage`, both noted above. A no-data/liveness failure is a Worker scheduling issue — escalate to
+the next daily run auto-detects the fix. Three checks are the exception and are diagnosed at the writer,
+not the row — `promotion_status_invariant`, `arrival_cf_coverage` and `landing_cf_coverage`, all noted
+above. The third is `warn`, so it never reaches this alert at all; read it on `/admin/system` or in the
+digest. It means new `mailing_list` rows are losing their network metadata on the SSR `/api/*`
+passthrough — check `withForwardedLandingCf`, and note the path is a POST, so the AECI-868 cache-gateway
+`cf` override is not the cause. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
 
 ## Cron runs missing or stuck in flight on `/admin/system`

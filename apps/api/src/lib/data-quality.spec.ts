@@ -13,6 +13,7 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
+  mailingList,
   pageViews,
   products,
   productVendors,
@@ -36,6 +37,7 @@ import {
   checkDuplicateProducts,
   checkDuplicateVendors,
   checkEntitlementMirrorDrift,
+  checkLandingCfCoverage,
   checkLogo404Sample,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
@@ -45,6 +47,8 @@ import {
   checkVendorsWithoutProducts,
   hasErrors,
   hasFindings,
+  LANDING_CF_COVERAGE_MIN,
+  LANDING_CF_COVERAGE_MIN_ROWS,
   runDataQualityChecks,
 } from './data-quality';
 
@@ -599,6 +603,110 @@ describe('checkArrivalCfCoverage', () => {
     expect(spec).toBeDefined();
     expect(spec!.severity).toBe('error');
     expect(ARRIVAL_CF_COVERAGE_MIN).toBe(0.95);
+  });
+});
+
+// ── #13 landing CF coverage (AECI-876) ────────────────────────────────────────
+
+describe('checkLandingCfCoverage', () => {
+  // `NOW` is 2026-06-24T04:00Z, so the window is the preceding 30 days. These
+  // timestamps sit either side of it.
+  const IN_WINDOW = '2026-06-10T12:00:00.000Z';
+  const BEFORE_WINDOW = '2026-05-01T12:00:00.000Z';
+
+  let seq = 0;
+  async function seedSignups(
+    withAsn: number,
+    withoutAsn: number,
+    createdAt = IN_WINDOW,
+  ): Promise<void> {
+    // `mailing_list.email` is uniquely indexed, so every row needs its own
+    // address — a shared one would silently collapse the denominator.
+    for (let i = 0; i < withAsn; i++) {
+      await t.db
+        .insert(mailingList)
+        .values({ email: `s${seq++}@example.com`, asn: 23700, createdAt });
+    }
+    for (let i = 0; i < withoutAsn; i++) {
+      await t.db
+        .insert(mailingList)
+        .values({ email: `s${seq++}@example.com`, asn: null, createdAt });
+    }
+  }
+
+  it('passes with no signups at all — an empty window is not a telemetry defect', async () => {
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('nothing to measure');
+  });
+
+  it('passes below the row minimum even when every row is NULL', async () => {
+    // Nine all-NULL signups is 0% coverage, and it must still pass: a denominator
+    // this small cannot tell an outage from one odd row, and a check that fires
+    // on it would be noise rather than signal.
+    await seedSignups(0, LANDING_CF_COVERAGE_MIN_ROWS - 1);
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('below the');
+    expect(finding.note).toContain('nothing to measure');
+  });
+
+  it('passes at exactly the floor, on exactly the minimum denominator', async () => {
+    // 9/10 = 90.0%. This is the case the two constants were chosen together for:
+    // one legitimate NULL on the smallest measurable window must not fail. A
+    // later change to either constant has to confront this test.
+    await seedSignups(9, 1);
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('9/10');
+    expect(finding.note).toContain('90.0%');
+  });
+
+  it('fails when the window loses its metadata entirely, naming the right cause', async () => {
+    await seedSignups(0, 12);
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('12 of 12');
+    expect(finding.lines[0]).toContain('NULL asn');
+    expect(finding.lines[0]).toContain('withForwardedLandingCf');
+    // The landing path is a POST, so the AECI-868 gateway override cannot be the
+    // cause. The line must say so rather than send a reader to the wrong file.
+    expect(finding.lines[0]).toContain('AECI-868 cache-gateway cf override is NOT');
+    expect(finding.note).toContain('0/12');
+  });
+
+  it('fails on a partial regression, not only a total one', async () => {
+    await seedSignups(8, 2); // 80%
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('2 of 10');
+    expect(finding.lines[0]).toContain('80.0%');
+  });
+
+  it('ignores signups outside the 30-day window', async () => {
+    await seedSignups(0, 50, BEFORE_WINDOW); // an older outage, already past
+    await seedSignups(10, 0);
+    const finding = await checkLandingCfCoverage(t.db, NOW);
+    expect(finding.lines).toEqual([]);
+    expect(finding.note).toContain('10/10');
+  });
+
+  it('is registered at `warn` — it invalidates no figure, so it must not page', () => {
+    const spec = CHECKS.find((c) => c.id === 'landing_cf_coverage');
+    expect(spec).toBeDefined();
+    // `error` would route this to the ERROR alert (POST_LAUNCH_MONITORING §1 row
+    // 5a). The column's only reader is the `/admin/audience` ASN breakdown, so a
+    // failure is a lost
+    // attribute rather than an unusable day.
+    expect(spec!.severity).toBe('warn');
+    expect(LANDING_CF_COVERAGE_MIN).toBe(0.9);
+    expect(LANDING_CF_COVERAGE_MIN_ROWS).toBe(10);
+    // The pairing invariant, stated as the case rather than as the algebra
+    // (`1 / (1 - 0.9)` is 10.000000000000002 in float, which would make the
+    // algebraic form fail on the exact values it is meant to accept): one
+    // legitimate NULL on the smallest measurable window must still pass.
+    const oneNullAtMinimum = (LANDING_CF_COVERAGE_MIN_ROWS - 1) / LANDING_CF_COVERAGE_MIN_ROWS;
+    expect(oneNullAtMinimum).toBeGreaterThanOrEqual(LANDING_CF_COVERAGE_MIN);
   });
 });
 

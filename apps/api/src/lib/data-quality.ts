@@ -13,11 +13,19 @@
  * `runDataQualityChecks` runs them all best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
- * All but one check the *catalog*. `arrival_cf_coverage` (AECI-868) checks the *telemetry
- * pipeline* that feeds every traffic figure, which is a deliberate widening of what
- * this suite is for: the four-day arrival-metadata outage it guards produced no
- * error, no alert and no visibly wrong number, so nothing but a nightly ratio could
- * have caught it. See `arrival-coverage.ts` for the full argument.
+ * All but **two** check the *catalog*. `arrival_cf_coverage` (AECI-868) and
+ * `landing_cf_coverage` (AECI-876) check the *telemetry pipeline* instead, which is a
+ * deliberate widening of what this suite is for: the four-day arrival-metadata outage
+ * the first one guards produced no error, no alert and no visibly wrong number, so
+ * nothing but a nightly ratio could have caught it. See `arrival-coverage.ts` for the
+ * full argument.
+ *
+ * The two are siblings, not duplicates — Cloudflare context reaches D1 down two
+ * independent paths, and each watches one. `arrival_cf_coverage` watches the SSR
+ * arrival write into `page_views` (`PAGE_VIEW_CF_HEADERS`, a GET); `landing_cf_coverage`
+ * watches the lead-capture write into `mailing_list` (`LANDING_CF_HEADERS`, a POST).
+ * They differ in severity, window and floor for reasons recorded on each function, and
+ * those differences are load-bearing rather than drift.
  *
  * **AECI-592 retired two checks and replaced them with one.** The original §23.1
  * roster carried "products stuck `promotion_status='ready'` >30d" and "integrations
@@ -41,6 +49,7 @@ import {
   count,
   desc,
   eq,
+  gte,
   isNotNull,
   isNull,
   lt,
@@ -52,6 +61,7 @@ import {
 
 import type { Db } from '../db/client';
 import {
+  mailingList,
   products,
   productVendors,
   reviews,
@@ -78,6 +88,41 @@ const DEFAULT_LOGO_SAMPLE = 20;
 const LOGO_FETCH_TIMEOUT_MS = 5_000;
 /** Max sample lines surfaced per check in the digest (the full count is exact). */
 export const SAMPLE_LIMIT = 10;
+
+/**
+ * The window `landing_cf_coverage` measures over (AECI-876).
+ *
+ * Thirty days, not the arrival check's twenty-four hours, because the two
+ * populations differ by orders of magnitude. `mailing_list` is deduplicated by
+ * email, so a row is a *new subscriber*; a day's worth of them is not a
+ * denominator a ratio can be built on.
+ */
+const LANDING_CF_WINDOW_DAYS = 30;
+
+/**
+ * The minimum share of windowed signups that must carry an `asn` before
+ * `landing_cf_coverage` fails (AECI-876).
+ *
+ * **Read this together with {@link LANDING_CF_COVERAGE_MIN_ROWS} — the two were
+ * chosen as a pair and neither is meaningful alone.** For a single legitimate
+ * NULL to be survivable, the denominator has to satisfy `N >= 1 / (1 - floor)`.
+ * At `0.9` that is ten rows, which is the minimum below. Raising this floor to
+ * the arrival check's `0.95` without also raising the minimum to twenty would
+ * make one odd row a failing run.
+ */
+export const LANDING_CF_COVERAGE_MIN = 0.9;
+
+/**
+ * Below this many signups in the window, `landing_cf_coverage` reports "nothing
+ * to measure" and passes (AECI-876).
+ *
+ * The same argument as the arrival check passing on an empty night, one step
+ * further: an empty window is not a telemetry defect, and neither is a window too
+ * small to support a ratio. Ten is the value that makes
+ * {@link LANDING_CF_COVERAGE_MIN} survive one legitimate NULL — see there.
+ */
+export const LANDING_CF_COVERAGE_MIN_ROWS = 10;
+
 export type DataQualitySeverity = 'error' | 'warn' | 'info';
 
 /** The raw finding a single check returns (before id/label/severity are attached). */
@@ -470,6 +515,117 @@ export async function checkArrivalCfCoverage(db: Db, now: Date): Promise<CheckFi
   };
 }
 
+/**
+ * Lead-capture network-metadata coverage over the last 30 days (AECI-876), last
+ * in digest order.
+ *
+ * Deliberately not given a `#N` label: the numbering in the comments above is
+ * addition order, not registry order, and `#13` is already taken by
+ * `checkTaxonomyMissingDescription` even though that one runs second.
+ *
+ * The second check here that watches the telemetry pipeline rather than the
+ * catalog, and the sibling of {@link checkArrivalCfCoverage} on the *other* path
+ * Cloudflare context travels.
+ *
+ * ─── What it measures ──────────────────────────────────────────────────────
+ *
+ * `POST /api/subscribe` stores seven CF fields on `mailing_list`. They do not
+ * come from the request body — the browser cannot read `request.cf` — but from
+ * the trusted `LANDING_CF_HEADERS` the SSR Worker sets in
+ * `withForwardedLandingCf` (`apps/web/src/server-runtime.ts`) and the API parses
+ * back in `readLandingCfFromHeaders` (`routes/landing-forms.ts`). If that hop
+ * stops carrying them, every field on every new row goes NULL, nothing errors,
+ * and the signup count stays normal. Exactly the AECI-868 defect class, on a
+ * path nothing was watching.
+ *
+ * ─── Scope decisions ───────────────────────────────────────────────────────
+ *
+ * - **`mailing_list.asn` is the only probe, and that is sufficient for both
+ *   tables.** `feedback` stores no `asn` / `as_organization` / `metro_code`
+ *   column at all, so it cannot exhibit the failure — but both tables are filled
+ *   from the *same* `readLandingCfFromHeaders` call on the same hop, so a break
+ *   NULLs them together. A second probe over `feedback.country` would add a
+ *   second tiny denominator and no detection power. `asn` is an integer, so
+ *   "present" is unambiguous — the same reason `cf_asn` is the arrival probe.
+ * - **No population filter.** A signup is a signup. This asks about the
+ *   pipeline, not the audience.
+ * - **Read-only, and unaudited.** `mailing_list` is log-class under ADR 0022
+ *   (exemption EX-002 lists `routes/landing-forms.ts`), and this is a `SELECT`.
+ *
+ * ─── Two ways it differs from the arrival check, both deliberate ────────────
+ *
+ * - **Severity `warn`, not `error`.** The arrival check is `error` because a
+ *   failing day invalidates every traffic figure on the dashboard — the ASN is
+ *   an input to `DATACENTER_ASNS`, both swarm groupings and the visitor
+ *   definition. `mailing_list.asn` has one reader — the `/admin/audience` ASN
+ *   breakdown (`audienceAsnBreakdown`, `lib/admin-audience.ts`), a descriptive
+ *   split that no other figure is built on. A failure here is a lost attribute,
+ *   not an invalidated number, and `warn` routes it to the
+ *   dashboard and the digest rather than to an alert
+ *   (`POST_LAUNCH_MONITORING.md` §1 row 5a). It still shows as *failing* on
+ *   `GET /api/admin/system`, which is what AECI-876 asked for: `admin-status.ts`
+ *   keys "failing" on `count > 0`, not on severity.
+ * - **Thirty days and a minimum denominator**, per
+ *   {@link LANDING_CF_COVERAGE_MIN} and {@link LANDING_CF_COVERAGE_MIN_ROWS}.
+ *   **The consequence is honest latency: this cannot detect a break "within a
+ *   day".** At a few signups a day a total loss takes roughly three to five days
+ *   to pull the window under the floor. A ratio needs a denominator, and there is
+ *   no threshold that gives both low-volume stability and same-day detection.
+ *
+ * ⚠️ Like the arrival check, its `count` is **1 when tripped, not a row count**.
+ * The finding is a ratio; a per-row line would set the `aeci.data_quality.check`
+ * gauge to a number that tracks signup volume instead of severity.
+ */
+export async function checkLandingCfCoverage(db: Db, now: Date): Promise<CheckFinding> {
+  const startIso = new Date(now.getTime() - LANDING_CF_WINDOW_DAYS * DAY_MS).toISOString();
+  const endIso = now.toISOString();
+
+  // One SELECT with a conditional SUM rather than two queries, matching
+  // `readArrivalCfCoverage`: a single scan guarantees the numerator can never be
+  // measured against a denominator read at a different instant.
+  const [row] = await db
+    .select({
+      signups: count(),
+      // SUM over zero rows is NULL in SQLite, so this is coerced below rather
+      // than trusted.
+      signupsWithAsn: sql<
+        number | null
+      >`sum(case when ${mailingList.asn} is not null then 1 else 0 end)`,
+    })
+    .from(mailingList)
+    .where(and(gte(mailingList.createdAt, startIso), lt(mailingList.createdAt, endIso)));
+
+  const signups = Number(row?.signups ?? 0);
+  const signupsWithAsn = Number(row?.signupsWithAsn ?? 0);
+
+  if (signups < LANDING_CF_COVERAGE_MIN_ROWS) {
+    return {
+      lines: [],
+      note:
+        `${signups} signups in the last ${LANDING_CF_WINDOW_DAYS}d, below the ` +
+        `${LANDING_CF_COVERAGE_MIN_ROWS}-row minimum — nothing to measure`,
+    };
+  }
+
+  const coverage = signupsWithAsn / signups;
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const observed =
+    `${signupsWithAsn}/${signups} signups carry an asn ` +
+    `(${pct(coverage)}, floor ${pct(LANDING_CF_COVERAGE_MIN)}, ${LANDING_CF_WINDOW_DAYS}d)`;
+  if (coverage >= LANDING_CF_COVERAGE_MIN) return { lines: [], note: observed };
+
+  return {
+    lines: [
+      `${signups - signupsWithAsn} of ${signups} mailing_list signups in the last ` +
+        `${LANDING_CF_WINDOW_DAYS}d have a NULL asn — coverage ${pct(coverage)} is below the ` +
+        `${pct(LANDING_CF_COVERAGE_MIN)} floor. The landing write lost request.cf; check ` +
+        `withForwardedLandingCf on the SSR /api/* passthrough (AECI-876). This path is a POST, ` +
+        `so the AECI-868 cache-gateway cf override is NOT the cause.`,
+    ],
+    note: observed,
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -555,6 +711,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Full-document arrivals missing their network metadata (`cf_asn`)',
     severity: 'error',
     run: ({ db, now }) => checkArrivalCfCoverage(db, now),
+  },
+  {
+    id: 'landing_cf_coverage',
+    label: 'Mailing-list signups missing their network metadata (`asn`)',
+    severity: 'warn',
+    run: ({ db, now }) => checkLandingCfCoverage(db, now),
   },
 ];
 
