@@ -118,15 +118,17 @@ dashboard to take effect, per the magic-link section below.
 `claim-approved` was the first template on the layout (2026-09-14, AECI-914). AECI-924
 then migrated **the whole claim-to-activation path**: `claim-submitted-alert`,
 `claim-rejected`, `vendor-seat-invite`, `stuck-request-alert` and
-`stale-claim-ticket-alert`. The rest still render through the legacy formatters in
-`lib/email.ts`, which produce an unbranded `<body>` of `<p>` tags at an off-palette
-`#27272a`:
+`stale-claim-ticket-alert`. The `claim-denied` pair followed: the vendor counterparty
+half (`attestation-claim-denied`) and the ops half (`attestation-ops-alert`) moved off
+the legacy `toText`/`toHtml` and `opsText`/`opsTable` formatters onto the house layout.
+The rest still render through the legacy formatters in `lib/email.ts`, which produce an
+unbranded `<body>` of `<p>` tags at an off-palette `#27272a`:
 
 | Formatter | Templates | Count |
 |---|---|---|
-| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert` | 6 |
-| `toText` / `toHtml` (legacy reader-facing) | `review-submitted`, `review-approved`, `review-rejected`, `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `attestation-claim-denied`, `entitlement-expiring` | 10 |
-| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `attestation-ops-alert`, `entitlement-expiring-admin` | 4 |
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-claim-denied`, `attestation-ops-alert` | 8 |
+| `toText` / `toHtml` (legacy reader-facing) | `review-submitted`, `review-approved`, `review-rejected`, `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `entitlement-expiring` | 9 |
+| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `entitlement-expiring-admin` | 3 |
 
 `opsSectionsText` / `opsSectionsHtml` are **gone**: the two templates that used them were
 the last, and a dead private formatter is how the old shell comes back.
@@ -143,16 +145,23 @@ a rejection has no action the §9 AC permits.
 `opsTable` on the argument that a data table for one reader is not a brand surface.
 AECI-924 rejected that. What made the migration possible is the layout's optional
 `table` and `sections`: an operator alert is a dozen labelled facts, or N groups of them,
-and until then the shell could only carry prose. Migrating the remaining four is now
+and until then the shell could only carry prose. Migrating the remaining ones is now
 mechanical — move the rows into `table`, promote the one actionable link to the `cta`,
 and leave the plain-text part alone, since `renderEmailText` emits exactly the
-`Key: value` block `opsText` did.
+`Key: value` block `opsText` did. The `attestation-ops-alert` migration followed this
+pattern: the facts moved into `table`, the pair-page URL auto-links as a row value, and
+there is no CTA because the action (correcting curation) happens in the review app, not
+on a page the email can link to.
 
 **Migrate by process, not by formatter.** AECI-924 took the claim path end to end
 (intake alert, both decision emails, the seat invite, and the two escalations) rather
 than every `opsTable` caller, because what a person actually experiences is one journey,
-not one rendering function. The four templates left on `opsText` belong to other paths:
-lead capture and the attestation/entitlement sweeps.
+not one rendering function. The `claim-denied` pair extended that to the attestation
+sweep's denial path: the vendor counterparty nudge and its ops copy moved together,
+because a denying vendor's in-portal acknowledgement says the other vendor is told on
+the next daily check, and the email that tells them has to read as the same product.
+The three templates left on `opsText` belong to other paths: lead capture and the
+entitlement sweep.
 
 The two cron digests are still unmigrated and are a larger job: `lib/analytics-digest.ts`
 carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.md token.
@@ -177,8 +186,8 @@ carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.m
 | `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302). **Never fires on a connector-powered edge** (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14) — nor do the three rows below, since the sweep drops every *vendor-addressed* finding on those edges before delivery. The `attestation-ops-alert` row is unaffected: ops findings are AECi's own correction signal, not a nudge | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
 | `attestation-open-conflict` | same sweep | **both** disputing vendors' seats | Two vendors recorded opposing positions and it has stood >7d. Non-accusatory, mirroring the pair page's "Vendors disagree" treatment — the disagreement is a difference in description, not a defect in either product. Recipients are the *attesting* vendors, not every slot co-owner. |
 | `attestation-stale-version` | same sweep | the attesting vendor's seats | An assertion has aged past 12 months with no version data, or still affirms a flow whose deprecated version has passed. The ask is explicitly three-way — re-confirm, add versions, or **withdraw** — because withdraw is a legitimate answer and a confirm-only ask biases the data. |
-| `attestation-claim-denied` | same sweep (**AECI-961**) | the **counterparty** vendor's seats — the slot with no live attestation | Every live voter has denied a flow, and the other side has said nothing. Non-accusatory on the `attestation-open-conflict` precedent: the recipient has not disagreed with anyone, they have said nothing at all, so the mail informs and invites a position rather than asking them to defend one. **Stance only, never the denier's note** — the note is public on the pair page, so this is not confidentiality; it is that free text quoted into an email lands as an accusation in a way the same words on a provenance disclosure do not. States what the vendor portal's lane states (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2): the flow stays on the listing as **unverified** until AECi corrects the record, because a denial does not remove it. **Un-thresholded** — it goes on the next sweep, so the denier's in-portal acknowledgement can say plainly that the other vendor is told on the next daily check. |
-| `attestation-ops-alert` | same sweep, one email **per finding** | `ADMIN_ALERT_EMAIL` | The AECi-facing half. Two detectors route here and the body names which: `claim-denied` (every voting vendor denies a claim — it then computes `unverified`, so the correction is invisible on every surface without this) and the ops escalation of `open-conflict`. Operator format (`opsText`/`opsTable`) with the claim + integration ids and the pair-page URL. §7.2 named only the three vendor ids above; the id *is* the metric tag and the catalogue key, so ops mail needs its own. **AECI-961 renamed `aeci-denied` → `claim-denied`** and dropped its AECi-origin gate, so this alert no longer asserts the claim was AECi-seeded; the same detector now also mails the counterparty via the row above. |
+| `attestation-claim-denied` | same sweep (**AECI-961**) | the **counterparty** vendor's seats — the slot with no live attestation | Every live voter has denied a flow, and the other side has said nothing. Non-accusatory on the `attestation-open-conflict` precedent: the recipient has not disagreed with anyone, they have said nothing at all, so the mail informs and invites a position rather than asking them to defend one. **Stance only, never the denier's note** — the note is public on the pair page, so this is not confidentiality; it is that free text quoted into an email lands as an accusation in a way the same words on a provenance disclosure do not. States what the vendor portal's lane states (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2): the flow stays on the listing as **unverified** until AECi corrects the record, because a denial does not remove it. **Un-thresholded** — it goes on the next sweep, so the denier's in-portal acknowledgement can say plainly that the other vendor is told on the next daily check. **On the house layout.** The pair-page reference link stays as a block (informational, not the action), and the vendor portal becomes the single Forest CTA ("Record your position"), because recording a position is the one action this email exists to prompt. The three sibling nudges (`silent-counterparty`, `open-conflict`, `stale-version`) remain on the legacy formatters for now. |
+| `attestation-ops-alert` | same sweep, one email **per finding** | `ADMIN_ALERT_EMAIL` | The AECi-facing half. Two detectors route here and the body names which: `claim-denied` (every voting vendor denies a claim — it then computes `unverified`, so the correction is invisible on every surface without this) and the ops escalation of `open-conflict`. **On the house layout.** The facts ride the layout's `table` (hairline-separated, not the unbranded `border="1"` grid), and the pair-page URL auto-links as a row value. No CTA: the action this email prompts — correcting the curation — happens in the review app, not on a page the email can link to. The plain-text part is unchanged (`renderEmailText` emits the same `Key: value` block `opsText` did). §7.2 named only the three vendor ids above; the id *is* the metric tag and the catalogue key, so ops mail needs its own. **AECI-961 renamed `aeci-denied` → `claim-denied`** and dropped its AECi-origin gate, so this alert no longer asserts the claim was AECi-seeded; the same detector now also mails the counterparty via the row above. |
 | `entitlement-expiring` | daily term-expiry sweep, 11:00 UTC (`lib/entitlement-expiry.ts`, AECI-613) | the vendor's seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The renewal prompt, sent once per term as `period_end` comes within `EXPIRY_WARNING_DAYS` (30). **The money is deliberately absent** — amount, payer, terms and PO reference are admin-side only (`STAGE_2_PAID_TIERS_SPEC.md` §8); this copy says what the status is, when the term ends, and asks the vendor to get in touch. States outright that **nothing changes on its own** (§7.3 — the sweep warns, it never lapses), so the email cannot read as a shut-off notice. Needs `SUPABASE_SERVICE_ROLE_KEY` for the seat addresses, so it resolves `skipped` locally and on PR previews. |
 | `entitlement-expiring-admin` | same sweep, one email **per term** | `ADMIN_ALERT_EMAIL` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
 
