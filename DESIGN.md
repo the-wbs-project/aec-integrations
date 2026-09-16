@@ -292,6 +292,43 @@ Two jobs keep reaching for an arrow and must not have one:
 
 A **display name is not exempt.** A mechanism heading, a card title or a badge label that carries `A → B` asserts a direction, and on a context-framed surface it asserts an absolute one that will contradict the relative arrow beside it. The pair page's card `h2` is the shipped case: the API strips a directional pair title rather than render it (`toMechanismHeading`, `apps/api/src/lib/drizzle-helpers.ts`).
 
+**The Link Treatment Rule** (AECI-980). **A link's styling states its ROLE, and every new tab is both drawn and announced.** Before AECI-980 the app spelled one job four ways, spelled the new-tab cue three ways, and spelled `rel` four ways. None of that was a decision; it was six years of local choices.
+
+There are four roles. Pick by what the link does, never by where it sits.
+
+| Role | Recipe | Where |
+| -- | -- | -- |
+| **Primary action** | solid `accent-primary` fill, `border-strong`, `px-4 py-2`, `text-sm font-bold`, `text-(--surface-base)`, `no-underline` | **One per surface.** Today that is "Visit website" on product and vendor detail. |
+| **Standalone link** | `text-xs font-medium`, `text-(--text-secondary)`, `underline decoration-(--border-strong) underline-offset-4`, `px-3 py-1.5`, `rounded-(--radius-md)`, `hover:text-(--text-primary)` | Every "go look at a page" link. `aec-view-public-link` is the reference spelling. |
+| **Citation** | the standalone recipe minus the padding, on `rounded-(--radius-sm)` | A source hanging off a figure or a stat. The home band's "Source" is the only one. |
+| **Admin metadata chip** | `rounded-full border`, `px-3 py-1`, `text-xs font-medium`, `no-underline` | **Admin console only**, and only inside a `flex flex-wrap` chip row that also holds non-link chips. The pill is load-bearing there: flattening it would break the row's grammar. |
+
+**Accent is spent on the primary action and nowhere else.** A second accent-coloured link on a surface competes with the one thing the reader is meant to do. AECI-980 pulled three links off accent for this: the pair page's "View listing" and "Documentation", and the integration group card's "View product".
+
+**When a link opens a new tab.** Two cases, and only two.
+
+1. **The destination is not ours.** Any third-party site. We do not control what it does with the reader's session or their back button.
+2. **The reader is mid-task on an editing surface.** The vendor portal and the admin console hold unsaved form state, `apps/web` has no `CanDeactivate` guard and no `beforeunload` handler, and a same-tab navigation silently discards an edit. The link is a lookup, not a destination.
+
+Everything else stays in the tab. A link from a read-only public page to another public page is a destination, and opening it in a new tab steals the reader's back button for nothing.
+
+**Every new-tab link carries `aec-new-tab-icon`** (`apps/web/src/app/shared/new-tab-icon/new-tab-icon.ts`). It is the ONLY place the Lucide `arrow-up-right` is drawn, and it carries the `sr-only` "(opens in a new tab)" note in the same breath — because the two halves kept shipping apart. Seven links disclosed the new tab to a screen reader and showed a sighted reader nothing; eight drew a `↗` text character instead of the glyph. The note sits **inside** the anchor, not beside it: a sibling span is not read in a VoiceOver rotor or an `NVDA+F7` links list, so a disclosure parked outside reaches browse mode and nowhere else.
+
+The text `↗` is retired. It is not a direction glyph, but it sits one character from the vocabulary the Arrow Rule above reserves, and on the pair page it rendered in the same card as a real `→`. A drawn icon cannot be confused with the direction set.
+
+**A caller-supplied `aria-label` overrides the note**, because an `aria-label` replaces the anchor's contents for assistive tech. So any link that passes one must state the new tab in that name itself, and the name must begin with the visible text (WCAG 2.5.3 Label in Name).
+
+**The one exception is a brand-glyph icon button** — the vendor hero's social links. A 9x9 icon button has no room for a second mark, and adding one would read as a sixth platform. Those disclose the new tab in the accessible name only, which is also their only name.
+
+**`rel` has exactly two recipes.** Nothing else.
+
+| Destination | `rel` |
+| -- | -- |
+| Our own pages (portal or admin linking out to the public catalog) | `noopener` |
+| Anything external | `noopener noreferrer nofollow` |
+
+`noopener` is never optional: without it the new browsing context gets a handle on this one. `nofollow` on the external recipe is a deliberate SEO position, and it was previously half-applied — "Visit website" passed link equity to vendor sites while the pair page's "View listing" did not, which meant the same decision was made twice, differently, by accident.
+
 ## 5. Components
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
@@ -336,10 +373,14 @@ group's rows.
 - **A link never nests inside the header button.** When the group's subject has its own page, that
   link sits beside the button in the same header bar as a compact "View product" anchor.
 - **That anchor opens in a new tab**, because it is a lookup rather than a destination: the reader
-  has not finished with the page they are on. Plain `href` (not `routerLink`) + `target="_blank"` +
-  `rel="noopener"`, a drawn Lucide `arrow-up-right` for the sighted cue, and the new tab stated in
-  the accessible name. **The accessible name begins with the visible text** ("View product: Agave
-  ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name holds and speech input can target it.
+  has not finished with the page they are on. It is the **standalone-link role** under the Link
+  Treatment Rule above, so: plain `href` (not `routerLink`) + `target="_blank"` + `rel="noopener"`
+  + `aec-new-tab-icon`. The drawn `arrow-up-right` this card used to inline is the one AECI-980
+  made canonical; the SVG now lives in that component and this card consumes it. The new tab is
+  also stated in the accessible name, which it must be — an `aria-label` replaces the anchor's
+  contents, so the icon's own note is suppressed here. **The accessible name begins with the
+  visible text** ("View product: Agave ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name
+  holds and speech input can target it.
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
 

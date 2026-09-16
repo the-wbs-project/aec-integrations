@@ -95,6 +95,8 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 **What to do.** A4: give each link an `aria-label` naming its source. A5: add `aria-label="Site search"` and `aria-label="Search integrations"` (or equivalent) to the two forms.
 
+**A4 is still open after AECI-980, and that change narrowed nothing.** The three home "Source" links now carry the drawn cue and the shared `sr-only` note, which fixes the sighted half of A9 but leaves all three with the identical accessible name. The same shape exists in two more places found while doing that work and **not** yet ticketed: `admin/vendors/vendor-products-table.html` renders one "View page" per product row, and `products-pair.ts` renders one "View listing" and one "Documentation" per mechanism card. Each set points at N different destinations under one name. The fix is the same in all three: an `aria-label` built with `$localize` at the call site, naming the destination and restating the new tab — restating it because an `aria-label` replaces the anchor's contents and so suppresses the icon's note. `aec-view-public-link` already takes that name as an input and documents the requirement.
+
 ### 3.3 Minor
 
 | # | Surface | Finding |
@@ -102,7 +104,7 @@ One defect class, three instances. Grouped because the remedy is identical.
 | **A6** | Login, review, account | Submit buttons use the `disabled` attribute rather than `aria-disabled`, so they leave the tab order entirely. A screen-reader user tabbing the form never encounters the button and receives no programmatic explanation of what is blocking submission. On the review form no field carries `required` or `aria-required` either, so required-ness is conveyed only by the *absence* of "(optional)" in the visible label. Affects `Email me a sign-in link`, `Submit review`, and `Save`. |
 | **A7** | Product detail | Both integration `<table>` elements have **no accessible name** — no `<caption>`, no `aria-label` — and identical column headers (`Direction`, `Integrates with`, `Connection`, `Details`). Navigating by table gives two indistinguishable tables. The `<h3>`s directly above them ("Direct integrations", "Via Kroo Connector") make this a one-line `aria-labelledby` fix. |
 | **A8** | Product detail | The "On this page" section nav exposes `aria-current` on **none** of its four links. The nav itself is correctly named. (2.4.8 Location is AAA, so this is an enhancement, not a conformance failure.) |
-| **A9** | Product detail | "Visit website" opens a new tab (`target="_blank"`) with no warning to the user. Home's source links **do** carry an "(opens in a new tab)" hint, so this is an inconsistency within the product rather than a missing capability. |
+| **A9** | Product detail | ~~"Visit website" opens a new tab (`target="_blank"`) with no warning to the user. Home's source links **do** carry an "(opens in a new tab)" hint, so this is an inconsistency within the product rather than a missing capability.~~ **FIXED 2026-09-16 (AECI-980).** The inconsistency ran both ways and was wider than this row recorded: seven new-tab links announced the tab to a screen reader and showed a sighted reader nothing, and eight drew a `↗` text character rather than the one drawn glyph. `aec-new-tab-icon` now carries both halves at every new-tab link in `apps/web`, and `DESIGN.md` → "The Link Treatment Rule" pins it. |
 | **A10** | `/admin/reviews` | `aria-current="page"` is set on both the `<a>` and its parent `<li>`, so the state may be announced twice. |
 
 ### 3.4 Needs a human with a real screen reader

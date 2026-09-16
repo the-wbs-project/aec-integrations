@@ -125,20 +125,23 @@
             opens the public page to CHECK something against the admin record, so
             navigating away from the record is the wrong outcome. `rel="noopener"`
             because a new browsing context otherwise gets a handle on this one.
-            The new tab is announced rather than discovered.
+            The new tab is announced rather than discovered, and since AECI-980
+            it is DRAWN as well — `aec-new-tab-icon` carries both halves, which
+            is why the `sr-only` sibling that used to sit here is gone. It moved
+            inside the anchor, where a rotor and an NVDA+F7 links list can reach
+            it. The bordered button this used to be also went: the standalone-link
+            role is what `DESIGN.md` now pins for "go look at a page", and the
+            portal's own `aec-view-public-link` is the same recipe.
           -->
           <a
             [href]="'/vendors/' + v.slug"
             target="_blank"
             rel="noopener"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.vendors.detail.viewPage"
+            class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
-            View Page
+            <span i18n="@@admin.vendors.detail.viewPage">View Page</span>
+            <aec-new-tab-icon />
           </a>
-          <span class="sr-only" i18n="@@admin.vendors.detail.viewPage.newTab">
-            (opens in a new tab)
-          </span>
         </div>
       </div>
 

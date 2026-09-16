@@ -13,6 +13,7 @@ import type {
   VendorEntitlementResponse,
 } from '@aeci/shared';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
@@ -102,6 +103,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'audit';
     EntitlementControl,
     ProvisionSeatControl,
     VendorProductsTable,
+    NewTabIcon,
     DatePipe,
   ],
   templateUrl: './vendor-detail.html',

@@ -19,8 +19,10 @@ import { expect, test, type Page } from '@playwright/test';
  *   1. Logical margin (`ms-1.5` on the Products-tab count) resolves to the
  *      physical LEFT under LTR and the physical RIGHT under RTL. This needs no
  *      Tailwind variant — it is the CSS logical property doing the work.
- *   2. The directional `↗` glyph (mirrored via `rtl:-scale-x-100`) carries no
- *      transform under LTR and a horizontal-flip transform under RTL.
+ *   2. The directional new-tab glyph — `aec-new-tab-icon`'s Lucide
+ *      arrow-up-right SVG (mirrored via `rtl:-scale-x-100` since AECI-980,
+ *      which replaced the former `↗` text span) — carries no transform under
+ *      LTR and a horizontal-flip transform under RTL.
  */
 
 const PATH = '/preview/vendor-detail';
@@ -31,9 +33,10 @@ async function probe(page: Page) {
     // The Products-tab count span: `class="ms-1.5 tabular-nums …"`. The only
     // tabular-nums span inside a [role=tab] (the Overview tab has none).
     const count = document.querySelector('[role="tab"] span.tabular-nums');
-    // The "Visit website" external-link arrow (decorative, mirrored).
-    const arrow = Array.from(document.querySelectorAll('span[aria-hidden="true"]')).find(
-      (s) => s.textContent?.trim() === '↗',
+    // The "Visit website" new-tab cue (decorative, mirrored): the
+    // aec-new-tab-icon SVG, the one place the arrow-up-right is drawn (AECI-980).
+    const arrow = Array.from(document.querySelectorAll('svg[aria-hidden="true"]')).find((s) =>
+      s.classList.contains('rtl:-scale-x-100'),
     );
     const countCs = count ? getComputedStyle(count) : null;
     const arrowCs = arrow ? getComputedStyle(arrow) : null;
@@ -61,7 +64,7 @@ async function assertFlips(page: Page) {
 
   const ltr = await probe(page);
   expect(ltr.foundCount, 'ms-1.5 count span must be present').toBe(true);
-  expect(ltr.foundArrow, '↗ arrow span must be present').toBe(true);
+  expect(ltr.foundArrow, 'new-tab arrow SVG must be present').toBe(true);
 
   // ms-1.5 = 0.375rem = 6px on the inline-start side. Under LTR that is LEFT.
   expect(ltr.marginLeft).toBe('6px');

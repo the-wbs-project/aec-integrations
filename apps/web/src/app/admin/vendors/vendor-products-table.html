@@ -141,20 +141,21 @@
             A plain href with `target="_blank"`, matching View Page in Basics: the
             operator opens the public product to CHECK the record, so navigating
             away from the admin page is the wrong outcome. There is no admin
-            product detail page to link to instead.
+            product detail page to link to instead. AECI-980 added the drawn cue
+            via `aec-new-tab-icon`, which also carries the "(opens in a new tab)"
+            note that used to sit in a sibling span — a sibling is not read in a
+            rotor or an NVDA+F7 links list, so inside the anchor is where it
+            belongs.
           -->
           <a
             [href]="'/products/' + row.slug"
             target="_blank"
             rel="noopener"
-            class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.vendors.products.view"
+            class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
-            View page
+            <span i18n="@@admin.vendors.products.view">View page</span>
+            <aec-new-tab-icon />
           </a>
-          <span class="sr-only" i18n="@@admin.vendors.products.view.newTab">
-            (opens in a new tab)
-          </span>
           <!--
             AECI-955's disclosure lives HERE and not in the row header. A
             `<th scope="row">` is announced before every data cell in the row, so

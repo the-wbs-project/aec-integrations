@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { ActivatedRoute } from '@angular/router';
 
 import {
@@ -60,7 +62,15 @@ type StubState =
  */
 @Component({
   selector: 'aec-connector-detail',
-  imports: [DatePipe, AecSelect, AdminNotes, AdminPaginator, AuditTrail, ManagedByControl],
+  imports: [
+    DatePipe,
+    AecSelect,
+    AdminNotes,
+    AdminPaginator,
+    AuditTrail,
+    ManagedByControl,
+    NewTabIcon,
+  ],
   templateUrl: './connector-detail.html',
 })
 export class ConnectorDetail {
