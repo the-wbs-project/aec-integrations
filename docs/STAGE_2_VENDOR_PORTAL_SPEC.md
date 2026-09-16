@@ -1119,6 +1119,7 @@ a broken tab treatment.
 `vendor-product-nav.component.spec.ts`) now assert the row carries `overflow-y-hidden`,
 so the pairing is not separable by a later edit — including the AECI-959 nav restyle,
 which touches the same two components and must carry this pairing through it.
+
 ---
 
 ### 6.9 As built — the correction sentences get a way to file one (AECI-967 — 2026-09-16)
