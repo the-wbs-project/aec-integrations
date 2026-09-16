@@ -33,8 +33,8 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * stop it being read twice. Callers that pass a name must still state the new tab
  * in that name themselves; nothing here can do it for them.
  *
- * `label` exists for the rare anchor whose visible text already says "new tab" or
- * "new window" in its own words; pass `null` to suppress the note entirely.
+ * `announce` exists for the rare anchor whose visible text already says "new tab"
+ * or "new window" in its own words; pass `false` to suppress the note entirely.
  *
  * Light theme only (Stage 1 / AECI-226).
  */
