@@ -34,6 +34,17 @@ import { VendorProductsMenu } from './vendor-products-menu';
  * `md:hidden` mobile duplicate, which would put every nav item in the DOM twice
  * and hand the specs (and a screen reader's link list) two of everything.
  *
+ * ── WHY overflow-y-hidden SITS BESIDE overflow-x-auto (AECI-958) ────────────
+ * Per CSS Overflow, setting one axis to something other than `visible` makes the
+ * other axis's `visible` COMPUTE to `auto` — so `overflow-x-auto` alone makes
+ * this row a vertical scroll container too. The active tab's `-mb-px` then
+ * pushes it 1px past the row's content box, and 1px of vertical overflow inside
+ * an `overflow-y: auto` box paints a scrollbar — permanently, on any macOS
+ * machine set to "Show scroll bars: Always". `overflow-x: auto` with
+ * `overflow-y: hidden` is the legal pairing that keeps the sideways scroll.
+ * Do NOT "fix" it by removing `-mb-px` instead: it is what pulls the tab's
+ * underline over the row's hairline (AECI-666).
+ *
  * ── THE PRODUCTS ITEM ───────────────────────────────────────────────────────
  * Products is a filterable dropdown rather than a link, because it is the one
  * section with a set of things underneath it (see `vendor-products-menu.ts`).
@@ -58,7 +69,9 @@ import { VendorProductsMenu } from './vendor-products-menu';
       aria-label="Portal sections"
       class="mb-8 border-b border-(--border-default)"
     >
-      <ul class="m-0 flex list-none gap-x-6 overflow-x-auto p-0 whitespace-nowrap">
+      <ul
+        class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap"
+      >
         @for (item of navItems; track item.path) {
           <li class="shrink-0">
             @if (item.hasProductsMenu && products().length > 1) {
