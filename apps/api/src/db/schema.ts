@@ -1155,7 +1155,7 @@ export const vendorRequests = sqliteTable(
  * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
  * table, so the five shipped readers (the public `?verified=` filter,
  * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record,
- * `aec-verified-badge`) are untouched by the epic (§2.4/§2.5).
+ * `aec-vendor-account-badge`) are untouched by the epic (§2.4/§2.5).
  *
  * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
  * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate

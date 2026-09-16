@@ -7,7 +7,7 @@
  *
  * `vendors.verified` is a denormalized MIRROR. The whole epic is additive precisely
  * because the five shipped readers (the public `?verified=` filter, `VendorLinkSchema`,
- * `VendorDetail`/`VendorListItem`, the Algolia vendor record, `aec-verified-badge`)
+ * `VendorDetail`/`VendorListItem`, the Algolia vendor record, `aec-vendor-account-badge`)
  * keep reading the mirror. The obvious "improvement" — joining `vendor_entitlements`
  * into a read config so it reads the truth rather than the mirror — would defeat the
  * entire denormalization, put an entitlement lookup on every public request, and break

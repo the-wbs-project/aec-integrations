@@ -149,7 +149,7 @@ export class ProvisionSeatControl {
     if (result.noop) {
       return $localize`:@@admin.vendors.provision.announce.noop:${email}:EMAIL: already holds this seat. Nothing changed.`;
     }
-    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No entitlement was opened and the verified badge is unchanged.`;
+    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No entitlement was opened and the public account label is unchanged.`;
   }
 }
 

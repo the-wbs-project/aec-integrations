@@ -8,7 +8,7 @@
  * — and duplicated tag construction is exactly how a badge goes stale on one path and
  * not the other. Renamed off "grant" because the set is no longer grant-specific.
  *
- * Why the FULL set and not just `vendor:{slug}`: the verified badge renders on the
+ * Why the FULL set and not just `vendor:{slug}`: the account-status label renders on the
  * vendor detail hero, the product detail vendor card, AND both pair rails. Purging only
  * the vendor tag leaves a stale badge on every cached product page (§5.3).
  *

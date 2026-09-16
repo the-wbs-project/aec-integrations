@@ -235,7 +235,7 @@ entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§
 invariant **`vendors.verified = true` iff the vendor has an entitlement row with
 `status = 'active'`**. The demotion is deliberately invisible to readers: the public
 `GET /api/vendors?verified=` filter, `VendorLinkSchema.verified`, `VendorDetail` /
-`VendorListItem`, the Algolia vendor record and `aec-verified-badge` all still read this
+`VendorListItem`, the Algolia vendor record and `aec-vendor-account-badge` all still read this
 column and none of them changed. **No public or read path may query `vendor_entitlements`** —
 "fixing" the filter to join the entitlement table would defeat the entire denormalization, and
 a test asserts no read config in `lib/drizzle-helpers.ts` references it.

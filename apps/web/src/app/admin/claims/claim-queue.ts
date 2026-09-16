@@ -33,7 +33,7 @@ type FormMode = 'approve' | 'reject';
  * rendered in the `AdminShell` layout's outlet at `/admin/claims`. A sibling of
  * `/admin/requests` (AECI-217): it clones that queue's SSR-shell + client-fetch
  * shape but is CLAIMS-only and assembles the reviewer-assist verification signals
- * a human weighs before granting a verified vendor account — **no auto-grant**
+ * a human weighs before activating vendor access — **no auto-grant**
  * (`STAGE_2_SPEC.md` §8.1(1)).
  *
  * The gate + nav SSR via `adminSummaryResolver` (the parent route); this queue
@@ -303,7 +303,7 @@ export class ClaimQueue {
     await this.moderate(
       id,
       { action: 'approve', ...(notes ? { entitlement: { notes } } : {}) },
-      $localize`:@@admin.claims.announce.approved:Claim approved: a verified vendor account was granted.`,
+      $localize`:@@admin.claims.announce.approved:Claim approved: vendor access was activated.`,
     );
   }
 
@@ -407,7 +407,7 @@ export class ClaimQueue {
     }
     switch (r.entitlement?.status) {
       case 'active':
-        return $localize`:@@admin.claims.ent.status.active2:Verified: entitlement active`;
+        return $localize`:@@admin.claims.ent.status.active2:Account active: entitlement active`;
       case 'pending':
         return $localize`:@@admin.claims.ent.status.pending2:Arrangement pending`;
       case 'expired':

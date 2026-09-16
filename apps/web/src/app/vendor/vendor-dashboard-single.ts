@@ -47,13 +47,13 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
       </header>
 
       <div class="mt-10 space-y-14">
-        <section aria-labelledby="vendor-verification-heading">
+        <section aria-labelledby="vendor-account-access-heading">
           <h2
-            id="vendor-verification-heading"
+            id="vendor-account-access-heading"
             class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.verification"
+            i18n="@@vendor.section.accountAccess"
           >
-            Verification
+            Account access
           </h2>
           <div class="mt-4">
             <aec-vendor-plan-panel [entitlement]="m.entitlement" />

@@ -78,7 +78,7 @@ Order is fixed; the home is one column of stacked modules inside the standard `m
     "Find the integrations between your AEC tools." This intentionally supersedes the earlier
     "not a verb imperative / placeholder copy" guidance: the original placeholder ("Every
     integration … verified by both vendors.") overpromised — nothing is dual-vendor-verified at
-    Stage 1 (spec §1 out-of-scope; §4.2 "Verified badge (placeholder — none verified in Stage 1)"),
+    Stage 1 (spec §1 out-of-scope; §4.2 "account label (placeholder — no active vendor accounts in Stage 1)"),
     and "every" overstated catalog completeness. The finalized line drops both claims; the
     independence / no-pay-for-placement differentiator now lives in the lede.
   - one-line `--text-secondary` lede;

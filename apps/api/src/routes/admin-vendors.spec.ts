@@ -1323,7 +1323,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
 
   it('opens NO entitlement row and never lights the badge — the whole point', async () => {
     // §8.9(2). This is the assertion the endpoint exists for; if it ever fails,
-    // a connector vendor has been handed the Verified badge the carve-out says
+    // a connector vendor has been handed the public account label the carve-out says
     // they will never be sold, through a one-way door.
     const [before] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
     const res = await provision(VENDOR, linked());

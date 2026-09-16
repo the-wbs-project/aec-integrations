@@ -43,7 +43,7 @@
 
       <aec-select
         i18n-label="@@admin.vendors.filter.verified.label"
-        label="Verified"
+        label="Account status"
         [options]="verifiedOptions"
         [value]="verified()"
         idPrefix="admin-vendors-verified"
@@ -124,7 +124,7 @@
             aec-sort-header
             sortKey="verified"
             i18n-label="@@admin.vendors.col.verified"
-            label="Verified"
+            label="Account active"
             [activeSort]="sort()"
             [direction]="directionFor('verified')"
             (sortChange)="onSortChange($event)"
@@ -208,13 +208,13 @@
               class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
               i18n="@@admin.vendors.badge.verified"
             >
-              Verified
+              Active
             </span>
             } @else {
             <span
               class="text-(--text-tertiary)"
               i18n-aria-label="@@admin.vendors.badge.notVerified"
-              aria-label="Not verified"
+              aria-label="Account inactive"
               >&ndash;</span
             >
             }

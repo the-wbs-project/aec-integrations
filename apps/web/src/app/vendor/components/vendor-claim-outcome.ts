@@ -26,7 +26,7 @@ import {
  *    pair page as `unverified` (only the product-detail arrow stops using it,
  *    `packages/shared/src/integration-context.ts`). The copy says so.
  *  - **The §6 copy discipline applies here too.** No ranking or placement
- *    implication, no search promise, "Verified" is an account status. Sentence
+ *    implication, no search promise, active access is an account status. Sentence
  *    case, no em dashes.
  *  - **It never restates the stance.** Every sentence starts at the consequence.
  *    The lane already prints `Your position: …` directly below it and the badge

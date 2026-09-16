@@ -15,8 +15,7 @@ import { RouterLink } from '@angular/router';
  *   - Typography: Atkinson Hyperlegible Next medium (500) / 13px — a lighter weight
  *     than the `label` role (700); taxonomy chips are navigational tags, not
  *     button affordances. See `DESIGN.md` §5 → "Tags / taxonomy chips".
- *   - Shape: `rounded.sm` (4px) — chips, not pills (the pill shape is
- *     reserved for vendor-verified badges per the DESIGN.md badge specs)
+ *   - Shape: `rounded.sm` (4px), matching the shared compact label vocabulary.
  *
  * Count (AECI-184): an optional `[count]` renders a trailing product count
  * inside the same chip ("{name} {count}") — the home "Browse by" count-chip the

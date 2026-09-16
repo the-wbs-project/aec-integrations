@@ -1186,7 +1186,7 @@ The shared Algolia app is **over its index limit** (24 live against a 20 cap, ve
 2026-08-20: `✗ Algolia setSettings failed: Too many indices (24>20)`). A full tier set is
 7 more indexes (3 primaries + 4 sort replicas), so `provision.mjs` cannot create any.
 `stage2` shipped **without search** for exactly this reason and lost nothing that mattered
-— the only Stage 2 feature reading Algolia is the AECI-529 verified badge on the search
+— the only Stage 2 feature reading Algolia is the AECI-529 account-status label on the search
 surfaces, verifiable on a PR preview against `preview_*`.
 
 Two things not to do if you hit this: do **not** point a temp tier at another tier's index

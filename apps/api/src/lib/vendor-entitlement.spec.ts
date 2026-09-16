@@ -9,7 +9,7 @@
  *      entire seat grant — proven directly below, not just asserted about.
  *   2. `vendors.updated_at` moves IFF `vendors.verified` moves, in BOTH directions.
  *      The un-verify direction had never been tested (AECI-529 only reasoned about the
- *      flip to `true`); miss it and a lapsed vendor keeps a Verified badge in Algolia
+ *      flip to `true`); miss it and a lapsed vendor keeps an active-account label in Algolia
  *      indefinitely (R2).
  *   3. Neither builder ever emits one side of the *iff* without the other.
  *
@@ -336,7 +336,7 @@ describe('R2 — vendors.updated_at moves iff vendors.verified moves', () => {
 
   it('DOWN direction: bumps updated_at (never tested before AECI-609 — R2)', async () => {
     // Without this, the nightly Algolia watermark never picks the flip up and a
-    // lapsed vendor keeps a Verified badge in search indefinitely.
+    // lapsed vendor keeps an active-account label in search indefinitely.
     await seedVendor({ verified: true, updatedAt: OLD_TS });
     await seedAdmin();
     await seedEntitlement('active');

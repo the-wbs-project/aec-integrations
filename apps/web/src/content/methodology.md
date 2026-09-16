@@ -49,7 +49,7 @@ Two rules govern that table.
 Two other markers appear on listings and are easy to confuse with verification.
 
 - **Who maintains a page.** Product, vendor, and integration pages carry either "Maintained by AEC Integrations" or "Vendor-maintained". A date appears beside it only where a person has re-checked that record. Most records carry no date, because nobody has re-checked them yet, and we will not manufacture one from a bulk update.
-- **The "Verified vendor" badge.** It means a company has claimed its listing, been approved to manage it, and holds a vendor plan. It says nothing about the data, it is not a rating of product quality, and it carries no weight in ranking. It needs the same approved account as vendor confirmation above, so it appears nowhere today.
+- **The "Vendor account active" label.** It means a company has an active vendor plan and can manage its AECi profile. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active.
 
 ## No pay-for-placement
 
@@ -59,7 +59,7 @@ A vendor plan affects four things, and this is the complete list:
 
 - what a vendor may edit about its own company and products,
 - whether a vendor can confirm or dispute integration details,
-- whether the "Verified vendor" badge appears on its listing,
+- whether the "Vendor account active" label appears on its listing,
 - how far back the version history on an integration page goes.
 
 The last of those is the only place a payment changes what a reader sees, so it is worth being exact about the limits. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Only the comparison between older versions is affected, and it opens when either vendor at the ends of that integration holds a plan. Readers are never asked to pay, to sign in, or to be identified.

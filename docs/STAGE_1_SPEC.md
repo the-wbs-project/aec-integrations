@@ -259,7 +259,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 - Product name + logo (Brandfetch hotlink)
 - Vendor name (linked to vendor page)
 - Categories, audiences, phases as badges
-- Verified badge (placeholder — none verified in Stage 1)
+- Vendor account label (placeholder — no active vendor accounts in Stage 1)
 - "Is this your product?" CTA → claim form modal
 
 **Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).

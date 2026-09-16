@@ -423,7 +423,7 @@ export const VENDOR_ME_LARGE_CATALOG_FIXTURE: VendorMeResponse = {
   })),
 };
 
-/** The seat roster for the verified vendor: the viewer (an OWNER, so the preview
+/** The seat roster for the active vendor account: the viewer (an OWNER, so the preview
  *  exercises the invite/remove controls), a member, and a banned seat with an
  *  unresolved email (the local/preview degrade-to-null case). */
 export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [

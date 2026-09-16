@@ -3,7 +3,7 @@
  *
  * The load ladder, the unverified read-only state (driven by
  * `me.vendor.verified`, NOT by an API error — `GET /api/vendor/integrations` is
- * ownership-gated but not Verified-gated, so an unverified vendor gets a real
+ * ownership-gated but not account-access-gated, so a vendor without active access gets a real
  * 200), and the reconcile-from-echo / refetch-on-retract split.
  */
 import { provideHttpClient } from '@angular/common/http';
@@ -160,21 +160,21 @@ describe('VendorIntegrationsSection — loading', () => {
   });
 });
 
-describe('VendorIntegrationsSection — the unverified read-only state', () => {
-  it('renders the full surface, explains verification, and offers no controls', async () => {
+describe('VendorIntegrationsSection — the inactive read-only state', () => {
+  it('renders the full surface, explains account access, and offers no controls', async () => {
     const fixture = await create(false);
     const body = text(fixture);
 
     // Driven by the input, not by a 403: the read really does succeed.
     expect(api.getIntegrations).toHaveBeenCalled();
     expect(body).toContain('Procore');
-    expect(body).toContain('once your account is verified');
+    expect(body).toContain('with active vendor access');
     expect(body).toContain('arranged with AEC Integrations');
     expect(el(fixture).querySelector('aec-vendor-attestation-control')).toBeNull();
     expect(el(fixture).querySelector('aec-vendor-add-claim-form')).toBeNull();
   });
 
-  it('points at verification and never at ranking, placement or search', async () => {
+  it('points at account access and never at ranking, placement or search', async () => {
     const body = text(await create(false));
     expect(body).not.toMatch(/rank|placement/i);
     expect(body).not.toMatch(/instantly|live in search/i);
@@ -507,7 +507,7 @@ describe('VendorIntegrationsSection — connector-powered edges', () => {
     // The section already explains the vendor-level reason above the list.
     // Repeating a per-card reason there would read as two separate problems.
     const body = text(await create(false));
-    expect(body).toContain('once your account is verified');
+    expect(body).toContain('with active vendor access');
     expect(body).not.toContain('Delivered through');
   });
 

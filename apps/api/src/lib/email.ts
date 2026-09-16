@@ -282,12 +282,12 @@ export function sendReviewRejectedEmail(
 
 /**
  * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
- * vendor claim was granted — their account is now a verified `vendor_admin`. For an
+ * vendor claim was granted, so their vendor account now has active management access. For an
  * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
  * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
  * first login; a `linked` claimant already has an account. Links to the `/vendor`
  * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
- * absent → silent skip. Copy stays account-scoped: verification is a status, not a
+ * absent → silent skip. Copy stays account-scoped: access is a status, not a
  * product endorsement, and never touches ranking (no pay-for-placement).
  *
  * **The first template on the house layout** (`./email-layout`), which is why it reads
@@ -296,7 +296,7 @@ export function sendReviewRejectedEmail(
  * inside a sentence, and this is the one action the email exists to prompt. Every §9 AC
  * is unchanged — the vendor is named, capabilities are listed, the link appears only
  * when configured, the sign-in line still branches on the identity outcome, and the
- * verification framing is word-for-word what it was.
+ * account-status framing stays aligned with the public label.
  */
 export function sendClaimApprovedEmail(
   c: EmailContext,
@@ -313,19 +313,19 @@ export function sendClaimApprovedEmail(
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
     : 'Sign in with your existing account to get started.';
 
-  const verification =
-    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+  const accountStatus =
+    "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
   const capabilities =
     'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
 
-  const opening = `Your account is now verified on AEC Integrations and can manage the ${name} listing.`;
-  const openingHtml = `Your account is now verified on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
+  const opening = `Your vendor account is now active on AEC Integrations and can manage the ${name} listing.`;
+  const openingHtml = `Your vendor account is now active on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
 
   const shared = {
     preheader: `Your vendor portal for ${name} is open.`,
     heading: `Your claim for ${name} is approved`,
     ...(portal ? { cta: { label: 'Go to your vendor portal', url: portal } } : {}),
-    note: verification,
+    note: accountStatus,
   };
 
   return sendTransactionalEmail(c, {
@@ -814,9 +814,9 @@ export function sendAttestationOpsAlertEmail(
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
 // copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
-// its own. Neither template may imply that verification is about to be switched
-// off automatically, because it is not — un-verify stays a deliberate admin act
-// (§5). Verification is also framed exactly as everywhere else: an account status,
+// its own. Neither template may imply that vendor access is about to be switched
+// off automatically, because it is not — deactivation stays a deliberate admin act
+// (§5). Account access is also framed exactly as everywhere else,
 // never an endorsement and never a ranking or placement signal.
 
 /** What both expiry templates need to describe one term. `daysRemaining` is
@@ -863,20 +863,20 @@ export function sendEntitlementExpiringEmail(
   const past = opts.daysRemaining < 0;
 
   const lead = past
-    ? `Your verification term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay} — ${phrase}.`
-    : `Your verification term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
+    ? `Your vendor access term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay}. That was ${phrase}.`
+    : `Your vendor access term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
   // The reassurance is the point of the whole §7 decision. Say it plainly.
   const noLapse =
-    "Nothing changes automatically. We don't switch verification off when a term reaches its end date — this is a heads-up so you can decide, not a countdown.";
+    "Nothing changes automatically. We don't switch access off when a term reaches its end date. This is a heads-up so you can decide, not a countdown.";
   const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
   const stance =
-    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+    "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
   const textParagraphs = [lead, noLapse, ask];
   const htmlParagraphs = [
     past
-      ? `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)} — ${escapeHtml(phrase)}.`
-      : `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
+      ? `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)}. That was ${escapeHtml(phrase)}.`
+      : `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
     noLapse,
     ask,
   ];
@@ -893,8 +893,8 @@ export function sendEntitlementExpiringEmail(
     to: opts.to,
     template: 'entitlement-expiring',
     subject: past
-      ? `Your verification term for ${name} has reached its end date`
-      : `Your verification term for ${name} ends ${phrase}`,
+      ? `Your vendor access term for ${name} has reached its end date`
+      : `Your vendor access term for ${name} ends ${phrase}`,
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
   });

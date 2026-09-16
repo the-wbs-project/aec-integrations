@@ -7,7 +7,7 @@
  *
  *   1. **`vendors.updated_at` moves on BOTH the set and the clear.** The un-verify
  *      direction is the one AECI-529 never reasoned about: the nightly Algolia sync is
- *      watermark-driven, so a clear that forgets the stamp leaves a Verified badge in
+ *      watermark-driven, so a clear that forgets the stamp leaves an active-account label in
  *      search indefinitely (R2). A renew, which does NOT move the mirror, must equally
  *      NOT move the watermark.
  *   2. **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a

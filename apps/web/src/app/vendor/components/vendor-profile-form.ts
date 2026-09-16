@@ -115,8 +115,8 @@ interface FieldConfig {
           class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.profile.readOnly"
         >
-          Editing is paused while your verification is not active. Everything below stays published
-          and is here to read. The verification panel on Vendor Overview has the renewal path.
+          Editing is paused while your account access is inactive. Everything below stays published
+          and is here to read. The account panel on Vendor Overview has the renewal path.
         </p>
       }
 

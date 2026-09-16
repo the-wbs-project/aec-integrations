@@ -825,7 +825,7 @@ describe('VendorDetail — products by role', () => {
       ),
     );
     expect(el.textContent).toContain('pure connector');
-    expect(el.textContent).toContain('not sold verification');
+    expect(el.textContent).toContain('no paid vendor access');
   });
 
   it('shows a vendor with no products as unrecorded, never as a carve-out', async () => {
@@ -891,7 +891,7 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     const text = el.textContent ?? '';
     // The distinction from Grant, stated on the page rather than assumed.
     expect(text).toContain('opens no entitlement');
-    expect(text).toContain('does not turn on the verified badge');
+    expect(text).toContain('does not show the public account label');
   });
 
   it('warns on a vendor that owns endpoint products, WITHOUT disabling the action', async () => {
@@ -975,7 +975,7 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     expect(status?.textContent).toContain('Seat added');
     // Load-bearing: the operator must not have to read the Basics table to learn
     // that provisioning did not verify the vendor.
-    expect(status?.textContent).toContain('verified badge is unchanged');
+    expect(status?.textContent).toContain('public account label is unchanged');
   });
 
   it('disables submit on an empty address — field validation, not the gate', async () => {

@@ -194,10 +194,10 @@ export const LinkRefSchema = z.object({
   slug: z.string().min(1),
 });
 
-// VendorLink extends LinkRef with logo_url + verified (the AECi-verified-vendor-
-// account bit, mirrored from vendors.verified — required, since the column is
-// NOT NULL DEFAULT false; powers the AECI-523 verified badge on the detail
-// surfaces). ProductLink extends LinkRef with logo_url only.
+// VendorLink extends LinkRef with logo_url + verified (the legacy account-access
+// mirror from vendors.verified — required, since the column is NOT NULL DEFAULT
+// false; powers the AECI-965 account-status label on detail surfaces).
+// ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: LogoReadUrlSchema.nullable(),
   verified: z.boolean(),
@@ -1713,7 +1713,7 @@ read-only here; the writer is `PATCH /api/admin/claims/:id/notes`.
 
 #### `PATCH /api/admin/claims/:id` (Stage 2 — AECI-519)
 
-Approve (grant a verified vendor account) or reject a vendor **claim**. A sibling
+Approve (activate vendor access) or reject a vendor **claim**. A sibling
 of `PATCH /api/admin/requests/:id`, not a replacement: a claim moderates here so
 `approve` runs the grant batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) instead of a
 plain resolve. **Corrections still moderate through `/api/admin/requests/:id`** —
@@ -2388,8 +2388,8 @@ where the mirror landed.
 includes `unclaimed`, because the session block (§6.14) and the grant summary must be able to
 *report* that a vendor has no entitlement. A `set` request uses `PaidEntitlementTierSchema` —
 `TIERS` minus every tier holding zero capabilities. The distinction is not tidiness: an
-`active` row at `unclaimed` would flip the mirror and light the Verified badge while resolving
-to **no** capabilities, i.e. a vendor billed for a badge that unlocks nothing.
+`active` row at `unclaimed` would flip the mirror and show the public account label while resolving
+to **no** capabilities, i.e. a vendor billed for an account status that unlocks nothing.
 
 The three actions:
 
@@ -4988,7 +4988,7 @@ Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION`
 
 #### `GET /api/vendor/notifications`
 
-The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor. **Not verified-gated**: `vendors.verified` gates authoring, not reading, so an unverified vendor sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
+The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor. **Not account-access-gated**: the legacy `vendors.verified` mirror gates authoring, not reading, so a vendor without active access sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
 
 **There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
 
@@ -5022,7 +5022,7 @@ Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }
 
 The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — six per-scope `updated_at` high-water marks in one response, so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the six producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
 
-**Not verified-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave an unverified vendor's read-only tab unable to notice its own verification landing. Same reasoning as the two lists above.
+**Not account-access-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave a vendor's read-only tab unable to notice access becoming active. Same reasoning as the two lists above.
 
 **Read-only, so no `audit_log` row** — and that is a contract, not an omission. §26.1 governs *state changes*; at one poll per 20 s per open tab, auditing this would grow the very `audit_log` table `GET /api/vendor/notifications` scans, i.e. the endpoint would degrade the list it is a cursor for.
 
@@ -5133,7 +5133,7 @@ Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-dec
 | `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `200 { version }` |
 | `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `204` (no body) |
 
-**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is `vendors.verified` checked, and a miss there is a **`403`**. Reversed, an unverified caller probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps a *verified* non-owner on the 404 path. **`GET` is not verified-gated**: authoring is the Verified-vendor capability (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the claim/verification flow and **never at ranking, placement, or search** — verification gates capability only.
+**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is the legacy `vendors.verified` mirror checked, and a miss there is a **`403`**. Reversed, a caller without active access probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps an active non-owner on the 404 path. **`GET` is not account-access-gated**: authoring requires active vendor access (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the vendor-access flow and **never at ranking, placement, or search** — account access gates capability only.
 
 `:versionId` must belong to `:id`; a mismatch is a `404`, so a version id cannot be probed across products.
 
@@ -5182,11 +5182,11 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
-Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but without active vendor access), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
 
 #### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
-Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified vendor writes its own integration claims through — the first code that can produce a `vendor_a` / `vendor_b` attestation, and therefore the first that can move a claim off `unverified`. Zod in `packages/shared/src/api/vendor-attestations.ts`, handlers in `apps/api/src/routes/vendor-attestations.ts`.
+Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a vendor with active attestation access writes its own integration claims through — the first code that can produce a `vendor_a` / `vendor_b` attestation, and therefore the first that can move a claim off `unverified`. Zod in `packages/shared/src/api/vendor-attestations.ts`, handlers in `apps/api/src/routes/vendor-attestations.ts`.
 
 > **⚠️ "Claim" means three different things in this document.** Here it is a **data-flow claim** — "this `data_object` flows in this `direction` through this integration" (`STAGE_1_5_SPEC.md` §3.1). It is **not** the public correction/claim *request* of §6.7, and **not** the vendor-account *claim* an admin grants in §6.10.
 
@@ -5201,7 +5201,7 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 **The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind` `'iPaaS'` **or `'integrator'`** (AECI-721 — an SI or consultancy built it, which is the same "neither endpoint vendor did"), was built by someone other than either endpoint vendor, and that party holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
 
 - **403, not 404.** The §6.14 non-disclosure rule has already been satisfied by the time this runs — the caller proved it owns an endpoint — and powered-ness is public on the pair page, so there is nothing left to conceal. It reuses `FORBIDDEN` rather than minting a code: the portal already knows from `attestable: false`, so the 403 is a backstop for direct API callers and a new code would need a §4 row no reader would consume.
-- **The order is authority → `404`, edge → `403`, verified → `403`.** Reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. The connector 403's copy names the connector and never mentions verification, ranking or placement.
+- **The order is authority → `404`, edge → `403`, active access → `403`.** Reversed, a vendor without active access on a powered edge is told to activate access in order to author, which that edge will never allow. The connector 403's copy names the connector and never mentions account access, ranking or placement.
 - **`DELETE` is exempt on purpose.** An edge can *become* powered after a vendor has attested (promote sets `powered_by_product_id` late). Gating retract would trap a vendor with a position it can no longer withdraw. Withdrawing is always allowed; only taking a new position is not.
 
 **Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
@@ -5218,7 +5218,7 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 - **On the WRITE**, `POST /api/vendor/claims` and `PUT /api/vendor/claims/:claimId/attestation` accept an optional `context_product_id`. On `POST` it decides what is **stored** — "outbound" means opposite things from the two sides — so omitting it for an owns-both caller silently keeps the old endpoint-A default. On `PUT` it only frames the echoed claim. A product the caller does not own **on that integration** is a `400 VALIDATION_FAILED` with `field: "context_product_id"`, never a silent re-frame. Omitted keeps the endpoint-A default, which is unambiguous whenever the caller owns exactly one endpoint.
 - **`mirrorContextDirection`** (`@aeci/shared`) re-frames an already-caller-relative direction against the other endpoint. It exists for the client, which holds only the framed value and has to splice a write echo into the same integration's *other* listing.
 
-**`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
+**`GET` is not account-access-gated**, matching the product-version list: authoring requires active access, reading your own surface does not, so the dashboard renders a read-only tab and explains what vendor access unlocks.
 
 **`GET` is not edge-gated either — powered edges are flagged, never filtered.** They ship with `attestable: false` and `powered_by` (the connector as a `ProductLink`, `null` on the ~40% whose connector is not a promoted product, where the client falls back to `mechanism_name`). Filtering them would change this endpoint's scoping predicate, and `GET /api/vendor/updates`'s `integrations` cursor must reuse that predicate exactly — with no RLS behind `/api/vendor/*`, that `WHERE` clause *is* the authorization. It would also contradict the vendor's own public pair page, which still shows the edge.
 
@@ -5301,7 +5301,7 @@ export const ListDataObjectsResponseSchema = z.object({
 
 **`GET /api/vendor/data-objects`** (AECI-606) serves that closed vocabulary to the dashboard, so the §6 picker offers the list rather than a text input and a vendor never submits a term the resolver will reject. Ordered by `display_order` then `slug`, **NULLs last** — the same ordering the claim lists use, so the picker's rows and the tab's lanes agree. Never paginated: a frozen 27-term list.
 
-It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is a contract rather than an omission: `taxonomy_data_objects` is AECi-curated, has no `vendor_id` column and no vendor-owned rows, so the filter would be *vacuous*. Every caller gets a byte-identical body by construction, and a spec pins that sameness so a later "restore the missing scope filter" edit fails loudly instead of reading as a fix. `AUTH_AND_RLS.md` §4.4 carries the matching carve-out. Not verified-gated either — 403-ing the vocabulary would leave the read-only tab unable to label its own claims.
+It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is a contract rather than an omission: `taxonomy_data_objects` is AECi-curated, has no `vendor_id` column and no vendor-owned rows, so the filter would be *vacuous*. Every caller gets a byte-identical body by construction, and a spec pins that sameness so a later "restore the missing scope filter" edit fails loudly instead of reading as a fix. `AUTH_AND_RLS.md` §4.4 carries the matching carve-out. It is not account-access-gated either — 403-ing the vocabulary would leave the read-only tab unable to label its own claims.
 
 **`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
 
@@ -5317,7 +5317,7 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 **No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
-Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but without active vendor access — copy points at the vendor-access flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
 ---
 

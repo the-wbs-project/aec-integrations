@@ -238,10 +238,10 @@ test.describe('vendor portal products menu (preview)', () => {
   test('a vendor with nothing to choose between gets a link instead of a menu', async ({
     page,
   }) => {
-    // The never-verified fixture owns no products at all. A dropdown over one
+    // The no-access fixture owns no products at all. A dropdown over one
     // option (or none) is noise, and a link keeps the section reachable.
     await page.goto(`${PATH}/overview`);
-    const fixtureButton = page.getByRole('button', { name: 'Never verified · new' });
+    const fixtureButton = page.getByRole('button', { name: 'No access · new' });
     await clickUntil(fixtureButton, () =>
       expect(fixtureButton).toHaveAttribute('aria-pressed', 'true', { timeout: 1_000 }),
     );

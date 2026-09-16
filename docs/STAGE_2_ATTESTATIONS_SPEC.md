@@ -677,9 +677,8 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   and `aria-label`, and `single_source`'s aria states the counterparty's silence outright.
   `single_source` shares the neutral chip with `unverified` — by design, so a lone affirmation can
   never borrow the affirmative treatment.
-- **The badge stays a `rounded.sm` chip, never the pill.** `DESIGN.md` reserves the pill for
-  `VerifiedBadge`, which means an AECi-verified vendor *account* — a different claim entirely. A
-  spec asserts the shape so the two cannot converge.
+- **The badge stays a `rounded.sm` chip.** Its agreement-specific wording and tonal ladder keep it
+  distinct from `VendorAccountBadge`, which describes active account access rather than a claim.
 - **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
   conditional on no vendor having attested at all — keyed off the presence of a vendor attestation,
   not off the agreement state, because a claim every vendor *denied* is still `unverified` yet the
@@ -702,7 +701,7 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   ratio beneath it and so keeps the confirmation phrasing.
 - **No Mobbin anchor exists for the pair page.** DESIGN.md and the AECI-289/294/300 commits name
   none, so the anchor-site rule had nothing to anchor to. No second site was introduced: the badge
-  states reuse the in-repo chip vocabulary and the `VerifiedBadge` token set.
+  states reuse the in-repo chip vocabulary without borrowing the account-status label's meaning.
 
 **Test coverage:** the §4.2 matrix plus the both-endpoints, null-identity, self-contradiction and
 retraction cases in `packages/shared/src/agreement.spec.ts`; the refuted-claim carve-out and
@@ -717,7 +716,7 @@ three `apps/web/src/app/products/*.component.spec.ts` files. Suites green at mer
 
 ## 5. Vendor attestation authoring API (AECI-301)
 
-**Needs §2. Gated by §4 (§1.1).** The `/api/vendor/*` surface a Verified vendor writes through.
+**Needs §2. Gated by §4 (§1.1).** The `/api/vendor/*` surface a vendor with active attestation access writes through.
 `apps/api/src/routes/vendor.ts` is the template: `requireVendor()`, the ban gate, `vendorId` from
 `c.get('auth')` and **never** from the request, one `db.batch` per write carrying its `audit_log`
 row, `waitUntil(purge + §26.5 audit forward)`.
@@ -1488,7 +1487,7 @@ release history.
 Vendor-authored only at launch: `/api/vendor/products/:id/versions` (CRUD), scoped by the same
 ownership check `PATCH /api/vendor/products/:id` already uses — ownership proven first, miss is a
 404. **Promote does not ingest versions** at launch: that would need a review-app table, a
-`claims[]` contract extension and a bamako change for a capability only Verified vendors can use
+`claims[]` contract extension and a bamako change for a capability only vendors with active attestation access can use
 anyway. Recorded as a deferral (§10), not an oversight.
 
 ### 8.4 As built (AECI-607 — 2026-08-14)
@@ -2100,9 +2099,9 @@ The pair page is the interesting one — N mechanisms, one header marker. `compu
 They answer different questions at different grains and both render: the marker is a **page-header**
 attribution ("who is on the hook for this page"), the `Unverified · AECi` pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
-keeps their shapes distinct — the marker and the pill are both `rounded.sm` chips, and the
-`rounded-full` pill is reserved for `aec-verified-badge`, which means a third thing again (an
-AECi-verified vendor *account*). Merging them would collapse three separate signals into one.
+keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
+chips, while `aec-vendor-account-badge` means a third thing again: active vendor account access.
+Merging them would collapse three separate signals into one.
 
 ### 13.7 Acceptance
 

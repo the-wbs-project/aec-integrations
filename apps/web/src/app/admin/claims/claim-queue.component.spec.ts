@@ -610,7 +610,7 @@ describe('ClaimQueue', () => {
         makeApiMock([makeClaim({ id: 'c1', entitlement: activeEntitlement() })]),
       );
       const card = cardFor(el, 'Procore');
-      expect(card.textContent).toContain('Verified: entitlement active');
+      expect(card.textContent).toContain('Account active: entitlement active');
       // Formatted, and formatted the SAME way as `/admin/vendors/:id` — both
       // readouts share `entitlementTermLabel` so they cannot drift (AECI-694).
       expect(card.textContent).toContain('Sep 1, 2027');
@@ -647,7 +647,7 @@ describe('ClaimQueue', () => {
       const card = cardFor(el, 'Procore');
       // The moderation buttons are gone (terminal row) but the readout is not.
       expect(() => buttonByText(card, 'Grant vendor account')).toThrow();
-      expect(card.textContent).toContain('Verified: entitlement active');
+      expect(card.textContent).toContain('Account active: entitlement active');
     });
   });
 

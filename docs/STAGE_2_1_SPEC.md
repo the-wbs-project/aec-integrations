@@ -52,7 +52,7 @@ These are Stage 2 close-out work, not Stage 2.1 scope — recorded here because 
 
 The full vendor lifecycle exercised as a real vendor would hit it — on staging first, then against dark production:
 
-claim submission → claimant identity resolution → admin claim review → approve → seat grant → first sign-in → vendor dashboard → attestation authoring (including the `single_source` / conflict states) → entitlement set / renew / clear → verified badge appearing on trust **and** search surfaces → claim-decision + seat emails delivered → live revalidation cadence observed (20 s focused / 60 s unfocused / paused hidden).
+claim submission → claimant identity resolution → admin claim review → approve → seat grant → first sign-in → vendor dashboard → attestation authoring (including the `single_source` / conflict states) → entitlement set / renew / clear → account-status label appearing on detail **and** search surfaces → claim-decision + seat emails delivered → live revalidation cadence observed (20 s focused / 60 s unfocused / paused hidden).
 
 Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement presets, no session needed) for surface passes; a staged claim with a test vendor identity for the real pipeline. The rehearsal is complete only when a full pass requires **zero manual DB intervention**.
 

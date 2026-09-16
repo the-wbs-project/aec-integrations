@@ -7,7 +7,7 @@
  *
  * Scope: the claim CTA's two copy states. `vendors.verified` is the only public
  * signal that a listing is claimed (it is the AECI-519 grant's mirror), so it
- * drives the wording: an unverified vendor gets "Claim this listing", a verified
+ * drives the wording: an inactive vendor account gets "Claim this listing", an active
  * one gets "Request access to this listing" plus a note. The CTA is never
  * removed — seats are admin-granted and multi-seat, and self-serve invite is
  * deferred (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the public claim form stays
@@ -129,7 +129,7 @@ describe('VendorDetailPage claim CTA', () => {
     expect(section).toBeTruthy();
     expect(section.textContent).toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
-    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+    expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
 
   it('offers to request access when the vendor is verified', () => {
@@ -138,7 +138,7 @@ describe('VendorDetailPage claim CTA', () => {
 
     expect(section.textContent).toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Claim this listing');
-    expect(section.textContent).toContain('Already managed by a verified vendor');
+    expect(section.textContent).toContain('Already managed through an active vendor account');
   });
 
   it('keeps the CTA pointed at the same claim route in both states', () => {

@@ -19,7 +19,7 @@ import { PreviewVendorApi } from './preview-vendor-api';
 type Concept = 'a' | 'b';
 type FixtureKey = 'verified' | 'expiring' | 'downgraded' | 'unverified' | 'large-catalog';
 
-/** A single-seat roster for the unverified/new-vendor fixture. */
+/** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
   {
     user_id: '00000000-0000-4000-8000-0000000052c1',
@@ -48,7 +48,7 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
  * `docs/STAGE_2_PAID_TIERS_SPEC.md` §8), which is what the plan panel and the
  * read-only forms are reviewed against. All four states are here — active with a
  * far term, active and expiring soon, downgraded after a revoke, and never
- * verified — because §8 asks specifically for the DOWNGRADED state to get sign-off
+ * active — because §8 asks specifically for the DOWNGRADED state to get sign-off
  * before the gated route is wired: it is the panel a customer AECi wants back
  * will read.
  *
@@ -139,7 +139,7 @@ export class VendorDashboardPreview {
     { key: 'verified', label: 'Active · far term' },
     { key: 'expiring', label: 'Active · expiring soon' },
     { key: 'downgraded', label: 'Downgraded · revoked' },
-    { key: 'unverified', label: 'Never verified · new' },
+    { key: 'unverified', label: 'No access · new' },
     // Not an entitlement state: the catalog size the Products nav menu exists
     // for. Two products cannot show whether the search box earns its place.
     { key: 'large-catalog', label: 'Active · 20 products' },
@@ -171,8 +171,8 @@ export class VendorDashboardPreview {
     // the seat roster + product saves operate on matching data.
     //
     // Both fixtures get the SAME integrations surface, deliberately. `GET
-    // /api/vendor/integrations` is ownership-gated but not Verified-gated, so an
-    // unverified vendor really does see its full attestable surface — and the
+    // /api/vendor/integrations` is ownership-gated but not account-access-gated, so a
+    // vendor without active access really does see its full attestable surface — and the
     // read-only rendering of it is the thing this toggle exists to review. (The
     // empty-surface state has no verification dimension and is covered by
     // `vendor-integrations-section.component.spec.ts` instead.)

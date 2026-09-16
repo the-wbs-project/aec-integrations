@@ -17,9 +17,9 @@ import { Component, DestroyRef, inject, input, signal } from '@angular/core';
  *
  * A `title` attribute would be the cheap version and is deliberately not used:
  * it is not reliably keyboard-reachable, its screen-reader support is
- * inconsistent, and it cannot be styled. `shared/verified-badge/` still uses one
- * because its tooltip is supplemental to a visible label; here the text is the
- * only place the information exists.
+ * inconsistent, and it cannot be styled. The account-status label uses one only
+ * for supplemental context beside visible text; here the text is the only place
+ * the information exists.
  *
  * ── WHY AN OVERLAY AND NOT A CSS TOOLTIP ─────────────────────────────────────
  * Same reason as `relative-time.ts`: the repo's cheap `group-hover` tooltip

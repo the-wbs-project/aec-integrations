@@ -541,7 +541,7 @@ export class VendorAddClaimForm {
 
     if (info?.status === 403) {
       this.notice.set(
-        $localize`:@@vendor.attest.add.error.unverified:Adding a data flow needs a verified account. Verification is arranged with AEC Integrations.`,
+        $localize`:@@vendor.attest.add.error.accountAccess:Adding a data flow needs active vendor access. Contact AEC Integrations to arrange access.`,
       );
       return;
     }

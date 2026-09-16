@@ -152,9 +152,9 @@ const MAX_TERMS_PER_FACET = 10;
             class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.product.readOnly"
           >
-            Editing is paused while your verification is not active. This product stays published
-            exactly as it is, and everything on record is here to read. The verification panel on
-            Vendor Overview has the renewal path.
+            Editing is paused while your account access is inactive. This product stays published
+            exactly as it is, and everything on record is here to read. The account panel on Vendor
+            Overview has the renewal path.
           </p>
         }
 

@@ -235,7 +235,7 @@ describe('VendorAttestationControl — Clear', () => {
 });
 
 describe('VendorAttestationControl — failure handling', () => {
-  it('reports a 403 as a verification message that never mentions ranking or search', async () => {
+  it('reports a 403 as an account-access message that never mentions ranking or search', async () => {
     const { HttpErrorResponse } = await import('@angular/common/http');
     upsertAttestation.mockRejectedValue(
       new HttpErrorResponse({
@@ -251,7 +251,7 @@ describe('VendorAttestationControl — failure handling', () => {
 
     const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
     const text = alert?.textContent ?? '';
-    expect(text).toContain('verified account');
+    expect(text).toContain('active vendor access');
     expect(text).not.toMatch(/rank|placement|search/i);
   });
 

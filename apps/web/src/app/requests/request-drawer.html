@@ -62,8 +62,8 @@
         <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
           @switch (t.kind) { @case ('claim') { @if (t.claimed) {
           <ng-container i18n="@@requests.access.subtitle"
-            >A verified vendor already manages this listing. Work there too? Tell us about your
-            connection and we'll review your request.</ng-container
+            >An active vendor account already manages this listing. Work there too? Tell us about
+            your connection and we'll review your request.</ng-container
           >
           } @else {
           <ng-container i18n="@@requests.claim.subtitle"

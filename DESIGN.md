@@ -122,9 +122,9 @@ components:
   input-focus:
     backgroundColor: "{colors.surface-base}"
     textColor: "{colors.text-primary}"
-  badge-verified:
-    backgroundColor: "{colors.accent-primary}"
-    textColor: "{colors.surface-base}"
+  badge-account-active:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-secondary}"
     typography: "{typography.label}"
     rounded: "{rounded.sm}"
     padding: "{spacing.1} {spacing.3}"
@@ -622,20 +622,19 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 
 ### Badges
 
-> **No verification iconography in Stage 1.** AECi verifies nothing today: production
-> holds zero vendor attestations and zero vendors with `verified = true`, and it stays
-> that way until the Stage 2 portal lets a vendor attest. So **no checkmark, shield,
-> tick, or "Verified" fill renders on any public surface** — a trust mark the data
-> cannot back is the one design error this brand cannot afford. Provenance is carried
-> by *text* (a maintainer name, and eventually a date), because text is falsifiable and
-> a checkmark is not. If you are reaching for a trust glyph, you want the maintenance
-> marker below. This is why `home-credibility-strip` uses a balance scale rather than
+> **No verification iconography on public surfaces.** This rule applies through Stage 2
+> and later. No checkmark, shield, tick, or "Verified" fill may imply that AECi endorses
+> a vendor, product, or integration. Provenance and account state are carried by visible
+> text because text can state the exact claim. The legacy `vendors.verified` mirror is a
+> paid-entitlement signal, so it renders as a neutral account-status label rather than a
+> trust glyph. This is also why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
 **One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
 card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
-`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Four components carry it:
-`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`.
+`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Five components carry it:
+`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`, and the full
+`VendorAccountBadge`.
 
 This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
 and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
@@ -651,8 +650,8 @@ columns inside a table row or list row, not a standalone statement. It renders i
 `product-integration-row.ts`, `product-powered-hub.ts`, `search-integration-card.ts` and
 `home/integration-tile.ts`. Do not "converge" it onto the 29px spec: at row density the extra 7px
 per badge is what pushes a row off one line. Three badges keep their own documented specs for
-reasons stated below or in their own sections — `VerifiedBadge` (a `rounded-full` pill),
-`TaxonomyBadge` (a link, `px-3` / 13px) and `ReviewStatusBadge` (a coloured state chip).
+reasons stated below or in their own sections — compact `VendorAccountBadge` (an inline status
+label), `TaxonomyBadge` (a link, `px-3` / 13px), and `ReviewStatusBadge` (a coloured state chip).
 
 **Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
 overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
@@ -682,13 +681,13 @@ What actually renders today:
     marker is page-header attribution ("who is on the hook for this page"), the pill is
     per-claim state on the mechanism cards ("do the two vendors agree about this one data
     object"). Three distinct signals share this page — marker, agreement chip, and the
-    `rounded-full` verified-vendor pill — and collapsing any two would lose information.
+    neutral account-status label — and collapsing any two would lose information.
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Unverified · AECi` on every claim on every pair page — the honest posture, not a
   warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
-- **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
-- **Verified vendor** (`aec-verified-badge`, AECI-523): the trust-surface indicator for an **AECi-verified vendor _account_** (`vendors.verified`). A quiet editorial **pill** — Forest-soft wash (`--accent-primary-soft`) + Forest text + 0.5px Forest border + a shield-check glyph (Forest text on Forest-soft = 10.80:1). This is the badge the **pill shape is reserved for** (see Tags / taxonomy chips below): the `rounded-full` pill and the shield glyph keep it distinct from the `rounded.sm` integration `badge-verified` above and from the rating anatomy (gold stars). Two variants — `full` (icon + "Verified vendor" label) and `compact` (icon-only, accessible name via `aria-label`, for dense contexts like the product-pair rail). Renders **only when verified** — the public "Unverified" baseline is the badge's absence, never a label (the explicit "Unverified" readout is a vendor-dashboard concept). It is a **trust** signal, never a paid-placement or ranking signal (no pay-for-placement), and never an endorsement of product quality.
-- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. A `rounded.sm` **chip**, deliberately *not* the pill: the pill belongs to `aec-verified-badge`, which means an AECi-verified vendor *account*, and the two must never be read as the same signal. Four states, and the tonal ladder between them is the point:
+- **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with confirmed.
+- **Vendor account active** (`aec-vendor-account-badge`, AECI-965): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The full variant uses the standalone 29px chip metrics and visible text "Vendor account active". The compact variant uses `px-2 py-0.5` and visible text "Account active" in dense product and pair rows. Both use `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence.
+- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the neutral account-status label. Four states, and the tonal ladder between them is the point:
 
   | State | Treatment | Label |
   |---|---|---|
@@ -713,9 +712,9 @@ What actually renders today:
 
   **No Mobbin anchor was picked for this surface, deliberately** — the same call the AECI-605 agreement badge recorded. The pair page has three shipped layers and a settled chip/token vocabulary; the diff markers inherit it rather than importing a second site's visual language onto the page that is most editorial. This is the standing precedent for anchorless surfaces (see the Phase 8.3 operator console: "One publication, one voice").
 
-**Deferred to Stage 2, not shipped:**
-
-- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states. **Do not build this until vendor attestations exist** (AECI-514) — until then there is nothing true for it to mark.
+**Superseded treatment:** the earlier Forest-filled `badge-verified` placeholder must not ship.
+Vendor agreement is represented by the explicit `AgreementBadge` labels above, including
+"Both vendors confirmed" when two distinct vendors affirm the same claim.
 
 ### Tags / Taxonomy chips
 
@@ -723,7 +722,7 @@ Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge
 
 > **Metrics here govern `TaxonomyBadge` only.** The two non-link card-grid chips that borrow this surface (`RoleBadge`, `CategoryChip` — see "Role + category chips" above) take the §Badges standalone-attribution metrics instead: `px-2.5 py-1` / `0.75rem`. They share the surface, not the type scale.
 
-- **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px) — chips, not pills (the pill shape is reserved for vendor-verified badges).
+- **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px).
 - **Typography:** Atkinson Hyperlegible Next **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (600): the chip reads as a content tag, not a button. (500 is a real cut since the Next upgrade, AECI-230 — the classic family silently rendered it as 400.) `text-primary` shifts to `accent-primary` on hover.
 - **Case:** sentence case, per the Sentence-Case Rule.
 

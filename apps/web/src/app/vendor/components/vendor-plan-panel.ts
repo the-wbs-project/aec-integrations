@@ -12,7 +12,7 @@ import { RouterLink } from '@angular/router';
 import type { VendorEntitlementBlock } from '@aeci/shared';
 import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
-import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
+import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-account-badge';
 
 /**
  * The vendor-facing entitlement surface (AECI-614 /
@@ -66,8 +66,9 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
  * it must not render as verified. Anything unrecognized falls to `lapsed`.
  *
  * ── Copy discipline (§8, and this is a trust surface) ───────────────────────
- * Verification is an **account status** — never an endorsement, never a ranking
- * or placement signal. The framing sentence is the `aec-verified-badge` tooltip
+ * The public label reports **active account access** — never an endorsement,
+ * ranking, or placement signal. The framing sentence matches the
+ * `aec-vendor-account-badge` tooltip
  * and the `claim-approved` email's wording, said once, in every state. There is
  * **no promise of instant search** (vendor edits reach Algolia on the nightly
  * watermark, ≤24h) and no search claim at all beyond the disclaimer. Arrangement
@@ -83,12 +84,12 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, VerifiedBadge],
+  imports: [RouterLink, VendorAccountBadge],
   template: `
     <div [class]="shellClass()">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         @if (state() === 'active' || state() === 'expiring') {
-          <aec-verified-badge [verified]="true" />
+          <aec-vendor-account-badge [active]="true" />
         } @else {
           <span
             class="inline-flex w-fit items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)"
@@ -112,28 +113,28 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
           @let days = daysRemaining() ?? 0;
           <p class="mt-3 max-w-prose text-sm font-semibold text-(--accent-secondary-deep)">
             @if (days === 0) {
-              <span i18n="@@vendor.plan.expiring.lede.today">Your verification ends today.</span>
+              <span i18n="@@vendor.plan.expiring.lede.today">Your editing access ends today.</span>
             } @else {
               <ng-container i18n="@@vendor.plan.expiring.lede"
-                >Your verification ends in
+                >Your editing access ends in
                 {days, plural, =1 {1 day} other {{{ days }} days}}.</ng-container
               >
             }
           </p>
           <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.expiring.body"
-              >Nothing changes before then. Get in touch to renew and your badge, your editing
-              access and your attestations carry on without a break.</span
+              >Nothing changes before then. Get in touch to renew and your account label, editing
+              access and attestations carry on without a break.</span
             >
           </p>
           <a routerLink="/contact" [class]="secondaryCtaClass" i18n="@@vendor.plan.cta.renew"
-            >Renew verification</a
+            >Renew access</a
           >
         }
         @case ('pending') {
           <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.pending.body"
-              >Your verification is arranged and switches on shortly. Until it does, everything on
+              >Your editing access is arranged and switches on shortly. Until it does, everything on
               record is here to read, and editing stays closed.</span
             >
           </p>
@@ -141,7 +142,7 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
         @case ('lapsed') {
           <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
             <span i18n="@@vendor.plan.lapsed.body"
-              >Your verification is no longer active. You are still signed in, and you and your
+              >Your editing access is no longer active. You are still signed in, and you and your
               colleagues keep the portal.</span
             >
           </p>
@@ -165,37 +166,39 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
             class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
           >
             <span i18n="@@vendor.plan.lapsed.paused"
-              >What is paused: the verified badge, and editing your profile and products.</span
+              >What is paused: the public account label, and editing your profile and
+              products.</span
             >
           </p>
           <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.lapsed.renew"
-              >Renewing turns editing and the badge back on, with nothing to re-enter. Get in touch
-              and we will pick it up from there.</span
+              >Renewing turns editing and the account label back on, with nothing to re-enter. Get
+              in touch and we will pick it up from there.</span
             >
           </p>
           <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.renew"
-            >Renew verification</a
+            >Renew access</a
           >
         }
         @case ('none') {
           <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.none.body"
-              >Your account is not verified yet. Everything on record is here to read; editing your
-              profile and products, and confirming what your integrations move, opens up once
-              verification is active.</span
+              >Editing access is not active yet. Everything on record is here to read. Editing your
+              profile and products, and confirming what your integrations move, opens up with an
+              active vendor account.</span
             >
           </p>
           <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.ask"
-            >Ask about verification</a
+            >Ask about vendor access</a
           >
         }
       }
 
       <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
         <span i18n="@@vendor.plan.framing"
-          >Verification confirms your account represents this vendor. It is an account status, not
-          an endorsement of your product, and it does not affect search ranking or placement.</span
+          >An active vendor account means this company can manage its AECi profile. It does not
+          verify product quality or integration accuracy, and it does not affect search ranking or
+          placement.</span
         >
       </p>
     </div>
@@ -222,7 +225,7 @@ export class VendorPlanPanel {
    * Fail-closed, exactly as `tierFor` does (§3.1): `active` alone is not enough,
    * because `vendor_entitlements.tier` is deliberately unconstrained at the DB
    * layer and an unknown tier resolves to `unclaimed` → zero capabilities. A
-   * panel that said "verified" over read-only forms would be the wrong lie.
+   * panel that said "active" over read-only forms would be the wrong lie.
    */
   protected readonly isActive = computed(
     () => this.entitlement().status === 'active' && this.entitlement().tier !== 'unclaimed',
@@ -272,7 +275,7 @@ export class VendorPlanPanel {
       case 'expiring':
         return date === null
           ? $localize`:@@vendor.plan.term.noEnd:No end date on record`
-          : $localize`:@@vendor.plan.term.through:Verified through ${date}:DATE:`;
+          : $localize`:@@vendor.plan.term.through:Active through ${date}:DATE:`;
       case 'lapsed':
         return date === null ? null : $localize`:@@vendor.plan.term.ended:Ended ${date}:DATE:`;
       case 'pending':
@@ -285,11 +288,11 @@ export class VendorPlanPanel {
   protected readonly chipLabel = computed<string>(() => {
     switch (this.state()) {
       case 'pending':
-        return $localize`:@@vendor.plan.chip.pending:Verification pending`;
+        return $localize`:@@vendor.plan.chip.pending:Editing access pending`;
       case 'lapsed':
-        return $localize`:@@vendor.plan.chip.ended:Verification ended`;
+        return $localize`:@@vendor.plan.chip.ended:Editing access ended`;
       default:
-        return $localize`:@@vendor.plan.chip.none:Not verified`;
+        return $localize`:@@vendor.plan.chip.none:Editing not active`;
     }
   });
 

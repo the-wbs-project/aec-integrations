@@ -20,7 +20,7 @@ import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-mark
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
-import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
+import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductIntegrationsSection } from './product-integrations-section';
@@ -94,7 +94,7 @@ import { RoleBadge } from './role-badge';
     RouterLink,
     SectionNav,
     TaxonomyBadge,
-    VerifiedBadge,
+    VendorAccountBadge,
   ],
   template: `
     @let p = product();
@@ -301,11 +301,11 @@ import { RoleBadge } from './role-badge';
                   lg:bg-(--surface-raised) lg:p-4"
               >
                 <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
-                <span class="flex min-w-0 items-center gap-1.5">
+                <span class="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
                     v.name
                   }}</span>
-                  <aec-verified-badge [verified]="v.verified" variant="compact" />
+                  <aec-vendor-account-badge [active]="v.verified" variant="compact" />
                 </span>
               </a>
             } @else {
@@ -482,7 +482,8 @@ import { RoleBadge } from './role-badge';
                 class="text-xs leading-relaxed text-(--text-secondary)"
                 i18n="@@products.detail.metadata.claimedNote"
               >
-                Already managed by a verified vendor. Request access if you work there too.
+                Already managed through an active vendor account. Request access if you work there
+                too.
               </p>
             }
           </section>

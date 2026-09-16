@@ -17,7 +17,7 @@
  *     instant-search promise — asserted as a scan over the rendered text, so a
  *     future copy edit that reintroduces one fails here;
  *  5. the fail-closed resolution `tierFor` uses: `status: 'active'` over a tier
- *     this build does not know must NOT render as verified.
+ *     this build does not know must NOT render as active.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -76,8 +76,8 @@ describe('VendorPlanPanel — state 1: active, far term', () => {
   it('is quiet: the public badge, the term, and no call to action', () => {
     const fixture = create(activeIn(300));
 
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Verified through');
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
+    expect(text(fixture)).toContain('Active through');
     // Nothing shouty: no renewal CTA, and no countdown.
     expect(renewLink(fixture)).toBeNull();
     expect(text(fixture)).not.toContain('ends in');
@@ -86,13 +86,13 @@ describe('VendorPlanPanel — state 1: active, far term', () => {
   it('handles a perpetual term (the §2.4 backfilled rows) without inventing a date', () => {
     const fixture = create({ ...activeIn(300), period_end: null });
 
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
     expect(text(fixture)).toContain('No end date on record');
   });
 
   it('renders from the shipped fixture the dashboard specs use', () => {
     const fixture = create(VENDOR_ME_FIXTURE.entitlement);
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
     expect(renewLink(fixture)).toBeNull();
   });
 });
@@ -101,13 +101,13 @@ describe('VendorPlanPanel — state 2: active, expiring soon', () => {
   it('counts the days down and offers a renewal path', () => {
     const fixture = create(activeIn(12));
 
-    expect(text(fixture)).toContain('Your verification ends in 12 days');
-    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew verification');
+    expect(text(fixture)).toContain('Your editing access ends in 12 days');
+    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew access');
   });
 
   it('still shows the badge: warning is not lapsing (§7.3)', () => {
     const fixture = create(activeIn(3));
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
     expect(text(fixture)).toContain('Nothing changes before then');
   });
 
@@ -120,7 +120,7 @@ describe('VendorPlanPanel — state 2: active, expiring soon', () => {
 
   it('says "today" rather than "in 0 days" on the last day', () => {
     const fixture = create(activeIn(-0.5));
-    expect(text(fixture)).toContain('Your verification ends today');
+    expect(text(fixture)).toContain('Your editing access ends today');
   });
 
   it('renders from the shipped expiring fixture', () => {
@@ -129,7 +129,7 @@ describe('VendorPlanPanel — state 2: active, expiring soon', () => {
     fixture.componentRef.setInput('entitlement', VENDOR_ME_EXPIRING_FIXTURE.entitlement);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'Your verification ends in',
+      'Your editing access ends in',
     );
   });
 });
@@ -141,7 +141,7 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
   it('drops the badge and leads with what the vendor KEEPS', () => {
     const fixture = create(REVOKED);
 
-    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
     const body = text(fixture);
     expect(body).toContain('You are still signed in');
     expect(body).toContain('stay published');
@@ -151,8 +151,8 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
   it('names the one thing that is paused, and how to undo it', () => {
     const fixture = create(REVOKED);
 
-    expect(text(fixture)).toContain('What is paused: the verified badge');
-    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew verification');
+    expect(text(fixture)).toContain('What is paused: the public account label');
+    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew access');
   });
 
   it('does not read as an error: no alert role, no error token', () => {
@@ -173,13 +173,13 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
     const never = text(create(NEVER));
     const revoked = text(create(REVOKED));
 
-    expect(never).toContain('not verified yet');
-    expect(never).toContain('Ask about verification');
+    expect(never).toContain('Editing access is not active yet');
+    expect(never).toContain('Ask about vendor access');
     // The lapsed reassurance is about something you lost. Don't say it to someone
     // who never had it.
     expect(never).not.toContain('no longer active');
     expect(revoked).toContain('no longer active');
-    expect(revoked).not.toContain('not verified yet');
+    expect(revoked).not.toContain('Editing access is not active yet');
   });
 
   it('treats a PENDING arrangement as its own state, not as lapsed', () => {
@@ -189,7 +189,7 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
       period_end: null,
       capabilities: [],
     });
-    expect(text(fixture)).toContain('Verification pending');
+    expect(text(fixture)).toContain('Editing access pending');
     expect(text(fixture)).toContain('switches on shortly');
   });
 
@@ -205,8 +205,8 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
       capabilities: [],
     });
 
-    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
-    expect(text(fixture)).toContain('Verification ended');
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(text(fixture)).toContain('Editing access ended');
   });
 });
 
@@ -220,29 +220,29 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
  * the block into constructor-time state.
  */
 describe('VendorPlanPanel — a refetched entitlement (§6.1)', () => {
-  it('goes from lapsed to verified in place, badge, term and CTA together', () => {
+  it('goes from lapsed to active in place, label, term and CTA together', () => {
     const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
-    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
     expect(text(fixture)).toContain('no longer active');
 
     fixture.componentRef.setInput('entitlement', activeIn(300));
     fixture.detectChanges();
 
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Verified through');
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
+    expect(text(fixture)).toContain('Active through');
     expect(text(fixture)).not.toContain('no longer active');
     expect(renewLink(fixture)).toBeNull();
   });
 
   it('goes the other way too: a revoke lands without a reload', () => {
     const fixture = create(activeIn(300));
-    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
 
     fixture.componentRef.setInput('entitlement', VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
     fixture.detectChanges();
 
-    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
-    expect(text(fixture)).toContain('What is paused: the verified badge');
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(text(fixture)).toContain('What is paused: the public account label');
   });
 
   it('still fails closed on the refetched value, never re-deriving the ladder', () => {
@@ -258,12 +258,12 @@ describe('VendorPlanPanel — a refetched entitlement (§6.1)', () => {
     } satisfies VendorEntitlementBlock);
     fixture.detectChanges();
 
-    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
-    expect(text(fixture)).toContain('Verification ended');
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(text(fixture)).toContain('Editing access ended');
   });
 });
 
-describe('VendorPlanPanel — copy discipline (§8, a trust surface)', () => {
+describe('VendorPlanPanel — copy discipline (§8, an account-status surface)', () => {
   const ALL: ReadonlyArray<[string, VendorEntitlementBlock]> = [
     ['active', activeIn(300)],
     ['expiring', activeIn(12)],
@@ -272,9 +272,12 @@ describe('VendorPlanPanel — copy discipline (§8, a trust surface)', () => {
     ['never', VENDOR_ME_UNVERIFIED_FIXTURE.entitlement],
   ];
 
-  it.each(ALL)('says verification is an account status, not an endorsement (%s)', (_name, e) => {
+  it.each(ALL)('scopes the status to account access without an endorsement (%s)', (_name, e) => {
     const body = text(create(e));
-    expect(body).toContain('It is an account status, not an endorsement');
+    expect(body).toContain(
+      'An active vendor account means this company can manage its AECi profile',
+    );
+    expect(body).toContain('It does not verify product quality or integration accuracy');
     expect(body).toContain('does not affect search ranking or placement');
   });
 

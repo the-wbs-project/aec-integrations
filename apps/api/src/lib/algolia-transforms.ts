@@ -263,7 +263,7 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     // to `buildVendorRecords` in `apps/datatool/src/algolia-reindex.ts`.
     company_name_sort: algoliaSortKey(row.companyName),
     slug: row.slug,
-    verified: row.verified, // AECI-529: search-card verified badge
+    verified: row.verified, // AECI-529/AECI-965: search-card account-status label
     description: row.description,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,

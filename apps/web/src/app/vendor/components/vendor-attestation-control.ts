@@ -501,7 +501,7 @@ export class VendorAttestationControl {
     const info = readVendorApiError(err);
     if (info?.status === 403) {
       // `verified` can flip between the SSR payload and this write.
-      return $localize`:@@vendor.attest.error.unverified:Confirming a data flow needs a verified account. Verification is arranged with AEC Integrations.`;
+      return $localize`:@@vendor.attest.error.accountAccess:Confirming a data flow needs active vendor access. Contact AEC Integrations to arrange access.`;
     }
     if (info?.status === 404) {
       return $localize`:@@vendor.attest.error.gone:This data flow is no longer available. Reload to see the current list.`;

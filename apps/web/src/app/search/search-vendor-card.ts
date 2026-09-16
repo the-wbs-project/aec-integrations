@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
-import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
+import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 /**
  * Grid hit card for a `vendors` search result (AECI-142). `<article>` tile bound
@@ -11,13 +11,13 @@ import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
  * stretched link to `/vendors/:slug`; headquarters / founded year / counts
  * render as supporting text with em-dash empty states (the record nullable
  * fields mirror the `/vendors` table card). Both themes via tokens; strings
- * `$localize`-wrapped. A verified vendor also renders the shared
- * `aec-verified-badge` under the name, sourced from the record's `verified`
+ * `$localize`-wrapped. An active vendor account also renders the shared
+ * `aec-vendor-account-badge` under the name, sourced from the record's legacy `verified`
  * field (AECI-529).
  */
 @Component({
   selector: 'aec-search-vendor-card',
-  imports: [RouterLink, VerifiedBadge],
+  imports: [RouterLink, VendorAccountBadge],
   host: { class: 'block h-full' },
   template: `
     <article
@@ -37,12 +37,12 @@ import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
               >{{ record().company_name }}</a
             >
           </h3>
-          <!-- AECI-529: verified-vendor badge on its own line under the name. The
+          <!-- AECI-529/AECI-965: account-status label on its own line under the name. The
                full variant's visible label stands in for the hover tooltip, which the
                card's stretched-link overlay would otherwise suppress. -->
           @if (record().verified) {
             <div class="mt-1.5">
-              <aec-verified-badge [verified]="true" />
+              <aec-vendor-account-badge [active]="true" />
             </div>
           }
           @if (record().headquarters; as hq) {

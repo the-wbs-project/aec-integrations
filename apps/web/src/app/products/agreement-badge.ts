@@ -28,11 +28,8 @@ import type { AgreementState } from '@aeci/shared';
  * visible label and `aria-label`, and the dot/glyph is `aria-hidden`. Light
  * theme only (Stage 1 / AECI-226).
  *
- * Shape note: this is a `rounded.sm` **chip**, not the `rounded-full` pill —
- * `DESIGN.md` reserves the pill for `VerifiedBadge`, which means something
- * entirely different (an AECi-verified vendor *account*, not a claim's
- * agreement). Keeping the shapes distinct is what stops the two being read as
- * the same signal.
+ * This claim-agreement chip remains distinct from the account-status label
+ * through its state-specific wording and tone.
  */
 @Component({
   selector: 'aec-agreement-badge',

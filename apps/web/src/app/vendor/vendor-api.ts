@@ -162,7 +162,7 @@ export class VendorApi {
    *  caller owns, with its claims, each claim's computed `agreement`, the
    *  counterparty's position, and which slots are the caller's. Unpaginated
    *  (bounded by the vendor's own catalog) and **not** Verified-gated: an
-   *  unverified vendor gets a real surface it cannot yet write to. */
+   *  vendor without active account access gets a real surface it cannot yet write to. */
   getIntegrations(): Promise<ListVendorIntegrationsResponse> {
     return firstValueFrom(
       this.http.get<ListVendorIntegrationsResponse>('/api/vendor/integrations'),
