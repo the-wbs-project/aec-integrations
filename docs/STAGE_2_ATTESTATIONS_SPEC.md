@@ -52,6 +52,7 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 | §9 | AECI-303 | Version-diff timeline + per-product version selectors |
 | §10 | AECI-608 | Docs: attestation authz + API/schema contract sweep |
 | §13 | AECI-616 | Maintenance marker: real `last_reviewed_at` + vendor-maintained branch (**migration 3**) |
+| §13.9 | AECI-981 | Every vendor-authorized catalog write transfers maintenance; the promote review-signal fence (Stage 2.1, not an AECI-514 sub-issue) |
 | §14 | AECI-705 | Connector-powered edges are not attestable (gate over the shipped epic; no migration) |
 | §6.2 | AECI-961 | The outcome contract: what each position does next, and the `claim-denied` widening of §7.1 (no migration) |
 
@@ -2044,8 +2045,14 @@ column is indexed — both are read with the row.
 
 | Column | Written by | Never written by |
 |---|---|---|
-| `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6); a vendor attestation (§5) | anything else — no default, no trigger, no derivation |
-| `maintained_by` | the §5 vendor attestation path only | **promote** — the payload does not accept it |
+| `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6), **and only on an AECi-maintained row** (§13.9); a vendor attestation (§5); **any vendor-authorized catalog write** (§13.9) | anything else — no default, no trigger, no derivation |
+| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9) | **promote** — the payload does not accept it |
+
+> **Updated by AECI-981 (2026-09-16).** This table read "the §5 vendor attestation
+> path only" for four weeks while the vendor portal shipped a profile editor, a
+> product editor and version authoring — none of which wrote either column. The
+> consequence was the reported defect: a vendor saved its product and the public
+> listing still read `Maintained by AEC Integrations`. §13.9 is the ruling.
 
 **Absence is the contract.** The promote projections run through `compact()`, which drops
 `undefined`, so omitting `lastReviewedAt` leaves the stored value untouched on both the insert and
@@ -2159,6 +2166,173 @@ and a no-`$onUpdate` regression), `vendor-attestations.spec.ts` (8 cases: both f
 integration-grain vs claim-grain, counterparty survival, the no-op-no-audit rule),
 `product-pair.spec.ts` (5 aggregate cases including the branch-scoped date), `products.spec.ts` /
 `vendors.spec.ts` (detail surfaces), and `packages/shared` (`lastReviewedAt` validation).
+
+---
+
+### 13.9 As built — every vendor write transfers maintenance (AECI-981 — 2026-09-16)
+
+§13.4 gave the vendor branch exactly one door: an attestation, on `integrations`
+alone. The vendor portal then shipped three more write surfaces onto `vendors` and
+`products` and none of them touched either column, so the reported defect was
+structural rather than a bug in any one handler — **nothing in the repo ever wrote
+`vendors.maintained_by`, `vendors.last_reviewed_at`, `products.maintained_by` or
+`products.last_reviewed_at`.** A vendor could save its product and the public
+listing still read `Maintained by AEC Integrations`.
+
+Everything downstream of that write already worked: the columns, the CHECKs, the
+`MaintenanceSchema` carriers, `toMaintenance`, `computePairMaintenance`, the
+component's four branches and all three mount sites. This is a write-path fix and a
+ruling. **No migration, no new endpoint, no new cache tag, no Algolia change** — the
+index carries neither column.
+
+#### The rule
+
+**Any vendor-authorized catalog write transfers maintenance.** It sets
+`maintained_by = 'vendor'` and stamps `last_reviewed_at = now` on the affected row,
+unconditionally. That is §13.4's own reasoning applied to the rest of the surface —
+*"even a repeat assertion IS a review — that is the event the date records"* — and
+the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
+"Updated" is the accurate verb for a save.
+
+The five write sites are the complete list:
+
+| Endpoint | Row | Shape |
+|---|---|---|
+| `PATCH /api/vendor/profile` | `vendors` | folded into `writeColumns` |
+| `PATCH /api/vendor/products/:id` | `products` | folded into `writeColumns` |
+| `POST /api/vendor/products/:id/versions` | `products` | own statement + own audit row |
+| `PATCH …/versions/:versionId` | `products` | own statement + own audit row |
+| `DELETE …/versions/:versionId` | `products` | own statement + own audit row |
+
+Two shapes, because each is the right one for its batch. The two `PATCH`es already
+carry a `vendor.updated` / `product.updated` audit row on the row they are writing,
+so the transfer rides the existing statement and marks the existing row. The three
+version handlers write `product_versions`, a different entity, so the transfer needs
+a statement and an audit row of its own — the shape `vendorMaintainedFlip` already
+uses in `routes/vendor-attestations.ts`, reusing its `metadata.reason =
+'maintenance-marker'` so one grep finds every maintenance flip whatever caused it.
+Those three also pass **both** rows to `afterVendorWrite`, so the §26.5 forward
+carries the transfer as well as the version write; `logBatchToPosthog` posts the
+whole list in one request, so the second entry opens no extra Worker connection
+(AECI-666).
+
+Four consequences worth stating, because each is a thing someone will otherwise
+"fix":
+
+1. **Kept out of the audit before/after diff**, exactly as `updated_at` is. That
+   diff records what the vendor *sent*; a server-derived transfer is not that. The
+   transition instead sets `metadata.maintenanceTransfer: true`, and only on the
+   write that actually changes hands — flagging every later save would make the
+   flag useless for finding the ones that mattered. The key is **omitted**, not
+   set to `false`, on every later save, and identically on all five sites: a
+   key-presence query over `audit_log.metadata` has to mean the same thing
+   whichever surface wrote the row.
+2. **Per row, never transitive.** A vendor editing its company profile does not flip
+   its products, and a product edit does not flip the vendor. Each row's marker
+   answers "who is on the hook for *this* page". Likewise an attestation still flips
+   only the integration (§13.4) and never the endpoint products: a vendor speaking
+   for one edge is not maintaining the whole product record.
+3. **A logo upload is not a write.** `POST /api/vendor/logo` touches no D1
+   (`STAGE_2_5_SPEC.md` §11.1); the parent form's save is the write, and it inherits
+   the rule with no special-casing. The **admin** logo PATCH
+   (`routes/logos.ts`) transfers nothing — swapping a logo is not authorship of the
+   record's content, and admin is otherwise under the `ADMIN_PANEL_SPEC.md` §2
+   catalog lockout. So `maintained_by: 'vendor'` with `logo_source: 'admin'` is a
+   valid and expected state; the two columns answer different questions.
+4. **The version path moves `products.updated_at` and that is accepted.** The
+   intent was to leave it alone — the Algolia index carries neither maintenance
+   column, so the resync it triggers is redundant — but `updatedAt()` is declared
+   `.$onUpdate(...)`, so any `update(products)` restamps it and the only way to stop
+   that is to write the stale value back. That would make the row's last-modified
+   wrong for every other reader to save one upsert. A test pins the restamp as a
+   fact so a later change to it is deliberate.
+
+#### The promote fence
+
+**Promote never advances `last_reviewed_at` on a vendor-maintained row.** The marker
+renders the *same column* with different verbs per branch — `Reviewed <date>` for
+AECi, `Updated <date>` for a vendor — so an AECi review date landing on a
+vendor-maintained row credits AECi's work to the vendor. That is precisely the
+mis-attribution §13.5 branch-scopes `computePairMaintenance` to prevent; the fence
+closes the same hole at the row grain, on the write side.
+
+`maintained_by` itself was already safe: promote does not accept it (§13.3) and the
+column never appears in any projection. Two holes survived that:
+
+- **`integrations` has no claimed-vendor block.** AECI-520 refuses to write a seated
+  vendor's row or any product it owns, but nothing equivalent guards edges, and an
+  edge is vendor-maintainable today through §13.4. This is the arm that fires in
+  production.
+- **`claimedVendorIds` is seat-derived.** Revoke or ban every `vendor_admin` seat and
+  the block lifts while `maintained_by` stays `'vendor'`. So the `vendors` and
+  `products` arms of the fence are near-unreachable while a seat exists and fire
+  post-revoke. They are not dead branches.
+
+Implemented as a `CASE` inside the UPDATE (`fencedLastReviewedAt` in
+`routes/promote.ts`), on all four tables that carry the column — `vendors`,
+`products`, `integrations`, `connector_evidenced_pairs`. Tested in SQL rather than
+read-then-branch for the reason `logo_source` is (`STAGE_2_5_SPEC.md` §11.2): the
+plan and the commit are not atomic with each other, so a vendor save landing in
+between must still win. INSERT branches are untouched — a new row is `'aeci'` by
+column default, so there is nothing to protect.
+
+**The refusal is reported, not silent.** A `kind: 'review-signal'` entry goes into
+`skipped[]`, whose own definition is "something you sent was not written" and which
+the review app is told to inspect (`REVIEW_APP_PROMOTE_API.md` §4). This is not the
+§13.8 case that was refused a receipt: that was the *absent* field on the normal
+path, which fires on every push and means nothing. This is an explicitly supplied
+value that was refused, it is actionable, and re-sending will not clear it.
+
+#### The cross-table move carry
+
+A `powered_by` re-route re-INSERTs the edge under its existing id in the other
+anchor table (AECI-798 / AECI-888). An INSERT that names neither column takes the
+`'aeci'` default, so **an ordinary promote could un-vendor a vendor-maintained edge
+through a routing change** — the failure §13.3 exists to prevent, through a door it
+did not cover. `locateEdge` now carries `maintained_by` / `last_reviewed_at` on both
+its selects, and `carriedMaintenance` puts them on the destination INSERT in both
+directions. The fence cannot cover this: it guards UPDATEs, and a move is an insert
+plus a drop.
+
+#### Deferred: the seat-revoke path
+
+**The transfer is one-way today. Nothing hands a record back to `'aeci'`, and there
+is a real gap in that.** Once the last un-banned `vendor_admin` seat is removed,
+AECI-520's block lifts and promote resumes writing the content, but `maintained_by`
+stays `'vendor'` indefinitely — so a record AECi has resumed curating keeps the
+vendor's name on it. The principled fix mirrors §13.4's retraction rule: flip the
+vendor and every owned product back to `'aeci'` in the same batch as the revoke,
+never clearing `last_reviewed_at`. Tracked as **AECI-989**; named here so a reader
+between the two PRs is not misled.
+
+#### Acceptance
+
+- [x] `PATCH /api/vendor/profile` and `PATCH /api/vendor/products/:id` set
+      `maintained_by = 'vendor'` and advance `last_reviewed_at`, including on a
+      taxonomy-only and a logo-only save.
+- [x] All three version writes transfer maintenance of the parent product, each in
+      the same `db.batch` as its own mutation (§26.1).
+- [x] The transfer stays out of the audit diff; `metadata.maintenanceTransfer: true`
+      marks the transition only, and is absent rather than `false` afterwards.
+- [x] A product edit does not flip the vendor row, and vice versa.
+- [x] `GET /api/products/:slug` and `GET /api/vendors/:slug` report the vendor
+      branch. Cache purge was already correct — `afterVendorWrite` fires
+      `vendor:{slug}` / `productEditTags(...)` / `versionEditTags(...)` and the
+      marker rides the pages those tags already repaint (`CACHE_STRATEGY.md` §(b2)).
+- [x] A promote cannot un-vendor a product or a vendor, and cannot advance the date
+      on any vendor-maintained record; the refusal appears in `skipped[]`.
+- [x] A cross-table move preserves both columns.
+- [x] The rendered marker is asserted at the product-detail and vendor-detail mount
+      sites, which had no test at all before this issue.
+
+**Test coverage:** `vendor.spec.ts` (9 cases across both PATCHes),
+`vendor-product-versions.spec.ts` (transfer, the `updated_at` fact, the
+transition-only flag, plus three updated audit-count assertions that now
+legitimately carry a second row), `promote.spec.ts` (the products/vendors
+un-vendor guarantee, the three fence cases, the move carry), `products.spec.ts` /
+`vendors.spec.ts` (the vendor branch on each detail response), and
+`product-detail.component.spec.ts` / `vendor-detail.component.spec.ts` (the rendered
+string, on the `ng test` lane).
 
 ---
 

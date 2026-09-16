@@ -110,6 +110,8 @@ import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
+  isMaintenanceTransfer,
+  maintenanceTransferColumns,
   parseJsonBody,
   recrawlEnabled,
   requireOwnedProduct,
@@ -760,7 +762,13 @@ export function createUpdateVendorProfileHandler(
     // be built from data already in hand (see the product handler). It is kept
     // OUT of `columns` so the audit row records the vendor's edit and not a
     // system column they never touched.
-    const writeColumns = { ...columns, updatedAt: new Date().toISOString() };
+    //
+    // The AECI-981 maintenance transfer rides the same slot for the same reason:
+    // a vendor save puts the record on the vendor's name and stamps the review
+    // date, but the vendor did not "send" those fields and they do not belong in
+    // the before/after diff. See `maintenanceTransferColumns` for the rule.
+    const now = new Date().toISOString();
+    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -772,7 +780,16 @@ export function createUpdateVendorProfileHandler(
       afterState: columns,
       // Zod strips unknown keys and omits absent optionals, so the payload's own
       // keys ARE the list of fields the vendor sent.
-      metadata: { source: AUDIT_SOURCE, vendorId, fields: Object.keys(payload) },
+      //
+      // `maintenanceTransfer` marks the save that CHANGED HANDS, not every save
+      // by a vendor that already holds the record — a flag on all of them would
+      // be useless for finding the ones that mattered (AECI-981).
+      metadata: {
+        source: AUDIT_SOURCE,
+        vendorId,
+        fields: Object.keys(payload),
+        ...(isMaintenanceTransfer(before) ? { maintenanceTransfer: true } : {}),
+      },
     };
 
     await db.batch([
@@ -872,7 +889,12 @@ export function createUpdateVendorProductHandler(
     // record embeds its facet names, so a taxonomy-only edit would otherwise
     // never reach search at all — not "within 24h", ever. Kept out of `columns`
     // so the audit row records the vendor's edit, not a system column.
-    const writeColumns = { ...columns, updatedAt: new Date().toISOString() };
+    //
+    // The AECI-981 maintenance transfer rides the same slot on the same reasoning,
+    // and is likewise unconditional: a taxonomy-only or logo-only save is still the
+    // vendor taking responsibility for the record.
+    const now = new Date().toISOString();
+    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
 
     // Set replacement per facet: absent → untouched, `[]` → cleared.
     const afterTaxonomy: TaxonomySlugs = { ...beforeTaxonomy };
@@ -896,7 +918,15 @@ export function createUpdateVendorProductHandler(
       afterState: { ...columns, ...afterFacets },
       // Zod strips unknown keys and omits absent optionals, so the payload's own
       // keys ARE the list of fields the vendor sent.
-      metadata: { source: AUDIT_SOURCE, vendorId, fields: Object.keys(payload) },
+      //
+      // `maintenanceTransfer` marks the save that CHANGED HANDS only — see the
+      // profile handler above (AECI-981).
+      metadata: {
+        source: AUDIT_SOURCE,
+        vendorId,
+        fields: Object.keys(payload),
+        ...(isMaintenanceTransfer(before) ? { maintenanceTransfer: true } : {}),
+      },
     };
 
     // One atomic unit: the column patch, each sent facet's delete+reinsert, and

@@ -135,6 +135,65 @@ import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-index
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+/**
+ * The maintenance fence (AECI-981 / `STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+ *
+ * Promote may advance `last_reviewed_at` on a record AECi maintains, and must not
+ * on one a vendor maintains. The marker's two branches use different verbs off the
+ * SAME column — `Maintained by AEC Integrations · Reviewed <date>` versus
+ * `Vendor-maintained · Updated <date>` — so an AECi review date landing on a
+ * vendor-maintained row attributes AECi's work to the vendor. That is exactly the
+ * mis-attribution §13.5 branch-scopes `computePairMaintenance` to prevent; this
+ * closes the same hole at the row grain, on the write side.
+ *
+ * Tested in SQL rather than read-then-branch for the reason `logo_source` is
+ * (`STAGE_2_5_SPEC.md` §11.2): the plan and the commit are not atomic with each
+ * other, so a vendor save landing in between must still win.
+ *
+ * Returns `{}` when the caller sent nothing, preserving §3.6's absent-means-
+ * untouched contract — the fence only ever refuses a value that was explicitly
+ * supplied, and that refusal is reported in `skipped[]`.
+ */
+function fencedLastReviewedAt(
+  table: { maintainedBy: SQLiteColumn; lastReviewedAt: SQLiteColumn },
+  value: string | null | undefined,
+): Record<string, unknown> {
+  if (value === undefined) return {};
+  return {
+    lastReviewedAt: sql`CASE WHEN ${table.maintainedBy} = 'aeci' THEN ${value} ELSE ${table.lastReviewedAt} END`,
+  };
+}
+
+/** Whether {@link fencedLastReviewedAt} will refuse this write, i.e. whether the
+ *  caller earns a `kind: 'review-signal'` entry in `skipped[]`. Kept beside the
+ *  fence so the SQL and the receipt cannot drift. */
+function reviewSignalRefused(
+  value: string | null | undefined,
+  storedMaintainedBy: string | undefined,
+): boolean {
+  return value !== undefined && storedMaintainedBy === 'vendor';
+}
+
+/**
+ * What a cross-table move must write so the destination row keeps the maintenance
+ * state the source row held (AECI-981).
+ *
+ * `maintained_by` is carried unconditionally — the routing key changed, the record
+ * did not. `last_reviewed_at` applies the same fence as an UPDATE would, in JS
+ * rather than SQL because the source row is already in hand and the destination
+ * row does not exist yet to be tested against.
+ */
+function carriedMaintenance(
+  source: { maintainedBy: string; lastReviewedAt: string | null },
+  supplied: string | null | undefined,
+): { maintainedBy: string; lastReviewedAt: string | null } {
+  const accept = supplied !== undefined && source.maintainedBy === 'aeci';
+  return {
+    maintainedBy: source.maintainedBy,
+    lastReviewedAt: accept ? supplied : source.lastReviewedAt,
+  };
+}
+
 /** Drop keys whose value is `undefined` so the column is left untouched. */
 function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -347,7 +406,9 @@ function planEvidencedPairWrite(args: {
   /** Tri-state like the `integrations` branch (AECI-730): `undefined` = the payload's
    *  vendor did not resolve, so the column is LEFT UNTOUCHED rather than cleared. */
   builtByVendorId: string | null | undefined;
-  existing: { id: string; table: 'evidenced' | 'integrations' } | null;
+  /** The full {@link LocatedEdge}, not just `{ id, table }` — the move branch needs
+   *  the source row's maintenance pair to carry it across (AECI-981). */
+  existing: LocatedEdge | null;
 }): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
   const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existing } = args;
 
@@ -410,7 +471,13 @@ function planEvidencedPairWrite(args: {
       statements: [
         db
           .update(connectorEvidencedPairs)
-          .set({ ...editable, ...links })
+          // The fence goes LAST so it overrides the plain `lastReviewedAt` that
+          // `editable` carries (AECI-981).
+          .set({
+            ...editable,
+            ...links,
+            ...fencedLastReviewedAt(connectorEvidencedPairs, intg.lastReviewedAt),
+          })
           .where(eq(connectorEvidencedPairs.id, existing.id)),
         // Belt-and-braces on the single-table invariant: an id must never live in
         // both tables. A clean evidenced row is not in `integrations`, so this is a
@@ -433,7 +500,14 @@ function planEvidencedPairWrite(args: {
       id: existing.id,
       operation: 'updated',
       statements: [
-        db.insert(connectorEvidencedPairs).values({ id: existing.id, ...editable, ...links }),
+        // Carry the maintenance pair across — see the mirror branch in
+        // `planIntegrationEdge` (AECI-981).
+        db.insert(connectorEvidencedPairs).values({
+          id: existing.id,
+          ...editable,
+          ...links,
+          ...carriedMaintenance(existing.row, intg.lastReviewedAt),
+        }),
         db
           .update(claims)
           .set({ connectorEvidencedPairId: existing.id, integrationId: null })
@@ -472,13 +546,30 @@ type LocatedEdge =
   | { id: string; table: 'integrations'; row: LocatedIntegrationRow }
   | { id: string; table: 'evidenced'; row: LocatedEvidencedRow };
 
-type LocatedIntegrationRow = {
+/**
+ * The maintenance pair rides on both shapes for two jobs (AECI-981):
+ *
+ * 1. the fence's receipt — whether a supplied `lastReviewedAt` was refused; and
+ * 2. the **cross-table move carry**. A `powered_by` re-route re-INSERTs the row
+ *    under its existing id in the other table, and an INSERT that names neither
+ *    column takes the `'aeci'` column default — silently un-vendoring an edge a
+ *    vendor maintains. The SQL fence cannot help there: it guards UPDATEs, and a
+ *    move is an insert plus a drop. Carrying both columns across is what keeps
+ *    §13.3's "promote can never take a record off a vendor's name" true through a
+ *    routing change.
+ */
+type LocatedMaintenance = {
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+};
+
+type LocatedIntegrationRow = LocatedMaintenance & {
   sourceProductId: string;
   targetProductId: string;
   poweredByProductId: string | null;
 };
 
-type LocatedEvidencedRow = {
+type LocatedEvidencedRow = LocatedMaintenance & {
   productAId: string;
   productBId: string;
   connectorProductId: string;
@@ -493,13 +584,25 @@ async function locateEdge(
   // the second read is skipped on most rows. Order is a cost choice only — the
   // single-table invariant means at most one of these can match.
   const intg = await db.query.integrations.findFirst({
-    columns: { sourceProductId: true, targetProductId: true, poweredByProductId: true },
+    columns: {
+      sourceProductId: true,
+      targetProductId: true,
+      poweredByProductId: true,
+      maintainedBy: true,
+      lastReviewedAt: true,
+    },
     where: eq(integrations.id, supabaseId),
   });
   if (intg) return { id: supabaseId, table: 'integrations', row: intg };
 
   const pair = await db.query.connectorEvidencedPairs.findFirst({
-    columns: { productAId: true, productBId: true, connectorProductId: true },
+    columns: {
+      productAId: true,
+      productBId: true,
+      connectorProductId: true,
+      maintainedBy: true,
+      lastReviewedAt: true,
+    },
     where: eq(connectorEvidencedPairs.id, supabaseId),
   });
   if (pair) return { id: supabaseId, table: 'evidenced', row: pair };
@@ -555,7 +658,13 @@ function planIntegrationWrite(args: {
       statements: [
         db
           .update(integrations)
-          .set({ ...editable, ...linkData })
+          // The fence goes LAST so it overrides the plain `lastReviewedAt` that
+          // `integrationEditableData` carries (AECI-981).
+          .set({
+            ...editable,
+            ...linkData,
+            ...fencedLastReviewedAt(integrations, intg.lastReviewedAt),
+          })
           .where(eq(integrations.id, existing.id)),
         // Belt-and-braces on the single-table invariant, mirroring the evidenced branch:
         // an id must never live in both tables. A clean `integrations` row has no twin,
@@ -570,7 +679,17 @@ function planIntegrationWrite(args: {
       id: existing.id,
       operation: 'updated',
       statements: [
-        db.insert(integrations).values({ id: existing.id, ...editable, ...linkData }),
+        // The maintenance pair is carried across explicitly (AECI-981): this is an
+        // INSERT, so omitting it would take the `'aeci'` column default and un-vendor
+        // an edge the vendor maintains. `editable` may also carry a `lastReviewedAt`
+        // the payload sent; the carry goes last, and it wins for the same reason the
+        // UPDATE fence does.
+        db.insert(integrations).values({
+          id: existing.id,
+          ...editable,
+          ...linkData,
+          ...carriedMaintenance(existing.row, intg.lastReviewedAt),
+        }),
         db
           .update(claims)
           .set({ integrationId: existing.id, connectorEvidencedPairId: null })
@@ -768,6 +887,17 @@ const BLOCKED_PRODUCT_REASON =
   'product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
 const BLOCKED_INTEGRATION_REASON =
   'an endpoint product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
+
+// ─── Maintenance-fence reasons (AECI-981) ────────────────────────────────────
+// Same constant discipline as the block reasons above, and the entity type lives
+// in the text because a `review-signal` entry carries only the payload `ref`, which
+// is unique within its own array and not across them.
+const REFUSED_REVIEW_SIGNAL_VENDOR =
+  'vendor is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain';
+const REFUSED_REVIEW_SIGNAL_PRODUCT =
+  'product is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain';
+const REFUSED_REVIEW_SIGNAL_INTEGRATION =
+  'integration is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain';
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
 
@@ -1719,13 +1849,21 @@ export async function runPromoteIngest(
   const updatedVendorIds = payload.vendors
     .map((v) => v.supabaseId)
     .filter((id): id is string => Boolean(id));
+  //
+  // `maintained_by` rides along for the AECI-981 fence: it costs nothing on a read
+  // that already runs, and it is what decides whether a supplied `lastReviewedAt`
+  // is written or refused into `skipped[]`.
   const vendorSlugById = new Map<string, string>();
+  const vendorMaintainedById = new Map<string, string>();
   if (updatedVendorIds.length) {
     const rows = await db.query.vendors.findMany({
-      columns: { id: true, slug: true },
+      columns: { id: true, slug: true, maintainedBy: true },
       where: inArray(vendors.id, updatedVendorIds),
     });
-    for (const r of rows) vendorSlugById.set(r.id, r.slug);
+    for (const r of rows) {
+      vendorSlugById.set(r.id, r.slug);
+      vendorMaintainedById.set(r.id, r.maintainedBy);
+    }
   }
 
   // ── Claimed-vendor block (AECI-520) ──────────────────────────────────────
@@ -1810,9 +1948,15 @@ export async function runPromoteIngest(
                   logoUrl: sql`CASE WHEN ${vendors.logoSource} IS NULL THEN ${v.logoUrl} ELSE ${vendors.logoUrl} END`,
                 }
               : {}),
+            // AFTER the projection spread so it overrides the plain value
+            // `vendorEditableData` put there (AECI-981).
+            ...fencedLastReviewedAt(vendors, v.lastReviewedAt),
           })
           .where(eq(vendors.id, v.supabaseId)),
       );
+      if (reviewSignalRefused(v.lastReviewedAt, vendorMaintainedById.get(v.supabaseId))) {
+        skipped.push({ ref: v.ref, kind: 'review-signal', reason: REFUSED_REVIEW_SIGNAL_VENDOR });
+      }
       vendorIdByRef.set(v.ref, v.supabaseId);
       vendorResults.push({ ref: v.ref, id: v.supabaseId, slug, operation: 'updated' });
       firstVendorSlug ??= slug;
@@ -2142,9 +2286,10 @@ export async function runPromoteIngest(
     // The existence read the update branch already needed doubles as the guard: a
     // `supabaseId` with no row behind it means the review app's pointer is dead, so
     // create instead of no-op-updating a row that isn't there (AECI-568).
+    // `maintainedBy` rides along for the AECI-981 fence — see the vendor read above.
     const existing = p.supabaseId
       ? await db.query.products.findFirst({
-          columns: { slug: true },
+          columns: { slug: true, maintainedBy: true },
           where: eq(products.id, p.supabaseId),
         })
       : undefined;
@@ -2169,6 +2314,9 @@ export async function runPromoteIngest(
                     logoUrl: sql`CASE WHEN ${products.logoSource} IS NULL THEN ${p.logoUrl} ELSE ${products.logoUrl} END`,
                   }
                 : {}),
+              // AFTER the projection spread so it overrides the plain value
+              // `productEditableData` put there (AECI-981).
+              ...fencedLastReviewedAt(products, p.lastReviewedAt),
             }),
             // Set-once (AECI-581 / §13 D6). This branch re-asserts
             // `promotion_status: 'promoted'` on EVERY re-promote — `product.updated`
@@ -2180,6 +2328,9 @@ export async function runPromoteIngest(
           })
           .where(eq(products.id, p.supabaseId)),
       );
+      if (reviewSignalRefused(p.lastReviewedAt, existing.maintainedBy)) {
+        skipped.push({ ref: p.ref, kind: 'review-signal', reason: REFUSED_REVIEW_SIGNAL_PRODUCT });
+      }
       audit({
         actorType: 'system',
         action: 'product.updated',
@@ -2452,6 +2603,17 @@ export async function runPromoteIngest(
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
+    // The AECI-981 fence receipt, pushed ONCE here rather than per branch. `located`
+    // answers it for all four write branches at the same grain: a create cannot be
+    // vendor-maintained, and both the same-table UPDATE and the cross-table move
+    // refuse the supplied date on a `'vendor'` row.
+    if (reviewSignalRefused(intg.lastReviewedAt, located?.row.maintainedBy)) {
+      skipped.push({
+        ref: intg.ref,
+        kind: 'review-signal',
+        reason: REFUSED_REVIEW_SIGNAL_INTEGRATION,
+      });
+    }
     // Kept under its old name for the AECI-730 `preserved` branch below, which needs the
     // STORED `powered_by_product_id` — not the payload's — to know whose product page
     // still needs purging. Narrowed to the `integrations` arm because that is the only

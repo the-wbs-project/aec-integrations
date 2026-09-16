@@ -279,16 +279,73 @@ describe('POST /api/vendor/products/:id/versions', () => {
   it('emits its audit row in the SAME batch', async () => {
     const { body } = await sendJson('POST', versionsUrl(), { label: '2026.1' });
     const audits = await auditRows();
-    expect(audits).toHaveLength(1);
-    expect(audits[0]?.action).toBe('product_version.created');
-    expect(audits[0]?.entityType).toBe('product_version');
-    expect(audits[0]?.entityId).toBe(body.version.id);
-    expect(audits[0]?.actorId).toBe(SEAT);
-    expect(audits[0]?.metadata).toMatchObject({
+    // TWO rows since AECI-981: the version write, and the maintenance transfer
+    // onto the parent product. They ride one batch (§26.1) and name different
+    // entities, which is why the transfer cannot be folded into the first row.
+    expect(audits).toHaveLength(2);
+    expect(audits.map((a) => a.action).sort()).toEqual([
+      'product.updated',
+      'product_version.created',
+    ]);
+    const version = audits.find((a) => a.action === 'product_version.created');
+    expect(version?.entityType).toBe('product_version');
+    expect(version?.entityId).toBe(body.version.id);
+    expect(version?.actorId).toBe(SEAT);
+    expect(version?.metadata).toMatchObject({
       source: 'vendor-portal',
       vendorId: VENDOR,
       productId: PRODUCT,
     });
+  });
+
+  // ── Maintenance transfer (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───
+  //
+  // Authoring a version is a vendor-authorized catalog write, so it transfers
+  // maintenance of the PARENT product. Its own rows are `product_versions`, a
+  // different entity, so the transfer is a separate statement + audit row.
+
+  it('transfers maintenance of the parent product, in the same batch', async () => {
+    const before = Date.now();
+    await sendJson('POST', versionsUrl(), { label: '2026.1' });
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(Date.parse(String(row?.lastReviewedAt))).toBeGreaterThanOrEqual(before);
+
+    const transfer = (await auditRows()).find((a) => a.action === 'product.updated');
+    expect(transfer?.entityType).toBe('product');
+    expect(transfer?.entityId).toBe(PRODUCT);
+    // Same `reason` the §13.4 attestation flip uses, so ONE grep finds every
+    // maintenance flip in the audit log whatever surface caused it.
+    expect(transfer?.metadata).toMatchObject({
+      source: 'vendor-portal',
+      reason: 'maintenance-marker',
+      maintenanceTransfer: true,
+    });
+  });
+
+  it('moves products.updated_at, because $onUpdate fires on the transfer UPDATE', async () => {
+    // Pinned as a fact rather than a goal. AECI-981 wanted the versions path to
+    // leave `updated_at` alone — the Algolia index carries neither maintenance
+    // column, so the resync it triggers is redundant. But `updatedAt()` is
+    // declared `.$onUpdate(...)` in `db/schema.ts`, so ANY `update(products)`
+    // restamps it, and the only way to stop that is to write the old value back —
+    // which would make the row's last-modified a lie to save one upsert. So the
+    // restamp is accepted, and asserted here so a later change to it is deliberate.
+    const [seed] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    await sendJson('POST', versionsUrl(), { label: '2026.1' });
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.updatedAt).not.toBe(seed?.updatedAt);
+  });
+
+  it('marks maintenanceTransfer only on the write that changed hands', async () => {
+    await sendJson('POST', versionsUrl(), { label: '2026.1' });
+    await sendJson('POST', versionsUrl(), { label: '2026.2' });
+    const transfers = (await auditRows()).filter((a) => a.action === 'product.updated');
+    expect(transfers).toHaveLength(2);
+    // Present only on the transition, ABSENT afterwards — the same encoding the
+    // two PATCH handlers use, so one key-presence query works on every surface.
+    expect(transfers[0]?.metadata).toMatchObject({ maintenanceTransfer: true });
+    expect(transfers[1]?.metadata).not.toHaveProperty('maintenanceTransfer');
   });
 
   it('rejects a duplicate label with a 400 keyed to the field, writing nothing', async () => {
@@ -298,7 +355,9 @@ describe('POST /api/vendor/products/:id/versions', () => {
     expect(body.error.code).toBe('VALIDATION_FAILED');
     expect(body.error.details?.field ?? body.error.field).toBe('label');
     expect(await versionRows()).toHaveLength(1);
-    expect(await auditRows()).toHaveLength(1);
+    // Two from the FIRST (successful) create — the version row and its AECI-981
+    // maintenance transfer. The rejected second call added neither.
+    expect(await auditRows()).toHaveLength(2);
   });
 
   it('403s an unverified vendor on its OWN product, and writes nothing', async () => {
@@ -406,12 +465,13 @@ describe('PATCH /api/vendor/products/:id/versions/:versionId', () => {
   it('emits its audit row in the SAME batch, with a before/after diff', async () => {
     await patch({ label: '2026.2' });
     const audits = await auditRows();
-    expect(audits).toHaveLength(1);
-    expect(audits[0]?.action).toBe('product_version.updated');
-    expect(audits[0]?.entityId).toBe(VERSION);
-    expect(audits[0]?.beforeState).toMatchObject({ label: '2026.1' });
-    expect(audits[0]?.afterState).toMatchObject({ label: '2026.2' });
-    expect(audits[0]?.metadata).toMatchObject({ source: 'vendor-portal', fields: ['label'] });
+    // The AECI-981 maintenance transfer rides the same batch — see the POST case.
+    expect(audits).toHaveLength(2);
+    const version = audits.find((a) => a.action === 'product_version.updated');
+    expect(version?.entityId).toBe(VERSION);
+    expect(version?.beforeState).toMatchObject({ label: '2026.1' });
+    expect(version?.afterState).toMatchObject({ label: '2026.2' });
+    expect(version?.metadata).toMatchObject({ source: 'vendor-portal', fields: ['label'] });
   });
 
   it('rejects renaming onto a sibling’s label, writing nothing', async () => {
@@ -490,10 +550,13 @@ describe('DELETE /api/vendor/products/:id/versions/:versionId', () => {
   it('emits its audit row in the SAME batch, carrying the deleted state', async () => {
     await del();
     const audits = await auditRows();
-    expect(audits).toHaveLength(1);
-    expect(audits[0]?.action).toBe('product_version.deleted');
-    expect(audits[0]?.entityId).toBe(VERSION);
-    expect(audits[0]?.beforeState).toMatchObject({ label: '2026.1' });
+    // The AECI-981 maintenance transfer rides the same batch — see the POST case.
+    // A delete transfers too: retiring a version is as much an act of maintenance
+    // as publishing one.
+    expect(audits).toHaveLength(2);
+    const version = audits.find((a) => a.action === 'product_version.deleted');
+    expect(version?.entityId).toBe(VERSION);
+    expect(version?.beforeState).toMatchObject({ label: '2026.1' });
   });
 
   it('degrades an attestation stamp to null rather than deleting the attestation', async () => {
