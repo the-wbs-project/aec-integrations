@@ -65,6 +65,7 @@ export const CAPABILITIES = [
   'profile.rich_fields', // the extended vendor field set
   'product.edit', // PATCH /api/vendor/products/:id
   'product.taxonomy.edit', // taxonomy assignment on an owned product
+  'product.usefulness.edit', // AECI-963 — the "how teams use it" narrative on an owned product
   'attestation.author', // AECI-301 — declared, no consumer yet
   'analytics.view', // vendor analytics — declared, no consumer yet
   'integration.version_diff', // AECI-304 — consulted by `./version-diff`

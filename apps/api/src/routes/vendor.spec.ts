@@ -588,6 +588,158 @@ describe('PATCH /api/vendor/products/:id', () => {
     expect(row?.adminNotes).toBeNull();
   });
 
+  // ── AECI-963: the "how teams use it" narrative ────────────────────────────
+  describe('usefulness', () => {
+    const block = {
+      audiences: [{ slug: 'architects', points: ['Coordinate the model.'] }],
+      phases: [{ slug: 'design', points: ['Set up sheets.'] }],
+    };
+    const readRow = async () =>
+      (await t.db.select().from(products).where(eq(products.id, PRODUCT)))[0];
+
+    it('writes the block and claims ownership from promote', async () => {
+      const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        usefulness: block,
+      });
+      expect(status).toBe(200);
+      const row = await readRow();
+      expect(row?.usefulness).toEqual({
+        audiences: [{ slug: 'architects', name: 'Architects', points: ['Coordinate the model.'] }],
+        phases: [{ slug: 'design', name: 'Design', points: ['Set up sheets.'] }],
+      });
+      // The fence. Without this the next promote of this product overwrites it.
+      expect(row?.usefulnessSource).toBe('vendor');
+      // And the echo carries the resolved value, or the form settles clean on
+      // something that never reached the database (see `splitPatch`'s doc).
+      expect(body.product.usefulness).toEqual(row?.usefulness);
+    });
+
+    it('resolves each name from the taxonomy row and ignores a caller-supplied one', async () => {
+      // `name` renders verbatim on the public page, so it must never be vendor
+      // text. Zod strips the key; this asserts the strip end to end.
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        usefulness: {
+          audiences: [{ slug: 'architects', name: 'BUY OUR THING', points: ['x'] }],
+          phases: [],
+        },
+      });
+      expect(status).toBe(200);
+      expect((await readRow())?.usefulness).toEqual({
+        audiences: [{ slug: 'architects', name: 'Architects', points: ['x'] }],
+        phases: [],
+      });
+    });
+
+    it('merges two groups that resolve to the same term, preserving point order', async () => {
+      // Matches promote's `resolveUsefulnessFacet`. The editor cannot produce a
+      // duplicate, so this is about the two writers agreeing on the stored shape.
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        usefulness: {
+          audiences: [
+            { slug: 'architects', points: ['first'] },
+            { slug: 'architects', points: ['second'] },
+          ],
+          phases: [],
+        },
+      });
+      expect(status).toBe(200);
+      expect((await readRow())?.usefulness).toEqual({
+        audiences: [{ slug: 'architects', name: 'Architects', points: ['first', 'second'] }],
+        phases: [],
+      });
+    });
+
+    it('400s an unknown term and writes nothing at all', async () => {
+      const before = await readRow();
+      const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        usefulness: { audiences: [{ slug: 'not-a-real-term', points: ['x'] }], phases: [] },
+      });
+      expect(status).toBe(400);
+      expect(body.error.code).toBe('VALIDATION_FAILED');
+      expect(body.error.field).toBe('usefulness.audiences');
+      // Resolution runs BEFORE the batch opens, so nothing is half-applied —
+      // including `updated_at`, which a later failure would already have moved.
+      const after = await readRow();
+      expect(after?.usefulness).toEqual(before?.usefulness ?? null);
+      expect(after?.updatedAt).toBe(before?.updatedAt);
+      expect(await auditRows()).toHaveLength(0);
+    });
+
+    it('clears the section on an explicit null and STILL claims ownership', async () => {
+      await patchJson(`/api/vendor/products/${PRODUCT}`, { usefulness: block });
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, { usefulness: null });
+      expect(status).toBe(200);
+      const row = await readRow();
+      expect(row?.usefulness).toBeNull();
+      // A clear that did not claim ownership would be undone by the next promote,
+      // which is the whole point of clearing.
+      expect(row?.usefulnessSource).toBe('vendor');
+    });
+
+    it('normalises an all-empty block to NULL rather than an empty object', async () => {
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        usefulness: { audiences: [], phases: [] },
+      });
+      expect(status).toBe(200);
+      expect((await readRow())?.usefulness).toBeNull();
+    });
+
+    it('leaves the column and its provenance alone on an unrelated edit', async () => {
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        description: 'Something else entirely',
+      });
+      expect(status).toBe(200);
+      const row = await readRow();
+      expect(row?.usefulness).toBeNull();
+      // The trap this guards: stamping the fence on every product edit would
+      // silently take the field away from the review app for free.
+      expect(row?.usefulnessSource).toBeNull();
+    });
+
+    it('audits the change with both the value and the provenance', async () => {
+      await patchJson(`/api/vendor/products/${PRODUCT}`, { usefulness: block });
+      const [entry] = await auditRows();
+      expect(entry?.action).toBe('product.updated');
+      expect(entry?.afterState).toMatchObject({ usefulnessSource: 'vendor' });
+      expect((entry?.metadata as { fields: string[] }).fields).toContain('usefulness');
+    });
+
+    it('404s a foreign product before it ever validates the term', async () => {
+      // Ownership settles in its own wave; the 400 above must be unreachable for
+      // a non-owner or it leaks that the product exists.
+      const { status, body } = await patchJson(`/api/vendor/products/${OTHER_PRODUCT}`, {
+        usefulness: { audiences: [{ slug: 'not-a-real-term', points: ['x'] }], phases: [] },
+      });
+      expect(status).toBe(404);
+      expect(body.error.code).toBe('NOT_FOUND');
+    });
+
+    it.each([
+      ['a group with no points', { audiences: [{ slug: 'architects', points: [] }], phases: [] }],
+      [
+        'a ninth point',
+        {
+          audiences: [{ slug: 'architects', points: Array.from({ length: 9 }, () => 'x') }],
+          phases: [],
+        },
+      ],
+      [
+        'an over-long point',
+        { audiences: [{ slug: 'architects', points: ['x'.repeat(201)] }], phases: [] },
+      ],
+      [
+        'an eleventh group',
+        {
+          audiences: Array.from({ length: 11 }, () => ({ slug: 'architects', points: ['x'] })),
+          phases: [],
+        },
+      ],
+    ])('rejects %s', async (_label, usefulness) => {
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, { usefulness });
+      expect(status).toBe(400);
+    });
+  });
+
   it('replaces a taxonomy facet as a set', async () => {
     const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
       category_slugs: ['cost-management'],

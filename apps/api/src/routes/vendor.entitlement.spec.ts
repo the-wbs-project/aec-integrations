@@ -408,6 +408,20 @@ describe('writes require an active entitlement', () => {
     expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
   });
 
+  it('gates a usefulness-ONLY edit', async () => {
+    // Reports the BASE `product.edit` right for the same reason the taxonomy case
+    // below does: any PATCH here writes the `products` row, so the base right is
+    // checked first and `product.usefulness.edit` layers on top.
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_LAPSED}`,
+      'PATCH',
+      SEAT_LAPSED,
+      { usefulness: { audiences: [{ slug: 'architects', points: ['x'] }], phases: [] } },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+  });
+
   it('gates a taxonomy-ONLY edit, which writes no product column at all', async () => {
     // The facet arrays are join rewrites, not columns, so `splitPatch`'s field
     // axis cannot see them — without an explicit check a lapsed vendor could
@@ -534,6 +548,29 @@ describe('splitPatch — the entitlement allow-list (§3.3b)', () => {
     );
     expect(columns).toEqual({ description: 'x' });
     expect(provided).toEqual(['description']);
+  });
+
+  it('maps usefulness to its OWN capability, not to product.edit', () => {
+    // AECI-963 made `usefulness` the FIRST `PRODUCT_COLUMN_MAP` entry whose
+    // capability is not `product.edit`, so this is the one place the second axis
+    // is separately observable. Sending it ALONE is what makes the assertion
+    // meaningful: `splitPatch` reports `denied.sort()[0]`'s capability, so a mixed
+    // patch would report `description`'s instead and prove nothing.
+    //
+    // A tier holding `product.edit` WITHOUT this one is unreachable at launch —
+    // the ladder is binary — which is why the gate is asserted here rather than
+    // through the route.
+    let thrown: unknown;
+    try {
+      splitPatch({ usefulness: { audiences: [], phases: [] } }, PRODUCT_COLUMN_MAP, 'unclaimed');
+    } catch (e) {
+      thrown = e;
+    }
+    const err = thrown as { status: number; code: string; details: JsonBody };
+    expect(err.status).toBe(403);
+    expect(err.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+    expect(err.details.capability).toBe('product.usefulness.edit');
+    expect(err.details.fields).toEqual(['usefulness']);
   });
 
   it('reports the denied field’s capability, deterministically', () => {

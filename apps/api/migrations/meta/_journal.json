@@ -295,6 +295,13 @@
       "when": 1789553161275,
       "tag": "0041_shocking_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1789556203591,
+      "tag": "0042_wide_the_hunter",
+      "breakpoints": true
     }
   ]
 }

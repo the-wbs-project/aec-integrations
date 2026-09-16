@@ -4503,7 +4503,19 @@ export interface PromoteResponse {
   // this promote deliberately left alive. `ref` is the enclosing integration's;
   // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
   // ordinary promote of an unclaimed product. Never an error condition.
-  preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
+  //
+  // AECI-963 adds `kind: 'usefulness'`, whose `ref` is the PRODUCT's and which is
+  // the only entry about something the caller DID send: a vendor has authored the
+  // block, so `products.usefulness_source` fences promote off the column. It is
+  // advisory — the authoritative guard is a CASE WHEN inside the UPDATE, evaluated
+  // after the read this is derived from — and the error is one-sided: it can be
+  // missing for a value that WAS preserved, never present for one that was not.
+  preserved: {
+    ref: string;
+    kind: 'claim' | 'attestation' | 'usefulness';
+    reason: string;
+    count: number;
+  }[];
   // AECI-730. NOT `skipped[]`: the integration WAS written, only this one optional
   // link was left out of the write. `outcome: 'unset'` = created, so the column is
   // NULL; `'preserved'` = updated and the column was left exactly as it was (the
@@ -4831,7 +4843,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 **Two invariants govern this whole surface.**
 
 1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; every client-supplied id — the product on `PATCH /api/vendor/products/:id` and its versions, the integration or claim on the attestation routes — has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the resource exists.
-2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `usefulness`, `source_url`, and every denormalized count/average stay AECi-owned. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. On top of the parse allow-list, each vendor-editable column now maps to a **capability**, and `splitPatch` rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds, so behaviour is unchanged; adding a rung later is a data edit in two tables.
+2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `source_url`, and every denormalized count/average stay AECi-owned. **`usefulness` was on that list until AECI-963 and is now vendor-writable** — it is narrative copy about the vendor's own product, gated on its own `product.usefulness.edit` capability, and a vendor write fences promote off the column permanently via `products.usefulness_source` (ADR 0033, `STAGE_2_5_SPEC.md` §12). It is the first entry in `PRODUCT_COLUMN_MAP` whose capability is not `product.edit`, which makes it the only field where the entitlement axis is separately observable. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. On top of the parse allow-list, each vendor-editable column now maps to a **capability**, and `splitPatch` rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds, so behaviour is unchanged; adding a rung later is a data edit in two tables.
 
 3. **Writes are entitlement-gated; reads never are.** Every write handler calls `requireCapability(c, …)` and answers **403 `ENTITLEMENT_REQUIRED`** without it (`details: { capability, tier, fields? }`). The gate is a DB-free assertion over `c.get('auth').entitlementTier`, which the guard loaded in the same round-trip as the profile. Two ordering rules: on `/profile` it runs immediately after the session's vendor is known, but on any **product**-scoped write it runs **after ownership settles**, because a 403 raised first would confirm a foreign product exists and 404-never-403 is the harder invariant. And the field-level rejection **throws rather than silently dropping** — the dirty-diff forms re-seed their baseline from the echo and would settle *clean* on a value that never landed.
 
@@ -5127,6 +5139,7 @@ export const UpdateVendorProductSchema = z
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
     logo_url: LogoUrlSchema.nullable().optional(),
+    usefulness: VendorUsefulnessSchema.nullable().optional(), // AECI-963
 
     category_slugs: termSlugList.optional(),   // max 10, [a-z0-9-]+
     audience_slugs: termSlugList.optional(),
@@ -5135,8 +5148,27 @@ export const UpdateVendorProductSchema = z
   })
   .superRefine(/* at least one field must be present */);
 
+// AECI-963. The WRITE shape: slug + points, and deliberately no `name`.
+const VendorUsefulnessGroupSchema = z.object({
+  slug: termSlug,
+  points: z.array(shortText.min(1)).min(1).max(8),   // <= 8 points, <= 200 chars each
+});
+export const VendorUsefulnessSchema = z.object({
+  audiences: z.array(VendorUsefulnessGroupSchema).max(10),
+  phases: z.array(VendorUsefulnessGroupSchema).max(10),
+});
+
 export const UpdateVendorProductResponseSchema = z.object({ product: VendorProductSchema });
 ```
+
+**`usefulness` (AECI-963)** is the "how teams use it" narrative that renders as its own section on the public product page. Four rules:
+
+- **Full replacement, and `null` clears the section.** A group has no stable id, so there is no way to patch one without resending the facet. Absent leaves the column untouched. `{ audiences: [], phases: [] }` is normalised to `null` server-side, so "cleared" has exactly one encoding.
+- **The caller sends `slug` + `points` and never `name`.** The stored `UsefulnessGroup` carries a `name` which the public page interpolates verbatim, so a reader parses it as an AECi taxonomy label. The server resolves it from the taxonomy row on every write; Zod strips a supplied one.
+- **Find-only resolution, and an unknown slug is a `400`, not a silent drop.** This is stricter than promote, which drops unresolvable groups into `skipped[]` — a bulk machine push must not fail whole over one stale term, whereas a vendor picked the term from a list we rendered. Two groups resolving to the same term MERGE, matching promote, so both writers agree on the stored shape.
+- **Writing it is one-way.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal in `preserved[]`. Nothing clears it back. See ADR 0033 and `STAGE_2_5_SPEC.md` §12.
+
+It is gated on its own **`product.usefulness.edit`** capability rather than `product.edit`. At launch the ladder is binary so `verified` holds both, and the base `product.edit` check runs first — a lapsed vendor sending only `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.edit`, exactly as a taxonomy-only edit does.
 
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
 

@@ -200,7 +200,8 @@ Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defi
 All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
 
 - **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
-- **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
+- **Usefulness amendment (AECI-963):** the "how teams use it" narrative is vendor-written — see §4.4.
+- **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, **`usefulness`** (added by AECI-963 — see §4.4), plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
 - **Cross-vendor access returns `404`, not `403`.** A non-owner must not learn that another vendor's product exists. Ownership is proven against `product_vendors` in its own read wave, before anything else runs.
 - **A site `admin` is rejected with `403`.** No impersonation at launch; admins act through `/api/admin/*` so the audit trail names the real actor. A `vendor_admin` with a null `vendor_id` is likewise rejected.
 - **Audit rows use `actor_type: 'user'`** — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration — and are distinguished by `metadata.source = 'vendor-portal'`.
@@ -286,6 +287,22 @@ unreachable, since a vendor tagging it is exactly how it reaches the floor. The 
 more tags is simply more accurate.
 
 ---
+
+### 4.4 "How teams use it" is vendor-written (AECI-963 — 2026-09-16)
+
+`products.usefulness` joins the product allow-list. It is the narrative that renders as its own section, and its own section-nav entry, on every public product detail page. Until now it was write-only through promote, so nobody could correct a word without a re-promote from the review app.
+
+The full contract is `STAGE_2_5_SPEC.md` §12 and ADR 0033. What matters for this surface:
+
+- **It is the one field whose OWNERSHIP moves on first write.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal to the review app in `preserved[]`. Nothing clears it back. That is the `logo_source` mechanism from §11 of the 2.5 spec, applied to narrative copy.
+- **It has its own capability, `product.usefulness.edit`** — the first entry in `PRODUCT_COLUMN_MAP` not gated on `product.edit`. Inert under the binary ladder; it exists so a future rung can withhold narrative authorship without a handler change. The base `product.edit` check still runs first, so a lapsed vendor sending only `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.edit`, exactly as a taxonomy-only edit does.
+- **Full replacement, `null` clears, absent leaves alone.** A group has no stable id, so a partial patch is not expressible.
+- **The wire carries the term slug and never the display name.** The stored group has a `name` the public page interpolates verbatim; the server resolves it from the taxonomy row so a vendor cannot write free text into a slot readers parse as an AECi taxonomy label.
+- **An unknown slug is a `400`**, matching §4.1's rule for taxonomy and deliberately unlike promote, which drops unresolvable groups silently. The vendor picked the term from a list we rendered, and the form re-seeds from the PATCH echo — a silent drop would settle the form clean on content that never landed.
+- **It publishes immediately, with no moderation and no "vendor supplied" label.** Both were considered and declined; the editor's own copy carries the fact instead. §12.1 of the 2.5 spec records the re-open triggers.
+- **Purge tags are unchanged** (`product:{slug}` already covers the detail page), and Algolia needs nothing because `usefulness` is not an indexed attribute. `MATERIAL_PRODUCT_FIELDS` gains it, so an edit files as `product.updated` rather than `product.minor` in the ADR 0031 re-crawl worklist.
+
+The editor is a summary card per facet with a modal behind a pencil, matching §4.3's taxonomy pattern — except that this modal **stages into the form's dirty-diff** rather than saving on close, so the content saves with the page's Save button. Both components' class docs explain why they differ, because at a glance they look like a copy that drifted.
 
 ## 5. Admin claim-review surface (AECI-521)
 

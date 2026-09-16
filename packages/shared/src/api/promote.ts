@@ -649,13 +649,26 @@ export interface PromoteSkipped {
  * problems.
  *
  * `ref` is the enclosing **integration**'s `ref`, matching how `kind: 'claim'`
- * entries in `skipped` are addressed — claims have no `ref` of their own.
+ * entries in `skipped` are addressed — claims have no `ref` of their own. The
+ * one exception is `kind: 'usefulness'`, whose `ref` is the PRODUCT's `ref`,
+ * because that is the entity the field hangs off.
+ *
  * Entries are aggregated per `(ref, kind, reason)` with a `count`, so a mechanism
  * retaining nine vendor claims reports one row saying nine, not nine rows.
+ *
+ * **`kind: 'usefulness'` is advisory in a way the other two are not (AECI-963).**
+ * The claim/attestation kinds are computed from the same plan that writes them,
+ * so they are exact. The usefulness fence is enforced INSIDE the SQL UPDATE (so
+ * a vendor edit landing mid-promote still wins), while this receipt comes from
+ * the planning read a moment earlier. In the narrow window between the two, the
+ * receipt can be absent for a value that was in fact preserved. The SQL is
+ * authoritative; this is the notification. It can never report the opposite
+ * error — a preserved receipt with no fence — because nothing clears
+ * `usefulness_source`.
  */
 export interface PromotePreserved {
   ref: string;
-  kind: 'claim' | 'attestation';
+  kind: 'claim' | 'attestation' | 'usefulness';
   reason: string;
   count: number;
 }
@@ -725,8 +738,9 @@ export interface PromoteUnresolvedLink {
  * silently dropped.
  *
  * `preserved` is the mirror image, added by AECI-604: rows that were NOT in the
- * payload and were kept anyway because a vendor owns them. See
- * {@link PromotePreserved}.
+ * payload and were kept anyway because a vendor owns them — extended by AECI-963
+ * to the `usefulness` COLUMN, which is preserved even though it WAS in the
+ * payload. See {@link PromotePreserved}.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
@@ -747,7 +761,8 @@ export interface PromoteResponse {
   skipped: PromoteSkipped[];
   /**
    * Existing claims/attestations this promote left alive because they are
-   * vendor-owned (AECI-604). Always present; empty for the ordinary promote of
+   * vendor-owned (AECI-604), plus the product's `usefulness` column when a vendor
+   * has authored it (AECI-963). Always present; empty for the ordinary promote of
    * an unclaimed product, which is still the overwhelming majority.
    */
   preserved: PromotePreserved[];

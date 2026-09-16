@@ -78,24 +78,18 @@ export const ProductListItemSchema = z.object({
 
 export type ProductListItem = z.infer<typeof ProductListItemSchema>;
 
-// `usefulness` is narrative value ("how teams use it"), NOT a taxonomy facet. Each
-// group elaborates one audience or phase term by `slug`/`name` (same field types as
-// LinkRef, but it carries NO `id` — it is slug-based, not a hydrated LinkRef; do not
-// "fix" this by extending LinkRefSchema). `points` holds >= 1 bullet, in display order.
-export const UsefulnessGroupSchema = z.object({
-  slug: z.string().min(1),
-  name: z.string().min(1),
-  points: z.array(z.string().min(1)).min(1),
-});
-
-export type UsefulnessGroup = z.infer<typeof UsefulnessGroupSchema>;
-
-export const ProductUsefulnessSchema = z.object({
-  audiences: z.array(UsefulnessGroupSchema),
-  phases: z.array(UsefulnessGroupSchema),
-});
-
-export type ProductUsefulness = z.infer<typeof ProductUsefulnessSchema>;
+// `usefulness` moved to its own leaf module (AECI-963) so `./vendor` can reach it
+// without dragging this file's `./reviews` + `./logo-read` imports onto the lazy
+// `/vendor` chunk. Re-exported here because every existing import site names
+// `./products`, and because it IS part of the product contract.
+export {
+  ProductUsefulnessSchema,
+  UsefulnessGroupSchema,
+  type ProductUsefulness,
+  type UsefulnessGroup,
+} from './usefulness';
+// A re-export creates no local binding, and `ProductDetailSchema` below uses one.
+import { ProductUsefulnessSchema } from './usefulness';
 
 /**
  * Full product detail returned by `GET /api/products/:slug`. Embeds every

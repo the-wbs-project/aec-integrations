@@ -279,6 +279,8 @@ Every vendor in this array becomes a vendor **of the product** (a
 
 Omit it entirely for a vendor-only / integration-only push (§3.5). When present:
 
+**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; integrations reference it as their endpoint. |
@@ -289,7 +291,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `audiences` | string[] | — | Audience names or slugs. |
 | `phases` | string[] | — | Project-phase names or slugs. |
 | `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
-| `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
+| `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). Omitting it leaves the stored value untouched; `null` clears it. **Not always yours to write (AECI-963)** — see the exception above and **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
@@ -322,7 +324,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 >   yours.** Where this doc says `on_hold` (§3.4a) it means yours; where it says
 >   `promotion_status = 'promoted'` on ingest it means AECi's.
 
-**`usefulness` resolution.** The review app's source field nests `disciplines` and `phases`; it renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
+**`usefulness` resolution.** *(This describes what promote does with a block it is still allowed to write. Whether it is allowed at all is the AECI-963 exception above.)* The review app's source field nests `disciplines` and `phases`; it renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
 
 **`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so — unlike `categories` / `audiences` / `phases`, which are find-or-created by canonical slug — an incoming trade is **resolve-only**, matching the `usefulness` and `dataObject` behaviour. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one by sending it.
 
@@ -1022,10 +1024,34 @@ The `result` object in full:
 - **`preserved[]` is the opposite signal and needs no action from you.** It lists
   claims and attestations that were **not** in your payload and survived anyway,
   because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
-  coexistence worked. Entries are `{ ref, kind: "claim" | "attestation", reason,
-  count }`, aggregated per reason, with `ref` set to the enclosing integration's
-  `ref`. For the ordinary promote of an unclaimed product it is always `[]`.
-  Log it if you want operator visibility; never treat it as an error.
+  coexistence worked. Entries are `{ ref, kind: "claim" | "attestation" |
+  "usefulness", reason, count }`, aggregated per reason, with `ref` set to the
+  enclosing integration's `ref`. For the ordinary promote of an unclaimed product it
+  is always `[]`. Log it if you want operator visibility; never treat it as an error.
+- **`kind: "usefulness"` is the one entry that is about something you DID send
+  (AECI-963), and its `ref` is the PRODUCT's.** It means a vendor has authored that
+  product's "how teams use it" block, so the column is no longer promote-writable
+  and the block you pushed was not written. **This is a permanent steady state for
+  that product, not a backlog that drains** — re-pushing will not change it, in the
+  same way Zapier's parked connector permanently produces an unresolved link.
+  Surface it to a curator once rather than alerting on it: the useful action is to
+  stop maintaining a copy that no longer ships, and there is no "take it back"
+  control by design.
+- **In the common case you will see `skipped[] { kind: "product" }` instead, and
+  no `preserved[]` entry at all.** A vendor can only author the block while it
+  holds a portal seat, and a claimed vendor's products are already blocked
+  wholesale (§4a) — so the whole product is skipped and nothing reaches the
+  usefulness fence. The `kind: "usefulness"` entry is what you see once that
+  claim is gone (a banned or revoked seat, §4a's last paragraph), which is
+  exactly the moment promote would otherwise overwrite copy the vendor wrote.
+- **That entry is advisory, and one-sided.** The guard that decides the write is
+  evaluated inside the SQL UPDATE; this receipt comes from a read taken a moment
+  earlier in the same request. A vendor save landing between the two means the
+  column WAS preserved and the receipt is missing. The reverse — a receipt for
+  something that was then overwritten — cannot happen, because nothing ever clears
+  `usefulness_source` back to NULL. So you may conclude "the listed blocks were
+  definitely not written"; you may **not** conclude "everything unlisted was
+  written".
 
 ---
 
@@ -1893,6 +1919,16 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] **Send a reach claim in `claims[]` on the connector arm, anchored by `connectorPairId`** (§3a, AECI-891) — never as an `integrations[]` claim. The two anchors mean different things: one says somebody built the integration, the other says only that the two ends are joinable. Send the pair before the claim, or expect a re-sendable `kind: "claim"` skip.
 - [ ] **Set `pairs[].surface` to `derived` on any pair you enumerated rather than found** (§3a, AECI-906). `unknown` promises a page exists and nobody read it; `derived` says no page exists. AECi counts `derived` toward reach and publishes it nowhere, so mislabelling it as `unknown` puts a non-existent vendor page into the publication candidate set.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).
+
+## Usefulness ownership override (AECI-963)
+
+`usefulness` remains optional nullable on the product promote payload, and for a product no vendor has touched nothing changes: promote writes it, clears it on `null`, and leaves it alone when the key is absent.
+
+What changed is that the column can now be taken away from you. A vendor editing the "how teams use it" block in the vendor portal sets `products.usefulness_source` to `vendor`, and from that moment promote writes the column only while `usefulness_source IS NULL`. The test is inside the SQL UPDATE rather than read during planning, so a vendor save landing mid-promote still wins. Promote does not accept or write `usefulness_source`, and no upstream payload change is required.
+
+The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are.
+
+Why this field and not the rest of the catalogue: `usefulness` is narrative copy about a vendor's own product, and the vendor is better placed to write it than we are. The rest of the product record stays upstream-owned. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 
 ## Logo ownership override (AECI-955)
 

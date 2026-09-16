@@ -39,12 +39,13 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
-  it('declares exactly the seven capability ids, in spec order', () => {
+  it('declares exactly the eight capability ids, in spec order', () => {
     expect(CAPABILITIES).toEqual([
       'profile.edit',
       'profile.rich_fields',
       'product.edit',
       'product.taxonomy.edit',
+      'product.usefulness.edit',
       'attestation.author',
       'analytics.view',
       'integration.version_diff',

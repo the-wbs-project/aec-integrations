@@ -10,10 +10,12 @@ import type { ProductUsefulness } from '@aeci/shared';
  * Narrative value text grouped two ways — **By audience** and **By phase** —
  * from `ProductDetail.usefulness` (API_CONTRACTS §5.1, Phase 2 spec §7.2).
  *
- * Ships **inert**: `usefulness` is a typed `null` stub for every product until
- * the data pipeline lands (AECI-169), so the parent only mounts this component
- * via `@if (p.usefulness; as u)`. The `host [hidden]` binding handles the other
- * empty case — a non-null `usefulness` whose facets carry no usable points
+ * `usefulness` is `null` for any product nobody has written one for, so the
+ * parent only mounts this component via `@if (p.usefulness; as u)`. Two writers
+ * fill it: promote, since AECI-172, and — since AECI-963 — the vendor, in the
+ * portal. (This comment said the section "ships inert … until the data pipeline
+ * lands (AECI-169)" long after that pipeline shipped.) The `host [hidden]`
+ * binding handles the other empty case — a non-null `usefulness` whose facets carry no usable points
  * (e.g. every group has zero `points`). `[hidden]` (preflight
  * `display:none !important`) collapses the host box entirely, so the parent's
  * `space-y-12` rhythm is undisturbed: a `display:none` element generates no box
@@ -24,6 +26,11 @@ import type { ProductUsefulness } from '@aeci/shared';
  * `& > :not(:last-child)` — a block margin that inline boxes ignore. Without a
  * block host the populated section would lose its 3rem gap above the following
  * Integrations section (matches the `aec-*` host pattern, cf. logo-or-initial).
+ *
+ * **Group names are taxonomy labels, not free text**, whichever writer filled
+ * them: both resolve the canonical `{ slug, name }` from the taxonomy row, and
+ * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
+ * to interpolate one here as a `<dt>` (ADR 0033).
  *
  * Layout: two columns on `md+`; a single populated side goes full-width. Groups
  * with no points are dropped. Group names / points are data (interpolation, no

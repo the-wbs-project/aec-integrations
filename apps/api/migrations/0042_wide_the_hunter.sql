@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `usefulness_source` text;

@@ -4,6 +4,8 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 
 import {
   UpdateVendorProductSchema,
+  VendorUsefulnessSchema,
+  type ProductUsefulness,
   type TaxonomyResponse,
   type TaxonomyTermWithCount,
   type UpdateVendorProductInput,
@@ -17,6 +19,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorTaxonomyFacetDialog } from './vendor-taxonomy-facet-dialog';
+import { VendorUsefulnessDialog, type UsefulnessFacet } from './vendor-usefulness-dialog';
 
 type ProductTextKey =
   | 'description'
@@ -108,7 +111,14 @@ const MAX_TERMS_PER_FACET = 10;
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [LogoInput, InfoHint, VendorTaxonomyFacetDialog, RequestTrigger, NewTabIcon],
+  imports: [
+    LogoInput,
+    InfoHint,
+    VendorTaxonomyFacetDialog,
+    VendorUsefulnessDialog,
+    RequestTrigger,
+    NewTabIcon,
+  ],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit.
@@ -233,6 +243,80 @@ const MAX_TERMS_PER_FACET = 10;
               >
                 {{ err }}
               </p>
+            }
+          </div>
+        }
+
+        <!--
+          "How teams use it" (AECI-963). Same read-here / write-in-the-modal shape
+          as the taxonomy cards below, and for the same reason: 36 audience terms
+          crossed with free text does not belong inline beside five inputs. It
+          differs in one way that matters. The modal STAGES into the dirty-diff
+          above rather than persisting, so this content saves with the button.
+        -->
+        @if (showFields()) {
+          <div class="grid gap-4 md:grid-cols-2">
+            @for (facet of usefulnessFacets; track facet.key) {
+              <section
+                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <!-- Info control is a SIBLING of the <h3>, never a child: an
+                       accessible name is computed from descendants, so nesting it
+                       would make the heading announce the whole hint. -->
+                  <div class="flex items-center gap-1.5">
+                    <h3 [class]="facetHeadingClass">{{ facet.legend }}</h3>
+                    <aec-info-hint [text]="facet.hint" width="wide" />
+                  </div>
+                  <aec-vendor-usefulness-dialog
+                    [facet]="facet.key"
+                    [legend]="facet.legend"
+                    [terms]="usefulnessTermsFor(facet.key)"
+                    [value]="usefulnessModel()"
+                    [maxGroups]="maxUsefulnessGroups"
+                    [maxPoints]="maxUsefulnessPoints"
+                    [maxPointLength]="maxUsefulnessPointLength"
+                    [disabled]="!canEdit() || taxonomy() === null"
+                    (apply)="onUsefulnessApply(facet.key, $event)"
+                  />
+                </div>
+
+                @if (taxonomy() === null) {
+                  <p
+                    class="mt-3 text-xs text-(--text-secondary)"
+                    i18n="@@vendor.product.usefulness.loading"
+                  >
+                    Loading options…
+                  </p>
+                } @else if (usefulnessGroupsFor(facet.key); as groups) {
+                  @if (groups.length === 0) {
+                    <p
+                      class="mt-3 text-sm text-(--text-secondary)"
+                      i18n="@@vendor.product.usefulness.none"
+                    >
+                      Nothing written yet. This section is hidden on your product page until it has
+                      something in it.
+                    </p>
+                  } @else {
+                    <dl class="mt-3 space-y-3">
+                      @for (group of groups; track group.slug) {
+                        <div>
+                          <dt class="text-sm font-medium text-(--text-primary)">
+                            {{ group.name }}
+                          </dt>
+                          <dd>
+                            <ul class="mt-1 space-y-1">
+                              @for (point of group.points; track point) {
+                                <li class="text-sm text-(--text-secondary)">{{ point }}</li>
+                              }
+                            </ul>
+                          </dd>
+                        </div>
+                      }
+                    </dl>
+                  }
+                }
+              </section>
             }
           </div>
         }
@@ -427,8 +511,48 @@ export class VendorProductForm {
     },
   ];
 
+  /** The two halves of `usefulness`, matching the public page's own two columns
+   *  (`product-usefulness.ts`). Hints are in the same register as the facet hints
+   *  above, and both carry the "publishes immediately" fact — there is no
+   *  moderation queue and no "vendor supplied" label to carry it instead. */
+  protected readonly usefulnessFacets: readonly {
+    key: UsefulnessFacet;
+    legend: string;
+    hint: string;
+  }[] = [
+    {
+      key: 'audiences',
+      legend: $localize`:@@vendor.product.usefulness.byAudience:How teams use it: by audience`,
+      hint: $localize`:@@vendor.product.usefulness.byAudienceHint:What someone in each role actually does with your product, in their words rather than your feature names. Two or three short lines per audience beats a paragraph. This publishes to your product page immediately, with no review.`,
+    },
+    {
+      key: 'phases',
+      legend: $localize`:@@vendor.product.usefulness.byPhase:How teams use it: by phase`,
+      hint: $localize`:@@vendor.product.usefulness.byPhaseHint:What your product is doing at each point in the project lifecycle. Only cover the phases where it genuinely changes how the work goes. This publishes to your product page immediately, with no review.`,
+    },
+  ];
+
+  // The caps mirror `VendorUsefulnessSchema` exactly. Duplicated as numbers
+  // because the dialog needs them for its counters, and a counter that disagrees
+  // with the validator is worse than no counter.
+  protected readonly maxUsefulnessGroups = 10;
+  protected readonly maxUsefulnessPoints = 8;
+  protected readonly maxUsefulnessPointLength = 200;
+
   private readonly baseline = signal<VendorProduct | null>(null);
   protected readonly model = signal<Record<string, string>>({});
+
+  /**
+   * The staged `usefulness` value — a SIBLING of {@link model} rather than a key
+   * inside it, because that map is `Record<string, string>` and a JSON blob is not
+   * a string.
+   *
+   * Unlike {@link selected} (the taxonomy facets) this is WRITABLE, because its
+   * dialog stages rather than persisting. That is the whole reason it participates
+   * in {@link diff} and therefore in `hasChanges` / `saveDisabled` / `markDirty`
+   * and the "changed somewhere else" banner, all for free.
+   */
+  protected readonly usefulnessModel = signal<ProductUsefulness | null>(null);
 
   /**
    * What the SERVER says this product carries, per facet. Deliberately a
@@ -507,12 +631,39 @@ export class VendorProductForm {
       const next = raw === '' ? null : raw;
       if (next !== ((base[cfg.key] as string | null) ?? null)) out[cfg.key] = next;
     }
+    // AECI-963. Structural compare, never `JSON.stringify` — key order in the echo
+    // is stable today by accident, not by contract. Order-SENSITIVE on purpose:
+    // the array order is display order on the public page, so reordering groups or
+    // points IS an edit.
+    const nextUsefulness = this.usefulnessModel();
+    if (!usefulnessEquals(base.usefulness, nextUsefulness)) {
+      out['usefulness'] = toWireUsefulness(nextUsefulness);
+    }
     return out as UpdateVendorProductInput;
   });
 
   protected readonly hasChanges = computed(() => Object.keys(this.diff()).length > 0);
-  protected readonly hasErrors = computed(() =>
-    Object.values(this.fieldErrors()).some((e) => e !== null),
+
+  /**
+   * Defensive backstop only: the dialog will not emit a draft its own checks
+   * reject. It exists because every other field on this form has one, and because
+   * a Save that 400s is a worse failure than a Save button that stays disabled.
+   *
+   * Reads the DIFF, never the staged model. Promote enforces none of
+   * `VendorUsefulnessSchema`'s caps (`PromoteUsefulnessGroupSchema` bounds
+   * nothing but "at least one point"), so an already-promoted block can exceed
+   * them. Validating the staged model would fail on that untouched server copy
+   * the moment the form seeded, and `hasErrors` would disable Save for EVERY
+   * field on the product — logo, links, description — with nothing rendered to
+   * say why. Only a value actually being sent can block the save.
+   */
+  private readonly usefulnessInvalid = computed(() => {
+    const wire = this.diff().usefulness;
+    return wire != null && !VendorUsefulnessSchema.safeParse(wire).success;
+  });
+
+  protected readonly hasErrors = computed(
+    () => Object.values(this.fieldErrors()).some((e) => e !== null) || this.usefulnessInvalid(),
   );
   protected readonly saveDisabled = computed(
     () =>
@@ -629,6 +780,48 @@ export class VendorProductForm {
     return rows;
   }
 
+  protected usefulnessTermsFor(facet: UsefulnessFacet): readonly TaxonomyTermWithCount[] {
+    return this.termsFor(facet === 'audiences' ? 'audience_slugs' : 'phase_slugs');
+  }
+
+  /** What the CURRENT DRAFT says, not what the server says — this is the staged
+   *  card, so it must repaint the moment the dialog applies. */
+  protected usefulnessGroupsFor(facet: UsefulnessFacet) {
+    return this.usefulnessModel()?.[facet] ?? [];
+  }
+
+  /**
+   * Absorb one facet's staged replacement. The other facet is carried over
+   * untouched, because the wire field is the COMPLETE value — sending one facet
+   * alone would clear the other.
+   *
+   * The group `name`s written here are provisional: the server resolves the
+   * canonical label from the taxonomy row and the PATCH echo re-seeds them. They
+   * are filled from the vocabulary rather than left blank so the summary card
+   * below reads correctly before the save.
+   */
+  protected onUsefulnessApply(
+    facet: UsefulnessFacet,
+    groups: readonly { slug: string; points: string[] }[],
+  ): void {
+    const terms = this.usefulnessTermsFor(facet);
+    const named = groups.map((group) => ({
+      slug: group.slug,
+      name: terms.find((t) => t.slug === group.slug)?.name ?? group.slug,
+      points: [...group.points],
+    }));
+    const current = this.usefulnessModel();
+    const next: ProductUsefulness = {
+      audiences: facet === 'audiences' ? named : (current?.audiences ?? []),
+      phases: facet === 'phases' ? named : (current?.phases ?? []),
+    };
+    // Normalise an all-empty value to `null`, matching the server. Without this
+    // the diff would send `{audiences:[],phases:[]}`, the server would normalise
+    // it to NULL anyway, and the echo would disagree with what we staged.
+    this.usefulnessModel.set(next.audiences.length === 0 && next.phases.length === 0 ? null : next);
+    this.saved.set(false);
+  }
+
   protected onLogoChange(value: string): void {
     this.model.update((m) => ({ ...m, logo_url: value }));
     this.saved.set(false);
@@ -692,12 +885,17 @@ export class VendorProductForm {
    */
   private applyEcho(product: VendorProduct): void {
     const keepText = this.hasChanges();
+    // AECI-963: `usefulnessModel` follows the TEXT model's rule, not the facet
+    // computed's. A facet save arriving while a usefulness draft is staged must
+    // not throw that draft away — it is unsaved work exactly like half-typed
+    // prose, and `seed()` would overwrite it with the server's copy.
     if (keepText) this.baseline.set(product);
     else this.seed(product);
   }
 
   private seed(p: VendorProduct): void {
     this.baseline.set(p);
+    this.usefulnessModel.set(p.usefulness);
     this.model.set({
       description: p.description ?? '',
       website: p.website ?? '',
@@ -706,4 +904,46 @@ export class VendorProductForm {
       logo_url: p.logo_url ?? '',
     });
   }
+}
+
+/**
+ * Strip the server-resolved `name` from every group, giving the wire shape
+ * `VendorUsefulnessSchema` accepts (AECI-963).
+ *
+ * `name` is deliberately not sendable: the public page interpolates it verbatim,
+ * so a vendor-supplied one would be free text in a slot readers parse as an AECi
+ * taxonomy label. The server fills it from the taxonomy row on every write.
+ */
+function toWireUsefulness(value: ProductUsefulness | null): {
+  audiences: { slug: string; points: string[] }[];
+  phases: { slug: string; points: string[] }[];
+} | null {
+  if (value === null) return null;
+  const strip = (groups: ProductUsefulness['audiences']) =>
+    groups.map((g) => ({ slug: g.slug, points: [...g.points] }));
+  return { audiences: strip(value.audiences), phases: strip(value.phases) };
+}
+
+/**
+ * Structural equality for the dirty-diff.
+ *
+ * ORDER-SENSITIVE, unlike the taxonomy facets' `sameSet`, and that is the point:
+ * the arrays are display order on the public product page, so moving a group up or
+ * reordering its bullets is a real edit the vendor expects to be able to save.
+ *
+ * Compares `slug` and `points` only. `name` is server-derived from the slug, so a
+ * name difference with the same slug means the taxonomy was renamed — which is not
+ * this vendor's edit and must not make their clean form look dirty.
+ */
+function usefulnessEquals(a: ProductUsefulness | null, b: ProductUsefulness | null): boolean {
+  if (a === null || b === null) return a === b;
+  const facetEquals = (x: ProductUsefulness['audiences'], y: ProductUsefulness['audiences']) =>
+    x.length === y.length &&
+    x.every(
+      (group, i) =>
+        group.slug === y[i]!.slug &&
+        group.points.length === y[i]!.points.length &&
+        group.points.every((point, j) => point === y[i]!.points[j]),
+    );
+  return facetEquals(a.audiences, b.audiences) && facetEquals(a.phases, b.phases);
 }
