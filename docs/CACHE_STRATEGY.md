@@ -288,6 +288,19 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   (§7.2). And `index:products` is deliberately omitted:
   unlike a product edit, versions never appear on the `/products` catalog, so
   purging it would evict a 300s-TTL page for content that cannot have changed.
+  > **AECI-981 adds no tag here, and that is the finding rather than an omission.**
+  > Every vendor write now also flips the maintenance marker on the row it writes
+  > (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9), and the marker renders in the page
+  > header of exactly the pages these tag sets already purge — `vendor:{slug}` for
+  > the vendor detail plus every product page embedding it, `product:{slug}` for
+  > the product detail plus every pair page embedding it, and `versionEditTags`'s
+  > `product:{slug}` for the version path. The marker is detail-only
+  > (`API_CONTRACTS.md` §6.6: it never renders on a card), so no index or browse
+  > tag is owed either. The one thing to keep true: any FUTURE writer of
+  > `maintained_by` / `last_reviewed_at` must purge the entity tag, because a
+  > marker is a claim about who is accountable and a stale one is a lie rather
+  > than merely old.
+
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
   /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
   plus `product:{sourceSlug}` and `product:{targetSlug}`**, three tags, all

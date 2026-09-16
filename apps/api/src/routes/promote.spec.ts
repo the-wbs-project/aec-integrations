@@ -522,6 +522,129 @@ describe('runPromoteIngest', () => {
     expect(intg?.maintainedBy).toBe('vendor'); // …and left the vendor's ownership alone
   });
 
+  it('cannot un-vendor a PRODUCT or a VENDOR either (AECI-981)', async () => {
+    // The sibling case above covered `integrations` only, because until AECI-981
+    // nothing could make a product or vendor row vendor-maintained. A vendor
+    // profile/product save can now, so the guarantee is asserted where it lives.
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit');
+    await t.db.update(vendors).set({ maintainedBy: 'vendor' }).where(eq(vendors.id, vendX));
+    await t.db.update(products).set({ maintainedBy: 'vendor' }).where(eq(products.id, prodX));
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: vendX, companyName: 'Autodesk Inc.' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2026' },
+    });
+    expect(res.status).toBe(200);
+
+    const vend = await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) });
+    const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
+    expect(vend?.companyName).toBe('Autodesk Inc.'); // the push DID land…
+    expect(prod?.name).toBe('Revit 2026');
+    expect(vend?.maintainedBy).toBe('vendor'); // …and left both records on the vendor's name
+    expect(prod?.maintainedBy).toBe('vendor');
+  });
+
+  // ── The maintenance fence (AECI-981 / §13.9) ─────────────────────────────
+  //
+  // Promote may advance the date on a record AECi maintains and must not on one a
+  // vendor maintains: the marker renders the SAME column as `Reviewed <date>` in
+  // one branch and `Updated <date>` in the other, so an AECi review date on a
+  // vendor-maintained row credits AECi's work to the vendor.
+
+  it('refuses a supplied lastReviewedAt on a vendor-maintained record, and says so', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    const otherX = uuid(5);
+    const intgX = uuid(4);
+    const held = '2026-03-04T00:00:00.000Z';
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit', { lastReviewedAt: held });
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+    for (const stmt of [
+      t.db.update(vendors).set({ maintainedBy: 'vendor', lastReviewedAt: held }),
+      t.db.update(products).set({ maintainedBy: 'vendor' }),
+      t.db.update(integrations).set({ maintainedBy: 'vendor', lastReviewedAt: held }),
+    ]) {
+      await stmt;
+    }
+
+    const rechecked = '2026-08-17T00:00:00.000Z';
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: vendX, companyName: 'Autodesk', lastReviewedAt: rechecked },
+      ],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', lastReviewedAt: rechecked },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgX,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: otherX },
+          lastReviewedAt: rechecked,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    // Every stored date held.
+    expect(
+      (await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) }))?.lastReviewedAt,
+    ).toBe(held);
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.lastReviewedAt,
+    ).toBe(held);
+    expect(
+      (await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) }))
+        ?.lastReviewedAt,
+    ).toBe(held);
+
+    // …and the refusal is REPORTED rather than silent. `skipped` is the right
+    // array by its own definition: "something you sent was not written".
+    const body = (await res.json()) as { skipped: { ref: string; kind: string }[] };
+    expect(
+      body.skipped
+        .filter((e) => e.kind === 'review-signal')
+        .map((e) => e.ref)
+        .sort(),
+    ).toEqual(['i1', 'p1', 'v1']);
+  });
+
+  it('still advances the date on an AECi-maintained record — the fence is not a block', async () => {
+    const prodX = uuid(3);
+    await seedProduct(prodX, 'revit', 'Revit');
+    const rechecked = '2026-08-17T00:00:00.000Z';
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', lastReviewedAt: rechecked },
+    });
+    expect(res.status).toBe(200);
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.lastReviewedAt,
+    ).toBe(rechecked);
+    const body = (await res.json()) as { skipped: { kind: string }[] };
+    expect(body.skipped.filter((e) => e.kind === 'review-signal')).toHaveLength(0);
+  });
+
+  it('reports nothing when no review signal was sent — absence is the normal path', async () => {
+    const prodX = uuid(3);
+    await seedProduct(prodX, 'revit', 'Revit');
+    await t.db.update(products).set({ maintainedBy: 'vendor' }).where(eq(products.id, prodX));
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2026' },
+    });
+    const body = (await res.json()) as { skipped: { kind: string }[] };
+    // A receipt on every push would fire for essentially every promote and mean
+    // nothing — the §13.8 rule. Only an explicitly SENT value earns one.
+    expect(body.skipped.filter((e) => e.kind === 'review-signal')).toHaveLength(0);
+  });
+
   // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
   // pruned, deleted) used to take the update branch anyway: `UPDATE … WHERE id =
   // <gone>` writes nothing, yet the response said `operation: 'updated'` with an
@@ -2072,6 +2195,43 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     );
     expect(moved).toHaveLength(1);
     expect(moved[0]!.metadata).toMatchObject({ movedFrom: 'connector_evidenced_pairs' });
+  });
+
+  it('carries maintained_by and last_reviewed_at ACROSS the move (AECI-981)', async () => {
+    // The fence guards UPDATEs; a move is an INSERT plus a drop, so it needs its
+    // own carry. Without one the destination row takes the `'aeci'` column
+    // default and an ordinary promote silently un-vendors an edge a vendor
+    // maintains — the failure §13.3 exists to prevent, through a door it did not
+    // cover.
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId } = await seedRoutedEdge(ids);
+    const held = '2026-03-04T00:00:00.000Z';
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ maintainedBy: 'vendor', lastReviewedAt: held })
+      .where(eq(connectorEvidencedPairs.id, pairId));
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          poweredByProduct: null,
+          mechanismKind: 'native',
+          direction: 'one-way',
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const moved = await t.db.query.integrations.findFirst({
+      where: eq(integrations.id, pairId),
+    });
+    expect(moved?.maintainedBy).toBe('vendor');
+    expect(moved?.lastReviewedAt).toBe(held);
   });
 
   it('does NOT report a stale supabaseId when the id resolves in the other anchor table (AECI-888 narrows AECI-568)', async () => {

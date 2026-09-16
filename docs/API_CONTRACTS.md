@@ -1128,6 +1128,8 @@ Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
+**Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Per row and never transitive: a product edit does not flip the vendor. Neither the write endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
+
 **`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
 
 - `review_count`, `rating_overall_avg`, `rating_onboarding_avg` — the denormalized summary columns (already on `ProductListItem`).

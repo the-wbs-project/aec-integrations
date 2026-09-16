@@ -38,6 +38,18 @@
  * (the §26.1 invariant — D1 has no interactive transactions). Post-commit, the
  * Cache-Tag purge and the §26.5 forward run in `waitUntil`, both best-effort.
  * Ids are generated up front, never read back from `db.batch()`.
+ *
+ * Since AECI-981 each batch carries a SECOND mutation and a second audit row: the
+ * maintenance transfer onto the parent `products` row (§13.9). It is a separate
+ * statement rather than a fold because this batch's own rows are
+ * `product_versions`, a different entity, and its audit row must name the entity
+ * it actually changed.
+ *
+ * It sets no `updated_at` of its own, but `updatedAt()` is `.$onUpdate(...)`, so
+ * the column moves anyway and the product joins the next nightly Algolia sweep.
+ * That upsert is redundant — the index carries neither maintenance column — and
+ * it is still the right trade: suppressing it means writing the stale value back,
+ * which would make the row's last-modified wrong for every other reader.
  */
 
 import {
@@ -70,6 +82,7 @@ import {
   assertVerifiedVendor,
   parseJsonBody,
   recrawlEnabled,
+  productMaintenanceTransfer,
   requireOwnedProduct,
   sessionVendorId,
   type VendorContext,
@@ -271,15 +284,35 @@ export function createProductVersionHandler(
       metadata: { source: AUDIT_SOURCE, vendorId, productId, fields: Object.keys(payload) },
     };
 
+    // AECI-981: authoring a version is a vendor-authorized catalog write, so it
+    // transfers maintenance of the PARENT product. It gets its own statement and
+    // its own audit row because this batch has no `products` write to fold into —
+    // the rows above are `product_versions`, a different entity. Same shape as
+    // `vendorMaintainedFlip` in `vendor-attestations.ts`.
+    const maintenance = productMaintenanceTransfer(
+      db,
+      session,
+      auditActorType(session),
+      product,
+      now,
+      { vendorId },
+    );
+
     await db.batch([
       db.insert(productVersions).values(row),
+      maintenance.stmt,
       auditInsert(db, auditEntry),
+      auditInsert(db, maintenance.audit),
     ] as BatchTuple);
 
     afterVendorWrite(
       c,
       versionEditTags(product.slug),
-      auditEntry,
+      // BOTH rows, so the §26.5 forward carries the maintenance transfer too —
+      // same shape as `vendor-attestations.ts` (AECI-981). `logBatchToPosthog`
+      // sends the whole list in ONE request, so the second entry costs no extra
+      // Worker connection (AECI-666).
+      [auditEntry, maintenance.audit],
       versionEditRecrawl(c, db, productId, product.slug),
       db,
     );
@@ -330,7 +363,8 @@ export function createUpdateProductVersionHandler(
     // Stamped explicitly rather than left to `$onUpdate` so the response can be
     // built from data already in hand, and kept out of the audit diff below —
     // the vendor did not edit a system column.
-    const writeColumns = { ...changes, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const writeColumns = { ...changes, updatedAt: now };
     const after: ProductVersionRow = { ...before, ...writeColumns };
 
     const auditEntry: AuditLogEntry = {
@@ -346,15 +380,31 @@ export function createUpdateProductVersionHandler(
       metadata: { source: AUDIT_SOURCE, vendorId, productId, fields: Object.keys(payload) },
     };
 
+    // AECI-981 — see the create handler.
+    const maintenance = productMaintenanceTransfer(
+      db,
+      session,
+      auditActorType(session),
+      product,
+      now,
+      { vendorId },
+    );
+
     await db.batch([
       db.update(productVersions).set(writeColumns).where(eq(productVersions.id, versionId)),
+      maintenance.stmt,
       auditInsert(db, auditEntry),
+      auditInsert(db, maintenance.audit),
     ] as BatchTuple);
 
     afterVendorWrite(
       c,
       versionEditTags(product.slug),
-      auditEntry,
+      // BOTH rows, so the §26.5 forward carries the maintenance transfer too —
+      // same shape as `vendor-attestations.ts` (AECI-981). `logBatchToPosthog`
+      // sends the whole list in ONE request, so the second entry costs no extra
+      // Worker connection (AECI-666).
+      [auditEntry, maintenance.audit],
       versionEditRecrawl(c, db, productId, product.slug),
       db,
     );
@@ -396,15 +446,32 @@ export function createDeleteProductVersionHandler(
     // via `ON DELETE SET NULL` — the vendor's assertion survives and falls back
     // to the coarse `introduced_at` / `deprecated_at` dates (§8.2). Deleting a
     // version is not a way to erase an attestation.
+    // AECI-981 — see the create handler. Retiring a version is as much an act of
+    // maintenance as publishing one, so a delete transfers too.
+    const maintenance = productMaintenanceTransfer(
+      db,
+      session,
+      auditActorType(session),
+      product,
+      new Date().toISOString(),
+      { vendorId },
+    );
+
     await db.batch([
       db.delete(productVersions).where(eq(productVersions.id, versionId)),
+      maintenance.stmt,
       auditInsert(db, auditEntry),
+      auditInsert(db, maintenance.audit),
     ] as BatchTuple);
 
     afterVendorWrite(
       c,
       versionEditTags(product.slug),
-      auditEntry,
+      // BOTH rows, so the §26.5 forward carries the maintenance transfer too —
+      // same shape as `vendor-attestations.ts` (AECI-981). `logBatchToPosthog`
+      // sends the whole list in ONE request, so the second entry costs no extra
+      // Worker connection (AECI-666).
+      [auditEntry, maintenance.audit],
       versionEditRecrawl(c, db, productId, product.slug),
       db,
     );

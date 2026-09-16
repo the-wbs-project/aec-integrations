@@ -801,6 +801,22 @@ describe('GET /api/products/:slug — maintenance marker (AECI-616)', () => {
     expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
     expect(body.updated_at).not.toBe(reviewed);
   });
+
+  it('reports the VENDOR branch once a vendor save has taken the record (AECI-981)', async () => {
+    // The state `PATCH /api/vendor/products/:id` now writes. This is the read half
+    // of the defect: the marker rendered `Maintained by AEC Integrations` after a
+    // vendor save, because nothing ever set this column on `products`.
+    const updated = '2026-09-16T00:00:00.000Z';
+    await seedProduct(u(1), 'revit', 'Revit', {
+      maintainedBy: 'vendor',
+      lastReviewedAt: updated,
+    });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(body.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: updated });
+  });
 });
 
 describe('GET /api/products/:slug — the reachable tier (AECI-892 / §13.7)', () => {

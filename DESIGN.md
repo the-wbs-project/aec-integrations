@@ -676,7 +676,12 @@ What actually renders today:
   was backfilled** — bare attribution is the honest default, not missing data. Never wire the
   date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
   itself on every bulk re-promote (60 production products share one `updated_at` day). The
-  vendor branch is driven by real vendor attestations. Dates are formatted in **UTC**, not the
+  vendor branch is driven by real vendor work: an attestation, or — since AECI-981 — any
+  vendor-authorized catalog save in the portal (a profile edit, a product edit, a version
+  write). A save both flips the branch and supplies the date, which is why the vendor
+  wording reads `Updated` where the AECi wording reads `Reviewed`: they are the same stored
+  column describing two different acts, and swapping the verbs would misattribute one party's
+  work to the other. Dates are formatted in **UTC**, not the
   ambient zone — SSR runs UTC and the browser does not, so a zone-local format would trip a
   hydration mismatch either side of midnight.
   - It **coexists** with the agreement pill below rather than replacing it, deliberately: the

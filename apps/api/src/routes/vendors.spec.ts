@@ -146,4 +146,20 @@ describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
     expect(detail.verified).toBe(false);
     expect(detail.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
   });
+
+  it('reports the VENDOR branch once a vendor save has taken the record (AECI-981)', async () => {
+    // The state `PATCH /api/vendor/profile` now writes — see the product sibling.
+    const updated = '2026-09-16T00:00:00.000Z';
+    await seedVendor(u(1), 'autodesk', 'Autodesk', {
+      maintainedBy: 'vendor',
+      lastReviewedAt: updated,
+      verified: false,
+    });
+
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    const detail = VendorDetailSchema.parse(await res.json());
+    // Still three independent signals, and this one moved without the others.
+    expect(detail.verified).toBe(false);
+    expect(detail.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: updated });
+  });
 });

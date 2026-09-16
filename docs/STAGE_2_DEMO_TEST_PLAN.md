@@ -77,7 +77,7 @@ AECI-789 found two more — **sixteen**. A drift here is silent and user-visible
 - [ ] Agreement states render: `confirmed`, `single_source`, `unverified`, conflict.
 - [ ] Version-diff timeline and the per-product version selectors work.
 - [ ] `version_diff: null` suppresses the diff rather than rendering an empty one.
-- [ ] Claim provenance and the maintenance marker (`last_reviewed_at`) display.
+- [ ] Claim provenance and the maintenance marker (`last_reviewed_at`) display. Include the AECI-981 transfer: save a product in the portal, then confirm the public listing flips from `Maintained by AEC Integrations` to `Vendor-maintained · Updated <date>`.
 - [ ] Pair-page JSON-LD present (WebPage + about + BreadcrumbList).
 
 ### 3.5 Navigation + footer

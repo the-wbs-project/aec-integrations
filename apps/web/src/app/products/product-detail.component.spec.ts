@@ -213,6 +213,51 @@ const connector = (overrides: Partial<ProductDetail> = {}) =>
  * a connector product's page intelligible (its endpoint table is legitimately
  * empty because it is the mechanism, not an endpoint).
  */
+// ── Maintenance marker (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───────
+//
+// The rendered half of the defect. `aec-maintenance-marker` and its four branches
+// have shipped since AECI-616 and have their own component spec, but until now
+// NOTHING bound the API's `maintenance` object to this page's mount site — so a
+// dropped input or a wrong field name would have rendered AECi attribution
+// forever and no test would have noticed. That is exactly the shape of the bug
+// this issue reports, one layer down.
+describe('ProductDetailPage maintenance marker', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders AECi attribution with no date for an unreviewed record', () => {
+    const { el } = setup(buildProduct());
+    const marker = el.querySelector('aec-maintenance-marker');
+    expect(marker).toBeTruthy();
+    expect(marker!.textContent).toContain('Maintained by AEC Integrations');
+    expect(marker!.textContent).not.toMatch(/\d{4}/);
+  });
+
+  it('renders the vendor branch when the record has been taken over', () => {
+    const { el } = setup(
+      buildProduct({
+        maintenance: { maintained_by: 'vendor', last_reviewed_at: '2026-09-16T00:00:00.000Z' },
+      }),
+    );
+    const marker = el.querySelector('aec-maintenance-marker');
+    // The verb differs by branch off the SAME column: "Updated" for a vendor,
+    // "Reviewed" for AECi. Asserting the whole string is what catches a mis-bind
+    // that passes the right date into the wrong branch.
+    expect(marker!.textContent).toContain('Vendor-maintained · Updated September 16, 2026');
+    expect(marker!.textContent).not.toContain('Maintained by AEC Integrations');
+  });
+
+  it('carries the date through to the AECi branch too', () => {
+    const { el } = setup(
+      buildProduct({
+        maintenance: { maintained_by: 'aeci', last_reviewed_at: '2026-03-04T00:00:00.000Z' },
+      }),
+    );
+    expect(el.querySelector('aec-maintenance-marker')!.textContent).toContain(
+      'Maintained by AEC Integrations · Reviewed March 4, 2026',
+    );
+  });
+});
+
 describe('ProductDetailPage powered-integrations hub', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

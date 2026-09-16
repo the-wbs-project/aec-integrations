@@ -22,6 +22,7 @@ import { productVendors, products, profiles, vendorRequests, vendors } from '../
 import { logBatchToPosthog, logToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
+import type { BatchStmt } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
@@ -331,6 +332,100 @@ export interface OwnedProduct {
   product: ProductRow;
   isPrimary: boolean;
   vendor: VendorRow;
+}
+
+/**
+ * The AECI-981 maintenance transfer.
+ *
+ * A vendor-authorized catalog write puts the record on the vendor's name and
+ * records the save as a review: `maintained_by = 'vendor'` plus a fresh
+ * `last_reviewed_at`. Both are unconditional, extending the rule
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §13.4 already ships for attestations — *"even a
+ * repeat assertion IS a review — that is the event the date records"* — to the
+ * rest of the vendor write surface. The vendor branch of the marker renders
+ * `Vendor-maintained · Updated <date>`, so "Updated" is exactly what a save is.
+ *
+ * **Per row, never transitive.** A vendor editing its company profile does not
+ * flip its products, and a product edit does not flip the vendor: each row's
+ * marker answers "who is on the hook for THIS page" (§13.9).
+ *
+ * **One-way for now.** Nothing hands a record back to `'aeci'`; the seat-revoke
+ * case is a named deferral in §13.9. `last_reviewed_at` is never cleared, on the
+ * same reasoning §13.4 gives for retraction — withdrawing an assertion does not
+ * un-happen the review.
+ *
+ * Caller keeps these OUT of the audit row's before/after diff, exactly as
+ * `updated_at` is kept out, so that diff stays a record of what the vendor sent.
+ * {@link maintenanceTransferAudit} is how a transfer stays greppable.
+ */
+export function maintenanceTransferColumns(now: string): {
+  maintainedBy: 'vendor';
+  lastReviewedAt: string;
+} {
+  return { maintainedBy: 'vendor', lastReviewedAt: now };
+}
+
+/** True when this write is the moment a record changes hands, rather than one of
+ *  the many later saves by a vendor that already holds it. Only the transition is
+ *  marked in the audit metadata — marking every save would make the flag useless
+ *  for finding the ones that mattered. */
+export function isMaintenanceTransfer(before: { maintainedBy: string }): boolean {
+  return before.maintainedBy !== 'vendor';
+}
+
+/**
+ * The transfer as its own statement + audit row, for a batch that has no write to
+ * the parent row to fold into — the three `product_versions` handlers, whose own
+ * audit rows are `product_version.*` on a different entity.
+ *
+ * Shaped after `vendorMaintainedFlip` in `routes/vendor-attestations.ts`, and it
+ * reuses that path's `metadata.reason` so one grep finds every maintenance flip in
+ * the audit log regardless of which surface caused it (§13.8).
+ *
+ * Unlike the attestation flip there is no no-op case to suppress: `last_reviewed_at`
+ * advances on every save by definition, so the statement always changes something
+ * and the audit row is never a lie.
+ *
+ * Sets no `updated_at` of its own. The column still moves, because `updatedAt()`
+ * is `.$onUpdate(...)` and this is an UPDATE — see the note in
+ * `vendor-product-versions.ts` for why that redundant Algolia resync is accepted
+ * rather than suppressed.
+ */
+export function productMaintenanceTransfer(
+  db: Db,
+  session: { userId: string },
+  actorType: AuditLogEntry['actorType'],
+  before: ProductRow,
+  now: string,
+  context: { vendorId: string },
+): { stmt: BatchStmt; audit: AuditLogEntry } {
+  return {
+    stmt: db
+      .update(products)
+      .set(maintenanceTransferColumns(now))
+      .where(eq(products.id, before.id)),
+    audit: {
+      actorId: session.userId,
+      actorType,
+      action: 'product.updated',
+      entityType: 'product',
+      entityId: before.id,
+      beforeState: {
+        maintained_by: before.maintainedBy,
+        last_reviewed_at: before.lastReviewedAt,
+      },
+      afterState: { maintained_by: 'vendor', last_reviewed_at: now },
+      metadata: {
+        source: AUDIT_SOURCE,
+        vendorId: context.vendorId,
+        reason: 'maintenance-marker',
+        // Present ONLY on the transition, never as `false`. Same encoding as the
+        // two PATCH handlers in `vendor.ts`, so one key-presence query over
+        // `audit_log.metadata` finds the hand-changing saves on every surface.
+        ...(isMaintenanceTransfer(before) ? { maintenanceTransfer: true } : {}),
+      },
+    },
+  };
 }
 
 /**
