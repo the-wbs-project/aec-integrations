@@ -10,6 +10,7 @@ import type { RequestSubmitResponse } from '@aeci/shared';
 import { SessionStatus } from '../auth/session-status';
 
 import { RequestForm } from './request-form';
+import { RequestFormBody } from './request-form-body';
 import { RequestsApi } from './requests-api';
 
 type Entity = 'product' | 'vendor';
@@ -325,5 +326,78 @@ describe('RequestForm', () => {
       expect(formValue).toMatchObject({ submitter_linkedin_url: '' });
       httpMock.verify();
     });
+  });
+});
+
+/**
+ * AECI-967 — the drawer-only `bodyPrefill`. Rendered against `RequestFormBody`
+ * directly rather than through `RequestForm`, because the ROUTED page
+ * deliberately has no way to supply one: a seed there could only arrive as a
+ * query param, and free text in the URL would join the SSR cache key and the
+ * request logs. The drawer is the only caller.
+ */
+describe('RequestFormBody bodyPrefill (AECI-967)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function setupBody(bodyPrefill: string | null) {
+    const api = makeApiMock();
+    const session = makeSessionStub(null);
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: RequestsApi, useValue: api },
+        { provide: SessionStatus, useValue: session.stub },
+      ],
+    });
+    const fixture = TestBed.createComponent(RequestFormBody);
+    fixture.componentRef.setInput('entity', 'product');
+    fixture.componentRef.setInput('kind', 'correction');
+    fixture.componentRef.setInput('slug', 'acme');
+    fixture.componentRef.setInput('variant', 'drawer');
+    fixture.componentRef.setInput('bodyPrefill', bodyPrefill);
+    fixture.detectChanges();
+    return {
+      fixture,
+      api,
+      httpMock: TestBed.inject(HttpTestingController),
+      el: fixture.nativeElement as HTMLElement,
+    };
+  }
+
+  const SEED = 'The recorded Budget flow with Procore is wrong. What is actually correct: ';
+
+  it('seeds the body textarea with the supplied text', () => {
+    const { el, httpMock } = setupBody(SEED);
+    expect((el.querySelector('#correction-body') as HTMLTextAreaElement).value).toBe(SEED);
+    httpMock.verify();
+  });
+
+  // It is a SEED, not a value. The vendor is expected to finish the sentence,
+  // and what reaches the API is whatever the textarea holds at submit.
+  it('submits the edited seed, not the seed', async () => {
+    const { fixture, el, api, httpMock } = setupBody(SEED);
+    type(fixture, '#correction-body', SEED + 'it is inbound only.');
+    type(fixture, '#correction-email', 'dana@example.com');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitCorrection).toHaveBeenCalledTimes(1);
+    const [, formValue] = api.submitCorrection.mock.calls[0];
+    expect(formValue.body).toBe(SEED + 'it is inbound only.');
+    httpMock.verify();
+  });
+
+  // The default for every other trigger in the app.
+  it('leaves the body empty when no prefill is supplied', () => {
+    const { el, httpMock } = setupBody(null);
+    expect((el.querySelector('#correction-body') as HTMLTextAreaElement).value).toBe('');
+    httpMock.verify();
   });
 });

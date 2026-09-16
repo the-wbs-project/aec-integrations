@@ -111,7 +111,8 @@ Four rules the module holds, each because of a specific failure:
 runs Go templates and cannot import TypeScript, so **the two are hand-kept twins: change
 the shell in one and change it in the other in the same PR**, or the sign-in email drifts
 from every other email. That file additionally has to be pasted into the Supabase
-dashboard to take effect, per the magic-link section below.
+dashboard to take effect — into **two** slots, Magic Link and Confirm signup, per the
+magic-link section below.
 
 ### Migration status
 
@@ -121,14 +122,17 @@ then migrated **the whole claim-to-activation path**: `claim-submitted-alert`,
 `stale-claim-ticket-alert`. The `claim-denied` pair followed: the vendor counterparty
 half (`attestation-claim-denied`) and the ops half (`attestation-ops-alert`) moved off
 the legacy `toText`/`toHtml` and `opsText`/`opsTable` formatters onto the house layout.
+`landing-signup` followed on 2026-09-16: the lead-capture path's operator alert, whose
+`Referrer` row now auto-links and whose CTA is `/admin/audience`, the screen equivalent
+AECI-586 gave it.
 The rest still render through the legacy formatters in `lib/email.ts`, which produce an
 unbranded `<body>` of `<p>` tags at an off-palette `#27272a`:
 
 | Formatter | Templates | Count |
 |---|---|---|
-| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-claim-denied`, `attestation-ops-alert` | 8 |
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-claim-denied`, `attestation-ops-alert`, `landing-signup` | 9 |
 | `toText` / `toHtml` (legacy reader-facing) | `review-submitted`, `review-approved`, `review-rejected`, `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `entitlement-expiring` | 9 |
-| `opsText` / `opsTable` (operator) | `landing-signup`, `landing-feedback`, `entitlement-expiring-admin` | 3 |
+| `opsText` / `opsTable` (operator) | `landing-feedback`, `entitlement-expiring-admin` | 2 |
 
 `opsSectionsText` / `opsSectionsHtml` are **gone**: the two templates that used them were
 the last, and a dead private formatter is how the old shell comes back.
@@ -160,8 +164,8 @@ not one rendering function. The `claim-denied` pair extended that to the attesta
 sweep's denial path: the vendor counterparty nudge and its ops copy moved together,
 because a denying vendor's in-portal acknowledgement says the other vendor is told on
 the next daily check, and the email that tells them has to read as the same product.
-The three templates left on `opsText` belong to other paths: lead capture and the
-entitlement sweep.
+The two templates left on `opsText` belong to other paths: lead capture (`landing-feedback`,
+whose sibling `landing-signup` has since migrated) and the entitlement sweep.
 
 The two cron digests are still unmigrated and are a larger job: `lib/analytics-digest.ts`
 carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.md token.
@@ -176,7 +180,7 @@ carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.m
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
 | `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert or reactivation (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the still-active already-listed no-op. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest. **On the house layout since AECI-924**, through the layout's `sections` (added for this shape), one section per stuck request, carrying the failure **cause** and its plain-English gloss, whether a retry actually ran, and the listing link when `PUBLIC_SITE_URL` is set. `/admin/requests` was a row repeated in every section and is now the single CTA, which is honest because the queue is one page whatever N is. The cause gloss joins with a colon, not the em dash it used to. The subject names the cause when every row shares one, e.g. `[AECi] 1 request stuck in the Linear pipeline (no_api_key)`. **Band-throttled since AECI-854** — one email at 60 min, one at 6 h, then one a day, not one per 15-minute sweep. Unthrottled it sent 96 a day per stuck row, against the same Resend account the Supabase magic-link sender uses, which is a sign-in hazard and not just noise. The `persistent_failure` metric and error log are deliberately **not** throttled. |
-| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** |
+| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** House layout since 2026-09-16, with `/admin/audience` as its CTA. |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
 | `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only**; ALSO re-sent by the §6.7 reconciliation sweep when that is what finally created the issue (AECI-861) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. **On the house layout since AECI-924** (the second template on it, and the first operator alert): the facts ride the layout's `table` rather than an unbranded `border="1"` grid, and the `/admin/claims/:id` deep link is the single Forest CTA ("Review the claim") rather than an `Administer` row, because reviewing the claim is the one action the email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly as it previously meant no link rows. The plain-text part is unchanged. Carries the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet, the reconciliation sweep will retry` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
 | `stale-claim-ticket-alert` | the `25 */6` `claim-stale-check` cron (`lib/claim-stale-check.ts`, AECI-862) | `FOUNDER_ALERT_EMAIL` | Founder escalation: claim tickets that **exist** in Linear and that nobody has started after 24 hours. A deliberate third recipient — `stuck-request-alert` means the pipeline is broken and goes to whoever fixes it, this means the pipeline worked and the humans did not, so merging them would bury a business-response problem inside an infrastructure alert. The intro says so in as many words ("nothing is broken"). **On the house layout since AECI-924**, through `sections`, one per ticket, carrying the Linear identifier and title, how long it has waited, the state it is stuck in, the claimant, and **both** links: Linear is where you accept the work, `/admin/claims/:id` is where the claimant's evidence is. Those stay in the rows because with N tickets there is no single one to promote; the CTA is `/admin/claims`, the same page whatever N is. `Ticket` split into `Ticket` + `Title`, which drops a banned em dash and separates the key you paste into Linear from the title you read. Band-throttled by the caller (`lib/alert-bands.ts`) — once as the ticket crosses 24 h, then once a day, never four times a day. Staleness is read from **Linear**, not `vendor_requests.status`, because the local status depends on the §6.3 inbound webhook, which is not confirmed to be delivering. |
@@ -364,7 +368,9 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 ### The template itself lives in `docs/email-templates/magic-link.html`
 
 The dashboard is where it **runs**; that file is where it is **reviewed**. Edit both in the
-same PR, or the repo copy becomes a lie. Paste it into Authentication → Emails → Magic Link.
+same PR, or the repo copy becomes a lie. Paste it into Authentication → Emails → **Magic
+Link** *and* Authentication → Emails → **Confirm signup** — the same HTML in both, and the
+same subject in both. The next subsection is why.
 
 What the template does beyond the GoTrue default, and why:
 
@@ -381,6 +387,45 @@ What the template does beyond the GoTrue default, and why:
 
 **Subject line:** `Sign in to AEC Integrations`. It names the brand, which is what makes the
 message findable later by search.
+
+### Two templates, one file (AECI-984)
+
+`apps/web`'s `sendMagicLink` calls `signInWithOtp({ shouldCreateUser: true })`
+(`apps/web/src/app/auth/auth.service.ts`), so one visible button — "Email me a sign-in
+link" — covers first-time and returning users alike. **GoTrue does not treat them alike.**
+While **Confirm email** is on, it sends:
+
+| The address is | GoTrue sends | Dashboard slot |
+|---|---|---|
+| already in `auth.users` | the sign-in link | Authentication → Emails → **Magic Link** |
+| never seen before | a signup confirmation | Authentication → Emails → **Confirm signup** |
+
+Until AECI-984 only Magic Link was customised, so the **first** email anyone ever received
+from AECi was the Supabase default, worded as account registration, for a page that never
+mentioned registration. Both slots now carry `docs/email-templates/magic-link.html`
+verbatim, with the subject `Sign in to AEC Integrations` on both. `{{ .Email }}` and
+`{{ .ConfirmationURL }}` are valid in either context, so the HTML needs no variant — and a
+single file is deliberate, because two near-identical auth templates drifting apart is the
+defect being fixed.
+
+**Read the live setting** — this is the one value that decides which slot fires, and it is
+dashboard state no repo check can see:
+
+```bash
+curl -s "https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/settings" -H "apikey: $SUPABASE_ANON_KEY"
+```
+
+`mailer_autoconfirm: false` means **Confirm email is on** and both slots are live. Verified
+`false` on 2026-09-16. If it ever reads `true`, only Magic Link fires and Confirm signup
+becomes dead config — do not delete it, because the setting can be flipped back from the
+dashboard without a deploy.
+
+**Why not just turn Confirm email off.** It would collapse the two slots into one, and
+AECI-984 rejected it. With `mailer_autoconfirm: true` GoTrue's public
+`POST /auth/v1/signup` returns an **immediately usable password account for any address**,
+including one the caller does not own (`disable_signup` is `false`). Vendor claim grants
+resolve claimants by email — `AUTH_AND_RLS.md` §3.1 seam #4a — so a squatted address could
+later inherit a vendor seat. One dashboard paste is cheaper than that exposure.
 
 **Known gap, deliberately not solved here.** Corporate link scanners (Mimecast, Proofpoint,
 Defender) prefetch URLs to inspect them, and a magic link is single-use, so a scanner can
@@ -399,7 +444,12 @@ outside the Resend dashboard.
 
 Custom SMTP is configured at the **project** level, so it carries *every*
 GoTrue-originated mail (magic link, confirm signup, recovery, invite) — not just magic
-links. Today magic link is the only one AECi actually triggers.
+links. AECi triggers **two** of those four: magic link for a known address and confirm
+signup for an unknown one, which is why both slots carry the same template (above).
+Recovery and invite are never triggered — there is no password-reset flow, and vendor
+claimants are provisioned silently (below). *(Corrected 2026-09-16, AECI-984. This
+paragraph previously ended "Today magic link is the only one AECi actually triggers",
+which is what let the Confirm-signup default ship unnoticed.)*
 
 ### The vendor-claim account is provisioned WITHOUT a GoTrue email (AECI-527)
 

@@ -285,8 +285,15 @@
     {
       "idx": 40,
       "version": "6",
-      "when": 1789550976710,
-      "tag": "0040_superb_norman_osborn",
+      "when": 1789541656568,
+      "tag": "0040_wealthy_the_professor",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1789555920070,
+      "tag": "0041_solid_rick_jones",
       "breakpoints": true
     }
   ]

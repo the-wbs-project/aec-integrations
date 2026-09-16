@@ -273,7 +273,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
 | `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
-| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
 ### 3.3 `product` (optional, singular)
 
@@ -293,7 +293,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). Omitting it leaves the stored value untouched; `null` clears it. **Not always yours to write (AECI-963)** — see the exception above and **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
-| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
@@ -380,7 +380,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` \| null | — | **Changed by AECI-921 — both vocabularies are accepted.** Anchored to **this payload's own `sourceProduct` (A) and `targetProduct` (B)**, exactly like a claim's `direction`. The old spellings still land and are normalised on ingest (`one-way` → `a_to_b`, `bidirectional` → `both`), so nothing breaks if you send them; see the cutover note below. |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
-| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
 > **Cutover window for `direction` (AECI-921, opened 2026-09-14).**
 >
@@ -611,10 +611,47 @@ Nothing is backfilled: every record promoted before this field existed reads
 `last_reviewed_at: null` and renders bare attribution with no date, until a real review
 supplies one.
 
-**`maintainedBy` is not accepted.** The `'vendor'` value is set only by a vendor's own
-attestation in the vendor portal, and cleared when they retract it. If the payload
-carried it, a routine push would silently take a record back off a vendor's name — the
-same failure `verified` had before AECI-520 (§4a).
+**`maintainedBy` is not accepted.** The `'vendor'` value is set by the vendor's own
+work in the portal — an attestation, a profile save, a product save, or a version
+write (AECI-981) — and on an integration it is cleared when the last attestation is
+retracted. If the payload carried it, a routine push would silently take a record
+back off a vendor's name — the same failure `verified` had before AECI-520 (§4a).
+
+### 3.6a The fence: `lastReviewedAt` is refused on a vendor-maintained record (AECI-981)
+
+**Send `lastReviewedAt` for a record a vendor maintains and it will not be written.**
+The row still lands; only the date is refused, and you get a receipt:
+
+```json
+{ "ref": "p1", "kind": "review-signal",
+  "reason": "product is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain" }
+```
+
+**Why.** The marker renders this one column with a different verb per branch:
+
+> Maintained by AEC Integrations · **Reviewed** March 4, 2026
+> Vendor-maintained · **Updated** September 16, 2026
+
+So an AECi review date on a vendor-maintained row does not read as "AECi checked
+this" — it reads as "the vendor updated this on that date", crediting AECi's work to
+someone else. The same reasoning is why the pair-page header takes its date only from
+mechanisms in the winning branch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.5).
+
+**What to do with it.** Nothing, usually. It is **not an error**, the response is
+still `200`, and re-sending will not clear it — there is no retry that helps. If the
+record genuinely needs an AECi review date, the vendor has to stop maintaining it
+first. `reason` names the entity type because a `review-signal` entry carries only
+the payload `ref`, and refs are unique within their own array rather than across
+them.
+
+**It fires only on an explicitly supplied value.** Omitting the field is the normal
+path and earns no receipt, for the reason §13.8 gives: a signal that fires on every
+push means nothing. If you start seeing these on routine syncs, the fix is almost
+certainly on your side — check whether your push builder is setting `lastReviewedAt`
+by default, which §3.6 asks it not to.
+
+Applies to all four entity types that carry the column: `vendors`, `products`,
+`integrations`, and connector-evidenced pairs.
 
 ---
 
@@ -979,7 +1016,11 @@ The `result` object in full:
   `trade` vocabulary (`kind: "trade"`, `ref` = the product's `ref`). It is not an
   error: re-push after promoting the other product, after the referenced taxonomy
   term exists, or with a recognized `dataObject` / trade value.
-- Two `skipped[]` kinds mean something different from all the others — see §4a.
+- **Three `skipped[]` kinds mean something different from all the others.** `vendor`
+  and `product` are the claimed-vendor block (§4a); `review-signal` is the
+  maintenance fence (§3.6a). All three mean **"policy said no"**, not "could not be
+  resolved", so re-pushing does not clear them. `review-signal` is the one where the
+  row itself still landed — only the date you sent was refused.
 - **`preserved[]` is the opposite signal and needs no action from you.** It lists
   claims and attestations that were **not** in your payload and survived anyway,
   because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
@@ -1871,7 +1912,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
-- [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
+- [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.
 - [ ] **On the connector arm, inspect `skipped[]` even on a clean `complete`.** A full-mirror sync that dropped 200 mappings because their products are not promoted looks identical to one that dropped none.
 - [ ] **Never let absence mean deletion on the connector arm.** A row missing from a page is a row on another page. Retire a stub or pair with a `removedAt` tombstone; hard-delete a mapping or surface through the explicit `deleted` object.

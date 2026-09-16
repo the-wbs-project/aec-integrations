@@ -13,6 +13,8 @@ import {
 } from '@aeci/shared';
 
 import { InfoHint } from '../../shared/info-hint/info-hint';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -109,7 +111,14 @@ const MAX_TERMS_PER_FACET = 10;
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [LogoInput, InfoHint, VendorTaxonomyFacetDialog, VendorUsefulnessDialog],
+  imports: [
+    LogoInput,
+    InfoHint,
+    VendorTaxonomyFacetDialog,
+    VendorUsefulnessDialog,
+    RequestTrigger,
+    NewTabIcon,
+  ],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit.
@@ -123,9 +132,32 @@ const MAX_TERMS_PER_FACET = 10;
           <p class="mt-1 text-xs text-(--text-secondary)">
             <span class="font-mono">/{{ product().slug }}</span>
           </p>
+          <!--
+            AECI-967 (section 6.9). The sentence named the action and gave no way
+            to take it. The anchor opens the shared correction drawer in place
+            (aecRequestTrigger); its href is the no-JS fallback and carries
+            the new-tab treatment because that path really does navigate, and
+            this form's unsaved state has no CanDeactivate guard behind it.
+
+            The i18n stays on the <p>: Angular extracts the anchor as a
+            placeholder, so the sentence remains ONE translatable message. No
+            bodyPrefill: a correction already carries (target_type, slug), so
+            there is no context here the request does not already have.
+          -->
           <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.product.renameHint">
-            To change the product name, file a correction request. Renaming would break its links
-            and search entry.
+            To change the product name,
+            <a
+              aecRequestTrigger
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="product().slug"
+              [href]="'/products/' + product().slug + '/correction'"
+              target="_blank"
+              rel="noopener"
+              class="text-(--accent-primary) underline underline-offset-2"
+              >file a correction request
+              <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
+            >. Renaming would break its links and search entry.
           </p>
         </div>
       }

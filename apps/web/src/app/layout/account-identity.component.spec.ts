@@ -77,6 +77,7 @@ describe('AccountIdentity', () => {
       pending_requests: null,
       pending_claims: null,
       pending_reindex: null,
+      listing_view_preference: null,
     };
   }
 

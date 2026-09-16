@@ -126,28 +126,81 @@ const BTN_BASE =
               </p>
             }
 
-            <!-- Async result: kept in the DOM so the polite live region announces. -->
-            <p class="mt-3 text-sm text-(--text-primary)" role="status" aria-live="polite">
+            <!-- Async result: kept in the DOM so the polite live region announces.
+                 The notice renders as a bordered callout (the site's existing
+                 home-feedback success-notice pattern) so a completed signup is
+                 impossible to miss against the card. -->
+            <div role="status" aria-live="polite">
               @switch (status()) {
                 @case ('subscribed') {
-                  <span
-                    class="font-medium text-(--accent-primary)"
-                    i18n="@@mailing-list-signup.status.subscribed"
-                    >You're on the list. We'll email when there's something new.</span
+                  <p
+                    class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-medium text-(--accent-primary)"
                   >
+                    <svg
+                      class="mt-0.5 h-4 w-4 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                    <span i18n="@@mailing-list-signup.status.subscribed"
+                      >You're on the list. We'll email when there's something new.</span
+                    >
+                  </p>
                 }
                 @case ('exists') {
-                  <span i18n="@@mailing-list-signup.status.exists"
-                    >You're already on the list.</span
+                  <p
+                    class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-medium text-(--text-primary)"
                   >
+                    <svg
+                      class="mt-0.5 h-4 w-4 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5" />
+                      <path d="M12 8h.01" />
+                    </svg>
+                    <span i18n="@@mailing-list-signup.status.exists"
+                      >You're already on the list.</span
+                    >
+                  </p>
                 }
                 @case ('error') {
-                  <span i18n="@@mailing-list-signup.status.error"
-                    >Something went wrong. Please try again.</span
+                  <p
+                    class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-medium text-(--status-error)"
                   >
+                    <svg
+                      class="mt-0.5 h-4 w-4 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v6" />
+                      <path d="M12 16h.01" />
+                    </svg>
+                    <span i18n="@@mailing-list-signup.status.error"
+                      >Something went wrong. Please try again.</span
+                    >
+                  </p>
                 }
               }
-            </p>
+            </div>
           </form>
 
           <!-- Optional trailing content (e.g. the home page's "suggest a tool" prompt). -->

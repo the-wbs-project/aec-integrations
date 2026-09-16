@@ -585,9 +585,9 @@ export interface PromoteTaxonomyResult {
  *
  * `vendor` / `product` are the AECI-520 claimed-vendor block: once a vendor has
  * a granted `vendor_admin` seat, its row and every product it owns are
- * vendor-owned and the review app may not overwrite them. These are the only
- * kinds that mean "this WOULD have been written but policy said no" — the other
- * four mean "this could not be resolved".
+ * vendor-owned and the review app may not overwrite them. Those two and
+ * `review-signal` (AECI-981) mean "this WOULD have been written but policy said
+ * no"; the connector-lane four mean "this could not be resolved".
  */
 export interface PromoteSkipped {
   ref: string;
@@ -615,7 +615,23 @@ export interface PromoteSkipped {
     | 'connector-catalog'
     | 'connector-stub'
     | 'connector-mapping'
-    | 'connector-pair';
+    | 'connector-pair'
+    // ── The maintenance fence (AECI-981) ───────────────────────────────────
+    // A THIRD meaning, and the one closest to `vendor` / `product` above:
+    // "policy said no". The row itself WAS written — only the `lastReviewedAt`
+    // you sent was refused, because the record is vendor-maintained and the
+    // marker's vendor branch renders `Vendor-maintained · Updated <date>`.
+    // Letting an AECi review date fill that slot would attribute AECi's work to
+    // the vendor, which is the mis-attribution `STAGE_2_ATTESTATIONS_SPEC.md`
+    // §13.5 branch-scopes the pair page to prevent.
+    //
+    // `ref` is the entity's own payload `ref`; `reason` names which entity type
+    // it was, because refs are only unique within their own array.
+    //
+    // **Actionable, not an error.** Re-sending will not clear it. If the record
+    // genuinely needs an AECi review date, the vendor has to stop maintaining it
+    // first. See `REVIEW_APP_PROMOTE_API.md` §3.6a.
+    | 'review-signal';
   reason: string;
 }
 

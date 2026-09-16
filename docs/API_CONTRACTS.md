@@ -1128,6 +1128,8 @@ Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
+**Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Per row and never transitive: a product edit does not flip the vendor. Neither the write endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
+
 **`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
 
 - `review_count`, `rating_overall_avg`, `rating_onboarding_avg` — the denormalized summary columns (already on `ProductListItem`).
@@ -1184,6 +1186,7 @@ export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  listing_view_preference: 'cards' | 'table' | null;
   role: string;
   pending_reviews: number | null;
   pending_requests: number | null;
@@ -1235,14 +1238,31 @@ Errors: `UNAUTHENTICATED`.
 
 #### `PATCH /api/account`
 
-Update the editable profile fields (today: `display_name`). Audited
+Update the editable profile fields. Audited
 (`profile.updated`). Returns the updated `AccountProfileResponse` — including
 `role` and the three admin-only queue counts, on the same rules as `GET`.
 
+**Present-key semantics:** each field is optional on the wire, but at least one
+must be present (the schema rejects an empty body with `VALIDATION_FAILED`). An
+omitted field is left unchanged — so the listing pages' Cards/Table toggle
+PATCHes `listing_view_preference` alone without re-sending the display name, and
+an account-form save can't clobber the remembered view with a stale client copy
+it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
+keys.
+
+`listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
+and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site
+default `cards`); an explicit `null` clears it back to that default. The browser
+reads it only post-hydration as the `?view=` default — never during SSR, so it
+cannot poison the URL-keyed edge cache (see `CACHE_STRATEGY.md` §6.1).
+
 ```typescript
-export const UpdateAccountSchema = z.object({
-  display_name: z.string().trim().min(1).max(80).nullable(),
-});
+export const UpdateAccountSchema = z
+  .object({
+    display_name: z.string().trim().min(1).max(80).nullable().optional(),
+    listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
+  })
+  .refine((v) => v.display_name !== undefined || v.listing_view_preference !== undefined);
 ```
 
 Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).

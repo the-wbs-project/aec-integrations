@@ -65,6 +65,29 @@ describe('VendorProfileForm', () => {
     return fixture;
   }
 
+  // ── AECI-967: the identity hint ───────────────────────────────────────────
+  // This form renders NO company-name field, because the name and the slug are
+  // AECi-owned. Before this it also said nothing about that, so the absence read
+  // as an omission. The hint names the fact and gives the route.
+  describe('the identity hint (AECI-967)', () => {
+    function identityLink(fixture: ComponentFixture<VendorProfileForm>): HTMLAnchorElement | null {
+      return fixture.nativeElement.querySelector('a[href$="/correction"]');
+    }
+
+    it('points at the VENDOR correction form, not a product one', () => {
+      const link = identityLink(create());
+      expect(link?.getAttribute('href')).toBe(`/vendors/${VENDOR.slug}/correction`);
+      expect(link?.textContent).toContain('send us a correction request');
+    });
+
+    it('opens the fallback in a new tab, with noopener and the disclosure', () => {
+      const link = identityLink(create());
+      expect(link?.getAttribute('target')).toBe('_blank');
+      expect(link?.getAttribute('rel')).toBe('noopener');
+      expect(link?.querySelector('.sr-only')?.textContent).toContain('opens in a new tab');
+    });
+  });
+
   it('disables Save until a field actually changes', () => {
     const fixture = create();
     expect(saveButton(fixture).disabled).toBe(true);

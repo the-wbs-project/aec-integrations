@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4c8fb740-defd-463e-bead-b4ff406c6165",
-  "prevId": "469779fa-64d9-4690-89d3-2a4ecc883cad",
+  "id": "033c0098-8742-47ef-b678-bcbe8bf7eb01",
+  "prevId": "4c8fb740-defd-463e-bead-b4ff406c6165",
   "tables": {
     "asn_registry": {
       "name": "asn_registry",
@@ -3328,6 +3328,13 @@
         },
         "usefulness": {
           "name": "usefulness",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "usefulness_source": {
+          "name": "usefulness_source",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

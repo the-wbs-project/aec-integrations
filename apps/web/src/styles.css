@@ -357,6 +357,25 @@ h3 {
   border-bottom-color: var(--accent-primary);
 }
 
+/* Status callouts whose border carries the state (the mailing-list signup band's
+   subscribed / already-subscribed / error notices). Same trap as `.aec-nav-tab`
+   above: `border-(--accent-primary)` and `border-(--status-error)` are layered
+   utilities, so the unlayered `*` rule wins and both edges come out
+   `--border-default` grey. Error is the case that matters — the red boundary is
+   what carries severity — and the success wash is only 1.14:1 against white, so
+   its border is the boundary. Declared here so they outrank `*` on specificity. */
+.aec-notice-success {
+  border-color: var(--accent-primary);
+}
+
+.aec-notice-neutral {
+  border-color: var(--border-strong);
+}
+
+.aec-notice-error {
+  border-color: var(--status-error);
+}
+
 /* `routerLinkActive` adds the segmented control's active utilities beside its
    resting text and hover utilities. Tailwind orders those declarations by the
    generated stylesheet rather than by class-attribute order, so the resting

@@ -32,6 +32,7 @@ import {
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
+  sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
@@ -1612,5 +1613,64 @@ describe('entitlement expiry templates', () => {
     const c = fakeContext({ RESEND_API_KEY: undefined });
     expect(await sendEntitlementExpiringEmail(c, SUBJECT)).toBe('skipped');
     expect(await sendEntitlementExpiringAdminEmail(c, ADMIN_SUBJECT)).toBe('skipped');
+  });
+});
+
+describe('sendLandingSignupNotification', () => {
+  const SIGNUP = {
+    email: 'sub@example.com',
+    city: 'Jakarta',
+    region: 'Jakarta',
+    country: 'ID',
+    asOrganization: 'Example ISP',
+    utmSource: null,
+    utmCampaign: null,
+    referrer: 'https://www.aecintegrations.com/',
+  };
+
+  it('renders on the house layout with the audience panel as its CTA', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLandingSignupNotification(
+      fakeContext({
+        ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      SIGNUP,
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('ops@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] New mailing list signup');
+
+    const html = String(body.html);
+    // The house shell, not the legacy `border="1"` ops grid.
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('border="1"');
+    expect(html).toContain('https://www.aecintegrations.com/admin/audience');
+    // A bare URL row auto-links, which is what the referrer is.
+    expect(html).toContain('href="https://www.aecintegrations.com/"');
+
+    // The text part is the same `Key: value` block the ops formatter emitted.
+    const text = String(body.text);
+    expect(text).toContain('Email: sub@example.com');
+    expect(text).toContain('Location: Jakarta, Jakarta, ID');
+    expect(text).toContain('Source: direct');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:landing-signup']);
+  });
+
+  it('drops the button when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLandingSignupNotification(
+      fakeContext({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
+      SIGNUP,
+    );
+    expect(String(lastBody(fetchSpy).html)).not.toContain('/admin/audience');
+  });
+
+  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+    expect(
+      await sendLandingSignupNotification(fakeContext({ ADMIN_ALERT_EMAIL: undefined }), SIGNUP),
+    ).toBe('skipped');
   });
 });

@@ -312,6 +312,8 @@ There are four roles. Pick by what the link does, never by where it sits.
 
 Everything else stays in the tab. A link from a read-only public page to another public page is a destination, and opening it in a new tab steals the reader's back button for nothing.
 
+**Case 2 has one supersession: if the destination is one of our own request forms, open the in-place drawer instead** (`aecRequestTrigger` + `aec-request-drawer`, AECI-128). Not navigating beats navigating elsewhere: the edit is safe, and the vendor keeps the thing they are correcting on screen behind the panel. The anchor keeps its `href` and the full new-tab treatment, because the no-JS and modified-click paths do navigate. AECI-967 did this at the vendor portal's three correction links; `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.9 carries the detail.
+
 **Every new-tab link carries `aec-new-tab-icon`** (`apps/web/src/app/shared/new-tab-icon/new-tab-icon.ts`). It is the ONLY place the Lucide `arrow-up-right` is drawn, and it carries the `sr-only` "(opens in a new tab)" note in the same breath — because the two halves kept shipping apart. Seven links disclosed the new tab to a screen reader and showed a sighted reader nothing; eight drew a `↗` text character instead of the glyph. The note sits **inside** the anchor, not beside it: a sibling span is not read in a VoiceOver rotor or an `NVDA+F7` links list, so a disclosure parked outside reaches browse mode and nowhere else.
 
 The text `↗` is retired. It is not a direction glyph, but it sits one character from the vocabulary the Arrow Rule above reserves, and on the pair page it rendered in the same card as a real `→`. A drawn icon cannot be confused with the direction set.
@@ -674,7 +676,12 @@ What actually renders today:
   was backfilled** — bare attribution is the honest default, not missing data. Never wire the
   date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
   itself on every bulk re-promote (60 production products share one `updated_at` day). The
-  vendor branch is driven by real vendor attestations. Dates are formatted in **UTC**, not the
+  vendor branch is driven by real vendor work: an attestation, or — since AECI-981 — any
+  vendor-authorized catalog save in the portal (a profile edit, a product edit, a version
+  write). A save both flips the branch and supplies the date, which is why the vendor
+  wording reads `Updated` where the AECi wording reads `Reviewed`: they are the same stored
+  column describing two different acts, and swapping the verbs would misattribute one party's
+  work to the other. Dates are formatted in **UTC**, not the
   ambient zone — SSR runs UTC and the browser does not, so a zone-local format would trip a
   hydration mismatch either side of midnight.
   - It **coexists** with the agreement pill below rather than replacing it, deliberately: the

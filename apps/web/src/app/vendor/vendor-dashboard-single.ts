@@ -3,6 +3,8 @@ import { Component, computed, inject, input } from '@angular/core';
 import type { VendorMeResponse } from '@aeci/shared';
 import type { Capability } from '@aeci/shared/entitlements';
 
+import { RequestDrawer } from '../requests/request-drawer';
+
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorPlanPanel } from './components/vendor-plan-panel';
@@ -33,6 +35,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
     VendorIntegrationsSection,
     VendorSeatInviteDialog,
     VendorSeatRoster,
+    RequestDrawer,
   ],
   template: `
     @let m = me();
@@ -160,6 +163,16 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
         rendered at a time, so this cannot race the tabbed shell's.
       -->
       <p class="sr-only" role="status">{{ liveMessage() }}</p>
+
+      <!--
+        The correction drawer (AECI-967, section 6.9), mirroring the tabbed
+        shell's for the same reason the live region above is mirrored: this
+        concept composes vendor-product-form and vendor-claim-lane, both of which
+        now carry an aecRequestTrigger. A trigger with no drawer mounted
+        preventDefault()s into nothing, so without this line Concept B would
+        silently lose an affordance the tabbed one has.
+      -->
+      <aec-request-drawer />
     </div>
   `,
   styles: [':host { display: block; }'],

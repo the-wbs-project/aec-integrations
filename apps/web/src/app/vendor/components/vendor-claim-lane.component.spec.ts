@@ -65,6 +65,7 @@ function create(
   fixture.componentRef.setInput('claim', claim);
   fixture.componentRef.setInput('otherProductName', otherProductName);
   fixture.componentRef.setInput('contextProductId', PROCORE.context_product.id);
+  fixture.componentRef.setInput('contextProductSlug', PROCORE.context_product.slug);
   fixture.componentRef.setInput('vendorName', 'Summit BIM');
   fixture.componentRef.setInput('canWrite', canWrite);
   fixture.componentRef.setInput('versions', []);
@@ -355,5 +356,48 @@ describe('VendorClaimLane — the optimistic retract interim (AECI-630)', () => 
 
     expect(body).toContain('No position yet');
     expect(body).not.toContain('Confirmed by Summit BIM');
+  });
+});
+
+/**
+ * AECI-967 — the conflict note names a correction request and now routes to one.
+ *
+ * Two things this pins that nothing else can: the link addresses the CONTEXT
+ * product (the listing the vendor is authoring from), not the counterpart, and
+ * the seed carries the two facts a correction request cannot otherwise hold.
+ */
+describe('VendorClaimLane — the conflict correction link (AECI-967)', () => {
+  const link = (fixture: ComponentFixture<VendorClaimLane>) =>
+    (fixture.nativeElement as HTMLElement).querySelector(
+      'a[href$="/correction"]',
+    ) as HTMLAnchorElement | null;
+
+  it('targets the context product, never the counterpart', () => {
+    const a = link(create(CONFLICT));
+    expect(a?.getAttribute('href')).toBe(`/products/${PROCORE.context_product.slug}/correction`);
+    expect(a?.getAttribute('href')).not.toContain(PROCORE.other_product.slug);
+  });
+
+  it('opens the fallback in a new tab, with noopener and the disclosure', () => {
+    const a = link(create(CONFLICT));
+    expect(a?.getAttribute('target')).toBe('_blank');
+    expect(a?.getAttribute('rel')).toBe('noopener');
+    expect(a?.querySelector('.sr-only')?.textContent).toContain('opens in a new tab');
+  });
+
+  // The disclosure block is conflict-only, and so is the link. A correction
+  // invitation on a confirmed claim would be soliciting a dispute that is not
+  // there.
+  it('renders in no other agreement state', () => {
+    expect(link(create(UNVOTED))).toBeNull();
+    expect(link(create(SINGLE_SOURCE))).toBeNull();
+    expect(link(create(CONFIRMED))).toBeNull();
+  });
+
+  // The read-only lane keeps exactly zero buttons (pinned above). An anchor is
+  // not a button, and a vendor without active account access can still file a
+  // correction.
+  it('survives a read-only lane', () => {
+    expect(link(create(CONFLICT, PROCORE.other_product.name, false))).not.toBeNull();
   });
 });

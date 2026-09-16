@@ -44,12 +44,30 @@ do Part A **before** confirming the dashboard widgets). Each row cites the emitt
 | # | Action | Expected result | Metric (code path) |
 |---|---|---|---|
 | A1 | Sign in via **magic link** (request link → open the staging callback link) | Session set; header shows signed-in state | `aeci.auth.signin{method:magic_link,outcome:success}` — `apps/web/src/server/routes/auth-callback.ts` |
+| A1a | Request a sign-in link for a **never-before-used** address, then for a **known** one (AECI-984) | The two emails are indistinguishable apart from the recipient: same sender, subject `Sign in to AEC Integrations`, AECi logo band, `Sign in` CTA, paste-able URL, "expires in 60 minutes", "If you did not request this…". The new-address link lands on `/auth/callback?code=…` and redirects, **not** `/auth/login?error=missing_code` | no metric — GoTrue mail bypasses `lib/email.ts` entirely (`docs/email.md`, known gap). Eyeball both inboxes |
 | A2 | Sign out, then sign in via **Google OAuth** | Session set; PKCE `/auth/callback` completes; profile ensured | `aeci.auth.signin{method:google,outcome:success}` — same callback |
 | A3 | As the normal user, submit a review at `/products/<slug>/review` | 201 / redirect to the product; review lands **`pending`** | `aeci.review.submit{outcome:ok}` — `apps/api/src/routes/reviews.ts` |
 | A4 | As **admin**, **approve** that review in `/admin/reviews` | Review → `approved`; product review count recomputed; product cache-tag purged | `aeci.moderation.action{action:approve,outcome:ok}` — `apps/api/src/routes/admin-reviews.ts` |
 | A5 | As **admin**, **reject** a second pending review (reason is **required**) | Review → `rejected` with the reason stored; reject with empty reason is refused | `aeci.moderation.action{action:reject,outcome:ok}` |
 | A6 | View the product page / `GET /api/products/<slug>/reviews` | The **approved** review appears in the public list (no PII). On a product crossing **5 approved**, the rating **summary/averages appear**; below 5 they stay hidden with the threshold note | `apps/web/src/app/products/product-reviews.ts` (≥5 gate) |
 | A7 | As the normal user, **delete the account** at `/account` (confirm dialog) | Account gone; the user's review **survives but is anonymized**: `reviewer_id → NULL`, `anonymized_at` stamped, body/title intact | `apps/api/src/routes/account.ts` (single GDPR batch) |
+
+**A1a pre-check** (run it *before* sending, so a failure names the cause instead of the symptom):
+
+```bash
+curl -s "https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/settings" -H "apikey: $SUPABASE_ANON_KEY"
+```
+
+`mailer_autoconfirm: false` means **Confirm email is on**, so an unseen address is served
+Authentication → Emails → **Confirm signup** and a known one gets **Magic Link**. If A1a's two
+emails differ, that is the setting to look at: both slots must hold
+`docs/email-templates/magic-link.html` verbatim. See `docs/environments.md` §"Deployed Supabase
+Auth: email templates" for the paste procedure and `docs/email.md` §"Two templates, one file"
+for why the fix is two identical templates rather than `mailer_autoconfirm: true`.
+
+Because one shared auth project serves every tier (ADR 0017), "a never-before-used address"
+means never used **anywhere**, production included. A plus-address on a mailbox you can read is
+the cheapest way to get one.
 
 **A7 verification query** (the row must survive with a nulled, stamped reviewer):
 
@@ -198,6 +216,7 @@ the four AECI-233 acceptance criteria.
 | Step | Expected | Observed | Date | By |
 |---|---|---|---|---|
 | A1 magic-link sign-in | session + `signin{magic_link,success}` | | | |
+| A1a first-time vs returning email | both emails identical; new-address link reaches `/auth/callback?code=` | | | |
 | A2 Google OAuth sign-in | session + `signin{google,success}` | | | |
 | A3 submit review | `pending` + `review.submit{ok}` | | | |
 | A4 approve | `approved` + `moderation.action{approve,ok}` + purge | | | |

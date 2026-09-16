@@ -56,14 +56,21 @@ const updatedAt = () =>
     .$onUpdate(() => new Date().toISOString());
 
 /**
- * The maintenance-marker pair (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13), on
- * `vendors` / `products` / `integrations`.
+ * The maintenance-marker pair (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13, with
+ * the vendor-write rule in §13.9), on `vendors` / `products` / `integrations` /
+ * `connector_evidenced_pairs`.
  *
  * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record — a
  * falsifiable claim the marker renders to readers. It is deliberately a **plain
  * column**: no `$defaultFn`, and above all **no `$onUpdate`**, unlike `updatedAt()`
- * directly above. It is written by exactly two paths — an explicit `lastReviewedAt`
- * in the promote payload, and a vendor attestation — and by nothing else.
+ * directly above. It is written by exactly three paths — an explicit
+ * `lastReviewedAt` in the promote payload, a vendor attestation, and (AECI-981) any
+ * vendor-authorized catalog write in the portal — and by nothing else.
+ *
+ * Promote's write is FENCED: refused on a row where `maintained_by` is `'vendor'`.
+ * The marker renders this ONE column as `Reviewed <date>` in the AECi branch and
+ * `Updated <date>` in the vendor branch, so an AECi review date landing on a
+ * vendor-maintained row credits AECi's work to the vendor.
  *
  * Never source it from `updated_at`, `created_at`, or `promoted_at`, and never
  * backfill it from them. `updated_at` restamps on ANY write and promote re-asserts
@@ -73,12 +80,16 @@ const updatedAt = () =>
  */
 const lastReviewedAt = () => text('last_reviewed_at');
 
-/** Who is on the hook for the record's accuracy. `'vendor'` is reachable only via
- *  a live vendor attestation (AECI-301); promote must never write this column, or a
- *  routine promote push would silently un-vendor a record. */
+/** Who is on the hook for the record's accuracy. `'vendor'` is reachable via a live
+ *  vendor attestation on an `integrations` row (AECI-301) and, since AECI-981, via
+ *  any vendor-authorized catalog write, on the row it writes — per row, never
+ *  transitively. Promote must never write this column, or a routine push would
+ *  silently un-vendor a record; a cross-table move must CARRY it for the same
+ *  reason, since an INSERT would otherwise take the default below. Only an
+ *  attestation retract flips back today — the seat-revoke path is AECI-989. */
 const maintainedBy = () => text('maintained_by').notNull().default('aeci');
 
-/** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */
+/** The CHECK companion to {@link maintainedBy}, so the four tables can't drift. */
 const maintainedByCheck = (
   table: 'vendors' | 'products' | 'integrations' | 'connector_evidenced_pairs',
 ) => check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
@@ -999,6 +1010,17 @@ export const profiles = sqliteTable(
     trustTier: text('trust_tier').notNull().default('standard'),
     themePreference: text('theme_preference').notNull().default('system'),
 
+    /**
+     * The user's remembered Cards/Table preference for the product listing
+     * surfaces (`?view=` on `/products` + taxonomy browse). Nullable — `null`
+     * (the default) means "never toggled", so the site default (`cards`) is a
+     * stored fact the user can return to, not a missing value. Written ONLY by
+     * `PATCH /api/account` (a toggle click on a listing page); read by the same
+     * `GET` so the browser can seed `?view=` post-hydration — never an SSR
+     * input, so it cannot poison the URL-keyed edge cache.
+     */
+    listingViewPreference: text('listing_view_preference').$type<'cards' | 'table' | null>(),
+
     bannedAt: text('banned_at'),
     banReason: text('ban_reason'),
 
@@ -1018,6 +1040,10 @@ export const profiles = sqliteTable(
     check(
       'profiles_theme_preference_check',
       sql`"theme_preference" IN ('system', 'light', 'dark')`,
+    ),
+    check(
+      'profiles_listing_view_preference_check',
+      sql`"listing_view_preference" IN ('cards', 'table')`,
     ),
   ],
 );

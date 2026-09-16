@@ -48,7 +48,7 @@ Two rules govern that table.
 
 Two other markers appear on listings and are easy to confuse with verification.
 
-- **Who maintains a page.** Product, vendor, and integration pages carry either "Maintained by AEC Integrations" or "Vendor-maintained". A date appears beside it only where a person has re-checked that record. Most records carry no date, because nobody has re-checked them yet, and we will not manufacture one from a bulk update.
+- **Who maintains a page.** Product, vendor, and integration pages carry either "Maintained by AEC Integrations" or "Vendor-maintained". "Vendor-maintained" means the company itself edited that record through its own account, so the words on the page are theirs rather than ours. A date appears beside it only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when the vendor saved it. Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
 - **The "Vendor account active" label.** It means a company has an active vendor plan and can manage its AECi profile. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active.
 
 ## No pay-for-placement

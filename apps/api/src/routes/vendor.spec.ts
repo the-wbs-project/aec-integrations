@@ -445,6 +445,46 @@ describe('PATCH /api/vendor/profile', () => {
     });
   });
 
+  // ── Maintenance transfer (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───
+  //
+  // The defect this closes: a vendor could save its profile and the public
+  // listing still read `Maintained by AEC Integrations`, because NOTHING wrote
+  // `vendors.maintained_by` — the §13.4 flip only ever touched `integrations`.
+
+  it('puts the record on the vendor’s name and stamps the review date', async () => {
+    const before = Date.now();
+    await patchJson('/api/vendor/profile', { description: 'New blurb' });
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(Date.parse(String(row?.lastReviewedAt))).toBeGreaterThanOrEqual(before);
+  });
+
+  it('advances the date on EVERY save — a repeat assertion is still a review', async () => {
+    await patchJson('/api/vendor/profile', { description: 'First' });
+    const [first] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    await new Promise((r) => setTimeout(r, 2));
+    await patchJson('/api/vendor/profile', { description: 'Second' });
+    const [second] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(String(second?.lastReviewedAt) > String(first?.lastReviewedAt)).toBe(true);
+    expect(second?.maintainedBy).toBe('vendor');
+  });
+
+  it('flags only the save that CHANGED HANDS, not every later one', async () => {
+    await patchJson('/api/vendor/profile', { description: 'First' });
+    await patchJson('/api/vendor/profile', { description: 'Second' });
+    const rows = await auditRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.metadata).toMatchObject({ maintenanceTransfer: true });
+    expect(rows[1]?.metadata).not.toHaveProperty('maintenanceTransfer');
+  });
+
+  it('keeps the transfer OUT of the audit diff — it is not a field the vendor sent', async () => {
+    await patchJson('/api/vendor/profile', { description: 'New blurb' });
+    const rows = await auditRows();
+    expect(rows[0]?.beforeState).toEqual({ description: 'Old blurb' });
+    expect(rows[0]?.afterState).toEqual({ description: 'New blurb' });
+  });
+
   it('still 200s when the purge queue binding is absent', async () => {
     const execCtx = fakeExecutionContext();
     const res = await app().request(
@@ -907,6 +947,48 @@ describe('PATCH /api/vendor/products/:id', () => {
     expect(row?.updatedAt).not.toBe(seed?.updatedAt);
     // …and the response reports the value that was actually written.
     expect(body.product.updated_at).toBe(row?.updatedAt);
+  });
+
+  // ── Maintenance transfer (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───
+
+  it('puts the product on the vendor’s name and stamps the review date', async () => {
+    const before = Date.now();
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New blurb' });
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(Date.parse(String(row?.lastReviewedAt))).toBeGreaterThanOrEqual(before);
+  });
+
+  it('transfers on a taxonomy-only edit, which touches no products column', async () => {
+    // The whole point of routing the transfer through `writeColumns`: this edit's
+    // own change is four join tables, so a fold into `columns` would have missed it.
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { category_slugs: ['cost-management'] });
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(row?.lastReviewedAt).not.toBeNull();
+  });
+
+  it('flags only the save that CHANGED HANDS, not every later one', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'First' });
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'Second' });
+    const rows = await auditRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.metadata).toMatchObject({ maintenanceTransfer: true });
+    expect(rows[1]?.metadata).not.toHaveProperty('maintenanceTransfer');
+  });
+
+  it('keeps the transfer OUT of the audit diff — it is not a field the vendor sent', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New blurb' });
+    const rows = await auditRows();
+    expect(rows[0]?.afterState).toEqual({ description: 'New blurb' });
+    expect(rows[0]?.afterState).not.toHaveProperty('maintainedBy');
+  });
+
+  it('does not flip the VENDOR row — the transfer is per record, never transitive', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New blurb' });
+    const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(vendor?.maintainedBy).toBe('aeci');
+    expect(vendor?.lastReviewedAt).toBeNull();
   });
 
   it('rolls the whole edit back when the audit row cannot be written (§26.1)', async () => {

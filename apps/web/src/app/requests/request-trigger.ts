@@ -32,6 +32,10 @@ export class RequestTrigger {
   /** The target's built-by vendor is already AECi-verified, i.e. the listing is
    *  claimed. Copy-only — see `RequestDrawerTarget.claimed`. */
   readonly claimed = input(false);
+  /** Seed text for the drawer's free-text `body` (AECI-967). Null on every
+   *  trigger whose only context is the target itself — the request already
+   *  carries that. See `RequestDrawerTarget.bodyPrefill`. */
+  readonly bodyPrefill = input<string | null>(null);
 
   protected onClick(event: MouseEvent): void {
     if (!this.isBrowser) return;
@@ -46,6 +50,7 @@ export class RequestTrigger {
       kind: this.kind(),
       slug: this.slug(),
       claimed: this.claimed(),
+      bodyPrefill: this.bodyPrefill() ?? undefined,
     });
   }
 }
