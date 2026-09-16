@@ -2866,13 +2866,14 @@ describe('runPromoteIngest — endpoint moves (AECI-953)', () => {
     const [edge] = await t.db.select().from(integrations);
     expect(edge).toMatchObject({ id: INTG, sourceProductId: NEW_SRC, targetProductId: TGT });
 
-    // Stored in canonical ID order, which is what the read's single equality pair needs.
-    const [a, b] = [OLD_SRC, TGT].sort();
+    // Stored as the two SLUGS in canonical order (AECI-991) — the read's single
+    // equality pair, and the only key that survives one of the products being
+    // retracted, which is what the FK cascade used to destroy.
     expect(await t.db.select().from(integrationEndpointMoves)).toEqual([
       expect.objectContaining({
         integrationId: INTG,
-        fromProductAId: a,
-        fromProductBId: b,
+        fromProductASlug: 'okta',
+        fromProductBSlug: 'procore-project-management',
       }),
     ]);
   });
@@ -2887,9 +2888,18 @@ describe('runPromoteIngest — endpoint moves (AECI-953)', () => {
     expect(moved).toHaveLength(1);
     expect(moved[0]).toMatchObject({ actorType: 'system', entityType: 'integration' });
     expect(moved[0]!.entityId).toBe(INTG);
-    // Both endpoint sets, so the move is reconstructable from the log alone.
-    expect(moved[0]!.beforeState).toEqual({ productIds: [OLD_SRC, TGT].sort() });
-    expect(moved[0]!.afterState).toEqual({ productIds: [NEW_SRC, TGT].sort() });
+    // Both endpoint sets, ids AND slugs, so the move is reconstructable from the log
+    // alone. Ids alone was not enough: once the product row is deleted an id in
+    // `before_state` names nothing, which is why the AECI-991 rebuild of the 44 ACC
+    // rows needed a hand-written id→slug map.
+    expect(moved[0]!.beforeState).toEqual({
+      productIds: [OLD_SRC, TGT].sort(),
+      productSlugs: ['okta', 'procore-project-management'],
+    });
+    expect(moved[0]!.afterState).toEqual({
+      productIds: [NEW_SRC, TGT].sort(),
+      productSlugs: ['okta', 'procore'],
+    });
   });
 
   it('writes NOTHING when a re-promote restates the same endpoints', async () => {
@@ -2976,9 +2986,12 @@ describe('runPromoteIngest — endpoint moves (AECI-953)', () => {
 
     expect(await t.db.select().from(integrations)).toEqual([]);
     expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(1);
-    const [a, b] = [OLD_SRC, TGT].sort();
     expect(await t.db.select().from(integrationEndpointMoves)).toEqual([
-      expect.objectContaining({ integrationId: INTG, fromProductAId: a, fromProductBId: b }),
+      expect.objectContaining({
+        integrationId: INTG,
+        fromProductASlug: 'okta',
+        fromProductBSlug: 'procore-project-management',
+      }),
     ]);
   });
 });

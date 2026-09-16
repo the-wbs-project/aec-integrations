@@ -288,6 +288,13 @@
       "when": 1789541656568,
       "tag": "0040_wealthy_the_professor",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1789553161275,
+      "tag": "0041_shocking_maggott",
+      "breakpoints": true
     }
   ]
 }

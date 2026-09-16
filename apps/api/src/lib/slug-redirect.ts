@@ -2,9 +2,17 @@
  * The retired-slug → surviving-slug read (AECI-978 / `STAGE_3_SPEC.md` §2.6 option B).
  *
  * `slug_redirects` is the general map the two hardcoded per-entity 301s asked for.
- * This module is its only reader, and it is consulted **only after a detail read
- * returned nothing** — §2.6 specifies it that way and `db/schema.ts` explains why a
- * live row has to beat a redirect.
+ * This module is its only reader, and it is consulted **only after a read returned
+ * nothing** — §2.6 specifies it that way and `db/schema.ts` explains why a live row
+ * has to beat a redirect.
+ *
+ * Two callers reach it through `GET /api/slug-redirects/:entity/:fromSlug`, and both
+ * ask on their own not-found branch: the entity detail resolvers (AECI-978) and, since
+ * **AECI-991**, the product-PAIR route, which applies a `product` mapping as a path-
+ * **prefix** rewrite — `/products/{from}/integrations/{x}` 301s to
+ * `/products/{to}/integrations/{x}`. That second caller is what makes a merge-then-
+ * retire keep every pair page under the retired slug, rather than only the product
+ * page itself. See `apps/web/src/app/products/products-pair.resolver.ts`.
  *
  * ── THE CHAIN IS FOLLOWED, NOT STORED FLAT ────────────────────────────────────
  *
@@ -103,11 +111,21 @@ const PATH_SEGMENT: Record<SlugRedirectEntity, string> = {
  * `/vendors/{from_slug}`.
  *
  * Used by the IndexNow drain to drop a buffered URL rather than ask an engine to
- * crawl a 301. Exact paths only, deliberately: a pair URL that happens to name a
- * retired endpoint (`/products/{retired}/integrations/{other}`) is NOT in here,
- * because pair-page moves are AECI-953's mechanism and it answers its own 301 from
- * `integration_endpoint_moves`. Matching loosely would let this map silently
- * suppress URLs it knows nothing about.
+ * crawl a 301. **Exact paths only**, and since AECI-991 that is a bounded residual
+ * rather than a clean line.
+ *
+ * A pair URL naming a retired endpoint — `/products/{retired}/integrations/{other}` —
+ * now also only redirects, because the pair route applies this same map as a path-
+ * prefix rewrite. It is still not in this set, for two reasons. A buffered URL is
+ * written from a promote's own results, so a pair URL can only be buffered while both
+ * endpoint products are live; by the time either slug is retired, nothing new enters
+ * the queue naming it. And a prefix matcher here would have to re-derive the pair
+ * route's shape in a helper whose whole contract is exact-path membership, which is
+ * how a filter starts suppressing URLs it knows nothing about.
+ *
+ * The residual is one URL buffered *before* its mapping was seeded and drained after —
+ * the same shape `gsc_recrawl_queue` already accepts and the operator already clears.
+ * A submitted 301 costs a crawl, not correctness.
  */
 export function retiredSlugPaths(redirects: readonly SlugRedirect[]): Set<string> {
   return new Set(redirects.map((r) => `/${PATH_SEGMENT[r.entity]}/${r.from_slug}`));

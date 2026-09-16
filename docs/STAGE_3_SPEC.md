@@ -95,6 +95,15 @@ how does a reader researching the previous name still find it?* Today the answer
 > the detail resolvers' not-found branch, the `Cache-Tag` rule (`CACHE_STRATEGY.md` §3 rule 6), and
 > the sitemap + IndexNow exclusion. **Options A, C, D and E are untouched**, and so are all four
 > §5(6) decisions except the consolidation half of (b) — see "What AECI-978 closed" below.
+>
+> **AECI-991 widened option B to the PAIR route (2026-09-16), under the same rider.** The map
+> covered `/products/{from_slug}` and stopped there, so when the ACC record actually retired all
+> **44** `/products/autodesk-construction-cloud/integrations/*` URLs 404ed while the product page
+> itself redirected correctly. A `product` mapping is now applied to the pair route as a path-
+> **prefix** rewrite on its own not-found branch, in both URL positions (§11.2 of
+> `STAGE_1_5_SPEC.md` makes both orientations indexable). That is one rule covering every
+> merge-then-retire rather than a row per pair. Contract: `STAGE_1_5_SPEC.md` §7.2b. It closes no
+> further §5(6) decision — it is the same option B reaching the URLs it always implied.
 
 **What already works, and why that was a surprise.** Promote's update branch writes the new `name` and
 **reuses the existing `slug`** (`apps/api/src/routes/promote.ts:1892`), so a straight rename never
@@ -130,9 +139,10 @@ design has to respect — Trimble Unity is row 2, not row 1:
   old name never reaches our search box, so the string has to be in indexable body copy. Cost: one
   migration, one optional promote field, one Algolia attribute, a **full reindex per environment**, and
   the review-app half. Solves gaps 1 and 2. Does **not** solve consolidation.
-- **B — the general slug→slug redirect map. SHIPPED 2026-09-15 (AECI-978).** The §6.2 promise: a small `slug_redirects` table
+- **B — the general slug→slug redirect map. SHIPPED 2026-09-15 (AECI-978), extended to pair URLs 2026-09-16 (AECI-991).** The §6.2 promise: a small `slug_redirects` table
   consulted **only on the not-found branch** (never the hot path), emitting 301, plus the admin action
-  (that last part is still unbuilt — see "What AECI-978 closed").
+  (that last part is still unbuilt — see "What AECI-978 closed"). Its reach is the detail routes **and**
+  the product-pair route, where a mapped slug rewrites the path prefix in either position.
   Unlike every other redirect in `server-runtime.ts` this map is **mutable**, so it needs its own
   `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retires the
   Bluebeam hardcode. Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
@@ -163,7 +173,7 @@ E opportunistically.
 | §5(6) decision | State after AECI-978 |
 |---|---|
 | (a) pick the mechanism set — A alone, A+B, or A+B+D | **Still open.** B shipping under rider (a) is a prod fix, not a selection: it says nothing about whether A or D are in. Any of A-alone, A+B, A+B+D remain choosable, and A+B is now cheaper by exactly B. |
-| (b) is N:1 consolidation in scope, or handled by hand until a second case appears | **Half closed.** The URL half is answered: a consolidation's dead URL is now a data row, not a hand-written route, and the second case (AECI-809) is what forced it. The **page** half is untouched — nothing merges content, chooses a survivor, or explains the merge to a reader. |
+| (b) is N:1 consolidation in scope, or handled by hand until a second case appears | **Half closed.** The URL half is answered: a consolidation's dead URL is now a data row, not a hand-written route, and the second case (AECI-809) is what forced it. AECI-991 extended that half to the retired slug's **pair** URLs, which the first cut missed entirely. The **page** half is untouched — nothing merges content, chooses a survivor, or explains the merge to a reader. |
 | (c) who authors a former name — the promote wire, or an AECi-side admin action | **Untouched.** This map stores no name, only slugs. Rows are operator-inserted; the §6.2 admin action is still unbuilt. |
 | (d) confirm the `former_names` shape (flat list vs. dated entries) | **Untouched.** That is option A's column and does not exist. |
 

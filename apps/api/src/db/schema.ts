@@ -373,15 +373,37 @@ export const integrations = sqliteTable(
 );
 
 /**
- * Where a delivered edge USED to sit (AECI-953 / `STAGE_1_5_SPEC.md` §7.2).
+ * Where a delivered edge USED to sit (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a).
  *
- * The pair page is keyed by two product slugs, not by the edge's id. So when a
+ * The pair page is keyed by two product SLUGS, not by the edge's id. So when a
  * promote re-points an endpoint — AECI-726 moved 37 live edges off Procore Project
  * Management onto the new Procore platform record, AECI-950 moved 15 more — the row
  * updates in place and keeps its id, but its **URL moves**. The old URL then serves
  * 200 + `noindex` with no redirect: the indexed page decays over weeks and the new
  * one starts from nothing. This table is the record that lets the pair resolver 301
  * the old URL instead.
+ *
+ * ── THE KEY IS SLUGS, AND THAT IS AECI-991'S CORRECTION ────────────────────────
+ *
+ * It was `from_product_a_id` / `from_product_b_id`, each an FK to `products` with
+ * `ON DELETE CASCADE`. That destroyed the feature in the one case it was built for.
+ * A redirect is keyed on the thing it points **away from**, so deleting that product
+ * deletes the redirect — and a merge-then-retire (AECI-809: Autodesk Construction
+ * Cloud into Autodesk Forma) re-points every edge and *then* retracts the old record.
+ * All 44 ACC move rows cascaded away in that last step and 44 indexed pair URLs went
+ * from "about to 301" to 404, with nothing logged. Migration `0041` re-keys the table
+ * on the two slugs and drops both foreign keys.
+ *
+ * A slug also outlives its row in the only sense that matters here: the URL is the
+ * identity of a pair page, so a row that names two slugs is self-describing and can
+ * still be read after either endpoint is gone. The `moved_at`/`integration_id` half
+ * is unchanged.
+ *
+ * **A retired endpoint reaches a DIFFERENT mechanism.** This table answers "the edge
+ * left this pair"; it does not answer "this product's slug retired". The second is
+ * `slug_redirects` (§4.3b), which since AECI-991 also rewrites the pair route's path
+ * prefix. Keeping the rows readable after a retraction is what stops the two from
+ * silently overlapping — the move row stays true whatever happens to the products.
  *
  * ── WHY A TABLE AND NOT A COLUMN PAIR ON `integrations` ────────────────────────
  *
@@ -405,26 +427,29 @@ export const integrations = sqliteTable(
  * — if the edge has since moved again the current row already says where, and if it
  * was deleted there is no row and no redirect.
  *
- * `integration_id` therefore carries **no foreign key**: it names a row in either
- * anchor table and no single FK target exists. An orphan row (edge deleted) is inert
- * — the read finds no live location and the resolver serves the ordinary empty pair.
+ * ── NO FOREIGN KEYS AT ALL ─────────────────────────────────────────────────────
  *
- * The two `from_product_*` columns are stored in canonical **id** order
- * (`from_product_a_id < from_product_b_id`, enforced by CHECK) so the lookup is one
- * equality pair rather than an orientation `OR`, the same trick
- * `connector_evidenced_pairs` uses.
+ * `integration_id` never had one: it names a row in either anchor table and no single
+ * FK target exists. Since AECI-991 the two slug columns have none either, for the
+ * reason above — an FK on a column whose whole premise is that the row may be gone
+ * makes the row deletable exactly when it becomes useful. An orphan row is inert: the
+ * read finds no live location and the resolver serves the ordinary empty pair.
+ *
+ * The two `from_product_*_slug` columns are stored in canonical **slug** order
+ * (`from_product_a_slug < from_product_b_slug`, enforced by CHECK) so the lookup is
+ * one equality pair rather than an orientation `OR`. Slugs are lowercase ASCII, so
+ * SQLite's default `BINARY` collation is the correct comparison here and `NOCASE`
+ * (AECI-825) is not wanted — this is an identity key, not a display ordering.
  */
 export const integrationEndpointMoves = sqliteTable(
   'integration_endpoint_moves',
   {
     /** The edge's id — in `integrations` or `connector_evidenced_pairs`. No FK; see above. */
     integrationId: text('integration_id').notNull(),
-    fromProductAId: text('from_product_a_id')
-      .notNull()
-      .references(() => products.id, { onDelete: 'cascade' }),
-    fromProductBId: text('from_product_b_id')
-      .notNull()
-      .references(() => products.id, { onDelete: 'cascade' }),
+    /** The alphabetically-first slug of the pair the edge left. No FK; see above. */
+    fromProductASlug: text('from_product_a_slug').notNull(),
+    /** The alphabetically-second slug of the pair the edge left. No FK; see above. */
+    fromProductBSlug: text('from_product_b_slug').notNull(),
     movedAt: text('moved_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
@@ -432,11 +457,11 @@ export const integrationEndpointMoves = sqliteTable(
   (t) => [
     // One row per (edge, old pair). A re-promote that re-states the same move is a
     // no-op on the PK, which is what keeps the ingest's `INSERT OR IGNORE` honest.
-    primaryKey({ columns: [t.integrationId, t.fromProductAId, t.fromProductBId] }),
-    index('integration_endpoint_moves_from_idx').on(t.fromProductAId, t.fromProductBId),
+    primaryKey({ columns: [t.integrationId, t.fromProductASlug, t.fromProductBSlug] }),
+    index('integration_endpoint_moves_from_idx').on(t.fromProductASlug, t.fromProductBSlug),
     check(
       'integration_endpoint_moves_canonical_pair_check',
-      sql`"from_product_a_id" < "from_product_b_id"`,
+      sql`"from_product_a_slug" < "from_product_b_slug"`,
     ),
   ],
 );
