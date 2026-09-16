@@ -396,6 +396,25 @@ select {
   caret-color: var(--accent-primary);
 }
 
+/* AECI-982 — pin browser autofill to the tokens. Chrome/Safari paint an
+   autofilled input with a UA-chosen background the page's color cannot know,
+   so the token text's measured contrast ratio no longer holds where the field
+   actually renders. Repaint the fill with --surface-base and force the text
+   fill to --text-primary (20:1 on white — the same pair the field declares).
+   Firefox paints no autofill background, so it needs no guard. The rule only
+   ever fires on an EDITABLE field: read-only and disabled inputs cannot be
+   autofilled, so it never fights the sunken read-only/disabled treatment. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-base) inset;
+  caret-color: var(--accent-primary);
+}
+
 /* CDK overlay defaults: dim the backdrop and center dialog panes. */
 .cdk-overlay-backdrop.cdk-overlay-backdrop-showing {
   background-color: rgb(0 0 0 / 0.5);

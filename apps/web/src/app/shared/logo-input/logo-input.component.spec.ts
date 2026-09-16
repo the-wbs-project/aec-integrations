@@ -125,6 +125,19 @@ describe('LogoInput', () => {
     expect(fixture.nativeElement.querySelector('#test-logo').disabled).toBe(true);
     expect(fixture.nativeElement.querySelector('#test-logo').readOnly).toBe(false);
   });
+  /** AECI-982 — the disabled URL text must stay AA-readable. The disabled
+   *  treatment is the DESIGN.md Inputs/Fields recipe (sunken surface,
+   *  text-secondary, 7.0:1), never an opacity dim: `disabled:opacity-50` took
+   *  #0A0A0A over white to ~3.7:1, and axe cannot catch it because it exempts
+   *  disabled controls from color-contrast. Pinned here as a class assertion so
+   *  the ratio, not just the look, is under test. */
+  it('dims the disabled URL field with tokens, not opacity (AECI-982)', async () => {
+    const fixture = mount();
+    const el = fixture.nativeElement.querySelector('#test-logo') as HTMLInputElement;
+    expect(el.className).toContain('disabled:text-(--text-secondary)');
+    expect(el.className).toContain('disabled:bg-(--surface-sunken)');
+    expect(el.className).not.toContain('disabled:opacity-');
+  });
   it('clears the draft and describes invalid preview URLs', async () => {
     const fixture = mount();
     (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
