@@ -44,6 +44,33 @@
  * its two Procore Project Management edges through AECI-726, and that page is smaller,
  * not moved.
  *
+ * ── AECI-991: A 404 MAY BE A RETIRED ENDPOINT SLUG ──────────────────────────
+ * `moved_to` only ever rides a **200**, so it cannot answer a pair URL whose endpoint
+ * product is *gone*: the API resolves both slugs to rows before it looks at anything
+ * else, and a missing row is a 404 with no body to carry a hint. That is the shape a
+ * merge-then-retire leaves behind — AECI-809 re-pointed 44 edges onto Autodesk Forma
+ * and then retracted the Autodesk Construction Cloud record, and all 44
+ * `/products/autodesk-construction-cloud/integrations/*` URLs started 404ing while
+ * `/products/autodesk-construction-cloud` itself still 301'd correctly.
+ *
+ * So the not-found branch consults `slug_redirects` (AECI-978) and rewrites the path
+ * **prefix**: `/products/{from}/integrations/{x}` → `/products/{to}/integrations/{x}`.
+ * Four things about it:
+ *
+ *   1. **BOTH slugs are looked up, not just the context one.** §11.2 makes both
+ *      orientations of a real pair indexable, so the retired endpoint is the second
+ *      segment in half the indexed URLs. One rewrite, one 301, either way.
+ *   2. **It is one rule, not one row per pair.** A merge retires ONE slug and fixes
+ *      every pair page under it. Minting a per-pair record instead would mean writing
+ *      44 rows to say one thing, and re-deriving them at every future merge.
+ *   3. **It runs only after the pair read returned nothing** — the same ordering rule
+ *      `createDetailResolver` follows, for the same reason: a live page must always
+ *      beat a mapping, which is what lets a redirect be seeded ahead of the retraction.
+ *   4. **A rewrite that collapses the two slugs is refused.** `{from}` mapping onto
+ *      the other endpoint's own slug would produce `/products/x/integrations/x`,
+ *      which the API 404s by definition — a 301 onto a guaranteed 404 is worse than
+ *      the 404 we already have.
+ *
  * ── AECI-303: THE VERSION SELECTORS (§9) ────────────────────────────────────
  * `?context_version=` / `?other_version=` are forwarded to the API, which resolves
  * them and answers with `version_diff`. Three things about that are load-bearing:
@@ -115,6 +142,7 @@ import {
   type PairVersionSelectionParams,
 } from '../core/api/product-pairs';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
+import { fetchSlugRedirect, httpGetSlugRedirect, lookUpRedirect } from '../core/api/slug-redirects';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 
@@ -143,6 +171,73 @@ const MOVED_PAIR_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
  */
 function movedPairPath(movedTo: { context_slug: string; other_slug: string }): string {
   return `/products/${movedTo.context_slug}/integrations/${movedTo.other_slug}`;
+}
+
+/**
+ * Apply the retired-slug map to the two slugs of a pair URL (AECI-991).
+ *
+ * `null` when neither slug is mapped (the ordinary case — most pair 404s are junk),
+ * or when the rewrite would name a pair whose two endpoints are the same product.
+ *
+ * Both lookups go out in ONE wave. They are independent, this request has already
+ * decided to 404, and serialising them would double the latency of a page nobody is
+ * being shown.
+ */
+async function rewriteRetiredPairSlugs(
+  contextSlug: string,
+  otherSlug: string,
+  lookup: (slug: string) => Promise<{ to_slug: string } | null>,
+): Promise<{ context_slug: string; other_slug: string } | null> {
+  const [context, other] = await Promise.all([
+    lookUpRedirect(() => lookup(contextSlug)),
+    lookUpRedirect(() => lookup(otherSlug)),
+  ]);
+  if (!context && !other) return null;
+  const nextContext = context?.to_slug ?? contextSlug;
+  const nextOther = other?.to_slug ?? otherSlug;
+  // A merge whose survivor is the pair's OTHER endpoint — the two products are now
+  // one, there is no pair, and the API 404s equal slugs by definition.
+  if (nextContext === nextOther) return null;
+  return { context_slug: nextContext, other_slug: nextOther };
+}
+
+/**
+ * `Cache-Tag` for a retired-endpoint pair 301 (AECI-991), per `CACHE_STRATEGY.md`
+ * §2 and §3 rule 6.
+ *
+ * Four tags, and each answers a different way this redirect goes wrong:
+ *
+ *   - **the OLD `pair:` tag** — the retired endpoint COMES BACK. A re-promote of that
+ *     slug purges its pair tags and nothing else, and without this the edge would keep
+ *     redirecting readers away from a page that is live again for the full 24h
+ *     `s-maxage`. This is rule 6's `{from_slug}` argument, applied to a pair URL.
+ *   - **the NEW `pair:` tag** — the destination pair changes or empties, so the 301
+ *     stops being the right answer.
+ *   - **`product:` for both mapped slugs** — the survivor being renamed or retired in
+ *     turn purges `product:{to_slug}` through the ordinary rules, and a re-promote of
+ *     the retired slug purges `product:{from_slug}`.
+ *
+ * Both pair tags are built in the alphabetical `{min}__{max}` form the rest of the
+ * system uses, so a purge from any producer matches. Editing `slug_redirects` itself
+ * purges nothing — that is an operator action with no writer to hook (rule 6).
+ */
+function retiredPairCacheTags(
+  contextSlug: string,
+  otherSlug: string,
+  rewritten: { context_slug: string; other_slug: string },
+): string {
+  const [oldMin, oldMax] = orderedPairSlugs(contextSlug, otherSlug);
+  const [newMin, newMax] = orderedPairSlugs(rewritten.context_slug, rewritten.other_slug);
+  const tags = [`pair:${oldMin}__${oldMax}`, `pair:${newMin}__${newMax}`];
+  // Only the slugs that actually changed carry a `product:` tag — an unmapped
+  // endpoint's product page has nothing to do with this redirect.
+  for (const [from, to] of [
+    [contextSlug, rewritten.context_slug],
+    [otherSlug, rewritten.other_slug],
+  ]) {
+    if (from !== to) tags.push(`product:${from}`, `product:${to}`);
+  }
+  return [...new Set(tags)].join(',');
 }
 
 /** `<title>` name — "{context} and {other} integrations". */
@@ -312,12 +407,10 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // component-spec harness runs this resolver without a router; the app itself
     // always has one, and a null router simply skips the redirect and renders.
     const router = inject(Router, { optional: true });
+    const http = inject(HttpClient);
     const fetched = transferState.hasKey(stateKey)
       ? transferState.get(stateKey, null)
-      : await httpGetOrNull<ProductPairResponse>(
-          inject(HttpClient),
-          pairPath(contextSlug, otherSlug, selection),
-        );
+      : await httpGetOrNull<ProductPairResponse>(http, pairPath(contextSlug, otherSlug, selection));
     // Idempotent on a hydration hit — the server already gated what it transferred.
     const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
 
@@ -329,6 +422,18 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     if (movedTo && router) {
       void router.navigateByUrl(movedPairPath(movedTo), { replaceUrl: true });
       return null;
+    }
+
+    // AECI-991 — the client half of the retired-endpoint rewrite. Same `replaceUrl`
+    // reasoning as above: the retired URL must not sit in the history stack.
+    if (!pair && router) {
+      const rewritten = await rewriteRetiredPairSlugs(contextSlug, otherSlug, (slug) =>
+        httpGetSlugRedirect(http, 'product', slug),
+      );
+      if (rewritten) {
+        void router.navigateByUrl(movedPairPath(rewritten), { replaceUrl: true });
+        return null;
+      }
     }
 
     if (pair) applyResolvedMeta(pair);
@@ -381,6 +486,24 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
   transferState.set(stateKey, pair);
 
   if (!pair) {
+    // ── AECI-991: the pair 404 may be a retired ENDPOINT slug ────────────────
+    // Consulted here and nowhere else, so §2.6's "only on the not-found branch"
+    // rule is literally true for this route too: the read has already missed.
+    const rewritten = responseInit
+      ? await rewriteRetiredPairSlugs(contextSlug, otherSlug, (slug) =>
+          fetchSlugRedirect(ctx.api, 'product', slug),
+        )
+      : null;
+    if (rewritten && responseInit) {
+      responseInit.status = 301;
+      const headers =
+        responseInit.headers instanceof Headers ? responseInit.headers : new Headers();
+      responseInit.headers = headers;
+      headers.set('Location', `${new URL(canonical).origin}${movedPairPath(rewritten)}`);
+      headers.set('Cache-Control', MOVED_PAIR_CACHE_CONTROL);
+      headers.set('Cache-Tag', retiredPairCacheTags(contextSlug, otherSlug, rewritten));
+      return null;
+    }
     if (responseInit) responseInit.status = 404;
     meta.setNotFoundMeta({ kind: 'integration', slug: notFoundSlug, canonical });
     return null;

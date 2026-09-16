@@ -1,6 +1,6 @@
 /**
  * Where a pair page's content went, for the 301 the pair resolver emits
- * (AECI-953 / `STAGE_1_5_SPEC.md` §7.2).
+ * (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a).
  *
  * The pair page is keyed by two product slugs, not by an edge id. So a promote that
  * re-points an endpoint moves the page's URL while the edge keeps its id and updates
@@ -10,6 +10,21 @@
  *
  * `integration_endpoint_moves` records the pair an edge moved AWAY from. This module
  * is the read.
+ *
+ * ── THE LOOKUP KEY IS TWO SLUGS (AECI-991) ────────────────────────────────────
+ *
+ * It used to be two product **ids**, which made this function unreachable in the one
+ * case it was written for. The caller has a URL, so an id-keyed lookup has to resolve
+ * both slugs to product rows first — and a merge-then-retire deletes one of those
+ * rows. No row, no id, no lookup, and the stored rows had cascaded away besides. The
+ * table is now keyed on the slugs themselves, so this read needs nothing but the URL
+ * and answers just as well for an endpoint that no longer exists.
+ *
+ * What it still does NOT answer is "that product's slug retired". That is
+ * `slug_redirects` and the pair route's path-prefix rewrite (AECI-991,
+ * `STAGE_3_SPEC.md` §2.6 option B), which runs on the pair route's not-found branch.
+ * The two are different questions and are deliberately kept apart: this one is true
+ * whatever happens to the products.
  *
  * ── THE DESTINATION IS NEVER STORED ────────────────────────────────────────────
  *
@@ -32,7 +47,7 @@
  * inert.
  */
 
-import { and, desc, eq, inArray, or } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -56,8 +71,25 @@ export interface MovedPairTarget {
 const MAX_CANDIDATES = 8;
 
 /**
- * Resolve the pair page that now holds the content of `(contextProduct, otherProduct)`,
+ * The two slugs of a pair in the canonical order the table stores.
+ *
+ * A plain `.sort()` rather than `compareText` (AECI-825) on purpose: this is an
+ * identity key compared against a SQLite column whose collation is `BINARY`, so the
+ * two orderings have to agree bit for bit. `compareText` would case-fold and could
+ * disagree with the CHECK. Slugs are lowercase ASCII, so nothing is at stake beyond
+ * keeping the two sides identical.
+ */
+function canonicalPairSlugs(a: string, b: string): readonly [string, string] {
+  return a < b ? [a, b] : [b, a];
+}
+
+/**
+ * Resolve the pair page that now holds the content of `(contextSlug, otherSlug)`,
  * or `null` when there is nothing to redirect to.
+ *
+ * Takes slugs, not product rows: the answer must survive either endpoint being
+ * retracted (AECI-991), and the slugs are what the URL — and now the table — is
+ * keyed on.
  *
  * Orientation is preserved rather than canonicalised. A reader who asked for
  * `/products/procore-project-management/integrations/okta` gets
@@ -67,16 +99,16 @@ const MAX_CANDIDATES = 8;
  */
 export async function resolveMovedPair(
   db: Db,
-  contextProduct: { id: string; slug: string },
-  otherProduct: { id: string; slug: string },
+  contextSlug: string,
+  otherSlug: string,
 ): Promise<MovedPairTarget | null> {
-  const [fromA, fromB] = [contextProduct.id, otherProduct.id].sort();
+  const [fromA, fromB] = canonicalPairSlugs(contextSlug, otherSlug);
 
   const moves = await db.query.integrationEndpointMoves.findMany({
     columns: { integrationId: true },
     where: and(
-      eq(integrationEndpointMoves.fromProductAId, fromA),
-      eq(integrationEndpointMoves.fromProductBId, fromB),
+      eq(integrationEndpointMoves.fromProductASlug, fromA),
+      eq(integrationEndpointMoves.fromProductBSlug, fromB),
     ),
     // Newest first: if two edges left this pair for different destinations, the most
     // recent departure is the better guess at where a reader wanted to end up.
@@ -104,37 +136,48 @@ export async function resolveMovedPair(
     locationById.set(row.id, [row.sourceProductId, row.targetProductId]);
   }
   for (const row of livePairs) locationById.set(row.id, [row.productAId, row.productBId]);
+  if (!locationById.size) return null;
 
-  // Preserve the newest-first order of `moves`, which the two id-keyed reads lost.
+  // One read for every candidate destination's slugs, in the order `moves` gave —
+  // which the two id-keyed reads above lost. The location is a pair of product IDS
+  // (the anchor tables key on ids and always will, because an edge's endpoints are
+  // live rows); only the MOVE record is slug-keyed.
+  const destinationIds = new Set<string>();
+  for (const move of moves) {
+    const live = locationById.get(move.integrationId);
+    if (live) for (const id of live) destinationIds.add(id);
+  }
+  const slugRows = await db.query.products.findMany({
+    columns: { id: true, slug: true },
+    where: inArray(products.id, [...destinationIds]),
+  });
+  const slugById = new Map(slugRows.map((p) => [p.id, p.slug]));
+
   let destination: readonly [string, string] | null = null;
   for (const move of moves) {
     const live = locationById.get(move.integrationId);
     if (!live) continue;
-    const [liveA, liveB] = [...live].sort();
+    const a = slugById.get(live[0]);
+    const b = slugById.get(live[1]);
+    // An endpoint with no product row cannot name a URL. Skip rather than guess.
+    if (!a || !b) continue;
+    const [liveA, liveB] = canonicalPairSlugs(a, b);
     // A move row whose edge came BACK is not a destination — it would 301 this page
     // to itself. (The caller only reaches here on an empty pair, so this should not
     // happen; it is cheap to be certain rather than to serve a redirect loop.)
     if (liveA === fromA && liveB === fromB) continue;
-    destination = live;
+    destination = [a, b];
     break;
   }
   if (!destination) return null;
 
-  const slugs = await db.query.products.findMany({
-    columns: { id: true, slug: true },
-    where: or(eq(products.id, destination[0]), eq(products.id, destination[1])),
-  });
-  const slugById = new Map(slugs.map((p) => [p.id, p.slug]));
-  const a = slugById.get(destination[0]);
-  const b = slugById.get(destination[1]);
-  if (!a || !b) return null;
-
+  const [a, b] = destination;
   // Keep whichever endpoint survived in the reader's own frame.
-  if (b === otherProduct.slug) return { context_slug: a, other_slug: b };
-  if (a === otherProduct.slug) return { context_slug: b, other_slug: a };
+  if (b === otherSlug) return { context_slug: a, other_slug: b };
+  if (a === otherSlug) return { context_slug: b, other_slug: a };
   // The OTHER endpoint moved and the context one survived.
-  if (a === contextProduct.slug) return { context_slug: a, other_slug: b };
-  if (b === contextProduct.slug) return { context_slug: b, other_slug: a };
+  if (a === contextSlug) return { context_slug: a, other_slug: b };
+  if (b === contextSlug) return { context_slug: b, other_slug: a };
   // Both endpoints moved — no frame to preserve, so fall back to the canonical
   // alphabetical context the pair page, canonical and sitemap all already use (§7.1).
   return a <= b ? { context_slug: a, other_slug: b } : { context_slug: b, other_slug: a };

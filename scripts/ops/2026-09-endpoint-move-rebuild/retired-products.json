@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Product ids that appear in `integration.endpoint_moved` audit rows but no longer",
+    "have a `products` row, with the slug each one had. This file exists because an",
+    "audit row written before AECI-991 records only product IDS, and once the product",
+    "is deleted there is no query anywhere that recovers the slug it used to hold.",
+    "",
+    "Every entry is an operator ruling and must be sourced. Do not add one from memory:",
+    "an id mapped to the wrong slug writes a redirect that sends readers to the wrong",
+    "page, and nothing downstream can tell.",
+    "",
+    "Audit rows written from AECI-991 onward carry `before_state.productSlugs`, so they",
+    "need no entry here and this file should stop growing."
+  ],
+  "retired": {
+    "463d5f20-a73a-4776-b26a-fcdf3818accd": {
+      "slug": "autodesk-construction-cloud",
+      "source": "AECI-809 / AECI-991 — ACC merged into Autodesk Forma and the record was retracted 2026-09-16. The id is named in AECI-991's evidence table and the slug is the one `slug_redirects` maps (migration 0039_late_mysterio.sql)."
+    }
+  }
+}

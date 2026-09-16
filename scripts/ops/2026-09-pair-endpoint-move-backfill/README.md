@@ -6,6 +6,13 @@ URLs start serving a 301 instead of an empty page.
 
 > **Status: not yet run.** Dry-run first. The script writes nothing without `--apply`,
 > and nothing to production without `--allow-production` on top of it.
+>
+> **Updated for AECI-991 (2026-09-16).** `integration_endpoint_moves` is keyed on the
+> two old pair **slugs** now, not on two product ids, so the resolution query no longer
+> looks up the retired product at all and the generated `INSERT`s name slugs. Nothing
+> else about the cohort or the procedure changed. If you are looking for the **44 ACC**
+> moves instead, they are a different cohort with a different source — see
+> `scripts/ops/2026-09-endpoint-move-rebuild/`, which rebuilds from `audit_log`.
 
 ---
 
@@ -68,8 +75,9 @@ nothing there and the script exits early. That is the expected result, not a fai
 
 ### What it writes
 
-One `integration_endpoint_moves` row per resolved edge, plus one
-`integration.endpoint_moved` `audit_log` row — the same action the promote ingest
+One `integration_endpoint_moves` row per resolved edge — `(integration_id,
+from_product_a_slug, from_product_b_slug)` — plus one `integration.endpoint_moved`
+`audit_log` row — the same action the promote ingest
 emits for the same mutation (§26.1 / ADR 0022). Both go in one file applied through
 `wrangler d1 execute --file`, which routes via D1's import pipeline and does promise
 all-or-nothing; a `--command` rollback is only observed behaviour of an endpoint that

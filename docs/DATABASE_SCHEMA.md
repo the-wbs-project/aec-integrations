@@ -431,25 +431,45 @@ named `relationName` is required because `products` ↔ `integrations` already h
 other relations (source and target endpoints) and Drizzle cannot otherwise
 disambiguate a third.
 
-### 4.3a `integration_endpoint_moves` (AECI-953)
+### 4.3a `integration_endpoint_moves` (AECI-953, re-keyed by AECI-991)
 
 Where a delivered edge **used to sit**, so its old pair-page URL can 301 instead of
-going quiet. Migration `0038_military_susan_delgado.sql` — purely additive, one
-`CREATE TABLE` and one `CREATE INDEX`, no recreate.
+going quiet. Created by `0038_military_susan_delgado.sql`; **re-keyed on the two pair
+slugs by `0041_shocking_maggott.sql`**, a hand-assembled recreate that carries every
+existing row across (ids joined to `products` and re-sorted into slug order).
 
 ```sql
 CREATE TABLE integration_endpoint_moves (
-  integration_id     TEXT NOT NULL,
-  from_product_a_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  from_product_b_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  moved_at           TEXT NOT NULL,
-  PRIMARY KEY (integration_id, from_product_a_id, from_product_b_id),
+  integration_id       TEXT NOT NULL,
+  from_product_a_slug  TEXT NOT NULL,
+  from_product_b_slug  TEXT NOT NULL,
+  moved_at             TEXT NOT NULL,
+  PRIMARY KEY (integration_id, from_product_a_slug, from_product_b_slug),
   CONSTRAINT integration_endpoint_moves_canonical_pair_check
-    CHECK (from_product_a_id < from_product_b_id)
+    CHECK (from_product_a_slug < from_product_b_slug)
 );
 CREATE INDEX integration_endpoint_moves_from_idx
-  ON integration_endpoint_moves (from_product_a_id, from_product_b_id);
+  ON integration_endpoint_moves (from_product_a_slug, from_product_b_slug);
 ```
+
+**Why it was re-keyed, and why an FK here was the defect (AECI-991).** Both `from_*`
+columns were `TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE`. A redirect is
+keyed on the thing it points **away from**, so deleting that product deleted the
+redirect — and a merge-then-retire does exactly that, in that order. AECI-809
+re-pointed 44 edges off Autodesk Construction Cloud onto Autodesk Forma and then
+retracted the ACC record; production was left with 44 `integration.endpoint_moved`
+audit rows, **0** move rows, and 44 indexed pair URLs serving 404. Nothing logged it.
+
+Slugs have no owning row, so they cannot cascade, and a row naming two slugs is
+self-describing: it is readable after either endpoint is gone, which is when it
+matters. The recreate is safe in a way `0027`'s and `0033`'s were not — this table has
+**no inbound foreign keys and therefore no cascade children**, which
+`apps/api/src/test/d1.spec.ts` now pins so one cannot be added quietly.
+
+Slug order is `BINARY`, not `NOCASE`. AECI-825's case-insensitive rule governs display
+orderings; this is an identity key compared against the CHECK, and the two sides have
+to agree bit for bit. Slugs are lowercase ASCII, so nothing is at stake beyond keeping
+them identical.
 
 **The problem it solves.** An edge's identity is its id, which a re-point preserves,
 but a **pair page is keyed by two product slugs**. So a promote that moves an endpoint
@@ -475,21 +495,41 @@ of moves resolve to its end with no chain-walking code, makes a deleted edge pro
 redirect at all, and guarantees the redirect target actually holds the edge — because it
 is the edge's own row.
 
-**`integration_id` carries no foreign key**, and that is the one deliberate omission: the
-id names a row in *either* anchor table, so no single FK target exists. An orphan row
-(edge deleted) is inert — the read finds no live location and the pair renders as the
-ordinary empty page, which is what a retraction should look like.
+**The table carries no foreign key at all.** `integration_id` never did — the id names
+a row in *either* anchor table, so no single FK target exists — and since AECI-991 the
+two slug columns have none either. An orphan row (edge deleted) is inert: the read
+finds no live location and the pair renders as the ordinary empty page, which is what a
+retraction should look like.
 
-The two `from_product_*` columns are stored in canonical **id** order, enforced by CHECK,
-so the lookup is one equality pair rather than an orientation `OR` — the same trick
-`connector_evidenced_pairs` uses.
+The two `from_product_*_slug` columns are stored in canonical **slug** order, enforced
+by CHECK, so the lookup is one equality pair rather than an orientation `OR` — the same
+trick `connector_evidenced_pairs` uses.
+
+**This table does not answer "the slug retired".** It answers "the edge left this
+pair". A retired endpoint slug is `slug_redirects` (§4.3b), which the pair route applies
+as a path-prefix rewrite. Keeping the two apart is deliberate: one merge retires one
+slug and fixes every pair page under it, where per-pair rows would mean writing 44 rows
+to say one thing.
 
 **Writers.** `runPromoteIngest` only, in the **same `db.batch`** as the endpoint update,
 with an `integration.endpoint_moved` `audit_log` row beside it (§18 / §26.1). Nothing is
 written when the endpoints are restated, and nothing when source and target merely swap —
 the comparison is on the **unordered** pair, so AECI-920's direction corrections never
-mint a redirect to the page they are already on. The 52 pre-existing moves are seeded once
-by `scripts/ops/2026-09-pair-endpoint-move-backfill/`.
+mint a redirect to the page they are already on.
+
+Since AECI-991 the INSERT is emitted in the ingest's post-loop slug-resolution pass
+rather than inside the integration loop — the row is keyed on slugs, and a freshly
+created endpoint has no readable row until that batched read runs. It is still the
+**same `db.batch`** as the endpoint update (§26.1 is about the batch, not the line
+number), and the `integration.endpoint_moved` audit row now records **both** ids and
+slugs in `before_state`/`after_state`, so a move is reconstructable from the log even
+after the product is deleted.
+
+Two one-time cohorts, both idempotent and neither overlapping the other:
+`scripts/ops/2026-09-pair-endpoint-move-backfill/` seeds the 52 Procore moves that
+predate the ingest recording anything, and
+`scripts/ops/2026-09-endpoint-move-rebuild/` rebuilds from `audit_log` the rows the FK
+cascade destroyed.
 
 ### 4.3b `slug_redirects` (AECI-978)
 
@@ -517,8 +557,14 @@ vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the row and the
 URL 404s with no successor. This is option B of `STAGE_3_SPEC.md` §2.6, the general map
 that `STAGE_1_PHASE_2_SPEC.md` §6.2 promised to Phase 6 and Phase 6 never shipped.
 
-**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`), over
-`GET /api/slug-redirects/:entity/:fromSlug`. That ordering is a correctness rule, not an
+**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`) and —
+since AECI-991 — by the product-**pair** resolver, both over
+`GET /api/slug-redirects/:entity/:fromSlug`. The pair route applies a `product` mapping
+as a path-**prefix** rewrite (`/products/{from}/integrations/{x}` 301s to
+`/products/{to}/integrations/{x}`), looking up **both** URL slugs because §11.2 makes
+both orientations indexable, and refusing a rewrite that would collapse the two
+endpoints into one product. That is what makes a merge-then-retire keep every pair page
+under the retired slug, not just the product page. That ordering is a correctness rule, not an
 optimisation: **a live row always beats a mapping**, which is what lets a redirect be
 seeded *ahead* of the data op that retires the row, leaving no window where the URL 404s
 and none where it redirects a page that still renders.
@@ -2971,7 +3017,7 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 
 ### Usefulness ownership (AECI-963)
 
-Migration `0041_solid_rick_jones.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
+Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 
 ### Logo ownership (AECI-955)
 

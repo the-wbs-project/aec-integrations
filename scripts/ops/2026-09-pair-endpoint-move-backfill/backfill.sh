@@ -104,10 +104,15 @@ echo "   mode:   $([ "$APPLY" = 1 ] && echo APPLY || echo DRY-RUN)"
 # ─── 1. Resolve the cohort against the live DB ────────────────────────────────
 #
 # Each triple becomes ONE standalone SELECT that finds the edge CURRENTLY on the
-# destination pair, in either anchor table and either orientation, and projects the
-# OLD pair's two ids in canonical order. A triple that resolves to nothing prints as
-# `unresolved` and writes nothing — it is not an error, it means that edge moved again
-# or was retracted.
+# destination pair, in either anchor table and either orientation. A triple that
+# resolves to nothing prints as `unresolved` and writes nothing — it is not an error,
+# it means that edge moved again or was retracted.
+#
+# AECI-991 SIMPLIFIED THIS. The table is keyed on the two old pair SLUGS now, not on
+# two product ids, so the query no longer has to resolve the OLD product at all — the
+# cohort file already names it. It also no longer has to exist: an id-keyed row could
+# only be written while the retired endpoint's row was still there, which is exactly
+# backwards for a redirect that points away from it.
 #
 # 52 SEPARATE STATEMENTS, not one 52-arm UNION ALL: SQLite caps the number of terms in
 # a compound SELECT and a 52-arm union fails outright with
@@ -125,17 +130,15 @@ arms = []
 for m in moves:
     arms.append(f"""
 SELECT {lit(m['from'])} AS from_slug, {lit(m['to'])} AS to_slug, {lit(m['other'])} AS other_slug,
-       e.id AS edge_id,
-       MIN(oldp.id, otherp.id) AS from_a, MAX(oldp.id, otherp.id) AS from_b
-FROM products oldp
-JOIN products newp   ON newp.slug   = {lit(m['to'])}
+       e.id AS edge_id
+FROM products newp
 JOIN products otherp ON otherp.slug = {lit(m['other'])}
 JOIN (
   SELECT id, source_product_id AS x, target_product_id AS y FROM integrations
   UNION ALL
   SELECT id, product_a_id AS x, product_b_id AS y FROM connector_evidenced_pairs
 ) e ON (e.x = newp.id AND e.y = otherp.id) OR (e.x = otherp.id AND e.y = newp.id)
-WHERE oldp.slug = {lit(m['from'])};""".strip())
+WHERE newp.slug = {lit(m['to'])};""".strip())
 print("\n\n".join(arms))
 PYEOF
 echo "   query:  $OUT/query.sql"
@@ -198,11 +201,12 @@ def lit(s):
 forward, back = [], []
 seen = set()
 for r in rows:
-    key = (r["edge_id"], r["from_a"], r["from_b"])
+    fa, fb = sorted([r["from_slug"], r["other_slug"]])
+    key = (r["edge_id"], fa, fb)
     if key in seen:
         continue
     seen.add(key)
-    edge, fa, fb = key
+    edge = r["edge_id"]
     meta = json.dumps(
         {"source": "ops-backfill-aeci-953", "runId": stamp,
          "fromPair": [r["from_slug"], r["other_slug"]], "toPair": [r["to_slug"], r["other_slug"]]},
@@ -210,7 +214,7 @@ for r in rows:
     )
     forward.append(
         "INSERT OR IGNORE INTO integration_endpoint_moves "
-        "(integration_id, from_product_a_id, from_product_b_id, moved_at) VALUES ("
+        "(integration_id, from_product_a_slug, from_product_b_slug, moved_at) VALUES ("
         f"{lit(edge)}, {lit(fa)}, {lit(fb)}, {lit(now)});"
     )
     # Guarded so a re-run (where the INSERT was a no-op) does not add a second audit
@@ -220,14 +224,14 @@ for r in rows:
         "before_state, after_state, metadata, created_at) "
         f"SELECT {lit(uuid.uuid4())}, NULL, 'system', 'integration.endpoint_moved', 'integration', "
         f"{lit(edge)}, "
-        f"{lit(json.dumps({'productIds': sorted([fa, fb])}, separators=(',', ':')))}, NULL, "
+        f"{lit(json.dumps({'productSlugs': [fa, fb]}, separators=(',', ':')))}, NULL, "
         f"{lit(meta)}, {lit(now)} "
         "WHERE NOT EXISTS (SELECT 1 FROM audit_log WHERE entity_id = "
         f"{lit(edge)} AND action = 'integration.endpoint_moved');"
     )
     back.append(
         "DELETE FROM integration_endpoint_moves WHERE integration_id = "
-        f"{lit(edge)} AND from_product_a_id = {lit(fa)} AND from_product_b_id = {lit(fb)};"
+        f"{lit(edge)} AND from_product_a_slug = {lit(fa)} AND from_product_b_slug = {lit(fb)};"
     )
     back.append(
         "DELETE FROM audit_log WHERE action = 'integration.endpoint_moved' "

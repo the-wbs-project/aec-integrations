@@ -5,6 +5,7 @@
 
 import type { ClaimDirection } from '@aeci/shared';
 import { ProductPairResponseSchema } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -1160,11 +1161,16 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     ]);
   };
 
+  /**
+   * The move row is keyed on the two pair SLUGS since AECI-991, so this helper takes
+   * slugs — and nothing here has to resolve a product id, which is the point: the row
+   * has to stay readable after either endpoint is deleted.
+   */
   const recordMove = async (edgeId: string, from: [string, string]) => {
     const [a, b] = [...from].sort();
     await t.db
       .insert(integrationEndpointMoves)
-      .values({ integrationId: edgeId, fromProductAId: a, fromProductBId: b });
+      .values({ integrationId: edgeId, fromProductASlug: a, fromProductBSlug: b });
   };
 
   const body = async (url: string) =>
@@ -1173,7 +1179,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
   it('points an emptied pair at the pair that now holds the edge', async () => {
     await seedThreeProducts();
     await integration(u(10), PLATFORM, OKTA);
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
     const res = await body('/api/products/procore-project-management/integrations/okta');
     expect(res.mechanisms).toEqual([]);
@@ -1184,7 +1190,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
   it('keeps the reader frame when the CONTEXT endpoint is the survivor', async () => {
     await seedThreeProducts();
     await integration(u(10), PM, PLATFORM);
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
     const res = await body('/api/products/procore-project-management/integrations/okta');
     expect(res.moved_to).toEqual({
@@ -1199,7 +1205,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     await seedThreeProducts();
     await integration(u(10), PLATFORM, OKTA);
     await integration(u(11), PM, OKTA);
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
     const res = await body('/api/products/procore-project-management/integrations/okta');
     expect(res.mechanisms).toHaveLength(1);
@@ -1210,7 +1216,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     // A retraction leaves a noindexed empty pair, not a redirect — the destination is
     // read live, so there is nothing to point at.
     await seedThreeProducts();
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
     const res = await body('/api/products/procore-project-management/integrations/okta');
     expect(res.moved_to).toBeNull();
@@ -1225,8 +1231,8 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
       promotionStatus: 'promoted',
     });
     await integration(u(10), u(4), OKTA);
-    await recordMove(u(10), [PM, OKTA]); // hop 1, recorded
-    await recordMove(u(10), [PLATFORM, OKTA]); // hop 2, recorded
+    await recordMove(u(10), ['procore-project-management', 'okta']); // hop 1, recorded
+    await recordMove(u(10), ['procore', 'okta']); // hop 2, recorded
 
     // Either old URL lands on the CURRENT pair, with no chain-walking code.
     expect(
@@ -1249,7 +1255,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
       productBId: b,
       connectorProductId: u(1) === a ? u(1) : PM,
     });
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
     // PM is the connector here, which is legal — it is neither endpoint of the pair.
     const res = await body('/api/products/procore-project-management/integrations/okta');
@@ -1262,14 +1268,44 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     // loop is the one failure worth being certain about rather than arguing about.
     await seedThreeProducts();
     await integration(u(10), PM, OKTA);
-    await recordMove(u(10), [PM, OKTA]);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
 
-    const target = await resolveMovedPair(
-      t.db,
-      { id: PM, slug: 'procore-project-management' },
-      { id: OKTA, slug: 'okta' },
-    );
+    const target = await resolveMovedPair(t.db, 'procore-project-management', 'okta');
     expect(target).toBeNull();
+  });
+
+  it('survives the old endpoint being retracted — the AECI-991 cascade case', async () => {
+    // The defect this re-key exists for. The row used to carry two FKs to `products`
+    // with ON DELETE CASCADE, so retracting the product the edge moved AWAY from
+    // deleted the redirect that pointed away from it. A merge-then-retire does exactly
+    // that, and it took all 44 Autodesk Construction Cloud pair URLs from "about to
+    // 301" to 404 with nothing logged.
+    await seedThreeProducts();
+    await integration(u(10), PLATFORM, OKTA);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
+
+    // Retract the endpoint the edge left, exactly as `ops:retract-product` would.
+    await t.db.delete(products).where(eq(products.id, PM));
+
+    // The row is still there …
+    expect(await t.db.select().from(integrationEndpointMoves)).toHaveLength(1);
+    // … and still answers, with no product row to resolve the slug through.
+    expect(await resolveMovedPair(t.db, 'procore-project-management', 'okta')).toEqual({
+      context_slug: 'procore',
+      other_slug: 'okta',
+    });
+  });
+
+  it('is null when a destination endpoint has no product row left', async () => {
+    // The mirror case: the edge is live but one of the products it now sits on is
+    // gone, so the destination cannot be named as a URL. Half a pair is not a
+    // redirect target — serve the ordinary empty page instead of guessing.
+    await seedThreeProducts();
+    await integration(u(10), PLATFORM, OKTA);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
+    await t.db.delete(products).where(eq(products.id, PLATFORM));
+
+    expect(await resolveMovedPair(t.db, 'procore-project-management', 'okta')).toBeNull();
   });
 
   it('is null on a pair with no move record at all — the ordinary empty pair', async () => {
