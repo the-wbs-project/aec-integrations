@@ -88,6 +88,11 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
   let router: Router;
 
   beforeEach(() => {
+    // The toggle now REMEMBERS the choice in `aeci_listing_view` (AECI-988), and
+    // jsdom's `document.cookie` survives every case in this file — so without
+    // this reset the toolbar-click case below would silently set the default for
+    // the cases after it.
+    document.cookie = 'aeci_listing_view=; path=/; max-age=0';
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(withXhr()),

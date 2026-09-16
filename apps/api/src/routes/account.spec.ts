@@ -135,6 +135,7 @@ describe('GET /api/account', () => {
       user_id: USER,
       email: 'me@example.com',
       display_name: 'Ada',
+      listing_view_preference: null,
       role: 'reviewer',
       // Non-admin → null on all three, and neither table is ever counted
       // (AECI-617, widened to three queues by AECI-922). All three keys are
@@ -145,6 +146,15 @@ describe('GET /api/account', () => {
       pending_claims: null,
       pending_reindex: null,
     });
+  });
+
+  it('returns a remembered listing_view_preference when one is stored', async () => {
+    await t.db
+      .insert(profiles)
+      .values({ id: USER, displayName: 'Ada', listingViewPreference: 'table' });
+    const res = await run(createGetAccountHandler(t.factory), 'get');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ listing_view_preference: 'table' });
   });
 
   // AECI-617: the badge counts ride along with the role so the header's admin
@@ -220,6 +230,67 @@ describe('PATCH /api/account', () => {
     const audit = await t.db.select().from(auditLog);
     expect(audit).toHaveLength(1);
     expect(audit[0]!.action).toBe('profile.updated');
+  });
+
+  it('persists listing_view_preference alone without touching display_name', async () => {
+    await t.db
+      .insert(profiles)
+      .values({ id: USER, displayName: 'Ada', listingViewPreference: null });
+
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      listing_view_preference: 'table',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      display_name: 'Ada',
+      listing_view_preference: 'table',
+    });
+
+    const [row] = await t.db.select().from(profiles);
+    expect(row!.listingViewPreference).toBe('table');
+    // Present-key semantics: an untouched field keeps its value.
+    expect(row!.displayName).toBe('Ada');
+
+    // The audit mirrors ONLY the touched key — a toggle click must not log a
+    // no-op display_name change it never made.
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit).toBeDefined();
+    const asRecord = (v: unknown): Record<string, unknown> =>
+      typeof v === 'string'
+        ? (JSON.parse(v) as Record<string, unknown>)
+        : (v as Record<string, unknown>);
+    expect(asRecord(audit!.beforeState)).toEqual({ listing_view_preference: null });
+    expect(asRecord(audit!.afterState)).toEqual({ listing_view_preference: 'table' });
+  });
+
+  it('clears listing_view_preference back to null (explicit)', async () => {
+    await t.db
+      .insert(profiles)
+      .values({ id: USER, displayName: 'Ada', listingViewPreference: 'table' });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      listing_view_preference: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ listing_view_preference: null });
+    const [row] = await t.db.select().from(profiles);
+    expect(row!.listingViewPreference).toBeNull();
+  });
+
+  it('rejects a PATCH that carries no updatable field', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {});
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(profiles)).toHaveLength(1);
+  });
+
+  it('rejects an out-of-vocabulary listing_view_preference', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      listing_view_preference: 'grid',
+    });
+    expect(res.status).toBe(400);
+    const [row] = await t.db.select().from(profiles);
+    expect(row!.listingViewPreference).toBeNull();
   });
 });
 

@@ -31,7 +31,9 @@ export class AccountApi {
     return firstValueFrom(this.http.get<AccountProfileResponse>('/api/account'));
   }
 
-  /** Update the editable display name. */
+  /** Update the editable profile fields (display name, remembered listing view).
+   *  Present-key semantics: omitted fields are left unchanged, so the listing
+   *  toggle patches `listing_view_preference` alone. */
   updateProfile(input: UpdateAccountInput): Promise<AccountProfileResponse> {
     return firstValueFrom(this.http.patch<AccountProfileResponse>('/api/account', input));
   }

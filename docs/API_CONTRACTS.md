@@ -1184,6 +1184,7 @@ export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  listing_view_preference: 'cards' | 'table' | null;
   role: string;
   pending_reviews: number | null;
   pending_requests: number | null;
@@ -1235,14 +1236,31 @@ Errors: `UNAUTHENTICATED`.
 
 #### `PATCH /api/account`
 
-Update the editable profile fields (today: `display_name`). Audited
+Update the editable profile fields. Audited
 (`profile.updated`). Returns the updated `AccountProfileResponse` — including
 `role` and the three admin-only queue counts, on the same rules as `GET`.
 
+**Present-key semantics:** each field is optional on the wire, but at least one
+must be present (the schema rejects an empty body with `VALIDATION_FAILED`). An
+omitted field is left unchanged — so the listing pages' Cards/Table toggle
+PATCHes `listing_view_preference` alone without re-sending the display name, and
+an account-form save can't clobber the remembered view with a stale client copy
+it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
+keys.
+
+`listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
+and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site
+default `cards`); an explicit `null` clears it back to that default. The browser
+reads it only post-hydration as the `?view=` default — never during SSR, so it
+cannot poison the URL-keyed edge cache (see `CACHE_STRATEGY.md` §6.1).
+
 ```typescript
-export const UpdateAccountSchema = z.object({
-  display_name: z.string().trim().min(1).max(80).nullable(),
-});
+export const UpdateAccountSchema = z
+  .object({
+    display_name: z.string().trim().min(1).max(80).nullable().optional(),
+    listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
+  })
+  .refine((v) => v.display_name !== undefined || v.listing_view_preference !== undefined);
 ```
 
 Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).

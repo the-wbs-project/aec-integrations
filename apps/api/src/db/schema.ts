@@ -991,6 +991,17 @@ export const profiles = sqliteTable(
     trustTier: text('trust_tier').notNull().default('standard'),
     themePreference: text('theme_preference').notNull().default('system'),
 
+    /**
+     * The user's remembered Cards/Table preference for the product listing
+     * surfaces (`?view=` on `/products` + taxonomy browse). Nullable — `null`
+     * (the default) means "never toggled", so the site default (`cards`) is a
+     * stored fact the user can return to, not a missing value. Written ONLY by
+     * `PATCH /api/account` (a toggle click on a listing page); read by the same
+     * `GET` so the browser can seed `?view=` post-hydration — never an SSR
+     * input, so it cannot poison the URL-keyed edge cache.
+     */
+    listingViewPreference: text('listing_view_preference').$type<'cards' | 'table' | null>(),
+
     bannedAt: text('banned_at'),
     banReason: text('ban_reason'),
 
@@ -1010,6 +1021,10 @@ export const profiles = sqliteTable(
     check(
       'profiles_theme_preference_check',
       sql`"theme_preference" IN ('system', 'light', 'dark')`,
+    ),
+    check(
+      'profiles_listing_view_preference_check',
+      sql`"listing_view_preference" IN ('cards', 'table')`,
     ),
   ],
 );
