@@ -547,11 +547,37 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 ### Vendor portal (Stage 2)
 
-The signed-in vendor's portal (`apps/web/src/app/vendor/`): the AECI-522 tabbed dashboard (Vendor Overview / Profile / Products / Integrations / Seats) plus the AECI-606 Integrations section. Gated by `vendorMeResolver`, `noindex`, non-cacheable.
+The signed-in vendor's portal (`apps/web/src/app/vendor/`): the vendor-level row
+(Vendor Overview / Profile / Products / Messages / Seats) and the product-level row
+(Profile / Taxonomy / Integrations), plus the AECI-606 Integrations section. Gated by
+`vendorMeResolver`, `noindex`, non-cacheable.
 
 **Every section has its own address: `/vendor/:vendorSlug/<section>`** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). The sections are `routerLink` anchors over a `<router-outlet/>`, not buttons over an in-page switch, so a section is linkable, bookmarkable, and reachable with Back — and `aria-current="page"` is driven by `routerLinkActive` rather than by hand. The vendor slug leads because the address should say which company is being edited; bare `/vendor` resolves the caller's own vendor and redirects. The nav's first item reads **"Vendor Overview"**, not "Overview": it sits inside a page whose `h1` is the company name, and it has to stay self-describing in a screen-reader's link list and a history entry.
 
-**The nav is a horizontal tab row under the company name** (`vendor/vendor-portal-nav.ts`, §6.4) — a 14rem side rail spent a seventh of a wide page on five short links, and the editors it fronts are what want the width. The active item carries the 2px `accent-primary` bottom border over the row's hairline (`-mb-px` + `border-b-2`, the `/search` entity-tab treatment); the header gives up its own rule so the row reads as attached to the panel it switches. Narrow viewports **scroll the row sideways** rather than wrapping it — a wrapped tab row breaks its own underline across two lines — and there is exactly one row at every width, never a `md:hidden` duplicate. It is deliberately **not sticky**: `section-nav.ts` is sticky because it is an in-page jump nav on a long scroll, and a router nav has no such coupling.
+**The primary nav is a horizontal tab row under the company name**
+(`vendor/vendor-portal-nav.ts`, §6.4) — a 14rem side rail spent a seventh of a wide
+page on five short links, and the editors it fronts are what want the width. The
+active item carries the 2px `accent-primary` bottom border over the row's hairline
+(`-mb-px` + `border-b-2`, the `/search` entity-tab treatment); the header gives up
+its own rule so the row reads as attached to the panel it switches. Narrow viewports
+**scroll the row sideways** rather than wrapping it — a wrapped tab row breaks its
+own underline across two lines — and `overflow-y-hidden` prevents a second scrollbar
+axis. There is exactly one row at every width, never a `md:hidden` duplicate. It is
+deliberately **not sticky**: `section-nav.ts` is sticky because it is an in-page jump
+nav on a long scroll, and a router nav has no such coupling.
+
+**A selected product gets a compact segmented route nav**
+(`<aec-segmented-route-nav>`, §6.5 / AECI-959). The shared primitive renders a
+content-width `surface-sunken` track with a `border-default`, `radius-md`, four-pixel
+inset and `radius-sm` segments. Inactive segments use `text-secondary`; the current
+segment uses a Forest (`accent-primary`) fill with `surface-base` text. This visual
+change makes Profile / Taxonomy / Integrations subordinate to the underlined vendor
+row without adding a card around content that already contains cards. At narrow
+widths the track keeps `max-width: 100%`, `overflow-x-auto`, `overflow-y-hidden` and
+`whitespace-nowrap`. It is still route navigation: a named `<nav>` containing
+ordinary relative links, `routerLinkActive`, and `aria-current="page"`, with visible
+focus treatment and no tab, button or `aria-pressed` semantics. The product wrapper
+keeps the localized `<product> sections` landmark name and its `mt-4 mb-8` spacing.
 
 > **The underline colour is `.aec-nav-tab[aria-current]` in `styles.css`, not a Tailwind utility.** `styles.css` sets `border-color` on `*` **outside any cascade layer**, and an unlayered rule beats every layered rule regardless of specificity — so `border-transparent` and `border-(--accent-primary)` silently never reach the tab and it renders `border-default` grey in both states. This defeats every border-color utility in the app (~165 usages, the `/search` tabs included); the real fix is moving that `*` rule into `@layer base`, which is an app-wide visual change and wants its own issue.
 
@@ -564,7 +590,7 @@ The signed-in vendor's portal (`apps/web/src/app/vendor/`): the AECI-522 tabbed 
 
 **It is not a static page — it live-updates while it is open** (AECI-516, shipped 2026-08-19; `docs/STAGE_2_REALTIME_SPEC.md`, transport decision ADR 0023). A poll loop (`vendor-live-sync.ts`) reads a per-vendor freshness cursor — every 20 s focused, 60 s unfocused, **paused with no timer when the tab is hidden** — and asks the shared store (`vendor-portal-store.ts`) to refetch only the sections that actually moved, so a claim approved or a plan activated by an admin lands without a reload. There is no socket. Two visual consequences are binding: **a background refresh must never reflow the control under the pointer or steal focus** (staleness is the lesser harm), and **a section holding unsaved edits is never overwritten** — it defers and offers a quiet "Updated elsewhere — reload this section" affordance instead. Toggle-shaped writes (Affirm / Deny / Clear) render optimistically and **roll back with a visible error**; form-shaped writes stay pessimistic, because "Saved" before it saved is a worse lie than a short wait.
 
-**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. AECI-959's secondary route control adapts the repository's existing segmented-control vocabulary, so it does not introduce a second anchor. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
 
 - **Integrations section** (`<aec-vendor-integrations-section>`, `vendor/components/`) — one card per integration touching a product the vendor owns: their own product as the eyebrow, the counterpart as the `h3`, the mechanism beneath. Inside, a lane per `data_object` claim.
 
@@ -781,6 +807,13 @@ Rules that ride with it:
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts). In a horizontal ROUTER nav the concrete form is `-mb-px border-b-2` on the item over the row's `border-b`, so the item's own border replaces the hairline beneath it rather than stacking above it; narrow viewports scroll the row (`overflow-x-auto whitespace-nowrap`) rather than wrapping, which would break the underline across two lines. Shipped three times: the `/search` entity tabs, the vendor portal's section row, and the admin console's category row (AECI-694). Watch the cascade trap recorded under "Vendor portal (Stage 2)" — `border-color` on `*` is unlayered in `styles.css`, so a border-color *utility* cannot set this colour.
   - **The admin console's row is the one exception to the scroll rule, and it is a consequence not a preference.** With only three items it fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip its in-flow dropdown panels — forcing every panel into a CDK overlay to escape a clip the row does not need. It wraps rather than scrolls. Any row that both scrolls *and* drops down has to portal its panels; decide which one it is before writing the markup.
+- **Secondary route groups may use `<aec-segmented-route-nav>`.** The content-width
+  sunken track, compact rounded segments and Forest current state distinguish a child
+  route level from an underlined primary row. It remains a named navigation landmark
+  containing relative anchors with `aria-current="page"`; segmented styling does not
+  turn route links into tabs or pressed buttons. The track never wraps, scrolls on the
+  x axis when constrained, and explicitly hides y overflow so the browser does not
+  synthesize a second scrollbar.
 - **The row:** `Home · Products · Categories · Trades · Audiences · Phases`. The four taxonomy facets are the directory's spine and lead. The row is **public-only** — every item is a public directory surface, and it renders identically for every viewer. It used to end in a `More▾` overflow menu; that was retired (see The Overflow Rule below).
 - **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same six entries, with the four facets as tap-to-expand disclosures, plus search and the account block. Below `lg` the hamburger is the only menu control, so it also carries the pending-review badge.
 - **All four dropdowns in this row behave identically** — hover opens, mouseleave closes, Escape closes and returns focus to the trigger, and focus leaving the host closes. That contract is a shared base (`layout/nav-disclosure.ts`); a new dropdown **in the public primary nav** extends it rather than reimplementing it. The **trigger shape is the implementor's**, not the base's: the four public facets follow the clean editorial convention of Yahoo Finance navigation — one text link that navigates to the facet index and carries `aria-expanded`/`aria-controls`/`aria-haspopup`, with no separate arrow button (which cost width and cluttered the row), and ArrowDown on that link opens the panel and moves focus into it (`layout/nav-flyout-trigger.ts`). The admin console's row keeps a `button` trigger that toggles, since its items are not themselves destinations — but it carries **no arrow icon either**: the whole site's horizontal menus dropped them, so a triangle in one row and none in another would read as two different products. (The arrow stays on *form controls* — `aec-select`, the sort/version pickers, the review form's combobox — and on the mobile overlay's tap-to-expand rows, where it is the only cue that the row expands rather than navigates.) A row where one dropdown opens on hover and its neighbour only on click reads as a bug. (It had a fifth implementor, `More▾`, until that menu was retired.)

@@ -27,6 +27,9 @@ const LARGE_CATALOG = 'Active · 20 products';
 const nav = (page: import('@playwright/test').Page) =>
   page.getByRole('navigation', { name: 'Portal sections' });
 
+const productNav = (page: import('@playwright/test').Page, productName: string) =>
+  page.getByRole('navigation', { name: `${productName} sections` });
+
 const productsTrigger = (page: import('@playwright/test').Page) =>
   nav(page).getByRole('button', { name: 'Products', exact: true });
 
@@ -103,6 +106,40 @@ test.describe('vendor portal nav (preview)', () => {
       'page',
     );
     await expect(page.locator('[role="status"].sr-only')).toHaveCount(1);
+  });
+
+  test('keeps distinct portal and product landmarks while product routes navigate', async ({
+    page,
+  }) => {
+    const productName = 'Summit Field Issues';
+    await page.goto(`${PATH}/products/summit-field-issues/profile`);
+
+    await expect(nav(page)).toHaveCount(1);
+    await expect(productNav(page, productName)).toHaveCount(1);
+    await expect(
+      productNav(page, productName).getByRole('link', { name: 'Profile', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+
+    await clickUntil(
+      productNav(page, productName).getByRole('link', { name: 'Integrations', exact: true }),
+      () =>
+        expect(page).toHaveURL(new RegExp(`${PATH}/products/summit-field-issues/integrations$`), {
+          timeout: 1_000,
+        }),
+    );
+    await expect(
+      productNav(page, productName).getByRole('link', { name: 'Integrations', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(
+      result.violations.filter((violation) =>
+        ['critical', 'serious'].includes(violation.impact ?? ''),
+      ),
+      'coexisting portal and product nav must be axe clean',
+    ).toEqual([]);
   });
 });
 

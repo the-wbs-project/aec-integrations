@@ -668,9 +668,10 @@ makes the nav a horizontal tab row under the company name, and moves the product
 choice into it as a dropdown with a search box.
 
 **The row** (`vendor/vendor-portal-nav.ts`, extracted from the shell). One `<ul>`
-at every width, `overflow-x-auto whitespace-nowrap` so narrow viewports scroll it
-sideways rather than wrapping it (a wrapped tab row breaks its own underline
-across two lines). Deliberately **not sticky**: `shared/section-nav/section-nav.ts`
+at every width, `overflow-x-auto overflow-y-hidden whitespace-nowrap` so narrow
+viewports scroll it sideways rather than wrapping it (a wrapped tab row breaks
+its own underline across two lines) without exposing a stray vertical scrollbar.
+Deliberately **not sticky**: `shared/section-nav/section-nav.ts`
 is sticky because it is an in-page jump nav on a long editorial scroll, where the
 target moves under the reader; a router nav has no such coupling and the sections
 are short. Deliberately **no `md:hidden` mobile duplicate**, which would put every
@@ -785,14 +786,42 @@ a product a **place** rather than a parameter, and moves the Integrations tab in
 **The portal row is now:** Vendor Overview · Profile · Products · **Messages** · Seats. (Products is a disclosure, but it renders no arrow icon — see `DESIGN.md` §Navigation.)
 **A product gains its own row:** Profile · Taxonomy · Integrations.
 
-Both rows come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
-`VENDOR_PRODUCT_NAV_ITEMS`) and share `VENDOR_NAV_ITEM_CLASS`, so they cannot drift
-into looking like a nav and an imitation of one. The second row is rendered by
+Both route lists come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
+`VENDOR_PRODUCT_NAV_ITEMS`). The product row is rendered by
 `vendor/vendor-product-nav.ts` and is a **second nav landmark**, named for its product
 ("Summit Field Issues sections") — two landmarks both called "Portal sections" would
 make the landmark list useless. Its `aria-label` is built with `$localize` at the call
 site, not as an `i18n-aria-label` attribute, because an *interpolated* `i18n-*`
 attribute emits no attribute at all in this toolchain.
+
+#### AECI-959 — the product row becomes a segmented route control (2026-09-16)
+
+The two levels originally shared `VENDOR_NAV_ITEM_CLASS`. In use, identical full-width
+hairlines, active underlines, type and spacing made the rows look like duplicate peer
+navigation. The information architecture and both item arrays remain unchanged, but
+their presentation now states the hierarchy:
+
+- **Vendor-level navigation stays primary.** `vendor-portal-nav.ts` keeps the
+  underlined horizontal route row from §6.4 and adds `overflow-y-hidden` alongside
+  its horizontal overflow, preserving the AECI-958 scrollbar safeguard.
+- **Product-level navigation is segmented.** `shared/segmented-route-nav/` owns the
+  compact `surface-sunken`, `border-default`, `radius-md` track and `radius-sm`
+  segments. Resting links use secondary text; the current link uses Forest
+  (`accent-primary`) with `surface-base` text. The track sizes to its contents up to
+  the available width, then scrolls horizontally without wrapping and clips vertical
+  overflow. `vendor-product-nav.ts` is a thin product-specific wrapper with the same
+  `mt-4 mb-8` spacing as before.
+- **The control is navigation.** It renders ordinary relative `routerLink` anchors in
+  a named `<nav>` and lets `routerLinkActive` set `aria-current="page"`. It does not
+  claim tab, pressed-button or application-widget semantics, and every link keeps a
+  visible focus outline.
+- **No container was added around product content.** Profile, Taxonomy and Integrations
+  already render card surfaces, so wrapping them in another card would create the
+  nested-card treatment prohibited by `DESIGN.md`.
+
+Option B was selected for AECI-959. No new Mobbin anchor is required: the route control
+adapts the repository's existing segmented-control vocabulary and the rest of the
+vendor portal keeps its recorded anchor.
 
 #### Why Integrations moved
 
