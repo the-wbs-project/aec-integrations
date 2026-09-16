@@ -1,10 +1,12 @@
 # 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957)
 
-**Status: RUN — six tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — seven tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
-fourth time (2 rows, **AECI-916 — the first operator-ruling run**), and 2026-09-15
-(1 row, **AECI-957 — the first cohort since AECI-878 to resolve in `integrations`**).
+fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
+(1 row, **AECI-957 — the first cohort since AECI-878 to resolve in `integrations`**), and
+2026-09-16 (3 rows, **AECI-809 — the first cohort that is a product MERGE rather than a
+retirement, and the first to cascade claims that no surviving row holds**).
 **The feed is at zero pending and no hold is active.**
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
@@ -772,6 +774,215 @@ at 85 and 155). `demo` and `production` have none, so they serve uncached.
 reachable stranded rows**, and edge reconciliation **978/978 accounted** (952 integrations +
 26 evidenced pairs). Catalogue at the time: upstream 1,550 products / 2,524 integrations (978
 carry an id), prod 265 products / 171 vendors.
+
+## What ran — 2026-09-16, 3 rows (AECI-809, the Autodesk Construction Cloud → Forma merge)
+
+The app-repo half of the ACC → Forma merge. Upstream re-pointed 80 ACC edges onto
+[Autodesk Forma](https://review.aecintegrations.com/products/rec2KtJeJUzqih3ad), merged the 2
+that collided with an existing Forma edge, deleted the ACC ↔ Forma self-edge, and journalled
+all three deletes. This half deleted the three live AECi rows those entries name.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 3
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 953 | 950 | −3 |
+| `connector_evidenced_pairs` | 26 | 26 | 0 |
+| `claims` | 1914 | 1907 | −7 |
+| `attestations` | 1914 | 1907 | −7 |
+| `claims` on `connector_pairs` (reach tier) | 202 | 202 | 0 — untouched |
+| `audit_log` rows from this lane | 257 | 260 | +3 |
+| feed, pending | 3 | 0 | −3 |
+
+**4 products** had `integration_count` repaired and `updated_at` bumped.
+`db:reconcile-counts -- --fix` afterwards reported **no drift**, independently.
+
+Time Travel bookmark captured immediately before the delete, expires ~2026-10-16:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=00005b3b-00000012-000050e8-b34d221893bcf8664201b107f00f1ef2
+```
+
+### All 3 resolved in `integrations`, and this is the first cohort to be a MERGE
+
+`resolve: integrations 3, connector_evidenced_pairs 0, already gone 0`. Second run in a row to
+land wholly in `integrations`, for the same reason AECI-957 did: these are native edges that
+migration `0027` never moved.
+
+What is new is the cohort's *shape*. Every run before this one retired an edge outright. Two of
+these three are **collision losers in a product merge** — the same integration continues to
+exist, on the surviving product's edge — and the third is a self-edge that stops being
+expressible at all once the two products become one.
+
+| Journal entry | Row | What it was | Claims |
+|---|---|---|--:|
+| `recBK9YHVBZVcGnvE` | `62c896ec-346e-4b22-b244-fb5707c79e9c` | ACC ↔ ArcGIS, merged into Forma's edge | 2 |
+| `recimXWYb5hu6c96h` | `c93f4e04-725e-4583-9af0-4401e14e9a77` | VIKTOR ↔ ACC, merged into Forma's edge | 2 |
+| `recXjJ6KOIFBBeUbX` | `64da4f10-af1f-4841-9139-72a1dc692e51` | the ACC ↔ Forma self-edge | 3 |
+
+### `MAX_CASCADE` moved to 7 / 7, and the proof is NOT the same for all three rows
+
+The cascade was **7 claims and 7 attestations**. The ceiling had to be pinned at the plan
+total, so `7 / 7` — but two of the three rows are proved superseded and the third is proved
+**deleted by ruling**. Those are different arguments and this run needed both.
+
+**The two merged rows: proved superseded, per pair, before the ceiling moved.** Each was joined
+to the surviving Forma edge and the claims compared object by object and direction by
+direction, not by count:
+
+| deleted row | claims | surviving Forma edge | claims |
+|---|--:|---|--:|
+| `62c896ec` ACC ↔ ArcGIS | 2 | `f8affbc4-2053-49ce-9214-96a12082fc46` Forma ↔ ArcGIS | 2 |
+| `c93f4e04` VIKTOR ↔ ACC | 2 | `c6a332f5-00dc-43a5-9478-39a0e2b3b2d8` VIKTOR ↔ Forma | 2 |
+
+| pair | data object | deleted direction | surviving direction |
+|---|---|---|---|
+| ArcGIS | `documents` | `both` | `both` |
+| ArcGIS | `models` | `both` | `both` |
+| VIKTOR | `documents` | `both` | `both` |
+| VIKTOR | `models` | `b_to_a` | `both` |
+
+**One direction is not identical and it is a widening, not a loss.** The deleted VIKTOR row
+claimed `models` as `b_to_a` (ACC → VIKTOR); the survivor claims it as `both`. `both` subsumes
+`b_to_a`, so the assertion being deleted still stands on the survivor. Worth recording rather
+than smoothing over: the merge made one claim broader than either input, which is an upstream
+curation effect and not something this lane can see from counts alone. **Compare directions,
+not just counts** — a 2 = 2 match would have hidden it.
+
+**The self-edge: no counterpart, and none should exist.** `64da4f10` carried 3 claims
+(`directory-contacts`, `documents`, `models`, all `both`). There is no surviving row holding
+them, deliberately: the boundary those claims crossed was ACC ↔ Forma, and after the merge
+there is no boundary. Chris ruled them **deleted as rename artifacts, not superseded**, on
+AECI-809 (approval comment, 2026-09-15). **For that row the per-pair proof IS the ruling.**
+
+That is the one case where "confirm every claim exists somewhere else" cannot be satisfied and
+must not be faked. A self-edge between two records being merged has no post-merge home by
+construction. The check that replaces it is narrower and has to be met exactly: the row is a
+self-edge **of the merge itself**, and a named human ruled its claims away. Do not generalise
+it to any row whose counterpart you failed to find.
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 3, inPairs: 0, inIntegrations: 3 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 7, attestations: 7 }` | `{ 0, 0 }` |
+
+Both reset in the same change as the run that spent them, per the standing rule.
+
+### Algolia, seventh run — 3 orphans, all ours
+
+```
+products      production_products        indexed 265   promoted 265    orphans 0
+vendors       production_vendors         indexed 171   promoted 171    orphans 0
+integrations  production_integrations    indexed 979   promoted 976    orphans 3
+```
+
+Removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+Three orphans, one per deleted row, exactly as the AECI-957 rule predicts: **expect an orphan
+whenever the cohort resolves in `integrations`, and expect none when it resolves in pairs.**
+For AECI-880: drift closed to **0 missing** on this measurement, because `indexed 979` and
+`promoted 976` reconcile once the 3 orphans go. That is the first zero this lane has recorded
+and it is a measurement, not a fix — do not read it as AECI-880 being closed.
+
+### Cache, seventh run
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc` rather than assumed: the `exports` block
+sits at lines 109 and 176, inside the `preview` and `staging` env blocks only (opening at 85 and
+155). `demo` and `production` have none, so they serve uncached.
+
+### Verification, live (2026-09-16, browser UA)
+
+- `/products/autodesk-forma/integrations/arcgis` → **200, indexable**, zero occurrences of
+  "Construction Cloud". The survivor.
+- `/products/viktor/integrations/autodesk-forma` → same.
+- `/products/autodesk-construction-cloud/integrations/arcgis` → 200 + `noindex` at this point,
+  then **404** after the product retraction below. See the finding.
+- `/products/viewpoint-vista/integrations/unanet-crm-aec` → 200, **indexable**, no robots meta.
+  The AECI-878 negative sentinel, asserted present before and after.
+
+### Daily audit after this run
+
+`pendingRetractions` **0**, `orphanChildren` 0c / 0a, seven of the eight buckets **0**. The
+eighth, `productRejectedUpstream`, held **1** — the ACC product row itself, which is the second
+run below. The sweep also warned that it could not read `recUSx3EmOX3YCb6G` (the MCP refuses a
+`rejected` record), so that measurement is marked INCOMPLETE and was re-run after the
+retraction. **A merge leaves the audit red between the two halves, and that is expected** —
+consume first, retract the product second, re-run the audit last.
+
+## The second half — `ops:retract-product` for the ACC product row (AECI-809)
+
+Run **after** the consumer, per the AECI-809 ruling. Footprint read first, nothing forced:
+
+```
+pnpm --filter @aeci/api ops:retract-product -- --id 463d5f20-a73a-4776-b26a-fcdf3818accd --env production
+pnpm --filter @aeci/api ops:retract-product -- --id 463d5f20-a73a-4776-b26a-fcdf3818accd --env production --apply --allow-production
+```
+
+`integrations` 0, `claims` 0, `reviews` 0 — so no `--force`, which is the point of running the
+consumer first. 126 rows removed across 12 statements (69 `page_views`, 1 `product_vendors`,
+1 `product_categories`, 2 `product_audiences`, 4 `product_phases`, the product, and the
+cascade). Algolia object removed from `production_products`. No cache purge: production is
+uncached.
+
+`/products/autodesk-construction-cloud` now **301s to `/products/autodesk-forma`** via
+AECI-978's `slug_redirects`. Forma renders **Integrations (50)** — 47 in `integrations` plus 3
+in `connector_evidenced_pairs`. **That is 50, not the 88 the upstream record holds**: 38 of
+Forma's edges have an unpromoted counterpart and are dark. The strand audit then ran **clean,
+exit 0**, every bucket 0, 976/976 edges accounted.
+
+### The AECI-978 gate cannot be checked the way it reads
+
+The instruction was to confirm `/products/autodesk-construction-cloud` already 301s before
+retracting. **It cannot, and that is by design** — `slug_redirects` is read only after the
+product lookup misses, so while the ACC row is live the URL serves the page. The equivalent
+check, and the one AECI-809's own comment prescribes, is to exercise the map on a slug whose
+row is already gone:
+
+```
+curl -sI https://www.aecintegrations.com/vendors/bluebeam
+```
+
+`301` → `/vendors/nemetschek-group` proves the table is populated and the resolver reads it.
+The ACC seed row was also read directly out of `slug_redirects` before the retraction.
+
+## FINDING — the pair-page 301s did not survive the merge, and 44 URLs now 404
+
+**What is wrong.** Every `/products/autodesk-construction-cloud/integrations/*` URL returns
+**404**. AECI-809's ruling assumed AECI-953's `integration_endpoint_moves` would 301 them for
+free once the edges re-pointed onto Forma. It does not, and `integration_endpoint_moves` is
+**empty** in production.
+
+**Why it matters.** 44 edges moved — there are 44 `integration.endpoint_moved` audit rows dated
+2026-09-15/16, so the mechanism fired correctly. These are indexed pair pages losing their
+equity to a 404 rather than a 301, which is the exact loss AECI-953 exists to prevent.
+
+**Two independent causes, and both have to be fixed:**
+
+1. **The move rows cascade away with the retired product.**
+   `integration_endpoint_moves.from_product_a_id` / `from_product_b_id` are
+   `references(() => products.id, { onDelete: 'cascade' })`. The redirect is keyed on the
+   product it points AWAY from, so deleting that product deletes the redirect. Retracting ACC
+   took all 44 rows with it.
+2. **Even surviving rows could not be read.** `resolveMovedPair()` takes
+   `contextProduct: { id, slug }`, so the pair route has to resolve the old slug to a product
+   **id** before the move lookup runs. Once the product row is gone there is no id, and the
+   lookup is unreachable. `slug_redirects` is not consulted on the pair route.
+
+**What to do.** Do not re-insert the 44 rows as they stand — the FK would reject them, ACC no
+longer exists. The fix is a schema change (store slugs, or drop the cascade) plus a pair-route
+read that can resolve a retired slug. The data is **fully recoverable**: all 44 audit rows carry
+`before_state.productIds` and `after_state.productIds`.
+
+**This fires on every merge-then-retire, not just this one.** The AECI-809 order — consume,
+then retract the product last — is correct for the consumer and is exactly what triggers the
+cascade. Filed separately; see the Linear issue linked from AECI-809.
 
 ## The order, and why it is not negotiable
 
