@@ -2,6 +2,7 @@ import { LogoUrlSchema } from './logos';
 import { z } from 'zod';
 
 import { VendorEntitlementBlockSchema } from './admin-entitlements';
+import { ProductUsefulnessSchema } from './usefulness';
 import { PUBLIC_PRIVATE } from './promote';
 
 /**
@@ -77,6 +78,42 @@ const termSlug = z
  */
 const termSlugList = z.array(termSlug).max(10);
 
+/**
+ * One "how teams use it" group a vendor is authoring (AECI-963).
+ *
+ * Looser than the STORED {@link UsefulnessGroupSchema} in `./products`, which
+ * requires `slug` AND `name`: the client sends only the term `slug`, and the
+ * server replaces it with the taxonomy row's canonical `{ slug, name }` so a
+ * later term rename cannot leave the vendor's typed label behind. That mirrors
+ * how promote resolves the same field (`REVIEW_APP_PROMOTE_API.md` §3.3) — with
+ * one deliberate difference recorded in the handler: promote DROPS an
+ * unresolvable group, this surface rejects the request.
+ *
+ * `points` is capped at 8 to match the review app's own `update_product` cap, and
+ * each point at 200 chars because these render as list items, not paragraphs.
+ * The `.min(1)` floor is not cosmetic — `UsefulnessGroupSchema` enforces it on
+ * the stored value too, so a group the vendor emptied must be DELETED by the
+ * client, never saved with `points: []`.
+ */
+const VendorUsefulnessGroupSchema = z.object({
+  slug: termSlug,
+  points: z.array(shortText.min(1)).min(1).max(8),
+});
+
+/**
+ * The full "how teams use it" value for a product: the complete replacement, not
+ * a delta, exactly like the taxonomy arrays above.
+ *
+ * Ten groups per facet matches {@link termSlugList}'s cap and bounds the audit
+ * row, which carries both the before and after state (§26.1). Either facet may
+ * be empty; send `null` to clear the section entirely.
+ */
+export const VendorUsefulnessSchema = z.object({
+  audiences: z.array(VendorUsefulnessGroupSchema).max(10),
+  phases: z.array(VendorUsefulnessGroupSchema).max(10),
+});
+export type VendorUsefulnessInput = z.infer<typeof VendorUsefulnessSchema>;
+
 // ─── Entity shapes ───────────────────────────────────────────────────────────
 
 /**
@@ -133,6 +170,11 @@ export const VendorProductSchema = z.object({
   tool_integrations_url: z.string().nullable(),
   api_docs_url: z.string().nullable(),
   logo_url: z.string().nullable(),
+
+  // AECI-963. The STORED shape (canonical `{slug, name}` per group), not the
+  // `VendorUsefulnessSchema` write shape — the form renders the names it was
+  // given rather than re-deriving them from the taxonomy payload.
+  usefulness: ProductUsefulnessSchema.nullable(),
 
   category_slugs: z.array(z.string()),
   audience_slugs: z.array(z.string()),
@@ -278,8 +320,15 @@ export type UpdateVendorProfileResponse = z.infer<typeof UpdateVendorProfileResp
  * The vendor-editable fields on an owned `products` row, plus taxonomy
  * assignment. `name`/`slug` are NOT editable — renaming a product breaks its
  * URL, its Algolia record, and every inbound link, so a rename stays a
- * correction request. `usefulness`, `has_api_docs`, research/priority/score
- * columns, and the denormalized counts are all AECi-owned.
+ * correction request. `has_api_docs`, research/priority/score columns, and the
+ * denormalized counts are all AECi-owned.
+ *
+ * `usefulness` USED to be on that AECi-owned list and no longer is (AECI-963 /
+ * ADR 0033). It is the one field here whose ownership MOVES on first write: until
+ * a vendor saves it the review app owns it and every promote overwrites it, and
+ * from the first save onward `products.usefulness_source` fences promote off the
+ * column permanently. That is the `logo_source` mechanism (AECI-955 / ADR 0032)
+ * applied to narrative copy — see `STAGE_2_5_SPEC.md` §12.
  */
 export const UpdateVendorProductSchema = z
   .object({
@@ -288,6 +337,10 @@ export const UpdateVendorProductSchema = z
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
     logo_url: LogoUrlSchema.nullable().optional(),
+    // AECI-963. Full replacement, like the taxonomy arrays and unlike the scalar
+    // columns above: there is no way to patch one group without resending the
+    // rest, because a group has no stable id. `null` clears the section.
+    usefulness: VendorUsefulnessSchema.nullable().optional(),
 
     category_slugs: termSlugList.optional(),
     audience_slugs: termSlugList.optional(),

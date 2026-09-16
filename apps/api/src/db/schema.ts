@@ -171,6 +171,14 @@ export const products = sqliteTable(
 
     // Narrative "how teams use it" blob (§4.2); read whole, never queried by point.
     usefulness: text('usefulness', { mode: 'json' }).$type<unknown>(),
+    /** Provenance fence for {@link usefulness}, AECI-963 — the same shape and the
+     *  same reason as `logoSource` below (AECI-955 / ADR 0032). `null` means the
+     *  field is promote-owned; non-null means a local editor owns it and promote
+     *  must leave it alone, which it enforces INSIDE the SQL UPDATE rather than
+     *  from a planning read (`routes/promote.ts`). Promote never writes this
+     *  column. `'admin'` has no writer yet and is declared so a later admin
+     *  editor needs no migration. */
+    usefulnessSource: text('usefulness_source', { enum: ['vendor', 'admin'] }),
 
     productRole: text('product_role').notNull().default('application'),
     logoUrl: text('logo_url'),

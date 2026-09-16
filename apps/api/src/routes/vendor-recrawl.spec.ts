@@ -167,6 +167,15 @@ describe('productEditRecrawl', () => {
     expect(minor.gsc[0]!.reason).toBe('product.minor');
   });
 
+  it('calls a usefulness change material (AECI-963)', () => {
+    // "How teams use it" is the second-largest block of reader-facing prose on a
+    // product page and has its own section-nav entry. Filing it as `product.minor`
+    // would bury a real content rewrite beneath URL-only edits in the ADR 0031
+    // worklist, and nothing else in the system would notice.
+    const out = productEditRecrawl(BASE, 'procore', ['usefulness'], NO_TAXONOMY, NO_TAXONOMY);
+    expect(out.gsc[0]!.reason).toBe('product.updated');
+  });
+
   it('treats a taxonomy move as material even with no column change', () => {
     const before = { ...NO_TAXONOMY, categories: ['estimating'] };
     const after = { ...NO_TAXONOMY, categories: ['field-management'] };
@@ -314,7 +323,7 @@ describe('productVersionRecrawl', () => {
 
 describe('the material-field allow-lists', () => {
   it('names only fields that change what a page SAYS', () => {
-    expect([...MATERIAL_PRODUCT_FIELDS]).toEqual(['description']);
+    expect([...MATERIAL_PRODUCT_FIELDS]).toEqual(['description', 'usefulness']);
     expect([...MATERIAL_VENDOR_FIELDS].sort()).toEqual([
       'description',
       'founded_year',

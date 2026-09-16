@@ -206,6 +206,30 @@ const PRIMARY_PRODUCT: VendorProduct = {
   category_slugs: ['bim-authoring', 'document-control'],
   audience_slugs: ['architects', 'structural-engineers'],
   phase_slugs: ['design', 'construction'],
+  // AECI-963. Populated here and `null` on the secondary product below, so the
+  // preview exercises BOTH the authored and the empty state without editing.
+  // Group `name`s are the canonical taxonomy labels — the server resolves them on
+  // every write, so a fixture carrying anything else would model a state the API
+  // cannot produce.
+  usefulness: {
+    audiences: [
+      {
+        slug: 'architects',
+        name: 'Architects',
+        points: [
+          'Run clash detection against the consultant models before each issue.',
+          'Track unresolved coordination issues back to the sheet they came from.',
+        ],
+      },
+    ],
+    phases: [
+      {
+        slug: 'design',
+        name: 'Design',
+        points: ['Catch structural and MEP conflicts while the model is still cheap to change.'],
+      },
+    ],
+  },
   // Sparse by design: a multidiscipline coordination tool is horizontal, so it
   // carries no trades. This is the COMMON case, and the fixture models it.
   trade_slugs: [],
@@ -228,6 +252,8 @@ const SECONDARY_PRODUCT: VendorProduct = {
   category_slugs: ['field-reporting'],
   audience_slugs: ['general-contractors', 'project-managers'],
   phase_slugs: ['construction'],
+  // The null path: nothing authored yet, which is every product's starting state.
+  usefulness: null,
   // The uncommon case, so the chips render in at least one fixture path.
   trade_slugs: ['hvac-mechanical', 'electrical'],
   product_role: 'application',

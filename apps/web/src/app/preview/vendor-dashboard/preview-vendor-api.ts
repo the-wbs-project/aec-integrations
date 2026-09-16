@@ -11,6 +11,7 @@ import type {
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
   ListVendorSeatsResponse,
+  ProductUsefulness,
   TaxonomyResponse,
   UpdateVendorProductInput,
   UpdateVendorProductResponse,
@@ -211,7 +212,18 @@ export class PreviewVendorApi extends VendorApi {
     input: UpdateVendorProductInput,
   ): Promise<UpdateVendorProductResponse> {
     const product = this.me?.products.find((p) => p.id === id);
-    if (product) Object.assign(product, input);
+    if (product) {
+      Object.assign(product, input);
+      // AECI-963. The wire shape carries `slug` + `points` only — the real handler
+      // resolves each group's display `name` from the taxonomy row before storing
+      // it, because that name renders verbatim on the public page. A bare
+      // `Object.assign` would leave the preview echoing name-less groups and the
+      // form would paint blank labels for a bug that does not exist in production.
+      if (input.usefulness !== undefined) {
+        product.usefulness =
+          input.usefulness === null ? null : resolvePreviewUsefulness(input.usefulness);
+      }
+    }
     return { product: clone(product!) };
   }
 
@@ -336,4 +348,30 @@ export class PreviewVendorApi extends VendorApi {
     }
     return null;
   }
+}
+
+/**
+ * The preview's stand-in for the server's `resolveUsefulness` (AECI-963).
+ *
+ * Fills each group's canonical `name` from {@link VENDOR_TAXONOMY_FIXTURE} and
+ * drops a group whose slug the fixture vocabulary does not know — the real handler
+ * 400s there, but a preview that threw would be a worse lie than one that mirrors
+ * find-only resolution. An all-empty result normalises to `null`, exactly as the
+ * handler does, so "cleared" has one encoding on both sides.
+ */
+function resolvePreviewUsefulness(
+  input: NonNullable<UpdateVendorProductInput['usefulness']>,
+): ProductUsefulness | null {
+  const resolve = (
+    groups: readonly { slug: string; points: string[] }[],
+    terms: readonly { slug: string; name: string }[],
+  ) =>
+    groups.flatMap((group) => {
+      const term = terms.find((t) => t.slug === group.slug);
+      return term ? [{ slug: term.slug, name: term.name, points: [...group.points] }] : [];
+    });
+
+  const audiences = resolve(input.audiences, VENDOR_TAXONOMY_FIXTURE.audiences);
+  const phases = resolve(input.phases, VENDOR_TAXONOMY_FIXTURE.phases);
+  return audiences.length === 0 && phases.length === 0 ? null : { audiences, phases };
 }

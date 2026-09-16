@@ -281,6 +281,13 @@
       "when": 1789455844299,
       "tag": "0039_late_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1789550976710,
+      "tag": "0040_superb_norman_osborn",
+      "breakpoints": true
     }
   ]
 }

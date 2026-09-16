@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
@@ -9,6 +10,7 @@ import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE, VENDOR_TAXONOMY_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductForm } from './vendor-product-form';
+import { VendorUsefulnessDialog } from './vendor-usefulness-dialog';
 
 /**
  * `VendorProductForm` (AECI-522) shares the dirty-diff / save scaffolding with
@@ -351,6 +353,175 @@ describe('VendorProductForm', () => {
     expect(cardByName(fixture, 'Categories').textContent).toContain('Loading options');
     expect(cardByName(fixture, 'Categories').textContent).not.toContain('None selected yet');
     expect(pencil(fixture, 'Categories').disabled).toBe(true);
+  });
+
+  // ── AECI-963: "How teams use it" ──────────────────────────────────────────
+  //
+  // The seam only. `VendorUsefulnessDialog` has its own spec for the picker
+  // itself; these drive its `apply` output directly, because what is distinctive
+  // HERE is that a staged draft joins the dirty-diff, survives an echo, and
+  // reaches the wire without the server-owned `name`.
+  describe('usefulness', () => {
+    const AUDIENCE_CARD = 'How teams use it: by audience';
+    const PHASE_CARD = 'How teams use it: by phase';
+
+    function dialogs(fixture: ComponentFixture<VendorProductForm>): VendorUsefulnessDialog[] {
+      return fixture.debugElement
+        .queryAll(By.directive(VendorUsefulnessDialog))
+        .map((d) => d.componentInstance as VendorUsefulnessDialog);
+    }
+
+    /** Stage one facet's replacement, as the modal's Done button would. */
+    function apply(
+      fixture: ComponentFixture<VendorProductForm>,
+      facet: 'audiences' | 'phases',
+      groups: { slug: string; points: string[] }[],
+    ): void {
+      const dialog = dialogs(fixture).find((d) => d.facet() === facet)!;
+      dialog.apply.emit(groups);
+      fixture.detectChanges();
+    }
+
+    function usefulnessPencil(
+      fixture: ComponentFixture<VendorProductForm>,
+      legend: string,
+    ): HTMLButtonElement {
+      return cardByName(fixture, legend).querySelector(
+        'aec-vendor-usefulness-dialog button',
+      ) as HTMLButtonElement;
+    }
+
+    it('renders the published groups and their points from the server copy', () => {
+      const fixture = create();
+      const card = cardByName(fixture, AUDIENCE_CARD);
+      expect(card.textContent).toContain('Architects');
+      expect(card.textContent).toContain('Run clash detection');
+    });
+
+    it('says the section is hidden when a product has nothing written', () => {
+      // SECONDARY carries `usefulness: null` — the state every product starts in.
+      const fixture = create(VENDOR_TAXONOMY_FIXTURE, SECONDARY);
+      expect(cardByName(fixture, AUDIENCE_CARD).textContent).toContain('Nothing written yet');
+    });
+
+    it('does NOT send usefulness when the vendor never touched it', async () => {
+      // The endpoint requires >= 1 changed field, so a form that always sent this
+      // would turn every description edit into a silent ownership claim.
+      const fixture = create();
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      setInput(fixture, DESCRIPTION_ID, 'Just the description');
+      saveButton(fixture)?.click();
+      await settle(fixture);
+
+      expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
+        description: 'Just the description',
+      });
+    });
+
+    it('stages a draft, repaints the card, and sends it WITHOUT any group name', async () => {
+      const fixture = create();
+      apply(fixture, 'phases', [{ slug: 'design', points: ['Set up the sheet set.'] }]);
+
+      // Staged, not persisted: applying must not have PATCHed anything.
+      expect(updateProduct).not.toHaveBeenCalled();
+      // The card repaints from the draft, before any save, and shows the term's
+      // display name resolved from the vocabulary.
+      const card = cardByName(fixture, PHASE_CARD);
+      expect(card.textContent).toContain('Design');
+      expect(card.textContent).toContain('Set up the sheet set.');
+      expect(saveButton(fixture)?.disabled).toBe(false);
+
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      saveButton(fixture)?.click();
+      await settle(fixture);
+
+      const body = updateProduct.mock.calls[0]![1] as {
+        usefulness: { phases: { slug: string; points: string[] }[] };
+      };
+      expect(body.usefulness.phases).toEqual([
+        { slug: 'design', points: ['Set up the sheet set.'] },
+      ]);
+      // `name` is server-resolved because the public page renders it verbatim.
+      expect(JSON.stringify(body.usefulness)).not.toContain('name');
+    });
+
+    it('carries the OTHER facet through untouched', async () => {
+      // The wire field is the complete value, so staging one facet alone must not
+      // clear the other.
+      const fixture = create();
+      apply(fixture, 'phases', [{ slug: 'design', points: ['Phase copy'] }]);
+
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      saveButton(fixture)?.click();
+      await settle(fixture);
+
+      const body = updateProduct.mock.calls[0]![1] as {
+        usefulness: { audiences: { slug: string }[] };
+      };
+      expect(body.usefulness.audiences.map((g) => g.slug)).toEqual(['architects']);
+    });
+
+    it('sends null once both facets are emptied', async () => {
+      const fixture = create();
+      apply(fixture, 'audiences', []);
+      apply(fixture, 'phases', []);
+
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      saveButton(fixture)?.click();
+      await settle(fixture);
+
+      // `null`, never `{audiences: [], phases: []}` — the server normalises the
+      // latter anyway, and the echo would then disagree with what was staged.
+      expect(updateProduct.mock.calls[0]![1]).toEqual({ usefulness: null });
+    });
+
+    it('re-seeds from the PATCH echo so the form settles clean', async () => {
+      const fixture = create();
+      apply(fixture, 'phases', [{ slug: 'design', points: ['Staged text'] }]);
+
+      updateProduct.mockResolvedValue({
+        product: {
+          ...PRODUCT,
+          usefulness: {
+            audiences: [],
+            phases: [{ slug: 'design', name: 'Design', points: ['Staged text'] }],
+          },
+        },
+      } as UpdateVendorProductResponse);
+      saveButton(fixture)?.click();
+      await settle(fixture);
+
+      expect(saveButton(fixture)?.disabled).toBe(true);
+      expect(cardByName(fixture, PHASE_CARD).textContent).toContain('Staged text');
+    });
+
+    it('does not go dirty when only a taxonomy RENAME differs', () => {
+      // `name` is derived from the slug, so a renamed term is AECi's edit, not the
+      // vendor's, and must not make a clean form look dirty.
+      const renamed = {
+        ...PRODUCT,
+        usefulness: {
+          audiences: PRODUCT.usefulness!.audiences.map((g) => ({ ...g, name: 'Renamed' })),
+          phases: PRODUCT.usefulness!.phases,
+        },
+      };
+      const fixture = create(VENDOR_TAXONOMY_FIXTURE, renamed);
+      expect(saveButton(fixture)?.disabled).toBe(true);
+    });
+
+    it('disables the pencil for a vendor whose account access has lapsed', () => {
+      const fixture = create();
+      fixture.componentRef.setInput('canEdit', false);
+      fixture.detectChanges();
+      expect(usefulnessPencil(fixture, AUDIENCE_CARD).disabled).toBe(true);
+    });
+
+    it('disables the pencil until the vocabulary loads', () => {
+      // Opening a term picker with no terms would show an empty modal.
+      const fixture = create(null);
+      expect(usefulnessPencil(fixture, AUDIENCE_CARD).disabled).toBe(true);
+      expect(cardByName(fixture, AUDIENCE_CARD).textContent).toContain('Loading options');
+    });
   });
 });
 

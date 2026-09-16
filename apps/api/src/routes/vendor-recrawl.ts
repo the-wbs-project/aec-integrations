@@ -46,16 +46,22 @@ import type { VendorRecrawl } from './vendor-shared';
 /**
  * Product fields whose change alters what the page says.
  *
- * `description` only. The other four editable columns — `website`,
+ * `description` and `usefulness`. The other four editable columns — `website`,
  * `tool_integrations_url`, `api_docs_url`, `logo_url` — are links and an image;
  * they change the page's furniture, not its content.
+ *
+ * `usefulness` (AECI-963) is here because it is the "How teams use it" section:
+ * several paragraphs of prose and its own entry in the page's section nav. It is
+ * the largest block of reader-facing text on a product page after `description`,
+ * so filing an edit to it as `product.minor` would bury a real content change
+ * beneath URL-only edits in the ADR 0031 worklist, which ranks by this reason.
  *
  * Keyed on the **payload** field names (snake_case, as the vendor sends them)
  * rather than the Drizzle column names, because the audit entry's `fields` list
  * is already in that vocabulary and re-deriving it would be a second place to
  * get the mapping wrong.
  */
-export const MATERIAL_PRODUCT_FIELDS: ReadonlySet<string> = new Set(['description']);
+export const MATERIAL_PRODUCT_FIELDS: ReadonlySet<string> = new Set(['description', 'usefulness']);
 
 /**
  * Vendor-profile fields whose change alters what the page says.

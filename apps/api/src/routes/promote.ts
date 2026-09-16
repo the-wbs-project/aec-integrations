@@ -2144,7 +2144,9 @@ export async function runPromoteIngest(
     // create instead of no-op-updating a row that isn't there (AECI-568).
     const existing = p.supabaseId
       ? await db.query.products.findFirst({
-          columns: { slug: true },
+          // `usefulnessSource` rides the read the update branch already needed
+          // (AECI-963), so the coexistence receipt below costs no extra query.
+          columns: { slug: true, usefulnessSource: true },
           where: eq(products.id, p.supabaseId),
         })
       : undefined;
@@ -2155,6 +2157,19 @@ export async function runPromoteIngest(
       const slug = existing.slug;
       productId = p.supabaseId;
       productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
+      // AECI-963. Tell the review app its `usefulness` was fenced, rather than
+      // letting a curator keep editing a field that no longer ships. Only when
+      // they actually SENT one — a push that omits the field preserved nothing.
+      // Advisory by construction: the authoritative guard is the CASE WHEN in the
+      // UPDATE below, evaluated a moment later. See {@link PromotePreserved}.
+      if (usefulnessData !== undefined && existing.usefulnessSource !== null) {
+        preserved.push({
+          ref: p.ref,
+          kind: 'usefulness',
+          reason: `usefulness is ${existing.usefulnessSource}-authored and is no longer promote-writable`,
+          count: 1,
+        });
+      }
       stmts.push(
         db
           .update(products)
@@ -2162,8 +2177,30 @@ export async function runPromoteIngest(
             ...compact({
               name: p.name,
               promotionStatus: 'promoted',
-              usefulness: usefulnessData,
               ...productEditableData(p),
+              // AECI-963 — the usefulness half of the same coexistence fence the
+              // `logoUrl` block below implements (AECI-955 / ADR 0032, now ADR
+              // 0033). Once a vendor has authored this section
+              // (`usefulness_source` non-null) the review app no longer owns the
+              // column, and a routine re-promote must not overwrite their copy.
+              //
+              // Tested INSIDE the UPDATE rather than from a planning read, for
+              // the reason the logo fence gives: a vendor edit landing between
+              // the plan and the commit still wins. `undefined` keeps its
+              // ordinary meaning — column untouched — so this sits outside the
+              // CASE entirely rather than writing `usefulness` to itself.
+              //
+              // `JSON.stringify` is load-bearing. The column is `mode: 'json'`,
+              // but Drizzle's serializer runs on the ordinary `.set()` path only;
+              // inside a raw `sql` template the value is bound verbatim, so an
+              // object would land as `[object Object]`.
+              ...(usefulnessData === undefined
+                ? {}
+                : {
+                    usefulness: sql`CASE WHEN ${products.usefulnessSource} IS NULL THEN ${
+                      usefulnessData === null ? null : JSON.stringify(usefulnessData)
+                    } ELSE ${products.usefulness} END`,
+                  }),
               ...(p.logoUrl !== undefined
                 ? {
                     logoUrl: sql`CASE WHEN ${products.logoSource} IS NULL THEN ${p.logoUrl} ELSE ${products.logoUrl} END`,

@@ -67,6 +67,8 @@ import {
   type VendorRequestSummary,
   type VendorSeat,
   type ManageableSeatInvite,
+  type ProductUsefulness,
+  type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -101,6 +103,7 @@ import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, entitlementRequired, requireCapability } from '../lib/authz';
 import { textAsc } from '../lib/collation';
+import { toUsefulness } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
@@ -277,6 +280,10 @@ function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs
     tool_integrations_url: row.toolIntegrationsUrl,
     api_docs_url: row.apiDocsUrl,
     logo_url: row.logoUrl,
+    // AECI-963. `toUsefulness` degrades a malformed blob to `null` rather than
+    // throwing, which is what keeps a pre-existing bad promote payload from
+    // 500-ing the vendor's own dashboard.
+    usefulness: toUsefulness(row.usefulness),
     category_slugs: tax.categories,
     audience_slugs: tax.audiences,
     phase_slugs: tax.phases,
@@ -439,6 +446,93 @@ async function resolveTermIds(
   }
   // Dedupe while preserving the caller's order.
   return [...new Set(slugs)].map((slug) => bySlug.get(slug) as string);
+}
+
+/**
+ * Resolve one "how teams use it" facet's groups against an EXISTING taxonomy
+ * vocabulary (AECI-963), returning the stored shape.
+ *
+ * Two properties are copied verbatim from promote's `resolveUsefulnessFacet`
+ * (`routes/promote.ts`), because the two writers must agree on what a stored
+ * value looks like or a re-promote would silently reshape a vendor's edit:
+ *
+ * 1. **The taxonomy's canonical `{ slug, name }` is stored**, never the caller's
+ *    text. The client sends a slug; the display name comes from the term row.
+ * 2. **Two groups resolving to the same term MERGE**, points concatenated in
+ *    source order, rather than the later one winning.
+ *
+ * One property deliberately differs. Promote DROPS an unresolvable group into
+ * `skipped[]`, because a bulk push of a whole catalogue must not fail entirely
+ * over one stale term. Here the vendor chose the term from a list this API
+ * rendered, so an unresolvable slug is a bug or a tampered request, not routine
+ * drift — it is a 400 naming the slug, matching `resolveTermIds` above. Silently
+ * dropping it would be the worst option available: the form re-seeds its
+ * baseline from the response echo, so the vendor would see a group vanish with
+ * no error.
+ */
+async function resolveUsefulnessFacet(
+  db: Db,
+  table: typeof taxonomyAudiences | typeof taxonomyPhases,
+  groups: readonly { slug: string; points: string[] }[],
+  field: string,
+): Promise<UsefulnessGroup[]> {
+  if (groups.length === 0) return [];
+  const slugs = groups.map((group) => group.slug);
+  const rows = await db
+    .select({ slug: table.slug, name: table.name })
+    .from(table)
+    .where(inArray(table.slug, [...new Set(slugs)]));
+
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+  const unknown = slugs.filter((slug) => !bySlug.has(slug));
+  if (unknown.length > 0) {
+    throw new ApiError(
+      400,
+      'VALIDATION_FAILED',
+      `Unknown taxonomy term(s): ${[...new Set(unknown)].sort().join(', ')}`,
+      { field },
+    );
+  }
+
+  const merged = new Map<string, UsefulnessGroup>();
+  for (const group of groups) {
+    const term = bySlug.get(group.slug) as { slug: string; name: string };
+    const existing = merged.get(term.slug);
+    if (existing) existing.points.push(...group.points);
+    else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...group.points] });
+  }
+  return [...merged.values()];
+}
+
+/**
+ * Resolve a whole `usefulness` payload, preserving the tri-state the column
+ * carries everywhere else (`routes/promote.ts`, `REVIEW_APP_PROMOTE_API.md`
+ * §3.3):
+ *
+ *   `undefined` → the field was not sent; leave the column alone.
+ *   `null`      → clear the section.
+ *   object      → the resolved value.
+ *
+ * The distinction matters here in a way it does not for the scalar columns: an
+ * absent `usefulness` must NOT stamp `usefulness_source`, or merely editing a
+ * product's website would silently take the field away from the review app.
+ */
+async function resolveUsefulness(
+  db: Db,
+  input: UpdateVendorProductInput['usefulness'],
+): Promise<ProductUsefulness | null | undefined> {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  const [audiences, phases] = await Promise.all([
+    resolveUsefulnessFacet(db, taxonomyAudiences, input.audiences, 'usefulness.audiences'),
+    resolveUsefulnessFacet(db, taxonomyPhases, input.phases, 'usefulness.phases'),
+  ]);
+  // `{ audiences: [], phases: [] }` is a non-NULL object that renders as nothing:
+  // `toUsefulness` returns it truthy, `product-detail.ts`'s `@if (p.usefulness)`
+  // mounts the section, and only the component's own `[hidden]` collapses it. It
+  // LOOKS identical and it makes `usefulness !== null` mean the wrong thing for
+  // every future reader. Normalise it, so "cleared" has exactly one encoding.
+  return audiences.length === 0 && phases.length === 0 ? null : { audiences, phases };
 }
 
 /**
@@ -813,6 +907,10 @@ export const PRODUCT_COLUMN_MAP: VendorColumnMap = {
   tool_integrations_url: { column: 'toolIntegrationsUrl', capability: 'product.edit' },
   api_docs_url: { column: 'apiDocsUrl', capability: 'product.edit' },
   logo_url: { column: 'logoUrl', capability: 'product.edit' },
+  // AECI-963. Its own capability rather than riding `product.edit`, so a future
+  // middle tier can withhold narrative authorship without touching a handler.
+  // Inert today: the ladder is binary and `verified` holds every capability.
+  usefulness: { column: 'usefulness', capability: 'product.usefulness.edit' },
 };
 
 export function createUpdateVendorProductHandler(
@@ -848,12 +946,26 @@ export function createUpdateVendorProductHandler(
     if (FACETS.some((facet) => payload[facet.field] !== undefined)) {
       requireCapability(c, 'product.taxonomy.edit');
     }
+    // AECI-963. `usefulness` IS in `PRODUCT_COLUMN_MAP`, so `splitPatch` would
+    // gate it anyway — but `splitPatch` runs AFTER the resolution wave below.
+    // Without this, an unentitled caller sending a bad slug would get the 400
+    // from that read instead of the 403 they are owed, having spent two D1 reads
+    // they were never allowed to make. Same placement and same reason as the
+    // facet gate directly above.
+    if (payload.usefulness !== undefined) {
+      requireCapability(c, 'product.usefulness.edit');
+    }
 
     // Now that the caller is known to own the row, the rest goes in one wave.
     // Term resolution happens BEFORE the batch opens, so an unknown slug is a
     // 400 rather than a half-applied edit.
-    const [beforeTaxonomy, ...facetIds] = await Promise.all([
+    const [beforeTaxonomy, usefulness, ...facetIds] = await Promise.all([
       loadTaxonomySlugs(db, [productId]).then((m) => m.get(productId) ?? NO_TAXONOMY),
+      // AECI-963. Resolved here, in the SAME pre-batch wave and for the same
+      // reason as the facets below: an unknown term slug must be a flat 400, not
+      // a batch that half-applies. Unlike the facets this is NOT a join-table
+      // replacement — it is one jsonb column — so it rejoins `columns` below.
+      resolveUsefulness(db, payload.usefulness),
       ...FACETS.map((facet) => {
         const slugs = payload[facet.field];
         return slugs ? resolveTermIds(db, facet.terms, slugs, facet.field) : Promise.resolve(null);
@@ -864,6 +976,17 @@ export function createUpdateVendorProductHandler(
     if (payload.logo_url !== undefined) {
       await assertStoredLogo(c.env, payload.logo_url);
       columns.logoSource = 'vendor';
+    }
+    // AECI-963, the same shape as the `logo_url` block above: `splitPatch` put
+    // the caller's RAW value in `columns`, so overwrite it with the canonically
+    // resolved one and stamp the provenance fence. Setting `usefulness_source`
+    // is what stops the next promote of this product overwriting the vendor's
+    // copy (`routes/promote.ts`, ADR 0033) — and it is ONE-WAY: nothing in this
+    // codebase clears it back to NULL, so the review app loses the field for
+    // this product permanently. That is the decision, not an oversight.
+    if (usefulness !== undefined) {
+      columns.usefulness = usefulness;
+      columns.usefulnessSource = 'vendor';
     }
     // ALWAYS stamp `updated_at`, even for a taxonomy-only edit that touches no
     // `products` column. Two things depend on it and both fail silently and

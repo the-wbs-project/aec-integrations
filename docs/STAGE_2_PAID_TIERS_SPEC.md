@@ -209,6 +209,7 @@ export const CAPABILITIES = [
   'profile.rich_fields',       // the extended vendor field set
   'product.edit',              // PATCH /api/vendor/products/:id
   'product.taxonomy.edit',     // taxonomy assignment on an owned product
+  'product.usefulness.edit',   // AECI-963 — the "how teams use it" narrative
   'attestation.author',        // AECI-301 — declared, no consumer yet
   'analytics.view',            // vendor analytics — declared, no consumer yet
   'integration.version_diff',  // AECI-304 — declared, no consumer yet
@@ -344,6 +345,7 @@ Shipped as specified: the `leftJoin` on the `vendor_admin` guard branch only, `e
 - **The `me` block is built from the session, not from a query.** It costs no round-trip, and — the load-bearing part — the dashboard's readout and the 403 a write would get are built from the **same** field, so they cannot disagree.
 - **`status: null` means "no `vendor_entitlements` row at all"**, which distinguishes *never bought* from *lapsed*. It is never "unknown". §8 turned that distinction into two different panels.
 - **Taxonomy is gated separately** (`product.taxonomy.edit`), as a unit rather than per-field: the facet arrays are set-replacement joins, not columns, so they never enter `PRODUCT_COLUMN_MAP` and `splitPatch`'s second axis structurally cannot see them.
+- **`product.usefulness.edit` is the FIRST `PRODUCT_COLUMN_MAP` entry whose capability is not `product.edit` (AECI-963)**, which makes it the only field where the second axis is separately observable. It changes no behaviour today — the ladder is binary, `verified` holds everything, and the base `product.edit` check 403s an `unclaimed` caller before `splitPatch` runs — but it means withholding narrative authorship from a future middle rung is a data edit in two tables rather than a handler change. Unlike taxonomy above, `usefulness` **is** a real `products` column, so it sits in the map and the field axis gates it for free; the handler additionally checks it explicitly BEFORE term resolution, so an unentitled caller gets its 403 rather than a 400 from a read it was never allowed to make.
 - **`profile.rich_fields` is minted and deliberately unused.** Every shipped vendor-editable field maps to `profile.edit` or `product.edit`. Splitting the profile field set into basic-vs-rich is a *pricing* decision (§8.2 of `STAGE_2_SPEC.md`), and pre-assigning fields to a rung nobody has priced would bake in an answer. The id exists so that decision stays a data edit.
 
 `entitlementRequired()` is the single constructor for the error, so the status, the copy and the `details` shape cannot drift between the route-level gate and the field-level one. The copy points at activation and **never** at ranking, placement or search.

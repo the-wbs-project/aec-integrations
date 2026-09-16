@@ -4350,3 +4350,148 @@ describe('AECI-955 promote logo ownership', () => {
     ).toMatchObject({ logoUrl: null, logoSource: 'vendor' });
   });
 });
+
+/**
+ * AECI-963 — the `usefulness` coexistence fence.
+ *
+ * Structurally the same contract as `AECI-955 promote logo ownership` directly
+ * above, applied to the narrative blob instead of a URL, and it needs three cases
+ * that the logo suite does not:
+ *
+ * - **the clear path**, because `JSON.stringify(null)` is the string `"null"`;
+ * - **a successful write**, because every "preserved" assertion passes even if the
+ *   write branch of the CASE never binds a real object correctly;
+ * - **the `preserved[]` receipt**, which the logo fence deliberately does not emit.
+ */
+describe('AECI-963 promote usefulness ownership', () => {
+  const productId = uuid(902);
+
+  /** What a vendor authored, in the STORED shape — canonical `name` included. */
+  const vendorBlock = {
+    audiences: [{ slug: 'architecture', name: 'Architecture', points: ['The vendor wrote this.'] }],
+    phases: [],
+  };
+  /** What the review app keeps pushing, and must stop winning. */
+  const upstreamPayload = {
+    audiences: [{ slug: 'architecture', points: ['Upstream copy that must not land.'] }],
+    phases: [],
+  };
+  /** The same upstream copy after find-only resolution, i.e. what a legitimate
+   *  unfenced promote is expected to store. */
+  const upstreamStored = {
+    audiences: [
+      { slug: 'architecture', name: 'Architecture', points: ['Upstream copy that must not land.'] },
+    ],
+    phases: [],
+  };
+
+  beforeEach(async () => {
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: uuid(900), slug: 'architecture', name: 'Architecture' });
+    await seedProduct(productId, 'fenced-product', 'Fenced product');
+  });
+
+  const readProduct = () => t.db.query.products.findFirst({ where: eq(products.id, productId) });
+
+  const ownedByVendor = () =>
+    t.db
+      .update(products)
+      .set({ usefulness: vendorBlock, usefulnessSource: 'vendor' })
+      .where(eq(products.id, productId));
+
+  const push = (usefulness: unknown) =>
+    promote({ product: { ref: 'p', supabaseId: productId, name: 'Fenced product', usefulness } });
+
+  it('preserves a vendor-authored block against an upstream push', async () => {
+    await ownedByVendor();
+    expect((await push(upstreamPayload)).status).toBe(200);
+    expect(await readProduct()).toMatchObject({
+      usefulness: vendorBlock,
+      usefulnessSource: 'vendor',
+    });
+  });
+
+  it("preserves a vendor's deliberate clear", async () => {
+    await t.db
+      .update(products)
+      .set({ usefulness: null, usefulnessSource: 'vendor' })
+      .where(eq(products.id, productId));
+    expect((await push(upstreamPayload)).status).toBe(200);
+    expect(await readProduct()).toMatchObject({ usefulness: null, usefulnessSource: 'vendor' });
+  });
+
+  it('writes an upstream block when nothing owns the column, round-tripping the object', async () => {
+    expect((await push(upstreamPayload)).status).toBe(200);
+    expect(await readProduct()).toMatchObject({
+      usefulness: upstreamStored,
+      usefulnessSource: null,
+    });
+  });
+
+  it('still clears an upstream-owned column when the payload sends null', async () => {
+    await t.db.update(products).set({ usefulness: vendorBlock }).where(eq(products.id, productId));
+    expect((await push(null)).status).toBe(200);
+    expect(await readProduct()).toMatchObject({ usefulness: null, usefulnessSource: null });
+  });
+
+  it('leaves the column untouched when the payload omits usefulness', async () => {
+    await ownedByVendor();
+    const res = await promote({
+      product: { ref: 'p', supabaseId: productId, name: 'Fenced product' },
+    });
+    expect(res.status).toBe(200);
+    expect(await readProduct()).toMatchObject({
+      usefulness: vendorBlock,
+      usefulnessSource: 'vendor',
+    });
+  });
+
+  it('preserves a vendor save made after planning but before the batch commits', async () => {
+    // The planner reads `usefulness_source: null`, so only the SQL-time CASE can
+    // save this. If the guard ever moves into the planner, this test fails.
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
+      t.raw
+        .prepare("UPDATE products SET usefulness = ?, usefulness_source = 'vendor' WHERE id = ?")
+        .run(JSON.stringify(vendorBlock), productId);
+      return original(queries);
+    });
+    expect((await push(upstreamPayload)).status).toBe(200);
+    expect(await readProduct()).toMatchObject({
+      usefulness: vendorBlock,
+      usefulnessSource: 'vendor',
+    });
+  });
+
+  it('reports the refusal in preserved[] so the review app is not left guessing', async () => {
+    await ownedByVendor();
+    const body = (await (await push(upstreamPayload)).json()) as PromoteResponse;
+    expect(body.preserved).toContainEqual(
+      expect.objectContaining({ ref: 'p', kind: 'usefulness', count: 1 }),
+    );
+  });
+
+  it('reports nothing when the push omitted usefulness — there was nothing to refuse', async () => {
+    await ownedByVendor();
+    const body = (await (
+      await promote({ product: { ref: 'p', supabaseId: productId, name: 'Fenced product' } })
+    ).json()) as PromoteResponse;
+    expect(body.preserved.filter((entry) => entry.kind === 'usefulness')).toEqual([]);
+  });
+
+  it('never writes usefulness_source itself, on create or on update', async () => {
+    const body = (await (
+      await promote({
+        product: { ref: 'fresh', name: 'Fresh product', usefulness: upstreamPayload },
+      })
+    ).json()) as PromoteResponse;
+    const created = await t.db.query.products.findFirst({
+      where: eq(products.id, body.product?.id as string),
+    });
+    expect(created?.usefulnessSource).toBeNull();
+
+    expect((await push(upstreamPayload)).status).toBe(200);
+    expect((await readProduct())?.usefulnessSource).toBeNull();
+  });
+});

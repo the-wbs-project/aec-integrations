@@ -145,7 +145,7 @@ Two rules carried from the contract, restated here because they are the ones a l
 
 ## 11. Vendor and product logos (AECI-955)
 
-The third admitted surface exception adds logo editing to the vendor portal and the admin vendor detail and product roster. It permits only logo content writes in the admin panel. ADR 0032 records the validation decision.
+The third admitted surface exception (the fourth is §12) adds logo editing to the vendor portal and the admin vendor detail and product roster. It permits only logo content writes in the admin panel. ADR 0032 records the validation decision.
 
 ### 11.1 Upload and serving contract
 
@@ -170,3 +170,45 @@ Promote tests logo_source inside the SQL UPDATE so a local edit between planning
 `aec-logo-input` combines URL entry, file selection and drag/drop, preview, remove, pending feedback and localized errors. Its editable presentation has two modes: HTTPS values use the URL field and upload picker, while an uploaded `/api/logos/<hash>` draft shows the preview, a localized "Uploaded image" label and the Remove action without rendering the opaque path in an editable field. Removal returns the control to URL/upload mode. Keyboard users use the native file picker. Read-only users can read/copy the value; an uploaded path is labeled as an uploaded-image reference and stays `readonly`. Upload completion changes only the draft. Parent Save is unavailable while upload is pending; switching value or destroying the control cancels stale completion. Failed uploads keep the previous value. Form saves remain pessimistic.
 
 Validation includes adversarial format/size/dimension/trailing-data tests, multipart cardinality and bounded-body tests, authenticated upload and object-serving tests, ownership and promote fencing tests, and component interaction tests. Typecheck, lint and Angular build must pass before handoff.
+
+## 12. Vendors author "How teams use it" (AECI-963)
+
+The fourth admitted surface exception, and the one that needs its admission stated out loud rather than assumed.
+
+**This is a new feature, and §1's admission test does not cover it.** It is not a live defect, not the sequenced ranking change, not integrity debt, and not an overdue quality gate. The status line at the top of this document says "Nothing here is a new feature". It enters the same way §7, §10 and §11 entered: as a named exception, decided by the operator on 2026-09-16 rather than inferred. If a later reader is looking for the rule that admitted it, this paragraph is the rule.
+
+The prompt was an operator request on 2026-09-15 for a way to manage "How Teams Use It" copy. `products.usefulness` renders as its own section on every product detail page and is write-only through promote, so nobody could change a word of it without a re-promote from the review app.
+
+### 12.1 What the vendor gets
+
+A "How teams use it" pair of cards on the vendor product form, one per facet (by audience, by phase), each reading what is published and opening a modal to write it. A group ties one taxonomy term to one to eight short bullets. Saving publishes to the live product page immediately.
+
+Three decisions taken deliberately, all of which a later reader may want to revisit and none of which are accidents:
+
+- **No moderation.** A vendor edit publishes on save. The alternative — a draft state and an admin queue — was priced and declined for now. The honesty cost is real and is paid in copy: the editor says the text publishes immediately with no review, because there is no queue and no "vendor supplied" label on the public page to carry that fact instead.
+- **No "vendor supplied" label on the product page.** Considered and not taken. Revisit it if the section starts reading as marketing rather than description; that is the trigger, not a schedule.
+- **No admin editor.** The operator's own route in is the vendor portal, which is dark until seats are granted. This ships inert and goes live when pilot vendors are seated. Adding an admin editor later needs no migration: `usefulness_source` already accepts `'admin'`.
+
+### 12.2 Ownership, and the fence
+
+`products` gains nullable `usefulness_source` (`vendor` | `admin`; migration `0040_superb_norman_osborn.sql`, one bare `ALTER TABLE … ADD COLUMN`). Null means promote-owned. This is §11.2's `logo_source` mechanism applied to narrative copy, and it behaves identically: promote tests the column **inside** the SQL UPDATE rather than from a planning read, so a vendor save landing between the plan and the commit is still preserved; promote never writes the provenance column; and an explicit clear claims ownership too, because a clear that did not would be undone by the next promote.
+
+One thing differs from §11, deliberately. **Promote reports the refusal** as a `preserved[]` entry (`kind: 'usefulness'`, `ref` = the product's). The logo fence is silent, which is tolerable for a URL and is not tolerable here: without a receipt an upstream curator keeps writing narrative copy that no longer ships and is never told. The entry is advisory and one-sided — it can be missing for a value that was in fact preserved, and can never be present for one that was not, because nothing clears `usefulness_source`. `REVIEW_APP_PROMOTE_API.md` §4 states that asymmetry for the review app.
+
+The transition is **one-way by design**, matching §11's "no reset-to-promote control". Once a vendor writes the block, the review app's copy is dead for that product.
+
+This reverses a shipped ownership decision recorded in two places, both corrected in the same change: `packages/shared/src/api/vendor.ts`'s allow-list doc, and `API_CONTRACTS.md` §6.14's list of AECi-owned columns. ADR 0033 records why the ownership moved.
+
+### 12.3 Contract and validation
+
+`PATCH /api/vendor/products/:id` accepts `usefulness` as a full replacement, `null` to clear, absent to leave alone. It is gated on a new **`product.usefulness.edit`** capability — the first `PRODUCT_COLUMN_MAP` entry whose capability is not `product.edit`, which is what makes the entitlement axis separately observable at all. Inert at launch under the binary ladder.
+
+The wire shape carries `slug` and `points` and **no `name`**. The stored shape has one, and the public page interpolates it verbatim, so a vendor-supplied name would be free text in a slot readers parse as an AECi taxonomy label. The server resolves it from the taxonomy row on every write.
+
+Resolution is find-only, and an unknown slug is a **400**, not promote's silent drop. The reason the two differ: promote is a bulk machine push that must not fail whole over one stale term and has a `skipped[]` receipt a human reads, while a vendor picked the term from a list this API rendered and has no receipt channel — and the form re-seeds its baseline from the PATCH echo, so a dropped group would settle the form clean on content that never reached the database. Two groups resolving to the same term merge, matching promote, so both writers agree on the stored shape. `{ audiences: [], phases: [] }` normalises to `null`, so "cleared" has one encoding.
+
+Caps: ten groups per facet (matching the taxonomy facets' own cap), eight points per group (matching the review app's), two hundred characters per point. They bound the audit row, which carries the block in both before and after state.
+
+The editor stages into the form's existing dirty-diff rather than persisting on close — the opposite of the taxonomy modal next door, because a staged usefulness edit is protected by `VendorPortalStore.markDirty` and the "changed somewhere else" banner in a way a taxonomy draft would not have been. Both components' class docs record the reasoning, because they contradict each other on purpose.
+
+`MATERIAL_PRODUCT_FIELDS` gains `usefulness`, so an edit files as `product.updated` and not `product.minor` in the ADR 0031 Google re-crawl worklist. Cache purging is unchanged (`product:{slug}` already covers the detail page) and Algolia needs nothing, since `usefulness` is not an indexed attribute.
