@@ -224,6 +224,23 @@ describe('logo routes', () => {
     }
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
+  it('rejects nonexistent local paths on vendor profile and product saves', async () => {
+    const logo_url = `/api/logos/${'c'.repeat(64)}`;
+    for (const path of ['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`]) {
+      const response = await patch(path, { logo_url });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
+    }
+    expect((await t.db.select().from(vendors))[0]).toMatchObject({
+      logoUrl: null,
+      logoSource: null,
+    });
+    expect((await t.db.select().from(products))[0]).toMatchObject({
+      logoUrl: null,
+      logoSource: null,
+    });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
   it('vendor saves local paths, preserves source on omission, and owns explicit clears', async () => {
     const { logo_url } = (await (await upload(form())).json()) as { logo_url: string };
     for (const path of ['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`]) {
