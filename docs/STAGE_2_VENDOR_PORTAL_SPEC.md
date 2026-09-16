@@ -1011,6 +1011,18 @@ renders `noindex` rather than 404ing (`products-pair.resolver.ts`), so the third
 cannot land on a missing page either. Adding a guard would have meant widening `productLinkColumns`
 (shared by many surfaces) to carry a field for a state that does not occur.
 
+> **AMENDED 2026-09-16 (AECI-980).** Two details below are superseded and are kept
+> because the reasoning around them still governs. First, the sr-only note is no longer
+> **beside** the anchor — it moved **inside**, carried by the shared `aec-new-tab-icon`
+> component, because a sibling span is not read in a rotor or an `NVDA+F7` links list
+> and so reached browse mode and nowhere else. Second, "exactly one of the two carries
+> the disclosure, never both" is no longer enforced by an `@if`, and does not need to
+> be: an `aria-label` **replaces** the anchor's contents for assistive tech, so the note
+> cannot be announced twice. The obligation that survives is the one that always
+> mattered — a caller passing `ariaLabel` must state the new tab in that name itself.
+> The same change added the drawn `arrow-up-right` cue these links never had.
+> `DESIGN.md` → "The Link Treatment Rule" is now canonical for all of it.
+
 **The accessible name splits, deliberately.** The two once-per-page links carry the
 plain "View public page" with the sr-only "(opens in a new tab)" beside the anchor,
 copying the two shipped admin sites (`admin/vendors/vendor-detail.html`,

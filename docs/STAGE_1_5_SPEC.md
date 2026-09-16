@@ -732,7 +732,9 @@ grouping, counting or render-condition rules.
    accessible name** ("View product: {name} (opens in a new tab)") rather than left to be
    discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
    holds. A drawn `arrow-up-right` glyph carries the same cue for sighted readers, who get no domain
-   change to hint at it.
+   change to hint at it. **(AECI-980: that glyph was this card's own inline SVG and is now the shared
+   `aec-new-tab-icon`, which every new-tab link in `apps/web` carries. The anchor also moved off
+   accent onto the standalone-link role — see `DESIGN.md` → "The Link Treatment Rule".)**
 4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
    *Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted.*
    It matches partner names — **and, since AECI-966 (2026-09-15), the pair's `mechanism_name`

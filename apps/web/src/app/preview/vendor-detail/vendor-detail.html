@@ -30,11 +30,11 @@
           brnButton
           [attr.href]="vendor.website"
           target="_blank"
-          rel="noopener noreferrer"
+          rel="noopener noreferrer nofollow"
           class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-medium !text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) hover:!text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         >
           <ng-container i18n="@@preview.vendor-detail.visit-website">Visit website</ng-container>
-          <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
+          <aec-new-tab-icon />
         </a>
         <span
           class="inline-flex items-center gap-2 rounded-md border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-secondary)"

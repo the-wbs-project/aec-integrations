@@ -450,12 +450,16 @@ describe('VendorDetail', () => {
       // it is an href rather than a `routerLink`: an in-app navigation cannot
       // meaningfully open a second tab.
       const { el } = await setup(makeApiMock(makeVendor()));
-      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'View Page');
+      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View Page'));
       expect(link?.getAttribute('href')).toBe('/vendors/autodesk');
       expect(link?.getAttribute('target')).toBe('_blank');
       // Without `noopener` the new browsing context gets a handle on this one.
       expect(link?.getAttribute('rel')).toContain('noopener');
-      expect(el.textContent).toContain('opens in a new tab');
+      // AECI-980 moved the disclosure INSIDE the anchor and drew it as well. A
+      // sibling span is not read in a rotor or an NVDA+F7 links list, and the
+      // sighted half of the disclosure did not exist at all before that change.
+      expect(link?.textContent).toContain('opens in a new tab');
+      expect(link?.querySelector('svg')).not.toBeNull();
     });
   });
 

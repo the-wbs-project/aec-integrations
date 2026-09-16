@@ -14,6 +14,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { VendorProductRow } from './vendor-product-row';
 
@@ -65,6 +66,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     LogoOrInitial,
     MailingListSignup,
     MaintenanceMarker,
+    NewTabIcon,
     NotFound,
     RequestDrawer,
     RequestTrigger,
@@ -140,7 +142,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               <a
                 [href]="v.website"
                 target="_blank"
-                rel="noopener noreferrer"
+                rel="noopener noreferrer nofollow"
                 aecTrackExternalLink="vendor_detail"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
@@ -151,7 +153,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                   focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@vendors.detail.visitWebsite">Visit website</ng-container>
-                <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
+                <aec-new-tab-icon />
               </a>
             }
             @if (v.headquarters) {
@@ -192,7 +194,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                     role="listitem"
                     [href]="link.href"
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener noreferrer nofollow"
                     aecTrackExternalLink="vendor_detail_social"
                     class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)
                       border border-(--border-default) bg-(--surface-raised) text-(--text-secondary)
@@ -200,7 +202,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                       focus-visible:outline-none focus-visible:ring-2
                       focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                       focus-visible:ring-offset-(--surface-base)"
-                    [attr.aria-label]="link.label"
+                    [attr.aria-label]="link.aria"
                     [title]="link.label"
                   >
                     <svg
@@ -581,6 +583,13 @@ export class VendorDetailPage {
         key,
         href,
         label: this.socialLabels[key],
+        // A brand glyph is the ONE shape the drawn new-tab cue cannot join — a
+        // 9x9 icon button has no room for a second mark, and adding one would
+        // read as a sixth platform. So this link discloses the new tab in its
+        // accessible name only, which is also its only name (AECI-980). The
+        // `title` stays the bare platform so the hover tooltip is not a
+        // sentence.
+        aria: $localize`:@@vendors.detail.social.aria:${this.socialLabels[key]}:PLATFORM: (opens in a new tab)`,
         path: this.socialPaths[key],
       }));
   });

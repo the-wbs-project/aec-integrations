@@ -10,6 +10,8 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+
 import type { AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
 
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
@@ -56,7 +58,7 @@ import { productRolesLabel } from '../product-roles/product-roles-label';
  */
 @Component({
   selector: 'aec-claim-detail',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, NewTabIcon, RouterLink],
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {

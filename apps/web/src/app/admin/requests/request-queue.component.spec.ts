@@ -199,7 +199,11 @@ describe('RequestQueue', () => {
     expect(link!.getAttribute('href')).toBe(url);
     expect(link!.getAttribute('target')).toBe('_blank');
     expect(link!.getAttribute('rel')).toContain('noopener');
-    expect(link!.textContent?.trim()).toBe('Tracked in Linear');
+    expect(link!.textContent).toContain('Tracked in Linear');
+    // AECI-980: the chip carries the shared new-tab cue, so its text now also
+    // holds the sr-only disclosure and a drawn arrow beside it.
+    expect(link!.textContent).toContain('opens in a new tab');
+    expect(link!.querySelector('svg')).not.toBeNull();
   });
 
   it('falls back to a non-clickable indicator when linear_issue_url is null', async () => {

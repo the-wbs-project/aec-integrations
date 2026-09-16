@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 /**
  * AECI-841 — the collapsible group card both product-detail integration
@@ -59,7 +60,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  */
 @Component({
   selector: 'aec-integration-group-card',
-  imports: [LogoOrInitial],
+  imports: [LogoOrInitial, NewTabIcon],
   // A custom element is `display: inline` by default, so a parent's `space-y-*`
   // margin would land on an inline box and be dropped. Same fix, same reason as
   // `ProductPoweredHub`.
@@ -110,32 +111,24 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           </button>
         </h3>
         @if (link(); as target) {
+          <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule"). This
+               card's own inline arrow-up-right was the drawing AECI-980 made
+               canonical, so the SVG moved out to aec-new-tab-icon and this site
+               now consumes it like every other. Off accent in the same change:
+               accent belongs to the one primary action on a surface, and
+               product-detail already spends it on "Visit website". -->
           <a
             [href]="target"
             target="_blank"
             rel="noopener"
             [attr.aria-label]="linkAriaLabel()"
-            class="inline-flex shrink-0 items-center gap-1 rounded-(--radius-sm) text-xs
-              text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >{{ linkLabel() }}
-            <!-- Lucide arrow-up-right. Sighted readers get no domain change to
-                 hint at the new tab, so the cue has to be drawn. Screen readers
-                 hear it from the accessible name instead. -->
-            <svg
-              aria-hidden="true"
-              class="h-3 w-3 shrink-0 rtl:-scale-x-100"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M7 7h10v10" />
-              <path d="M7 17 17 7" />
-            </svg>
-          </a>
+            class="inline-flex shrink-0 items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+              text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong)
+              underline-offset-4 transition-colors hover:text-(--text-primary)
+              focus-visible:outline-2 focus-visible:outline-offset-2
+              focus-visible:outline-(--accent-primary)"
+            ><span>{{ linkLabel() }}</span> <aec-new-tab-icon
+          /></a>
         }
       </div>
 

@@ -17,6 +17,7 @@ import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
@@ -79,6 +80,7 @@ import { RoleBadge } from './role-badge';
     MailingListSignup,
     MaintenanceMarker,
     NgTemplateOutlet,
+    NewTabIcon,
     NotFound,
     ProductIntegrationsSection,
     ProductPoweredHub,
@@ -246,7 +248,7 @@ import { RoleBadge } from './role-badge';
               <a
                 [href]="p.website"
                 target="_blank"
-                rel="noopener noreferrer"
+                rel="noopener noreferrer nofollow"
                 aecTrackExternalLink="product_detail"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
@@ -257,7 +259,7 @@ import { RoleBadge } from './role-badge';
                   focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
-                <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
+                <aec-new-tab-icon />
               </a>
             }
             <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
