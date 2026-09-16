@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 
 import { SessionStatus } from '../../auth/session-status';
 import { RoleStatus } from '../../auth/role-status';
@@ -56,13 +56,31 @@ export class ListingViewPreference {
   private readonly accountApi = inject(AccountApi);
 
   /**
+   * The last view this tab handed to `PATCH /api/account`, or `null` before any
+   * signed-in toggle. Set optimistically on the click rather than on the PATCH
+   * resolving: the user's stated choice is the local truth either way (the
+   * cookie already holds it), and waiting would leave the stale-profile window
+   * open for exactly as long as the request takes.
+   */
+  private readonly lastPersisted = signal<ListingView | null>(null);
+
+  /**
    * The remembered default for a signed-in visitor, or `null` when the probe
    * hasn't landed (or never set one). Reads the `RoleStatus` profile — the
    * same single `GET /api/account` round trip the header already makes — so
    * seeding the view costs no extra request. Callers must tolerate `null`
    * while the probe is in flight (`ensureProbed()` resolves first).
+   *
+   * A toggle made in THIS tab wins over that profile. `RoleStatus` probes once
+   * per page load and is never re-fetched after our PATCH, so its snapshot goes
+   * stale the moment the user toggles — and on the next SPA navigation to a
+   * listing page `ensureProbed()` resolves instantly from the latch and would
+   * hand back the pre-toggle value, silently reverting the choice the user just
+   * made. `lastPersisted` is the in-tab correction.
    */
   rememberedFromProfile(): ListingView | null {
+    const local = this.lastPersisted();
+    if (local !== null) return local;
     const pref = this.role.profile()?.listing_view_preference;
     return pref === 'cards' || pref === 'table' ? pref : null;
   }
@@ -90,6 +108,10 @@ export class ListingViewPreference {
   persist(view: ListingView): void {
     writeListingViewCookie(view);
     if (this.session.signedIn()) {
+      // Signed-in only: when signed out nothing is written to a profile, so the
+      // cookie is the whole story and a `lastPersisted` set here would outrank
+      // the real profile of whoever signs in next in this tab.
+      this.lastPersisted.set(view);
       void this.accountApi.updateProfile({ listing_view_preference: view }).catch(() => {
         // Swallowed deliberately: the URL `?view=` is already the live truth
         // and the cookie holds the local default; re-PATCHing on a later

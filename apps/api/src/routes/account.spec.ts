@@ -232,6 +232,20 @@ describe('PATCH /api/account', () => {
     expect(audit[0]!.action).toBe('profile.updated');
   });
 
+  // An explicit `null` is the schema's documented way to CLEAR the name, and the
+  // response must report the cleared row — not the pre-PATCH name. A `??` in the
+  // response builder treats `null` as "key absent" and echoes the old value.
+  it('clears display_name on an explicit null and reports the cleared value', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      display_name: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ display_name: null });
+    const [row] = await t.db.select().from(profiles);
+    expect(row!.displayName).toBeNull();
+  });
+
   it('persists listing_view_preference alone without touching display_name', async () => {
     await t.db
       .insert(profiles)

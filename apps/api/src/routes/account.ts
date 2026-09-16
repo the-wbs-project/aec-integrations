@@ -221,7 +221,14 @@ export function createUpdateAccountHandler(
     const body: AccountProfileResponse = {
       user_id: userId,
       email: session.email ?? null,
-      display_name: payload.display_name ?? before?.displayName ?? null,
+      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
+      // documented way to drop the name), and `??` would treat it as "absent"
+      // and echo back the name the row no longer holds.
+      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
+      // documented way to drop the name), and `??` would treat it as "absent"
+      // and echo back the name the row no longer holds.
+      display_name:
+        payload.display_name !== undefined ? payload.display_name : (before?.displayName ?? null),
       listing_view_preference:
         payload.listing_view_preference !== undefined
           ? payload.listing_view_preference

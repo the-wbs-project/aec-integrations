@@ -101,6 +101,34 @@ describe('ListingViewPreference', () => {
     expect(document.cookie).toContain(`${LISTING_VIEW_COOKIE}=cards`);
   });
 
+  // The regression this guards: `RoleStatus` probes once per page load and is
+  // never re-fetched after our PATCH, so its snapshot still holds the pre-toggle
+  // value. On the next SPA navigation to a listing page `ensureProbed()` resolves
+  // instantly from the latch, and without `lastPersisted` the stale snapshot
+  // would overwrite the fresh cookie and revert the user's choice.
+  it('prefers a toggle made in this tab over the now-stale probed profile', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        { provide: SessionStatus, useValue: { signedIn: signal(true) } },
+        {
+          provide: RoleStatus,
+          // The probe landed BEFORE the toggle, so it still says `cards`.
+          useValue: { profile: signal(profile('cards')), ensureProbed: vi.fn() },
+        },
+        {
+          provide: AccountApi,
+          useValue: { updateProfile: vi.fn(() => Promise.resolve(profile('table'))) },
+        },
+      ],
+    });
+    const pref = TestBed.inject(ListingViewPreference);
+    expect(pref.rememberedFromProfile()).toBe('cards');
+    pref.persist('table');
+    expect(pref.rememberedFromProfile()).toBe('table');
+    expect(pref.remembered()).toBe('table');
+  });
+
   it('remembered prefers the profile when signed in, the cookie when not', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
