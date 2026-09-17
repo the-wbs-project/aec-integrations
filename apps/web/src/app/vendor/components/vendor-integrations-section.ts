@@ -1,13 +1,19 @@
+import { Location } from '@angular/common';
 import {
   Component,
+  DestroyRef,
+  type OnInit,
   afterNextRender,
   afterRenderEffect,
   computed,
+  effect,
   inject,
   input,
   signal,
+  untracked,
   viewChildren,
 } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { mirrorContextDirection } from '@aeci/shared';
 import type {
@@ -21,8 +27,25 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { VendorIntegrationCard } from './vendor-integration-card';
+import { healthLabel } from './vendor-attestation-labels';
 import { claimOutcomeLine } from './vendor-claim-outcome';
+import { VendorCounterpartGroup } from './vendor-counterpart-group';
+import {
+  type CounterpartGroup,
+  type CounterpartSide,
+  EMPTY_FILTER,
+  HEALTH_ORDER,
+  type HealthFilter,
+  type IntegrationFilter,
+  filterFromParams,
+  filterToParams,
+  groupByCounterpart,
+  healthTallies,
+  isFilterActive,
+  matchesFilter,
+  openSlugsFromParam,
+  openSlugsToParam,
+} from './vendor-integration-health';
 
 /**
  * The Integrations tab's body (AECI-606 / `STAGE_2_ATTESTATIONS_SPEC.md` §6):
@@ -93,9 +116,11 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
  * both are load-bearing rather than incidental. `loading()` is false while the
  * store reports `refreshing` — it distinguishes "no data yet" from "we have data
  * and are checking" precisely so a background fetch cannot swap the card list
- * for the loading paragraph or drop the summary line. And `@for` tracks by
- * `integration.id`, so a poll returning the same integrations patches the lanes
- * that changed instead of tearing down and rebuilding the list under the cursor.
+ * for the loading paragraph or drop the summary line. And every `@for` tracks by a
+ * stable id (counterpart key, integration id, claim id), so a poll returning the
+ * same integrations patches the lanes that changed instead of tearing down and
+ * rebuilding the list under the cursor. Groups are ordered by name, never by
+ * health, for the same reason (AECI-999 / §6.3).
  *
  * ── COPY ────────────────────────────────────────────────────────────────────
  * §6's discipline, enforced here and in `vendor-attestation-labels.ts`: no
@@ -105,7 +130,7 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
  */
 @Component({
   selector: 'aec-vendor-integrations-section',
-  imports: [VendorIntegrationCard],
+  imports: [VendorCounterpartGroup],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
@@ -168,28 +193,145 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
             The data object list could not be loaded, so new data flows cannot be added right now.
           </p>
         }
-        <div class="space-y-6">
-          @for (
-            integration of integrations();
-            track integration.id + ':' + integration.context_product.id
-          ) {
-            <aec-vendor-integration-card
-              [integration]="integration"
-              [vendorName]="vendorName()"
-              [canWrite]="canWrite()"
-              [dataObjects]="dataObjects()"
-              [versions]="versionsFor(integration)"
-              (claimChanged)="onClaimChanged($event)"
-              (claimCreated)="onClaimCreated($event)"
-              (retracted)="onRetracted($event)"
-            />
+
+        <!--
+          AECI-999 (section 6.3). The filter bar. Every value is URL state when
+          the section is routed, so a filtered, opened view can be shared with
+          another vendor administrator. Results are announced through the shell's
+          one live region, never a role="status" here.
+        -->
+        <div
+          class="space-y-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+          role="search"
+          [attr.aria-label]="filterRegionLabel"
+        >
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-0 flex-1 basis-64">
+              <label
+                for="vendor-integrations-query"
+                class="block text-xs font-medium text-(--text-secondary)"
+                i18n="@@vendor.attest.filter.query.label"
+                >Search</label
+              >
+              <input
+                id="vendor-integrations-query"
+                type="search"
+                autocomplete="off"
+                [value]="filter().query"
+                [attr.placeholder]="queryPlaceholder"
+                (input)="onQuery($event)"
+                class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default)
+                  bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)
+                  focus-visible:outline-2 focus-visible:outline-offset-2
+                  focus-visible:outline-(--accent-primary)"
+              />
+            </div>
+            <div>
+              <label
+                for="vendor-integrations-side"
+                class="block text-xs font-medium text-(--text-secondary)"
+                i18n="@@vendor.attest.filter.side.label"
+                >Integrates with</label
+              >
+              <div class="relative mt-1">
+                <select
+                  id="vendor-integrations-side"
+                  (change)="onSide($event)"
+                  class="appearance-none rounded-(--radius-sm) border border-(--border-default)
+                    bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary)
+                    focus-visible:outline-2 focus-visible:outline-offset-2
+                    focus-visible:outline-(--accent-primary)"
+                >
+                  @for (option of sideOptions; track option.value) {
+                    <option [value]="option.value" [selected]="option.value === filter().side">
+                      {{ option.label }}
+                    </option>
+                  }
+                </select>
+                <svg
+                  class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="flex flex-wrap items-center gap-2"
+            role="group"
+            [attr.aria-label]="statusGroupLabel"
+          >
+            @for (chip of statusChips(); track chip.value) {
+              <button
+                type="button"
+                class="aec-period inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-(--radius-sm)
+                  border border-(--border-default) bg-(--surface-base) px-2.5 text-xs font-semibold
+                  text-(--text-secondary) transition-colors hover:text-(--text-primary)
+                  focus-visible:outline-2 focus-visible:outline-offset-2
+                  focus-visible:outline-(--accent-primary)"
+                [attr.aria-pressed]="filter().health === chip.value"
+                (click)="onHealth(chip.value)"
+              >
+                {{ chip.label }}
+                <span class="font-normal tabular-nums">{{ chip.count }}</span>
+              </button>
+            }
+          </div>
+
+          @if (filterActive()) {
+            <div
+              class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--text-secondary)"
+            >
+              <span>{{ resultLine() }}</span>
+              <button
+                type="button"
+                class="cursor-pointer font-medium text-(--text-primary) underline decoration-(--border-strong)
+                  underline-offset-4 hover:text-(--accent-primary) focus-visible:outline-2
+                  focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                (click)="clearFilters()"
+                i18n="@@vendor.attest.filter.clear"
+              >
+                Clear filters
+              </button>
+            </div>
           }
         </div>
+
+        @if (groups().length === 0) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.filter.none">
+            No integrations match these filters.
+          </p>
+        } @else {
+          <div class="space-y-3">
+            @for (group of groups(); track group.key) {
+              <aec-vendor-counterpart-group
+                [group]="group"
+                [expanded]="isOpen(group)"
+                [vendorName]="vendorName()"
+                [canWrite]="canWrite()"
+                [dataObjects]="dataObjects()"
+                [versions]="versionsForProduct(group.contextProduct.id)"
+                (toggled)="toggleGroup(group)"
+                (claimChanged)="onClaimChanged($event)"
+                (claimCreated)="onClaimCreated($event)"
+                (retracted)="onRetracted($event)"
+              />
+            }
+          </div>
+        }
       }
     </div>
   `,
 })
-export class VendorIntegrationsSection {
+export class VendorIntegrationsSection implements OnInit {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
@@ -212,7 +354,19 @@ export class VendorIntegrationsSection {
    */
   readonly contextProductId = input<string | null>(null);
 
-  private readonly cards = viewChildren(VendorIntegrationCard);
+  /**
+   * Mirror the filter and the open groups into the URL (AECI-999). Only the
+   * routed page turns this on. The single-page concept renders the same section
+   * with no route of its own, where writing query params would be noise.
+   */
+  readonly urlState = input(false);
+
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
+  private readonly destroyRef = inject(DestroyRef);
+
+  private readonly groupRows = viewChildren(VendorCounterpartGroup);
 
   private readonly allIntegrations = this.store.integrations;
 
@@ -224,6 +378,75 @@ export class VendorIntegrationsSection {
     const all = this.allIntegrations();
     return scope === null ? all : all.filter((i) => i.context_product.id === scope);
   });
+  // ── Drill-down state (AECI-999 / §6.3) ──────────────────────────────────────
+
+  protected readonly filter = signal<IntegrationFilter>(EMPTY_FILTER);
+  protected readonly filterActive = computed(() => isFilterActive(this.filter()));
+
+  /** Counterpart product slugs whose group row is open. Everything starts closed. */
+  private readonly openSlugs = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * Integration ids that stay listed even after they stop matching the filter.
+   *
+   * Without this, "Needs your input" plus an Affirm would make the integration
+   * vanish the instant the optimistic patch lands, taking the control, its busy
+   * state and any rollback error with it. An integration is pinned when its group
+   * is opened, and the pins reset whenever the filter changes.
+   */
+  private readonly pinnedIds = signal<ReadonlySet<string>>(new Set());
+
+  private readonly visibleIntegrations = computed(() => {
+    const filter = this.filter();
+    const pinned = this.pinnedIds();
+    return this.integrations().filter((i) => pinned.has(i.id) || matchesFilter(i, filter));
+  });
+
+  protected readonly groups = computed(() =>
+    groupByCounterpart(this.visibleIntegrations(), this.integrations()),
+  );
+
+  private readonly totalGroups = computed(() => groupByCounterpart(this.integrations()).length);
+
+  protected readonly statusChips = computed(() => {
+    const filter = this.filter();
+    const tallies = healthTallies(this.integrations(), filter);
+    // Not the sum of the tallies: "Needs your input" overlaps "Conflict".
+    const withoutHealth: IntegrationFilter = { ...filter, health: 'all' };
+    const all = this.integrations().filter((i) => matchesFilter(i, withoutHealth)).length;
+    const chips: { value: HealthFilter; label: string; count: number }[] = [
+      { value: 'all', label: $localize`:@@vendor.attest.filter.status.all:All`, count: all },
+    ];
+    for (const health of HEALTH_ORDER) {
+      const count = tallies.get(health) ?? 0;
+      // A chip that would give zero results is noise, unless it is the one
+      // selected, which must stay visible so it can be turned off.
+      if (count > 0 || filter.health === health) {
+        chips.push({ value: health, label: healthLabel(health), count });
+      }
+    }
+    return chips;
+  });
+
+  protected readonly resultLine = computed(
+    () =>
+      $localize`:@@vendor.attest.filter.result:Showing ${this.groups().length}:shown: of ${this.totalGroups()}:total: products`,
+  );
+
+  protected readonly filterRegionLabel = $localize`:@@vendor.attest.filter.aria:Filter integrations`;
+  protected readonly statusGroupLabel = $localize`:@@vendor.attest.filter.status.aria:Filter by status`;
+  protected readonly queryPlaceholder = $localize`:@@vendor.attest.filter.query.placeholder:Product, connector or data object`;
+  protected readonly sideOptions: readonly { value: CounterpartSide; label: string }[] = [
+    { value: 'any', label: $localize`:@@vendor.attest.filter.side.any:Any product` },
+    { value: 'own', label: $localize`:@@vendor.attest.filter.side.own:Your own products` },
+    {
+      value: 'other',
+      label: $localize`:@@vendor.attest.filter.side.other:Other vendors' products`,
+    },
+  ];
+
+  private announceTimer: ReturnType<typeof setTimeout> | null = null;
+
   protected readonly loading = this.store.integrationsLoading;
   protected readonly failed = this.store.integrationsFailed;
   protected readonly dataObjects = signal<readonly DataObjectOption[]>([]);
@@ -266,22 +489,131 @@ export class VendorIntegrationsSection {
   constructor() {
     afterNextRender(() => void this.load('ensure'));
 
+    this.destroyRef.onDestroy(() => {
+      if (this.announceTimer !== null) clearTimeout(this.announceTimer);
+    });
+
+    // A shared link can open a group before the list has loaded. Once the list
+    // is there, pin what those groups show, so the first write in them behaves
+    // like one made after a click.
+    effect(() => {
+      if (!this.loaded() || this.integrations().length === 0) return;
+      untracked(() => this.pinOpenGroups());
+    });
+
     // `afterRenderEffect`, not `afterNextRender`: focus has to move repeatedly —
     // after every create and every duplicate pivot — and only once the lane it
     // targets actually exists.
     afterRenderEffect(() => {
       const claimId = this.pendingFocusClaimId();
       if (!claimId) return;
-      for (const card of this.cards()) card.focusClaim(claimId);
+      for (const group of this.groupRows()) {
+        if (group.hasClaim(claimId)) group.focusClaim(claimId);
+      }
       this.pendingFocusClaimId.set(null);
     });
   }
 
-  protected versionsFor(integration: VendorIntegration): readonly ProductVersion[] {
+  ngOnInit(): void {
+    if (!this.urlState()) return;
+    const params = this.route.snapshot.queryParamMap;
+    this.filter.set(filterFromParams(params));
+    this.openSlugs.set(openSlugsFromParam(params.get('open')));
+  }
+
+  protected versionsForProduct(contextProductId: string): readonly ProductVersion[] {
     // The caller's OWN endpoint product only. §8.2 requires a version stamp to
     // belong to the attesting side's endpoint, so offering the counterpart's
     // releases here would generate guaranteed 400s.
-    return this.versionsByProduct().get(integration.context_product.id) ?? [];
+    return this.versionsByProduct().get(contextProductId) ?? [];
+  }
+
+  protected isOpen(group: CounterpartGroup): boolean {
+    return this.openSlugs().has(group.otherProduct.slug);
+  }
+
+  protected toggleGroup(group: CounterpartGroup): void {
+    const slug = group.otherProduct.slug;
+    const next = new Set(this.openSlugs());
+    if (next.has(slug)) {
+      next.delete(slug);
+    } else {
+      next.add(slug);
+      this.pinnedIds.update((ids) => new Set([...ids, ...group.integrations.map((i) => i.id)]));
+    }
+    this.openSlugs.set(next);
+    this.writeUrl();
+  }
+
+  protected onQuery(event: Event): void {
+    this.setFilter({ ...this.filter(), query: (event.target as HTMLInputElement).value });
+  }
+
+  protected onSide(event: Event): void {
+    this.setFilter({
+      ...this.filter(),
+      side: (event.target as HTMLSelectElement).value as CounterpartSide,
+    });
+  }
+
+  protected onHealth(health: HealthFilter): void {
+    this.setFilter({ ...this.filter(), health });
+  }
+
+  protected clearFilters(): void {
+    this.setFilter(EMPTY_FILTER);
+  }
+
+  /**
+   * A new filter is a new question, so it starts from a clean slate: every
+   * group closes and every pin drops. Keeping groups open across a filter change
+   * would leave rows listed that the new filter excludes.
+   */
+  private setFilter(next: IntegrationFilter): void {
+    this.filter.set(next);
+    this.openSlugs.set(new Set());
+    this.pinnedIds.set(new Set());
+    this.writeUrl();
+    this.scheduleResultAnnouncement();
+  }
+
+  private pinOpenGroups(): void {
+    const open = this.openSlugs();
+    if (open.size === 0) return;
+    const filter = this.filter();
+    const ids = this.integrations()
+      .filter((i) => open.has(i.other_product.slug) && matchesFilter(i, filter))
+      .map((i) => i.id);
+    if (ids.length === 0) return;
+    this.pinnedIds.update((pinned) => new Set([...pinned, ...ids]));
+  }
+
+  /**
+   * Replace the URL's query without a router navigation. A navigation would
+   * trip `withInMemoryScrolling`'s reset and throw the vendor back to the top of
+   * the page on every keystroke and every row they open.
+   */
+  private writeUrl(): void {
+    if (!this.urlState()) return;
+    const tree = this.router.createUrlTree([], {
+      relativeTo: this.route,
+      queryParams: { ...filterToParams(this.filter()), open: openSlugsToParam(this.openSlugs()) },
+      queryParamsHandling: 'merge',
+    });
+    this.location.replaceState(this.router.serializeUrl(tree));
+  }
+
+  /** Debounced so typing a query does not queue one utterance per keystroke. */
+  private scheduleResultAnnouncement(): void {
+    if (this.announceTimer !== null) clearTimeout(this.announceTimer);
+    this.announceTimer = setTimeout(() => {
+      this.announceTimer = null;
+      this.announcer.announce(
+        this.filterActive()
+          ? this.resultLine()
+          : $localize`:@@vendor.attest.filter.live.cleared:Showing every integration.`,
+      );
+    }, 600);
   }
 
   /**

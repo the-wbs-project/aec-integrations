@@ -921,6 +921,8 @@ pre-existing spec passes **unmodified**.
   vendor-wide call — only the view narrows.)*
 - **Per integration:** the counterpart product, the mechanism, and each `data_object` claim lane
   with the caller's control (**Affirm / Deny / Clear**) alongside the counterparty's current state.
+  *(Since AECI-999 these render as a three-level drill-down, grouped by counterpart and collapsed
+  on arrival, with a health summary and filters. See §6.3.)*
   A conflict must be legible from the vendor's side, with the counterparty's position shown.
 - **Add a data flow:** `data_object` picker over the closed vocabulary + direction control +
   optional note and version stamps (§8). Per ADR 0010, new discrete-choice controls use
@@ -1203,6 +1205,118 @@ the denial sentence, the no-live-region property, the read-only lane);
 degradation);
 `vendor-notifications-list.component.spec.ts` two tests inverted from "filters the ops detector" to
 "renders and counts a `claim-denied` row". API side in §7.5.
+
+### 6.3 The tab becomes a three-level drill-down (AECI-999 — 2026-09-17)
+
+**No migration, no API change, no new route.** The tab rendered every data flow of every
+integration fully open: direction, provenance, badge, stance, the outcome sentence, the note and
+versions disclosure and Affirm/Deny/Clear, once per flow. One pair with six data objects was six
+screens. A vendor could not tell which integrations were healthy without reading all of them.
+
+**The shape.** Three disclosure levels, all collapsed on arrival.
+
+| Level | Component | Collapsed row shows | Open shows |
+|---|---|---|---|
+| 1. Counterpart product | `vendor-counterpart-group.ts` (`<h2>`) | Logo, name, health pill, counts ("2 integrations · 5 data flows · 1 in conflict · 1 needs your input · 1 confirmed by both vendors"), and the pair-page link beside the button | Level 2 |
+| 2. Integration | `vendor-integration-card.ts` (`<h3>`) | Mechanism, source ("On record from AEC Integrations" or "Via {connector}"), "You own both sides" when true, counts, health pill | Level 3 and the add-a-data-flow form |
+| 3. Data flow | `vendor-claim-lane.ts` | Data object, direction, your stance, agreement badge | Provenance, counterparty line, the §6.2 outcome sentence, the conflict box, the attestation control |
+
+**One integration skips level 2.** When a counterpart has exactly one integration on record (counted
+before any filter, `CounterpartGroup.totalIntegrations`) the card renders in
+`direct` mode: no second disclosure, and a label reading "The only integration on record with
+{product}" followed by the mechanism and source. Opening level 1 lands on the flows. The label is
+what tells the vendor there is nothing else to open. Only a counterpart with several integrations
+(for example native plus a connector) shows collapsed level-2 rows. It keeps them while a filter hides
+all but one, because "the only integration on record" would then be false.
+
+**Health.** `vendor-integration-health.ts`, pure functions, read verbatim from `claim.agreement`. The
+portal still never recomputes agreement. States, most urgent first:
+
+| Health | Pill | When |
+|---|---|---|
+| `conflict` | Conflict (red, with the ✕ shape) | Any flow is `conflict`. Outranks `connector`. |
+| `needs_you` | Needs your input | Attestable edge, and a flow with no position of the vendor's own. |
+| `responded` | You have responded | Every flow answered, not all `confirmed`. An owns-both edge settles here, because `confirmed` needs two distinct vendors. |
+| `confirmed` | Fully confirmed (Forest wash) | Every flow `confirmed`. |
+| `connector` | Via connector | `attestable: false` (§14). |
+| `empty` | No data flows | No claims. |
+
+A counterpart takes its most urgent integration's state, and its counts are the sum. Pill tones reuse
+the overview's "What needs you" pills (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10), including the
+unlayered `.aec-pill-*` border classes. The copy says "data flows", not "data points", to match
+every other sentence on the tab.
+
+**Order is alphabetical by counterpart, never by health.** An Affirm is optimistic and changes health
+on click. A health-sorted list would move the row under the pointer, which
+`STAGE_2_REALTIME_SPEC.md` §6.3 forbids.
+
+**Filters.** A search box, status chips and an "Integrates with" select, above the list.
+
+- **Search** matches, per term and case-insensitively, the counterpart name, the integration name,
+  the mechanism, the connector, and every data object name. Searching "RFIs" finds the integrations
+  that move RFIs.
+- **Status chips** are one per health state, each with the count choosing it would give. A chip with
+  zero results is hidden unless it is the one selected. Every chip matches the rolled-up health
+  except **Needs your input**, which matches any integration with a waiting flow
+  (`matchesHealth`). That is the flow-level predicate of the overview's `waitingByProduct`, so a
+  waiting row's `?status=needs_you` link still finds a waiting flow on an integration whose health
+  is `conflict`. The chips can therefore overlap, and "All" is counted directly, not summed.
+- **Integrates with** is Any product, Your own products (`slots.length === 2`), or Other vendors'
+  products.
+- Filtering is **per integration**. A counterpart shows only its matching integrations, and its row's
+  health and counts follow what is shown. "Showing N of M products" and Clear filters appear while a
+  filter is active.
+- **A new filter closes every group.** It is a new question, and a group left open would keep
+  non-matching rows listed.
+- **An opened group is pinned.** Its integrations stay listed until the filter changes, even if a write
+  stops them matching. Without the pin, Affirm under "Needs your input" would remove the control
+  mid-write and take its busy state and any rollback error with it.
+- The result count is announced through `VendorPortalAnnouncer`, debounced 600 ms. The filter bar is
+  not a live region.
+
+**URL state, so a view can be shared with another vendor administrator.** The routed page sets
+`urlState`. The section reads `q`, `status` (a health value), `side` (`own` | `other`) and `open`
+(comma-separated counterpart slugs) once on init, and writes them back with
+`Location.replaceState`, **never a router navigation**: a navigation trips `withInMemoryScrolling` and
+would scroll to the top on every keystroke and every opened row. Unknown values fall back to the
+default rather than rendering an empty list. The single-page concept leaves `urlState` off. Back and
+Forward restore the filter, because a tab switch is an ordinary router navigation from the replaced
+URL.
+
+**The overview links in pre-filtered.** "What needs you" conflict rows and the glance band's "In
+conflict" tile add `?status=conflict`. Waiting rows add `?status=needs_you`
+(`linkQueryParams` in `vendor-overview-model.ts`).
+
+**What collapsing must not break.**
+
+- Panels hide with the `hidden` attribute, never `@if`, at every level. A collapsed lane keeps its
+  attestation control, so a half-typed note survives and an in-flight write still reconciles.
+- Disclosure is the hand-rolled WAI-ARIA pattern from `integration-group-card.ts` (ADR 0010
+  deviation (c)), not the Aria accordion.
+- The pair-page link moved from the card to the group, because the pair page is per product pair.
+  It still sits beside the heading button, never inside it, and keeps its destination-specific
+  accessible name (§6.7 of the portal spec, the A4 guard).
+- Every focus path opens what it targets first. The duplicate-claim pivot and the post-create focus
+  open the lane (and a nested card), then focus Affirm after the render that un-hides it.
+- Headings are `<h2>` then `<h3>` under the product `<h1>`. The old card's `<h3>` skipped a level,
+  which axe reports as `heading-order`.
+
+**Fixture.** `INTEGRATION_PROCORE_VIA_CONNECTOR` gives the Procore pair a second, connector-powered
+integration. It is appended last, so index-based spec references to the fixture still hold. It is the
+only fixture that renders a nested level 2.
+
+**Test coverage:** `vendor-integration-health.component.spec.ts` (25: every health state and its
+precedence, roll-up, grouping and its stable order across a write, search across data objects and
+connectors, the side filter, chip tallies, the needs_you chip matching a waiting flow under a conflict, the unfiltered integration
+total, URL round-trip and fallbacks);
+`vendor-integrations-section.component.spec.ts` (+11 drill-down: all collapsed, the row summary,
+direct and nested modes, open state across a store update, the status, text and side filters, the
+pin, `replaceState` with and without `urlState`; the six §6.7 link tests moved from the card to the
+group, plus a link-outside-the-button test); `vendor-overview-model.spec.ts` +2 (the query params);
+`vendor-glance-band.component.spec.ts` (the conflict href carries `?status=conflict`);
+`vendor-claim-lane.component.spec.ts` (the read-only lane now has exactly one button, its toggle).
+axe on `/preview/vendor-dashboard/products/summit-model-coordination/integrations` with every level
+open reports 0 violations.
 
 ---
 

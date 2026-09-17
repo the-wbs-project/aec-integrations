@@ -167,7 +167,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     // test (the cards' labelled regions, the lanes' controls, the live region)
     // does not exist until `GET /api/vendor/integrations` lands.
     await expect(
-      page.locator('aec-vendor-integration-card').first().or(page.getByText('No integrations')),
+      page.locator('aec-vendor-counterpart-group').first().or(page.getByText('No integrations')),
     ).toBeVisible();
     await waitForHydrationSettle(page);
 
@@ -206,6 +206,14 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     // Seeded state is an AECi-only claim: `unverified`, because an AECi seed is
     // not a vendor voter.
     await expect(lane).toContainText('Unverified');
+
+    // AECI-999: every level starts collapsed. Open the lane's counterpart group,
+    // its integration row when the counterpart has several, then the lane itself.
+    const group = page.locator('aec-vendor-counterpart-group', { has: lane });
+    await group.locator('h2 button').click();
+    const nested = group.locator('aec-vendor-integration-card', { has: lane }).locator('h3 button');
+    if ((await nested.count()) > 0) await nested.click();
+    await lane.locator(':scope > button').click();
 
     await lane.getByRole('button', { name: 'Affirm' }).click();
     // One vendor's word is `single_source`, never `confirmed` — the §8.1(4)

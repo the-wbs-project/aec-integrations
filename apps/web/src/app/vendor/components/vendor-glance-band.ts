@@ -78,6 +78,7 @@ import { VendorViewsTile, type VendorViewsPeriod } from './vendor-views-tile';
         } @else {
           <a
             [routerLink]="conflictLink()"
+            [queryParams]="conflictTotal() > 0 ? conflictQueryParams : null"
             [class]="tileLinkClass"
             [attr.aria-label]="conflictAria()"
             data-tile="conflict"
@@ -151,6 +152,9 @@ export class VendorGlanceBand {
       ? ['..', 'products', first.product.slug, 'integrations']
       : ['..', 'products'];
   });
+
+  /** Lands on the Integrations tab filtered to conflicts (AECI-999). */
+  protected readonly conflictQueryParams = { status: 'conflict' } as const;
 
   protected readonly conflictLine = computed(() => {
     const rows = this.conflictProducts();

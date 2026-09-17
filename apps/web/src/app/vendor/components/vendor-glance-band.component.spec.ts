@@ -137,7 +137,7 @@ describe('VendorGlanceBand — links', () => {
 
     const root = harness.routeNativeElement as HTMLElement;
     expect(root.querySelector('[data-tile="conflict"]')?.getAttribute('href')).toBe(
-      '/vendor/summit-bim/products/summit-model-coordination/integrations',
+      '/vendor/summit-bim/products/summit-model-coordination/integrations?status=conflict',
     );
     expect(root.querySelector('[data-tile="suggestions"]')?.getAttribute('href')).toBe(
       '/vendor/summit-bim/messages',

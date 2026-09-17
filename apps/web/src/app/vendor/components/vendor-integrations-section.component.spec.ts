@@ -9,6 +9,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
+import { Location } from '@angular/common';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -382,49 +383,62 @@ describe('VendorIntegrationsSection — copy discipline', () => {
  * (WCAG 2.4.4 Link Purpose) reproduced inside the portal, and a rotor or links
  * list is where it bites. axe cannot see it, so these assertions are the guard.
  */
-describe('VendorIntegrationCard — links to the public pair page (§6.7)', () => {
-  const cardFor = (fixture: ComponentFixture<VendorIntegrationsSection>, name: string) => {
-    const card = [...el(fixture).querySelectorAll('aec-vendor-integration-card')].find((c) =>
-      (c.textContent ?? '').includes(name),
+describe('VendorCounterpartGroup — links to the public pair page (§6.7)', () => {
+  // AECI-999 moved the link from each integration card up to the counterpart
+  // group row, because the pair page is per product pair, not per integration.
+  const groupFor = (fixture: ComponentFixture<VendorIntegrationsSection>, name: string) => {
+    const group = [...el(fixture).querySelectorAll('aec-vendor-counterpart-group')].find((g) =>
+      (g.querySelector('h2')?.textContent ?? '').includes(name),
     );
-    if (!card) throw new Error(`no card for "${name}"`);
-    return card;
+    if (!group) throw new Error(`no group for "${name}"`);
+    return group;
   };
 
-  const linkIn = (card: Element) =>
-    card.querySelector('aec-view-public-link a') as HTMLAnchorElement | null;
+  const linkIn = (group: Element) =>
+    group.querySelector('aec-view-public-link a') as HTMLAnchorElement | null;
 
   it('builds the href context-slug first, other-slug second', async () => {
     const fixture = await create();
     const integration = VENDOR_INTEGRATIONS_FIXTURE.integrations.find(
-      (i) => i.other_product.name === 'Procore',
+      (i) => i.other_product.name === 'Procore' && i.context_product.name !== 'Summit Field Issues',
     );
     if (!integration) throw new Error('fixture lost its Procore edge');
 
     // The pair route's two segments are POSITIONAL. Swapping them addresses the
     // mirror page, which frames every direction the other way round, and it
     // still returns 200 — so nothing downstream would catch the swap.
-    expect(linkIn(cardFor(fixture, 'Procore'))?.getAttribute('href')).toBe(
+    const hrefs = [...el(fixture).querySelectorAll('aec-vendor-counterpart-group')].map((g) =>
+      linkIn(g)?.getAttribute('href'),
+    );
+    expect(hrefs).toContain(
       `/products/${integration.context_product.slug}/integrations/${integration.other_product.slug}`,
     );
   });
 
-  it('gives every card a link, in a new tab, with noopener', async () => {
+  it('gives every group exactly one link, in a new tab, with noopener', async () => {
     const fixture = await create();
-    const cards = [...el(fixture).querySelectorAll('aec-vendor-integration-card')];
+    const groups = [...el(fixture).querySelectorAll('aec-vendor-counterpart-group')];
 
-    expect(cards.length).toBeGreaterThan(1);
-    for (const card of cards) {
-      const link = linkIn(card);
+    expect(groups.length).toBeGreaterThan(1);
+    for (const group of groups) {
+      expect(group.querySelectorAll('aec-view-public-link a')).toHaveLength(1);
+      const link = linkIn(group);
       expect(link?.getAttribute('href')).toMatch(/^\/products\/[^/]+\/integrations\/[^/]+$/);
       expect(link?.getAttribute('target')).toBe('_blank');
       expect(link?.getAttribute('rel')).toBe('noopener');
     }
   });
 
+  it('keeps the link outside the disclosure button', async () => {
+    const fixture = await create();
+    for (const group of el(fixture).querySelectorAll('aec-vendor-counterpart-group')) {
+      expect(group.querySelector('h2 button a')).toBeNull();
+    }
+  });
+
   it('names its destination in the accessible name, visible text first', async () => {
     const fixture = await create();
-    const label = linkIn(cardFor(fixture, 'Procore'))?.getAttribute('aria-label') ?? '';
+    const label = linkIn(groupFor(fixture, 'Procore'))?.getAttribute('aria-label') ?? '';
 
     // Visible text leads, for WCAG 2.5.3 Label in Name and speech input.
     expect(label.startsWith('View public page')).toBe(true);
@@ -433,17 +447,17 @@ describe('VendorIntegrationCard — links to the public pair page (§6.7)', () =
     expect(label).toContain('opens in a new tab');
   });
 
-  it('gives no two cards the same accessible name — the A4 guard', async () => {
+  it('gives no two groups the same accessible name — the A4 guard', async () => {
     const fixture = await create();
-    const labels = [...el(fixture).querySelectorAll('aec-vendor-integration-card')].map((c) =>
-      linkIn(c)?.getAttribute('aria-label'),
+    const labels = [...el(fixture).querySelectorAll('aec-vendor-counterpart-group')].map((g) =>
+      linkIn(g)?.getAttribute('aria-label'),
     );
 
     expect(labels.every((l) => typeof l === 'string' && l.length > 0)).toBe(true);
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it('links a read-only connector-powered card too', async () => {
+  it('links a read-only connector-powered group too', async () => {
     const fixture = await create();
     const powered = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => !i.attestable);
     if (!powered) throw new Error('fixture lost its connector-powered integration');
@@ -451,17 +465,17 @@ describe('VendorIntegrationCard — links to the public pair page (§6.7)', () =
     // `attestable: false` withholds the WRITE controls. The public pair page is
     // a read, the edge is on it either way, and hiding the link would read as
     // the edge not being published.
-    expect(linkIn(cardFor(fixture, powered.other_product.name))).not.toBeNull();
+    expect(linkIn(groupFor(fixture, powered.other_product.name))).not.toBeNull();
   });
 
-  it('gives an owns-both edge a link framed from the endpoint its card is filed under', async () => {
+  it('gives an owns-both edge a link framed from the endpoint it is filed under', async () => {
     const fixture = await create();
     const both = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.slots.length === 2);
     if (!both) throw new Error('fixture lost its owns-both integration');
 
-    // One position, two framings (§6.5). Each card links to its OWN framing;
+    // One position, two framings (§6.5). Each group links to its OWN framing;
     // that is the correct answer, not a duplicate.
-    expect(linkIn(cardFor(fixture, both.other_product.name))?.getAttribute('href')).toBe(
+    expect(linkIn(groupFor(fixture, both.other_product.name))?.getAttribute('href')).toBe(
       `/products/${both.context_product.slug}/integrations/${both.other_product.slug}`,
     );
   });
@@ -600,5 +614,183 @@ describe('VendorIntegrationCard — feeds the conflict correction link (AECI-967
         `/products/${integration.context_product.slug}/correction`,
       );
     }
+  });
+});
+
+// ─── AECI-999: the drill-down ────────────────────────────────────────────────
+
+describe('VendorIntegrationsSection — drill-down (AECI-999)', () => {
+  const groups = (fixture: ComponentFixture<VendorIntegrationsSection>) => [
+    ...el(fixture).querySelectorAll('aec-vendor-counterpart-group'),
+  ];
+  const groupNamed = (fixture: ComponentFixture<VendorIntegrationsSection>, name: string) =>
+    groups(fixture).find((g) => g.querySelector('h2')?.textContent?.includes(name))!;
+  const toggleOf = (group: Element) => group.querySelector('h2 button') as HTMLButtonElement;
+  const panelOf = (group: Element) =>
+    group.querySelector(`#${toggleOf(group).getAttribute('aria-controls')}`) as HTMLElement;
+  const chip = (fixture: ComponentFixture<VendorIntegrationsSection>, label: string) =>
+    [...el(fixture).querySelectorAll('[role="group"] button')].find((b) =>
+      b.textContent?.includes(label),
+    ) as HTMLButtonElement;
+
+  it('renders one group per counterpart, every one collapsed', async () => {
+    const fixture = await create();
+    const all = groups(fixture);
+    // Five integrations with the same pair twice, so one fewer group.
+    expect(all).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length - 1);
+    for (const group of all) {
+      expect(toggleOf(group).getAttribute('aria-expanded')).toBe('false');
+      expect(panelOf(group).hidden).toBe(true);
+    }
+    for (const lane of el(fixture).querySelectorAll('[aec-vendor-claim-lane] > button')) {
+      expect(lane.getAttribute('aria-expanded')).toBe('false');
+    }
+  });
+
+  it('shows health and counts on the collapsed row', async () => {
+    const fixture = await create(
+      true,
+      VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!.context_product.id,
+    );
+    const procore = groupNamed(fixture, 'Procore');
+    const row = toggleOf(procore).textContent ?? '';
+    expect(row).toContain('Conflict');
+    expect(row).toContain('2 integrations');
+    expect(row).toContain('5 data flows');
+    expect(row).toContain('1 in conflict');
+  });
+
+  it('opens a group on click and goes straight to the flows when it has one integration', async () => {
+    const fixture = await create();
+    const acumatica = groupNamed(fixture, 'Acumatica');
+    toggleOf(acumatica).click();
+    fixture.detectChanges();
+
+    expect(toggleOf(acumatica).getAttribute('aria-expanded')).toBe('true');
+    expect(panelOf(acumatica).hidden).toBe(false);
+    // No second disclosure to open, and a label saying why.
+    expect(acumatica.querySelector('h3 button')).toBeNull();
+    expect(acumatica.textContent).toContain('The only integration on record with Acumatica');
+  });
+
+  it('nests a collapsed row per integration when a counterpart has several', async () => {
+    const fixture = await create(
+      true,
+      VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!.context_product.id,
+    );
+    const procore = groupNamed(fixture, 'Procore');
+    toggleOf(procore).click();
+    fixture.detectChanges();
+
+    const nested = [...procore.querySelectorAll('h3 button')];
+    expect(nested).toHaveLength(2);
+    for (const button of nested) expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(procore.textContent).toContain('Via Kroo Connector');
+  });
+
+  it('keeps a group open through a store update', async () => {
+    const fixture = await create();
+    const acumatica = groupNamed(fixture, 'Acumatica');
+    toggleOf(acumatica).click();
+    fixture.detectChanges();
+
+    const store = TestBed.inject(VendorPortalStore);
+    store.apply('integrations', (list) => list.map((i) => ({ ...i }))).commit();
+    fixture.detectChanges();
+
+    expect(toggleOf(groupNamed(fixture, 'Acumatica')).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('filters by status, and clears', async () => {
+    const fixture = await create();
+    chip(fixture, 'Conflict').click();
+    fixture.detectChanges();
+
+    expect(chip(fixture, 'Conflict').getAttribute('aria-pressed')).toBe('true');
+    expect(groups(fixture).map((g) => g.querySelector('h2')?.textContent?.trim())).toEqual([
+      expect.stringContaining('Procore'),
+    ]);
+    expect(text(fixture)).toContain('Showing 1 of');
+
+    const clear = [...el(fixture).querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Clear filters'),
+    )!;
+    clear.click();
+    fixture.detectChanges();
+    expect(groups(fixture)).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length - 1);
+  });
+
+  it('filters by text across data object names', async () => {
+    const fixture = await create();
+    const input = el(fixture).querySelector('input[type="search"]') as HTMLInputElement;
+    input.value = 'punch';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(groups(fixture)).toHaveLength(1);
+  });
+
+  it('filters to integrations with the vendor on both sides', async () => {
+    const fixture = await create();
+    const select = el(fixture).querySelector('select') as HTMLSelectElement;
+    select.value = 'own';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const both = VENDOR_INTEGRATIONS_FIXTURE.integrations.filter((i) => i.slots.length === 2);
+    expect(groups(fixture)).toHaveLength(both.length);
+  });
+
+  it('keeps an opened integration listed after a write stops it matching the filter', async () => {
+    const fixture = await create();
+    chip(fixture, 'Needs your input').click();
+    fixture.detectChanges();
+    const before = groups(fixture).length;
+    expect(before).toBeGreaterThan(0);
+
+    const first = groups(fixture)[0]!;
+    toggleOf(first).click();
+    fixture.detectChanges();
+
+    // Answer every flow, as an optimistic Affirm would.
+    const store = TestBed.inject(VendorPortalStore);
+    const mine = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!.claims[1]!.mine;
+    store
+      .apply('integrations', (list) =>
+        list.map((i) => ({ ...i, claims: i.claims.map((c) => ({ ...c, mine })) })),
+      )
+      .commit();
+    fixture.detectChanges();
+
+    // The opened group stays put; the others, which were never opened, drop out.
+    expect(groups(fixture)).toHaveLength(1);
+    expect(toggleOf(groups(fixture)[0]!).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('writes filters and open groups to the URL without navigating, when routed', async () => {
+    const location = TestBed.inject(Location);
+    const replace = vi.spyOn(location, 'replaceState');
+    const fixture = TestBed.createComponent(VendorIntegrationsSection);
+    fixture.componentRef.setInput('verified', true);
+    fixture.componentRef.setInput('vendorName', 'Summit BIM');
+    fixture.componentRef.setInput('urlState', true);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    chip(fixture, 'Conflict').click();
+    fixture.detectChanges();
+    expect(replace).toHaveBeenLastCalledWith('/?status=conflict');
+
+    toggleOf(groupNamed(fixture, 'Procore')).click();
+    expect(replace).toHaveBeenLastCalledWith('/?status=conflict&open=procore');
+  });
+
+  it('does not touch the URL when unrouted', async () => {
+    const location = TestBed.inject(Location);
+    const replace = vi.spyOn(location, 'replaceState');
+    const fixture = await create();
+    chip(fixture, 'Conflict').click();
+    expect(replace).not.toHaveBeenCalled();
   });
 });

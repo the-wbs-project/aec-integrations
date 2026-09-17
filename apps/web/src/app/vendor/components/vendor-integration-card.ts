@@ -10,21 +10,34 @@ import type {
 import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
-import { ViewPublicLink } from '../../shared/view-public-link/view-public-link';
-
 import { VendorAddClaimForm, type DuplicateClaimHit } from './vendor-add-claim-form';
+import { healthCountsLine } from './vendor-attestation-labels';
 import { VendorClaimLane } from './vendor-claim-lane';
+import { VendorHealthPill } from './vendor-health-pill';
+import { summarizeIntegration } from './vendor-integration-health';
 
 /**
- * One integration touching a product this vendor owns (AECI-606 / §6): the
- * counterpart product, the mechanism, its claim lanes, and the add-a-data-flow
- * form.
+ * One integration touching a product this vendor owns (AECI-606 / §6), rendered
+ * as the SECOND level of the Integrations tab's drill-down (AECI-999 / §6.3):
+ * its mechanism and source, its health, its data-flow lanes, and the
+ * add-a-data-flow form.
  *
- * The header is eyebrow-then-heading — the vendor's own product above the
- * counterpart's name — matching `vendor-dashboard-tabbed.ts`'s own page header.
- * The tab inherits the dashboard's visual language rather than introducing a
- * second reference site (the Anchor-Site Rule; the same call the admin console
- * made in `ADMIN_PANEL_SPEC.md` §9.10).
+ * The counterpart product's name, logo and public-page link moved up a level to
+ * `vendor-counterpart-group.ts`, which groups every integration with the same
+ * counterpart. This card renders in one of two modes:
+ *
+ * - **`nested`** — the counterpart has more than one integration. The card is a
+ *   disclosure: an `<h3>` wrapping a button that shows the mechanism, the source
+ *   and the health, over a panel with the lanes.
+ * - **`direct`** — the counterpart has exactly one integration. Opening the
+ *   group opens this card too, so it renders no second disclosure. It still
+ *   prints its mechanism and source, under a label that says it is the only
+ *   integration on record, so a vendor knows the lanes below belong to one
+ *   integration and there is nothing else to open.
+ *
+ * Panels are hidden with the `hidden` attribute, never removed with `@if`, for
+ * the same reason as the lanes: collapsing must not destroy an attestation
+ * control mid-edit.
  *
  * `@for` tracks lanes by `claim.id`, and that is load-bearing rather than
  * idiomatic: every write splices a replacement claim into the list, and tracking
@@ -33,104 +46,116 @@ import { VendorClaimLane } from './vendor-claim-lane';
  */
 @Component({
   selector: 'aec-vendor-integration-card',
-  imports: [VendorAddClaimForm, VendorClaimLane, ViewPublicLink],
+  imports: [VendorAddClaimForm, VendorClaimLane, VendorHealthPill],
   styles: [':host { display: block; }'],
   template: `
-    <article
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-      [attr.aria-labelledby]="fieldId('heading')"
-    >
-      <header class="border-b border-(--border-default) px-5 py-4">
-        <p class="aec-overline text-(--text-secondary)">
-          {{ integration().context_product.name }}
-        </p>
-        <!--
-          The link is a SIBLING of the h3, never inside it (AECI-960, section
-          6.7). The h3 is this article's aria-labelledby target, so anything
-          nested in it is re-read as part of the region name on every entry.
-
-          It points at the PAIR page, not at the counterpart product. What a
-          vendor edits on this card is claims and attestations, and those render
-          on the pair route, not on the counterpart product page. Linking there
-          would answer "see my change" with a page the change is not on. Both
-          slugs are already on the wire.
-
-          The accessible name is destination-specific BECAUSE this card repeats:
-          one per integration, so N links sharing the name "View public page"
-          reproduces ACCESSIBILITY_AUDIT.md finding A4 (WCAG 2.4.4) inside the
-          portal. The two once-per-page portal links can and do stay uniform.
-        -->
-        <div class="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <h3
-            [id]="fieldId('heading')"
-            class="font-display text-lg font-semibold text-(--text-primary)"
+    <article [attr.aria-labelledby]="fieldId('heading')">
+      @if (mode() === 'nested') {
+        <h3 [id]="fieldId('heading')" class="m-0">
+          <button
+            type="button"
+            [attr.aria-expanded]="expanded()"
+            [attr.aria-controls]="fieldId('panel')"
+            (click)="toggle()"
+            class="flex w-full cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3 font-body text-base font-normal
+              text-start transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
+              focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
-            {{ integration().other_product.name }}
-          </h3>
-          <aec-view-public-link [href]="pairPageHref()" [ariaLabel]="pairPageAriaLabel()" />
-        </div>
-        <p class="mt-1 text-xs text-(--text-secondary)">
-          <span>{{ mechanismLabel() }}</span>
-          @if (ownsBothEndpoints()) {
-            <span aria-hidden="true"> · </span>
-            <span i18n="@@vendor.attest.ownsBoth">You own both sides of this integration</span>
-          }
-        </p>
-        @if (connectorNotice(); as notice) {
-          <p class="mt-2 max-w-prose text-xs text-(--text-secondary)">{{ notice }}</p>
-        }
-      </header>
-
-      @if (pivotNotice(); as message) {
-        <!--
-          Visible copy, NOT a live region (AECI-631 / §6.3). It keeps its job for
-          the sighted reader, telling them why their submission did not create a
-          lane and where the existing one is. What it must not also be is a
-          second role="status": this card renders once per integration, so a
-          dashboard with four of them shipped four competing announcement
-          channels, and the same event would queue two utterances against the
-          shell's region. The sentence still reaches assistive tech, through the
-          one channel, from onDuplicate below.
-        -->
-        <p class="px-5 pt-3 text-sm text-(--text-primary)">{{ message }}</p>
-      }
-
-      @if (integration().claims.length === 0) {
-        <p class="px-5 py-4 text-sm text-(--text-secondary)" i18n="@@vendor.attest.card.empty">
-          No data flows are on record for this integration yet.
-        </p>
+            <span class="flex min-w-0 flex-1 items-center gap-3">
+              <svg
+                aria-hidden="true"
+                class="h-4 w-4 shrink-0 text-(--text-secondary) transition-transform"
+                [class.rotate-90]="expanded()"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m9 6 6 6-6 6" />
+              </svg>
+              <span class="min-w-0">
+                <span class="block text-sm font-semibold text-(--text-primary)">{{
+                  mechanismLabel()
+                }}</span>
+                <span class="mt-0.5 block text-xs text-(--text-secondary)">{{ sourceLine() }}</span>
+                <span class="mt-0.5 block text-xs text-(--text-secondary)">{{ countsLine() }}</span>
+              </span>
+            </span>
+            <span class="ps-7 sm:ps-0"><aec-vendor-health-pill [health]="summary().health" /></span>
+          </button>
+        </h3>
       } @else {
-        <ul class="m-0 list-none p-0">
-          @for (claim of integration().claims; track claim.id) {
-            <li
-              aec-vendor-claim-lane
-              [claim]="claim"
-              [otherProductName]="integration().other_product.name"
-              [contextProductId]="integration().context_product.id"
-              [contextProductSlug]="integration().context_product.slug"
-              [vendorName]="vendorName()"
-              [canWrite]="canAttest()"
-              [versions]="versions()"
-              [highlighted]="highlightClaimId() === claim.id"
-              (changed)="onClaimChanged($event)"
-              (retracted)="retracted.emit($event)"
-            ></li>
-          }
-        </ul>
+        <header class="border-b border-(--border-default) bg-(--surface-sunken) px-5 py-2.5">
+          <p [id]="fieldId('heading')" class="text-xs text-(--text-secondary)">
+            <span class="font-semibold text-(--text-primary)">{{ onlyIntegrationLabel() }}</span>
+            <span aria-hidden="true"> · </span>
+            <span>{{ mechanismLabel() }}</span>
+            <span aria-hidden="true"> · </span>
+            <span>{{ sourceLine() }}</span>
+          </p>
+        </header>
       }
 
-      @if (canAttest()) {
-        <aec-vendor-add-claim-form
-          [integrationId]="integration().id"
-          [contextProductId]="integration().context_product.id"
-          [otherProductName]="integration().other_product.name"
-          [dataObjects]="dataObjects()"
-          [versions]="versions()"
-          [existingClaims]="integration().claims"
-          (created)="onCreated($event)"
-          (duplicate)="onDuplicate($event)"
-        />
-      }
+      <div
+        [id]="fieldId('panel')"
+        [attr.role]="mode() === 'nested' ? 'region' : null"
+        [attr.aria-labelledby]="mode() === 'nested' ? fieldId('heading') : null"
+        [hidden]="mode() === 'nested' && !expanded()"
+        [class]="mode() === 'nested' ? nestedPanelClass : ''"
+      >
+        @if (connectorNotice(); as notice) {
+          <p class="max-w-prose px-5 pt-3 text-xs text-(--text-secondary)">{{ notice }}</p>
+        }
+
+        @if (pivotNotice(); as message) {
+          <!--
+            Visible copy, NOT a live region (AECI-631 / §6.3). It keeps its job for
+            the sighted reader, telling them why their submission did not create a
+            lane and where the existing one is. The sentence reaches assistive
+            tech through the shell's one channel, from onDuplicate below.
+          -->
+          <p class="px-5 pt-3 text-sm text-(--text-primary)">{{ message }}</p>
+        }
+
+        @if (integration().claims.length === 0) {
+          <p class="px-5 py-4 text-sm text-(--text-secondary)" i18n="@@vendor.attest.card.empty">
+            No data flows are on record for this integration yet.
+          </p>
+        } @else {
+          <ul class="m-0 list-none p-0">
+            @for (claim of integration().claims; track claim.id) {
+              <li
+                aec-vendor-claim-lane
+                [claim]="claim"
+                [otherProductName]="integration().other_product.name"
+                [contextProductId]="integration().context_product.id"
+                [contextProductSlug]="integration().context_product.slug"
+                [vendorName]="vendorName()"
+                [canWrite]="canAttest()"
+                [versions]="versions()"
+                [highlighted]="highlightClaimId() === claim.id"
+                (changed)="onClaimChanged($event)"
+                (retracted)="retracted.emit($event)"
+              ></li>
+            }
+          </ul>
+        }
+
+        @if (canAttest()) {
+          <aec-vendor-add-claim-form
+            [integrationId]="integration().id"
+            [contextProductId]="integration().context_product.id"
+            [otherProductName]="integration().other_product.name"
+            [dataObjects]="dataObjects()"
+            [versions]="versions()"
+            [existingClaims]="integration().claims"
+            (created)="onCreated($event)"
+            (duplicate)="onDuplicate($event)"
+          />
+        }
+      </div>
     </article>
   `,
 })
@@ -153,43 +178,49 @@ export class VendorIntegrationCard {
   protected readonly highlightClaimId = signal<string | null>(null);
   protected readonly pivotNotice = signal<string | null>(null);
 
+  /** `nested` under a counterpart with several integrations, `direct` when it is
+   *  the only one. See the class header. */
+  readonly mode = input<'nested' | 'direct'>('nested');
+
+  /** Collapsed by default in `nested` mode (AECI-999). Local, because the group
+   *  tracks cards by integration id, so the state survives every splice. */
+  readonly expanded = signal(false);
+
   protected readonly ownsBothEndpoints = computed(() => this.integration().slots.length === 2);
 
-  /**
-   * The public pair page for this edge — `/products/:contextSlug/integrations/:otherSlug`
-   * (`app.routes.ts`), which is where the claims and attestations authored on
-   * this card actually render.
-   *
-   * Context first, other second, and the order is not cosmetic: the pair route's
-   * two segments are positional, so swapping them addresses the mirror page,
-   * which frames every direction the other way round. For an integration whose
-   * endpoints this vendor owns BOTH, the list emits one card per endpoint and
-   * each one links to its own framing — which is the correct answer, not a
-   * duplicate.
-   *
-   * No published/unpublished guard, deliberately. `ProductLink` carries no
-   * publication status, the public handlers do not filter on `promotion_status`,
-   * and D1's catalog is written only by promote — so a product this card can see
-   * always has a live page. A pair page with no edge on record renders `noindex`
-   * rather than 404ing, so the link cannot land on a missing page either.
-   */
-  protected readonly pairPageHref = computed(() => {
-    const integration = this.integration();
-    return `/products/${integration.context_product.slug}/integrations/${integration.other_product.slug}`;
-  });
+  /** Indents a nested integration's flows under its own row, so three levels
+   *  read as three levels rather than one long list. */
+  protected readonly nestedPanelClass = 'ms-9 border-s border-t border-(--border-default)';
+
+  protected readonly summary = computed(() => summarizeIntegration(this.integration()));
+  protected readonly countsLine = computed(() => healthCountsLine(this.summary().counts));
+
+  protected readonly onlyIntegrationLabel = computed(
+    () =>
+      $localize`:@@vendor.attest.card.only:The only integration on record with ${this.integration().other_product.name}:other:`,
+  );
 
   /**
-   * Built in TS rather than as an interpolated `i18n-aria-label` — an
-   * interpolated `i18n-*` attribute emits no attribute at all in this toolchain,
-   * so the link would end up unnamed rather than merely uniform. The visible
-   * text leads so WCAG 2.5.3 Label in Name holds and speech input can target it
-   * (`DESIGN.md` §"Disclosure group card").
+   * Where this integration comes from and who sits on each side. Integrations
+   * are always put on record by AEC Integrations (a vendor adds data flows, not
+   * integrations), so the source names the connector when there is one and
+   * otherwise says so plainly.
    */
-  protected readonly pairPageAriaLabel = computed(() => {
+  protected readonly sourceLine = computed(() => {
     const integration = this.integration();
-    const context = integration.context_product.name;
-    const other = integration.other_product.name;
-    return $localize`:@@vendor.attest.card.viewPublic.aria:View public page: the ${context}:CONTEXT: and ${other}:OTHER: integration (opens in a new tab)`;
+    const parts: string[] = [];
+    const connector = integration.powered_by?.name ?? null;
+    parts.push(
+      connector
+        ? $localize`:@@vendor.attest.card.source.via:Via ${connector}:connector:`
+        : !integration.attestable
+          ? $localize`:@@vendor.attest.card.source.connector:Via a connector`
+          : $localize`:@@vendor.attest.card.source.aeci:On record from AEC Integrations`,
+    );
+    if (this.ownsBothEndpoints()) {
+      parts.push($localize`:@@vendor.attest.ownsBoth:You own both sides of this integration`);
+    }
+    return parts.join(' · ');
   });
 
   /**
@@ -227,11 +258,21 @@ export class VendorIntegrationCard {
   });
 
   protected readonly mechanismLabel = computed(() => {
-    const { mechanism_kind, mechanism_name } = this.integration();
+    const { mechanism_kind, powered_by } = this.integration();
+    // The source line already says "Via {connector}", so a mechanism name that
+    // IS the connector's name would print it twice.
+    const mechanism_name =
+      this.integration().mechanism_name === powered_by?.name
+        ? null
+        : this.integration().mechanism_name;
     const kind = mechanismKindLabel(mechanism_kind);
     if (kind && mechanism_name) return `${kind} · ${mechanism_name}`;
     return kind || mechanism_name || $localize`:@@vendor.attest.mechanism.unknown:Integration`;
   });
+
+  protected toggle(): void {
+    this.expanded.update((open) => !open);
+  }
 
   protected fieldId(key: string): string {
     return `vendor-integration-${this.integration().id}-${key}`;
@@ -270,6 +311,7 @@ export class VendorIntegrationCard {
     const notice = $localize`:@@vendor.attest.card.pivot:You already have a ${hit.dataObjectName}:dataObject: data flow in that direction. It is highlighted below.`;
     this.pivotNotice.set(notice);
     this.announcer.announce(notice);
+    this.expanded.set(true);
     this.lanes()
       .find((lane) => lane.claim().id === hit.claimId)
       ?.focusPosition();
@@ -278,6 +320,7 @@ export class VendorIntegrationCard {
   /** Hand focus to a specific lane — used by the section after a new claim
    *  lands, once the list has re-rendered with it. */
   focusClaim(claimId: string): void {
+    if (this.integration().claims.some((c) => c.id === claimId)) this.expanded.set(true);
     this.lanes()
       .find((lane) => lane.claim().id === claimId)
       ?.focusPosition();

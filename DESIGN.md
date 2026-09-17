@@ -386,6 +386,15 @@ group's rows.
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
 
+**Vendor portal variant (AECI-999).** The portal's Integrations tab nests the same pattern three deep:
+`vendor-counterpart-group.ts` (`<h2>`), `vendor-integration-card.ts` (`<h3>`) and the data-flow lane.
+Differences from the public card: `rounded.md` on `surface-raised` with a hover wash on the row
+instead of a sunken header bar, a right-pointing chevron rotated 90° when open, a health pill
+(`vendor-health-pill.ts`, the overview's pill tones) on the right of each row, and a nested level
+indented `ms-9` behind a left rule. The same rules hold: content stays in the DOM when collapsed, and
+the pair-page link sits beside the button. A heading's display face is inherited by everything in its
+button, so the count line and pill take `font-body` explicitly.
+
 ### List filter
 
 `apps/web/src/app/products/integration-list-filter.ts` (AECI-841; moved into the heading row and

@@ -1,4 +1,15 @@
-import { Component, computed, input, output, viewChild } from '@angular/core';
+import {
+  Component,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import type { ProductVersion, VendorClaim } from '@aeci/shared';
 
@@ -16,12 +27,17 @@ import {
   counterpartyColumnLabel,
   counterpartyLabel,
   counterpartyStanceLabel,
+  ownStanceLabel,
   ownStancePhrase,
 } from './vendor-attestation-labels';
 import { claimOutcomeLine } from './vendor-claim-outcome';
 
 /**
  * One `data_object` claim lane, as its own vendor sees it (AECI-606 / §6).
+ *
+ * Since AECI-999 (§6.3) it is the third level of the tab's drill-down: a
+ * collapsed summary row (name, direction, stance, badge) that opens onto
+ * everything below. Collapsed by default, local state, hidden not removed.
  *
  * Purely presentational apart from the control it hosts. Three things it must
  * get right:
@@ -100,55 +116,97 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
     '[attr.aria-busy]': 'writing() ? "true" : null',
   },
   template: `
-    <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-      <div class="min-w-0">
-        <p [id]="fieldId('name')" class="font-label text-sm text-(--text-primary)">
-          {{ claim().data_object_name }}
-        </p>
-        <p class="mt-0.5 text-xs text-(--text-secondary)">
-          <span aria-hidden="true">{{ glyph() }}</span>
-          <span class="ms-1" [attr.aria-label]="directionAriaLabel()">{{ directionLabel() }}</span>
-        </p>
-        @if (claim().origin === 'aeci') {
-          <p class="mt-0.5 text-xs text-(--text-secondary)" i18n="@@vendor.attest.origin.aeci">
-            On record from AEC Integrations
-          </p>
-        }
-      </div>
-      <div class="flex shrink-0 flex-col items-end gap-1.5">
+    <!--
+      AECI-999 (section 6.3). The lane is a disclosure: the summary row is the
+      button, and everything that manages the flow sits in the panel below it.
+      The panel is hidden with the hidden attribute, never an @if, so a
+      collapsed lane keeps its attestation control alive. A half-typed note
+      survives collapsing, and an in-flight write still reconciles into it.
+    -->
+    <button
+      type="button"
+      [id]="fieldId('toggle')"
+      [attr.aria-expanded]="expanded()"
+      [attr.aria-controls]="fieldId('panel')"
+      (click)="toggle()"
+      class="flex w-full cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3 text-start
+        transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
+        focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+    >
+      <span class="flex min-w-0 flex-1 items-center gap-3">
+        <svg
+          aria-hidden="true"
+          class="h-4 w-4 shrink-0 text-(--text-secondary) transition-transform"
+          [class.rotate-90]="expanded()"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+        <span class="min-w-0">
+          <span [id]="fieldId('name')" class="block font-label text-sm text-(--text-primary)">
+            {{ claim().data_object_name }}
+          </span>
+          <span class="mt-0.5 block text-xs text-(--text-secondary)">
+            <span aria-hidden="true">{{ glyph() }}</span>
+            <span class="ms-1" [attr.aria-label]="directionAriaLabel()">{{
+              directionLabel()
+            }}</span>
+          </span>
+        </span>
+      </span>
+      <span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 ps-7 sm:ps-0">
+        <span class="text-xs text-(--text-secondary)">{{ stance() }}</span>
         <aec-agreement-badge [agreement]="claim().agreement" [attributedTo]="attributedTo()" />
-        <p class="text-xs text-(--text-secondary)">{{ counterpartyLine() }}</p>
-      </div>
-    </div>
+      </span>
+    </button>
 
-    <p class="mt-2 text-xs text-(--text-secondary)">{{ outcomeLine() }}</p>
+    <div
+      [id]="fieldId('panel')"
+      role="region"
+      [attr.aria-labelledby]="fieldId('toggle')"
+      [hidden]="!expanded()"
+      class="px-5 pb-4 ps-12"
+    >
+      @if (claim().origin === 'aeci') {
+        <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.origin.aeci">
+          On record from AEC Integrations
+        </p>
+      }
+      <p class="mt-0.5 text-xs text-(--text-secondary)">{{ counterpartyLine() }}</p>
 
-    @if (claim().agreement === 'conflict' && claim().counterparty; as counterparty) {
-      <div
-        class="mt-3 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-sunken) p-3"
-      >
-        <p class="text-sm font-semibold text-(--text-primary)">{{ conflictHeading() }}</p>
-        <dl class="mt-2 grid gap-3 text-xs sm:grid-cols-2">
-          <div>
-            <dt class="text-(--text-secondary)" i18n="@@vendor.attest.conflict.mine">
-              Your position
-            </dt>
-            <dd class="mt-0.5 text-(--text-primary)">{{ ownPhrase() }}</dd>
-            @if (ownNote(); as note) {
-              <dd class="mt-1 text-(--text-secondary)">“{{ note }}”</dd>
-            }
-          </div>
-          <div>
-            <dt class="text-(--text-secondary)">{{ counterpartyColumn() }}</dt>
-            <dd class="mt-0.5 text-(--text-primary)">
-              {{ counterpartyStance(counterparty) }}
-            </dd>
-            @if (counterparty.note; as note) {
-              <dd class="mt-1 text-(--text-secondary)">“{{ note }}”</dd>
-            }
-          </div>
-        </dl>
-        <!--
+      <p class="mt-2 text-xs text-(--text-secondary)">{{ outcomeLine() }}</p>
+
+      @if (claim().agreement === 'conflict' && claim().counterparty; as counterparty) {
+        <div
+          class="mt-3 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-sunken) p-3"
+        >
+          <p class="text-sm font-semibold text-(--text-primary)">{{ conflictHeading() }}</p>
+          <dl class="mt-2 grid gap-3 text-xs sm:grid-cols-2">
+            <div>
+              <dt class="text-(--text-secondary)" i18n="@@vendor.attest.conflict.mine">
+                Your position
+              </dt>
+              <dd class="mt-0.5 text-(--text-primary)">{{ ownPhrase() }}</dd>
+              @if (ownNote(); as note) {
+                <dd class="mt-1 text-(--text-secondary)">“{{ note }}”</dd>
+              }
+            </div>
+            <div>
+              <dt class="text-(--text-secondary)">{{ counterpartyColumn() }}</dt>
+              <dd class="mt-0.5 text-(--text-primary)">
+                {{ counterpartyStance(counterparty) }}
+              </dd>
+              @if (counterparty.note; as note) {
+                <dd class="mt-1 text-(--text-secondary)">“{{ note }}”</dd>
+              }
+            </div>
+          </dl>
+          <!--
           AECI-967 (section 6.9). The second sentence named an action the portal
           gave no route to. The anchor opens the shared correction drawer in
           place; the href is the no-JS fallback and carries the new-tab
@@ -160,34 +218,35 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
           a correction request, unlike the product identity, which the request
           already carries as (target_type, slug).
         -->
-        <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.attest.conflict.next">
-          Update your position below if it is out of date. If you think theirs is wrong,
-          <a
-            aecRequestTrigger
-            [entity]="'product'"
-            [kind]="'correction'"
-            [slug]="contextProductSlug()"
-            [bodyPrefill]="correctionPrefill()"
-            [href]="'/products/' + contextProductSlug() + '/correction'"
-            target="_blank"
-            rel="noopener"
-            class="text-(--accent-primary) underline underline-offset-2"
-            >send us a correction request
-            <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
-          >.
-        </p>
-      </div>
-    }
+          <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.attest.conflict.next">
+            Update your position below if it is out of date. If you think theirs is wrong,
+            <a
+              aecRequestTrigger
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="contextProductSlug()"
+              [bodyPrefill]="correctionPrefill()"
+              [href]="'/products/' + contextProductSlug() + '/correction'"
+              target="_blank"
+              rel="noopener"
+              class="text-(--accent-primary) underline underline-offset-2"
+              >send us a correction request
+              <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
+            >.
+          </p>
+        </div>
+      }
 
-    @if (canWrite()) {
-      <aec-vendor-attestation-control
-        [claim]="claim()"
-        [contextProductId]="contextProductId()"
-        [versions]="versions()"
-        (changed)="changed.emit($event)"
-        (retracted)="retracted.emit($event)"
-      />
-    }
+      @if (canWrite()) {
+        <aec-vendor-attestation-control
+          [claim]="claim()"
+          [contextProductId]="contextProductId()"
+          [versions]="versions()"
+          (changed)="changed.emit($event)"
+          (retracted)="retracted.emit($event)"
+        />
+      }
+    </div>
   `,
 })
 export class VendorClaimLane {
@@ -216,6 +275,13 @@ export class VendorClaimLane {
   readonly retracted = output<string>();
 
   private readonly control = viewChild(VendorAttestationControl);
+  private readonly injector = inject(Injector);
+
+  /** Collapsed by default (AECI-999). Local state: the lane is tracked by
+   *  `claim.id`, so it survives every splice a write or a poll makes. */
+  readonly expanded = signal(false);
+
+  protected readonly stance = computed(() => ownStanceLabel(this.claim().mine));
 
   /** Whether this lane's own control has a write in flight. `undefined` before
    *  the query resolves and on a read-only lane, which is not busy. */
@@ -282,7 +348,7 @@ export class VendorClaimLane {
   );
 
   protected readonly rowClass = computed(() => {
-    const base = 'block border-t border-(--border-default) px-5 py-4';
+    const base = 'block border-t border-(--border-default)';
     // The highlight is the sighted half of the duplicate-claim pivot; the focus
     // move plus the section's live region is the assistive half.
     return this.highlighted()
@@ -296,9 +362,28 @@ export class VendorClaimLane {
     return `vendor-claim-${this.claim().id}-${key}`;
   }
 
+  constructor() {
+    // The duplicate pivot highlights a lane the vendor has to act on, so it
+    // opens it. It never closes one: the highlight clearing is not a request to
+    // hide what the vendor is working in.
+    effect(() => {
+      if (this.highlighted()) this.expanded.set(true);
+    });
+  }
+
+  protected toggle(): void {
+    this.expanded.update((open) => !open);
+  }
+
   /** Hand focus to this lane's Affirm button — used by the duplicate pivot and
-   *  after a new claim lands. */
+   *  after a new claim lands. Opens the lane first, and focuses after the render
+   *  that un-hides the panel, because a hidden button cannot take focus. */
   focusPosition(): void {
-    this.control()?.focusPosition();
+    if (this.expanded()) {
+      this.control()?.focusPosition();
+      return;
+    }
+    this.expanded.set(true);
+    afterNextRender(() => this.control()?.focusPosition(), { injector: this.injector });
   }
 }
