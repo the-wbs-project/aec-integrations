@@ -18,7 +18,9 @@
  *
  *   1. Claims are matched by their identity triple `(integration_id, data_object_id,
  *      direction)` — the `claims_identity_key` unique index. A match REUSES the row,
- *      so its id and everything hanging off it survive.
+ *      so its id and everything hanging off it survive. The payload direction is
+ *      re-anchored to the anchor's frame first (AECI-996), so a reversed evidenced
+ *      pair matches too.
  *   2. Only `origin = 'aeci'` claims the payload dropped are deleted. A vendor-origin
  *      claim is never deleted by promote, under any payload.
  *   3. Only `source = 'aeci'` attestations are replaced. `vendor_a` / `vendor_b` rows
@@ -56,6 +58,12 @@ import type { Db } from '../db/client';
 import { attestations, claims } from '../db/schema';
 import { claimProvenance } from './attestation-authority';
 import type { BatchStmt } from './audit';
+import {
+  flipClaimDirection,
+  reframeOpAudit,
+  type ReframeClaim,
+  type ReframeOp,
+} from './claim-frame';
 import type { DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
 
@@ -116,6 +124,22 @@ export interface ClaimIngestItem {
    * honest source is the caller's resolved `operation`.
    */
   isNewAnchor: boolean;
+  /**
+   * True when the payload's `sourceProduct` is endpoint B of the anchor (AECI-996).
+   * Only an `evidenced_pair` anchor can be reversed: its A is the lower product id,
+   * while a payload claim's direction is written against source → target. Each
+   * one-way payload direction is flipped into the anchor's frame BEFORE it is matched
+   * or stored, so a reversed pair stores what the integration asserts.
+   */
+  frameReversed?: boolean;
+  /**
+   * The anchor's claims as they will stand after a {@link planClaimReframe} that the
+   * caller already put in this batch (a cross-table move into a reversed frame). When
+   * set, it replaces the pre-read for this anchor: the database still holds the
+   * pre-flip rows, and matching against those would delete and re-insert every
+   * one-way claim the move just flipped.
+   */
+  existingAfterReframe?: readonly ReframeClaim[];
 }
 
 /** The statements + side-channel reports for one payload's claims. */
@@ -241,8 +265,24 @@ export async function planClaimIngest(
 
   const existingByAnchor = await loadExistingClaims(
     db,
-    plannedItems.filter((i) => !i.isNewAnchor).map((i) => i.anchorId),
+    plannedItems.filter((i) => !i.isNewAnchor && !i.existingAfterReframe).map((i) => i.anchorId),
   );
+  for (const item of plannedItems) {
+    if (!item.existingAfterReframe) continue;
+    existingByAnchor.set(
+      item.anchorId,
+      item.existingAfterReframe.map((claim) => ({
+        id: claim.id,
+        anchorId: item.anchorId,
+        dataObjectId: claim.dataObjectId,
+        direction: claim.direction,
+        origin: claim.origin,
+        attestations: claim.attestations
+          .filter((a) => a.retractedAt === null)
+          .map((a) => ({ source: a.source, attestedByVendorId: a.attestedByVendorId })),
+      })),
+    );
+  }
 
   // Built separately and concatenated so the FK-safe ordering is structural rather
   // than something each branch has to remember.
@@ -291,7 +331,9 @@ export async function planClaimIngest(
         });
         continue;
       }
-      const key = identityKey(item.anchorId, dataObject.id, claim.direction);
+      // Stored in the ANCHOR's frame, not the payload's (AECI-996).
+      const direction = item.frameReversed ? flipClaimDirection(claim.direction) : claim.direction;
+      const key = identityKey(item.anchorId, dataObject.id, direction);
       // Collapse identity duplicates within the payload; first occurrence wins.
       // Without this the second copy would collide with the first on
       // `claims_identity_key` and fail the whole batch.
@@ -328,7 +370,7 @@ export async function planClaimIngest(
               integrationId: item.anchorKind === 'integration' ? item.anchorId : null,
               connectorEvidencedPairId: item.anchorKind === 'evidenced_pair' ? item.anchorId : null,
               dataObjectId: dataObject.id,
-              direction: claim.direction,
+              direction,
               // Never assemble the provenance pair by hand — the helper makes
               // `origin='vendor'` without a vendor id unrepresentable (§2.2).
               ...claimProvenance(null),
@@ -487,4 +529,80 @@ export async function planClaimIngest(
     skipped,
     preserved: [...preservedTally.values()],
   };
+}
+
+/**
+ * Load every claim on these anchors with ALL of its attestations, retracted ones
+ * included — the complete set {@link planClaimReframe} needs (AECI-996). Separate from
+ * {@link loadExistingClaims} because that read is live-only and projects less.
+ */
+export async function loadReframeClaims(db: Db, anchorId: string): Promise<ReframeClaim[]> {
+  const rows = await db.query.claims.findMany({
+    columns: {
+      id: true,
+      dataObjectId: true,
+      direction: true,
+      origin: true,
+      createdByVendorId: true,
+      createdAt: true,
+    },
+    where: eq(claims.anchorId, anchorId),
+    with: {
+      attestations: {
+        columns: {
+          id: true,
+          claimId: true,
+          source: true,
+          retractedAt: true,
+          asserted: true,
+          introducedAt: true,
+          deprecatedAt: true,
+          introducedVersionId: true,
+          deprecatedVersionId: true,
+          attestedByVendorId: true,
+          note: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+  return rows;
+}
+
+/**
+ * Render reframe ops as batch statements plus their audit entries (§26.1). The SQL
+ * twin for the one-time repair is `renderReframeSql`; both consume the same ops.
+ */
+export function reframeStatements(
+  db: Db,
+  ops: readonly ReframeOp[],
+): { statements: BatchStmt[]; audits: AuditLogEntry[] } {
+  const statements: BatchStmt[] = ops.map((op) => {
+    switch (op.kind) {
+      case 'claim.direction':
+        return db.update(claims).set({ direction: op.to }).where(eq(claims.id, op.claimId));
+      case 'claim.content':
+        return db
+          .update(claims)
+          .set({ ...op.after })
+          .where(eq(claims.id, op.claimId));
+      case 'attestation.claim':
+        return db
+          .update(attestations)
+          .set({ claimId: op.to })
+          .where(eq(attestations.id, op.attestationId));
+      case 'attestation.content':
+        return db
+          .update(attestations)
+          .set({ ...op.after })
+          .where(eq(attestations.id, op.attestationId));
+      case 'attestation.source':
+        return db
+          .update(attestations)
+          .set({ source: op.to })
+          .where(eq(attestations.id, op.attestationId));
+    }
+  });
+  const audits = ops.map((op) => ({ actorType: 'system' as const, ...reframeOpAudit(op) }));
+  return { statements, audits };
 }

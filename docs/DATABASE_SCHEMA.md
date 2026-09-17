@@ -2655,6 +2655,20 @@ create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs
   way. AECI-721's migration is therefore a lossless CASE, not a straight copy:
   `one-way` with source = A → `a_to_b`; `one-way` with source = B → `b_to_a`; `bidirectional` →
   `both`; NULL → NULL.
+- **Claims anchored here are in the SAME A/B frame as `direction` (AECI-996).** A claim's
+  `direction` and its attestations' `vendor_a` / `vendor_b` slots are read against `product_a_id` /
+  `product_b_id`, not against the integration's source and target. The product-detail reader
+  (`toProductIntegrationItemFromEvidencedPair`) has always assumed that. The writers did not until
+  AECI-996: promote, the cross-table moves and migrations `0027` / `0033` / `0034` all copied a
+  claim across unchanged, so on a pair whose source sorts second every one-way claim was stored
+  backwards and every vendor slot named the other endpoint's vendor. The inversion rule now lives
+  in `apps/api/src/lib/claim-frame.ts`: when the source is B, flip `a_to_b` ↔ `b_to_a` and
+  `vendor_a` ↔ `vendor_b` (`both` and `aeci` are their own mirrors). On a collision with
+  `claims_identity_key` or `attestations_slot_key` the rows swap contents in place instead, so ids
+  hold. Promote applies it to payload claims on ingest and to carried claims on both moves between
+  `integrations` and this table. Rows written before the fix are repaired by
+  `scripts/ops/2026-09-evidenced-claim-direction-repair/`, which derives each pair's source from
+  the review app's integration record or the creation audit row, never from this row.
 
 ---
 

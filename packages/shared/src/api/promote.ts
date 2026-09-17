@@ -92,7 +92,10 @@ export const MECHANISM_KINDS = [
  * Claim / attestation vocabularies (Stage 1.5 — `STAGE_1_5_SPEC.md` §3.2/§3.3).
  * A claim's `direction` is anchored to the integration's endpoints, where
  * **A = the integration's `sourceProduct`** and **B = its `targetProduct`**
- * (§3.1). The stored value is canonical and never rewritten; the
+ * (§3.1). That is the WIRE frame. A claim on a connector-evidenced pair is stored
+ * re-anchored to the pair's id-sorted A/B instead, flipped when the source is B
+ * (AECI-996, `apps/api/src/lib/claim-frame.ts`). Otherwise the stored value is
+ * canonical and never rewritten; the
  * context-relative view (`inbound`/`outbound`) is a pure translation that lives
  * with the pair-page helpers (§7).
  *

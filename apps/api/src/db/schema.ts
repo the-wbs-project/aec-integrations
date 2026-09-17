@@ -694,7 +694,9 @@ export const productVersions = sqliteTable(
 
 // A claim asserts a `data_object` flows in a `direction` through one MECHANISM row —
 // the mechanism row is the anchor (§3.1, ADR 0018). `direction` is stored relative to
-// the row's own endpoints (A = source_product, B = target_product, §3.2). The unique
+// the row's own endpoints (§3.2): A = source_product on `integrations`, but A = the
+// lower id (`product_a_id`) on `connector_evidenced_pairs`, so promote flips a claim
+// (and its vendor slots) whose source is B there — `lib/claim-frame.ts`, AECI-996. The unique
 // `(anchor_id, data_object_id, direction)` index is the claim's immutable identity AND
 // the promote-ingest upsert target (§6.2).
 //

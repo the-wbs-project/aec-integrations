@@ -11,7 +11,12 @@
  * `db.batch` that throws the SQLite error the DB would raise.
  */
 
-import { PromotePayloadSchema, type CachePurgeMessage, type PromoteResponse } from '@aeci/shared';
+import {
+  ProductDetailSchema,
+  PromotePayloadSchema,
+  type CachePurgeMessage,
+  type PromoteResponse,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,7 +55,7 @@ import {
   PRESERVED_VENDOR_CLAIM,
 } from '../lib/promote-claims';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
-import { fakeExecutionContext } from '../test/helpers';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
@@ -63,6 +68,7 @@ import {
   type PromoteRunCtx,
 } from './promote';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { createProductDetailHandler } from './products';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 
 /** Deterministic UUID for seeded rows referenced via `supabaseId`. */
@@ -2074,12 +2080,256 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     });
 
     // The vendor attestation survived the move — the whole point of re-homing before
-    // the delete rather than after.
-    const vendorAtts = (await t.db.select().from(attestations)).filter(
-      (a) => a.source === 'vendor_a',
-    );
+    // the delete rather than after. Its slot is re-anchored with it (AECI-996): the
+    // source product was minted by this promote, so its id sorts after `uuid(1)` and
+    // is endpoint B of the pair. The vendor that was `vendor_a` (source) is `vendor_b`.
+    const vendorAtts = (await t.db.select().from(attestations)).filter((a) => a.source !== 'aeci');
     expect(vendorAtts).toHaveLength(1);
-    expect(vendorAtts[0]).toMatchObject({ claimId: claimRow!.id, attestedByVendorId: vendor });
+    expect(vendorAtts[0]).toMatchObject({
+      claimId: claimRow!.id,
+      source: 'vendor_b',
+      attestedByVendorId: vendor,
+    });
+    expect(claimRows[0]!.direction).toBe('b_to_a');
+  });
+
+  // ─── AECI-996: claims live in the ANCHOR's frame ────────────────────────────
+  //
+  // A pair's A is the lower product id; a payload claim speaks source → target. The
+  // source product below is minted by the promote with a random v4 id, so it sorts
+  // AFTER `uuid(1)` (the pair is reversed) and BEFORE `HIGH_ID` (it is not). Every
+  // test here fails if a claim is copied onto a reversed pair without inversion.
+  describe('claim frame on connector-evidenced pairs (AECI-996)', () => {
+    const HIGH_ID = 'ffffffff-0000-4000-8000-000000000000';
+    const rfis = (direction: 'a_to_b' | 'b_to_a') => ({
+      dataObject: 'rfis',
+      direction,
+      attestations: [{ source: 'aeci' as const, asserted: true }],
+    });
+    const revitId = async () =>
+      (await t.db.select().from(products).where(eq(products.slug, 'revit')))[0]!.id;
+
+    async function seedEndpoints() {
+      await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+      await seedProduct(HIGH_ID, 'procore', 'Procore');
+      await seedProduct(uuid(2), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+      await seedDataObject(uuid(3), 'rfis', 'RFIs');
+    }
+
+    /** Live attestations per claim direction, as `source:vendor` strings. */
+    async function layout() {
+      const claimRows = await t.db.select().from(claims);
+      const atts = await t.db.select().from(attestations);
+      return Object.fromEntries(
+        claimRows.map((c) => [
+          c.direction,
+          {
+            id: c.id,
+            live: atts
+              .filter((a) => a.claimId === c.id && a.retractedAt === null)
+              .map((a) => `${a.source}:${a.attestedByVendorId ?? '-'}`)
+              .sort(),
+            retracted: atts
+              .filter((a) => a.claimId === c.id && a.retractedAt !== null)
+              .map((a) => `${a.source}:${a.attestedByVendorId ?? '-'}`)
+              .sort(),
+          },
+        ]),
+      );
+    }
+
+    it('flips a one-way claim when the source sorts second, and only then', async () => {
+      await seedEndpoints();
+      const edge = (ref: string, target: string) => ({
+        ref,
+        sourceProduct: { ref: 'p1' },
+        targetProduct: { supabaseId: target },
+        poweredByProduct: { supabaseId: uuid(2) },
+        claims: [rfis('a_to_b')],
+      });
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [edge('reversed', uuid(1)), edge('straight', HIGH_ID)],
+      });
+      expect(res.status).toBe(200);
+
+      const source = await revitId();
+      expect(uuid(1) < source && source < HIGH_ID).toBe(true);
+      const pairs = await t.db.select().from(connectorEvidencedPairs);
+      const claimRows = await t.db.select().from(claims);
+      const directionOn = (pair: (typeof pairs)[number]) =>
+        claimRows.find((c) => c.connectorEvidencedPairId === pair.id)?.direction;
+      // Source is B of the reversed pair: "source → target" is B → A.
+      expect(directionOn(pairs.find((p) => p.productBId === source)!)).toBe('b_to_a');
+      expect(directionOn(pairs.find((p) => p.productAId === source)!)).toBe('a_to_b');
+    });
+
+    it('re-promotes a reversed pair without churning its claims or vendor slots', async () => {
+      await seedEndpoints();
+      await seedVendor(uuid(4), 'acme', 'Acme');
+      const intg = {
+        ref: 'i1',
+        sourceProduct: { ref: 'p1' },
+        targetProduct: { supabaseId: uuid(1) },
+        poweredByProduct: { supabaseId: uuid(2) },
+        claims: [rfis('a_to_b')],
+      };
+      const first = await promote({ product: { ref: 'p1', name: 'Revit' }, integrations: [intg] });
+      const pairId = ((await first.json()) as PromoteResponse).integrations[0]!.id;
+      const [claimRow] = await t.db.select().from(claims);
+      await t.db.insert(attestations).values({
+        id: uuid(5),
+        claimId: claimRow!.id,
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: uuid(4),
+      });
+      const auditsBefore = (await t.db.select().from(auditLog)).length;
+
+      const second = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [{ ...intg, supabaseId: pairId }],
+      });
+      expect(second.status).toBe(200);
+
+      expect(await layout()).toEqual({
+        b_to_a: { id: claimRow!.id, live: ['aeci:-', `vendor_b:${uuid(4)}`], retracted: [] },
+      });
+      const claimAudits = (await t.db.select().from(auditLog))
+        .slice(auditsBefore)
+        .filter((e) => e.entityType === 'claim');
+      expect(claimAudits).toEqual([]);
+    });
+
+    it('re-anchors claims and vendor slots across both moves, swapping contents on collision', async () => {
+      await seedEndpoints();
+      const [vendorA, vendorB2, vendorC] = [uuid(6), uuid(7), uuid(8)];
+      await seedVendor(vendorA, 'vendor-a', 'Vendor A');
+      await seedVendor(vendorB2, 'vendor-b2', 'Vendor B2');
+      await seedVendor(vendorC, 'vendor-c', 'Vendor C');
+      const base = {
+        ref: 'i1',
+        sourceProduct: { ref: 'p1' },
+        targetProduct: { supabaseId: uuid(1) },
+        // Both one-way claims on one data object: the `claims_identity_key` collision.
+        claims: [rfis('a_to_b'), rfis('b_to_a')],
+      };
+      const first = await promote({ product: { ref: 'p1', name: 'Revit' }, integrations: [base] });
+      const edgeId = ((await first.json()) as PromoteResponse).integrations[0]!.id;
+      const start = await layout();
+      // Source frame. X = a_to_b carries one live vendor slot and one retracted; Y =
+      // b_to_a carries BOTH live vendor slots (the `attestations_slot_key` collision).
+      await t.db.insert(attestations).values([
+        {
+          id: uuid(10),
+          claimId: start.a_to_b!.id,
+          source: 'vendor_a',
+          attestedByVendorId: vendorA,
+        },
+        {
+          id: uuid(11),
+          claimId: start.a_to_b!.id,
+          source: 'vendor_b',
+          attestedByVendorId: vendorC,
+          retractedAt: '2026-09-01T00:00:00.000Z',
+        },
+        {
+          id: uuid(12),
+          claimId: start.b_to_a!.id,
+          source: 'vendor_a',
+          attestedByVendorId: vendorB2,
+        },
+        {
+          id: uuid(13),
+          claimId: start.b_to_a!.id,
+          source: 'vendor_b',
+          attestedByVendorId: vendorC,
+        },
+      ]);
+      const sourceFrame = await layout();
+      const claimIds = [start.a_to_b!.id, start.b_to_a!.id].sort();
+
+      // Forward: into the pair, where the source is B.
+      const auditsBefore = (await t.db.select().from(auditLog)).length;
+      const moved = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [{ ...base, supabaseId: edgeId, poweredByProduct: { supabaseId: uuid(2) } }],
+      });
+      expect(moved.status).toBe(200);
+      const pairFrame = await layout();
+      expect(pairFrame).toEqual({
+        b_to_a: {
+          id: expect.any(String),
+          live: ['aeci:-', `vendor_b:${vendorA}`],
+          retracted: [`vendor_a:${vendorC}`],
+        },
+        a_to_b: {
+          id: expect.any(String),
+          live: ['aeci:-', `vendor_a:${vendorC}`, `vendor_b:${vendorB2}`],
+          retracted: [],
+        },
+      });
+      // Rows kept their ids (contents swapped in place), and the payload matched them.
+      expect([pairFrame.a_to_b!.id, pairFrame.b_to_a!.id].sort()).toEqual(claimIds);
+      const moveAudits = (await t.db.select().from(auditLog)).slice(auditsBefore);
+      expect(
+        moveAudits.filter((e) => e.action === 'claim.created' || e.action === 'claim.deleted'),
+      ).toEqual([]);
+      expect(moveAudits.some((e) => e.action === 'claim.reframed')).toBe(true);
+      expect(moveAudits.some((e) => e.action === 'attestation.reframed')).toBe(true);
+
+      // Back: out of the pair, source is A again — the original layout returns.
+      const back = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [{ ...base, supabaseId: edgeId, poweredByProduct: null }],
+      });
+      expect(back.status).toBe(200);
+      const returned = await layout();
+      expect({
+        a_to_b: { live: returned.a_to_b!.live, retracted: returned.a_to_b!.retracted },
+        b_to_a: { live: returned.b_to_a!.live, retracted: returned.b_to_a!.retracted },
+      }).toEqual({
+        a_to_b: { live: sourceFrame.a_to_b!.live, retracted: sourceFrame.a_to_b!.retracted },
+        b_to_a: { live: sourceFrame.b_to_a!.live, retracted: sourceFrame.b_to_a!.retracted },
+      });
+    });
+
+    it('renders the arrow the integration asserts on the product page', async () => {
+      await seedEndpoints();
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: uuid(1) },
+            poweredByProduct: { supabaseId: uuid(2) },
+            // No stored direction, so the claim is the only signal.
+            direction: null,
+            claims: [rfis('a_to_b')],
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+
+      const app = buildAppWithHandler({
+        method: 'get',
+        path: '/api/products/:slug',
+        handler: createProductDetailHandler(t.factory),
+      });
+      const contextDirection = async (slug: string) => {
+        const detail = ProductDetailSchema.parse(
+          await (
+            await app.request(`/api/products/${slug}`, {}, TEST_ENV, fakeExecutionContext())
+          ).json(),
+        );
+        return [...detail.integrations_as_source, ...detail.integrations_as_target][0]
+          ?.context_direction;
+      };
+      // Revit → Navisworks, as the integration says, from both ends.
+      expect(await contextDirection('revit')).toBe('outbound');
+      expect(await contextDirection('navisworks')).toBe('inbound');
+    });
   });
 
   // ─── AECI-888: the REVERSE move, and the two ways it must NOT fire ──────────
@@ -2175,18 +2425,19 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     });
     expect(body.integrations[0]).toMatchObject({ id: pairId, operation: 'updated' });
 
-    // The claim rode across on the same row id, so the vendor attestation kept its slot.
+    // The claim rode across on the same row id, and its frame came back with it
+    // (AECI-996): on the pair the source was B, in `integrations` it is A again.
     const claimRows = await t.db.select().from(claims);
     expect(claimRows).toHaveLength(1);
     expect(claimRows[0]).toMatchObject({
       id: claimId,
       integrationId: pairId,
       connectorEvidencedPairId: null,
+      direction: 'a_to_b',
     });
-    const vendorAtts = (await t.db.select().from(attestations)).filter(
-      (a) => a.source === 'vendor_a',
-    );
+    const vendorAtts = (await t.db.select().from(attestations)).filter((a) => a.source !== 'aeci');
     expect(vendorAtts).toHaveLength(1);
+    expect(vendorAtts[0]!.source).toBe('vendor_b');
 
     // The move is recorded. Same action and entity id as an ordinary update, so
     // `movedFrom` is the only thing that distinguishes the two after the fact.
