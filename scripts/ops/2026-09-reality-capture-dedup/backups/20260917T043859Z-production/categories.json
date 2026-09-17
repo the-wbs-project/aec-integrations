@@ -1,0 +1,42 @@
+[
+  {
+    "results": [
+      {
+        "id": "39e40d09-b52b-52ae-ae00-28b3495e5980",
+        "slug": "reality-capture",
+        "name": "Reality Capture",
+        "description": "Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.",
+        "display_order": 250,
+        "created_at": "2026-07-25T15:15:02.465Z",
+        "updated_at": "2026-09-17T04:29:16.610Z"
+      },
+      {
+        "id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "slug": "reality-capture-scan-to-bim",
+        "name": "Reality Capture (Scan-to-BIM)",
+        "description": null,
+        "display_order": null,
+        "created_at": "2026-07-25T15:40:19.899Z",
+        "updated_at": "2026-07-25T15:40:19.899Z"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2072
+      },
+      "duration": 0.2072,
+      "changes": 0,
+      "last_row_id": 7277,
+      "changed_db": false,
+      "size_after": 81027072,
+      "rows_read": 4,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

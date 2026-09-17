@@ -184,7 +184,9 @@ DONE on $DB. Three follow-ups this script deliberately does NOT do:
      index:categories, index:products, taxonomy, sitemap, and route:browse.
 
   3. Algolia — updated_at was bumped above, so the next watermark sync reindexes the
-     affected products. Verify with: pnpm --filter @aeci/api db:reconcile-algolia-drift
+     affected products. Check the Reality Capture facet after that sync. Do NOT use
+     db:reconcile-algolia-drift: it compares record membership, not facet values,
+     and it rejects --env demo.
 
 Do NOT run reconcile-counts. Category product counts are computed live per request
 (toTaxonomyTermWithCount); there is no denormalised category counter to drift.

@@ -1,6 +1,15 @@
 # 2026-09 Reality Capture category de-duplication (AECI-926 / AECI-962)
 
-**Status: NOT YET RUN.** Blocked on the upstream rename — see "Order of operations".
+**Status: RUN on demo and production, 2026-09-17.** Dry run then `--apply` in each
+environment. Snapshots are committed under `backups/`:
+
+| environment | dry run | apply | products moved |
+| -- | -- | -- | -- |
+| demo | `20260917T043626Z-demo` | `20260917T043654Z-demo` | 10 |
+| production | `20260917T043849Z-production` | `20260917T043859Z-production` | 6 |
+
+Production moved 6, not 10. The other 4 were already joined to `reality-capture`, because
+they were re-promoted on 2026-09-16 and 2026-09-17, after the upstream rename.
 
 ## What is wrong
 
@@ -85,7 +94,10 @@ delete if the UPDATE did not move every row.
   `index:categories`, `index:products`, `taxonomy`, `sitemap`, `route:browse`.
 - **Algolia:** `algolia-transforms.ts` indexes the category **name** as the facet value,
   and the name changed. `updated_at` is bumped in step 4 so the watermark sync picks the
-  records up; verify with `pnpm --filter @aeci/api db:reconcile-algolia-drift`.
+  records up. **Do not verify with `db:reconcile-algolia-drift`.** It accepts only
+  `--env staging|production`, and it only compares which records exist, never a
+  record's facet values, so it cannot see this change. Check the Reality Capture facet
+  on the site or in the Algolia dashboard after the next sync instead.
 - **Re-submit the sitemap** so the dropped URL is picked up.
 
 **Do not run `reconcile-counts`.** Category product counts are computed live per request
