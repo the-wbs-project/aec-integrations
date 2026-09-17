@@ -1645,7 +1645,9 @@
          `(id, context_product.id)`. A naive `flatMap` over `store.integrations()`
          double-counts those claims. Today's only counter (`summaryLine` in
          vendor-integrations-section.ts) is scoped to one product, so it has
-         never had to face this.
+         never had to face this. (Superseded by AECI-993: that line is
+         vendor-wide on the single-page concept, and now reads
+         `claimsOnRecord` / `waitingByProduct` from vendor-overview-model.ts.)
 
      10. THE FRESHNESS CURSOR HAS A GAP THAT MAKES THESE FIGURES GO STALE.
          The `integrations` cursor selects only `max(claims.updated_at)` and
