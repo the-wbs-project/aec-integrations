@@ -1,4 +1,3 @@
-import { formatDate } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,6 +6,7 @@ import {
   inject,
   input,
 } from '@angular/core';
+import { NgTemplateOutlet, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
@@ -78,130 +78,166 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
  *
  * Anchor-Site Rule: the anchor is the existing `/vendor` dashboard. Bordered
  * surfaces over fills, the same `--surface-raised` card + `--radius-md` as the
- * Overview stat tiles, the same button classes as the profile form. Light theme
- * only (Stage 1 / AECI-226).
+ * Overview's "What needs you" rows, the same button classes as the profile form.
+ * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, VendorAccountBadge],
+  imports: [NgTemplateOutlet, RouterLink, VendorAccountBadge],
   template: `
-    <div [class]="shellClass()">
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        @if (state() === 'active' || state() === 'expiring') {
+    @if (isCompact()) {
+      <!--
+        The compact strip (AECI-983): active and not expiring, on the overview.
+        Nothing is asked of the vendor in this state, so it gives up the top of
+        the landing page. The framing sentence is the same string as the full
+        panel's, behind a disclosure, so the trust copy is never forked.
+      -->
+      <div
+        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <aec-vendor-account-badge [active]="true" />
-        } @else {
-          <span
-            class="inline-flex w-fit items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)"
-            >{{ chipLabel() }}</span
+          @if (termLine(); as line) {
+            <span class="text-sm text-(--text-secondary)">{{ line }}</span>
+          }
+        </div>
+        <details class="min-w-0">
+          <summary
+            class="cursor-pointer rounded-(--radius-sm) px-1 text-xs font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@vendor.plan.compact.disclosure"
           >
-        }
-        @if (termLine(); as line) {
-          <span class="text-sm text-(--text-secondary)">{{ line }}</span>
-        }
+            What an active account covers
+          </summary>
+          <p class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
+            <ng-container [ngTemplateOutlet]="framing" />
+          </p>
+        </details>
       </div>
+    } @else {
+      <div [class]="shellClass()">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          @if (state() === 'active' || state() === 'expiring') {
+            <aec-vendor-account-badge [active]="true" />
+          } @else {
+            <span
+              class="inline-flex w-fit items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)"
+              >{{ chipLabel() }}</span
+            >
+          }
+          @if (termLine(); as line) {
+            <span class="text-sm text-(--text-secondary)">{{ line }}</span>
+          }
+        </div>
 
-      @switch (state()) {
-        @case ('active') {
-          <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            <span i18n="@@vendor.plan.active.body"
-              >Your profile, products and integration attestations are yours to edit.</span
-            >
-          </p>
-        }
-        @case ('expiring') {
-          @let days = daysRemaining() ?? 0;
-          <p class="mt-3 max-w-prose text-sm font-semibold text-(--accent-secondary-deep)">
-            @if (days === 0) {
-              <span i18n="@@vendor.plan.expiring.lede.today">Your editing access ends today.</span>
-            } @else {
-              <ng-container i18n="@@vendor.plan.expiring.lede"
-                >Your editing access ends in
-                {days, plural, =1 {1 day} other {{{ days }} days}}.</ng-container
+        @switch (state()) {
+          @case ('active') {
+            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.active.body"
+                >Your profile, products and integration attestations are yours to edit.</span
               >
-            }
-          </p>
-          <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            <span i18n="@@vendor.plan.expiring.body"
-              >Nothing changes before then. Get in touch to renew and your account label, editing
-              access and attestations carry on without a break.</span
+            </p>
+          }
+          @case ('expiring') {
+            @let days = daysRemaining() ?? 0;
+            <p class="mt-3 max-w-prose text-sm font-semibold text-(--accent-secondary-deep)">
+              @if (days === 0) {
+                <span i18n="@@vendor.plan.expiring.lede.today"
+                  >Your editing access ends today.</span
+                >
+              } @else {
+                <ng-container i18n="@@vendor.plan.expiring.lede"
+                  >Your editing access ends in
+                  {days, plural, =1 {1 day} other {{{ days }} days}}.</ng-container
+                >
+              }
+            </p>
+            <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.expiring.body"
+                >Nothing changes before then. Get in touch to renew and your account label, editing
+                access and attestations carry on without a break.</span
+              >
+            </p>
+            <a routerLink="/contact" [class]="secondaryCtaClass" i18n="@@vendor.plan.cta.renew"
+              >Renew access</a
             >
-          </p>
-          <a routerLink="/contact" [class]="secondaryCtaClass" i18n="@@vendor.plan.cta.renew"
-            >Renew access</a
-          >
-        }
-        @case ('pending') {
-          <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            <span i18n="@@vendor.plan.pending.body"
-              >Your editing access is arranged and switches on shortly. Until it does, everything on
-              record is here to read, and editing stays closed.</span
-            >
-          </p>
-        }
-        @case ('lapsed') {
-          <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
-            <span i18n="@@vendor.plan.lapsed.body"
-              >Your editing access is no longer active. You are still signed in, and you and your
-              colleagues keep the portal.</span
-            >
-          </p>
-          <!--
+          }
+          @case ('pending') {
+            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.pending.body"
+                >Your editing access is arranged and switches on shortly. Until it does, everything
+                on record is here to read, and editing stays closed.</span
+              >
+            </p>
+          }
+          @case ('lapsed') {
+            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
+              <span i18n="@@vendor.plan.lapsed.body"
+                >Your editing access is no longer active. You are still signed in, and you and your
+                colleagues keep the portal.</span
+              >
+            </p>
+            <!--
             What you keep, then what is paused. Two blocks, not one list: the
             single negative must not sit in an undifferentiated stack with the
             reassurances, where it reads as an afterthought rather than the one
             thing the vendor actually needs to know.
           -->
-          <ul
-            class="mt-3 max-w-prose list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)"
-          >
-            <li i18n="@@vendor.plan.lapsed.keep.listing">
-              Your listing, your reviews and your integrations stay published exactly as they are.
-            </li>
-            <li i18n="@@vendor.plan.lapsed.keep.readable">
-              Everything on record is still here to read: profile, products and integrations.
-            </li>
-          </ul>
-          <p
-            class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
-          >
-            <span i18n="@@vendor.plan.lapsed.paused"
-              >What is paused: the public account label, and editing your profile and
-              products.</span
+            <ul
+              class="mt-3 max-w-prose list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)"
             >
-          </p>
-          <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            <span i18n="@@vendor.plan.lapsed.renew"
-              >Renewing turns editing and the account label back on, with nothing to re-enter. Get
-              in touch and we will pick it up from there.</span
+              <li i18n="@@vendor.plan.lapsed.keep.listing">
+                Your listing, your reviews and your integrations stay published exactly as they are.
+              </li>
+              <li i18n="@@vendor.plan.lapsed.keep.readable">
+                Everything on record is still here to read: profile, products and integrations.
+              </li>
+            </ul>
+            <p
+              class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
             >
-          </p>
-          <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.renew"
-            >Renew access</a
-          >
+              <span i18n="@@vendor.plan.lapsed.paused"
+                >What is paused: the public account label, and editing your profile and
+                products.</span
+              >
+            </p>
+            <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.lapsed.renew"
+                >Renewing turns editing and the account label back on, with nothing to re-enter. Get
+                in touch and we will pick it up from there.</span
+              >
+            </p>
+            <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.renew"
+              >Renew access</a
+            >
+          }
+          @case ('none') {
+            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.none.body"
+                >Editing access is not active yet. Everything on record is here to read. Editing
+                your profile and products, and confirming what your integrations move, opens up with
+                an active vendor account.</span
+              >
+            </p>
+            <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.ask"
+              >Ask about vendor access</a
+            >
+          }
         }
-        @case ('none') {
-          <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            <span i18n="@@vendor.plan.none.body"
-              >Editing access is not active yet. Everything on record is here to read. Editing your
-              profile and products, and confirming what your integrations move, opens up with an
-              active vendor account.</span
-            >
-          </p>
-          <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.ask"
-            >Ask about vendor access</a
-          >
-        }
-      }
 
-      <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
-        <span i18n="@@vendor.plan.framing"
-          >An active vendor account means this company can manage its AECi profile. It does not
-          verify product quality or integration accuracy, and it does not affect search ranking or
-          placement.</span
-        >
-      </p>
-    </div>
+        <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
+          <ng-container [ngTemplateOutlet]="framing" />
+        </p>
+      </div>
+    }
+
+    <ng-template #framing>
+      <span i18n="@@vendor.plan.framing"
+        >An active vendor account means this company can manage its AECi profile. It does not verify
+        product quality or integration accuracy, and it does not affect search ranking or
+        placement.</span
+      >
+    </ng-template>
   `,
   styles: [':host { display: block; }'],
 })
@@ -220,6 +256,13 @@ export class VendorPlanPanel {
    * differ, and the value is presentational).
    */
   readonly now = input<number>(Date.now());
+
+  /**
+   * Collapse to a one-line strip (AECI-983, the overview). Applies to the
+   * `active` state ONLY: `expiring`, `pending`, `lapsed` and `none` each carry a
+   * conversation, so they render in full whatever this says.
+   */
+  readonly compact = input(false);
 
   /**
    * Fail-closed, exactly as `tierFor` does (§3.1): `active` alone is not enough,
@@ -248,6 +291,9 @@ export class VendorPlanPanel {
     // land here: a state we cannot name confidently is still a downgraded one.
     return 'lapsed';
   });
+
+  /** `compact` honoured, which only the quiet `active` state allows. */
+  readonly isCompact = computed(() => this.compact() && this.state() === 'active');
 
   private readonly periodEnd = computed<Date | null>(() => {
     const raw = this.entitlement().period_end;

@@ -55,7 +55,7 @@ Three epics. Each sub-issue opens with `**Spec section:** §X.Y (docs/VENDOR_PER
 | **C — The Performance page** | §4, §5, §7 | **AECI-932** | The vendor-facing surface. Blocked by A. |
 | C | §5.4 | AECI-939 | Wireframes via Mobbin (blocks the page build) |
 | C | §4 | AECI-940 | `GET /api/vendor/performance` + caveat codes + CSV export |
-| C | §5 | AECI-941 | The page: route, nav, sections, states, fixtures |
+| C | §5 | AECI-941 | The page: route, nav, sections, states, fixtures; wiring the overview Views tile (§5.6) |
 | C | §7 | AECI-942 | Public disclosures: privacy policy sentence + `/methodology` update |
 
 **Build order.**
@@ -196,7 +196,7 @@ A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admi
 
 ### 5.2 Sections, in order
 
-1. **Period and scope.** Default last 30 complete days; 7 / 90 / custom where history exists. Product filter. Shows timezone (UTC), measurement start date, claim date when present, last refresh, classifier version.
+1. **Period and scope.** Default last 30 complete days; 1 / 7 / 90 / custom where history exists. The 1-day window is the last complete UTC day (yesterday, never the last 24 hours), added 2026-09-17 for the overview tile (§5.6). Product filter. Shows timezone (UTC), measurement start date, claim date when present, last refresh, classifier version.
 2. **Attention and actions.** Profile views, product views, pair views, outbound clicks, crawls, assistant fetches. Views and actions never share a card. Previous-period absolute counts beside changes. No funnel across unmatched populations.
 3. **Activity over time.** One metric at a time with its previous period. No dual axes. Table alternative. Gaps stay gaps.
 4. **Product performance.** Sortable table: views, pair views, outbound clicks, change. Row selection narrows the page.
@@ -225,6 +225,16 @@ Before any component is written: `/impeccable critique` of the existing portal f
 ### 5.5 Accessibility and i18n
 
 Every visible string through `i18n` / `$localize`. The chart has a table alternative and never encodes meaning in colour alone (`dataviz` skill). Keyboard-operated filters and sortable headers with visible focus. Long product names wrap. The suggestions list is a list, not a card grid.
+
+### 5.6 Overview tile (added 2026-09-17, AECI-983)
+
+The vendor overview carries a **Views** tile in its glance band (`vendor/components/vendor-views-tile.ts`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). AECI-983 shipped it as a **placeholder**: a working 1d / 1w / 1m toggle, a sentence that follows it, no number, and no server read. AECI-941 wires it.
+
+- **Windows.** 1d = the last complete UTC day. 1w = the last 7 complete UTC days. 1m = the last 30 complete UTC days. The overview defaults to **1w**. The page keeps its own 30-day default (§5.2 item 1).
+- **Comparison.** Each window shows the previous same-length window as an absolute count. §2.3 rule 8 is unchanged: never a percentage, and never across a classifier version boundary.
+- **Source and gate.** The tile reads the same §4.1 endpoint the page reads, gated by `analytics.view` exactly as the page is. It is a read outside the AECI-516 cursor, like the page, so it is the one tile in the band that does not live-update.
+- **Binding.** The tile exposes a `periodChange` output. AECI-941 binds the figure and fetches on that output without changing the toggle markup.
+- **Disclosure.** The tile going live is a vendor-facing count, so it ships in the same release as the AECI-942 privacy sentence, never before it.
 
 ---
 

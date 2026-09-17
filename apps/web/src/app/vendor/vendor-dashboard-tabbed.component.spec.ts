@@ -254,8 +254,9 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     expect(el.querySelector('h1')?.textContent?.trim()).toBe(
       VENDOR_ME_DOWNGRADED_FIXTURE.vendor.company_name,
     );
-    // §5.2: clearing an entitlement does not revoke seats, and the readout says so.
-    expect(el.textContent).toContain(String(VENDOR_ME_DOWNGRADED_FIXTURE.seat_count));
+    // §5.2: clearing an entitlement does not revoke seats, and the panel says so.
+    // (The overview dropped its bare seat-count tile in AECI-983.)
+    expect(el.textContent).toContain('you and your colleagues keep the portal');
   });
 
   it('shows the plan panel with a renewal path on the overview section', async () => {
@@ -281,6 +282,160 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
 
     expect(el.textContent).not.toContain('Editing is paused');
     expect(el.querySelector('form button[type="submit"]')).not.toBeNull();
+  });
+});
+
+/**
+ * AECI-983 — the overview as a landing page (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.10). The rules themselves are pinned in `vendor-overview-model.spec.ts`;
+ * these cases pin what only the routed surface can show: the compact strip, the
+ * rows' relative links under `/vendor/:slug`, the live flip, and that the
+ * overview adds no live region of its own.
+ */
+describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () => {
+  const rowHrefs = (el: HTMLElement) =>
+    [...el.querySelectorAll<HTMLAnchorElement>('a[data-item]')].map((a) => [
+      a.dataset['item'],
+      a.getAttribute('href'),
+    ]);
+
+  it('collapses the plan panel for an active vendor, keeping the heading for assistive tech', async () => {
+    const el = root(await open('overview'));
+
+    const heading = [...el.querySelectorAll('h2')].find((h) =>
+      h.textContent?.includes('Account access'),
+    );
+    expect(heading?.classList.contains('sr-only')).toBe(true);
+    expect(el.querySelector('aec-vendor-plan-panel details')).not.toBeNull();
+  });
+
+  it('keeps the full panel, and a visible heading, for a lapsed vendor', async () => {
+    const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
+
+    const heading = [...el.querySelectorAll('h2')].find((h) =>
+      h.textContent?.includes('Account access'),
+    );
+    expect(heading?.classList.contains('sr-only')).toBe(false);
+    expect(el.querySelector('aec-vendor-plan-panel details')).toBeNull();
+  });
+
+  it('links each row to the portal route where the work is done', async () => {
+    const el = root(await open('overview'));
+    const hrefs = Object.fromEntries(rowHrefs(el));
+    const [primary, secondary] = VENDOR_ME_FIXTURE.products;
+
+    // Two open corrections, both to Messages.
+    expect(
+      Object.entries(hrefs)
+        .filter(([k]) => k?.startsWith('correction:'))
+        .map(([, h]) => h),
+    ).toEqual([`/vendor/${SLUG}/messages`, `/vendor/${SLUG}/messages`]);
+    // The second product is missing a website and logo, so it goes to its profile.
+    expect(hrefs[`product:${secondary!.id}`]).toBe(
+      `/vendor/${SLUG}/products/${secondary!.slug}/profile`,
+    );
+    expect(hrefs[`product:${primary!.id}`]).toBe(
+      `/vendor/${SLUG}/products/${primary!.slug}/profile`,
+    );
+    // The company profile has no logo.
+    expect(hrefs['profile']).toBe(`/vendor/${SLUG}/profile`);
+  });
+
+  it('pauses Worth doing for a lapsed vendor but still lists open corrections', async () => {
+    const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
+
+    expect(el.textContent).toContain('Editing is paused');
+    const keys = rowHrefs(el).map(([k]) => k);
+    expect(keys.some((k) => k?.startsWith('correction:'))).toBe(true);
+    expect(keys.some((k) => k?.startsWith('product:') || k === 'profile')).toBe(false);
+  });
+
+  it('re-derives the list when the entitlement flips, without a reload (AECI-631)', async () => {
+    const harness = await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE);
+    const el = root(harness);
+    expect(el.textContent).toContain('Editing is paused');
+
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+    harness.detectChanges();
+
+    expect(el.textContent).not.toContain('Editing is paused');
+    expect(rowHrefs(el).some(([k]) => k === 'profile')).toBe(true);
+  });
+
+  it('renders the all-clear state when nothing is outstanding', async () => {
+    const complete = {
+      ...VENDOR_ME_FIXTURE,
+      vendor: { ...VENDOR_ME_FIXTURE.vendor, logo_url: 'https://example.com/logo.png' },
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({
+        ...p,
+        website: 'https://example.com',
+        logo_url: 'https://example.com/logo.png',
+      })),
+      requests: [],
+    };
+    const el = root(await open('overview', complete));
+
+    expect(el.textContent).toContain('Nothing needs you right now.');
+    expect(el.textContent).toContain('Nothing is outstanding.');
+    expect(el.querySelectorAll('a[data-item]')).toHaveLength(0);
+  });
+
+  it('never claims the all-clear while the data flows read is loading or has failed', async () => {
+    const complete = {
+      ...VENDOR_ME_FIXTURE,
+      vendor: { ...VENDOR_ME_FIXTURE.vendor, logo_url: 'https://example.com/logo.png' },
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({
+        ...p,
+        website: 'https://example.com',
+        logo_url: 'https://example.com/logo.png',
+      })),
+      requests: [],
+    };
+    const api = TestBed.inject(VendorApi) as unknown as {
+      getIntegrations: ReturnType<typeof vi.fn>;
+    };
+    let reject!: (e: Error) => void;
+    api.getIntegrations.mockReturnValueOnce(
+      new Promise((_, r) => {
+        reject = r;
+      }),
+    );
+    const harness = await open('overview', complete);
+    const el = root(harness);
+
+    expect(el.textContent).not.toContain('Nothing needs you right now.');
+    expect(el.textContent).toContain('Checking your data flows.');
+
+    reject(new Error('offline'));
+    await flush();
+    harness.detectChanges();
+
+    expect(el.textContent).not.toContain('Nothing needs you right now.');
+    expect(el.textContent).not.toContain('Nothing is outstanding.');
+    expect(el.textContent).toContain('this list may be incomplete');
+  });
+
+  it('adds no live region of its own, and announces a retry through the shell', async () => {
+    const api = TestBed.inject(VendorApi) as unknown as {
+      getIntegrations: ReturnType<typeof vi.fn>;
+    };
+    api.getIntegrations.mockRejectedValueOnce(new Error('offline'));
+    const harness = await open('overview');
+    const el = root(harness);
+    expect(el.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(1);
+
+    expect(el.textContent).toContain('Could not load your data flows.');
+    const retry = [...el.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Try again',
+    );
+    retry!.click();
+    await flush();
+    harness.detectChanges();
+
+    // trim(): the announcer alternates a no-break-space suffix so repeats re-announce.
+    expect(TestBed.inject(VendorPortalAnnouncer).message().trim()).toBe(
+      'Your data flows are up to date.',
+    );
   });
 });
 

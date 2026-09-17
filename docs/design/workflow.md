@@ -94,6 +94,44 @@ Ports land at `apps/web/src/app/preview/<screen-name>/<screen-name>.component.ts
 
 These routes never ship to production. They exist so reviewers can see the port at a stable URL during preview-deploy review. Real entity routes are added in Phase 2 issues, with their own designs that may iterate further from the preview.
 
+### 5a. Standalone HTML mock-ups, for the step before a port
+
+A preview route needs a component, which means it needs the design decided. When
+the question is *which* design, a standalone HTML file is cheaper and gets in
+front of the PO faster. Two are checked in:
+
+| File | Screen | Issue |
+| -- | -- | -- |
+| [`apps/web/scripts/home-og-template.html`](../../apps/web/scripts/home-og-template.html) | The OpenGraph card, rendered to PNG by Playwright | AECI-276 |
+| [`docs/design/vendor-overview-concepts.html`](./vendor-overview-concepts.html) | Vendor portal overview. Chosen 2026-09-17: concept A with the views band and a 1d / 1w / 1m toggle. The unchosen concepts stay switchable for the record | AECI-983 |
+
+The pattern, if you write another one:
+
+- **One file, no build step.** Fonts from the same Google Fonts `<link>` as
+  `apps/web/src/index.html`; tokens copied from `apps/web/src/styles.css`.
+- **Real class strings, paren shortcut form** (`bg-(--surface-raised)`), so the
+  port to Angular is close to copy and paste. See
+  [`v0-porting-rules.md`](./v0-porting-rules.md) section 1.
+- **Reproduce the shell chrome** of the surface being redesigned, so the
+  concepts are judged in place rather than on a blank page.
+- **Every state switchable**, empty states included. A concept that only looks
+  good populated has not been reviewed.
+- **Declare what the app supplies from elsewhere**: the Spartan `--radius-*`
+  chain, `.aec-overline`, and the unlayered `* { border-color }` rule, which
+  defeats every Tailwind border-colour utility and needs the `.aec-nav-tab`
+  escape hatch.
+- **Carry a FINDINGS block** at the bottom naming what the port has to resolve.
+  The mock-up is where those are cheapest to notice. The AECI-983 file found
+  five, including two live defects in shipped code and one figure that cannot
+  be built at all.
+- **Check that a proposed figure can actually be sourced, before designing it.**
+  The single most valuable thing that file did was establish that a "views in
+  the last 7 days" tile is unbuilt, is Stage 2.5, and would read zero for nearly
+  every vendor at measured traffic. That is a design decision made in a
+  paragraph rather than in a sprint.
+
+Run axe against the file, in every state, before handing it over.
+
 ---
 
 ## 6. Lessons file pattern

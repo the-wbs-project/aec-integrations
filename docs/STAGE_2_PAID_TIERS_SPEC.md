@@ -729,6 +729,8 @@ The expiry horizon is **one constant**: `EXPIRY_WARNING_DAYS` in `@aeci/shared/e
 
 Copy discipline held after AECI-965: public and vendor-facing copy describes **active vendor access**, never verification, endorsement, ranking, or placement; no promise of instant search; arrangement details (amount, terms, PO, payer) stay **admin-side only** — this panel shows status and term, never the money. Renewal is a conversation (`/contact`), not a checkout. Dates format in **UTC**, not the ambient zone: the SSR Worker runs in UTC and the browser does not, so a zone-local format would render two different dates across hydration.
 
+**Compact variant (AECI-983, 2026-09-17).** The panel gained a `compact` input for the vendor overview (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). It applies to `active` **only**: the strip is the badge, the term and a `<details>` holding the framing sentence, rendered from the same template so the copy is never forked. `expiring`, `pending`, `lapsed` and `none` render in full regardless of the input, because each is a conversation the vendor must read.
+
 One thing this panel does **not** yet drive: `attestation.author` is still gated on the `vendors.verified` **mirror** (`assertVerifiedVendor`), not on the capability — the last place in the portal not driven by `capabilities`. Behaviourally identical while the ladder is binary; a real divergence the moment a rung lands between. Tracked as **AECI-623**.
 
 ---

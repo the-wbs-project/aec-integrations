@@ -1,0 +1,1698 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vendor portal overview concepts (AECI-983)</title>
+
+    <!--
+      AECI-983 design mock-up. NOT shipped code, NOT an Angular template.
+
+      Three candidate designs for /vendor/:vendorSlug/overview, each renderable
+      in four data states, switchable live from the bar at the top.
+
+      Contract this file holds itself to (DESIGN.md + STAGE_2_VENDOR_PORTAL_SPEC.md
+      section 6): borders not shadows, one primary action per screen, sentence
+      case, no em dashes, Clay under 5 percent, light theme only, no colour-only
+      signalling, conflict is the only red, and no claim that anything here
+      affects search ranking or placement.
+
+      SUPERSEDED BY THE BUILD (2026-09-17, AECI-983). Concept A with the
+      views band shipped as apps/web/src/app/vendor/sections/vendor-overview-section.ts
+      and its components; the as-built contract is
+      docs/STAGE_2_VENDOR_PORTAL_SPEC.md section 6.10. Differences from this file:
+      the Views tile is a placeholder with no figure and no "See how people find
+      you" button (AECI-941 wires it), the fresh-vendor "Start here" variant was
+      not built (a fresh vendor gets gap rows instead), and conflict rows do not
+      name the counterparty. This file stays as the design record.
+
+      Fidelity notes for whoever ports the winner:
+
+      1. Every class string is the real repo vocabulary, paren shortcut form
+         (bg-(--surface-raised)), so the port is close to copy and paste.
+      2. The shell chrome (eyebrow, h1, view public page link, tab row) is lifted
+         from vendor-dashboard-tabbed.ts and vendor-portal-nav.ts so the concepts
+         are judged in place.
+      3. The global `* { border-color }` rule is replicated UNLAYERED, exactly as
+         apps/web/src/styles.css has it. That rule defeats every Tailwind
+         border-colour utility in the app. Anywhere this design needs a coloured
+         border it uses an unlayered helper class (.aec-pill-*), which is the same
+         escape hatch .aec-nav-tab already uses. The ported component needs the
+         same treatment or its pills render grey. See the FINDINGS block at the
+         bottom of this file.
+      4. No string here carries an i18n id. Every visible string needs a
+         @@vendor.overview.* id at port time.
+    -->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+    />
+
+    <style>
+      /* ─── Tokens, copied from apps/web/src/styles.css ───────────────────── */
+      :root {
+        color-scheme: light;
+
+        --surface-base: oklch(100% 0 0); /* #FFFFFF */
+        --surface-raised: oklch(98.43% 0 0); /* #FAFAFA */
+        --surface-sunken: oklch(96.78% 0.0019 286.38); /* #F4F4F5 */
+        --surface-muted: oklch(96.78% 0.0019 286.38); /* #F4F4F5 */
+        --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
+        --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
+        --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
+        --text-secondary: oklch(43.86% 0.0145 285.94); /* #52525B */
+        --text-tertiary: oklch(55.17% 0.0138 285.94); /* #71717A */
+        --accent-primary: oklch(31.92% 0.0436 152.32); /* #1E3A2F (Forest) */
+        --accent-primary-hover: oklch(43.83% 0.0658 152.61); /* #2E5C45 */
+        --accent-primary-soft: oklch(95.35% 0.0066 160.07); /* #ECF1EE */
+        --accent-secondary: oklch(76.1% 0.1144 47.1); /* #E89668 (Clay) */
+        --accent-secondary-deep: oklch(51.86% 0.1245 45.13); /* #A14D22 */
+        --accent-rating: oklch(75.16% 0.1469 83.99); /* #DAA520 */
+        --accent-warm: oklch(95.62% 0.0149 95.45); /* #F5F2EA (Bone) */
+        --status-error: oklch(50.13% 0.1783 28.7); /* #B3261E */
+
+        --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+        --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+        /* Spartan's hlm preset derives these from --radius. The browser build of
+           Tailwind does not ship that preset, so they are spelled out here to
+           keep rounded-(--radius-md) at the same 6.4px the app renders. */
+        --radius: 0.5rem;
+        --radius-sm: calc(var(--radius) * 0.6);
+        --radius-md: calc(var(--radius) * 0.8);
+        --radius-lg: var(--radius);
+        --radius-xl: calc(var(--radius) * 1.4);
+      }
+
+      html {
+        background-color: var(--surface-base);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+        scrollbar-gutter: stable;
+      }
+
+      body {
+        background-color: var(--surface-base);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+        font-weight: 400;
+        line-height: 1.6;
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        line-height: 1.15;
+        letter-spacing: -0.005em;
+      }
+      h1 {
+        font-size: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+      }
+      h2 {
+        font-size: 1.5rem;
+        line-height: 1.25;
+        letter-spacing: normal;
+      }
+      h3 {
+        font-size: 1.25rem;
+        line-height: 1.3;
+        letter-spacing: normal;
+      }
+
+      .aec-overline {
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        line-height: 1.4;
+        text-transform: uppercase;
+      }
+
+      /* Replicated verbatim, and deliberately unlayered, because this is what
+         the app does and it is why the helper classes below have to exist. */
+      *,
+      *::before,
+      *::after {
+        border-color: var(--border-default);
+      }
+
+      .aec-nav-tab {
+        border-bottom-color: transparent;
+      }
+      .aec-nav-tab[aria-current] {
+        border-bottom-color: var(--accent-primary);
+      }
+
+      /* The escape hatch. Same mechanism as .aec-nav-tab: an unlayered class
+         outranks the `*` rule, which a Tailwind utility cannot. */
+      .aec-pill-affirm {
+        border-color: var(--accent-primary);
+      }
+      .aec-pill-conflict {
+        border-color: var(--status-error);
+      }
+      .aec-pill-attention {
+        border-color: var(--border-strong);
+      }
+      /* Period toggle active segment. Unlayered, like .aec-segmented-route-item
+         in styles.css, so the state wins over the resting utilities. */
+      .aec-period[aria-pressed='true'],
+      .aec-period[aria-pressed='true']:hover {
+        background-color: var(--accent-primary);
+        color: var(--surface-base);
+      }
+      .aec-rule-strong {
+        border-color: var(--border-strong);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      /* The switcher bar is scaffolding, not design. It is styled off-system on
+         purpose so nobody mistakes it for part of the proposal. */
+      .devbar {
+        background: #101418;
+        color: #e7eaee;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+      .devbar button {
+        background: transparent;
+        border: 1px solid #39424c;
+        border-radius: 4px;
+        color: #e7eaee;
+        cursor: pointer;
+        font: inherit;
+        padding: 4px 10px;
+      }
+      .devbar button[aria-pressed='true'] {
+        background: #e7eaee;
+        border-color: #e7eaee;
+        color: #101418;
+      }
+      .devbar button:focus-visible {
+        outline: 2px solid #8fb7ff;
+        outline-offset: 2px;
+      }
+    </style>
+
+    <style type="text/tailwindcss">
+      @theme {
+        --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+        --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="devbar" role="region" aria-label="Mock-up controls">
+      <div
+        style="
+          margin: 0 auto;
+          max-width: 80rem;
+          padding: 10px 24px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px 28px;
+          align-items: center;
+        "
+      >
+        <span style="opacity: 0.6">AECI-983 mock-up. Not shipped UI.</span>
+        <span
+          role="group"
+          aria-label="Concept"
+          style="display: flex; gap: 6px; align-items: center"
+        >
+          <span style="opacity: 0.6">concept</span>
+          <button type="button" data-concept="a" aria-pressed="true">
+            A what needs you (chosen)
+          </button>
+          <button type="button" data-concept="b" aria-pressed="false">B readiness ledger</button>
+          <button type="button" data-concept="c" aria-pressed="false">C product board</button>
+        </span>
+        <span
+          role="group"
+          aria-label="Glance band"
+          style="display: flex; gap: 6px; align-items: center"
+        >
+          <span style="opacity: 0.6">band</span>
+          <button type="button" data-band="asked" aria-pressed="true">views (chosen)</button>
+          <button type="button" data-band="live" aria-pressed="false">
+            needs you (live today)
+          </button>
+        </span>
+        <span
+          role="group"
+          aria-label="Data state"
+          style="display: flex; gap: 6px; align-items: center"
+        >
+          <span style="opacity: 0.6">state</span>
+          <button type="button" data-state="populated" aria-pressed="true">populated</button>
+          <button type="button" data-state="fresh" aria-pressed="false">fresh vendor</button>
+          <button type="button" data-state="clear" aria-pressed="false">all clear</button>
+          <button type="button" data-state="lapsed" aria-pressed="false">lapsed access</button>
+        </span>
+      </div>
+    </div>
+
+    <main id="stage"></main>
+
+    <script>
+      /* ─── Icons: Lucide path data, inlined. No icon package in this repo. ── */
+      const svg = (paths, cls) =>
+        `<svg aria-hidden="true" class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+
+      const ICON = {
+        chevron: svg('<path d="m9 18 6-6-6-6"/>', 'h-4 w-4 shrink-0 self-center rtl:-scale-x-100'),
+        newTab: svg(
+          '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+          'h-3.5 w-3.5 shrink-0 rtl:-scale-x-100',
+        ),
+        check: svg('<path d="M20 6 9 17l-5-5"/>', 'mt-0.5 h-4 w-4 shrink-0'),
+        alert: svg(
+          '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+          'mt-0.5 h-4 w-4 shrink-0',
+        ),
+        clock: svg(
+          '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+          'mt-0.5 h-4 w-4 shrink-0',
+        ),
+        pencil: svg(
+          '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+          'mt-0.5 h-4 w-4 shrink-0',
+        ),
+        users: svg(
+          '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+          'mt-0.5 h-4 w-4 shrink-0',
+        ),
+      };
+
+      /* ─── Shared class strings, lifted from the real components ─────────── */
+      const CARD =
+        'rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5';
+      const ROW =
+        'rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3';
+      const H2 = 'font-display text-xl font-semibold text-(--text-primary)';
+      const LEDE = 'mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)';
+      const FOCUS =
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+
+      /* The standalone-link recipe, DESIGN.md "The Link Treatment Rule". */
+      const LINK = `inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) ${FOCUS}`;
+
+      /* A whole-row destination. Hover moves the SURFACE, not the border: a
+         border-colour utility is dead here (see the header note). */
+      const ROW_LINK = `flex items-start gap-3 ${ROW} no-underline transition-colors hover:bg-(--surface-sunken) ${FOCUS}`;
+
+      const PILL =
+        'inline-flex shrink-0 items-center self-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
+      const TONE = {
+        affirm: 'aec-pill-affirm bg-(--surface-raised) text-(--accent-primary)',
+        attention: 'aec-pill-attention bg-(--surface-raised) text-(--text-primary)',
+        conflict: 'aec-pill-conflict bg-(--surface-raised) text-(--status-error)',
+        quiet: 'bg-(--surface-sunken) text-(--text-secondary)',
+      };
+      const pill = (tone, label) => `<span class="${PILL} ${TONE[tone]}">${label}</span>`;
+
+      const PRIMARY_CTA = `mt-4 inline-flex items-center justify-center rounded-(--radius-md) border aec-rule-strong bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) ${FOCUS}`;
+      const SECONDARY_CTA = `mt-4 inline-flex items-center justify-center rounded-(--radius-md) border aec-rule-strong bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-raised) ${FOCUS}`;
+
+      const V = 'larkfield-systems';
+      const href = {
+        profile: `/vendor/${V}/profile`,
+        products: `/vendor/${V}/products`,
+        messages: `/vendor/${V}/messages`,
+        seats: `/vendor/${V}/seats`,
+        product: (s) => `/vendor/${V}/products/${s}/profile`,
+        taxonomy: (s) => `/vendor/${V}/products/${s}/taxonomy`,
+        flows: (s) => `/vendor/${V}/products/${s}/integrations`,
+        publicProduct: (s) => `/products/${s}`,
+        publicVendor: `/vendors/${V}`,
+        contact: '/contact',
+      };
+
+      const plural = (n, one, many) => (n === 1 ? one : many.replace('{n}', n));
+      const listSentence = (items) =>
+        items.length <= 1
+          ? items.join('')
+          : items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+
+      /* ─── Invented data ──────────────────────────────────────────────────
+         A five-product vendor, so the per-product concept is exercised at a
+         size the Summit BIM fixture cannot reach. Counterparts are named after
+         real products, which is what vendor-fixtures.ts already does.
+         Flow counts are: confirmed, waiting on you, in conflict. Those map to
+         VendorClaim.agreement === 'confirmed', mine.length === 0 on an
+         attestable integration, and agreement === 'conflict'. */
+      const PRODUCTS = [
+        {
+          slug: 'larkfield-field',
+          name: 'Larkfield Field',
+          role: 'Field reporting',
+          missing: [],
+          facets: 'Six categories, two audiences, four trades',
+          flows: { confirmed: 7, waiting: 3, conflict: 1 },
+          conflictWith: 'Procore',
+        },
+        {
+          slug: 'larkfield-estimate',
+          name: 'Larkfield Estimate',
+          role: 'Estimating',
+          missing: ['description'],
+          facets: 'Four categories, three audiences, no trades',
+          flows: { confirmed: 4, waiting: 2, conflict: 0 },
+        },
+        {
+          slug: 'larkfield-docs',
+          name: 'Larkfield Docs',
+          role: 'Document control',
+          missing: ['website', 'categories'],
+          facets: 'No categories yet',
+          flows: { confirmed: 2, waiting: 7, conflict: 0 },
+        },
+        {
+          slug: 'larkfield-schedule',
+          name: 'Larkfield Schedule',
+          role: 'Scheduling',
+          missing: [],
+          facets: 'Three categories, two audiences, one trade',
+          flows: { confirmed: 3, waiting: 0, conflict: 0 },
+        },
+        {
+          slug: 'larkfield-handover',
+          name: 'Larkfield Handover',
+          role: 'Handover and closeout',
+          missing: ['description', 'categories', 'logo'],
+          facets: 'No categories yet',
+          flows: { confirmed: 0, waiting: 0, conflict: 0 },
+        },
+      ];
+
+      const allClear = PRODUCTS.map((p) => ({
+        ...p,
+        missing: [],
+        facets: p.facets.startsWith('No') ? 'Three categories, two audiences, one trade' : p.facets,
+        flows: {
+          confirmed: p.flows.confirmed + p.flows.waiting + p.flows.conflict,
+          waiting: 0,
+          conflict: 0,
+        },
+        conflictWith: undefined,
+      }));
+
+      const ACTIVITY = [
+        {
+          title: 'We emailed you about a data flow nobody has confirmed',
+          meta: 'Larkfield Docs and Procore, September 14, 2026',
+          isNew: true,
+        },
+        {
+          title: 'A correction about Larkfield Docs was filed',
+          meta: 'September 12, 2026',
+          isNew: true,
+        },
+        {
+          title: 'Your claim on Larkfield Systems moved to in review',
+          meta: 'September 5, 2026',
+          isNew: false,
+        },
+      ];
+
+      const STATES = {
+        populated: {
+          access: { state: 'active', term: 'Active through March 14, 2027' },
+          profileMissing: ['founded year'],
+          products: PRODUCTS,
+          requests: [
+            {
+              kind: 'correction',
+              label: 'Correction to Larkfield Docs',
+              status: 'open',
+              when: 'Filed September 12, 2026',
+            },
+            {
+              kind: 'claim',
+              label: 'Claim on your vendor profile',
+              status: 'in_review',
+              when: 'Filed September 4, 2026',
+            },
+          ],
+          seats: { count: 4, pending: 1, owner: true },
+          activity: ACTIVITY,
+          glance: {
+            views: {
+              day: { value: 1, previous: 0 },
+              week: { value: 7, previous: 4 },
+              month: { value: 26, previous: 18 },
+            },
+            conflictNew7d: 1,
+            conflictOldest: 'Raised 3 days ago',
+            correctionsNewest: 'Filed 4 days ago',
+            awaitingOldest: 'Oldest waiting 21 days',
+          },
+        },
+        fresh: {
+          access: { state: 'active', term: 'Active through March 14, 2027' },
+          profileMissing: ['description', 'website', 'headquarters', 'founded year'],
+          products: [
+            {
+              slug: 'larkfield-field',
+              name: 'Larkfield Field',
+              role: 'Field reporting',
+              missing: ['description', 'website', 'categories', 'logo'],
+              facets: 'No categories yet',
+              flows: { confirmed: 0, waiting: 0, conflict: 0 },
+            },
+          ],
+          requests: [],
+          seats: { count: 1, pending: 0, owner: true },
+          activity: [],
+          isFresh: true,
+          glance: {
+            views: {
+              day: { value: 0, previous: 0 },
+              week: { value: 0, previous: 0 },
+              month: { value: 0, previous: 0 },
+            },
+            conflictNew7d: 0,
+            conflictOldest: null,
+            correctionsNewest: null,
+            awaitingOldest: null,
+          },
+        },
+        clear: {
+          access: { state: 'active', term: 'Active through March 14, 2027' },
+          profileMissing: [],
+          products: allClear,
+          requests: [],
+          seats: { count: 4, pending: 0, owner: true },
+          glance: {
+            views: {
+              day: { value: 3, previous: 2 },
+              week: { value: 23, previous: 19 },
+              month: { value: 88, previous: 71 },
+            },
+            conflictNew7d: 0,
+            conflictOldest: null,
+            correctionsNewest: null,
+            awaitingOldest: null,
+          },
+          activity: [
+            {
+              title: 'You confirmed three data flows on Larkfield Docs',
+              meta: 'September 13, 2026',
+              isNew: false,
+            },
+            {
+              title: 'A correction about Larkfield Docs was resolved',
+              meta: 'September 9, 2026',
+              isNew: false,
+            },
+          ],
+        },
+        lapsed: {
+          access: { state: 'lapsed', term: 'Ended August 31, 2026' },
+          profileMissing: ['founded year'],
+          products: PRODUCTS,
+          requests: [
+            {
+              kind: 'correction',
+              label: 'Correction to Larkfield Docs',
+              status: 'open',
+              when: 'Filed September 12, 2026',
+            },
+          ],
+          seats: { count: 4, pending: 1, owner: true },
+          activity: ACTIVITY,
+          glance: {
+            views: {
+              day: { value: 1, previous: 0 },
+              week: { value: 7, previous: 4 },
+              month: { value: 26, previous: 18 },
+            },
+            conflictNew7d: 1,
+            conflictOldest: 'Raised 3 days ago',
+            correctionsNewest: 'Filed 4 days ago',
+            awaitingOldest: 'Oldest waiting 21 days',
+          },
+        },
+      };
+
+      /* Derived, the same way the real components derive them. */
+      const derive = (d) => {
+        const sum = (k) => d.products.reduce((n, p) => n + p.flows[k], 0);
+        return {
+          waiting: sum('waiting'),
+          conflict: sum('conflict'),
+          confirmed: sum('confirmed'),
+          totalFlows: sum('waiting') + sum('conflict') + sum('confirmed'),
+          openRequests: d.requests.filter((r) => r.status === 'open' || r.status === 'in_review')
+            .length,
+          /* "Suggestions" resolves to vendor_requests of kind 'correction'
+             (AECI-983 direction call). The public CTA on the product and vendor
+             detail pages literally reads "Suggest a correction", so this is the
+             vendor's word for it. Claims are NOT counted here: a claim is
+             somebody asking for the account, not commenting on the listing. */
+          corrections: d.requests.filter(
+            (r) => r.kind === 'correction' && (r.status === 'open' || r.status === 'in_review'),
+          ).length,
+          incompleteProducts: d.products.filter((p) => p.missing.length > 0),
+          newNotifications: d.activity.filter((a) => a.isNew).length,
+          canEdit: d.access.state !== 'lapsed',
+        };
+      };
+
+      const FIELD_LABEL = {
+        description: 'a description',
+        website: 'a website',
+        categories: 'categories',
+        logo: 'a logo',
+        'founded year': 'a founded year',
+        headquarters: 'a headquarters',
+      };
+      const missingSentence = (fields) => listSentence(fields.map((f) => FIELD_LABEL[f] || f));
+
+      /* ─── Shared: the account-access block ───────────────────────────────
+         The proposal common to all three concepts. When access is active and
+         not expiring, the five-state vendor-plan-panel compresses to one line
+         with the framing sentence behind a disclosure. The quiet state should
+         not own the top third of a landing page. Every other state keeps the
+         full panel, because each of those is a conversation.
+         Copy is verbatim from vendor-plan-panel.ts. */
+      function accessBlock(d) {
+        if (d.access.state === 'active') {
+          return `
+            <section aria-labelledby="access-h">
+              <h2 id="access-h" class="sr-only">Account access</h2>
+              <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 ${ROW}">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="aec-pill-attention inline-flex w-fit items-center whitespace-nowrap rounded-(--radius-sm) border bg-(--surface-base) px-2.5 py-1 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)">Vendor account active</span>
+                  <span class="text-sm text-(--text-secondary)">${d.access.term}</span>
+                </div>
+                <details class="min-w-0">
+                  <summary class="cursor-pointer rounded-(--radius-sm) px-1 text-xs font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) ${FOCUS}">What an active account covers</summary>
+                  <p class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)">An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it does not affect search ranking or placement.</p>
+                </details>
+              </div>
+            </section>`;
+        }
+        return `
+          <section aria-labelledby="access-h">
+            <h2 id="access-h" class="${H2}">Account access</h2>
+            <div class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-5">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span class="aec-pill-attention inline-flex w-fit items-center rounded-(--radius-sm) border bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)">Editing access ended</span>
+                <span class="text-sm text-(--text-secondary)">${d.access.term}</span>
+              </div>
+              <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">Your editing access is no longer active. You are still signed in, and you and your colleagues keep the portal.</p>
+              <ul class="mt-3 max-w-prose list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)">
+                <li>Your listing, your reviews and your integrations stay published exactly as they are.</li>
+                <li>Everything on record is still here to read: profile, products and integrations.</li>
+              </ul>
+              <p class="mt-4 max-w-prose border-s-2 aec-rule-strong ps-3 text-sm leading-relaxed text-(--text-primary)">What is paused: the public account label, and editing your profile and products.</p>
+              <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">Renewing turns editing and the account label back on, with nothing to re-enter. Get in touch and we will pick it up from there.</p>
+              <a href="${href.contact}" class="${PRIMARY_CTA}">Renew access</a>
+              <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it does not affect search ranking or placement.</p>
+            </div>
+          </section>`;
+      }
+
+      /* ════════════════════════════════════════════════════════════════════
+         THE GLANCE BAND (added after the first review: "the front page needs a
+         quicker way of knowing everything happening").
+
+         Three figures, above whichever concept is on screen, so a vendor gets a
+         two-second read before the list. Two variants, switchable:
+
+           asked — Views (7 days) · In conflict · Suggestions
+           live  — Needs your position · In conflict · Suggestions
+
+         They differ in ONE tile, deliberately, so the comparison is clean.
+
+         ── VOCABULARY: home-stats-cards.ts, NOT the admin StatTile ───────────
+         `home/home-stats-cards.ts` is the shipped, sanctioned three-up figure
+         row, and `docs/design/home-direction.md` line 115 records why it is not
+         the banned hero-metric template: score-display posture, bordered
+         --surface-raised cards, a large Forest Source-Serif numeral, a quiet
+         --text-secondary line beneath it, no trend chart and no sparkline.
+         The admin `charts/stat-tile.ts` is the wrong parent: DESIGN.md scopes
+         the chart primitives and their eight-hue series palette to /admin, and
+         says none of those hues may appear outside it.
+
+         ── WHAT FIXES "IT LOOKS STALE" ──────────────────────────────────────
+         Two rules, both borrowed from the home cards rather than invented:
+
+         1. Every figure carries a MOVEMENT LINE beneath it, and the line is
+            suppressed at zero rather than rendering "+0". The home card does
+            "+X in the last 30 days"; here it is recency, because recency is
+            what a vendor can act on. "1 new this week" and "oldest waiting 21
+            days" answer "how is this going" in a way a bare count cannot.
+         2. A zero is NEVER a bare 0. It renders a sentence: "No conflicts",
+            "Nothing waiting on you". That is the home cards' first-class empty
+            state rule, and it is the single biggest reason the current three
+            counts read as dead.
+
+         ── THE RED ─────────────────────────────────────────────────────────
+         A non-zero conflict figure renders in --status-error, which departs
+         from the home cards' "Forest carries every figure". Deliberate:
+         `conflict` is the one sanctioned red in the system (agreement-badge
+         already spends it), and a conflict count that looks identical to a
+         confirmation count defeats the tile. At zero the tile shows a sentence,
+         so red never appears for good news.
+         ════════════════════════════════════════════════════════════════════ */
+
+      const TILE =
+        'flex h-full flex-col gap-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6';
+      const TILE_LINK = `${TILE} no-underline transition-colors hover:bg-(--surface-sunken) ${FOCUS}`;
+      const FIGURE = 'font-display text-5xl font-semibold tabular-nums';
+      const TILE_LABEL = 'text-sm text-(--text-secondary)';
+      /* --text-secondary, never --text-tertiary: tertiary measures 4.40:1 on a
+         sunken surface and fails AA. The home cards carry the same note. */
+      const TILE_META = 'text-sm text-(--text-secondary)';
+
+      /** One tile. `value === null` means "not measured", which is not zero. */
+      function tile(t) {
+        const body =
+          t.value === null
+            ? `<p class="font-display text-2xl font-semibold text-(--text-primary)">${t.empty}</p>`
+            : t.value === 0
+              ? `<p class="font-display text-2xl font-semibold text-(--text-primary)">${t.empty}</p>`
+              : `<p class="${FIGURE} ${t.tone || 'text-(--accent-primary)'}">${t.value}</p>`;
+        const meta = t.meta ? `<p class="${TILE_META}">${t.meta}</p>` : '';
+        const inner = `<div class="flex min-h-9 items-center"><p class="${TILE_LABEL}">${t.label}</p></div>${body}${meta}`;
+        return t.href
+          ? `<a href="${t.href}" class="${TILE_LINK}" aria-label="${t.aria}">${inner}</a>`
+          : `<div class="${TILE}">${inner}</div>`;
+      }
+
+      let glanceUid = 0;
+
+      function glanceBand(d, x, variant) {
+        const g = d.glance;
+        const soonId = `views-soon-${++glanceUid}`;
+
+        /* Tile 1, variant `asked` (CHOSEN 2026-09-17): views, with a 1d / 1w / 1m
+           period toggle in the card's top-right corner.
+
+           ── THE CARD IS NO LONGER A BUTTON ─────────────────────────────────
+           The first version made the whole card one <button>. A toggle cannot
+           live inside a button: nested interactive content is invalid HTML, and
+           a screen reader would announce the three options as part of the
+           card's name. So the card is a plain container, the toggle is its own
+           control, and the route onward is a separate standalone link.
+
+           ── THE TOGGLE ──────────────────────────────────────────────────────
+           Behaviour: a <fieldset> with a visually hidden <legend> and three
+           aria-pressed buttons. That is the shipped admin date-range control
+           (admin/traffic/traffic.html), so it is not a new pattern.
+           Look: the segmented track from shared/segmented-route-nav (sunken
+           track, radius-md, 2px inset, Forest active segment), shrunk to fit a
+           card corner. The active colour is `.aec-period[aria-pressed='true']`,
+           an unlayered rule, for the same reason `.aec-segmented-route-item`
+           needs one: a utility class toggled by state loses to the cascade.
+           Visible text is "1d" and the accessible name is "1d, last day", so
+           WCAG 2.5.3 Label in Name holds and speech input can say "click 1d".
+
+           ── THE NUMBERS ─────────────────────────────────────────────────────
+           The figure and its line sit in a local polite live region. DESIGN.md
+           allows a local role=status only for immediate feedback on an action
+           the user just took, beside the control they took it with, and never
+           for anything the shell's channel also announces. A period change
+           qualifies on all three counts.
+           The line under the figure is the prior-period count, which is the
+           only comparison VENDOR_PERFORMANCE_SPEC.md §2.3 rule 8 permits:
+           absolute, never a percentage, and a zero prior period still shows
+           as a count ("None the previous day"). */
+        const PERIODS = [
+          { key: 'day', short: '1d', long: 'last day', prior: 'the previous day' },
+          { key: 'week', short: '1w', long: 'last 7 days', prior: 'the previous 7 days' },
+          { key: 'month', short: '1m', long: 'last 30 days', prior: 'the previous 30 days' },
+        ];
+        const DEFAULT_PERIOD = 'week';
+        window.__PERIODS = PERIODS;
+
+        const viewsReadout = (w, period) => {
+          const figure =
+            w.value > 0
+              ? `<p class="${FIGURE} text-(--accent-primary)">${w.value}</p>`
+              : `<p class="font-display text-2xl font-semibold text-(--text-primary)">No views recorded</p>`;
+          const meta =
+            w.value === 0 && w.previous === 0
+              ? `Nothing in the ${period.long} or ${period.prior}`
+              : `${w.previous === 0 ? 'None' : w.previous} ${period.prior}`;
+          return `${figure}<p class="${TILE_META}">${meta}</p>`;
+        };
+        window.__viewsReadout = viewsReadout;
+
+        const viewsTile = `
+          <div class="${TILE}" data-views-card data-views='${JSON.stringify(g.views)}'>
+            <div class="flex min-h-9 items-center justify-between gap-3">
+              <p class="${TILE_LABEL}">Views</p>
+              <fieldset class="m-0 min-w-0 border-0 p-0">
+                <legend class="sr-only">Views period</legend>
+                <div class="flex gap-0.5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-0.5">
+                  ${PERIODS.map(
+                    (p) => `
+                    <button
+                      type="button"
+                      data-period="${p.key}"
+                      aria-pressed="${p.key === DEFAULT_PERIOD}"
+                      class="aec-period inline-flex min-h-7 min-w-8 cursor-pointer items-center justify-center rounded-(--radius-sm) px-2 text-xs font-semibold text-(--text-secondary) transition-colors hover:text-(--text-primary) ${FOCUS}"
+                    >${p.short}<span class="sr-only">, ${p.long}</span></button>`,
+                  ).join('')}
+                </div>
+              </fieldset>
+            </div>
+            <div class="flex flex-col gap-2" aria-live="polite" data-views-readout>
+              ${viewsReadout(
+                g.views[DEFAULT_PERIOD],
+                PERIODS.find((p) => p.key === DEFAULT_PERIOD),
+              )}
+            </div>
+            <button
+              type="button"
+              class="${LINK} -ms-3 mt-auto self-start cursor-pointer bg-transparent"
+              aria-expanded="false"
+              aria-controls="${soonId}"
+              data-views-trigger
+            >See how people find you</button>
+          </div>`;
+
+        /* Tile 1, variant `live`: the work actually waiting on the vendor.
+           Already computed as `awaiting` in vendor-integrations-section.ts, and
+           the AECI-516 `integrations` cursor moves when it changes. */
+        const awaitingTile = tile({
+          label: 'Needs your position',
+          value: x.waiting,
+          empty: 'Nothing waiting on you',
+          meta: x.waiting > 0 ? g.awaitingOldest : 'Every data flow on record has your answer',
+          href: x.waiting > 0 ? href.flows(mostWaiting(d).slug) : href.products,
+          aria:
+            x.waiting > 0
+              ? `${x.waiting} data flows need your position. Open ${mostWaiting(d).name}.`
+              : 'Nothing waiting on you. Open your products.',
+        });
+
+        const conflictTile = tile({
+          label: 'In conflict',
+          value: x.conflict,
+          empty: 'No conflicts',
+          tone: 'text-(--status-error)',
+          meta:
+            x.conflict > 0 ? g.conflictOldest : 'Nobody has contradicted what you have recorded',
+          href: x.conflict > 0 ? href.flows(firstConflict(d).slug) : href.products,
+          aria:
+            x.conflict > 0
+              ? `${x.conflict} data flows in conflict. Open ${firstConflict(d).name}.`
+              : 'No data flows in conflict. Open your products.',
+        });
+
+        /* "Suggestions" = vendor_requests of kind 'correction'. The vendor
+           cannot act on one: the body and the submitter are deliberately off the
+           wire (packages/shared/src/api/vendor.ts), so the tile reports a state
+           and routes to Messages, and its copy never implies a reply is
+           possible. See FINDINGS 8. */
+        const suggestionsTile = tile({
+          label: 'Suggestions about your listing',
+          value: x.corrections,
+          empty: 'None open',
+          meta:
+            x.corrections > 0
+              ? g.correctionsNewest
+              : 'Anyone can suggest a correction from your public pages',
+          href: href.messages,
+          aria:
+            x.corrections > 0
+              ? `${x.corrections} suggestions about your listing are open. Open messages.`
+              : 'No suggestions about your listing are open. Open messages.',
+        });
+
+        const comingSoon =
+          variant === 'asked'
+            ? `
+              <div
+                id="${soonId}"
+                hidden
+                class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--accent-warm) p-5"
+              >
+                <p class="aec-overline text-(--text-secondary)">Performance</p>
+                <p class="mt-1 font-display text-xl font-semibold text-(--text-primary)">
+                  Coming soon
+                </p>
+                <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+                  We are building a page that shows how people find and read your listings. It is
+                  not switched on yet. The figure above is what it will open onto.
+                </p>
+              </div>`
+            : '';
+
+        return `
+          <section aria-label="Your account at a glance">
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              ${variant === 'asked' ? viewsTile : awaitingTile}
+              ${conflictTile}
+              ${suggestionsTile}
+            </div>
+            ${comingSoon}
+          </section>`;
+      }
+
+      const mostWaiting = (d) =>
+        d.products.slice().sort((a, b) => b.flows.waiting - a.flows.waiting)[0];
+      const firstConflict = (d) => d.products.find((p) => p.flows.conflict > 0) || d.products[0];
+
+      /* Shown in place of the action list when editing is paused. Reading is
+         still allowed, so the links stay; only the framing changes. */
+      function pausedNotice() {
+        return `
+          <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-4">
+            <p class="text-sm font-semibold text-(--text-primary)">Editing is paused, so nothing below needs you yet.</p>
+            <p class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)">Everything on record is here to read. When your access is back on, this list picks up where it left off.</p>
+          </div>`;
+      }
+
+      /* ════════════════════════════════════════════════════════════════════
+         CONCEPT A: "What needs you"
+         One prioritised list. Each row is a severity marker, a sentence naming
+         the thing, and a link that IS the destination. Company-level and
+         product-level items interleave by urgency, not by section.
+         ════════════════════════════════════════════════════════════════════ */
+      function itemRow(item) {
+        return `
+          <li>
+            <a href="${item.href}" class="${ROW_LINK}">
+              <span class="${item.iconTone}">${item.icon}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-(--text-primary)">${item.title}</span>
+                <span class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary)">${item.body}</span>
+              </span>
+              ${pill(item.tone, item.pill)}
+              <span class="self-center text-(--text-secondary)">${ICON.chevron}</span>
+            </a>
+          </li>`;
+      }
+
+      function buildItems(d, x) {
+        const now = [];
+        const soon = [];
+
+        d.products
+          .filter((p) => p.flows.conflict > 0)
+          .forEach((p) =>
+            now.push({
+              icon: ICON.alert,
+              iconTone: 'text-(--status-error)',
+              tone: 'conflict',
+              pill: 'In conflict',
+              title: `${p.name} has a data flow in conflict`,
+              body: `You and ${p.conflictWith} describe the same flow differently. Both positions are on the public pair page until one of you changes it.`,
+              href: href.flows(p.slug),
+            }),
+          );
+
+        d.requests
+          .filter((r) => r.status === 'open' || r.status === 'in_review')
+          .forEach((r) =>
+            now.push({
+              icon: ICON.clock,
+              iconTone: 'text-(--text-secondary)',
+              tone: 'attention',
+              pill: r.status === 'open' ? 'Open' : 'In review',
+              title: r.label,
+              body: `${r.when}. We will tell you when it is decided.`,
+              href: href.messages,
+            }),
+          );
+
+        d.products
+          .filter((p) => p.flows.waiting > 0)
+          .sort((a, b) => b.flows.waiting - a.flows.waiting)
+          .slice(0, 3)
+          .forEach((p) =>
+            soon.push({
+              icon: ICON.clock,
+              iconTone: 'text-(--text-secondary)',
+              tone: 'attention',
+              pill: `${p.flows.waiting} waiting`,
+              title: `Confirm what ${p.name} moves`,
+              body: plural(
+                p.flows.waiting,
+                'One data flow on this product has no position from you. Until you take one, the public page says so.',
+                '{n} data flows on this product have no position from you. Until you take one, the public page says so.',
+              ),
+              href: href.flows(p.slug),
+            }),
+          );
+
+        x.incompleteProducts.slice(0, 3).forEach((p) =>
+          soon.push({
+            icon: ICON.pencil,
+            iconTone: 'text-(--text-secondary)',
+            tone: 'quiet',
+            pill: plural(p.missing.length, '1 field', '{n} fields'),
+            title: `${p.name} is missing ${missingSentence(p.missing)}`,
+            body: 'Buyers compare listings side by side. An empty field reads as an unanswered question.',
+            href: p.missing.includes('categories') ? href.taxonomy(p.slug) : href.product(p.slug),
+          }),
+        );
+
+        if (d.profileMissing.length > 0) {
+          soon.push({
+            icon: ICON.pencil,
+            iconTone: 'text-(--text-secondary)',
+            tone: 'quiet',
+            pill: plural(d.profileMissing.length, '1 field', '{n} fields'),
+            title: `Your company profile is missing ${missingSentence(d.profileMissing)}`,
+            body: 'This is the company record behind every one of your product listings.',
+            href: href.profile,
+          });
+        }
+
+        if (d.seats.pending > 0) {
+          soon.push({
+            icon: ICON.users,
+            iconTone: 'text-(--text-secondary)',
+            tone: 'quiet',
+            pill: 'Not accepted',
+            title: plural(
+              d.seats.pending,
+              'One seat invite is still unaccepted',
+              '{n} seat invites are still unaccepted',
+            ),
+            body: 'You can re-send it or revoke it from the seats roster.',
+            href: href.seats,
+          });
+        }
+
+        return { now, soon };
+      }
+
+      function conceptA(d, x, bandVariant) {
+        if (d.isFresh) {
+          return `
+            <div class="space-y-8">
+              ${accessBlock(d)}
+              ${glanceBand(d, x, bandVariant)}
+              <section aria-labelledby="a-h">
+                <h2 id="a-h" class="${H2}">Start here</h2>
+                <p class="${LEDE}">Your account is on and your listing is live. Three things make it worth finding.</p>
+                <ol class="mt-4 m-0 list-none space-y-2 p-0">
+                  ${itemRow({
+                    icon: ICON.pencil,
+                    iconTone: 'text-(--text-secondary)',
+                    tone: 'attention',
+                    pill: 'Step one',
+                    title: 'Describe Larkfield Field',
+                    body: 'A description and a website are what a buyer reads first. Both are empty.',
+                    href: href.product('larkfield-field'),
+                  })}
+                  ${itemRow({
+                    icon: ICON.pencil,
+                    iconTone: 'text-(--text-secondary)',
+                    tone: 'quiet',
+                    pill: 'Step two',
+                    title: 'Tag it so people can find it',
+                    body: 'Categories, audiences and phases are how the directory filters. Nothing is tagged yet.',
+                    href: href.taxonomy('larkfield-field'),
+                  })}
+                  ${itemRow({
+                    icon: ICON.users,
+                    iconTone: 'text-(--text-secondary)',
+                    tone: 'quiet',
+                    pill: 'Step three',
+                    title: 'Bring a colleague in',
+                    body: 'You are the only seat. Invites go by email and you stay in control of the roster.',
+                    href: href.seats,
+                  })}
+                </ol>
+                <a href="${href.publicVendor}" target="_blank" rel="noopener" class="${LINK} mt-4" aria-label="See your public company page, opens in a new tab"><span>See how your page looks today</span>${ICON.newTab}</a>
+              </section>
+            </div>`;
+        }
+
+        const { now, soon } = buildItems(d, x);
+        const paused = !x.canEdit;
+
+        const band = (label, items) =>
+          items.length === 0
+            ? ''
+            : `
+              <div class="mt-6">
+                <h3 class="aec-overline text-(--text-secondary)">${label}</h3>
+                <ul class="mt-3 m-0 list-none space-y-2 p-0">${items.map(itemRow).join('')}</ul>
+              </div>`;
+
+        const empty =
+          now.length === 0 && soon.length === 0
+            ? `
+              <div class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-4">
+                <p class="flex items-start gap-2 text-sm font-semibold text-(--text-primary)"><span class="text-(--accent-primary)">${ICON.check}</span><span>Nothing needs you right now.</span></p>
+                <p class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)">Every product is described and tagged, every data flow on record has your position, and no requests are open. We will put anything new here and email you as well.</p>
+                <div class="mt-3 flex flex-wrap gap-x-2 gap-y-1">
+                  <a href="${href.publicVendor}" target="_blank" rel="noopener" class="${LINK}" aria-label="See your public company page, opens in a new tab"><span>See your public page</span>${ICON.newTab}</a>
+                  <a href="${href.messages}" class="${LINK}">Read what we have sent you</a>
+                  <a href="${href.seats}" class="${LINK}">Manage who has access</a>
+                </div>
+              </div>`
+            : '';
+
+        return `
+          <div class="space-y-8">
+            ${accessBlock(d)}
+              ${glanceBand(d, x, bandVariant)}
+            <section aria-labelledby="a-h">
+              <h2 id="a-h" class="${H2}">What needs you</h2>
+              <p class="${LEDE}">${
+                now.length + soon.length === 0
+                  ? 'Nothing is outstanding.'
+                  : plural(
+                      now.length + soon.length,
+                      'One thing is outstanding. Everything else is in order.',
+                      '{n} things are outstanding. Everything else is in order.',
+                    )
+              }</p>
+              ${paused ? `<div class="mt-4">${pausedNotice()}</div>` : ''}
+              ${empty}
+              ${band('Needs you now', now)}
+              ${band('Worth doing', soon)}
+            </section>
+          </div>`;
+      }
+
+      /* ════════════════════════════════════════════════════════════════════
+         CONCEPT B: "Readiness ledger"
+         Four readiness lines, each with a state and a link, then a compact
+         recent-activity strip. Answers "is my account ready" directly.
+         ════════════════════════════════════════════════════════════════════ */
+      function ledgerRow(r) {
+        return `
+          <li>
+            <a href="${r.href}" class="flex flex-wrap items-center gap-x-4 gap-y-2 ${ROW} no-underline transition-colors hover:bg-(--surface-sunken) ${FOCUS}">
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-(--text-primary)">${r.label}</span>
+                <span class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary)">${r.detail}</span>
+              </span>
+              ${pill(r.tone, r.state)}
+              <span class="self-center text-(--text-secondary)">${ICON.chevron}</span>
+            </a>
+          </li>`;
+      }
+
+      function conceptB(d, x, bandVariant) {
+        const rows = [];
+
+        rows.push(
+          d.profileMissing.length === 0
+            ? {
+                label: 'Company profile',
+                detail: 'Everything we ask for is filled in.',
+                state: 'Complete',
+                tone: 'affirm',
+                href: href.profile,
+              }
+            : {
+                label: 'Company profile',
+                detail: `Missing ${missingSentence(d.profileMissing)}.`,
+                state: plural(d.profileMissing.length, '1 field left', '{n} fields left'),
+                tone: 'quiet',
+                href: href.profile,
+              },
+        );
+
+        const complete = d.products.length - x.incompleteProducts.length;
+        rows.push(
+          x.incompleteProducts.length === 0
+            ? {
+                label: 'Product listings',
+                detail: plural(
+                  d.products.length,
+                  'Your one product is described and tagged.',
+                  'All {n} products are described and tagged.',
+                ),
+                state: 'Complete',
+                tone: 'affirm',
+                href: href.products,
+              }
+            : {
+                label: 'Product listings',
+                detail: `${x.incompleteProducts.map((p) => p.name).join(', ')} still ${
+                  x.incompleteProducts.length === 1 ? 'has' : 'have'
+                } empty fields.`,
+                state: `${complete} of ${d.products.length} complete`,
+                tone: 'quiet',
+                href: href.products,
+              },
+        );
+
+        const flowDetail =
+          x.totalFlows === 0
+            ? 'No integrations are on record against your products yet.'
+            : x.waiting === 0 && x.conflict === 0
+              ? plural(
+                  x.confirmed,
+                  'Your position is on record for the one data flow we know about.',
+                  'Your position is on record for all {n} data flows we know about.',
+                )
+              : [
+                  x.conflict > 0
+                    ? plural(x.conflict, 'One flow is in conflict', '{n} flows are in conflict')
+                    : null,
+                  x.waiting > 0
+                    ? plural(x.waiting, 'one is waiting for you', '{n} are waiting for you')
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ') + `, out of ${x.totalFlows} on record.`;
+
+        rows.push({
+          label: 'Integration positions',
+          detail: flowDetail,
+          state:
+            x.conflict > 0
+              ? plural(x.conflict, '1 in conflict', '{n} in conflict')
+              : x.waiting > 0
+                ? plural(x.waiting, '1 waiting', '{n} waiting')
+                : x.totalFlows === 0
+                  ? 'None on record'
+                  : 'All confirmed',
+          tone:
+            x.conflict > 0
+              ? 'conflict'
+              : x.waiting > 0
+                ? 'attention'
+                : x.totalFlows === 0
+                  ? 'quiet'
+                  : 'affirm',
+          href: href.flows(
+            (
+              d.products.find((p) => p.flows.conflict > 0) ||
+              d.products.slice().sort((a, b) => b.flows.waiting - a.flows.waiting)[0]
+            ).slug,
+          ),
+        });
+
+        rows.push({
+          label: 'Team access',
+          detail:
+            d.seats.pending > 0
+              ? `${plural(d.seats.count, 'One person has', '{n} people have')} a seat. ${plural(
+                  d.seats.pending,
+                  'One invite has not been accepted.',
+                  '{n} invites have not been accepted.',
+                )}`
+              : plural(
+                  d.seats.count,
+                  'You are the only seat on this account.',
+                  '{n} people share this account.',
+                ),
+          state:
+            d.seats.pending > 0
+              ? plural(d.seats.pending, '1 pending', '{n} pending')
+              : plural(d.seats.count, '1 seat', '{n} seats'),
+          tone: d.seats.pending > 0 ? 'quiet' : 'affirm',
+          href: href.seats,
+        });
+
+        const activity =
+          d.activity.length === 0
+            ? `<p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">Nothing yet. When someone files a correction about your listing, or we email you about a data flow, it shows up here and in Messages.</p>`
+            : `
+              <ul class="mt-4 m-0 list-none space-y-0 p-0 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-1">
+                ${d.activity
+                  .map(
+                    (a) => `
+                  <li class="border-t border-(--border-default) py-3 first:border-t-0">
+                    <p class="text-sm text-(--text-primary)">${a.title}${
+                      a.isNew
+                        ? ' <span class="text-xs font-semibold text-(--accent-primary)">New</span>'
+                        : ''
+                    }</p>
+                    <p class="mt-0.5 text-xs text-(--text-secondary)">${a.meta}</p>
+                  </li>`,
+                  )
+                  .join('')}
+              </ul>
+              <a href="${href.messages}" class="${LINK} mt-3">Read all of it in Messages</a>`;
+
+        return `
+          <div class="space-y-8">
+            ${accessBlock(d)}
+              ${glanceBand(d, x, bandVariant)}
+            <section aria-labelledby="b-h">
+              <h2 id="b-h" class="${H2}">Account readiness</h2>
+              <p class="${LEDE}">${
+                d.isFresh
+                  ? 'Your listing is live. This is what is still blank on it.'
+                  : x.canEdit
+                    ? 'Four things make a listing worth finding. Here is where each one stands.'
+                    : 'Editing is paused, so this is a read of where things stood. Nothing has changed on your public listing.'
+              }</p>
+              <ul class="mt-4 m-0 list-none space-y-2 p-0">${rows.map(ledgerRow).join('')}</ul>
+            </section>
+            <section aria-labelledby="b-activity-h">
+              <h2 id="b-activity-h" class="${H2}">Recent activity</h2>
+              <p class="${LEDE}">What we have sent you and what has been filed about you. These are historical records, not live state.</p>
+              ${activity}
+            </section>
+          </div>`;
+      }
+
+      /* ════════════════════════════════════════════════════════════════════
+         CONCEPT C: "Product board"
+         The vendor's unit of work is the product, so the page is one compact
+         row per product with direct links into that product's own sections.
+         Company-level items sit in a band below. Scales with catalog size.
+         ════════════════════════════════════════════════════════════════════ */
+      function productRow(p) {
+        const listing =
+          p.missing.length === 0
+            ? `<span class="text-(--accent-primary)">Complete</span>`
+            : `Missing ${missingSentence(p.missing)}`;
+
+        const flowTotal = p.flows.confirmed + p.flows.waiting + p.flows.conflict;
+        const flowLine =
+          flowTotal === 0
+            ? 'No integrations on record yet.'
+            : [
+                `${p.flows.confirmed} confirmed`,
+                p.flows.waiting > 0 ? `${p.flows.waiting} waiting on you` : null,
+                p.flows.conflict > 0 ? `${p.flows.conflict} in conflict` : null,
+              ]
+                .filter(Boolean)
+                .join(', ') + '.';
+
+        const flowPill =
+          p.flows.conflict > 0
+            ? pill('conflict', plural(p.flows.conflict, '1 in conflict', '{n} in conflict'))
+            : p.flows.waiting > 0
+              ? pill('attention', plural(p.flows.waiting, '1 waiting', '{n} waiting'))
+              : flowTotal > 0
+                ? pill('affirm', 'All confirmed')
+                : '';
+
+        /* Each of these renders once per product, so a uniform accessible name
+           would put five links reading "Edit the listing" and pointing five
+           different places into one rotor. That is ACCESSIBILITY_AUDIT.md
+           finding A4. The aria-label names the product and CONTAINS the visible
+           text, so WCAG 2.5.3 Label in Name still holds. Same shape
+           vendor-integration-card.ts uses. */
+        const col = (label, body, linkLabel, linkHref) => `
+          <div class="min-w-0">
+            <p class="aec-overline text-(--text-tertiary)">${label}</p>
+            <p class="mt-1 text-sm leading-relaxed text-(--text-secondary)">${body}</p>
+            <a href="${linkHref}" class="${LINK} mt-1" aria-label="${linkLabel} for ${p.name}">${linkLabel}${ICON.chevron}</a>
+          </div>`;
+
+        return `
+          <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+            <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 class="font-display font-semibold text-(--text-primary)"><span class="text-base">${p.name}</span></h3>
+              <span class="aec-overline text-(--text-tertiary)">${p.role}</span>
+              ${flowPill}
+              <a href="${href.publicProduct(p.slug)}" target="_blank" rel="noopener" class="${LINK} ms-auto" aria-label="View the public page for ${p.name}, opens in a new tab"><span>View public page</span>${ICON.newTab}</a>
+            </div>
+            <div class="mt-3 grid gap-x-6 gap-y-4 md:grid-cols-3">
+              ${col('Listing', listing, 'Edit the listing', href.product(p.slug))}
+              ${col('Tagging', p.facets + '.', 'Edit the tagging', href.taxonomy(p.slug))}
+              ${col('Data flows', flowLine, flowTotal === 0 ? 'Open integrations' : 'Take a position', href.flows(p.slug))}
+            </div>
+          </li>`;
+      }
+
+      function conceptC(d, x, bandVariant) {
+        const companyItem = (label, body, linkLabel, linkHref, badge) => `
+          <div class="min-w-0">
+            <p class="flex flex-wrap items-center gap-2 text-sm font-semibold text-(--text-primary)"><span>${label}</span>${badge || ''}</p>
+            <p class="mt-1 text-sm leading-relaxed text-(--text-secondary)">${body}</p>
+            <a href="${linkHref}" class="${LINK} mt-1">${linkLabel}${ICON.chevron}</a>
+          </div>`;
+
+        return `
+          <div class="space-y-8">
+            ${accessBlock(d)}
+              ${glanceBand(d, x, bandVariant)}
+            <section aria-labelledby="c-h">
+              <h2 id="c-h" class="${H2}">Your products</h2>
+              <p class="${LEDE}">${
+                d.isFresh
+                  ? 'One product is on record. Everything a buyer reads about it is still blank.'
+                  : x.canEdit
+                    ? plural(
+                        d.products.length,
+                        'One product, and where it stands.',
+                        '{n} products, and where each one stands.',
+                      )
+                    : 'Editing is paused. This is where each product stood, and it is all still readable.'
+              }</p>
+              <ul class="mt-4 m-0 list-none space-y-3 p-0">${d.products.map(productRow).join('')}</ul>
+            </section>
+            <section aria-labelledby="c-company-h">
+              <h2 id="c-company-h" class="${H2}">Your company</h2>
+              <p class="${LEDE}">Everything that is about Larkfield Systems rather than about one product.</p>
+              <div class="mt-4 grid gap-x-6 gap-y-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 md:grid-cols-3">
+                ${companyItem(
+                  'Company profile',
+                  d.profileMissing.length === 0
+                    ? 'Everything we ask for is filled in.'
+                    : `Missing ${missingSentence(d.profileMissing)}.`,
+                  'Edit the profile',
+                  href.profile,
+                  d.profileMissing.length === 0
+                    ? pill('affirm', 'Complete')
+                    : pill(
+                        'quiet',
+                        plural(d.profileMissing.length, '1 field left', '{n} fields left'),
+                      ),
+                )}
+                ${companyItem(
+                  'Messages',
+                  x.openRequests === 0
+                    ? 'No claim or correction requests are open.'
+                    : plural(
+                        x.openRequests,
+                        'One request about your listing is still being decided.',
+                        '{n} requests about your listing are still being decided.',
+                      ),
+                  'Open messages',
+                  href.messages,
+                  x.openRequests === 0
+                    ? pill('affirm', 'Nothing open')
+                    : pill('attention', plural(x.openRequests, '1 open', '{n} open')),
+                )}
+                ${companyItem(
+                  'Seats',
+                  d.seats.pending > 0
+                    ? `${plural(d.seats.count, 'One person has', '{n} people have')} a seat, and ${plural(
+                        d.seats.pending,
+                        'one invite is unaccepted.',
+                        '{n} invites are unaccepted.',
+                      )}`
+                    : plural(
+                        d.seats.count,
+                        'You are the only seat on this account.',
+                        '{n} people share this account.',
+                      ),
+                  'Manage seats',
+                  href.seats,
+                  d.seats.pending > 0
+                    ? pill('quiet', plural(d.seats.pending, '1 pending', '{n} pending'))
+                    : pill('quiet', plural(d.seats.count, '1 seat', '{n} seats')),
+                )}
+              </div>
+            </section>
+          </div>`;
+      }
+
+      /* ─── The shell, lifted from vendor-dashboard-tabbed.ts + vendor-portal-nav.ts ── */
+      const NAV_ITEM = `aec-nav-tab -mb-px flex shrink-0 items-center gap-1 border-b-2 px-1 py-3 text-sm font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:rounded-(--radius-sm) ${FOCUS}`;
+      const NAV_ACTIVE = 'font-bold text-(--accent-primary)';
+
+      function shell(inner) {
+        const tab = (label, active, isMenu) =>
+          isMenu
+            ? `<li class="shrink-0"><button type="button" aria-expanded="false" class="${NAV_ITEM} cursor-pointer bg-transparent">${label}${svg('<path d="m6 9 6 6 6-6"/>', 'h-4 w-4 shrink-0')}</button></li>`
+            : `<li class="shrink-0"><a href="#" ${active ? 'aria-current="page"' : ''} class="${NAV_ITEM}${active ? ' ' + NAV_ACTIVE : ''}">${label}</a></li>`;
+
+        return `
+          <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
+            <header class="pb-4">
+              <p class="aec-overline text-(--text-secondary)">Vendor</p>
+              <div class="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+                <h1 class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl">Larkfield Systems</h1>
+                <a href="${href.publicVendor}" target="_blank" rel="noopener" class="${LINK}" aria-label="View your public company page, opens in a new tab"><span>View public page</span>${ICON.newTab}</a>
+              </div>
+            </header>
+            <nav aria-label="Portal sections" class="mb-8 border-b border-(--border-default)">
+              <ul class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap">
+                ${tab('Vendor Overview', true, false)}
+                ${tab('Profile', false, false)}
+                ${tab('Products', false, true)}
+                ${tab('Messages', false, false)}
+                ${tab('Seats', false, false)}
+              </ul>
+            </nav>
+            <div class="min-w-0">${inner}</div>
+          </section>`;
+      }
+
+      /* ─── Render every combination up front ──────────────────────────────
+         All twelve panels go into the DOM before the Tailwind browser build
+         loads, so it scans a fully populated tree. Switching only toggles
+         `hidden`, which adds no new class names and therefore needs no rescan. */
+      const CONCEPTS = { a: conceptA, b: conceptB, c: conceptC };
+      const stage = document.getElementById('stage');
+
+      const BANDS = ['asked', 'live'];
+      Object.keys(CONCEPTS).forEach((c) => {
+        Object.keys(STATES).forEach((s) => {
+          BANDS.forEach((b) => {
+            const d = STATES[s];
+            const panel = document.createElement('div');
+            panel.dataset.panel = `${c}:${s}:${b}`;
+            panel.hidden = true;
+            panel.innerHTML = shell(CONCEPTS[c](d, derive(d), b));
+            /* Every panel renders the same heading ids, and all 24 live in one
+               document, so scope them. Only one panel is ever visible and the
+               real component renders one, but duplicate ids are invalid and a
+               whole-document axe scan flags them. */
+            const scope = `${c}-${s}-${b}-`;
+            panel.querySelectorAll('[id]').forEach((el) => {
+              if (!el.id.startsWith('views-soon-')) el.id = scope + el.id;
+            });
+            panel.querySelectorAll('[aria-labelledby]').forEach((el) => {
+              el.setAttribute('aria-labelledby', scope + el.getAttribute('aria-labelledby'));
+            });
+            stage.appendChild(panel);
+          });
+        });
+      });
+
+      let concept = 'a';
+      let state = 'populated';
+      let band = 'asked';
+
+      function apply() {
+        stage.querySelectorAll('[data-panel]').forEach((el) => {
+          el.hidden = el.dataset.panel !== `${concept}:${state}:${band}`;
+        });
+        document
+          .querySelectorAll('[data-concept]')
+          .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.concept === concept)));
+        document
+          .querySelectorAll('[data-state]')
+          .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.state === state)));
+        document
+          .querySelectorAll('[data-band]')
+          .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.band === band)));
+        location.hash = `${concept}-${state}-${band}`;
+      }
+
+      document.querySelectorAll('[data-concept]').forEach((b) =>
+        b.addEventListener('click', () => {
+          concept = b.dataset.concept;
+          apply();
+        }),
+      );
+      document.querySelectorAll('[data-state]').forEach((b) =>
+        b.addEventListener('click', () => {
+          state = b.dataset.state;
+          apply();
+        }),
+      );
+      /* The views tile's dead end. Delegated, because every panel holds its own
+         copy and only one panel is ever visible. */
+      stage.addEventListener('click', (e) => {
+        const periodBtn = e.target.closest('[data-period]');
+        if (periodBtn) {
+          const card = periodBtn.closest('[data-views-card]');
+          const key = periodBtn.dataset.period;
+          card
+            .querySelectorAll('[data-period]')
+            .forEach((b) => b.setAttribute('aria-pressed', String(b === periodBtn)));
+          card.querySelector('[data-views-readout]').innerHTML = window.__viewsReadout(
+            JSON.parse(card.dataset.views)[key],
+            window.__PERIODS.find((p) => p.key === key),
+          );
+          return;
+        }
+        const trigger = e.target.closest('[data-views-trigger]');
+        if (!trigger) return;
+        const note = document.getElementById(trigger.getAttribute('aria-controls'));
+        const open = trigger.getAttribute('aria-expanded') === 'true';
+        trigger.setAttribute('aria-expanded', String(!open));
+        note.hidden = open;
+      });
+
+      document.querySelectorAll('[data-band]').forEach((b) =>
+        b.addEventListener('click', () => {
+          band = b.dataset.band;
+          apply();
+        }),
+      );
+
+      const fromHash = /^#([abc])-(populated|fresh|clear|lapsed)(?:-(asked|live))?$/.exec(
+        location.hash,
+      );
+      if (fromHash) {
+        concept = fromHash[1];
+        state = fromHash[2];
+        band = fromHash[3] || 'asked';
+      }
+      apply();
+    </script>
+
+    <!--
+      ══ FINDINGS, for whoever ports the winning concept ══════════════════════
+
+      1. BORDER-COLOUR UTILITIES ARE DEAD IN THIS APP, AND THE PORTAL ALREADY
+         RELIES ON SEVERAL OF THEM.
+         `* { border-color: var(--border-default) }` in apps/web/src/styles.css
+         sits outside any cascade layer, so it beats every layered Tailwind
+         border-colour utility regardless of specificity. DESIGN.md records this
+         for the nav tab. It also silently defeats, today, in shipped code:
+           - vendor-request-status.ts, the `resolved` pill's
+             `border-(--accent-primary)`, which renders grey rather than Forest.
+           - the retry button in vendor-notifications-list.ts and
+             vendor-integrations-section.ts, whose
+             `hover:border-(--border-strong)` never fires.
+         This mock-up works around it with unlayered helper classes
+         (.aec-pill-affirm / .aec-pill-conflict / .aec-pill-attention /
+         .aec-rule-strong), which is the same escape hatch .aec-nav-tab uses.
+         The real fix is moving the `*` rule into `@layer base`, which is an
+         app-wide visual change and wants its own issue. Whichever concept wins,
+         its status pills need either the helper classes or that fix, or the
+         conflict pill ships grey and the design loses its only red.
+
+      2. THE OVERVIEW NEEDS THREE MORE STORE READS, AND NO NEW ENDPOINT.
+         Every concept reads integrations, notifications and seats in addition
+         to `me`. VendorPortalStore already holds all four and exposes
+         `ensure(resource)`. The section calls it from `afterNextRender`, the
+         way vendor-integrations-section.ts and vendor-seats-page.ts do. Those
+         reads are lazy, so the overview must render its own loading and failed
+         states per resource rather than blocking on all three.
+
+      3. THE AECI-516 CURSOR ALREADY COVERS ALL OF IT.
+         GET /api/vendor/updates carries profile, entitlement, products,
+         integrations, notifications and requests. An overview reading all four
+         resources stays live with no new scope. Confirm the refetch map still
+         resolves each scope, per STAGE_2_REALTIME_SPEC.md section 3.
+
+      4. THE PLAN PANEL COMPRESSION IS A REAL BEHAVIOUR CHANGE.
+         All three concepts collapse vendor-plan-panel to one line when the
+         entitlement is `active` and not expiring. The four other states keep
+         the full panel verbatim. If this is adopted, vendor-plan-panel.ts gains
+         a `compact` input rather than the overview forking its copy: the
+         framing sentence, the term line and the badge are a trust surface and
+         must stay owned in one component.
+
+      5. i18n IS NOT MODELLED HERE.
+         No string in this file carries an `i18n` attribute or a `$localize`
+         tag. Every visible string needs a `@@vendor.overview.*` id at port
+         time, and the plural forms above are written as JS ternaries where the
+         Angular version needs ICU `{n, plural, ...}` blocks.
+
+      7. THE VIEWS TILE IS NOT BUILDABLE, AND AT MEASURED TRAFFIC IT WOULD READ
+         ZERO FOR NEARLY EVERY VENDOR.
+         `docs/design/vendor-performance-direction.md` finding 2 measured about
+         16 real browser page loads per day site-wide over five days to
+         2026-09-13, across a 500-product catalogue, and concluded that the
+         valid-zero-activity state is "the NORMAL state at launch, not an edge
+         case". A 7-day window is worse than the spec's own 30-day default.
+         Four hard blockers behind it, all in `VENDOR_PERFORMANCE_SPEC.md`:
+           - Nothing is built. No `/api/vendor/performance`, no `performance`
+             route, and `analytics.view` still carries the comment "declared, no
+             consumer yet" in `packages/shared/src/entitlements.ts`.
+           - Pair-page views do not exist. `products-pair.resolver.ts` sends a
+             route-only page view, so `product_id` and `vendor_id` are both null
+             on every pair row. AECI-929 fixes it and blocks the whole epic.
+             Product and vendor page views ARE derivable today.
+           - It is Stage 2.5, not 2.1 (`STAGE_2_5_SPEC.md` §10), and Mobbin
+             wireframes (AECI-939) are a hard blocker on the page.
+           - It would be the one tile in a live band that does not live-update:
+             the performance read is deliberately outside the AECI-516 cursor.
+         The prior-period line ("4 the previous 7 days") is the ONLY comparison
+         §2.3 rule 8 permits: absolute counts, suppressed when the prior period
+         is zero, never a percentage of nothing, never computed across a
+         classifier version boundary. Comparison against the platform (share of
+         catalogue, percentile) is deferred to Stage 3.
+
+      8. "SUGGESTIONS" HAD NO MEANING HERE UNTIL THIS ISSUE GAVE IT ONE.
+         There is no suggestion type, endpoint or field in the repo. The
+         direction call resolved it to `vendor_requests` of kind `correction`,
+         because the public CTA on product and vendor detail pages reads
+         "Suggest a correction". Consequence the copy has to respect: **the
+         vendor cannot act on one.** `packages/shared/src/api/vendor.ts`
+         deliberately keeps the body and the submitter off the wire, so the tile
+         can report a state and route to Messages and nothing more. It must
+         never imply a reply is possible.
+
+      9. A VENDOR-WIDE CONFLICT COUNT HAS A DOUBLE-COUNTING TRAP.
+         `VendorIntegration.id` is NOT unique in `GET /api/vendor/integrations`:
+         an integration whose endpoints the vendor owns BOTH appears twice, once
+         per frame, with identical `agreement`. The key is
+         `(id, context_product.id)`. A naive `flatMap` over `store.integrations()`
+         double-counts those claims. Today's only counter (`summaryLine` in
+         vendor-integrations-section.ts) is scoped to one product, so it has
+         never had to face this.
+
+     10. THE FRESHNESS CURSOR HAS A GAP THAT MAKES THESE FIGURES GO STALE.
+         The `integrations` cursor selects only `max(claims.updated_at)` and
+         `max(attestations.updated_at)`. It does NOT include
+         `integrations.updated_at`. An admin setting `powered_by_product_id`
+         flips `attestable`, which changes the denominator of both the awaiting
+         and the conflict count, and moves no cursor. A newly promoted
+         integration carrying zero claims is the same case. Worth its own issue,
+         and worth fixing before a count based on it goes on the landing page.
+
+     11. THE BAND MAKES CONCEPT A PARTLY REDUNDANT.
+         Switch to `#a-clear-live` and the band says "Nothing waiting on you /
+         No conflicts / None open" directly above Concept A saying "Nothing
+         needs you right now." Concepts B and C overlap far less, because they
+         are about readiness and per-product state rather than about a queue.
+         If the band ships, that is an argument against A on its own.
+
+     12. DIRECTION CHOSEN 2026-09-17: CONCEPT A, THE VIEWS BAND, AND A 1d / 1w /
+         1m PERIOD TOGGLE ON THE VIEWS CARD. Three things the build inherits:
+           - THE TOGGLE DIVERGES FROM THE BUILD CONTRACT.
+             VENDOR_PERFORMANCE_SPEC.md §5.2 item 1 fixes the performance page's
+             windows as "Default last 30 complete days; 7 / 90 / custom where
+             history exists". It has no 1-day window, its default is 30 days
+             rather than 7, and it counts COMPLETE UTC days, so "1d" has to mean
+             yesterday, not the last 24 hours. The spec needs amending (1d added,
+             the overview default recorded) before this ships, per CLAUDE.md
+             "When the spec is wrong". The mock-up defaults to 1w.
+           - 1d IS THE THINNEST WINDOW AT MEASURED TRAFFIC. About 16 real browser
+             loads per day across 500 products (FINDINGS 7) means a single day
+             reads zero for almost every vendor. That is why the zero state says
+             what the window was ("Nothing in the last day or the previous day")
+             rather than a bare "No views recorded".
+           - THE PORT HAS A CONTROL-TYPE QUESTION. ADR 0010 routes new
+             discrete-choice controls to Angular Aria, and Aria@22 ships no radio
+             group. The mock-up uses the aria-pressed button set the admin date
+             range already ships, which avoids the question; confirm that is
+             acceptable on a vendor surface before building.
+
+      6. THE COMPLETENESS RULES ARE A PRODUCT DECISION, NOT A DERIVED FACT.
+         "Missing a description" is obvious. "Missing categories" is too. But
+         `trade_slugs` is SPARSE BY DESIGN (TRADES_VOCABULARY.md section 1.1:
+         a trade tag means trade-specific value, so horizontal platforms carry
+         none), so an empty trades array must NEVER count as incomplete. This
+         mock-up deliberately never flags it. Pin the field list in the spec
+         before building, or the page will nag vendors about correct data.
+    -->
+
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  </body>
+</html>
