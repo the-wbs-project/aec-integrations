@@ -445,7 +445,7 @@ mechanisms that both move RFIs yields two claims (one per integration).
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `dataObject` | string | ✅ | The data object's **slug or name/alias** (e.g. `"rfis"` or `"RFIs"`). Resolved **find-only** against AECi's seeded `data_object` vocabulary — see resolution below. |
-| `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` | ✅ | Where **A = the integration's `sourceProduct`** and **B = its `targetProduct`**. `both` = bidirectional. This is the *stored* encoding; AECi translates it to a context-relative `inbound`/`outbound` view when it renders a pair page. |
+| `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` | ✅ | Where **A = the integration's `sourceProduct`** and **B = its `targetProduct`**. `both` = bidirectional. Always send it in that frame. AECi translates it to a context-relative `inbound`/`outbound` view when it renders a pair page. **On a connector-evidenced edge (§3.4a) AECi stores it re-anchored to the pair's A/B**, flipping `a_to_b` ↔ `b_to_a` when your source's id sorts second (AECI-996). Your payload never changes for this. |
 | `attestations` | `Attestation[]` | — | Who affirms the claim. Defaults to `[]`. `Attestation = { source, asserted, introducedAt?, deprecatedAt?, note? }`. |
 
 Each `Attestation`:
@@ -515,9 +515,21 @@ Four consequences worth knowing:
   anchor change: your value is relative to **your** `sourceProduct` → `targetProduct`, while this
   table canonicalises the pair (`product_a_id < product_b_id`) and anchors against that. When the
   sort flips your two endpoints, both arrows flip with it. Lossless either way.
-- **Claims still ride with their integration**, unchanged. The migration preserves each edge's id
-  verbatim as the evidenced pair's id, so a claim's stored anchor value never moves — only which
-  table it points at.
+- **Claims ride with their integration, and are RE-ANCHORED with it (amended by AECI-996).** The
+  migration preserves each edge's id verbatim as the evidenced pair's id, so a claim's stored anchor
+  value never moves, only which table it points at. Its **direction** and its attestations'
+  **vendor slots** do move, by the same rule as the row's own `direction` above: a claim is stored
+  in the pair's A/B frame, so when your `sourceProduct` is endpoint B every one-way claim is stored
+  flipped (`a_to_b` ↔ `b_to_a`) and every `vendor_a` / `vendor_b` slot swaps. `both` and `aeci` are
+  their own mirrors. This applies on every write path: a fresh routed edge, a re-promote (the
+  payload is re-anchored before it is matched, so ids stay stable), and both cross-table moves (an
+  edge moving in is flipped into the pair frame, an edge moving back out is flipped back). When a
+  flip would collide with a unique index (both one-way claims on one data object, or both live
+  vendor slots on one claim) the rows keep their direction or slot and swap contents in place, so
+  every row keeps its id. Each re-anchored row writes a `claim.reframed` / `attestation.reframed`
+  audit entry. You send the same payload either way. Before AECI-996 promote copied claims across
+  unchanged, which rendered one-way claims backwards on reversed pairs; the one-time repair is
+  `scripts/ops/2026-09-evidenced-claim-direction-repair/`.
 - **Re-sending a routed edge is an in-place UPDATE, and gaining a connector moves the row for you.**
   Because the id is preserved, you keep sending a migrated edge's `supabaseId` exactly as before:
   promote resolves it against **both** tables, so a re-promote of an already-routed edge updates the
@@ -1908,7 +1920,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
 - [ ] Promote a connector **before** any edge naming it as `poweredByProduct`, and inspect `result.unresolvedLinks[]` — an entry there means the edge landed with no connector link (§4). Treat `field: "powered_by"` on a Zapier/Workato edge as expected and permanent, not as a retry signal. To *remove* a connector send `poweredByProduct: null`; omitting the key leaves the stored value untouched.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
-- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, **always**, even on a `poweredByProduct` edge, which AECi re-anchors itself (§3.4a), `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).

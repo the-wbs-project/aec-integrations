@@ -158,6 +158,8 @@ Direction is stored **relative to the integration row's own two endpoints**, and
 
 where **A = the integration's `source_product_id`** and **B = its `target_product_id`** (the stored endpoint order on the row). This is canonical and never depends on which product the visitor is viewing.
 
+> **Amendment (AECI-996, 2026-09-17) — the evidenced-pair anchor.** A claim anchored on a `connector_evidenced_pairs` row is stored relative to **that** row's endpoints, where **A = `product_a_id`** and **B = `product_b_id`**, the id-sorted canonical order (`DATABASE_SCHEMA.md` §9a.6). The same holds for its attestations' `vendor_a` / `vendor_b` slots. The payload still speaks source → target (`REVIEW_APP_PROMOTE_API.md` §3.5), so when the integration's source is B the writer flips every one-way direction and every vendor slot (`both` and `aeci` are unchanged), swapping contents in place where a flip would collide with a unique index. The rule is `apps/api/src/lib/claim-frame.ts`, and it runs on ingest and on both cross-table moves. Before AECI-996 the writers copied claims across unchanged, so one-way claims on reversed pairs rendered backwards on the product page. The `connector_pairs` anchor (AECI-891) is unaffected: its wire direction is already relative to the pair's stub A/B.
+
 **Context-relative (API / `packages/shared`):** the pair page is viewed *from* a context product. The API translates the stored direction into the visitor's frame:
 
 | Stored | Context product = A | Context product = B |

@@ -122,7 +122,13 @@ import {
   safeSlugify,
   type DataObjectResolver,
 } from '../lib/data-object-vocabulary';
-import { planClaimIngest, type ClaimIngestItem } from '../lib/promote-claims';
+import { planClaimReframe } from '../lib/claim-frame';
+import {
+  loadReframeClaims,
+  planClaimIngest,
+  reframeStatements,
+  type ClaimIngestItem,
+} from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
@@ -496,6 +502,8 @@ function planEvidencedPairWrite(args: {
     // taking the claims and their attestations with it. `planClaimIngest` runs after
     // and reconciles the payload against these same rows (its pre-read saw them under
     // the identical `anchor_id`), so ids — and therefore vendor attestations — hold.
+    // The frame does NOT hold on its own: when the source sorts second, the caller
+    // re-anchors directions and vendor slots after this re-home (AECI-996).
     return {
       id: existing.id,
       operation: 'updated',
@@ -630,7 +638,9 @@ async function locateEdge(
  *
  * Both anchor columns move in ONE `UPDATE` so the CHECK's three-term sum never leaves 1
  * mid-statement. `anchor_id` is `coalesce()` over the three arms and the id is unchanged,
- * so `claims_identity_key` sees no movement and vendor attestations keep their slots.
+ * so `claims_identity_key` sees no movement from the move itself. The caller then
+ * re-anchors directions and vendor slots out of the pair's A/B frame when the source is
+ * B (AECI-996), so the row's ids hold even where its arrows flip.
  *
  * **This move is lossy on `mechanism_kind` and nothing can fix that here.**
  * `connector_evidenced_pairs` has no such column — the forward move drops the value
@@ -2703,6 +2713,20 @@ export async function runPromoteIngest(
         existing: located,
       });
       stmts.push(...evidenced.statements);
+      // AECI-996 — the pair's A is the LOWER id, the payload's claims speak source →
+      // target. When the source sorts second the frames disagree: payload claims are
+      // flipped on ingest (`frameReversed`), and claims an `integrations` row carries
+      // IN are flipped here, after the re-home above, so both land in the pair's frame.
+      const evidencedFrameReversed = sourceId > targetId;
+      const evidencedReframe =
+        located?.table === 'integrations' && evidencedFrameReversed
+          ? planClaimReframe(await loadReframeClaims(db, located.id))
+          : null;
+      if (evidencedReframe) {
+        const rendered = reframeStatements(db, evidencedReframe.ops);
+        stmts.push(...rendered.statements);
+        for (const entry of rendered.audits) audit(entry);
+      }
       // AECI-953 — did this edge's pair URL move? The row and its audit entry are
       // emitted in the post-loop slug pass (AECI-991), still in this same batch.
       const evidencedMove = endpointMoveFrom({
@@ -2781,6 +2805,8 @@ export async function runPromoteIngest(
           ref: intg.ref,
           claims: intg.claims,
           isNewAnchor: result.operation !== 'updated',
+          frameReversed: evidencedFrameReversed,
+          ...(evidencedReframe ? { existingAfterReframe: evidencedReframe.after } : {}),
         });
       }
       continue;
@@ -2827,6 +2853,18 @@ export async function runPromoteIngest(
       existing: located,
     });
     stmts.push(...written.statements);
+    // AECI-996 — the mirror of the evidenced branch. Claims coming OUT of a pair are in
+    // its canonical frame (A = lower id) and must land in this row's source → target
+    // frame, which differs exactly when the source sorts second.
+    const integrationReframe =
+      located?.table === 'evidenced' && sourceId > targetId
+        ? planClaimReframe(await loadReframeClaims(db, located.id))
+        : null;
+    if (integrationReframe) {
+      const rendered = reframeStatements(db, integrationReframe.ops);
+      stmts.push(...rendered.statements);
+      for (const entry of rendered.audits) audit(entry);
+    }
     // AECI-953 — the case this feature exists for. `existing` (or, on a de-route, the
     // evidenced row) carries the PRE-update endpoints; `sourceId`/`targetId` are the
     // post-update ones. When they name a different pair the edge's public URL just
@@ -2898,6 +2936,7 @@ export async function runPromoteIngest(
         ref: intg.ref,
         claims: intg.claims,
         isNewAnchor: result.operation !== 'updated',
+        ...(integrationReframe ? { existingAfterReframe: integrationReframe.after } : {}),
       });
     }
 

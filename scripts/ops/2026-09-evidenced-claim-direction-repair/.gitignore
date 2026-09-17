@@ -1,0 +1,5 @@
+# Per-run artifacts: the resolved cohort, the generated SQL and its rollback. Written
+# before every write (dry-run included) so the exact bytes applied can be reviewed and
+# reversed. They carry production uuids and are regenerated on every run, so they do
+# not belong in git. The dated measurement that matters lives in README.md.
+backups/
