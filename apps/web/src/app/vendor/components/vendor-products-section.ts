@@ -1,9 +1,16 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
 
 import type { TaxonomyResponse, VendorProduct } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
+import { VendorProductFacetEditor, type ProductFacetKind } from './vendor-product-facet-editor';
 import { VendorProductForm } from './vendor-product-form';
+
+/** Which product tab a section renders. `'all'` is the single-page concept. */
+export type VendorProductTab = 'all' | 'profile' | ProductFacetKind;
+
+const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audiences', 'phases'];
 
 /**
  * The "your products" editor of the vendor dashboard (AECI-522): the editable
@@ -31,7 +38,8 @@ import { VendorProductForm } from './vendor-product-form';
  */
 @Component({
   selector: 'aec-vendor-products-section',
-  imports: [VendorProductForm],
+  imports: [NgTemplateOutlet, VendorProductForm, VendorProductFacetEditor],
+  host: { class: 'block' },
   template: `
     @if (products().length === 0) {
       <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.products.empty">
@@ -65,12 +73,9 @@ import { VendorProductForm } from './vendor-product-form';
           <div
             class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
           >
-            <aec-vendor-product-form
-              [product]="product"
-              [taxonomy]="taxonomy()"
-              [canEdit]="canEdit()"
-              [canEditTaxonomy]="canEditTaxonomy()"
-              [section]="section()"
+            <ng-container
+              [ngTemplateOutlet]="productBody"
+              [ngTemplateOutletContext]="{ $implicit: product }"
             />
           </div>
         }
@@ -93,12 +98,9 @@ import { VendorProductForm } from './vendor-product-form';
                 </span>
               </summary>
               <div class="border-t border-(--border-default) p-5">
-                <aec-vendor-product-form
-                  [product]="product"
-                  [taxonomy]="taxonomy()"
-                  [canEdit]="canEdit()"
-                  [canEditTaxonomy]="canEditTaxonomy()"
-                  [section]="section()"
+                <ng-container
+                  [ngTemplateOutlet]="productBody"
+                  [ngTemplateOutletContext]="{ $implicit: product }"
                 />
               </div>
             </details>
@@ -106,8 +108,25 @@ import { VendorProductForm } from './vendor-product-form';
         </div>
       }
     }
+
+    <ng-template #productBody let-product>
+      <div class="space-y-10">
+        @if (section() === 'all' || section() === 'profile') {
+          <aec-vendor-product-form [product]="product" [canEdit]="canEdit()" />
+        }
+        @for (facet of facets(); track facet) {
+          <aec-vendor-product-facet-editor
+            [product]="product"
+            [facet]="facet"
+            [taxonomy]="taxonomy()"
+            [canEdit]="canEdit()"
+            [canEditTaxonomy]="canEditTaxonomy()"
+            [canEditUsefulness]="canEditUsefulness()"
+          />
+        }
+      </div>
+    </ng-template>
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorProductsSection {
   private readonly api = inject(VendorApi);
@@ -123,11 +142,17 @@ export class VendorProductsSection {
    *  sees every product and every value, just not the controls to change them. */
   readonly canEdit = input<boolean>(true);
   readonly canEditTaxonomy = input<boolean>(true);
+  readonly canEditUsefulness = input<boolean>(true);
 
-  /** Which projection of `vendor-product-form.ts` to render — see its `section`
-   *  input. Passed straight through so the product row's Profile and Taxonomy
-   *  tabs can share this section without it knowing what a tab is. */
-  readonly section = input<'all' | 'profile' | 'taxonomy'>('all');
+  /** Which product tab to render (AECI-994): the Profile form, one facet editor,
+   *  or (`'all'`, the single-page concept) the form and all four editors. */
+  readonly section = input<VendorProductTab>('all');
+
+  protected readonly facets = computed<readonly ProductFacetKind[]>(() => {
+    const section = this.section();
+    if (section === 'all') return ALL_FACETS;
+    return section === 'profile' ? [] : [section];
+  });
 
   protected readonly selectedProduct = computed(() => {
     const slug = this.selectedSlug();

@@ -5,7 +5,8 @@ import { VENDOR_PRODUCT_NAV_ITEMS } from './vendor-nav';
 
 /**
  * The PRODUCT-level section nav (AECI-666), under the product heading, switches
- * between one product's Profile, Taxonomy and Integrations routes.
+ * between one product's Profile, Categories, Trades, Audiences, Phases and
+ * Integrations routes.
  *
  * ── WHY IT IS A SEGMENTED ROUTE CONTROL ─────────────────────────────────────
  * AECI-959 separates the two route levels visually: the vendor row remains the

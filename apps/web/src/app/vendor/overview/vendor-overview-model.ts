@@ -146,7 +146,7 @@ export const PRODUCT_ROW_CAP = 3;
 export type NeedsItemLink =
   | { readonly kind: 'integrations'; readonly productSlug: string }
   | { readonly kind: 'productProfile'; readonly productSlug: string }
-  | { readonly kind: 'productTaxonomy'; readonly productSlug: string }
+  | { readonly kind: 'productCategories'; readonly productSlug: string }
   | { readonly kind: 'products' }
   | { readonly kind: 'profile' }
   | { readonly kind: 'messages' }
@@ -304,7 +304,7 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         product,
         fields,
         link: fields.includes('categories')
-          ? { kind: 'productTaxonomy', productSlug: product.slug }
+          ? { kind: 'productCategories', productSlug: product.slug }
           : { kind: 'productProfile', productSlug: product.slug },
       });
     }
@@ -346,8 +346,8 @@ export function linkCommands(link: NeedsItemLink): readonly string[] {
       return ['..', 'products', link.productSlug, 'integrations'];
     case 'productProfile':
       return ['..', 'products', link.productSlug, 'profile'];
-    case 'productTaxonomy':
-      return ['..', 'products', link.productSlug, 'taxonomy'];
+    case 'productCategories':
+      return ['..', 'products', link.productSlug, 'categories'];
     case 'products':
       return ['..', 'products'];
     case 'profile':

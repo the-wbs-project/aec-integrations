@@ -217,7 +217,7 @@ describe('buildNeedsItems', () => {
     };
     const { worthDoing } = buildNeedsItems(input({ me, canAttest: false }));
     expect(worthDoing.map((i) => linkCommands(i.link))).toEqual([
-      ['..', 'products', 'a', 'taxonomy'],
+      ['..', 'products', 'a', 'categories'],
       ['..', 'products', 'b', 'profile'],
       ...(profileGaps(VENDOR_ME_FIXTURE.vendor).length > 0 ? [['..', 'profile']] : []),
     ]);
