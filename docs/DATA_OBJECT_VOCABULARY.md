@@ -164,9 +164,9 @@ identical.
 
 - A **lane list is read.** The lifecycle grouping is the information — it says what kind of
   integration this is.
-- A **picker is searched.** The vendor arrives already knowing they want "Submittals", and
-  `AecSelect` is a non-editable Aria combobox with no type-to-filter, so an unfamiliar semantic
-  order turns finding a known label into a 27-item linear scan with no anchor.
+- A **picker is searched.** The vendor arrives already knowing they want "Submittals". The picker
+  is a native `<select>` (since 2026-09-17; it was an `AecSelect` combobox before). Scanning its open
+  list in an unfamiliar semantic order is a 27-item linear search with no anchor.
 
 Two properties of that divergence matter to anyone editing it. It is **client-side only** — the wire
 order is unchanged and still pinned by `apps/api/src/routes/vendor-data-objects.spec.ts`, so a

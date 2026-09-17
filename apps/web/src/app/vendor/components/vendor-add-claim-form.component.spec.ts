@@ -95,6 +95,12 @@ function choose(
   fixture.detectChanges();
 }
 
+/** The data-object `<select>`. Cast through `unknown`: this spec lane's DOM lib
+ *  rejects `HTMLSelectElement` as an `Element`. */
+function dataObjectSelect(el: HTMLElement): HTMLSelectElement {
+  return el.querySelector('select[id$="-data-object"]') as unknown as HTMLSelectElement;
+}
+
 const text = (fixture: ComponentFixture<VendorAddClaimForm>) =>
   (fixture.nativeElement as HTMLElement).textContent ?? '';
 
@@ -111,33 +117,56 @@ function button(
 }
 
 describe('VendorAddClaimForm — the closed vocabulary', () => {
-  it('offers the vocabulary as a closed Aria combobox, not a text input', () => {
+  it('offers the vocabulary as a closed native select, not a text input', () => {
     const el = create().nativeElement as HTMLElement;
     // §5.2: the picker is what stops a vendor submitting a term the find-only
     // resolver will reject.
-    const combobox = el.querySelector('[role="combobox"]');
-    expect(combobox).not.toBeNull();
-    expect(combobox?.getAttribute('aria-expanded')).toBe('false');
+    const select = dataObjectSelect(el);
+    expect(select).not.toBeNull();
+    // A labelled field, with a disabled placeholder row selected until a choice.
+    expect(el.querySelector(`label[for="${select.id}"]`)?.textContent).toContain('Data object');
+    expect(select.options[0].disabled).toBe(true);
+    expect(select!.value).toBe('');
     expect(el.querySelector('input[type="text"]')).toBeNull();
-    // Its popup is deferred, so nothing renders into the overlay container while
-    // collapsed. (The direction control below IS a listbox and is always in the
-    // DOM — it is a bare `ngListbox` radio substitute, not an overlay.)
-    expect(document.querySelector('.cdk-overlay-container [role="listbox"]')).toBeNull();
+    expect(el.querySelector('[role="combobox"]')).toBeNull();
+  });
+
+  it('records the data object picked from the native select', () => {
+    const fixture = create();
+    const select = dataObjectSelect(fixture.nativeElement as HTMLElement);
+    select.value = 'documents';
+    select.dispatchEvent(new Event('change'));
+    (
+      fixture.componentInstance as unknown as { directionSelection: { set(v: string[]): void } }
+    ).directionSelection.set(['outbound']);
+    fixture.detectChanges();
+    expect(button(fixture, 'Add data flow')?.disabled).toBe(false);
   });
 
   it('renders direction as a bare Aria listbox in the vendor’s own frame', () => {
     const el = create().nativeElement as HTMLElement;
-    const options = [...el.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim());
+    const options = [...el.querySelectorAll('[role="option"]')].map((o) => ({
+      glyph: o.querySelector('[aria-hidden="true"]')?.textContent?.trim(),
+      label: o.textContent
+        ?.replace(o.querySelector('[aria-hidden="true"]')?.textContent ?? '', '')
+        .trim(),
+    }));
 
     // The counterpart is named, and the stored `a_to_b` / `b_to_a` never appears.
-    expect(options).toEqual(['Sends to Procore', 'Receives from Procore', 'Syncs both ways']);
+    // Ordered to match the glyphs: sends, both ways, receives. The glyph is
+    // decorative, so it is hidden from assistive tech.
+    expect(options).toEqual([
+      { glyph: '→', label: 'Sends to Procore' },
+      { glyph: '⇄', label: 'Syncs both ways' },
+      { glyph: '←', label: 'Receives from Procore' },
+    ]);
     expect(el.textContent).not.toMatch(/a_to_b|b_to_a/);
   });
 
   it('offers the terms ALPHABETICALLY, not in the wire’s `display_order`', () => {
     // The endpoint serves lifecycle order (Models → Drawings → … ) so the claim
     // *lanes* read as the public pair page's do. A picker is a different job:
-    // the vendor already knows the term they want, and `AecSelect` has no
+    // the vendor already knows the term they want, and a native select has no
     // type-to-filter, so an unfamiliar semantic order is a linear scan. Pinning
     // both halves — sorted here, unsorted on the input — is what stops someone
     // "restoring" the wire order and quietly undoing the divergence.
@@ -281,8 +310,8 @@ describe('VendorAddClaimForm — the duplicate pivot', () => {
     await flush();
     fixture.detectChanges();
 
-    const trigger = (fixture.nativeElement as HTMLElement).querySelector('[role="combobox"]');
-    expect(trigger?.textContent).toContain('RFIs');
+    const select = dataObjectSelect(fixture.nativeElement as HTMLElement);
+    expect(select.value).toBe('rfis');
   });
 });
 

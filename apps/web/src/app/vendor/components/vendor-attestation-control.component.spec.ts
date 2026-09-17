@@ -520,32 +520,53 @@ describe('VendorAttestationControl — version stamps', () => {
     const el = create(STAMPED_CLAIM, []).nativeElement as HTMLElement;
     // The disclosure stays (it still holds the note); only the pickers go.
     expect(el.querySelector('details')).not.toBeNull();
+    expect(el.querySelector('select')).toBeNull();
+  });
+
+  it('renders the pickers as labelled native selects, not Aria comboboxes', () => {
+    const el = create().nativeElement as HTMLElement;
+    const selects = [...el.querySelectorAll('select')] as unknown as HTMLSelectElement[];
+    expect(selects).toHaveLength(2);
+    for (const select of selects) {
+      // Every select has a real <label for>, or it is an unnamed field.
+      expect(el.querySelector(`label[for="${select.id}"]`)).not.toBeNull();
+      // The first row is the "Not specified" choice, which submits as null.
+      expect(select.options[0].value).toBe('');
+    }
     expect(el.querySelector('[role="combobox"]')).toBeNull();
   });
 
-  it('renders the pickers as closed Aria comboboxes, never an open listbox', () => {
-    // Repo convention: assert the collapsed trigger's wiring only; the
-    // open→select interaction is jsdom-hostile and is covered live + in e2e.
-    const el = create().nativeElement as HTMLElement;
-    const triggers = [...el.querySelectorAll('[role="combobox"]')];
-    expect(triggers).toHaveLength(2);
-    for (const trigger of triggers) {
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-      const labelledBy = trigger.getAttribute('aria-labelledby')?.split(' ') ?? [];
-      expect(labelledBy.length).toBeGreaterThan(0);
-      // Every referenced id must actually exist, or the label is a dangling
-      // pointer (the AECI-232 lesson).
-      for (const id of labelledBy) {
-        expect([...el.querySelectorAll('[id]')].some((n) => n.id === id)).toBe(true);
-      }
-    }
-    expect(el.querySelector('[role="listbox"]')).toBeNull();
-    expect(document.querySelector('[role="listbox"]')).toBeNull();
+  it('saves the version picked in a select, and "Not specified" as null', async () => {
+    const fixture = create();
+    const el = fixture.nativeElement as HTMLElement;
+    const pick = (key: string, value: string) => {
+      const select = el.querySelector(
+        `#vendor-claim-${STAMPED_CLAIM.id}-${key}`,
+      ) as unknown as HTMLSelectElement;
+      select.value = value;
+      select.dispatchEvent(new Event('change'));
+    };
+    // The fixture stamps `introduced` and leaves `deprecated` empty. Flip both.
+    pick('introduced', '');
+    pick('deprecated', VERSIONS[0].id);
+    fixture.detectChanges();
+
+    button(fixture, 'Affirm').click();
+    await flush();
+
+    expect(upsertAttestation).toHaveBeenCalledWith(
+      STAMPED_CLAIM.id,
+      expect.objectContaining({
+        introduced_version_id: null,
+        deprecated_version_id: VERSIONS[0].id,
+      }),
+      CONTEXT_PRODUCT_ID,
+    );
   });
 
   it('derives picker ids from the claim id so repeated lanes never collide', () => {
     const el = create().nativeElement as HTMLElement;
-    expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-introduced-trigger`)).not.toBeNull();
-    expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-deprecated-trigger`)).not.toBeNull();
+    expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-introduced`)).not.toBeNull();
+    expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-deprecated`)).not.toBeNull();
   });
 });

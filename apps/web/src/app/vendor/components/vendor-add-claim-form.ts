@@ -12,11 +12,19 @@ import {
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
-import { DIRECTION_ORDER, directionHeading } from '../../products/pair-direction-labels';
-import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { directionGlyph, directionHeading } from '../../products/pair-direction-labels';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+
+/** One native `<select>` choice. `null` is the "Not specified" row. */
+interface SelectOption {
+  readonly value: string | null;
+  readonly label: string;
+}
+
+/** Picker order for the direction control. See `directionOptions`. */
+const PICKER_DIRECTION_ORDER = ['outbound', 'both', 'inbound'] as const;
 
 /** The existing lane a duplicate submission should route to. */
 export interface DuplicateClaimHit {
@@ -58,9 +66,11 @@ export function isProvisionalClaimId(claimId: string): boolean {
  * `data_object` is find-only server-side: an unmatched term is a
  * `400 VALIDATION_FAILED`, because minting a term is an AECi curation act. §5.2
  * says the fix belongs here — "The UI (§6) should offer the closed list rather
- * than free text in the first place" — so the control is an Angular Aria
- * combobox over `GET /api/vendor/data-objects` and a vendor cannot type a term
- * the server will reject.
+ * than free text in the first place" — so the control is a native `<select>`
+ * over `GET /api/vendor/data-objects` and a vendor cannot type a term the server
+ * will reject. The data-object and version pickers were Aria `AecSelect`
+ * comboboxes until 2026-09-17; they are plain selects now because a native
+ * dropdown reads as an ordinary form field and gets type-to-find for free.
  *
  * ── THE DUPLICATE PIVOT ─────────────────────────────────────────────────────
  * A repeated `(integration, data_object, direction)` triple is a `400` carrying
@@ -101,8 +111,8 @@ export function isProvisionalClaimId(claimId: string): boolean {
  * property that matters — one Zod schema owns validity — is the same either way,
  * and Signal Forms does not materialise a field seeded `undefined`, which is
  * exactly the shape of both required choices here (there is no valid "nothing
- * chosen yet" member of `ContextDirection`). ADR 0010 still governs the controls
- * themselves: discrete choice is Aria, bridged by `[(value)]` + `(valueChange)`.
+ * chosen yet" member of `ContextDirection`). The direction control is still an
+ * Aria listbox (ADR 0010), bridged by `[(value)]` + `(valueChange)`.
  *
  * A failed submit is always a notice signal, never a thrown error — the
  * `review-form.ts` rule: a `ValidationError` would mark the form permanently
@@ -110,7 +120,7 @@ export function isProvisionalClaimId(claimId: string): boolean {
  */
 @Component({
   selector: 'aec-vendor-add-claim-form',
-  imports: [AecSelect, Listbox, Option],
+  imports: [Listbox, Option],
   styles: [':host { display: block; }'],
   template: `
     <details class="border-t border-(--border-default) px-5 py-4" [open]="expanded()">
@@ -122,31 +132,55 @@ export function isProvisionalClaimId(claimId: string): boolean {
         Add a data flow
       </summary>
 
-      <div class="mt-4 space-y-4">
+      <div class="mt-5 space-y-6">
         @if (dataObjects().length === 0) {
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.add.noVocabulary">
             The data object list could not be loaded, so new data flows cannot be added right now.
           </p>
         } @else {
-          <aec-select
-            layout="stacked"
-            [label]="dataObjectLabel"
-            [placeholder]="dataObjectPlaceholder"
-            [options]="dataObjectOptions()"
-            [value]="dataObjectSlug()"
-            [idPrefix]="fieldId('data-object')"
-            [describedBy]="dataObjectError() ? fieldId('data-object') + '-error' : ''"
-            (changed)="onDataObject($event)"
-          />
-          @if (dataObjectError(); as message) {
-            <p
-              [id]="fieldId('data-object') + '-error'"
-              role="alert"
-              class="text-xs font-medium text-(--text-primary)"
-            >
-              {{ message }}
-            </p>
-          }
+          <div class="max-w-sm space-y-2">
+            <label [for]="fieldId('data-object')" [class]="labelClass">{{ dataObjectLabel }}</label>
+            <div class="relative">
+              <select
+                [id]="fieldId('data-object')"
+                [attr.aria-describedby]="
+                  dataObjectError() ? fieldId('data-object') + '-error' : null
+                "
+                (change)="onDataObject(selectValue($event))"
+                [class]="selectClass"
+              >
+                <option value="" disabled [selected]="dataObjectSlug() === null">
+                  {{ dataObjectPlaceholder }}
+                </option>
+                @for (option of dataObjectOptions(); track option.value) {
+                  <option [value]="option.value" [selected]="option.value === dataObjectSlug()">
+                    {{ option.label }}
+                  </option>
+                }
+              </select>
+              <svg
+                class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </div>
+            @if (dataObjectError(); as message) {
+              <p
+                [id]="fieldId('data-object') + '-error'"
+                role="alert"
+                class="text-xs font-medium text-(--text-primary)"
+              >
+                {{ message }}
+              </p>
+            }
+          </div>
 
           <div class="space-y-2">
             <span [id]="fieldId('direction') + '-label'" [class]="labelClass">
@@ -166,15 +200,16 @@ export function isProvisionalClaimId(claimId: string): boolean {
                   ngOption
                   [value]="option.value"
                   [label]="option.label"
-                  class="cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >
-                  {{ option.label }}
+                  <span aria-hidden="true">{{ option.glyph }}</span>
+                  <span>{{ option.label }}</span>
                 </li>
               }
             </ul>
           </div>
 
-          <div class="space-y-1.5">
+          <div class="max-w-2xl space-y-2">
             <label [for]="fieldId('note')" [class]="labelClass">
               <ng-container i18n="@@vendor.attest.add.note">Note</ng-container>
               <span class="ms-1 font-normal normal-case" i18n="@@vendor.attest.add.note.optional"
@@ -192,62 +227,79 @@ export function isProvisionalClaimId(claimId: string): boolean {
           </div>
 
           @if (versions().length > 0) {
-            <div class="grid gap-3 sm:grid-cols-2">
-              <aec-select
-                layout="stacked"
-                [label]="introducedLabel"
-                [placeholder]="anyVersionLabel"
-                [options]="versionOptions()"
-                [value]="introducedVersionId()"
-                [idPrefix]="fieldId('introduced')"
-                (changed)="introducedVersionId.set($event)"
-              />
-              <aec-select
-                layout="stacked"
-                [label]="deprecatedLabel"
-                [placeholder]="anyVersionLabel"
-                [options]="versionOptions()"
-                [value]="deprecatedVersionId()"
-                [idPrefix]="fieldId('deprecated')"
-                (changed)="deprecatedVersionId.set($event)"
-              />
+            <div class="grid max-w-2xl gap-4 sm:grid-cols-2">
+              @for (field of versionFields; track field.key) {
+                <div class="space-y-2">
+                  <label [for]="fieldId(field.key)" [class]="labelClass">{{ field.label }}</label>
+                  <div class="relative">
+                    <select
+                      [id]="fieldId(field.key)"
+                      (change)="field.value.set(selectValue($event))"
+                      [class]="selectClass"
+                    >
+                      @for (option of versionOptions(); track option.value) {
+                        <option
+                          [value]="option.value ?? ''"
+                          [selected]="option.value === field.value()"
+                        >
+                          {{ option.label }}
+                        </option>
+                      }
+                    </select>
+                    <svg
+                      class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
+              }
             </div>
           }
 
-          @if (localDuplicate(); as existing) {
-            <div class="space-y-2">
-              <p role="status" class="text-sm text-(--text-primary)">
-                {{ duplicateMessage(existing.data_object_name) }}
-              </p>
+          <div class="space-y-3 border-t border-(--border-default) pt-5">
+            @if (localDuplicate(); as existing) {
+              <div class="space-y-2">
+                <p role="status" class="text-sm text-(--text-primary)">
+                  {{ duplicateMessage(existing.data_object_name) }}
+                </p>
+                <button
+                  type="button"
+                  [class]="secondaryButtonClass"
+                  (click)="goToExisting(existing)"
+                  i18n="@@vendor.attest.add.goToExisting"
+                >
+                  Go to the existing data flow
+                </button>
+              </div>
+            } @else {
               <button
                 type="button"
-                [class]="secondaryButtonClass"
-                (click)="goToExisting(existing)"
-                i18n="@@vendor.attest.add.goToExisting"
+                [class]="primaryButtonClass"
+                [disabled]="submitting() || !valid()"
+                (click)="onSubmit()"
+                i18n="@@vendor.attest.add.submit"
               >
-                Go to the existing data flow
+                Add data flow
               </button>
-            </div>
-          } @else {
-            <button
-              type="button"
-              [class]="primaryButtonClass"
-              [disabled]="submitting() || !valid()"
-              (click)="onSubmit()"
-              i18n="@@vendor.attest.add.submit"
-            >
-              Add data flow
-            </button>
-          }
+            }
 
-          <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.add.hint">
-            Adding a data flow records your confirmation of it. The other vendor can confirm it too.
-            Directory pages update right away; search refreshes within a day.
-          </p>
+            <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.add.hint">
+              Adding a data flow records your confirmation of it. The other vendor can confirm it
+              too. Directory pages update right away; search refreshes within a day.
+            </p>
 
-          @if (notice(); as message) {
-            <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
-          }
+            @if (notice(); as message) {
+              <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+            }
+          </div>
         }
       </div>
     </details>
@@ -304,9 +356,9 @@ export class VendorAddClaimForm {
    * order stays exactly as it is on the wire and in the lanes; only this control
    * diverges, because the two lists do different jobs. A lane list is read — the
    * lifecycle grouping is the point. A picker is *searched*: the vendor already
-   * knows they want "Submittals", and `AecSelect` is a non-editable combobox
-   * with no type-to-filter, so an unfamiliar semantic order makes finding a
-   * known label a 27-item linear scan with no anchor.
+   * knows they want "Submittals". Scanning the open list in an unfamiliar semantic
+   * order is a 27-item linear search with no anchor, and a native select's
+   * type-to-find only helps a vendor who already knows the exact label.
    *
    * Sorted here rather than in SQL on purpose. The key is the **display name in
    * the active locale**, so it must follow the rendered label through the shared
@@ -314,20 +366,27 @@ export class VendorAddClaimForm {
    * wire order. The in-place `sort` is safe — it runs on the array `map` just
    * produced, not on the `dataObjects()` input.
    */
-  protected readonly dataObjectOptions = computed<readonly AecSelectOption[]>(() =>
+  protected readonly dataObjectOptions = computed<readonly SelectOption[]>(() =>
     this.dataObjects()
       .map((term) => ({ value: term.slug, label: term.name }))
       .sort((a, b) => compareText(a.label, b.label)),
   );
 
+  /**
+   * The picker order is **outbound → both → inbound**, not `DIRECTION_ORDER`.
+   * The glyphs read left to right as `→`, `⇄`, `←`, so the "both ways" choice
+   * sits between the two one-way choices it combines. `DIRECTION_ORDER` still
+   * governs the lane order on the public pair page and this tab's lane list.
+   */
   protected readonly directionOptions = computed(() =>
-    DIRECTION_ORDER.map((value) => ({
+    PICKER_DIRECTION_ORDER.map((value) => ({
       value,
+      glyph: directionGlyph(value),
       label: directionHeading(value, this.otherProductName()),
     })),
   );
 
-  protected readonly versionOptions = computed<readonly AecSelectOption[]>(() => [
+  protected readonly versionOptions = computed<readonly SelectOption[]>(() => [
     { value: null, label: this.anyVersionLabel },
     ...this.versions().map((v) => ({ value: v.id, label: v.label })),
   ]);
@@ -371,6 +430,15 @@ export class VendorAddClaimForm {
   protected readonly deprecatedLabel = $localize`:@@vendor.attest.versions.deprecated:Removed in`;
   protected readonly anyVersionLabel = $localize`:@@vendor.attest.versions.any:Not specified`;
 
+  /** Both version pickers render from one template block. */
+  protected readonly versionFields = [
+    { key: 'introduced', label: this.introducedLabel, value: this.introducedVersionId },
+    { key: 'deprecated', label: this.deprecatedLabel, value: this.deprecatedVersionId },
+  ] as const;
+
+  protected readonly selectClass =
+    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+
   protected readonly labelClass =
     'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
   protected readonly inputClass =
@@ -386,6 +454,11 @@ export class VendorAddClaimForm {
 
   protected duplicateMessage(dataObjectName: string): string {
     return $localize`:@@vendor.attest.add.duplicate:You already have a ${dataObjectName}:dataObject: data flow in that direction.`;
+  }
+
+  /** A native select reports `""` for the placeholder and "Not specified" rows. */
+  protected selectValue(event: Event): string | null {
+    return (event.target as HTMLSelectElement).value || null;
   }
 
   protected onDataObject(slug: string | null): void {

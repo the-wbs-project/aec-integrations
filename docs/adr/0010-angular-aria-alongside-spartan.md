@@ -400,3 +400,24 @@ lets an active list filter re-open a card the reader had closed. The component's
 carries the full reasoning, and
 `apps/web/src/app/products/integration-group-card.component.spec.ts` asserts the invariant that
 matters: a collapsed panel is hidden, never emptied.
+
+## Amendment (2026-09-17): deviation (d) — a plain single-value form field may be a native `<select>`
+
+The vendor portal's data-flow forms moved off `AecSelect` onto native `<select>` elements: the add
+form's `data_object` picker and its two version pickers (`vendor/components/vendor-add-claim-form.ts`),
+and each lane's two version pickers (`vendor/components/vendor-attestation-control.ts`). The combobox
+trigger read as a custom widget in the middle of a plain form, and a native select gives the same
+closed-list guarantee with platform keyboard and type-to-find behaviour.
+
+The exception is narrow. A native `<select>` is allowed when **all** of these hold:
+
+- the field takes **one** value from a **closed** list, so there is no free text to reject;
+- the options are plain text, with no icons, descriptions or grouping the platform cannot render;
+- nothing filters the list as the user types;
+- the field sits in an ordinary form beside native inputs, not in a toolbar, nav row or overlay.
+
+It needs a real `<label for>`, a `""` placeholder or "Not specified" row mapped to `null` in the change
+handler, and the shared token classes (`appearance-none` plus a decorative chevron). Everything else in
+the Decision still stands. Discrete choices that are not a dropdown, such as the direction control in the
+same add form, stay an Aria `ngListbox`. Surfaces that need a styled, filterable or overlay dropdown keep
+`AecSelect`. This narrows rule 1; it does not reopen the ADR.
