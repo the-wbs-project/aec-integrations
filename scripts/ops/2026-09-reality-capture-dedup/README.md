@@ -8,7 +8,8 @@ environment. Snapshots are committed under `backups/`:
 | demo | `20260917T043626Z-demo` | `20260917T043654Z-demo` | 10 |
 | production | `20260917T043849Z-production` | `20260917T043859Z-production` | 6 |
 
-Production held 6 products on the minted row at run time, not the 10 in the table below.
+Production moved 6, not 10. The other 4 were already joined to `reality-capture`, because
+they were re-promoted on 2026-09-16 and 2026-09-17, after the upstream rename.
 
 ## What is wrong
 
