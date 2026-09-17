@@ -929,6 +929,12 @@ pre-existing spec passes **unmodified**.
   **Angular Aria** (`@angular/aria`) — combobox/listbox stand in for the `select`/`radio` Aria@22
   does not ship — and bridge into Signal Forms via `[(value)]` + `(valueChange)`, not
   `[formField]`.
+  *(2026-09-17, ADR 0010 deviation (d): the add form's `data_object` picker and every version picker,
+  in the add form and in each lane editor, are now **native `<select>` elements**, not `AecSelect`
+  comboboxes. The combobox looked out of place in a plain form, and a native dropdown adds type-to-find.
+  The closed-list property is unchanged, because a select still cannot submit a free-text term. Direction stays an Aria listbox, now ordered
+  **Sends to → / Syncs both ways ⇄ / Receives from ←** with the glyph shown on each button, so the
+  arrows read left to right. `DIRECTION_ORDER` still governs lane order everywhere else.)*
 - **Copy discipline:** no instant-search promise (§5.2); no implication that attesting affects
   ranking or placement; "Verified" framed as an account status.
 - Design checklist as in §4.3 — same anchor site as the rest of the vendor portal, light theme
@@ -978,7 +984,8 @@ Decisions taken at build that §6 did not pre-specify:
   (Projects & Jobs → Models → … → Compliance Documents) is the information in them. The picker is
   **searched**: the vendor already knows they want "Submittals", and `AecSelect` is a non-editable
   Aria combobox with no type-to-filter, so an unfamiliar semantic order makes finding a known label
-  a 27-item linear scan with no anchor. Sorted client-side on the rendered `name` via `compareText`
+  a 27-item linear scan with no anchor. *(Since 2026-09-17 the picker is a native `<select>`, not
+  `AecSelect`. The alphabetical sort still holds for the same reason.)* Sorted client-side on the rendered `name` via `compareText`
   (`@aeci/shared/text-sort`) rather than in SQL, because the terms are translatable copy and the
   rendered label is what the vendor scans. That comparator pins its locale to `'en'` instead of
   taking the ambient one (AECI-825), so the SSR Worker and the browser cannot order the picker
@@ -1012,7 +1019,8 @@ Decisions taken at build that §6 did not pre-specify:
 - **Affirm / Deny / Clear are plain buttons, not an Aria listbox.** ADR 0010 governs discrete-choice
   *form controls*; these are commands that fire a write on activation, map to two different HTTP
   verbs, and Clear is a withdrawal rather than a third value. Aria is used where §6 asks for it: the
-  `data_object` combobox, the direction listbox, and the version pickers.
+  `data_object` combobox, the direction listbox, and the version pickers. *(Since 2026-09-17 only the direction
+  listbox remains Aria. The data-object and version pickers are native selects, per ADR 0010 deviation (d).)*
 - **The add form is hand-rolled signals validated against the shared `CreateVendorClaimSchema`**,
   matching its two siblings in `vendor/` rather than Signal Forms. Signal Forms does not materialise
   a field seeded `undefined`, which is the shape of both required choices here (there is no valid

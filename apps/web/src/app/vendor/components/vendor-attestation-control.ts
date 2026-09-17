@@ -18,7 +18,6 @@ import type {
   VendorOwnAttestation,
 } from '@aeci/shared';
 
-import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi, type VendorAttestationPosition } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -104,7 +103,6 @@ import { ownStanceLabel } from './vendor-attestation-labels';
  */
 @Component({
   selector: 'aec-vendor-attestation-control',
-  imports: [AecSelect],
   styles: [':host { display: block; }'],
   template: `
     <div class="mt-3 space-y-3">
@@ -154,24 +152,39 @@ import { ownStanceLabel } from './vendor-attestation-labels';
 
           @if (versions().length > 0) {
             <div class="grid gap-3 sm:grid-cols-2">
-              <aec-select
-                layout="stacked"
-                [label]="introducedLabel"
-                [placeholder]="anyVersionLabel"
-                [options]="versionOptions()"
-                [value]="introducedVersionId()"
-                [idPrefix]="fieldId('introduced')"
-                (changed)="introducedVersionId.set($event)"
-              />
-              <aec-select
-                layout="stacked"
-                [label]="deprecatedLabel"
-                [placeholder]="anyVersionLabel"
-                [options]="versionOptions()"
-                [value]="deprecatedVersionId()"
-                [idPrefix]="fieldId('deprecated')"
-                (changed)="deprecatedVersionId.set($event)"
-              />
+              @for (field of versionFields; track field.key) {
+                <div class="space-y-2">
+                  <label [for]="fieldId(field.key)" [class]="labelClass">{{ field.label }}</label>
+                  <div class="relative">
+                    <select
+                      [id]="fieldId(field.key)"
+                      (change)="field.value.set(selectValue($event))"
+                      [class]="selectClass"
+                    >
+                      @for (option of versionOptions(); track option.value) {
+                        <option
+                          [value]="option.value ?? ''"
+                          [selected]="option.value === field.value()"
+                        >
+                          {{ option.label }}
+                        </option>
+                      }
+                    </select>
+                    <svg
+                      class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
+              }
             </div>
             <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.versions.hint">
               Versions of your own product only.
@@ -331,10 +344,12 @@ export class VendorAttestationControl {
     return a.note !== b.note || a.asserted !== b.asserted;
   });
 
-  protected readonly versionOptions = computed<readonly AecSelectOption[]>(() => [
-    { value: null, label: this.anyVersionLabel },
-    ...this.versions().map((v) => ({ value: v.id, label: v.label })),
-  ]);
+  protected readonly versionOptions = computed<readonly { value: string | null; label: string }[]>(
+    () => [
+      { value: null, label: this.anyVersionLabel },
+      ...this.versions().map((v) => ({ value: v.id, label: v.label })),
+    ],
+  );
 
   /**
    * What the disclosure says while it is closed.
@@ -375,6 +390,16 @@ export class VendorAttestationControl {
   protected readonly deprecatedLabel = $localize`:@@vendor.attest.versions.deprecated:Removed in`;
   protected readonly anyVersionLabel = $localize`:@@vendor.attest.versions.any:Not specified`;
 
+  /** Both version pickers render from one template block. Native selects, to
+   *  match the add form (`vendor-add-claim-form.ts`). */
+  protected readonly versionFields = [
+    { key: 'introduced', label: this.introducedLabel, value: this.introducedVersionId },
+    { key: 'deprecated', label: this.deprecatedLabel, value: this.deprecatedVersionId },
+  ] as const;
+
+  protected readonly selectClass =
+    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+
   protected readonly labelClass =
     'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
   protected readonly inputClass =
@@ -383,6 +408,11 @@ export class VendorAttestationControl {
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   protected readonly secondaryButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+
+  /** A native select reports `""` for the "Not specified" row. */
+  protected selectValue(event: Event): string | null {
+    return (event.target as HTMLSelectElement).value || null;
+  }
 
   protected fieldId(key: string): string {
     return `vendor-claim-${this.claim().id}-${key}`;
