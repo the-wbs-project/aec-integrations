@@ -1821,7 +1821,7 @@ The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is
 
 ### 11a.8 Deliberately deferred
 
-- **An `invites` scope on `GET /api/vendor/updates`.** There were exactly six cursor scopes when this shipped. AECI-1008 has since added a seventh, `contests` (§11b.8), so an `invites` scope would be the eighth, and it is still its own change. Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
+- **An `invites` scope on `GET /api/vendor/updates`.** There were exactly six cursor scopes when this shipped. AECI-1008 has since added a seventh, `contests` (§11b.8), so an `invites` scope would be the eighth, and it is still its own change. (AECI-992 added a second `integrations` read, not a scope, so the batch is eight SELECTs for seven scopes.) Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
 - ~~**Cross-domain invites.**~~ **Shipped 2026-08-26** — the domain gate was removed outright; see §11a.3. The §5 claim queue remains the path for someone with no owner to ask.
 - **Bulk/CSV invite, and role tiers beyond owner/member.**
 - **A seat-count capability or per-seat billing** — a Paid Tiers (AECI-515) decision, not this one's.

@@ -70,7 +70,11 @@ export const VendorRevisionsSchema = z.object({
   entitlement: z.string().nullable(),
   /** `MAX(products.updated_at)` over the vendor's `product_vendors` rows. */
   products: z.string().nullable(),
-  /** `MAX` over claims ∪ attestations on the vendor's attestable integrations. */
+  /**
+   * `MAX` over the vendor's owned `integrations` rows ∪ their claims ∪ those
+   * claims' attestations. The row term (AECI-992) is what moves on a rename, a
+   * `powered_by_product_id` flip, or a new integration with no claim yet.
+   */
   integrations: z.string().nullable(),
   /** `MAX(audit_log.created_at)` over this vendor's `notification.sent` ledger. */
   notifications: z.string().nullable(),

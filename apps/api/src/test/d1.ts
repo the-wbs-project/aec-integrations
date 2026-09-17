@@ -15,7 +15,7 @@
  *
  * The shim does return one result **per statement**, positionally, because
  * `db.batch()` is not only a write construct: `GET /api/vendor/updates` (AECI-627)
- * batches seven SELECTs to buy one D1 round trip instead of seven, and a shim that
+ * batches eight SELECTs to buy one D1 round trip instead of eight, and a shim that
  * answered `[]` would make every cursor read `undefined` — the endpoint would
  * "pass" its specs while reporting that nothing ever changes. better-sqlite3 needs
  * the read/write split made explicit (`.run()` on a SELECT returns no rows;

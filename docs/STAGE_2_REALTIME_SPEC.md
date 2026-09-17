@@ -154,7 +154,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 
 `server_time` is the server's clock at read, carried so the client never has to compare a server timestamp against `Date.now()`. It exists because the two clocks are not the same clock and the difference between them is not bounded; without it, a modest client skew turns a fresh cursor into a permanently-stale one (or the reverse).
 
-**Seven SELECTs in one `db.batch([...])`** (six until AECI-1008) — one D1 round trip, not seven. The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
+**Eight SELECTs for seven scopes in one `db.batch([...])`** — one D1 round trip, not eight. (Six until AECI-1008 added the `contests` scope, seven until AECI-992 added the `integrations` row term; see §2.2.) The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
 
 ### 2.2 Scope → source of truth
 
@@ -163,7 +163,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 | `profile` | `vendors.updated_at` for the session vendor (also moves on the `verified` mirror flip, since the mirror is written in the same batch as the entitlement — `STAGE_2_PAID_TIERS_SPEC.md` §2.1) |
 | `entitlement` | `MAX(vendor_entitlements.updated_at)` for the vendor (`vendor_id` is UNIQUE → ≤1 row, so the `MAX` is a formality that keeps the query shape uniform) |
 | `products` | `MAX(products.updated_at)` over `product_vendors.vendor_id = ?` — the shared `ownedProductIds(db, vendorId)` subquery (`apps/api/src/routes/vendor-shared.ts:137`) |
-| `integrations` | `MAX` over `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on |
+| `integrations` | `MAX` over `integrations.updated_at` ∪ `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on |
 
 > **AECI-705 left this predicate deliberately alone (2026-08-31).** The connector gate
 > (`STAGE_2_ATTESTATIONS_SPEC.md` §14) makes ~14% of edges non-attestable, and the obvious
@@ -180,6 +180,17 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 > is stale, which is the cheap half of the failure. Widening the cursor to notice it would mean
 > touching the authorization boundary for a cosmetic gain, which is the trade the paragraph above
 > already declines.
+>
+> **Superseded by AECI-992 (2026-09-17).** The consequence above is closed, and the premise that
+> closing it widens the authorization boundary was wrong. The cursor now also reads
+> `MAX(integrations.updated_at)` in its own SELECT, `FROM integrations` inner-joined on the **same**
+> `ownedEndpointJoin(vendorId)`. The predicate is byte-identical, so no row the caller could not
+> already see enters the scope. Only the set of columns that count as a change grew. Two defects
+> closed with it: an edit to a row field the list ships (`name`, `mechanism_kind`, `mechanism_name`,
+> `powered_by_product_id` → `attestable`) now moves the cursor, and an owned integration with **no
+> claim** is now visible to it. Before, the claim-rooted join could not reach that row at all. The
+> list handler reads no `connector_evidenced_pairs` row, so the cursor covers none.
+> `vendor-updates.spec.ts` pins the row edit, the claimless insert, and the non-owned case.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 | `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision. The list caps each side at 100 rows and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |
@@ -227,7 +238,7 @@ Four of the seven scopes collapse onto `me` because that is what the payload alr
 
 ### 2.6 As built (AECI-627 — 2026-08-19)
 
-Shipped as specified: one route, six SELECTs (seven since AECI-1008 added `contests`), one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
+Shipped as specified: one route, six SELECTs (seven since AECI-1008 added `contests`, eight since AECI-992 added the `integrations` row term, §2.2), one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
 
 Four decisions taken at build that §2.1–§2.5 did not pre-specify:
 
