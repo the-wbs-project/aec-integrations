@@ -102,6 +102,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
               [products]="m.products"
               [canEdit]="canEditProducts()"
               [canEditTaxonomy]="canEditTaxonomy()"
+              [canEditUsefulness]="canEditUsefulness()"
             />
           </div>
         </section>
@@ -194,5 +195,8 @@ export class VendorDashboardSingle {
   protected readonly canEditProducts = computed(() => this.capabilities().includes('product.edit'));
   protected readonly canEditTaxonomy = computed(() =>
     this.capabilities().includes('product.taxonomy.edit'),
+  );
+  protected readonly canEditUsefulness = computed(() =>
+    this.capabilities().includes('product.usefulness.edit'),
   );
 }

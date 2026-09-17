@@ -82,13 +82,15 @@ export const VENDOR_SECTION_ROUTES: Routes = [
         loadComponent: () =>
           import('./sections/vendor-product-profile-page').then((m) => m.VendorProductProfilePage),
       },
-      {
-        path: 'taxonomy',
+      // AECI-994: one tab per taxonomy facet. The old combined tab redirects so a
+      // saved link still lands somewhere useful.
+      { path: 'taxonomy', pathMatch: 'full', redirectTo: 'categories' },
+      ...(['categories', 'trades', 'audiences', 'phases'] as const).map((facet) => ({
+        path: facet,
+        data: { facet },
         loadComponent: () =>
-          import('./sections/vendor-product-taxonomy-page').then(
-            (m) => m.VendorProductTaxonomyPage,
-          ),
-      },
+          import('./sections/vendor-product-facet-page').then((m) => m.VendorProductFacetPage),
+      })),
       {
         path: 'integrations',
         loadComponent: () =>

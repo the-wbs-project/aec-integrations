@@ -72,7 +72,10 @@ export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
  */
 export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'profile', label: $localize`:@@vendor.productNav.profile:Profile` },
-  { path: 'taxonomy', label: $localize`:@@vendor.productNav.taxonomy:Taxonomy` },
+  { path: 'categories', label: $localize`:@@vendor.productNav.categories:Categories` },
+  { path: 'trades', label: $localize`:@@vendor.productNav.trades:Trades` },
+  { path: 'audiences', label: $localize`:@@vendor.productNav.audiences:Audiences` },
+  { path: 'phases', label: $localize`:@@vendor.productNav.phases:Phases` },
   { path: 'integrations', label: $localize`:@@vendor.productNav.integrations:Integrations` },
 ];
 

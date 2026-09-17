@@ -64,7 +64,10 @@ async function mount(
               path: 'products/:productSlug',
               children: [
                 { path: 'profile', children: [] },
-                { path: 'taxonomy', children: [] },
+                { path: 'categories', children: [] },
+                { path: 'trades', children: [] },
+                { path: 'audiences', children: [] },
+                { path: 'phases', children: [] },
                 { path: 'integrations', children: [] },
               ],
             },
@@ -151,16 +154,19 @@ describe('VendorPortalNav', () => {
       ...i,
       path: `products/revit/${i.path}`,
     }));
-    const harness = await mount('/portal/products/revit/taxonomy', productItems, 'Revit sections');
+    const harness = await mount('/portal/products/revit/audiences', productItems, 'Revit sections');
 
     expect(root(harness).querySelector('nav')?.getAttribute('aria-label')).toBe('Revit sections');
     expect(items(harness).map((el) => el.getAttribute('href'))).toEqual([
       '/portal/products/revit/profile',
-      '/portal/products/revit/taxonomy',
+      '/portal/products/revit/categories',
+      '/portal/products/revit/trades',
+      '/portal/products/revit/audiences',
+      '/portal/products/revit/phases',
       '/portal/products/revit/integrations',
     ]);
     const current = items(harness).filter((el) => el.getAttribute('aria-current') === 'page');
-    expect(current.map((el) => el.textContent?.trim())).toEqual(['Taxonomy']);
+    expect(current.map((el) => el.textContent?.trim())).toEqual(['Audiences']);
   });
 
   it('scrolls the row rather than wrapping it, and renders it exactly once', async () => {

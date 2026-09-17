@@ -197,7 +197,14 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
 
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
     // The product row replaced the vendor row (§6.11).
-    expect(navLabels(harness)).toEqual(['Profile', 'Taxonomy', 'Integrations']);
+    expect(navLabels(harness)).toEqual([
+      'Profile',
+      'Categories',
+      'Trades',
+      'Audiences',
+      'Phases',
+      'Integrations',
+    ]);
     expect(navLink(harness, 'Integrations').getAttribute('aria-current')).toBe('page');
   });
 
@@ -577,7 +584,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
   });
 
   it('switches the breadcrumb, h1 and tab row to an open product', async () => {
-    const harness = await open('products/summit-field-issues/taxonomy');
+    const harness = await open('products/summit-field-issues/categories');
     const el = root(harness);
 
     expect(crumbs(harness)).toEqual(['Vendor', company, 'Products', 'Summit Field Issues']);
@@ -586,7 +593,14 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
     expect(el.querySelector('aec-vendor-portal-nav nav')?.getAttribute('aria-label')).toBe(
       'Summit Field Issues sections',
     );
-    expect(navLabels(harness)).toEqual(['Profile', 'Taxonomy', 'Integrations']);
+    expect(navLabels(harness)).toEqual([
+      'Profile',
+      'Categories',
+      'Trades',
+      'Audiences',
+      'Phases',
+      'Integrations',
+    ]);
     // No second heading inside the product page.
     expect(el.querySelector('aec-vendor-products-page > h2')).toBeNull();
   });

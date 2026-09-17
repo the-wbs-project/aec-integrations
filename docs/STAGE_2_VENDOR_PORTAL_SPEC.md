@@ -302,7 +302,7 @@ The full contract is `STAGE_2_5_SPEC.md` §12 and ADR 0033. What matters for thi
 - **It publishes immediately, with no moderation and no "vendor supplied" label.** Both were considered and declined; the editor's own copy carries the fact instead. §12.1 of the 2.5 spec records the re-open triggers.
 - **Purge tags are unchanged** (`product:{slug}` already covers the detail page), and Algolia needs nothing because `usefulness` is not an indexed attribute. `MATERIAL_PRODUCT_FIELDS` gains it, so an edit files as `product.updated` rather than `product.minor` in the ADR 0031 re-crawl worklist.
 
-The editor is a summary card per facet with a modal behind a pencil, matching §4.3's taxonomy pattern — except that this modal **stages into the form's dirty-diff** rather than saving on close, so the content saves with the page's Save button. Both components' class docs explain why they differ, because at a glance they look like a copy that drifted.
+The editor shipped as a summary card per facet with a modal behind a pencil, on the Profile tab. **Since AECI-994 (§6.12) there is no separate editor:** the points for a term are written directly under that term on the Audiences or Phases tab, and one Save sends the slug array and `usefulness` together.
 
 ## 5. Admin claim-review surface (AECI-521)
 
@@ -501,13 +501,13 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
   > **A save also transfers the maintenance marker (AECI-981, 2026-09-16).** Every vendor-authorized catalog write sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes, so the public listing reads `Vendor-maintained · Updated <date>` instead of `Maintained by AEC Integrations`. That covers both forms here **and all three product-version writes**. It is derived server-side and is not a field on the PATCH schema or its echo. Until this landed, the portal and the public page disagreed about who maintained the record: nothing anywhere wrote `vendors.maintained_by` or `products.maintained_by`, because §13.4 of `STAGE_2_ATTESTATIONS_SPEC.md` had only ever flipped `integrations`. The contract is that doc's §13.9.
 
-- **Product taxonomy: a summary on the page, a modal to change it** (AECI-915, superseding the `aria-pressed` toggle-chip fieldsets AECI-522 shipped). The four facets used to render every term as a chip — **107 of them** across categories (32), audiences (36), phases (5) and trades (34) — so reading "what is this product tagged as" meant diffing pressed against unpressed, and the per-term `taxonomy_*.description` had nowhere to render. Four rules:
+- **Product taxonomy: a summary on the page, a modal to change it** (AECI-915, superseding the `aria-pressed` toggle-chip fieldsets AECI-522 shipped). **Superseded by §6.12 (AECI-994):** each facet is now its own tab with the vocabulary inline and a page Save, and both modals were deleted. The rules below are kept as the record of why the modal existed; rules 2 (descriptions beside each term), 3 (a `<label>` around a real checkbox) and 4 (never scroll a `<fieldset>`) carry over unchanged. The four facets used to render every term as a chip — **107 of them** across categories (32), audiences (36), phases (5) and trades (34) — so reading "what is this product tagged as" meant diffing pressed against unpressed, and the per-term `taxonomy_*.description` had nowhere to render. Four rules:
 
   1. **The page is a summary, two columns from `md` up.** One card per facet: the facet name, a pencil, and one row per **assigned** term. The full vocabulary is not on the page at all.
   2. **Every explanation is an `<aec-info-hint>`** (`shared/info-hint/`), whose **accessible name is the text**, not a `title` attribute and not an `aria-describedby` on the panel — the same contract `shared/relative-time/` established, so a keyboard or screen-reader user gets the copy without the overlay ever mounting. Two levels of it: the AECI-913 **facet hint** beside the heading, and each assigned term's **AECI-911 `description`** beside its row. The picker (`vendor-taxonomy-facet-dialog.ts`) then writes the facet hint out in full at the top and gives every term its description as its own column, because that is the moment the guidance is actually wanted.
@@ -814,7 +814,7 @@ gains a 20-product entry, because a search box over two options tells you nothin
 a product a **place** rather than a parameter, and moves the Integrations tab into it.
 
 **The portal row is now:** Vendor Overview · Profile · Products · **Messages** · Seats. (Products is a disclosure, but it renders no arrow icon — see `DESIGN.md` §Navigation.)
-**A product gains its own row:** Profile · Taxonomy · Integrations.
+**A product gains its own row:** Profile · Taxonomy · Integrations. (§6.12 replaced Taxonomy with Categories · Trades · Audiences · Phases.)
 
 Both route lists come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
 `VENDOR_PRODUCT_NAV_ITEMS`). The product row is rendered by
@@ -849,7 +849,7 @@ their presentation now states the hierarchy:
   a named `<nav>` and lets `routerLinkActive` set `aria-current="page"`. It does not
   claim tab, pressed-button or application-widget semantics, and every link keeps a
   visible focus outline.
-- **No container was added around product content.** Profile, Taxonomy and Integrations
+- **No container was added around product content.** Profile, Taxonomy (now the four facet tabs, §6.12) and Integrations
   already render card surfaces, so wrapping them in another card would create the
   nested-card treatment prohibited by `DESIGN.md`.
 
@@ -927,6 +927,8 @@ Requests are shown above the archive because they are different in kind: `vendor
 rows **are** current state, ride `GET /api/vendor/me`, and carry a status the vendor acts on.
 
 #### Taxonomy is a projection, not a second form
+
+> **Superseded by §6.12 (AECI-994).** The `section` input and the projection are gone. The Profile tab renders `vendor-product-form.ts` alone, and each facet tab renders `vendor-product-facet-editor.ts`, which owns its own baseline and dirty-diff. The two never race: each sends only the fields it renders.
 
 `vendor-product-form.ts` gains a `section: 'all' | 'profile' | 'taxonomy'` input and is
 rendered twice rather than split. `PATCH /api/vendor/products/:id` requires ≥1 changed
@@ -1289,7 +1291,7 @@ plain Vitest spec. The section only turns them into copy.
 | Needs you now | One row per product with conflicts | ≥ 1 claim with `agreement = 'conflict'` | `products/:slug/integrations` |
 | Needs you now | One row per open correction | `kind = 'correction'`, status `open` or `in_review` | `messages` |
 | Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
-| Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/taxonomy` if categories are missing, else `products/:slug/profile` |
+| Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
 | Worth doing | Company profile gaps | `profile.edit` | `profile` |
 | Worth doing | Unaccepted seat invites | `can_manage_seats` | `seats` |
 
@@ -1376,8 +1378,6 @@ capability gating), `vendor-glance-band.component.spec.ts`,
 integrations read loads or fails, one live region,
 the announced retry).
 
----
-
 ### 6.11 As built — one header that follows the context (2026-09-17)
 
 A product page stacked two headers and two nav rows: the vendor's `h1`, public link
@@ -1437,6 +1437,73 @@ vendor context, product-to-product reuse, and the unowned-product case.
 `e2e/preview-vendor-portal-nav.spec.ts` drops the dropdown suite and drives
 Products → list → product → crumb back, with an axe pass in each context.
 `e2e/vendor-dashboard.spec.ts` reaches Integrations through the list.
+
+### 6.12 As built — one tab per taxonomy facet, with "How teams use it" under Audiences and Phases (AECI-994 — 2026-09-17)
+
+Tagging a product with an audience happened in one modal on the Taxonomy tab. Writing how that
+audience uses the product happened in a second modal on the Profile tab. It was the same decision
+split across two tabs, and the points editor was a textarea where each line silently became a
+bullet.
+
+**The product row is now:** Profile · Categories · Trades · Audiences · Phases · Integrations.
+
+- **Routes.** `…/products/:productSlug/{categories,trades,audiences,phases}`, all four served by
+  `sections/vendor-product-facet-page.ts` with the facet in route `data`. `…/taxonomy` redirects
+  to `…/categories`. The overview's "What needs you" row for missing categories links to
+  `…/categories`.
+- **One component per facet tab:** `components/vendor-product-facet-editor.ts`. It renders the
+  full vocabulary inline as a checklist with each term's description beside it. There is no
+  modal. The row is still a `<label>` around a real checkbox, and the list still never scrolls
+  inside a `<fieldset>` (§6.1 rules 3 and 4).
+- **Nothing persists until Save.** One `PATCH /api/vendor/products/:id` carries the facet's slug
+  array when it changed and the complete `usefulness` value when the points changed. The handler
+  writes both in one `db.batch`, so a tag and its points cannot land half-way. This reverses
+  §6.1 rule 5 (the modal's Save persisted). That rule existed because a modal "Save" that only
+  staged would read as saved; a page Save button that PATCHes has no such ambiguity. An unsaved
+  draft is protected by `markDirty` exactly like the Profile form, with the owner
+  `productId:facet`, and the registration is withdrawn when the tab is destroyed. Leaving the tab
+  with unsaved changes loses them, which is also true of the Profile form (no `CanDeactivate`).
+- **Categories and Trades** are the checklist and nothing else. The 10-term cap disables further
+  ticks once reached, and the counter shows it.
+- **Audiences and Phases** open a bullet list under each ticked term
+  (`components/vendor-bullet-list-editor.ts`): one input per point, a plus button that adds a
+  point at the bottom, and per-row move up, move down and remove buttons. Reordering is buttons,
+  not drag, so it works with a keyboard and satisfies WCAG 2.5.7 without a second model. Focus
+  moves deliberately after each action, and moves and removals are announced through the portal
+  announcer. Enter never submits the form; on the last point it adds another. The caps (8 points,
+  200 characters) mirror `VendorUsefulnessSchema`. Blank points are dropped and a term with none
+  sends no group.
+- **Points require the tag, in the portal.** A points list is only offered under a ticked term.
+  Unticking a term that has points opens a `BrnDialog` listing the exact points that will be
+  deleted, with "Keep them" and "Remove". A term with no written points unticks without asking.
+  The server does **not** enforce this yet: promote never had the rule, so an existing product can
+  carry points for an untagged term. Those render unticked, with their points and a note saying
+  they are published but untagged, and a "Remove these points" action. Showing them is not an
+  edit. Server-side enforcement waits on a read-only production check of how many such groups
+  exist.
+- **Gates stay field-granular.** Ticks need `product.edit` + `product.taxonomy.edit`; points need
+  `product.edit` + `product.usefulness.edit`. A lapsed vendor sees everything read-only with Save
+  withheld. No tab is route-gated.
+- **Group order is preserved.** Stored groups keep their order and new groups append, and stored
+  points are compared after trimming, so a promoted value is never dirty on seed. Reordering points
+  is an edit.
+- **The save echo is spliced into the store's `me`** by both the facet editor and the Profile form,
+  so a sibling tab mounts on the saved value instead of waiting for the next poll.
+- **The Profile form is text fields only.** `vendor-product-form.ts` lost its `section` input, the
+  taxonomy summary cards and the usefulness cards. `vendor-products-section.ts` takes
+  `section: 'all' | 'profile' | ProductFacetKind`; `'all'` (the single-page concept) renders the
+  form and all four editors.
+- **Deleted:** `vendor-taxonomy-facet-dialog.ts`, `vendor-usefulness-dialog.ts`,
+  `sections/vendor-product-taxonomy-page.ts`, and their specs.
+
+**Tests.** `vendor-product-facet-editor.component.spec.ts` (inline vocabulary, write-on-Save only,
+the combined PATCH without group names, the other facet carried through, reorder as an edit, the
+removal confirmation and its cancel, untagged points shown, the length cap, both capability axes,
+the store splice), `vendor-bullet-list-editor.component.spec.ts` (add at bottom, cap, remove, move,
+focus after each, announcements, Enter never submits, read-only), `vendor-portal-nav.component.spec.ts`
+and `vendor-dashboard-tabbed.component.spec.ts` (six product tabs), and `vendor-overview-model.spec.ts` (the categories link).
+
+---
 
 ## 7. Moderation escalation — ban gate (AECI-524)
 

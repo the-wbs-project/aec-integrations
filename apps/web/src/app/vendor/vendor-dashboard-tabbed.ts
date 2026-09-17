@@ -33,7 +33,7 @@ import { VendorPortalNav } from './vendor-portal-nav';
  *   - product context (`…/products/:productSlug/*`, for a product this vendor
  *     owns): `Vendor › Acme › Products › Revit`, the product as the `h1`, the
  *     product's public page, a "Back to Acme" link, and the product tabs
- *     (Profile / Taxonomy / Integrations) in place of the vendor tabs.
+ *     (Profile / Categories / Trades / Audiences / Phases / Integrations) in place of the vendor tabs.
  *
  * It used to render the vendor header and tab row always, and the product page
  * stacked its own `h2`, public link and a segmented second row under them. Two
