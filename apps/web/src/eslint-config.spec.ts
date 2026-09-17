@@ -457,7 +457,7 @@ describe('constraint rules do not fire on legitimate code', () => {
   });
 
   it('permits HTML numeric entities', () => {
-    // `&#10003;` is the checkmark used in vendor-products-menu.ts. `#100` is
+    // `&#10003;` is a checkmark entity (the retired vendor Products menu used it). `#100` is
     // followed by `0`, a hex digit, so no branch can complete.
     expect(lint('webSource', 'const t = `<span aria-hidden="true">&#10003;</span>`;')).toEqual([]);
     // The three-digit ones need the leading `(?<!&)` guard instead: the trailing

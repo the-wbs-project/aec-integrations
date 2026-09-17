@@ -64,41 +64,30 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
  * asserts exactly the invariant §6.3 states.
  */
 /**
- * A portal nav entry.
+ * A portal nav entry. Every entry is a `routerLink` anchor since §6.11 retired
+ * the Products dropdown.
  *
- * Four of the five are `routerLink` anchors (the portal has moved onto child
- * routes, `/vendor/:vendorSlug/<section>`). Products is a disclosure BUTTON when
- * the vendor owns more than one product, because it opens the filterable
- * products menu — so a bare `role: 'link'` lookup silently matches nothing for
- * that one, and a bare `role: 'button'` matches nothing for the other four.
- * Hence the `.or()`, and hence this helper rather than an inline `getByRole`.
- *
- * `exact` on both halves: without it Playwright substring-matches, and a nav
- * that ever gains "Products settings" would start resolving two elements.
+ * `exact`: without it Playwright substring-matches, and a nav that ever gains
+ * "Products settings" would start resolving two elements.
  */
 function section(page: Page, name: string) {
-  const nav = page.getByRole('navigation', { name: 'Portal sections' });
-  return nav
-    .getByRole('link', { name, exact: true })
-    .or(nav.getByRole('button', { name, exact: true }))
-    .first();
+  return page
+    .getByRole('navigation', { name: 'Portal sections' })
+    .getByRole('link', { name, exact: true });
 }
 
 /**
- * Navigate to a product's Integrations section (AECI-666). Integrations is no
- * longer a vendor-level tab — it lives under `…/products/:productSlug/integrations`,
- * in the product's own nav row. Bare `…/products` redirects into the default
- * product's shell (which carries the product nav), and `Integrations` is a link
- * that now exists ONLY in that row, so a bare `getByRole('link', 'Integrations')`
- * is unambiguous.
+ * Navigate to a product's Integrations section (AECI-666). Integrations lives
+ * under `…/products/:productSlug/integrations`. Since §6.11 bare `…/products` is
+ * the product list, and opening a product swaps the tab row to that product's
+ * sections, so `Integrations` is a link that exists ONLY in that row.
  */
 async function gotoIntegrations(page: Page) {
   await page.goto('/vendor');
   await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
   await page.goto(`${page.url().replace(/\/overview.*$/, '')}/products`);
-  // Bare `…/products` redirects into the default product's shell (`…/:slug/profile`).
-  // Wait for the SLUGGED url before clicking: the product nav's relative links only
-  // resolve to `…/:slug/integrations` from the slugged route, not the bare one.
+  await page.locator('aec-vendor-product-list-page a').first().click();
+  // `…/products/:slug` redirects to its default section.
   await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/profile$/);
   await page.getByRole('link', { name: 'Integrations', exact: true }).click();
   await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/integrations$/);
