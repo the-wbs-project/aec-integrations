@@ -1320,7 +1320,10 @@ position and a list we do not hold cannot back that.
 in `GET /api/vendor/integrations`: an integration whose endpoints the vendor owns
 both is listed once per frame. A vendor-wide total is the size of a set of claim
 ids, never a `flatMap(...).length` and never a sum of per-product rows. The model
-spec pins this with the owns-both mirror.
+spec pins this with the owns-both mirror. The Integrations tab's summary line
+("N data flows on record · M waiting") reads the same model (`claimsOnRecord`,
+`waitingByProduct`). It is vendor-wide on the single-page concept, where it used
+to count an owns-both integration's claims twice.
 
 **Claims stay in Messages.** A claim is someone asking for the account, not a
 comment on the listing, so it is never a row here.
