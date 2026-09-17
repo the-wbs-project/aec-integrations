@@ -881,6 +881,43 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
   ],
 };
 
+/**
+ * A SECOND integration between the same two products as {@link INTEGRATION_PROCORE}
+ * (AECI-999): native plus a connector. `integrations` has no unique index on the
+ * endpoint pair, so this is legal, and it is the only fixture that renders the
+ * drill-down's nested middle level. Every other counterpart has one integration
+ * and skips straight to its data flows.
+ */
+const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005315',
+  name: 'Summit Model Coordination ↔ Procore (Kroo Connector)',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Kroo Connector',
+  attestable: false,
+  powered_by: {
+    id: '00000000-0000-4000-8000-0000000053a1',
+    slug: 'kroo-connector',
+    name: 'Kroo Connector',
+    logo_url: null,
+  },
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_PROCORE,
+  slots: ['vendor_a'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005361',
+      integration_id: '00000000-0000-4000-8000-000000005315',
+      data_object_slug: 'budgets',
+      data_object_name: 'Budgets',
+      direction: 'both',
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+    },
+  ],
+};
+
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [
     INTEGRATION_PROCORE,
@@ -888,6 +925,8 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     INTEGRATION_VENDOR_B,
     INTEGRATION_NO_CLAIMS,
     INTEGRATION_CONNECTOR_POWERED,
+    // Last, so every index-based spec reference to the entries above holds.
+    INTEGRATION_PROCORE_VIA_CONNECTOR,
   ],
 };
 

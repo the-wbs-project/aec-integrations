@@ -1,5 +1,7 @@
 import type { AttestationDetector, CounterpartyAttestation, VendorClaim } from '@aeci/shared';
 
+import type { HealthCounts, IntegrationHealth } from './vendor-integration-health';
+
 /**
  * Vendor-facing copy for the attestation tab (AECI-606 /
  * `STAGE_2_ATTESTATIONS_SPEC.md` §6).
@@ -93,4 +95,55 @@ export function detectorTitle(detector: AttestationDetector): string {
     case 'claim-denied':
       return $localize`:@@vendor.attest.notify.claimDenied:The other vendor says this flow does not exist`;
   }
+}
+
+/**
+ * The health pill's label for a counterpart or integration row (AECI-999 /
+ * §6.3). Worded as what the vendor needs to know, never as a quality verdict on
+ * the integration itself: "Conflict" reports a disagreement between vendors, and
+ * "Via connector" is a delivery fact, not a downgrade.
+ */
+export function healthLabel(health: IntegrationHealth): string {
+  switch (health) {
+    case 'conflict':
+      return $localize`:@@vendor.attest.health.conflict:Conflict`;
+    case 'needs_you':
+      return $localize`:@@vendor.attest.health.needsYou:Needs your input`;
+    case 'responded':
+      return $localize`:@@vendor.attest.health.responded:You have responded`;
+    case 'confirmed':
+      return $localize`:@@vendor.attest.health.confirmed:Fully confirmed`;
+    case 'connector':
+      return $localize`:@@vendor.attest.health.connector:Via connector`;
+    case 'empty':
+      return $localize`:@@vendor.attest.health.empty:No data flows`;
+  }
+}
+
+/**
+ * The compact count line under a row name: total first, then only the non-zero
+ * parts, so a healthy row reads short and a row with work on it reads long.
+ * "Data flows" rather than "data points" to match every other sentence on the
+ * tab ("You confirm this flow", "N data flows on record").
+ */
+export function healthCountsLine(counts: HealthCounts): string {
+  const parts = [
+    counts.total === 1
+      ? $localize`:@@vendor.attest.counts.total.one:1 data flow`
+      : $localize`:@@vendor.attest.counts.total:${counts.total}:count: data flows`,
+  ];
+  if (counts.conflict > 0) {
+    parts.push($localize`:@@vendor.attest.counts.conflict:${counts.conflict}:count: in conflict`);
+  }
+  if (counts.waiting === 1) {
+    parts.push($localize`:@@vendor.attest.counts.waiting.one:1 needs your input`);
+  } else if (counts.waiting > 1) {
+    parts.push($localize`:@@vendor.attest.counts.waiting:${counts.waiting}:count: need your input`);
+  }
+  if (counts.confirmed > 0) {
+    parts.push(
+      $localize`:@@vendor.attest.counts.confirmed:${counts.confirmed}:count: confirmed by both vendors`,
+    );
+  }
+  return parts.join(' · ');
 }

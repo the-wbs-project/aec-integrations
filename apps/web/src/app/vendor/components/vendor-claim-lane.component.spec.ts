@@ -221,7 +221,8 @@ describe('VendorClaimLane — the unverified read-only state', () => {
     expect(el.textContent).toContain('Sends to Procore');
     expect(el.querySelector('aec-vendor-attestation-control')).toBeNull();
     expect(el.querySelector('textarea')).toBeNull();
-    expect(el.querySelectorAll('button')).toHaveLength(0);
+    // The only button is the lane's own disclosure toggle (AECI-999).
+    expect(el.querySelectorAll('button:not([aria-expanded])')).toHaveLength(0);
   });
 });
 

@@ -144,7 +144,12 @@ export const PRODUCT_ROW_CAP = 3;
 
 /** Route segments, relative to the vendor root (`/vendor/:slug` or the preview). */
 export type NeedsItemLink =
-  | { readonly kind: 'integrations'; readonly productSlug: string }
+  | {
+      readonly kind: 'integrations';
+      readonly productSlug: string;
+      /** Pre-applied status filter on the Integrations tab (AECI-999). */
+      readonly status?: 'conflict' | 'needs_you';
+    }
   | { readonly kind: 'productProfile'; readonly productSlug: string }
   | { readonly kind: 'productCategories'; readonly productSlug: string }
   | { readonly kind: 'products' }
@@ -249,7 +254,7 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         key: `conflict:${row.product.id}`,
         product: row.product,
         count: row.count,
-        link: { kind: 'integrations', productSlug: row.product.slug },
+        link: { kind: 'integrations', productSlug: row.product.slug, status: 'conflict' },
       });
     }
   }
@@ -280,7 +285,7 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         key: `waiting:${row.product.id}`,
         product: row.product,
         count: row.count,
-        link: { kind: 'integrations', productSlug: row.product.slug },
+        link: { kind: 'integrations', productSlug: row.product.slug, status: 'needs_you' },
       });
     }
     if (waiting.length > PRODUCT_ROW_CAP) {
@@ -337,6 +342,15 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
   // No filter when paused: every edit-gated row above is already off, and seat
   // invites stay, because a lapsed owner can still re-send or revoke them.
   return { now, worthDoing, paused };
+}
+
+/**
+ * Query params for an item's link, or `null`. Integrations rows land on the tab
+ * already filtered to the state they count (AECI-999 / `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §6.3), so "2 in conflict" opens on the two conflicts, not on every integration.
+ */
+export function linkQueryParams(link: NeedsItemLink): Readonly<Record<string, string>> | null {
+  return link.kind === 'integrations' && link.status ? { status: link.status } : null;
 }
 
 /** The relative `routerLink` commands for an item, from the overview route. */

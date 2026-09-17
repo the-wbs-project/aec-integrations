@@ -17,6 +17,7 @@ import {
   buildNeedsItems,
   conflictsByProduct,
   linkCommands,
+  linkQueryParams,
   openCorrections,
   productGaps,
   profileGaps,
@@ -255,5 +256,32 @@ describe('buildNeedsItems', () => {
     expect(result.paused).toBe(true);
     expect(result.worthDoing.map((i) => i.type)).toEqual(['seatInvites']);
     expect(result.now.some((i) => i.type === 'correction')).toBe(true);
+  });
+});
+
+describe('linkQueryParams (AECI-999)', () => {
+  it('pre-filters integrations links to the state they count', () => {
+    expect(linkQueryParams({ kind: 'integrations', productSlug: 'x', status: 'conflict' })).toEqual(
+      { status: 'conflict' },
+    );
+    expect(linkQueryParams({ kind: 'integrations', productSlug: 'x' })).toBeNull();
+    expect(linkQueryParams({ kind: 'messages' })).toBeNull();
+  });
+
+  it('files conflict rows under the conflict filter and waiting rows under needs_you', () => {
+    const { now, worthDoing } = buildNeedsItems({
+      me: VENDOR_ME_FIXTURE,
+      integrations: VENDOR_INTEGRATIONS_FIXTURE.integrations,
+      integrationsReady: true,
+      canAttest: true,
+      canEditProducts: false,
+      canEditProfile: false,
+      canManageSeats: false,
+      seatInviteCount: 0,
+    });
+    const conflict = now.find((i) => i.type === 'conflict');
+    const waiting = worthDoing.find((i) => i.type === 'waiting');
+    expect(conflict && linkQueryParams(conflict.link)).toEqual({ status: 'conflict' });
+    expect(waiting && linkQueryParams(waiting.link)).toEqual({ status: 'needs_you' });
   });
 });

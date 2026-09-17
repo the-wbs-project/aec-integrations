@@ -10,6 +10,7 @@ import {
   buildNeedsItems,
   conflictsByProduct,
   linkCommands,
+  linkQueryParams,
   openCorrections,
   type NeedsItem,
   type ProductGapField,
@@ -23,6 +24,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 interface NeedsRow {
   readonly key: string;
   readonly commands: readonly string[];
+  readonly queryParams: Readonly<Record<string, string>> | null;
   readonly icon: 'alert' | 'clock' | 'pencil' | 'users';
   readonly tone: 'conflict' | 'attention' | 'quiet';
   readonly pill: string;
@@ -187,6 +189,7 @@ interface NeedsRow {
     <ng-template #rowTpl let-row>
       <a
         [routerLink]="row.commands"
+        [queryParams]="row.queryParams"
         class="flex items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         [attr.data-item]="row.key"
       >
@@ -361,12 +364,14 @@ export class VendorOverviewSection {
 
   private row(item: NeedsItem): NeedsRow {
     const commands = linkCommands(item.link);
+    const queryParams = linkQueryParams(item.link);
     switch (item.type) {
       case 'conflict': {
         const name = item.product.name;
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'alert',
           tone: 'conflict',
           pill: $localize`:@@vendor.overview.item.conflict.pill:In conflict`,
@@ -383,6 +388,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'clock',
           tone: 'attention',
           pill:
@@ -401,6 +407,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'clock',
           tone: 'attention',
           pill: $localize`:@@vendor.overview.item.waiting.pill:${item.count}:COUNT: waiting`,
@@ -415,6 +422,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'clock',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.more.pill:More`,
@@ -430,6 +438,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'pencil',
           tone: 'quiet',
           pill: this.fieldCount(item.fields.length),
@@ -441,6 +450,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'pencil',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.more.pill:More`,
@@ -455,6 +465,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'pencil',
           tone: 'quiet',
           pill: this.fieldCount(item.fields.length),
@@ -466,6 +477,7 @@ export class VendorOverviewSection {
         return {
           key: item.key,
           commands,
+          queryParams,
           icon: 'users',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.seats.pill:Not accepted`,

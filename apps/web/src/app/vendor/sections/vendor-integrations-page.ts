@@ -37,6 +37,7 @@ import { vendorProductContext } from './vendor-product-context';
             [verified]="m.vendor.verified"
             [vendorName]="m.vendor.company_name"
             [contextProductId]="contextProductId()"
+            [urlState]="true"
           />
         </div>
       </div>
