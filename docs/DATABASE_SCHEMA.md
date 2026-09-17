@@ -2929,7 +2929,10 @@ own Supabase user id, so `/admin/*` renders in a local browser instead of 404
 (AECI-765). It is deliberately outside the committed `seed/*.sql` because the id
 is per-human; the two ids in `seed/auth-fixtures.sql` are the shared e2e personas
 and are load-bearing in CI. Unset → the step no-ops, and it always exits 0 so it
-can never fail a seed run. See `docs/AUTH_AND_RLS.md` §3.3.
+can never fail a seed run. It is followed by `db:grant-vendor:local`
+(`scripts/grant-local-vendor.mjs`), which does the same for `LOCAL_VENDOR_USER_ID`:
+a `vendor_admin` seat, `seat_owner = 1`, on the vendor named by `LOCAL_VENDOR_SLUG`
+(default `autodesk`). See `docs/AUTH_AND_RLS.md` §3.3.
 
 ### 14.2 Staging
 

@@ -90,6 +90,16 @@ SUPABASE_SERVICE_ROLE_KEY=
 # Supabase auth (Phase 5)" step 2.
 LOCAL_ADMIN_USER_ID=
 
+# ─── Local vendor seat (grant-local-vendor.mjs) ────────────────────────────
+# A SECOND Supabase account to seat as a vendor admin locally, so /vendor
+# renders. Must differ from LOCAL_ADMIN_USER_ID: requireVendor() rejects site
+# admins, and the script refuses the same id. Find the id the same way (sign in
+# locally with that account, then query profiles). Runs after the admin grant
+# at the end of `db:seed:local`; always exits 0. LOCAL_VENDOR_SLUG defaults to
+# `autodesk`. Full walkthrough: docs/environments.md step 2f.
+LOCAL_VENDOR_USER_ID=
+LOCAL_VENDOR_SLUG=
+
 # ─── No Airtable credential is required (AECI-797) ─────────────────────────
 # There used to be an AIRTABLE_PAT / AIRTABLE_BASE_ID pair here, for the
 # one-time AECI-83 bulk migration. Both are gone, along with the gateway lib

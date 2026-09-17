@@ -9,7 +9,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
  * "Which product is this page about?" — resolved once, shared by the product
- * shell and each of its three sections (AECI-666).
+ * layout page and each of its three sections (AECI-666).
  *
  * ── WHY A FUNCTION AND NOT A SERVICE ────────────────────────────────────────
  * The obvious alternative is a route-scoped `providers: [VendorProductContext]`
@@ -22,11 +22,10 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * `vendorCan(...)` pattern in `vendor-capabilities.ts`, one level down.
  *
  * ── WHY THE SLUG IS READ REACTIVELY ─────────────────────────────────────────
- * Choosing a product from the nav menu is a same-route navigation: the param
- * changes, the component does not re-create. A snapshot read would pin every
- * section to whichever product happened to be selected when it first rendered.
- * (`vendor-products-page.ts` learned this already; this is the same rule, moved
- * somewhere all three sections can share it.)
+ * Moving from one product to another (the product list, the breadcrumb, a
+ * pasted URL) can be a same-route navigation: the param changes, the component
+ * does not re-create. A snapshot read would pin every section to whichever
+ * product happened to be open when it first rendered.
  */
 export interface VendorProductContext {
   /** The `:productSlug` segment, or `null` on the bare `…/products` path. */
@@ -58,7 +57,7 @@ export function vendorProductContext(): VendorProductContext {
   // level below it, and `ActivatedRoute.paramMap` does not inherit a parent's
   // params for a non-empty-path child. So this combines every level's `paramMap`
   // rather than reading the local one — and combines the OBSERVABLES, not the
-  // snapshots, because picking a product from the nav menu is a same-route
+  // snapshots, because moving between products can be a same-route
   // navigation: the param changes and the component is reused, so a snapshot read
   // would pin each section to whichever product was selected when it first
   // rendered.

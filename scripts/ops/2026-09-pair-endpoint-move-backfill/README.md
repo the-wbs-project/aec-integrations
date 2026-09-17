@@ -4,8 +4,13 @@ One-time, idempotent backfill. Writes the moved-from record for the 52 Procore e
 that changed endpoint **before** the promote learned to record it, so their old pair
 URLs start serving a 301 instead of an empty page.
 
-> **Status: not yet run.** Dry-run first. The script writes nothing without `--apply`,
-> and nothing to production without `--allow-production` on top of it.
+> **Status: run against production 2026-09-17 (52 rows, see Run log).** Re-running is a
+> no-op. The script writes nothing without `--apply`, and nothing to production without
+> `--allow-production` on top of it.
+>
+> **The resolve step reads with `--command`, not `--file` (fixed 2026-09-17).** `--file`
+> returns only an import summary and no rows, so the first production dry run could not
+> resolve anything. The write step still uses `--file`, which is correct for writes.
 >
 > **Updated for AECI-991 (2026-09-16).** `integration_endpoint_moves` is keyed on the
 > two old pair **slugs** now, not on two product ids, so the resolution query no longer
@@ -95,4 +100,11 @@ key and the audit `INSERT` carries a `NOT EXISTS` guard.
 
 ## Run log
 
-_(empty — add a dated line per run)_
+- **2026-09-17, production, run `20260917T030226Z`** (prod SHA `2b01ea40`). First dry
+  run `20260917T030139Z` failed at the resolve step on the `--file` read and wrote
+  nothing; fixed as above. Dry run `20260917T030157Z` resolved 52 of 52 triples, one edge
+  each: exactly the 37 AECI-726 and 15 AECI-950 old URLs, none missing, none extra.
+  Apply wrote 52 `integration_endpoint_moves` rows and 52 `integration.endpoint_moved`
+  audit rows. The table went from 44 rows (the AECI-991 ACC rebuild) to 96. Verified
+  301 in both path orientations for `okta` (AECI-726) and `clearstory` (AECI-950);
+  `smartsheet` stays 200 as designed. No purge: production runs uncached.

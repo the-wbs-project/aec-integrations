@@ -116,7 +116,7 @@ echo "   mode:   $([ "$APPLY" = 1 ] && echo APPLY || echo DRY-RUN)"
 #
 # 52 SEPARATE STATEMENTS, not one 52-arm UNION ALL: SQLite caps the number of terms in
 # a compound SELECT and a 52-arm union fails outright with
-# `too many terms in compound SELECT: SQLITE_ERROR`. `--file` returns one result set
+# `too many terms in compound SELECT: SQLITE_ERROR`. `--command` returns one result set
 # per statement, which the reader below flattens.
 echo
 echo "-- resolving --"
@@ -143,8 +143,13 @@ print("\n\n".join(arms))
 PYEOF
 echo "   query:  $OUT/query.sql"
 
+# READ via `--command`, never `--file`. `--file` routes through D1's import pipeline and
+# returns only an import summary ("Total queries executed": 52), no rows — so every
+# triple printed as resolved-to-nothing, or the progress banner broke the JSON parse.
+# The first production dry run (2026-09-17) hit exactly that. `--command` takes the 52
+# statements in one call and returns one result set per statement.
 "$WRANGLER" d1 execute "$DB" --env "$ENV_NAME" --remote --json --config "$CONFIG" \
-  --file "$OUT/query.sql" > "$OUT/resolved.json"
+  --command "$(cat "$OUT/query.sql")" > "$OUT/resolved.json"
 
 python3 - "$MOVES" "$OUT" <<'PYEOF'
 import json, sys

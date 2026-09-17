@@ -22,7 +22,8 @@ import { AdminSummaryStore, type AdminQueueKey } from './admin-summary.store';
  * stands for APPLICATION menus (commands that act on the page). This is a
  * navigation row of router links, where `role="menu"` is the wrong semantic and
  * the WAI-ARIA practices advise against it. The codebase has made that call
- * twice already, in `layout/user-menu.ts` and `vendor/vendor-products-menu.ts`.
+ * before, in `layout/user-menu.ts` (and in the vendor portal's former Products
+ * menu, retired in §6.11 of `STAGE_2_VENDOR_PORTAL_SPEC.md`).
  * Extending `NavDisclosure` also puts this on the same open/close contract as
  * the four public-nav flyouts, which DESIGN.md requires: a row where one
  * dropdown opens on hover and another only on click reads as a bug.
@@ -55,7 +56,7 @@ import { AdminSummaryStore, type AdminQueueKey } from './admin-summary.store';
  * tracks an element that has a `routerLink`, and this trigger is a button, so
  * the state is derived from the router URL instead. The treatment is the same
  * `.aec-nav-tab[aria-current]` underline the links use, keyed off `aria-current`
- * in both spellings, exactly as the vendor portal's Products menu does.
+ * in both spellings.
  */
 @Component({
   selector: 'aec-admin-nav-dropdown',

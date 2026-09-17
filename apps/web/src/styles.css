@@ -376,26 +376,9 @@ h3 {
   border-color: var(--status-error);
 }
 
-/* `routerLinkActive` adds the segmented control's active utilities beside its
-   resting text and hover utilities. Tailwind orders those declarations by the
-   generated stylesheet rather than by class-attribute order, so the resting
-   colour wins at rest and the light hover background wins while the newly
-   selected link remains under the pointer. Keep the route state as the source
-   of truth and resolve both collisions at the same unlayered cascade seam as
-   `.aec-nav-tab` above. */
-.aec-segmented-route-item[aria-current] {
-  background-color: var(--accent-primary);
-  color: var(--surface-base);
-}
-
-.aec-segmented-route-item[aria-current]:hover {
-  background-color: var(--accent-primary);
-  color: var(--surface-base);
-}
-
-/* The vendor overview's Views period toggle (AECI-983). Same collision as the
-   segmented route item above: the pressed state is an attribute, and a utility
-   toggled by state loses to the resting and hover utilities. */
+/* The vendor overview's Views period toggle (AECI-983). The pressed state is an
+   attribute, and a utility toggled by state loses to the resting and hover
+   utilities, so the pressed colours live on an unlayered class. */
 .aec-period[aria-pressed='true'],
 .aec-period[aria-pressed='true']:hover {
   background-color: var(--accent-primary);

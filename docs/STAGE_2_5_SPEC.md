@@ -183,7 +183,7 @@ The prompt was an operator request on 2026-09-15 for a way to manage "How Teams 
 
 ### 12.1 What the vendor gets
 
-A "How teams use it" pair of cards on the vendor product form, one per facet (by audience, by phase), each reading what is published and opening a modal to write it. **Since AECI-994 the cards and the modal are gone:** the points are written directly under each ticked term on the vendor portal's Audiences and Phases tabs, as a bullet list with add, remove and reorder (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11). A group ties one taxonomy term to one to eight short bullets. Saving publishes to the live product page immediately.
+A "How teams use it" pair of cards on the vendor product form, one per facet (by audience, by phase), each reading what is published and opening a modal to write it. **Since AECI-994 the cards and the modal are gone:** the points are written directly under each ticked term on the vendor portal's Audiences and Phases tabs, as a bullet list with add, remove and reorder (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12). A group ties one taxonomy term to one to eight short bullets. Saving publishes to the live product page immediately.
 
 Three decisions taken deliberately, all of which a later reader may want to revisit and none of which are accidents:
 
@@ -215,6 +215,6 @@ Caps: ten groups per facet (matching the taxonomy facets' own cap), eight points
 
 Two rules the editor keeps because the caps are newer than the data. Promote enforces none of them, so an already-promoted block can exceed any of the three: the editor therefore validates only a value it is actually **sending**, never the untouched server copy, or one over-long promoted point would lock the Save button with nothing to fix. And the editor lists the vocabulary **plus any stored term the vocabulary does not know**, labelled with its slug, because `/api/taxonomy` is a cached snapshot while promote can mint a term and write a group for it in the same window — a vocabulary-only list would delete that group on save with nothing shown. (Since AECI-994 the editor is `vendor-product-facet-editor.ts` on the Audiences and Phases tabs.)
 
-The editor stages into a dirty-diff rather than persisting on close, because a staged edit is protected by `VendorPortalStore.markDirty` and the "changed somewhere else" banner. Since AECI-994 the tags and the points for a facet share that one draft and one Save, and the same PATCH carries both (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11).
+The editor stages into a dirty-diff rather than persisting on close, because a staged edit is protected by `VendorPortalStore.markDirty` and the "changed somewhere else" banner. Since AECI-994 the tags and the points for a facet share that one draft and one Save, and the same PATCH carries both (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12).
 
 `MATERIAL_PRODUCT_FIELDS` gains `usefulness`, so an edit files as `product.updated` and not `product.minor` in the ADR 0031 Google re-crawl worklist. Cache purging is unchanged (`product:{slug}` already covers the detail page) and Algolia needs nothing, since `usefulness` is not an indexed attribute.

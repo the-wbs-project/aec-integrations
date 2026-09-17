@@ -100,7 +100,7 @@ interface PendingRemoval {
 
 /**
  * One taxonomy facet of one product, edited inline on its own portal tab
- * (AECI-994 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11).
+ * (AECI-994 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12).
  *
  * ── WHAT IT REPLACED ────────────────────────────────────────────────────────
  * AECI-915 put all four facets on one Taxonomy tab as summary cards, each editing

@@ -22,19 +22,15 @@ import { vendorMeResolver } from './vendor-me.resolver';
  * reload.
  *
  * ── WHY `products` IS TWO ENTRIES ────────────────────────────────────────────
- * A product picker that changes the URL needs a slug segment, but the section is
- * reachable from the nav (which has no product in hand), so the bare path has to
- * resolve too. Angular has no optional path segment, so this is two `Route`s onto
- * one component.
+ * Since §6.11 they are two different pages. The bare path is the vendor's product
+ * list (`vendor-product-list-page.ts`), which is where the Products tab and the
+ * Products breadcrumb point. The slugged path is the product LAYOUT route, whose
+ * children are one product's sections; while it is active the shell switches its
+ * header and tab row to that product.
  *
- * Since AECI-666 the two entries do DIFFERENT jobs, and only the slugged one has
- * children: the bare path exists solely to pick a default and redirect into the
- * slugged one (`vendor-products-page.ts` explains why that redirect cannot be a
- * `redirectTo`, and why it is not a guard either). The cost is unchanged —
- * stepping from the bare path to a slugged one re-creates the component (a
- * different `routeConfig`, so the default `shouldReuseRoute` says no) and
- * re-fetches the public taxonomy once; every subsequent product change reuses the
- * same route and does not.
+ * (Between AECI-666 and §6.11 the bare path rendered the product layout and
+ * redirected into the primary product. That made "Products" a destination you
+ * could never actually stand on.)
  *
  * ── WHY INTEGRATIONS IS NOT A TOP-LEVEL SECTION ──────────────────────────────
  * An integration is a thing that happens *to a product*, so it is filed under
@@ -63,13 +59,13 @@ export const VENDOR_SECTION_ROUTES: Routes = [
   {
     path: 'products',
     loadComponent: () =>
-      import('./sections/vendor-products-page').then((m) => m.VendorProductsPage),
+      import('./sections/vendor-product-list-page').then((m) => m.VendorProductListPage),
   },
   /**
-   * The product LAYOUT route (AECI-666). `VendorProductsPage` was a leaf; it is
-   * now a shell — heading, the product-level nav row, and an outlet — with the
-   * three product sections as its children, exactly the shape the portal itself
-   * has one level up.
+   * The product LAYOUT route (AECI-666). `VendorProductsPage` is an outlet with
+   * the three product sections as its children. The heading and the product
+   * tab row live in the portal shell, which switches to this product while the
+   * route is active (§6.11).
    *
    * Its children are section routes, so a product is now a place you can be
    * rather than a parameter on one page, and `…/products/revit/integrations` is

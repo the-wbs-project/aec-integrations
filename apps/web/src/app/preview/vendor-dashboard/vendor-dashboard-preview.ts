@@ -140,8 +140,8 @@ export class VendorDashboardPreview {
     { key: 'expiring', label: 'Active · expiring soon' },
     { key: 'downgraded', label: 'Downgraded · revoked' },
     { key: 'unverified', label: 'No access · new' },
-    // Not an entitlement state: the catalog size the Products nav menu exists
-    // for. Two products cannot show whether the search box earns its place.
+    // Not an entitlement state: a catalog big enough to show how the product
+    // list page (§6.11) reads at length. Two products cannot.
     { key: 'large-catalog', label: 'Active · 20 products' },
   ];
 

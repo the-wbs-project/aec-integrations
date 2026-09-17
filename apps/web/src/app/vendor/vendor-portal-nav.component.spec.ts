@@ -10,39 +10,44 @@
  *    template serve `/vendor/:vendorSlug` and `/preview/vendor-dashboard`);
  *  - the active treatment lands on the item element itself, which is what makes
  *    the 2px underline overlap the row's hairline rather than float above it;
- *  - Products is a menu only when there is something to choose BETWEEN.
+ *  - the landmark name and the items come from the caller, so the same row draws
+ *    the vendor sections and a product's sections (§6.11).
  */
 import { Component, provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { VendorProduct } from '@aeci/shared';
-
-import { VENDOR_ME_FIXTURE } from './vendor-fixtures';
+import { VENDOR_NAV_ITEMS, VENDOR_PRODUCT_NAV_ITEMS, type VendorNavItem } from './vendor-nav';
 import { VendorPortalNav } from './vendor-portal-nav';
 
-const PRODUCTS = VENDOR_ME_FIXTURE.products;
 const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
 
 /** Set before each mount; the host is created by the router, so there is no
  *  fixture instance to write to. */
-let hostProducts: readonly VendorProduct[] = PRODUCTS;
+let hostItems: readonly VendorNavItem[] = VENDOR_NAV_ITEMS;
+let hostLabel = 'Portal sections';
 
 /** Stands in for the portal's layout route: the nav's links are relative, so
  *  they only resolve under a route that owns the section children. */
 @Component({
   selector: 'aec-test-nav-host',
   imports: [VendorPortalNav],
-  template: `<aec-vendor-portal-nav [products]="products" />`,
+  template: `<aec-vendor-portal-nav [items]="items" [ariaLabel]="label" />`,
 })
 class TestNavHost {
-  protected readonly products = hostProducts;
+  protected readonly items = hostItems;
+  protected readonly label = hostLabel;
 }
 
-async function mount(products: readonly VendorProduct[] = PRODUCTS, url = '/portal/overview') {
-  hostProducts = products;
+async function mount(
+  url = '/portal/overview',
+  items: readonly VendorNavItem[] = VENDOR_NAV_ITEMS,
+  label = 'Portal sections',
+) {
+  hostItems = items;
+  hostLabel = label;
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -55,7 +60,17 @@ async function mount(products: readonly VendorProduct[] = PRODUCTS, url = '/port
             { path: 'overview', children: [] },
             { path: 'profile', children: [] },
             { path: 'products', children: [] },
-            { path: 'products/:productSlug', children: [] },
+            {
+              path: 'products/:productSlug',
+              children: [
+                { path: 'profile', children: [] },
+                { path: 'categories', children: [] },
+                { path: 'trades', children: [] },
+                { path: 'audiences', children: [] },
+                { path: 'phases', children: [] },
+                { path: 'integrations', children: [] },
+              ],
+            },
             { path: 'messages', children: [] },
             { path: 'seats', children: [] },
           ],
@@ -73,11 +88,8 @@ async function mount(products: readonly VendorProduct[] = PRODUCTS, url = '/port
 
 const root = (harness: RouterTestingHarness) => harness.fixture.nativeElement as HTMLElement;
 const items = (harness: RouterTestingHarness) =>
-  [...root(harness).querySelectorAll('nav a, nav button')] as HTMLElement[];
+  [...root(harness).querySelectorAll('nav a')] as HTMLElement[];
 
-afterEach(() => {
-  document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
-});
 beforeEach(() => TestBed.resetTestingModule());
 
 describe('VendorPortalNav', () => {
@@ -94,7 +106,13 @@ describe('VendorPortalNav', () => {
     const harness = await mount();
 
     expect([...root(harness).querySelectorAll('nav a')].map((a) => a.getAttribute('href'))).toEqual(
-      ['/portal/overview', '/portal/profile', '/portal/messages', '/portal/seats'],
+      [
+        '/portal/overview',
+        '/portal/profile',
+        '/portal/products',
+        '/portal/messages',
+        '/portal/seats',
+      ],
     );
   });
 
@@ -107,7 +125,7 @@ describe('VendorPortalNav', () => {
     // utility, because the global unlayered `*` border-color rule outranks every
     // border-color utility in the app. So what this asserts is the pair the CSS
     // keys off: the hook class and `aria-current`.
-    const harness = await mount(PRODUCTS, '/portal/profile');
+    const harness = await mount('/portal/profile');
     const profile = items(harness).find((el) => el.textContent?.trim() === 'Profile')!;
 
     expect(profile.className).toContain('-mb-px');
@@ -121,31 +139,34 @@ describe('VendorPortalNav', () => {
     expect(seats.getAttribute('aria-current')).toBeNull();
   });
 
-  it('makes Products a menu when there is something to choose between', async () => {
-    const harness = await mount();
-
-    expect(root(harness).querySelector('aec-vendor-products-menu')).not.toBeNull();
+  it('makes Products a plain link to the product list', async () => {
+    // It was a filterable dropdown; §6.11 gave the catalog its own page, which
+    // is also where the Products breadcrumb points.
+    const harness = await mount('/portal/products');
     const products = items(harness).find((el) => el.textContent?.trim() === 'Products')!;
-    expect(products.tagName).toBe('BUTTON');
-    expect(products.getAttribute('aria-expanded')).toBe('false');
-  });
 
-  it('gives a single-product vendor a plain link instead', async () => {
-    // A dropdown over one option is noise, and the link keeps the section
-    // reachable in the degenerate case. Same rule the in-page picker carried.
-    const harness = await mount([PRODUCTS[0]]);
-
-    expect(root(harness).querySelector('aec-vendor-products-menu')).toBeNull();
-    const products = items(harness).find((el) => el.textContent?.trim() === 'Products')!;
     expect(products.tagName).toBe('A');
-    expect(products.getAttribute('href')).toBe('/portal/products');
+    expect(products.getAttribute('aria-current')).toBe('page');
   });
 
-  it('gives a vendor with no products a plain link too', async () => {
-    const harness = await mount([]);
+  it('draws a product row from the same component, under the name it is given', async () => {
+    const productItems = VENDOR_PRODUCT_NAV_ITEMS.map((i) => ({
+      ...i,
+      path: `products/revit/${i.path}`,
+    }));
+    const harness = await mount('/portal/products/revit/audiences', productItems, 'Revit sections');
 
-    expect(root(harness).querySelector('aec-vendor-products-menu')).toBeNull();
-    expect(items(harness).find((el) => el.textContent?.trim() === 'Products')?.tagName).toBe('A');
+    expect(root(harness).querySelector('nav')?.getAttribute('aria-label')).toBe('Revit sections');
+    expect(items(harness).map((el) => el.getAttribute('href'))).toEqual([
+      '/portal/products/revit/profile',
+      '/portal/products/revit/categories',
+      '/portal/products/revit/trades',
+      '/portal/products/revit/audiences',
+      '/portal/products/revit/phases',
+      '/portal/products/revit/integrations',
+    ]);
+    const current = items(harness).filter((el) => el.getAttribute('aria-current') === 'page');
+    expect(current.map((el) => el.textContent?.trim())).toEqual(['Audiences']);
   });
 
   it('scrolls the row rather than wrapping it, and renders it exactly once', async () => {

@@ -2,11 +2,13 @@
  * The vendor portal's information architecture as data — the single source of
  * truth for the dashboard's nav rows.
  *
- * **Two route levels since AECI-666**: {@link VENDOR_NAV_ITEMS} is the vendor-level
- * row under the company name, and {@link VENDOR_PRODUCT_NAV_ITEMS} appears once a
- * product is selected. AECI-959 gives the product level a segmented treatment so
- * the hierarchy is visible; the arrays remain separate because their paths
- * resolve against different routes.
+ * **Two route levels since AECI-666, ONE row on screen since §6.11**:
+ * {@link VENDOR_NAV_ITEMS} is the row in vendor context, and
+ * {@link VENDOR_PRODUCT_NAV_ITEMS} REPLACES it once a product is open. The shell
+ * (`vendor-dashboard-tabbed.ts`) swaps the whole header — breadcrumb, title,
+ * public link and tab row — to the product, so the two rows are never stacked.
+ * AECI-959's segmented product row is gone with that change: both rows now use
+ * the same underlined tab treatment, because only one is ever visible.
  *
  * Mirrors `admin/admin-nav.ts`. The paths are **relative**, deliberately: the
  * shell renders them with `routerLink` from a component whose `ActivatedRoute`
@@ -23,20 +25,15 @@
  * history entry the URL now produces.
  */
 
-/** One nav entry. `path` is relative to the portal's parent route. */
+/**
+ * One nav entry. `path` is relative to the route that renders the row: the
+ * portal's parent route for {@link VENDOR_NAV_ITEMS}, the product route for
+ * {@link VENDOR_PRODUCT_NAV_ITEMS} (the shell prefixes those with
+ * `products/:productSlug/` because it renders both rows from the parent).
+ */
 export interface VendorNavItem {
   readonly path: string;
   readonly label: string;
-  /**
-   * Products is the one section whose nav item carries a filterable menu
-   * (`vendor-products-menu.ts`) instead of a plain link, so a vendor can jump
-   * straight to a product from anywhere in the portal.
-   *
-   * A flag rather than a `path === 'products'` string-match in the nav template:
-   * this file and `vendor.routes.ts` are meant to be read together, and a
-   * template that hard-codes a path silently couples a third file to both.
-   */
-  readonly hasProductsMenu?: boolean;
 }
 
 /**
@@ -55,23 +52,23 @@ export interface VendorNavItem {
 export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'overview', label: $localize`:@@vendor.nav.overview:Vendor Overview` },
   { path: 'profile', label: $localize`:@@vendor.nav.profile:Profile` },
-  { path: 'products', label: $localize`:@@vendor.nav.products:Products`, hasProductsMenu: true },
+  { path: 'products', label: $localize`:@@vendor.nav.products:Products` },
   { path: 'messages', label: $localize`:@@vendor.nav.messages:Messages` },
   { path: 'seats', label: $localize`:@@vendor.nav.seats:Seats` },
 ];
 
 /**
- * The PRODUCT-level sections (AECI-666) — a second row, rendered only once a
- * product is selected, i.e. on `…/products/:productSlug/*`.
+ * The PRODUCT-level sections (AECI-666) — the row that takes over from
+ * {@link VENDOR_NAV_ITEMS} on `…/products/:productSlug/*` (§6.11).
  *
  * Paths are relative to the product route, so the same two-file rule holds one
  * level down: an entry here plus a child route under `products/:productSlug`.
  *
  * "Profile" and not "Product Profile": unlike the vendor row — whose Overview
  * item names its scope because several overview-ish surfaces exist for one
- * signed-in operator — this row sits directly beneath a heading that is the
- * product's own name, and inside a nav labelled for that product. The scope is
- * already said twice; saying it a third time is noise, not clarity.
+ * signed-in operator — this row sits directly beneath an `h1` that is the
+ * product's own name, under a breadcrumb ending in that name, inside a nav
+ * labelled for that product. The scope is already said three times.
  */
 export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'profile', label: $localize`:@@vendor.productNav.profile:Profile` },
@@ -83,10 +80,7 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
 ];
 
 /**
- * Rest-state classes for one item in the primary vendor row, shared by the four
- * link items and by the Products disclosure button. Exported rather than written
- * twice because the row has two kinds of control in it, and a row where one item
- * sits a pixel higher than its neighbours reads as a bug.
+ * Rest-state classes for one tab in either row.
  *
  * `-mb-px` + `border-b-2` pulls the item's own bottom border over the row's
  * hairline, which is what turns "a link that is coloured differently" into a
@@ -95,7 +89,7 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
  * The underline COLOUR is not a utility: `.aec-nav-tab` in `styles.css` owns it,
  * because the global `*` border-color rule is unlayered and therefore beats
  * `border-transparent` / `border-(--accent-primary)` outright. The class keys off
- * `aria-current`, so the mechanism is identical for the links and the button.
+ * `aria-current`, which `ariaCurrentWhenActive` sets on the active link.
  */
 export const VENDOR_NAV_ITEM_CLASS =
   'aec-nav-tab -mb-px flex shrink-0 items-center gap-1 border-b-2 px-1 py-3 ' +
@@ -104,13 +98,8 @@ export const VENDOR_NAV_ITEM_CLASS =
   'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
 /**
- * Active-state classes, applied by `routerLinkActive` on the link items.
+ * Active-state classes, applied by `routerLinkActive`.
  *
- * Type only — the underline is `.aec-nav-tab[aria-current]`, which both kinds of
- * item get for free. The Products item is a disclosure button and
- * `routerLinkActive` only works on a `routerLink`, so it carries these same two
- * declarations as `aria-[current=true]:` variants (see
- * `vendor-products-menu.ts`). Keep the two in lockstep: the mechanism differs,
- * the treatment must not.
+ * Type only — the underline is `.aec-nav-tab[aria-current]`.
  */
 export const VENDOR_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';

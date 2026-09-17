@@ -36,57 +36,16 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DEV_VARS = join(PACKAGE_ROOT, '.dev.vars');
+import {
+  LOCAL_DATABASE as DATABASE,
+  PACKAGE_ROOT,
+  UUID_RE,
+  readDevVar,
+  wranglerBin,
+} from './lib/local-dev-vars.mjs';
+
 const VAR_NAME = 'LOCAL_ADMIN_USER_ID';
-const DATABASE = 'aeci-app-preview';
-
-/**
- * `pnpm run` puts `node_modules/.bin` on PATH, but a bare
- * `node scripts/grant-local-admin.mjs` does not — and that direct form is what
- * the docs hand you for the one-off grant. Resolve the workspace binary first
- * so both invocations work, falling back to PATH.
- */
-function wranglerBin() {
-  for (const candidate of [
-    join(PACKAGE_ROOT, 'node_modules', '.bin', 'wrangler'),
-    join(PACKAGE_ROOT, '..', '..', 'node_modules', '.bin', 'wrangler'),
-  ]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return 'wrangler';
-}
-
-/**
- * Reads one key out of `.dev.vars`. Parsed by hand rather than via Node's
- * `--env-file`, which throws when the file is absent — and an absent
- * `.dev.vars` is the normal state of a workspace nobody has configured yet.
- */
-function readDevVar(name) {
-  let contents;
-  try {
-    contents = readFileSync(DEV_VARS, 'utf8');
-  } catch {
-    return '';
-  }
-  for (const line of contents.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    if (trimmed.slice(0, eq).trim() !== name) continue;
-    // Tolerate quoted values; wrangler accepts both forms.
-    return trimmed
-      .slice(eq + 1)
-      .trim()
-      .replace(/^(['"])(.*)\1$/, '$2');
-  }
-  return '';
-}
 
 const userId = (process.argv[2] ?? process.env[VAR_NAME] ?? readDevVar(VAR_NAME)).trim();
 
@@ -100,7 +59,7 @@ if (!userId) {
 
 // The id is interpolated into SQL, so constrain it to the shape a Supabase
 // `sub` actually has rather than trusting a hand-edited local file.
-if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+if (!UUID_RE.test(userId)) {
   console.error(
     `[grant-local-admin] ERROR — ${VAR_NAME} is not a UUID: ${JSON.stringify(userId)}. ` +
       'Expected a Supabase auth.users id (the JWT `sub`). Leaving the local D1 untouched.',
