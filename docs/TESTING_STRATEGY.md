@@ -473,7 +473,7 @@ test('user can search and find a product', async ({ page }) => {
 
 - The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765). Unset → it no-ops; it always exits 0 so it can never fail a seed run
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765), then `db:grant-vendor:local` seats `LOCAL_VENDOR_USER_ID` as a `vendor_admin` on `LOCAL_VENDOR_SLUG` (default `autodesk`) so `/vendor` is reachable too. Unset → each no-ops; both always exit 0 so they can never fail a seed run
 
 ### 7.6 Auth in tests
 
@@ -572,27 +572,16 @@ Run axe on:
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
   specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
-- `/preview/vendor-dashboard` — the **portal nav and its Products dropdown**, in
-  the new `preview-vendor-portal-nav.spec.ts`
-  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4). Two runs, **closed and open**, because a
-  new always-present nav dropdown is exactly the kind of change that invalidates a
-  prior pass, and an empty `role="listbox"` (`aria-required-children`) only exists
-  in the open state. It runs on the PREVIEW route deliberately: that surface mounts
-  the same shell and section routes with fixture data and **no session**, so unlike
-  `vendor-dashboard.spec.ts` it does not skip-green in CI — and its path contains no
-  `/vendor/` segment, so the zone WAF cannot 403 it. Open the panel with the
-  **keyboard**, not a click: a click moves the pointer over the host first, which on
-  a hover-opening neighbour toggles it back shut (`phase2-a11y.spec.ts` records the
-  same workaround).
-  - **The carve-out to "unit specs never open a CDK overlay":**
-    `vendor-products-menu.component.spec.ts` does, and can. Opening `AecSelect`
-    means going through Aria's own combobox toggle and its activedescendant commit,
-    which is jsdom-hostile; opening this one is a plain `<button>` click writing a
-    plain signal into `cdkConnectedOverlayOpen`, and under jsdom there is no Popover
-    API so CDK downgrades `usePopover` to the body-level `.cdk-overlay-container`
-    (query `document`, not the host, and sweep the container in `afterEach`). What
-    stays e2e-only is unchanged: Aria's ArrowDown → `aria-activedescendant` → Enter
-    commit, a real outside click, and real focus order out of the top layer.
+- `/preview/vendor-dashboard` — the **portal header, breadcrumb and tab row**, in
+  `preview-vendor-portal-nav.spec.ts` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4, §6.11).
+  One axe run in **vendor context** and one in **product context**, because §6.11
+  swaps the breadcrumb, the `h1` and the whole tab row when a product opens. It runs
+  on the PREVIEW route deliberately: that surface mounts the same shell and section
+  routes with fixture data and **no session**, so unlike `vendor-dashboard.spec.ts`
+  it does not skip-green in CI — and its path contains no `/vendor/` segment, so the
+  zone WAF cannot 403 it. (Until §6.11 this spec also opened the Products dropdown and
+  its component spec was a carve-out to "unit specs never open a CDK overlay". The
+  dropdown is deleted, so that carve-out no longer exists.)
   - **The live region is no longer part of that subtree** (AECI-631 /
     `STAGE_2_REALTIME_SPEC.md` §6.3). The portal has exactly ONE **persistent**
     polite live region, and it now lives in the dashboard SHELL — an `sr-only`

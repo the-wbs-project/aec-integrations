@@ -290,6 +290,12 @@ Two facts to get right before running anything:
   fills them via `$defaultFn` at insert time, so a raw `INSERT` that omits them
   fails `NOT NULL constraint failed: profiles.created_at`.
 
+**Locally, a vendor seat** — set `LOCAL_VENDOR_USER_ID` (and optionally
+`LOCAL_VENDOR_SLUG`, default `autodesk`) in `apps/api/.dev.vars` and run
+`pnpm --filter @aeci/api db:grant-vendor:local`. It must be a different account from
+`LOCAL_ADMIN_USER_ID`, because `requireVendor()` rejects admins; the script refuses
+the same id. See `docs/environments.md` step 2f.
+
 **Locally** — set `LOCAL_ADMIN_USER_ID` in `apps/api/.dev.vars` and run:
 
 ```bash

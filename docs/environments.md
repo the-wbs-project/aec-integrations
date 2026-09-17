@@ -485,8 +485,24 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    they are committed. Your own id is per-human and belongs in the gitignored file.
 
    `/vendor/*` will still 404 for you — a `vendor_admin` role and a non-null
-   `vendor_id` are a separate, single-valued grant (§8.3(3): one role per account).
-   Use the vendor e2e persona for that surface, or `/preview/vendor-dashboard`.
+   `vendor_id` are a separate, single-valued grant (§8.3(3): one role per account),
+   and `requireVendor()` rejects site admins.
+
+   **f. A vendor seat for a second account.** Sign in locally with a different
+   account, read its id with the query in step d, and put it in
+   `LOCAL_VENDOR_USER_ID` in `apps/api/.dev.vars` (and in the Conductor copy root).
+   `LOCAL_VENDOR_SLUG` picks the vendor and defaults to `autodesk`. Then:
+
+   ```bash
+   pnpm --filter @aeci/api db:grant-vendor:local
+   ```
+
+   `scripts/grant-local-vendor.mjs` upserts `role='vendor_admin'`, that vendor's id
+   and `seat_owner = 1`. It runs right after the admin grant at the end of
+   `db:seed:local`, always exits 0, and refuses an id equal to
+   `LOCAL_ADMIN_USER_ID`, which it would otherwise demote. Sign in as that account
+   and `/vendor` opens the vendor's portal. The unauthenticated alternative is still
+   `/preview/vendor-dashboard`.
 
 3. **Mint a session.** From `apps/web`:
    ```bash

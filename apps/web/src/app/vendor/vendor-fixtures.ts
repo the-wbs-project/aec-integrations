@@ -417,16 +417,14 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
 };
 
 /**
- * A vendor whose catalog is big enough to need the search box.
+ * A vendor whose catalog is big enough to test the product list (§6.11) at length.
  *
  * The two-product fixture above is the honest shape of the seeded vendor and is
- * right for every OTHER case, but it tells you nothing about the control the
- * Products nav menu exists for: a picker over two options is a picker over two
- * options whether or not it can filter. Reviewing "can I find the one I came
- * for" needs a list you cannot take in at a glance, which is the case the real
- * vendors are in and the fixtures never were.
+ * right for every OTHER case, but a list of two tells you nothing about how the
+ * product list reads when you cannot take it in at a glance, which is the case
+ * the real vendors are in and the fixtures never were.
  *
- * Deliberately unsorted here, so the menu's alphabetical ordering is visible
+ * Deliberately unsorted here, so the list's alphabetical ordering is visible
  * rather than accidental.
  */
 const LARGE_CATALOG_NAMES: readonly string[] = [

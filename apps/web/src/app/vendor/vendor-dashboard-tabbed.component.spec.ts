@@ -19,13 +19,12 @@
  * mounts when it is asked for, the shell still survives every section change, and
  * the capability gate still re-derives from a refetched payload.
  *
- * ── WHAT CHANGED WHEN THE NAV WENT HORIZONTAL ──────────────────────────────
- * Four of the five items are still `routerLink` anchors, so most of this file is
- * untouched. Products is a disclosure BUTTON now (it opens the filterable
- * products menu, `vendor-products-menu.ts`), which is why `navLink` matches
- * `a, button` and why the href assertion covers four items rather than five.
- * Products' own "you are here" is `aria-current="true"` off the router, because
- * `routerLinkActive` needs a `routerLink` and a button has none.
+ * ── WHAT CHANGED WHEN THE HEADER FOLLOWED THE CONTEXT (§6.11) ───────────────
+ * All five vendor items are `routerLink` anchors again: Products links to the
+ * product list rather than opening a dropdown. Opening a product swaps the
+ * breadcrumb, the `h1`, the public link and the tab row to that product, so the
+ * nav helpers below scope to `aec-vendor-portal-nav` (the breadcrumb is a
+ * `<nav>` too) and never assume the vendor row is present.
  *
  * `me` reaches the sections through `VendorPortalStore` rather than through a
  * chain of inputs, so "the operator granted the entitlement while the vendor sat
@@ -142,9 +141,7 @@ const root = (harness: RouterTestingHarness) => harness.fixture.nativeElement as
 const editing = (harness: RouterTestingHarness): string | undefined =>
   root(harness).querySelector('aec-vendor-product-form p')?.textContent?.trim();
 
-/** A nav item by its visible label. Matches `a, button` because Products is a
- *  disclosure button and the other four are links; every assertion below that
- *  only cares "is this item current" works on either. */
+/** A tab by its visible label, in whichever row the shell is showing. */
 function navLink(harness: RouterTestingHarness, label: string): HTMLElement {
   const item = [...navItems(harness)].find((el) => el.textContent?.trim() === label);
   if (!item) throw new Error(`no nav item "${label}"`);
@@ -152,7 +149,12 @@ function navLink(harness: RouterTestingHarness, label: string): HTMLElement {
 }
 
 const navItems = (harness: RouterTestingHarness) =>
-  root(harness).querySelectorAll('nav a, nav button');
+  root(harness).querySelectorAll('aec-vendor-portal-nav a');
+
+const crumbs = (harness: RouterTestingHarness) =>
+  [...root(harness).querySelectorAll('nav[aria-label="Breadcrumb"] li:not([aria-hidden])')].map(
+    (li) => li.textContent?.trim(),
+  );
 
 const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
@@ -160,18 +162,15 @@ const navLabels = (harness: RouterTestingHarness) =>
 describe('VendorDashboardTabbed — the routed section nav', () => {
   it('lists the five sections, with Messages between Products and Seats', async () => {
     // AECI-666: Integrations left this row for the product row; Messages took
-    // its slot. `vendor-product-nav.component.spec.ts` pins the other one.
+    // its slot.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
   });
 
   it('links every link section under the vendor slug, so the URL names the page', async () => {
     const harness = await open();
 
-    // Four of the five. Products is the products MENU, which has no href of its
-    // own — the addresses it produces are pinned in
-    // `vendor-products-menu.component.spec.ts`.
-    expect([...root(harness).querySelectorAll('nav a')].map((a) => a.getAttribute('href'))).toEqual(
-      ['overview', 'profile', 'messages', 'seats'].map((p) => `/vendor/${SLUG}/${p}`),
+    expect([...navItems(harness)].map((a) => a.getAttribute('href'))).toEqual(
+      ['overview', 'profile', 'products', 'messages', 'seats'].map((p) => `/vendor/${SLUG}/${p}`),
     );
   });
 
@@ -197,20 +196,14 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     const el = root(harness);
 
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
-    // The portal row keeps Products current; the product row owns Integrations.
-    expect(navLink(harness, 'Products').getAttribute('aria-current')).toBe('true');
+    // The product row replaced the vendor row (§6.11).
+    expect(navLabels(harness)).toEqual(['Profile', 'Taxonomy', 'Integrations']);
+    expect(navLink(harness, 'Integrations').getAttribute('aria-current')).toBe('page');
   });
 
-  it('marks Products current on the bare path AND on a chosen product', async () => {
-    // `routerLinkActive` cannot do this one: the item is a button, so the
-    // current state is computed from the router. `subset` matching is what keeps
-    // it current once a product slug is appended — without it the item would go
-    // dark the moment a vendor picked something.
+  it('marks Products current on the product list', async () => {
     const harness = await open('products');
-    expect(navLink(harness, 'Products').getAttribute('aria-current')).toBe('true');
-
-    await go(harness, 'products/summit-field-issues');
-    expect(navLink(harness, 'Products').getAttribute('aria-current')).toBe('true');
+    expect(navLink(harness, 'Products').getAttribute('aria-current')).toBe('page');
 
     await go(harness, 'profile');
     expect(navLink(harness, 'Products').getAttribute('aria-current')).toBeNull();
@@ -530,13 +523,15 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
  * everything that decides which product a given URL resolves to.
  */
 describe('VendorProductsPage — which product the URL resolves to', () => {
-  it('renders the primary product on the bare products path', async () => {
-    const harness = await open('products');
+  it('renders the product list on the bare products path, primary first', async () => {
+    const el = root(await open('products'));
+    const rows = [...el.querySelectorAll('aec-vendor-product-list-page li a')];
 
-    expect(editing(harness)).toBe('Summit Model Coordination');
-    // One product at a time — the stacked-disclosure rendering is gone.
-    expect(root(harness).querySelectorAll('aec-vendor-product-form')).toHaveLength(1);
-    expect(root(harness).querySelector('details')).toBeNull();
+    expect(rows.map((a) => a.getAttribute('href'))).toEqual([
+      `/vendor/${SLUG}/products/summit-model-coordination`,
+      `/vendor/${SLUG}/products/summit-field-issues`,
+    ]);
+    expect(el.querySelector('aec-vendor-product-form')).toBeNull();
   });
 
   it('renders the product the URL names', async () => {
@@ -548,29 +543,90 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
 
     expect(el.textContent).toContain("isn't linked to your vendor");
     expect(el.querySelector('aec-vendor-product-form')).toBeNull();
-  });
-
-  it('gives a single-product vendor a plain nav link, not a menu', async () => {
-    const solo: VendorMeResponse = {
-      ...VENDOR_ME_FIXTURE,
-      products: [VENDOR_ME_FIXTURE.products[0]],
-    };
-    const harness = await open('products', solo);
-
-    // A dropdown over one option is noise, and a link keeps the section
-    // reachable in the degenerate case.
-    expect(root(harness).querySelector('aec-vendor-products-menu')).toBeNull();
-    expect(navLink(harness, 'Products').tagName).toBe('A');
-    // The name still shows — the form's identity block carries it.
-    expect(editing(harness)).toBe(solo.products[0].name);
+    expect(el.querySelector('aec-vendor-products-page a')?.getAttribute('href')).toBe(
+      `/vendor/${SLUG}/products`,
+    );
   });
 
   it('renders the empty state for a vendor with no products', async () => {
     const none: VendorMeResponse = { ...VENDOR_ME_FIXTURE, products: [] };
     const harness = await open('products', none);
 
-    expect(root(harness).querySelector('aec-vendor-products-menu')).toBeNull();
     expect(root(harness).textContent).toContain('No products are linked to your vendor yet');
+  });
+});
+
+/**
+ * §6.11 — one header that follows the context. A product page used to stack its
+ * own heading and a second nav row under the vendor's; now the shell switches.
+ */
+describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
+  const company = VENDOR_ME_FIXTURE.vendor.company_name;
+
+  it('shows Vendor › company in vendor context, with the company as the h1', async () => {
+    const harness = await open('seats');
+    const el = root(harness);
+
+    expect(crumbs(harness)).toEqual(['Vendor', company]);
+    expect(
+      el.querySelector('nav[aria-label="Breadcrumb"] [aria-current="page"]')?.textContent?.trim(),
+    ).toBe(company);
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe(company);
+    expect(navLabels(harness)).toEqual(NAV_LABELS);
+    expect(el.textContent).not.toContain('Back to');
+  });
+
+  it('switches the breadcrumb, h1 and tab row to an open product', async () => {
+    const harness = await open('products/summit-field-issues/taxonomy');
+    const el = root(harness);
+
+    expect(crumbs(harness)).toEqual(['Vendor', company, 'Products', 'Summit Field Issues']);
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Summit Field Issues');
+    expect(el.querySelectorAll('aec-vendor-portal-nav')).toHaveLength(1);
+    expect(el.querySelector('aec-vendor-portal-nav nav')?.getAttribute('aria-label')).toBe(
+      'Summit Field Issues sections',
+    );
+    expect(navLabels(harness)).toEqual(['Profile', 'Taxonomy', 'Integrations']);
+    // No second heading inside the product page.
+    expect(el.querySelector('aec-vendor-products-page > h2')).toBeNull();
+  });
+
+  it('links the crumbs and the back link back into the vendor', async () => {
+    const harness = await open('products/summit-field-issues/profile');
+    const links = [...root(harness).querySelectorAll('header a')].filter(
+      (a) => a.closest('aec-view-public-link') === null,
+    );
+
+    expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Vendor', `/vendor/${SLUG}/overview`],
+      [company, `/vendor/${SLUG}/overview`],
+      ['Products', `/vendor/${SLUG}/products`],
+      [`← Back to ${company}`, `/vendor/${SLUG}/overview`],
+    ]);
+  });
+
+  it('returns to vendor context when the vendor is navigated back to', async () => {
+    const harness = await open('products/summit-field-issues/profile');
+    await go(harness, 'overview');
+
+    expect(root(harness).querySelector('h1')?.textContent?.trim()).toBe(company);
+    expect(navLabels(harness)).toEqual(NAV_LABELS);
+  });
+
+  it('follows a product-to-product navigation that reuses the shell', async () => {
+    const harness = await open('products/summit-field-issues/profile');
+    await go(harness, 'products/summit-model-coordination/profile');
+
+    expect(root(harness).querySelector('h1')?.textContent?.trim()).toBe(
+      'Summit Model Coordination',
+    );
+  });
+
+  it('stays in vendor context for a product the vendor does not own', async () => {
+    const harness = await open('products/someone-elses-product');
+
+    expect(root(harness).querySelector('h1')?.textContent?.trim()).toBe(company);
+    expect(navLabels(harness)).toEqual(NAV_LABELS);
   });
 });
 
@@ -588,22 +644,13 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
  * `h1` still renders, and it corrupts the one string that names the page.
  */
 describe('VendorDashboardTabbed — links out to the public listing (§6.7)', () => {
-  /** The SHELL's link, beside the company name. First in document order. */
-  const vendorLink = (harness: RouterTestingHarness) =>
-    root(harness).querySelector('aec-view-public-link a') as HTMLAnchorElement | null;
-
-  /** The PRODUCT section's link. Scoped, because the shell renders one too and
-   *  an unscoped query silently returns the shell's for every product case. */
-  const productLink = (harness: RouterTestingHarness): HTMLAnchorElement | null => {
-    const inPage = [
-      ...root(harness).querySelectorAll('aec-vendor-products-page aec-view-public-link a'),
-    ];
-    // The integrations section renders one of these per card, nested deeper in
-    // the same page. Exclude them by their card ancestor rather than by DOM
-    // depth, which would break the next time the header markup moves.
-    const own = inPage.find((a) => a.closest('aec-vendor-integration-card') === null);
-    return (own as HTMLAnchorElement | undefined) ?? null;
-  };
+  /** The header's one link, beside the h1. Since §6.11 it names the vendor in
+   *  vendor context and the product in product context. Scoped to the header,
+   *  because integration cards render their own further down. */
+  const headerLink = (harness: RouterTestingHarness) =>
+    root(harness).querySelector('header aec-view-public-link a') as HTMLAnchorElement | null;
+  const vendorLink = headerLink;
+  const productLink = headerLink;
 
   it('links the company name to its public vendor page, in a new tab', async () => {
     const harness = await open('overview');
@@ -617,7 +664,7 @@ describe('VendorDashboardTabbed — links out to the public listing (§6.7)', ()
     expect(link?.getAttribute('rel')).toBe('noopener');
   });
 
-  it('keeps the link OUT of the h1, so the page heading stays the company name', async () => {
+  it('keeps the link OUT of the h1, so the page heading stays the title', async () => {
     const el = root(await open('overview'));
 
     expect(el.querySelector('h1')?.textContent?.trim()).toBe(VENDOR_ME_FIXTURE.vendor.company_name);
@@ -654,23 +701,13 @@ describe('VendorDashboardTabbed — links out to the public listing (§6.7)', ()
     expect(productLink(harness)?.getAttribute('href')).toBe('/products/summit-model-coordination');
   });
 
-  it('renders no product link when the URL names a product the vendor does not own', async () => {
+  it('points the header link at the vendor when the URL names a product the vendor does not own', async () => {
+    // The page renders its "not linked to your vendor" notice. A product link
+    // here would assert a listing the vendor does not have.
     const harness = await open('products/someone-elses-product');
 
-    // The section renders its "not linked to your vendor" notice instead. A link
-    // here would be an assertion that the vendor has a listing they do not. The
-    // shell's vendor link is unaffected and still present.
-    expect(productLink(harness)).toBeNull();
-    expect(vendorLink(harness)).not.toBeNull();
-  });
-
-  it('renders no product link for a vendor with no products', async () => {
-    const none: VendorMeResponse = { ...VENDOR_ME_FIXTURE, products: [] };
-    const harness = await open('products', none);
-
-    // The vendor link in the shell header is still there; only the product one
-    // is absent, so scope the query to the section.
-    expect(productLink(harness)).toBeNull();
+    expect(headerLink(harness)?.getAttribute('href')).toBe(`/vendors/${SLUG}`);
+    expect(root(harness).querySelectorAll('header aec-view-public-link')).toHaveLength(1);
   });
 });
 

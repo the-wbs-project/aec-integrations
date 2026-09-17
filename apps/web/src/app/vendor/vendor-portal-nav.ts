@@ -1,18 +1,15 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
-import type { VendorProduct } from '@aeci/shared';
-
 import {
   VENDOR_NAV_ITEM_ACTIVE_CLASS,
   VENDOR_NAV_ITEM_CLASS,
-  VENDOR_NAV_ITEMS,
+  type VendorNavItem,
 } from './vendor-nav';
-import { VendorProductsMenu } from './vendor-products-menu';
 
 /**
- * The vendor portal's section nav: a horizontal row of tabs under the company
- * name, above the content.
+ * The vendor portal's section nav: a horizontal row of tabs under the page
+ * title, above the content.
  *
  * ── WHY IT IS HORIZONTAL ────────────────────────────────────────────────────
  * It was a 14rem side rail in a two-column grid. Five short links do not earn a
@@ -45,16 +42,16 @@ import { VendorProductsMenu } from './vendor-products-menu';
  * Do NOT "fix" it by removing `-mb-px` instead: it is what pulls the tab's
  * underline over the row's hairline (AECI-666).
  *
- * ── THE PRODUCTS ITEM ───────────────────────────────────────────────────────
- * Products is a filterable dropdown rather than a link, because it is the one
- * section with a set of things underneath it (see `vendor-products-menu.ts`).
- * A vendor with ONE product (or none) gets a plain link instead: a dropdown over
- * a single option is noise, and it keeps the section reachable in the degenerate
- * case. That mirrors the rule the in-page picker used to carry.
+ * ── ONE ROW, TWO CONTEXTS (§6.11) ───────────────────────────────────────────
+ * The shell renders exactly one of these: the vendor sections, or — once a
+ * product is open — that product's sections. The items and the landmark name
+ * are inputs, so the same component draws both and the two rows cannot drift
+ * apart visually. It used to take the catalog and swap Products for a filterable
+ * dropdown; Products is a plain link to the product list now, and the product
+ * row used to be a second, segmented control stacked under this one.
  *
- * Presentational: the products come down as an input from the shell, which takes
- * them from `me`. Nothing here injects `VendorPortalStore` — the store is not
- * root-provided (the preview shadows it), and an input keeps this component
+ * Presentational: nothing here injects `VendorPortalStore` — the store is not
+ * root-provided (the preview shadows it), and inputs keep this component
  * testable with no DI at all.
  *
  * Light theme only (Stage 1 / AECI-226).
@@ -62,30 +59,22 @@ import { VendorProductsMenu } from './vendor-products-menu';
 @Component({
   selector: 'aec-vendor-portal-nav',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, VendorProductsMenu],
+  imports: [RouterLink, RouterLinkActive],
   template: `
-    <nav
-      i18n-aria-label="@@vendor.nav.aria"
-      aria-label="Portal sections"
-      class="mb-8 border-b border-(--border-default)"
-    >
+    <nav [attr.aria-label]="ariaLabel()" class="mb-8 border-b border-(--border-default)">
       <ul
         class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap"
       >
-        @for (item of navItems; track item.path) {
+        @for (item of items(); track item.path) {
           <li class="shrink-0">
-            @if (item.hasProductsMenu && products().length > 1) {
-              <aec-vendor-products-menu [products]="products()" [label]="item.label" />
-            } @else {
-              <a
-                [routerLink]="item.path"
-                [routerLinkActive]="activeClass"
-                ariaCurrentWhenActive="page"
-                [class]="itemClass"
-              >
-                {{ item.label }}
-              </a>
-            }
+            <a
+              [routerLink]="item.path"
+              [routerLinkActive]="activeClass"
+              ariaCurrentWhenActive="page"
+              [class]="itemClass"
+            >
+              {{ item.label }}
+            </a>
           </li>
         }
       </ul>
@@ -94,13 +83,13 @@ import { VendorProductsMenu } from './vendor-products-menu';
   styles: [':host { display: block; }'],
 })
 export class VendorPortalNav {
-  /** This vendor's catalog. Only used to decide whether Products is a menu or a
-   *  link, and to fill the menu. */
-  readonly products = input.required<readonly VendorProduct[]>();
-
-  /** The portal IA. Relative paths, deliberately: one template serves
+  /** The row's tabs. Relative paths, deliberately: one template serves
    *  `/vendor/:vendorSlug` and `/preview/vendor-dashboard`. */
-  protected readonly navItems = VENDOR_NAV_ITEMS;
+  readonly items = input.required<readonly VendorNavItem[]>();
+
+  /** The landmark name. Built by the caller with `$localize`, because an
+   *  interpolated `i18n-aria-label` emits no attribute in this toolchain. */
+  readonly ariaLabel = input.required<string>();
   protected readonly itemClass = VENDOR_NAV_ITEM_CLASS;
   protected readonly activeClass = VENDOR_NAV_ITEM_ACTIVE_CLASS;
 }

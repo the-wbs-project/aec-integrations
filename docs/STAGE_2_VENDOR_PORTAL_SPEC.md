@@ -501,7 +501,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -680,6 +680,11 @@ reviewable; do it as its own pass. **The rule going forward: user-facing copy sa
 
 ### 6.4 As built — the nav goes horizontal, and Products gains a filterable menu (2026-08-26)
 
+> **Superseded in part by §6.11 (2026-09-17):** the Products dropdown
+> (`vendor-products-menu.ts`) is deleted. Products is a plain link to a product list
+> page. The horizontal row itself, its overflow pairing and its no-sticky and
+> no-duplicate rules are unchanged.
+
 The §6.1 nav was a 14rem side rail in a `md:grid-cols-[14rem_1fr]` grid. Five short
 links do not earn a seventh of a wide page, and the content they front (a profile
 form, a product form, an integration list) is what wants the width. This change
@@ -799,6 +804,12 @@ gains a 20-product entry, because a search box over two options tells you nothin
 
 ### 6.5 As built — Integrations moves under the product, Messages takes its slot (2026-08-27)
 
+> **Superseded in part by §6.11 (2026-09-17):** the product row no longer stacks
+> under the vendor row. It REPLACES it, the shell's header switches to the product,
+> `vendor-product-nav.ts` and the AECI-959 `shared/segmented-route-nav/` are
+> deleted, and bare `…/products` is a product list rather than a redirect into the
+> primary product. The route shape and the per-product Integrations filing stand.
+
 §6.4 made Products a menu that routes to `…/products/:productSlug`. This change makes
 a product a **place** rather than a parameter, and moves the Integrations tab into it.
 
@@ -814,6 +825,10 @@ site, not as an `i18n-aria-label` attribute, because an *interpolated* `i18n-*`
 attribute emits no attribute at all in this toolchain.
 
 #### AECI-959 — the product row becomes a segmented route control (2026-09-16)
+
+> **Retired by §6.11 (2026-09-17).** The product row replaces the vendor row rather
+> than sitting under it, so both use the underlined tab. `shared/segmented-route-nav/`
+> and `vendor-product-nav.ts` are deleted. Kept below as the record.
 
 The two levels originally shared `VENDOR_NAV_ITEM_CLASS`. In use, identical full-width
 hairlines, active underlines, type and spacing made the rows look like duplicate peer
@@ -1116,6 +1131,10 @@ sees none of them.
 
 ### 6.8 As built — the tab rows pair `overflow-y-hidden` with `overflow-x-auto` (AECI-958 — 2026-09-16)
 
+> **Note (§6.11):** `vendor-product-nav.ts` and the segmented control named below are
+> deleted. The pairing now lives in one place, `vendor-portal-nav.ts`, which draws
+> both rows.
+
 Both nav rows — the vendor row (`vendor/vendor-portal-nav.ts`) and the product row
 (`vendor/vendor-product-nav.ts`) — painted a short vertical scrollbar at their right
 edge. Two CSS facts combined: per CSS Overflow, `overflow-x: auto` makes the other
@@ -1358,6 +1377,66 @@ integrations read loads or fails, one live region,
 the announced retry).
 
 ---
+
+### 6.11 As built — one header that follows the context (2026-09-17)
+
+A product page stacked two headers and two nav rows: the vendor's `h1`, public link
+and underlined tab row, then the product's own `h2`, public link and the AECI-959
+segmented row. The two rows were different sizes and styles, and the segmented one
+read as a button group. It was unclear which header was in charge of the page.
+
+**The rule now: the header describes one thing, and there is one tab row.** The shell
+(`vendor-dashboard-tabbed.ts`) reads the router and switches.
+
+| | Vendor context | Product context (`…/products/:productSlug/*`) |
+| -- | -- | -- |
+| Breadcrumb | Vendor › *Company* | Vendor › *Company* › Products › *Product* |
+| `h1` | company name | product name |
+| Public link | `/vendors/:slug` | `/products/:slug` |
+| Back link | none | "← Back to *Company*" |
+| Tab row | Vendor Overview · Profile · Products · Messages · Seats | Profile · Taxonomy · Integrations |
+| Landmark name | "Portal sections" | "*Product* sections" |
+
+- **The breadcrumb** is a `<nav aria-label="Breadcrumb">` over an `<ol>`, the same
+  markup as the public product page. Its last item is plain text with
+  `aria-current="page"`. "Vendor" and the company both link to `overview`. With one
+  vendor per seat they land in the same place; the pair is what the operator asked for.
+- **Only an owned product switches context.** A URL naming a product the vendor does
+  not own stays in vendor context and the page says so, with a link to the product
+  list. A header naming that product would contradict the notice.
+- **One component draws both rows.** `vendor-portal-nav.ts` takes `items` and
+  `ariaLabel` inputs. The shell prefixes the product items with
+  `products/:productSlug/`, because it renders from the portal's route rather than
+  from the product route. Both rows use the `.aec-nav-tab` underline.
+- **The context comes from the router, not from the product page.** The shell sits
+  above the outlet, so a child cannot hand it a value without a new injectable, and
+  every new injectable is one more thing the preview's DI shadow must provide. The
+  shell walks its route's `firstChild` chain for `:productSlug` on every
+  `NavigationEnd`, so product-to-product navigation, which reuses the shell, still
+  updates it.
+- **`VendorProductsPage` is now an outlet plus the unknown-product notice.** Its `h2`,
+  public link and product nav are gone.
+- **Bare `…/products` is a product list** (`sections/vendor-product-list-page.ts`).
+  It used to redirect into the primary product, so a "Products" breadcrumb would have
+  bounced the vendor straight back into a product. The page is deliberately basic for
+  now: logo, name, a "Primary" tag, primary first and then by name through
+  `compareText`. A richer list is follow-up work. The overview's "And N more" rows
+  (§6.10) already link to `products` and now land on it.
+
+**Deleted:** `vendor-products-menu.ts`, `vendor-product-nav.ts`,
+`shared/segmented-route-nav/` (its only user), their specs, and the
+`.aec-segmented-route-item` rules in `styles.css`.
+
+**No quick product switcher** beside the product title, by decision. Switching goes
+through the breadcrumb or the Products tab.
+
+**Tests.** `vendor-dashboard-tabbed.component.spec.ts` gains a "context-aware header"
+block: crumbs and `h1` per context, the crumb and back-link hrefs, the swap back to
+vendor context, product-to-product reuse, and the unowned-product case.
+`vendor-portal-nav.component.spec.ts` pins the input-driven row for both contexts.
+`e2e/preview-vendor-portal-nav.spec.ts` drops the dropdown suite and drives
+Products → list → product → crumb back, with an axe pass in each context.
+`e2e/vendor-dashboard.spec.ts` reaches Integrations through the list.
 
 ## 7. Moderation escalation — ban gate (AECI-524)
 

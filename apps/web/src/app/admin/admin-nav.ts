@@ -184,8 +184,7 @@ export const ADMIN_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';
  *
  * A button has no `routerLink` for `routerLinkActive` to hang off, so it sets
  * `aria-current="true"` itself from the router URL. Keep the two in lockstep:
- * the mechanism differs, the treatment must not. (`vendor-products-menu.ts`
- * carries the identical arrangement one portal over.)
+ * the mechanism differs, the treatment must not.
  */
 export const ADMIN_NAV_TRIGGER_CLASS = `${ADMIN_NAV_ITEM_CLASS} aria-[current=true]:font-bold aria-[current=true]:text-(--accent-primary)`;
 
