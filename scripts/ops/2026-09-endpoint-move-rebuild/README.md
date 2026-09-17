@@ -4,10 +4,10 @@ One-time, idempotent repair. The move rows that AECI-953 wrote were deleted by a
 foreign-key cascade when the product they pointed **away from** was retracted. The
 `integration.endpoint_moved` audit rows survived, so this script reads them back.
 
-> **Status: not yet run.** Dry-run first. It writes nothing without `--apply`, and
-> nothing to production without `--allow-production` on top of it. It must run **after**
-> migration `0041_shocking_maggott.sql`, which is what makes the table accept a retired
-> endpoint at all.
+> **Status: run against production 2026-09-17 (44 rows, see Run log).** Re-running is a
+> no-op. It writes nothing without `--apply`, and nothing to production without
+> `--allow-production` on top of it. It must run **after** migration
+> `0041_shocking_maggott.sql`, which is what makes the table accept a retired endpoint.
 
 ---
 
@@ -89,4 +89,8 @@ overlap. Run both.
 
 ## Run log
 
-_(empty — add a dated line per run)_
+- **2026-09-17, production, run `20260917T025705Z`** (prod SHA `2b01ea40`). Dry run
+  `20260917T025654Z` planned 44 rows, 0 already present, 0 unresolved. Apply wrote 44
+  `integration_endpoint_moves` rows plus one `integration.endpoint_moves_rebuilt` summary
+  row (`rebuilt: 44`). Matches the 44 `integration.endpoint_moved` audit rows, one per
+  distinct edge. No purge: production runs uncached.
