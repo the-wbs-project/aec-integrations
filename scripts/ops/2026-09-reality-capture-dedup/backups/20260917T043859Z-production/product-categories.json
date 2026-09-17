@@ -1,0 +1,74 @@
+[
+  {
+    "results": [
+      {
+        "product_id": "a27e0b5a-16c6-404a-b309-718f26089ebe",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-08-25T11:06:53.081Z"
+      },
+      {
+        "product_id": "b4476d0d-85a5-44eb-9dca-c954f145f407",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-08-25T12:00:35.540Z"
+      },
+      {
+        "product_id": "15b47e37-f64c-495f-b018-5602e9fd464f",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-08-25T12:03:20.399Z"
+      },
+      {
+        "product_id": "30c6153b-f5c8-441d-85f4-6138e2dcc3a9",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-09-09T06:03:54.196Z"
+      },
+      {
+        "product_id": "3fc2e59a-58de-4550-ab5d-e09070227988",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-09-09T06:06:05.288Z"
+      },
+      {
+        "product_id": "41262f2c-e903-4b98-b713-a8ebf3a0063b",
+        "category_id": "2ae9e1ce-ebd3-408a-8d5c-2f978a181d78",
+        "created_at": "2026-09-15T00:33:35.938Z"
+      },
+      {
+        "product_id": "31edf06b-e2f6-4414-a9ad-4d91a5c06f89",
+        "category_id": "39e40d09-b52b-52ae-ae00-28b3495e5980",
+        "created_at": "2026-09-16T09:14:31.870Z"
+      },
+      {
+        "product_id": "e8d11a60-37f1-4a92-b959-daefc02dc531",
+        "category_id": "39e40d09-b52b-52ae-ae00-28b3495e5980",
+        "created_at": "2026-09-16T09:17:54.064Z"
+      },
+      {
+        "product_id": "19a021bb-62f9-422e-8261-f3956813bf1b",
+        "category_id": "39e40d09-b52b-52ae-ae00-28b3495e5980",
+        "created_at": "2026-09-16T09:21:31.286Z"
+      },
+      {
+        "product_id": "7324753b-3a8e-4481-ac2b-c7ccdeba4a01",
+        "category_id": "39e40d09-b52b-52ae-ae00-28b3495e5980",
+        "created_at": "2026-09-17T04:29:04.486Z"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.4211
+      },
+      "duration": 0.4211,
+      "changes": 0,
+      "last_row_id": 7277,
+      "changed_db": false,
+      "size_after": 81027072,
+      "rows_read": 14,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
