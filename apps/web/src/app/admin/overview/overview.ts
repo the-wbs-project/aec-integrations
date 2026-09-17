@@ -175,6 +175,8 @@ export class AdminOverview {
       this.overview()?.traffic.series_30d.map((p) => ({
         label: p.day,
         segments: [p.human, p.bot],
+        // AECI-877 — drawn dimmed and hatched; `series_spans_degraded_days` carries the prose.
+        degraded: p.degraded,
       })) ?? [],
   );
 
@@ -241,6 +243,7 @@ export class AdminOverview {
   ];
 
   protected readonly trafficChartLabel = $localize`:@@admin.overview.chart.aria2:Page views per day over the last 30 UTC days, split between requests of unresolved origin and known bot traffic.`;
+  protected readonly trafficChartDegraded = $localize`:@@admin.overview.chart.degraded:Missing network information`;
   protected readonly trafficChartEmpty = $localize`:@@admin.overview.chart.empty:No page views recorded in the last 30 days.`;
   protected readonly sourcesEmpty = $localize`:@@admin.overview.sources.empty:No traffic sources recorded for this day.`;
   protected readonly productsEmpty = $localize`:@@admin.overview.products.empty:No product page views recorded for this day.`;

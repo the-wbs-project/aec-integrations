@@ -125,6 +125,12 @@
         [value]="country()"
         (changed)="setCountry($event)"
       />
+      <aec-select
+        [label]="writerLabel"
+        [options]="writerOptions"
+        [value]="writer()"
+        (changed)="setWriter($event)"
+      />
 
       <div class="flex flex-wrap items-center gap-2">
         <label
@@ -234,7 +240,7 @@
   } @else {
   <div class="mt-6 overflow-x-auto">
     <table
-      class="w-full border-collapse text-start text-sm md:min-w-[56rem]"
+      class="w-full border-collapse text-start text-sm md:min-w-[64rem]"
       i18n-aria-label="@@admin.activity.table.aria"
       aria-label="Recorded visits"
     >
@@ -282,6 +288,17 @@
           >
             Claimed source
           </th>
+          <!--
+                    The trusted counterpart to "Claimed source": which of our writers
+                    stamped the row, and how browser-shaped its headers were (§13 D18).
+                  -->
+          <th
+            scope="col"
+            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+            i18n="@@admin.activity.col.request"
+          >
+            Request
+          </th>
           <th
             scope="col"
             class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
@@ -297,7 +314,7 @@
         <tr class="bg-(--surface-sunken)">
           <th
             scope="rowgroup"
-            colspan="6"
+            colspan="7"
             class="px-3 py-2 text-start text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
           >
             {{ dayLabel(group.day) }}
@@ -365,6 +382,17 @@
             >
             } @if (row.referrer) {
             <span class="block font-mono text-xs text-(--text-tertiary)">{{ row.referrer }}</span>
+            }
+          </td>
+
+          <td class="px-3 py-3 align-top">
+            <span
+              class="whitespace-nowrap"
+              [class]="row.writer_provenance === null ? 'text-(--text-secondary)' : 'text-(--text-primary)'"
+              >{{ writerCell(row) }}</span
+            >
+            @let verdict = verdictLabel(row); @if (verdict) {
+            <span class="mt-0.5 block text-xs" [class]="verdictTone(row)">{{ verdict }}</span>
             }
           </td>
 

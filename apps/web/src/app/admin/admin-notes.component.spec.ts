@@ -52,6 +52,10 @@ const PARAMS_BY_CODE: Partial<Record<AdminNoteCode, AdminNote['params']>> = {
   stored_result_unreadable: { job: 'algolia-drift' },
   // AECI-586 / P5.1 — audience.
   utm_attribution_incomplete: { missing: 12, total: 40 },
+  // AECI-869 / AECI-877 — realistic params, so the sweep exercises the
+  // interpolation rather than rendering "0 of 0".
+  arrival_telemetry_unavailable: { arrivals_with_asn: 12, arrivals: 680 },
+  series_spans_degraded_days: { degraded_days: 4, requested: 30 },
   // AECI-722 — the connector surface.
   stub_actions_never_fetched: { never_fetched: 90, total: 120 },
 };
@@ -105,6 +109,17 @@ describe('AdminNotes', () => {
       // Each row is a severity chip plus real prose — never an empty cell.
       expect(li.textContent?.trim().length ?? 0).toBeGreaterThan(10);
     }
+  });
+
+  it('interpolates the telemetry-health counts rather than rendering zeros (AECI-877)', () => {
+    const el = render(
+      (['arrival_telemetry_unavailable', 'series_spans_degraded_days'] as const).map((code) =>
+        makeNote({ code, severity: 'warn', params: PARAMS_BY_CODE[code] }),
+      ),
+    );
+    expect(el.textContent).toContain('12 of 680 carried one');
+    expect(el.textContent).toContain('4 of the 30 days');
+    expect(el.textContent).not.toContain('0 of 0');
   });
 
   // AECI-752. The two internal-filter notes speak for `ANALYTICS_INTERNAL_ASNS`

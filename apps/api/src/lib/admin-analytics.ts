@@ -1025,6 +1025,7 @@ export async function listPageViews(
         referrerSource: pageViews.referrerSource,
         referrer: pageViews.referrer,
         writerProvenance: pageViews.writerProvenance,
+        clientVerdict: pageViews.clientVerdict,
       })
       .from(pageViews)
       .where(where)
@@ -1076,6 +1077,9 @@ export async function listPageViews(
         // what the request claimed, this is what our SSR Worker stamped. Null on
         // every row written before it shipped, and not backfillable.
         writer_provenance: r.writerProvenance,
+        // Evidence about the request's shape (AECI-658), never an identity and
+        // never an input to `is_bot`. Rendered beside the writer (AECI-877).
+        client_verdict: r.clientVerdict,
         // Read-time only. `is_bot` above is untouched by this — see
         // `lib/asn-registry.ts` for why the two must not be merged.
         asn_registry: r.cfAsn === null ? null : (annotations.get(r.cfAsn) ?? null),

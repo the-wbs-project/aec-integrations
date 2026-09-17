@@ -13,9 +13,12 @@
  * WHAT IT DOES (on `--apply`):
  *   1. Zero-fills every `(day, metric)` in the range — §7.4's pruning cron may
  *      not delete a `page_views` day the snapshot never captured, so a quiet day
- *      needs a row too.
- *   2. Aggregates the eight flow series into those rows. Five land as `measured`,
- *      three (the `audit_log`-derived catalog series) as `reconstructed`.
+ *      needs a row too. `quality.arrival_cf_coverage` is the one series skipped
+ *      (`zeroFill: false`, AECI-869): `0` is a coverage ratio's worst value, not
+ *      its empty one.
+ *   2. Aggregates the nine series into those rows. Six land as `measured` (the
+ *      three traffic counts, products, sign-ins, and the coverage ratio), three
+ *      (the `audit_log`-derived catalog series) as `reconstructed`.
  *
  * `--series` narrows BOTH passes to the named metric keys (AECI-684). That is the
  * only way to extend one series' range: the zero-fill runs edge to edge, so a
@@ -135,7 +138,7 @@ function readDayFlag(argv: string[], name: string): string | undefined {
 
 /**
  * `--series a,b` / repeated `--series a --series b` — the metric keys this run
- * covers (AECI-684). Empty means all eight, which is the default and the
+ * covers (AECI-684). Empty means all nine, which is the default and the
  * behaviour every prior caller gets.
  *
  * Accepts both forms because the two read differently at a terminal and an

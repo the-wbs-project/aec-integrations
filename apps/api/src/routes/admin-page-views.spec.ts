@@ -77,6 +77,8 @@ async function seed(): Promise<void> {
       userAgentHash: HASH_A,
       // AECI-871 — the SSR Worker's own arrival capture.
       writerProvenance: 'ssr-arrival',
+      // AECI-877 — served beside the writer so the feed can render both.
+      clientVerdict: 'browser',
       createdAt: '2026-08-10T01:00:00.000Z',
     },
     // 2 — vendor view, genuine external arrival.
@@ -175,7 +177,14 @@ describe('GET /api/admin/page-views — the feed', () => {
       referrer_source: 'Direct',
       referrer: null,
       writer_provenance: 'ssr-arrival',
+      client_verdict: 'browser',
     });
+  });
+
+  it('serves a null client_verdict as null, never as a default verdict (AECI-877)', async () => {
+    const body = await feed(RANGE);
+    const taxonomyRow = body.data.find((r) => r.path === '/categories/:slug');
+    expect(taxonomyRow?.client_verdict).toBeNull();
   });
 
   it('truncates the UA hash to 8 characters — the full hash never crosses the wire', async () => {
