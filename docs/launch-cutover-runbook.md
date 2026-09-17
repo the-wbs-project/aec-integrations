@@ -16,7 +16,7 @@
 Do **not** start the cutover until every box below is checked. These are the AECI-246 punts (F1–F4) plus the standing deploy gates.
 
 - [ ] **AECI-246 launch-readiness gate signed off** (`docs/PHASE_7_COMPLETION.md` §7).
-- [ ] **F1 — Legal counsel review complete.** All four legal pages (`apps/web/src/content/legal/*.md`) have `effective_date` + `counsel_approved_by` + `counsel_approved_on` set and the "Draft, pending legal review" disclaimer removed (§27 change workflow). Terms / Privacy / Review Guidelines / Listing Accuracy live and correct.
+- [ ] **F1 — Legal counsel review complete.** All four legal pages (`apps/web/src/content/legal/*.md`) have `effective_date` + `counsel_approved_by` + `counsel_approved_on` set and the draft disclaimer removed ("Draft, pending legal review" on three pages, "Pending Legal Review" on the Privacy Policy) (§27 change workflow). Terms / Privacy / Review Guidelines / Listing Accuracy live and correct.
 - [ ] **F3 — Deployed-staging full-surface acceptance passed** (home / search / detail / auth / reviews / requests / admin, with real auth): axe AA + Lighthouse + console-clean + the review-submission / claim-correction / admin-moderation flows.
 - [ ] **F4 — BrowserStack full real-device sweep + a11y audit passed** (`BROWSERSTACK_*` set; ADR 0012 launch gate).
 - [ ] **Production data is present + correct** in `aeci-app-production` D1 (catalog promoted; reviews seeded/real). `demo`→`prod` promote order per `environments.md` already run.

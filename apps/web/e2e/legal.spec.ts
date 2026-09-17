@@ -69,8 +69,9 @@ for (const pageDef of PAGES) {
       // The page title (h1) and a section marker both appear in the raw SSR HTML.
       expect(html).toContain(pageDef.heading);
       expect(html).toContain(pageDef.bodyMarker);
-      // The pre-launch draft notice ships visibly until counsel approval.
-      expect(html).toContain('pending legal review');
+      // The pre-launch draft notice ships visibly until counsel approval. Case-insensitive:
+      // the Privacy Policy's banner reads "Pending Legal Review" (Google OAuth brand review).
+      expect(html.toLowerCase()).toContain('pending legal review');
     });
 
     test('is indexable — self-referential canonical, no noindex robots meta', async ({

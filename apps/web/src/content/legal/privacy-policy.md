@@ -2,13 +2,13 @@
 title: Privacy Policy
 version: 1.0
 effective_date:
-last_updated: 24 August 2026
+last_updated: 17 September 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
+> **Pending Legal Review**
 
 This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project (the "operator", "we", "us"), which is the data controller for the personal data described here. It is written to comply with the EU and UK General Data Protection Regulation (GDPR).
 
@@ -18,12 +18,33 @@ This policy explains what personal data AEC Integrations (the "service") collect
 
 We collect only what we need to run the service:
 
+- **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
+
+## Signing in with Google
+
+You can create an account and sign in using your Google account. When you do, Google shares the following with us, and only after you approve it on Google's consent screen:
+
+- your **email address**, which we use to identify your account, sign you in, and send you service emails such as sign-in links and review status updates;
+- your **name** and, if you have one, your **profile picture**, which we use to label your account;
+- a **Google account identifier**, which we use to link future sign-ins to the same account.
+
+We do not request access to your Gmail, Google Drive, contacts, calendar, or any other Google data.
+
+**How we store it.** This data is held by our authentication provider, Supabase, and in our application database, both under contracts that require them to protect it. It is encrypted in transit.
+
+**How we share it.** We do not sell Google user data, use it for advertising, or share it with third parties, except the service providers that host and operate the service on our behalf, or where required by law. We do not use Google user data to train AI or machine-learning models.
+
+**How long we keep it.** We keep it for as long as your account exists. If you delete your account, or ask us to at [founders@thewbsproject.com](mailto:founders@thewbsproject.com), we delete it, except for a limited audit record kept to prevent abuse.
+
+**Revoking access.** You can remove our access at any time from your Google Account at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+Our use of information received from Google APIs adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
 
 ## Lawful basis
 
