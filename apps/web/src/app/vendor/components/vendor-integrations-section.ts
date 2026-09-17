@@ -23,6 +23,7 @@ import type {
   VendorIntegration,
 } from '@aeci/shared';
 
+import { claimsOnRecord, waitingByProduct } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -472,15 +473,16 @@ export class VendorIntegrationsSection implements OnInit {
    * connector-powered edge it would tell a vendor that plumbing it never built is
    * waiting on its confirmation, which is exactly the sentence the detector
    * suppression exists to stop sending by email.
+   *
+   * Both are distinct claim ids (AECI-993). Unscoped, the list carries an
+   * owns-both integration once per endpoint, so `flatMap(...).length` would
+   * count its claims twice.
    */
   protected readonly summaryLine = computed(() => {
     const integrations = this.integrations();
-    const claims = integrations.flatMap((i) => i.claims);
-    const awaiting = integrations
-      .filter((i) => i.attestable)
-      .flatMap((i) => i.claims)
-      .filter((c) => c.mine.length === 0).length;
-    return $localize`:@@vendor.attest.summary:${claims.length}:total: data flows on record · ${awaiting}:awaiting: waiting on your confirmation`;
+    const total = claimsOnRecord(integrations).total;
+    const awaiting = waitingByProduct(integrations).total;
+    return $localize`:@@vendor.attest.summary:${total}:total: data flows on record · ${awaiting}:awaiting: waiting on your confirmation`;
   });
 
   protected readonly retryClass =

@@ -13,6 +13,7 @@ import {
 } from '../vendor-fixtures';
 
 import {
+  claimsOnRecord,
   PRODUCT_ROW_CAP,
   buildNeedsItems,
   conflictsByProduct,
@@ -88,6 +89,13 @@ describe('conflictsByProduct / waitingByProduct — the claim-id dedupe (AECI-99
     // exactly why the total is not their sum.
     expect(tally.byProduct).toHaveLength(2);
     expect(tally.byProduct.reduce((n, r) => n + r.count, 0)).toBe(claimCount * 2);
+  });
+
+  it('counts every claim on record once vendor-wide (the Integrations summary line)', () => {
+    const both = ownsBoth('unverified', false);
+    const tally = claimsOnRecord(both);
+    expect(tally.total).toBe(both[0]!.claims.length);
+    expect(tally.byProduct.reduce((n, r) => n + r.count, 0)).toBe(both[0]!.claims.length * 2);
   });
 
   it('dedupes waiting positions the same way', () => {

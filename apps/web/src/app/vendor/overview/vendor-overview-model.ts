@@ -63,6 +63,17 @@ function tally(
   };
 }
 
+/** Every claim on record, deduped by claim id. The Integrations tab's summary
+ *  total (`vendor-integrations-section.ts`), which is vendor-wide on the
+ *  single-page concept. */
+export function claimsOnRecord(integrations: readonly VendorIntegration[]): ClaimTally {
+  return tally(
+    integrations,
+    () => true,
+    () => true,
+  );
+}
+
 /** Claims whose agreement state is `conflict`, deduped by claim id. */
 export function conflictsByProduct(integrations: readonly VendorIntegration[]): ClaimTally {
   return tally(
