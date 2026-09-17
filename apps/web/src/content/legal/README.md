@@ -48,8 +48,10 @@ at render time (that would be an SSR/CSR hydration and edge-cache trap).
 These remain **drafts pending counsel review** (AECI-308). The `counsel_approved_by` /
 `counsel_approved_on` frontmatter now carries the literal marker `pending sign-off` — the
 machine-readable "not yet approved" signal (it was blank as of AECI-237) — and each body still
-opens with a visible "Draft, pending legal review" notice. `effective_date` stays blank until
-launch. The counsel review is a human gate tracked separately and verified at completion
+opens with a visible "Draft, pending legal review" notice. The Privacy Policy's notice is shortened
+to "Pending Legal Review", because Google's OAuth brand review read "not yet in force" as no
+policy at all. It also carries the "Signing in with Google" disclosure that review requires.
+`effective_date` stays blank until launch. The counsel review is a human gate tracked separately and verified at completion
 checkpoint 7.12; it does not block the page scaffolding.
 
 The counsel-specific details that must be filled before launch now carry a `Pending` marker in
