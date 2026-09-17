@@ -121,6 +121,12 @@ export function sparklineGeometry(
 export interface StackedBarPoint {
   label: string;
   segments: readonly number[];
+  /**
+   * The column's figures were measured without the inputs they depend on (AECI-877:
+   * a traffic day whose arrivals carried no network information, §13 D20). Drawn
+   * dimmed and hatched. Absent or `false` = draw normally. Geometry ignores it.
+   */
+  degraded?: boolean;
 }
 
 export interface StackedBarRect {

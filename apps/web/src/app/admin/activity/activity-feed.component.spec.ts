@@ -43,6 +43,7 @@ function makeRow(over: Partial<AdminPageViewRow> & { id: number }): AdminPageVie
     cf_country: 'cf_country' in over ? (over.cf_country ?? null) : 'ID',
     cf_colo: 'cf_colo' in over ? (over.cf_colo ?? null) : 'CGK',
     writer_provenance: over.writer_provenance ?? null,
+    client_verdict: over.client_verdict ?? null,
     path: over.path ?? '/',
     entity_type: over.entity_type ?? null,
     entity: over.entity ?? null,
@@ -235,6 +236,33 @@ describe('ActivityFeed', () => {
       expect(el.textContent).toContain('/products/:slug');
     });
 
+    // AECI-877 — the trusted counterpart to "Claimed source" (§13 D18).
+    it('renders the writer and the verdict in the Request column', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([
+            makeRow({ id: 3, writer_provenance: 'ssr-arrival', client_verdict: 'browser' }),
+            makeRow({ id: 2, writer_provenance: 'browser-spa', client_verdict: 'non-browser' }),
+            makeRow({ id: 1 }),
+          ]),
+        ),
+      );
+      const headers = [...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+      expect(headers).toContain('Request');
+
+      const cells = [...el.querySelectorAll('tbody tr:not(:first-child)')].map((tr) =>
+        [...(tr.querySelectorAll('td')[5]?.querySelectorAll('span') ?? [])]
+          .map((span) => span.textContent?.trim())
+          .join(' '),
+      );
+      expect(cells).toEqual([
+        'Page load Browser-shaped headers',
+        'In-app navigation No browser headers',
+        // A pre-AECI-871 row: no writer to name, and no verdict invented for it.
+        'Not recorded',
+      ]);
+    });
+
     it('names the Source column as a CLAIM, not a fact', async () => {
       // The value comes from a header the client sets and nothing verifies it.
       // Production holds a confirmed forgery, so the header has to qualify every
@@ -376,6 +404,24 @@ describe('ActivityFeed', () => {
       select.componentInstance.changed.emit('Google');
       await drain(fixture);
       expect(lastQuery(api)).toMatchObject({ source: 'Google' });
+    });
+
+    it('round-trips the writer filter, including the not-recorded bucket (AECI-877)', async () => {
+      const { fixture, api } = await setup(makeApiMock(makeResponse([makeRow({ id: 1 })])));
+      const select = fixture.debugElement.queryAll(By.directive(AecSelect))[2];
+      expect(select.componentInstance.label()).toBe('Writer');
+
+      select.componentInstance.changed.emit('browser-spa');
+      await drain(fixture);
+      expect(lastQuery(api)).toMatchObject({ writer: 'browser-spa', page: 1 });
+
+      select.componentInstance.changed.emit('__none__');
+      await drain(fixture);
+      expect(lastQuery(api)).toMatchObject({ writer: '__none__' });
+
+      select.componentInstance.changed.emit(null);
+      await drain(fixture);
+      expect(lastQuery(api).writer).toBeUndefined();
     });
 
     it('debounces the path filter and drops it again when cleared', async () => {

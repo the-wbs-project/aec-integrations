@@ -1927,6 +1927,18 @@ export const AdminPageViewRowSchema = z.object({
   writer_provenance: z.string().nullable(),
 
   /**
+   * How browser-shaped the request was — `browser` / `inconsistent` /
+   * `non-browser` / `unknown` (AECI-658, gated by `writer_provenance` since
+   * AECI-871 / §13 D18). An annotation of evidence about the request, never an
+   * identity and never an input to `is_bot`.
+   *
+   * `null` = written before the column existed. No evidence, not a verdict (§13
+   * D16). Typed as a nullable string for the same forward-compatibility reason as
+   * `writer_provenance`. Served since AECI-877, which renders both in the feed.
+   */
+  client_verdict: z.string().nullable(),
+
+  /**
    * What the ASN registry says about `cf_asn` (AECI-624 / §7.6) — an annotation
    * joined at read time, `null` when the registry has no record for this network.
    *

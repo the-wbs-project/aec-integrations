@@ -3876,6 +3876,7 @@ export const AdminPageViewRowSchema = z.object({
   referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
   writer_provenance: z.string().nullable(),// AECI-871 — 'ssr-arrival' | 'browser-spa' | null
+  client_verdict: z.string().nullable(),   // AECI-658, served since AECI-877 — 'browser' | 'inconsistent' | 'non-browser' | 'unknown' | null
   asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
 });
 
@@ -3925,9 +3926,11 @@ for a while — the column starts on 2026-09-11 and is not backfillable. An
 unrecognized value returns an empty page rather than a `400`: a filter is not a
 contract about which values exist.
 
-**The row field is API-side only today.** The Activity feed UI does not render
-`client_verdict` either, so there is no existing request-shape column for this to
-sit beside; adding one is a UI follow-up, not part of this contract.
+**Both request-shape fields are rendered (AECI-877).** The Activity feed shows
+`writer_provenance` and `client_verdict` together in its *Request* column and offers
+`?writer=` as a select. `client_verdict` joined the row for that column. It is an
+annotation of evidence about the request, never an identity, and a null means the
+row predates the column.
 
 **The internal-ASN filter behaves differently here, deliberately.** §13 D10
 constraint 2 is "show both numbers, never substitute"; on a count endpoint that

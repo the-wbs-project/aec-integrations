@@ -795,5 +795,30 @@ describe('AdminOverview', () => {
       expect(table).not.toBeNull();
       expect(table!.querySelectorAll('tbody tr')).toHaveLength(30);
     });
+
+    // AECI-877 — a degraded day must not draw exactly like a healthy one.
+    it('marks degraded days on the chart and in its hidden table, and only those', async () => {
+      const series = series30d().map((p, i) => (i === 3 || i === 7 ? { ...p, degraded: true } : p));
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock(makeOverview({ traffic: { ...base.traffic, series_30d: series } })),
+      );
+      const chart = el.querySelector('aec-stacked-bar-chart')!;
+      expect(chart.querySelectorAll('rect[data-degraded-day]')).toHaveLength(2);
+      expect(chart.querySelectorAll('rect[fill-opacity="0.4"]').length).toBeGreaterThan(0);
+      expect(chart.textContent).toContain('Missing network information');
+
+      const rows = [...chart.querySelectorAll('table.sr-only tbody tr')];
+      const flagged = rows.filter((tr) => tr.lastElementChild?.textContent?.trim() === 'Yes');
+      expect(flagged).toHaveLength(2);
+    });
+
+    it('adds no degraded legend, overlay or table column when no day is degraded', async () => {
+      const { el } = await setup(makeApiMock());
+      const chart = el.querySelector('aec-stacked-bar-chart')!;
+      expect(chart.querySelector('rect[data-degraded-day]')).toBeNull();
+      expect(chart.querySelector('pattern')).toBeNull();
+      expect(chart.textContent).not.toContain('Missing network information');
+    });
   });
 });

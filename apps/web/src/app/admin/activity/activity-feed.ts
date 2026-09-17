@@ -108,6 +108,7 @@ export class ActivityFeed {
   protected readonly traffic = signal<AdminTrafficPopulation>('human');
   protected readonly source = signal<string | null>(null);
   protected readonly country = signal<string | null>(null);
+  protected readonly writer = signal<string | null>(null);
   protected readonly pathContains = signal('');
   protected readonly excludeInternal = signal(false);
   protected readonly page = signal(1);
@@ -146,8 +147,31 @@ export class ActivityFeed {
   protected readonly sourceOptions = signal<readonly AecSelectOption[]>([this.anySource]);
   protected readonly countryOptions = signal<readonly AecSelectOption[]>([this.anyCountry]);
 
+  /**
+   * The writer filter's options are STATIC, unlike source and country. The
+   * vocabulary is closed and ours (§13 D18), so there is nothing to discover from
+   * the window, and the null bucket is offered unconditionally because it is most
+   * of the table: every row before 2026-09-11 carries no provenance.
+   */
+  protected readonly writerOptions: readonly AecSelectOption[] = [
+    { value: null, label: $localize`:@@admin.activity.filter.writer.any:Any writer` },
+    {
+      value: 'ssr-arrival',
+      label: $localize`:@@admin.activity.filter.writer.ssrArrival:Page load`,
+    },
+    {
+      value: 'browser-spa',
+      label: $localize`:@@admin.activity.filter.writer.browserSpa:In-app navigation`,
+    },
+    {
+      value: ADMIN_PAGE_VIEW_NULL_FILTER,
+      label: $localize`:@@admin.activity.filter.writer.none:Not recorded`,
+    },
+  ];
+
   protected readonly sourceLabel = $localize`:@@admin.activity.filter.source.label:Source`;
   protected readonly countryLabel = $localize`:@@admin.activity.filter.country.label:Country`;
+  protected readonly writerLabel = $localize`:@@admin.activity.filter.writer.label:Writer`;
 
   /** Rows split into consecutive same-day runs. The server already orders newest
    *  first, so a linear pass is enough — no sorting, no grouping key lookup. */
@@ -194,6 +218,7 @@ export class ActivityFeed {
         traffic: this.traffic(),
         ...(this.source() ? { source: this.source() as string } : {}),
         ...(this.country() ? { country: this.country() as string } : {}),
+        ...(this.writer() ? { writer: this.writer() as string } : {}),
         ...(path ? { path_contains: path } : {}),
         exclude_internal: this.excludeInternal(),
         page: this.page(),
@@ -272,6 +297,11 @@ export class ActivityFeed {
 
   protected setCountry(value: string | null): void {
     this.country.set(value);
+    this.refilter();
+  }
+
+  protected setWriter(value: string | null): void {
+    this.writer.set(value);
     this.refilter();
   }
 
@@ -385,6 +415,57 @@ export class ActivityFeed {
    */
   protected asnTone(row: AdminPageViewRow): string {
     return row.asn_registry?.network_class === 'non_eyeball'
+      ? 'text-(--accent-secondary-deep)'
+      : 'text-(--text-tertiary)';
+  }
+
+  /**
+   * Which of our two writers produced the row (AECI-877 / §13 D18). This is the
+   * one cell in the row the visitor could not have set: our SSR Worker stamps it
+   * on a header it strips a client copy of first. `null` means the row predates
+   * the column, so it says "not recorded" rather than implying no writer.
+   */
+  protected writerCell(row: AdminPageViewRow): string {
+    switch (row.writer_provenance) {
+      case 'ssr-arrival':
+        return $localize`:@@admin.activity.writer.ssrArrival:Page load`;
+      case 'browser-spa':
+        return $localize`:@@admin.activity.writer.browserSpa:In-app navigation`;
+      case null:
+        return $localize`:@@admin.activity.writer.none:Not recorded`;
+      default:
+        // A writer this build does not know. Shown verbatim rather than guessed at.
+        return row.writer_provenance;
+    }
+  }
+
+  /**
+   * How browser-shaped the request was, in words. Evidence about the request,
+   * never a statement about who made it (§13 D18): a headless browser earns
+   * "browser-shaped" honestly. `null` renders nothing, because a row written
+   * before the column existed carries no evidence either way (§13 D16).
+   */
+  protected verdictLabel(row: AdminPageViewRow): string | null {
+    switch (row.client_verdict) {
+      case null:
+        return null;
+      case 'browser':
+        return $localize`:@@admin.activity.verdict.browser:Browser-shaped headers`;
+      case 'inconsistent':
+        return $localize`:@@admin.activity.verdict.inconsistent:Headers contradict the browser it claims`;
+      case 'non-browser':
+        return $localize`:@@admin.activity.verdict.nonBrowser:No browser headers`;
+      case 'unknown':
+        return $localize`:@@admin.activity.verdict.unknown:Not enough signal to judge`;
+      default:
+        return row.client_verdict;
+    }
+  }
+
+  /** Only the two verdicts that flag a row on their own are emphasised, to the
+   *  same strength as the non-eyeball network note. The words carry it alone. */
+  protected verdictTone(row: AdminPageViewRow): string {
+    return row.client_verdict === 'inconsistent' || row.client_verdict === 'non-browser'
       ? 'text-(--accent-secondary-deep)'
       : 'text-(--text-tertiary)';
   }
