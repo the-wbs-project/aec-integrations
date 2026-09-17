@@ -236,7 +236,9 @@ const SECONDARY_PRODUCT: VendorProduct = {
   updated_at: '2026-07-02T09:30:00.000Z',
 };
 
-/** A verified, multi-seat vendor with two products and one open correction. */
+/** A verified, multi-seat vendor with two products and two open corrections. Its
+ *  profile has no logo and its second product no website or logo, so the overview
+ *  (AECI-983) renders gap rows from the default fixture. */
 export const VENDOR_ME_FIXTURE: VendorMeResponse = {
   vendor: {
     id: '00000000-0000-4000-8000-000000005200',
@@ -276,6 +278,18 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
       target_id: PRIMARY_PRODUCT.id,
       status: 'in_review',
       created_at: '2026-07-20T15:00:00.000Z',
+      resolved_at: null,
+    },
+    // A second, still-`open` correction against the company itself, so the
+    // overview's "Needs you now" band and Suggestions tile (AECI-983) show both
+    // pill states and a count above one.
+    {
+      id: '00000000-0000-4000-8000-0000000052a3',
+      kind: 'correction',
+      target_type: 'vendor',
+      target_id: '00000000-0000-4000-8000-000000005200',
+      status: 'open',
+      created_at: '2026-08-02T09:00:00.000Z',
       resolved_at: null,
     },
     {

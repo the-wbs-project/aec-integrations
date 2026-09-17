@@ -484,7 +484,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -1222,6 +1222,121 @@ product detail has shipped it since AECI-128). Coverage therefore stops at the
 trigger's inputs and the anchor's attributes, and the overlay is verified by hand.
 Every attribute asserted here fails **silently** if it regresses — a dropped
 `target` still renders a working link — and axe sees none of them.
+
+---
+
+### 6.10 As built — the overview becomes a landing page (AECI-983 — 2026-09-17)
+
+The overview (`/vendor/:vendorSlug/overview`) was the plan panel plus three bare
+counts (Products, Seats, Open requests) that linked nowhere. It reported inventory
+and never said what needed attention. It is now a landing page: a one-line access
+strip, a three-tile glance band, and a prioritised **"What needs you"** list whose
+rows link straight to the work. The direction was chosen from the mock-up at
+`docs/design/vendor-overview-concepts.html` (concept A, with the views band and a
+1d / 1w / 1m toggle). The baseline critique of the old page scored it 23/40.
+
+**Admission (`STAGE_2_1_SPEC.md` §1).** This is refinement of an already-built
+portal surface, not a new one. The Views tile is the one element that could read as
+a surface addition. It ships as a placeholder with no server read, and its real
+figure stays Stage 2.5 work (`STAGE_2_5_SPEC.md` §10, AECI-941).
+
+**No new endpoint and no migration.** Everything reads `VendorPortalStore`. The
+rules live in `overview/vendor-overview-model.ts` as pure functions, pinned by a
+plain Vitest spec. The section only turns them into copy.
+
+**The list.**
+
+| Band | Item | Condition | Link |
+| -- | -- | -- | -- |
+| Needs you now | One row per product with conflicts | ≥ 1 claim with `agreement = 'conflict'` | `products/:slug/integrations` |
+| Needs you now | One row per open correction | `kind = 'correction'`, status `open` or `in_review` | `messages` |
+| Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
+| Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/taxonomy` if categories are missing, else `products/:slug/profile` |
+| Worth doing | Company profile gaps | `profile.edit` | `profile` |
+| Worth doing | Unaccepted seat invites | `can_manage_seats` | `seats` |
+
+Links are relative `routerLink` arrays (`['..', …]`), so the same template works at
+`/vendor/:slug` and `/preview/vendor-dashboard`. With **no editing capability at
+all**, a paused notice sits above the bands and every edit-gated row drops out.
+Needs you now still lists conflicts and corrections, because reading is always
+allowed. Worth doing keeps **seat invites**, because seat management is never
+capability-gated (`STAGE_2_PAID_TIERS_SPEC.md` §4.3) and a lapsed owner can still
+re-send or revoke them. With nothing outstanding, an all-clear card replaces both
+bands, but **only once the `integrations` read has succeeded**. While it loads or
+after it fails, the lede says so instead ("Checking your data flows." or "this list
+may be incomplete"), because the all-clear asserts every data flow has the vendor's
+position and a list we do not hold cannot back that.
+
+**The gap fields are a product decision, pinned here.**
+
+- **Product:** `description`, `website`, `logo_url`, `category_slugs`.
+- **Company profile:** `description`, `website`, `logo_url`, `headquarters`.
+- **Never `trade_slugs`.** Trades are sparse by design (`TRADES_VOCABULARY.md`
+  §1.1). An empty list is usually correct, and flagging it would nag a vendor about
+  data that is not wrong.
+- **Never audiences or phases.** They are optional refinements, not gaps.
+
+**Counting dedupes by claim id (AECI-993).** `VendorIntegration.id` is not unique
+in `GET /api/vendor/integrations`: an integration whose endpoints the vendor owns
+both is listed once per frame. A vendor-wide total is the size of a set of claim
+ids, never a `flatMap(...).length` and never a sum of per-product rows. The model
+spec pins this with the owns-both mirror.
+
+**Claims stay in Messages.** A claim is someone asking for the account, not a
+comment on the listing, so it is never a row here.
+
+**The glance band** (`components/vendor-glance-band.ts`, presentational):
+
+- **Views** (`components/vendor-views-tile.ts`) is a **placeholder**. It has a
+  working `aria-pressed` toggle (1d / 1w / 1m, default 1w) and a sentence that
+  follows it. It shows no number and makes no server read. AECI-941 binds the
+  figure and listens to its `periodChange` output. The windows are complete UTC
+  days (`VENDOR_PERFORMANCE_SPEC.md` §5.2).
+- **In conflict** is the deduped conflict total. Its line reads "On {product}" or
+  "Across N products", and it links to the first conflicted product's
+  integrations, or to Products at zero.
+- **Suggestions about your listing** counts open corrections, shows "Newest filed
+  {date}" (UTC), and links to Messages. The body and submitter are off the wire,
+  so the copy never implies a reply is possible.
+
+A zero is never a bare `0`. It renders a sentence. The conflict tile shows a loading
+sentence (with `aria-busy`, no `role="status"`) and, on failure, a Try again that
+reloads `integrations` and announces the outcome through `VendorPortalAnnouncer`.
+
+**The compact plan panel.** `vendor-plan-panel.ts` gained `compact = input(false)`.
+Compact applies to the `active` state **only**: `expiring`, `pending`, `lapsed` and
+`none` each carry a conversation and render in full regardless. The compact strip is
+the badge, the term line, and a `<details>` "What an active account covers" holding
+the same framing sentence (one `ng-template`, never forked). The overview's
+"Account access" `h2` becomes `sr-only` exactly when the panel collapses, so the
+heading outline is unchanged.
+
+**Live revalidation.**
+
+| Surface | Source | Live? |
+| -- | -- | -- |
+| Plan strip, corrections, gaps | `me` (`profile`, `entitlement`, `products`, `requests` scopes) | Yes |
+| Conflicts and waiting | `integrations` scope | Yes, including integration-row edits once AECI-992 lands |
+| Seat invites | `seats`, which has no cursor | Loads on entry only, the same accepted posture as the Seats tab |
+| Views | none | Placeholder |
+
+**The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
+renders every section on one page, so a list of links to other routes has nowhere
+to point. §6.1's parity rule is about sections, and it loses none.
+
+The section ensures `integrations` and `seats` from `afterNextRender`, so SSR paints
+the plan strip and the corrections without waiting on either. It adds no live region
+and never calls `markDirty`.
+
+**Tests.** `vendor-overview-model.spec.ts` (dedupe, connector-powered edges never
+waiting, empty trades never a gap, claims excluded, ordering, the top-3 cap,
+capability gating), `vendor-glance-band.component.spec.ts`,
+`vendor-views-tile.component.spec.ts`, the compact cases in
+`vendor-plan-panel.component.spec.ts`, and an overview block in
+`vendor-dashboard-tabbed.component.spec.ts` (compact vs full, row hrefs under
+`/vendor/:slug`, the live entitlement flip, the all-clear state and its suppression while the
+integrations read loads or fails, one live region,
+the announced retry).
 
 ---
 

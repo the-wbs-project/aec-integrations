@@ -295,3 +295,50 @@ describe('VendorPlanPanel — copy discipline (§8, an account-status surface)',
     expect(text(create(e))).not.toMatch(/immediately|right away|instantly|search results now/i);
   });
 });
+
+/**
+ * AECI-983 — the compact strip on the overview. Compact is a request, not a
+ * state: only the quiet `active` panel honours it, because every other state is
+ * a conversation the vendor has to read.
+ */
+describe('VendorPlanPanel — compact (AECI-983)', () => {
+  function createCompact(entitlement: VendorEntitlementBlock): ComponentFixture<VendorPlanPanel> {
+    const fixture = TestBed.createComponent(VendorPlanPanel);
+    fixture.componentRef.setInput('entitlement', entitlement);
+    fixture.componentRef.setInput('now', NOW);
+    fixture.componentRef.setInput('compact', true);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('collapses an active, far-term panel to one row with the framing behind a disclosure', () => {
+    const fixture = createCompact(activeIn(300));
+
+    expect(fixture.componentInstance.isCompact()).toBe(true);
+    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
+    expect(text(fixture)).toContain('Active through');
+    const details = el(fixture).querySelector('details');
+    expect(details?.querySelector('summary')?.textContent?.trim()).toBe(
+      'What an active account covers',
+    );
+    // The same trust sentence, not a fork of it.
+    expect(details?.textContent).toContain('does not affect search ranking or placement');
+    expect(text(fixture)).not.toContain('are yours to edit');
+  });
+
+  it.each([
+    ['expiring', () => activeIn(5)],
+    [
+      'pending',
+      () => ({ ...VENDOR_ME_UNVERIFIED_FIXTURE.entitlement, status: 'pending' as const }),
+    ],
+    ['lapsed', () => VENDOR_ME_DOWNGRADED_FIXTURE.entitlement],
+    ['none', () => VENDOR_ME_UNVERIFIED_FIXTURE.entitlement],
+  ])('ignores compact in the %s state', (_state, entitlement) => {
+    const fixture = createCompact(entitlement());
+
+    expect(fixture.componentInstance.isCompact()).toBe(false);
+    expect(el(fixture).querySelector('details')).toBeNull();
+    expect(text(fixture)).toContain('does not affect search ranking or placement');
+  });
+});

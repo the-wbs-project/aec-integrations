@@ -374,6 +374,32 @@ h3 {
   color: var(--surface-base);
 }
 
+/* The vendor overview's Views period toggle (AECI-983). Same collision as the
+   segmented route item above: the pressed state is an attribute, and a utility
+   toggled by state loses to the resting and hover utilities. */
+.aec-period[aria-pressed='true'],
+.aec-period[aria-pressed='true']:hover {
+  background-color: var(--accent-primary);
+  color: var(--surface-base);
+}
+
+/* The focus ring would otherwise take the pressed segment's `surface-base` text
+   colour and vanish against the sunken track. */
+.aec-period[aria-pressed='true']:focus-visible {
+  outline-color: var(--accent-primary);
+}
+
+/* Coloured borders on the vendor overview's status pills (AECI-983). A
+   `border-(--status-error)` utility never reaches the element, for the reason
+   the `.aec-nav-tab` note records, so the tone lives on an unlayered class. */
+.aec-pill-conflict {
+  border-color: var(--status-error);
+}
+
+.aec-pill-attention {
+  border-color: var(--border-strong);
+}
+
 hr {
   border-color: var(--border-default);
 }
