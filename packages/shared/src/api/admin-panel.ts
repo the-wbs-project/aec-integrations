@@ -422,8 +422,9 @@ export const AdminDataQualityCheckSchema = z.object({
 export type AdminDataQualityCheck = z.infer<typeof AdminDataQualityCheckSchema>;
 
 /**
- * The eleven checks (ten at AECI-583, plus `entitlement_mirror_drift` from AECI-609
- * and `arrival_cf_coverage` from AECI-868, less the two AECI-592 folded into one).
+ * The §23.1 data-quality checks. **The roster count is stated only in
+ * `ADMIN_PANEL_SPEC.md` §14.1** — this comment used to restate it ("eleven") and was
+ * stale within two additions, which is the drift that rule exists to stop.
  * `failing` counts checks with findings OR
  * an error — a skipped check (no creds) is not a failure. `id` is deliberately a
  * plain string rather than an enum: the suite owns the roster, and pinning it here

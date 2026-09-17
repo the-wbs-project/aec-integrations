@@ -283,8 +283,12 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'logo_404',
       'algolia_index_drift',
       'entitlement_mirror_drift',
-      // AECI-868 — the telemetry tripwire, last in digest order.
+      // AECI-868 / AECI-876 — the two telemetry tripwires, last in digest order.
+      // They watch the two independent paths Cloudflare context reaches D1 by:
+      // the SSR arrival write (`page_views`) and the lead-capture write
+      // (`mailing_list`).
       'arrival_cf_coverage',
+      'landing_cf_coverage',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');
   });

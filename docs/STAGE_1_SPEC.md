@@ -1652,7 +1652,9 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
 - Algolia index drift (record count mismatch with D1)
 - Vendors whose `verified` flag disagrees with their entitlement (AECI-609, severity `error`)
+- A live taxonomy term in any of the five tables with a NULL or blank `description` (AECI-962, severity `error`)
 - Full-document arrivals missing their network metadata `cf_asn` (AECI-868, severity `error`)
+- Mailing-list signups missing their network metadata `asn` (AECI-876, severity `warn`)
 
 > **Amendment (AECI-592, 2026-09-13) — two checks retired, one invariant guard added.**
 > The two struck lines above were **unreachable**, and had returned zero rows on every run
@@ -1673,11 +1675,13 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 > row, not the integrations pointing at it — once a product is off-`promoted`, finding its
 > edges is a follow-up query, not a second daily check.
 >
-> The roster is **twelve** checks as of 2026-09-15 (AECI-962 added `taxonomy_missing_description`,
-> which catches a live taxonomy term with no description — the shape promote's find-or-create
-> mint writes, and the AECI-926 defect). `ADMIN_PANEL_SPEC.md` §14.1 is the
-> enumerated inventory; prose elsewhere deliberately does not restate the number, which had
-> drifted across nineteen sites in two months.
+> The roster has grown twice since: AECI-962 added `taxonomy_missing_description`, which catches
+> a live taxonomy term with no description — the shape promote's find-or-create mint writes, and
+> the AECI-926 defect. AECI-876 added `landing_cf_coverage`, the lead-capture sibling of
+> `arrival_cf_coverage`. **`ADMIN_PANEL_SPEC.md` §14.1 is the enumerated inventory and the only
+> place that states the count**; the bullets above are the roster and this paragraph deliberately
+> no longer restates a number. It used to, which made two live counts that had to agree — the
+> exact drift (nineteen sites in two months) the §14.1 rule exists to stop.
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 
