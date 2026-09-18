@@ -7,7 +7,7 @@
 import { AdminContestSchema, ListAdminContestsResponseSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
@@ -23,7 +23,8 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
-import type { AuthzVariables } from '../lib/authz';
+import { requireAdmin, type AuthzVariables } from '../lib/authz';
+import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createAdminContestsListHandler, createModerateContestHandler } from './admin-contests';
@@ -301,5 +302,74 @@ describe('PATCH /api/admin/contests/:id', () => {
       acceptedValue: VENDOR_A,
       acceptedLabel: 'Autodesk',
     });
+  });
+});
+
+// ─── Authorization, against the real guard ───────────────────────────────────
+
+describe('/api/admin/contests — authorization', () => {
+  const SUPABASE_URL = 'https://test-project.supabase.co';
+  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const REVIEWER_ID = uuid(300);
+
+  let jwks: TestJwks;
+  beforeAll(async () => {
+    jwks = await makeTestJwks();
+  });
+
+  function guarded() {
+    const guard = { getKey: jwks.getKey, dbFor: t.factory };
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.get('/api/admin/contests', requireAdmin(guard), createAdminContestsListHandler(t.factory));
+    a.patch(
+      '/api/admin/contests/:id',
+      requireAdmin(guard),
+      createModerateContestHandler(t.factory, fileIssue),
+    );
+    return a;
+  }
+
+  const request = (path: string, method: 'GET' | 'PATCH', token?: string) =>
+    guarded().request(
+      path,
+      {
+        method,
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        ...(method === 'PATCH' ? { body: JSON.stringify({ decision: 'decline' }) } : {}),
+      },
+      AUTHZ_ENV,
+      fakeExecutionContext(),
+    );
+
+  it('401s an anonymous caller on both verbs', async () => {
+    expect((await request('/api/admin/contests', 'GET')).status).toBe(401);
+    expect((await request(`/api/admin/contests/${uuid(999)}`, 'PATCH')).status).toBe(401);
+  });
+
+  it('403s a signed-in non-admin on both verbs, and decides nothing', async () => {
+    const id = await fileContest();
+    await t.db.insert(profiles).values({ id: REVIEWER_ID, role: 'reviewer' });
+    const token = await jwks.mintToken({ sub: REVIEWER_ID, supabaseUrl: SUPABASE_URL });
+    expect((await request('/api/admin/contests', 'GET', token)).status).toBe(403);
+    expect((await request(`/api/admin/contests/${id}`, 'PATCH', token)).status).toBe(403);
+    const [row] = await t.db
+      .select()
+      .from(integrationFieldChallenges)
+      .where(eq(integrationFieldChallenges.id, id));
+    expect(row!.status).toBe('open');
+  });
+
+  it('403s a vendor seat, which is signed in but not an admin', async () => {
+    const token = await jwks.mintToken({ sub: SEAT_A, supabaseUrl: SUPABASE_URL });
+    expect((await request('/api/admin/contests', 'GET', token)).status).toBe(403);
+  });
+
+  it('lets an admin through', async () => {
+    const token = await jwks.mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
+    expect((await request('/api/admin/contests', 'GET', token)).status).toBe(200);
   });
 });

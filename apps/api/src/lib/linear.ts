@@ -730,7 +730,7 @@ function buildContestDescription(env: Env, input: LinearContestIssueInput): stri
   lines.push(`**Contested by:** ${input.submitterVendorName}`);
   const host = environmentHost(env);
   if (host) lines.push(`**Environment:** ${host}`);
-  const adminUrl = adminContestUrl(env, input.contestId);
+  const adminUrl = adminContestUrl(env);
   if (adminUrl) lines.push(`**Admin:** ${adminUrl}`);
   lines.push('', '**Vendor reason:**', '', `> ${input.reason.replace(/\n/g, '\n> ')}`);
   if (input.adminNote) {

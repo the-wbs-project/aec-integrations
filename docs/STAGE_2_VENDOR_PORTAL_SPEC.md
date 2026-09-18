@@ -1901,6 +1901,13 @@ The route is decided at submit and stored on the row, with the owner snapshot in
 
 `isIntegrationClaimed()` in `lib/integration-contests.ts` is a **stub that returns `false`**. **AECI-1005** replaces it. Until then every contest routes to AECi, and the owner path runs only in tests, where the submit handler takes an injected predicate.
 
+**AECI-1005 must close four gaps before the stub returns `true`.** Each is unreachable while every contest routes to AECi, and each becomes live the day the owner path does.
+
+- **Promote reverts an owner accept.** `integrationEditableData` in `routes/promote.ts` rewrites all eleven contestable columns on any re-promote of the edge. Only `last_reviewed_at` is protected on a vendor-maintained row. AECI-1005 must fence promote writes on a claimed integration, as AECI-520 does for claimed vendors and products.
+- **The `integrations` cursor misses an owner accept.** `GET /api/vendor/updates` derives that cursor from `claims` and `attestations` only. An owner accept writes `integrations` and touches neither, so the submitter's portal keeps the old value until a reload. Add `MAX(integrations.updated_at)` to the cursor, or have the client refetch `integrations` when `contests` moves.
+- **A deleted owner strands an owner-routed contest.** `owner_vendor_id` is `ON DELETE SET NULL`. The vendor decide route then cannot match the row, and the admin PATCH refuses it with `409 CONTEST_ROUTED_TO_OWNER`. Only the submitter's withdraw can close it.
+- **A `direction` contest does not record which product was A.** If promote re-orients the edge while the contest is open, an owner accept writes the inverse direction. Snapshot the source product id at submit and refuse a decision when it has changed.
+
 ### 11b.5 States and deciders
 
 `open`, then one of `accepted`, `declined` or `withdrawn`.
@@ -1920,7 +1927,7 @@ Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. The a
 **An AECi accept writes no catalog data.** The catalog is curated upstream and arrives through promote. A value written here would be undone by the next promote of that edge. So the accept records the decision and, after commit, files a Linear issue through `ctx.waitUntil`:
 
 - title `REVIEW - Apply contested field: <field> on <integration>`, on the AECi team, with **no project**, per the three-repo routing in `docs/linear-issue-conventions.md`;
-- a body carrying the app-DB integration id, the pair page, the current and accepted values, the vendor's reason, the admin note, the admin link, and a pointer to the playbook, **AECI-1025**;
+- a body carrying the app-DB integration id, the pair page, the current and accepted values, the vendor's reason, the admin note, a link to the `/admin/contests` queue (there is no per-contest route, so the contest id in the footer is what the operator matches), and a pointer to the playbook, **AECI-1025**;
 - `createLinearIssueForContest` in `lib/linear.ts`, on the same contract as the request path: it never throws, an absent key is a metric-silent no-op, a read-guard makes a re-fire safe, and the persist is a compare-and-set onto `upstream_linear_issue_id` and `upstream_linear_issue_url`.
 
 The request reconciliation sweep (Phase 6.7, `STAGE_1_PHASE_6_SPEC.md` §6.4) retries accepted AECi rows that still have no issue id. The issue id is **never** written to `workflow_instances.linear_issue_id`, so the inbound Linear webhook cannot mistake a contest issue for a request's.
@@ -1964,7 +1971,7 @@ Three surfaces, one store resource, one wire addition.
 - **On `201`** the form announces through `VendorPortalAnnouncer` ("sent to the integration's owner" or "sent to AEC Integrations", from `routed_to`), closes, returns focus to the trigger, and revalidates `contests`. **On an error** a `role="alert"` beside the form maps `CONTEST_DUPLICATE`, `CONTEST_NO_CHANGE`, `CONTEST_INVALID_VALUE`, `CONTEST_OWN_INTEGRATION` and `RATE_LIMITED` to plain copy.
 - **The card also says when the vendor has an open contest on it**, one line naming the fields, read from the `contests` resource.
 
-**The owner picker needed one wire field.** `GET /api/vendor/integrations` gains `endpoint_vendors`: every vendor owning either endpoint product, deduped and sorted by name. Those are the only values an `owner` contest may propose, and the portal had no way to know them. It is `.default([])` for deploy skew, and an empty list degrades the picker to the caller's own company plus "Neither endpoint vendor".
+**The owner picker needed one wire field.** `GET /api/vendor/integrations` gains `endpoint_vendors`: every vendor owning either endpoint product, deduped and sorted by name. Those are the only values an `owner` contest may propose, and the portal had no way to know them. It is `.default([])` in the shared schema, but that default only applies where Zod parses. The web client reads the response through `HttpClient` without parsing, so a web build talking to a pre-AECI-1008 API sees `undefined`, not `[]`. The same holds for `contestable_fields` and `is_owner`. Production deploys the API first, so this bites only on an API-only rollback.
 
 **Field contests in Messages** (`components/vendor-contests-list.ts`, §6.5). Two lists off one read:
 

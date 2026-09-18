@@ -86,14 +86,14 @@ export function adminRequestUrl(env: Env, kind: RequestKind, requestId: string):
 /**
  * The admin console URL for one integration field contest (AECI-1008).
  *
- * Points at `/admin/contests/:id`, the detail route the admin queue ships in
- * AECI-1008 PR C. Until that lands the link resolves to the console's not-found
- * render; the contest id in the issue body is the fallback an operator can search.
+ * Points at the `/admin/contests` queue. There is no per-contest detail route
+ * (`ADMIN_PANEL_SPEC.md` §5.12), so the contest id in the issue body is what an
+ * operator matches against the queue row.
  */
-export function adminContestUrl(env: Env, contestId: string): string | null {
+export function adminContestUrl(env: Env): string | null {
   const base = siteBaseUrl(env);
   if (!base) return null;
-  return `${base}/admin/contests/${contestId}`;
+  return `${base}/admin/contests`;
 }
 
 /** The public pair page for two product slugs, as an absolute URL, or `null`. */

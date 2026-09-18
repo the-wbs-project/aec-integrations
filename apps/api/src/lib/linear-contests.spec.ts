@@ -130,7 +130,7 @@ describe('createLinearIssueForContest', () => {
       'https://new.example.test',
       'The docs moved.',
       'Confirmed.',
-      `https://www.aecintegrations.com/admin/contests/${CONTEST}`,
+      'https://www.aecintegrations.com/admin/contests',
       'AECI-1025',
       `Contest: ${CONTEST}`,
     ]) {

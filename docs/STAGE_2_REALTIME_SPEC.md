@@ -225,7 +225,7 @@ Four of the seven scopes collapse onto `me` because that is what the payload alr
 
 ### 2.6 As built (AECI-627 — 2026-08-19)
 
-Shipped as specified: one route, six SELECTs, one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
+Shipped as specified: one route, six SELECTs (seven since AECI-1008 added `contests`), one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
 
 Four decisions taken at build that §2.1–§2.5 did not pre-specify:
 

@@ -37,7 +37,7 @@
  * store already holds data — but there is no cursor in that payload, and the
  * endpoint keeps no per-client state to derive one from. So the first poll
  * **seeds** the baseline: it records the revisions and refetches nothing. Diffing
- * against an empty baseline would treat all seven scopes as moved and fire three
+ * against an empty baseline would treat all seven scopes as moved and fire four
  * refetches of data that is already on screen, on every single portal load.
  *
  * ── A CURSOR IS "SEEN" ONLY ONCE ITS REFETCH LANDED ─────────────────────────
