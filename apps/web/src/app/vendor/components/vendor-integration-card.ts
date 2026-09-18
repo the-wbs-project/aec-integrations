@@ -159,7 +159,7 @@ import { summarizeIntegration } from './vendor-integration-health';
         }
 
         <!--
-          AECI-1008 (spec 11b). Seat-only: gated on NOT being the builder, never
+          AECI-1008 (spec 11b). Seat-only: gated on NOT being the owner, never
           on canWrite or the edge being attestable. A vendor without active
           access, or on a connector-powered edge, can still ask for a wrong
           public fact to be fixed.

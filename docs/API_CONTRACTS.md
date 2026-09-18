@@ -248,7 +248,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
-| `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor built this integration (`built_by_vendor_id`), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) |
+| `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi |
@@ -1232,16 +1232,16 @@ resolver's gate and the in-shell badge feed.
 | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
-| `pending_contests` | `integration_field_challenges.routed_to = 'aeci' AND status = 'open'` (AECI-1008). A fifth count on a different table, so still disjoint. **Not in the header sum yet**: the web client ignores it until the `/admin/contests` screen ships (AECI-1008 PR C) |
+| `pending_contests` | `integration_field_challenges.routed_to = 'aeci' AND status = 'open'` (AECI-1008). A fifth count on a different table, so still disjoint. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
 
-**The four are disjoint, and the header badge SUMS them.** Requests and claims
+**The five are disjoint, and the header badge SUMS them.** Requests and claims
 are one table split by `kind`, so `pending_requests` is corrections-only; an
 all-kinds count would put every open claim into the total twice. `in_review` is
 deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
 are split on the same `kind` boundary (`open_requests` + `open_claims`) for the
-same reason. All four are `null` together or numbers together — a `0` means an empty queue,
+same reason. All five are `null` together or numbers together — a `0` means an empty queue,
 never "not allowed to know".
 
 **`pending_reindex` needs no predicate, and that is the design rather than an
@@ -5399,8 +5399,8 @@ export const VendorIntegrationSchema = z.object({
                                         // connector is not a promoted product
   claims: z.array(VendorClaimSchema),
   // AECI-1008. All four defaulted for deploy skew.
-  is_owner: z.boolean().default(false),                    // caller built it (built_by_vendor_id)
-  owner: ContestVendorRefSchema.nullable().default(null),  // { id, name } of the builder
+  is_owner: z.boolean().default(false),                    // caller owns it (built_by_vendor_id)
+  owner: ContestVendorRefSchema.nullable().default(null),  // { id, name } of the owner
   contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
     // Record<field, string | null> over all twelve contest fields: current values,
     // `direction` framed against context_product, `owner` a vendor id
@@ -5481,7 +5481,7 @@ Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the calle
 
 #### Integration field contests — `/api/vendor/integrations/:id/contests` + `/api/vendor/contests`
 
-Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor that did not build an integration challenges one of its fields. Zod in `packages/shared/src/api/integration-contests.ts`, handlers in `apps/api/src/routes/vendor-contests.ts`, shared rules in `apps/api/src/lib/integration-contests.ts`.
+Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor that does not own an integration challenges one of its fields. Zod in `packages/shared/src/api/integration-contests.ts`, handlers in `apps/api/src/routes/vendor-contests.ts`, shared rules in `apps/api/src/lib/integration-contests.ts`.
 
 | Method | Path | Gate | Success |
 |---|---|---|---|
@@ -5492,7 +5492,7 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **No capability gate.** This is the named exception to invariant 3 above.
 
-**Submit order: authority → owner → shape → value → duplicate.** A caller owning neither endpoint, or an unknown id, gets the same `404` before the body is read. The builder gets `403 CONTEST_OWN_INTEGRATION`. Then `400 VALIDATION_FAILED` for the body shape, `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
+**Submit order: authority → owner → shape → value → duplicate.** A caller owning neither endpoint, or an unknown id, gets the same `404` before the body is read. The owner gets `403 CONTEST_OWN_INTEGRATION`. Then `400 VALIDATION_FAILED` for the body shape, `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({
@@ -5530,7 +5530,7 @@ export const VendorContestSchema = z.object({
 });
 ```
 
-- **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each newest first with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as builder is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
+- **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each newest first with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as owner is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
 - **Withdraw** is the submitter's alone. **Decision** is the owner's alone, and only on an owner-routed row. Everyone else gets `404`. A closed contest is `409 CONTEST_NOT_OPEN`, which is also the answer to the loser of a race.
 - **An owner accept writes the catalog** in the same batch: the column, the §13.9 maintenance transfer, and an `integration.updated` audit row. It then purges `pair:{a}__{b}` and both `product:` tags. A decline, a withdraw and a submit purge nothing.
 - **Routing is fixed at submit.** Until AECI-1005 replaces the `isIntegrationClaimed` stub, every contest routes to AECi, so `received` is always empty in production.

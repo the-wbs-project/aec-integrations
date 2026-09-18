@@ -3,7 +3,7 @@
  * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
  *
  * What these pin, in the order it matters:
- *   1. Visibility is the builder rule and NOTHING else: shown when the caller is
+ *   1. Visibility is the owner rule and NOTHING else: shown when the caller is
  *      not the owner, hidden when it is, and never gated on `canWrite`
  *      (entitlement) or on the edge being attestable. A seat is the whole gate.
  *   2. The value control follows the field, and every control starts at the
@@ -35,9 +35,9 @@ import { VendorIntegrationCard } from './vendor-integration-card';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
-/** The fixture with real contestable values and Procore on record as builder. */
+/** The fixture with real contestable values and Procore on record as owner. */
 const PROCORE = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
-/** The fixture the caller built (`is_owner: true`). */
+/** The fixture the caller owns (`is_owner: true`). */
 const OWNED = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.is_owner)!;
 /** A connector-powered edge: not attestable, but still contestable. */
 const POWERED = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => !i.attestable)!;
@@ -147,7 +147,7 @@ async function submit(fixture: ComponentFixture<unknown>): Promise<void> {
 }
 
 describe('VendorContestForm — who sees it', () => {
-  it('shows on a card the caller did not build, even with no write access', async () => {
+  it('shows on a card the caller does not own, even with no write access', async () => {
     // Seat-only (§11b.2): `canWrite` is the Verified gate, and a contest must
     // not be something a vendor buys.
     const fixture = await createCard(PROCORE, false);
@@ -159,7 +159,7 @@ describe('VendorContestForm — who sees it', () => {
     expect(el(fixture).querySelector('aec-vendor-contest-form')).not.toBeNull();
   });
 
-  it('is absent on a card the caller built', async () => {
+  it('is absent on a card the caller owns', async () => {
     const fixture = await createCard(OWNED, true);
     expect(el(fixture).querySelector('aec-vendor-contest-form')).toBeNull();
   });
@@ -312,7 +312,7 @@ describe('VendorContestForm — submitting', () => {
     await open(fixture);
     await chooseField(fixture, 'owner');
     await typeInto(fixture, valueControl(fixture), NO_OWNER);
-    await reason(fixture, 'A third party built it.');
+    await reason(fixture, 'A third party offers it.');
     await submit(fixture);
 
     expect(api.submitContest.mock.calls[0]![1].proposed_value).toBeNull();
@@ -322,7 +322,7 @@ describe('VendorContestForm — submitting', () => {
     ['CONTEST_DUPLICATE', 409, 'already have an open contest on this field'],
     ['CONTEST_NO_CHANGE', 422, 'nothing to contest'],
     ['CONTEST_INVALID_VALUE', 422, 'not valid for this field'],
-    ['CONTEST_OWN_INTEGRATION', 403, 'recorded as the builder'],
+    ['CONTEST_OWN_INTEGRATION', 403, 'recorded as the owner'],
     ['INTERNAL_ERROR', 500, 'Could not send your contest'],
   ])('maps %s to plain copy in an alert, and keeps the form open', async (code, status, copy) => {
     api.submitContest.mockRejectedValue(apiError(status, code));

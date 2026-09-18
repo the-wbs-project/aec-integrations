@@ -24,7 +24,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
  * Two lists off one read, `GET /api/vendor/contests`:
  *
  *  - **Received** is the owner inbox: contests other vendors sent about an
- *    integration this vendor built, with Accept and Decline. It stays empty until
+ *    integration this vendor owns, with Accept and Decline. It stays empty until
  *    the vendor owns a claimed integration, because only those route to a vendor;
  *    everything else goes to AEC Integrations (§11b.4).
  *  - **Submitted** is what this vendor sent, with where it stands and a Withdraw
@@ -94,11 +94,11 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
               @if (received().length === 0) {
                 <p
                   class="mt-2 max-w-prose text-sm text-(--text-secondary)"
-                  i18n="@@vendor.contests.received.empty"
+                  i18n="@@vendor.contests.received.emptyOwner"
                 >
-                  Nothing to decide. Once you claim an integration your company built, contests
-                  other vendors send about it arrive here for you to accept or decline. Until then
-                  AEC Integrations reviews them.
+                  Nothing to decide. Once you claim an integration your company owns, contests other
+                  vendors send about it arrive here for you to accept or decline. Until then AEC
+                  Integrations reviews them.
                 </p>
               } @else {
                 <ul

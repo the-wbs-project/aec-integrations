@@ -6,7 +6,7 @@ import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integr
 /**
  * Integration field contests (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
  *
- * A seated endpoint vendor that did not build an integration can challenge one
+ * A seated endpoint vendor that does not own an integration can challenge one
  * field of it: "this is wrong, this is right, here is why". The contest routes to
  * the integration's owner when it is claimed, and to AECi otherwise.
  *
@@ -28,7 +28,7 @@ import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integr
  *    `context_product`. The admin read carries the stored `a_to_b | b_to_a | both`
  *    plus both product names, because an operator has no frame.
  * 3. **`owner` values are vendor ids.** `null` as a PROPOSED owner means "neither
- *    endpoint vendor built this". It is the only field where the proposal may be
+ *    endpoint vendor owns this". It is the only field where the proposal may be
  *    null. A proposed owner must be one of the integration's endpoint vendors; the
  *    server checks that, because the client cannot know the set.
  * 4. **Per-field validity is a business rule, not a shape rule.** The body shape
@@ -238,7 +238,7 @@ export type VendorContestResponse = z.infer<typeof VendorContestResponseSchema>;
 /**
  * The per-integration current values `GET /api/vendor/integrations` carries, so the
  * portal can prefill a contest. `direction` is framed against the entry's
- * `context_product`; `owner` is the builder's vendor id.
+ * `context_product`; `owner` is the owner's vendor id.
  */
 export const ContestableFieldsSchema = z.record(
   IntegrationContestFieldSchema,

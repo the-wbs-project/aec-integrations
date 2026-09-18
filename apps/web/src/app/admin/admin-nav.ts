@@ -127,6 +127,15 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: $localize`:@@admin.shell.nav.claims:Vendor claims`,
         badge: 'claims',
       },
+      // AECI-1008. The fifth badged queue. It counts open AECi-routed rows of
+      // `integration_field_challenges`, a table no other queue reads, so the
+      // Operations sum stays honest by construction, like Re-index below. It sits
+      // beside Vendor claims because both are a vendor asking AECi to decide.
+      {
+        path: '/admin/contests',
+        label: $localize`:@@admin.shell.nav.contests:Field contests`,
+        badge: 'contests',
+      },
       // AECI-946. The fourth badged queue, and the first that counts rows in a
       // table other than `vendor_requests` / `reviews` — so it cannot overlap the
       // three above, which is what keeps the Operations sum honest. It sits here

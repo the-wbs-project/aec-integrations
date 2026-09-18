@@ -20,7 +20,7 @@
  * Who may contest is "owns an endpoint in `product_vendors`", resolved through
  * `resolveAttestationSlots` (the one implementation of that rule). A contest the
  * caller neither filed nor decides is a 404 indistinguishable from one that does
- * not exist. The builder of an integration gets a 403 instead, because by then it
+ * not exist. The owner of an integration gets a 403 instead, because by then it
  * has proven it owns an endpoint and the integration's existence is disclosed.
  *
  * ── 3. ORDER: AUTHORITY → OWNER → SHAPE → VALUE → DUPLICATE ─────────────────
@@ -348,12 +348,12 @@ export function createSubmitContestHandler(
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
     if (!integration) throw notFoundError('integration', { id: integrationId });
 
-    // 2. The builder cannot contest its own integration.
+    // 2. The owner cannot contest its own integration.
     if (integration.builtByVendorId === vendorId) {
       throw new ApiError(
         403,
         ApiErrorCode.CONTEST_OWN_INTEGRATION,
-        'You built this integration, so you can edit it rather than contest it.',
+        'Your company owns this integration, so you can edit it rather than contest it.',
       );
     }
 

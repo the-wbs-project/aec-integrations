@@ -3,7 +3,7 @@ import { Injectable, Signal, computed, signal } from '@angular/core';
 /** The Operations queues the console badges, and the key each badge is wired to
  *  in `admin-nav.ts`. Named rather than indexed so a nav entry declares WHICH
  *  queue it counts instead of inheriting the one global number. */
-export type AdminQueueKey = 'reviews' | 'requests' | 'claims' | 'reindex';
+export type AdminQueueKey = 'reviews' | 'requests' | 'claims' | 'contests' | 'reindex';
 
 /** Every key, in nav order. Iterated by the group total, so a fifth queue is one
  *  entry here plus one in `admin-nav.ts`. */
@@ -11,6 +11,7 @@ export const ADMIN_QUEUE_KEYS: readonly AdminQueueKey[] = [
   'reviews',
   'requests',
   'claims',
+  'contests',
   'reindex',
 ];
 
@@ -39,7 +40,8 @@ export type AdminQueueSeed = Partial<Record<AdminQueueKey, number | null | undef
  * back to counting all `vendor_requests` kinds, this total would double every
  * open claim, and nothing here would notice. AECI-946's `reindex` is a fourth
  * key over a different table entirely (`gsc_recrawl_queue`), so it cannot
- * overlap the other three by construction.
+ * overlap the other three by construction. AECI-1008's `contests` is a fifth, on
+ * `integration_field_challenges`, disjoint for the same reason.
  *
  * `providedIn: 'root'` → one instance, shared across the header, the layout and
  * its outlet. A fresh full navigation to `/admin` re-runs the resolver and
@@ -55,6 +57,7 @@ export class AdminSummaryStore {
     reviews: signal<number | null>(null),
     requests: signal<number | null>(null),
     claims: signal<number | null>(null),
+    contests: signal<number | null>(null),
     reindex: signal<number | null>(null),
   };
 
@@ -64,6 +67,8 @@ export class AdminSummaryStore {
   readonly pendingRequests = this.counts.requests.asReadonly();
   /** Live open-vendor-claim count. */
   readonly pendingClaims = this.counts.claims.asReadonly();
+  /** Live count of open integration field contests routed to AECi (AECI-1008). */
+  readonly pendingContests = this.counts.contests.asReadonly();
   /** Live count of URLs awaiting a manual Google Request Indexing (AECI-946).
    *  Needs no predicate: Done deletes the row, so every row is pending. */
   readonly pendingReindex = this.counts.reindex.asReadonly();

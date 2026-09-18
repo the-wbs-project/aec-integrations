@@ -35,7 +35,7 @@ import { EMPTY_CONTESTABLE_FIELDS } from '@aeci/shared';
 
 /**
  * The AECI-1008 contest fields a fixture integration carries by default: the
- * caller is not the builder and nothing is on file. `INTEGRATION_PROCORE` and
+ * caller is not the owner and nothing is on file. `INTEGRATION_PROCORE` and
  * `INTEGRATION_VENDOR_B` override them with real values and an owned row.
  */
 const NOT_OWNER: Pick<
@@ -701,7 +701,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   attestable: true,
   // AECI-1008: the non-owner fixture with real values, so the contest form's
   // "On record now" line and every field control have something to show.
-  // Procore is on record as the builder; the caller (Summit) is not.
+  // Procore is on record as the owner; the caller (Summit) is not.
   is_owner: false,
   owner: PROCORE_VENDOR,
   contestable_fields: {

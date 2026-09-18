@@ -106,6 +106,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_seat.invite_revoked': $localize`:@@admin.audit.action.seatInviteRevoked:Seat invitation revoked`,
   'vendor_seat.invite_accepted': $localize`:@@admin.audit.action.seatInviteAccepted:Seat invitation accepted`,
 
+  // ── Integration field contests (AECI-1008). `entity_type` on these rows is
+  //    `integration_field_challenge`. An accept by AECi writes no catalog data,
+  //    so its label says the decision was recorded, not that the field changed.
+  'integration.contest.submitted': $localize`:@@admin.audit.action.contestSubmitted:Field contest filed`,
+  'integration.contest.withdrawn': $localize`:@@admin.audit.action.contestWithdrawn:Field contest withdrawn`,
+  'integration.contest.accepted': $localize`:@@admin.audit.action.contestAccepted:Field contest accepted`,
+  'integration.contest.declined': $localize`:@@admin.audit.action.contestDeclined:Field contest declined`,
+
   // ── Entitlements. `entity_id` on these rows is the VENDOR id, not the
   //    entitlement row id, so the whole trail shares one index key. ──────────
   'vendor_entitlement.set': $localize`:@@admin.audit.action.entitlementSet:Entitlement set`,

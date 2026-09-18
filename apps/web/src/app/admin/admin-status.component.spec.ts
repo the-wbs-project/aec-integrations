@@ -44,6 +44,7 @@ const ADMIN = {
   pending_requests: 2,
   pending_claims: 1,
   pending_reindex: 4,
+  pending_contests: 2,
 };
 
 const REVIEWER = {
@@ -108,12 +109,13 @@ describe('AdminStatus', () => {
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
     // AECI-922: every queue, and the header badge shows their sum. AECI-946
-    // added the fourth.
+    // added the fourth, AECI-1008 the fifth.
     expect(store.pendingReviews()).toBe(3);
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingClaims()).toBe(1);
     expect(store.pendingReindex()).toBe(4);
-    expect(store.operationsTotal()).toBe(10);
+    expect(store.pendingContests()).toBe(2);
+    expect(store.operationsTotal()).toBe(12);
     // The second hop is gone — the counts rode along with the role.
     http.expectNone('/api/admin/summary');
   });
@@ -191,7 +193,13 @@ describe('AdminStatus', () => {
 
     signedIn.set(true);
     fixture.detectChanges();
-    const { pending_requests: _r, pending_claims: _c, pending_reindex: _x, ...pre922 } = ADMIN;
+    const {
+      pending_requests: _r,
+      pending_claims: _c,
+      pending_reindex: _x,
+      pending_contests: _k,
+      ...pre922
+    } = ADMIN;
     http.expectOne('/api/account').flush(pre922);
     await settle();
     fixture.detectChanges();

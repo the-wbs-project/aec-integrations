@@ -31,10 +31,10 @@
  * flagging, precisely so that "is it waiting" never becomes a column whose
  * predicate this file would have to keep in step with a screen.
 
-`pending_contests` (AECI-1008) is a different table too
-(`integration_field_challenges`), counted as `routed_to = 'aeci' AND status =
-'open'`, so it is disjoint from all four. The console does not sum it into the
-Operations trigger until the `/admin/contests` screen exists (AECI-1008 PR C).
+ * `pending_contests` (AECI-1008) is a different table too
+ * (`integration_field_challenges`), counted as `routed_to = 'aeci' AND status =
+ * 'open'`, so it is disjoint from all four. It badges `/admin/contests` and is
+ * summed into the Operations trigger and the header badge like the others.
  *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
  * `vendor_requests.status` allows `open | in_review | resolved | rejected`, and

@@ -1475,7 +1475,7 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
 /**
  * Integration field contests (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
  *
- * A seated endpoint vendor that did NOT build an integration says "this field is
+ * A seated endpoint vendor that does NOT own an integration says "this field is
  * wrong, here is the right value, here is why". One row per challenge. The row is
  * a REQUEST, never the value: nothing here is read by a public page, and the
  * catalog only changes when the owner accepts (routed to `owner`) — an AECi accept
@@ -1493,8 +1493,8 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * API boundary through `claimDirectionFromContext` / `…ForContext`.
  *
  * ── `proposed_value` IS NULL IN EXACTLY ONE CASE ────────────────────────────
- * An `owner` contest proposing "neither endpoint vendor built this" (an SI or a
- * connector did). Every other field requires a value; the handler enforces it.
+ * An `owner` contest proposing "neither endpoint vendor owns this" (an SI or a
+ * connector offers it). Every other field requires a value; the handler enforces it.
  *
  * ── CASCADE ─────────────────────────────────────────────────────────────────
  * `integration_id` is `ON DELETE CASCADE`: a promote cross-table move (AECI-888)

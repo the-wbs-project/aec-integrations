@@ -366,7 +366,7 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   /**
-   * Mirrors the handler's refusals in its order: builder 403, value 422, no-change
+   * Mirrors the handler's refusals in its order: owner 403, value 422, no-change
    * 422, duplicate 409. Every contest routes to AECi, which is what production
    * does until claiming ships (`isIntegrationClaimed()` is a stub).
    */
@@ -381,7 +381,7 @@ export class PreviewVendorApi extends VendorApi {
     );
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (integration.is_owner) {
-      throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You built this integration');
+      throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
     }
     const problem = contestValueProblem(body.field, body.proposed_value);
     if (problem) {

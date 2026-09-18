@@ -41,11 +41,11 @@ type IntegrationRow = typeof integrations.$inferSelect;
 export const CONTEST_ENTITY_TYPE = 'integration_field_challenge';
 
 /**
- * Is this integration CLAIMED, i.e. does its builder hold an accountable seat that
+ * Is this integration CLAIMED, i.e. does its owner hold an accountable seat that
  * may decide contests on it?
  *
  * ⚠️ **STUB. Always `false` until AECI-1005 replaces it.** AECI-1005 defines what
- * "claimed" means for an integration (a seated builder that has taken
+ * "claimed" means for an integration (a seated owner that has taken
  * responsibility for the row) and fences promote moves on claimed rows. Until it
  * ships, every contest routes to AECi, which is the safe direction: an AECi accept
  * writes nothing and files a `REVIEW - ` issue for the curation lane.
@@ -65,9 +65,9 @@ export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
 /**
  * Who decides a contest, fixed at submit (§11b).
  *
- * `owner` iff the integration is claimed, the field is not `owner`, and a builder
- * is on file. An `owner` contest ALWAYS routes to AECi: the builder cannot be the
- * judge of whether it is the builder.
+ * `owner` iff the integration is claimed, the field is not `owner`, and an owner
+ * is on file. An `owner` contest ALWAYS routes to AECi: the owner cannot be the
+ * judge of whether it is the owner.
  *
  * `ownerVendorId` is the `built_by_vendor_id` snapshot either way. On an
  * AECi-routed row it is informational (the admin screen shows who is on file).
@@ -146,7 +146,7 @@ export function submittedContestsWhere(vendorId: string): SQL {
 }
 
 /** Contests the caller's vendor decides: owner-routed, with it as the snapshot
- *  owner. An AECi-routed row naming the vendor as builder is NOT received — the
+ *  owner. An AECi-routed row naming the vendor as owner is NOT received — the
  *  vendor is not its decider, and an owner contest about it must not be shown to
  *  the party it disputes. */
 export function receivedContestsWhere(vendorId: string): SQL {

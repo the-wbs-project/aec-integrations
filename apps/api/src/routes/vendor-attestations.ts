@@ -784,7 +784,7 @@ const vendorIntegrationConfig = {
     mechanismName: true,
     poweredByProductId: true,
     // AECI-1008: every contestable column, so the portal can prefill a contest
-    // with the current value, plus the builder for `is_owner` / `owner`.
+    // with the current value, plus the owner for `is_owner` / `owner`.
     direction: true,
     description: true,
     listingUrl: true,

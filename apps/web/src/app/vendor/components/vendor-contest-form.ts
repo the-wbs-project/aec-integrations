@@ -287,9 +287,12 @@ interface SelectOption {
                 </p>
               }
               @if (f === 'owner') {
-                <p class="text-xs text-(--text-secondary)" i18n="@@vendor.contest.form.ownerHint">
-                  Who built this integration. A contest about this field always goes to AEC
-                  Integrations.
+                <p
+                  class="text-xs text-(--text-secondary)"
+                  i18n="@@vendor.contest.form.ownerHintOffered"
+                >
+                  The vendor that owns and offers this integration. A contest about this field
+                  always goes to AEC Integrations.
                 </p>
               }
             </div>

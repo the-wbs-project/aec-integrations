@@ -501,7 +501,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor did not build, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor does not own, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -1859,7 +1859,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10.** The admin queue screen lands in PR C; until it does, an AECi-routed contest is decided through `PATCH /api/admin/contests/:id` directly. This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
 
 ### 11b.1 What a contest is
 
@@ -1868,14 +1868,14 @@ A seated vendor says one field of an integration is wrong. It names the field, p
 ### 11b.2 Who may contest
 
 - **An endpoint vendor.** The caller must own one of the integration's two products in `product_vendors`. Authority resolves through `resolveAttestationSlots`, the same rule attestations use. Anyone else gets a `404` that looks exactly like an unknown id.
-- **Not the builder.** The vendor named in `built_by_vendor_id` gets `403 CONTEST_OWN_INTEGRATION`. It owns the row and edits it through the claim flow instead (AECI-1005).
+- **Not the owner.** The vendor named in `built_by_vendor_id` (the vendor that owns and offers the integration, per AECI-1003) gets `403 CONTEST_OWN_INTEGRATION`. It owns the row and edits it through the claim flow instead (AECI-1005).
 - **A seat is the whole gate.** The route carries `requireVendor()` and nothing else. There is no `requireCapability` and no Verified check.
 
 That last point is a **named exception to §6.14 of `API_CONTRACTS.md`**, which says vendor writes are entitlement-gated. A contest asks for a fact on a public page to be fixed. Gating it behind a paid tier would make accuracy something a vendor buys, which is the pay-for-placement line from the other side. A contest also writes nothing public by itself.
 
 ### 11b.3 The fields
 
-Twelve: `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`, and `owner`. `owner` names `built_by_vendor_id`. `notes` is AECi's own curation column and is not contestable.
+Twelve: `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`, and `owner`. `owner` names `built_by_vendor_id`. The portal and the admin queue label it **Owner**, and the admin row reads "Offered by", matching the public pair page's byline (AECI-1021). `notes` is AECi's own curation column and is not contestable.
 
 Per-field rules live in `contestValueProblem` in `@aeci/shared`, so the portal form can run the same check.
 
@@ -1884,7 +1884,7 @@ Per-field rules live in `contestValueProblem` in `@aeci/shared`, so the portal f
 | the four URL fields | an absolute `http(s)` URL |
 | `mechanism_kind` | a value of `IntegrationMechanismKindSchema`, not a new spelling |
 | `direction` | `inbound`, `outbound` or `both`, relative to the caller's product |
-| `owner` | one of the integration's endpoint vendor ids, or `null` for "neither endpoint vendor built it" |
+| `owner` | one of the integration's endpoint vendor ids, or `null` for "neither endpoint vendor owns it" |
 | every field | a value is required, except the `owner` `null` case; length is capped per field |
 
 `direction` is stored canonical (`a_to_b`, `b_to_a`, `both`) and translated at the boundary with `claimDirectionFromContext`. A body that sends `context_product_id` picks the frame when the caller owns both endpoints, exactly as `POST /api/vendor/claims` does.
@@ -1893,11 +1893,11 @@ A shape error is a `400`. A value wrong for its field is `422 CONTEST_INVALID_VA
 
 ### 11b.4 Routing
 
-The route is decided at submit and stored on the row, with the builder snapshot in `owner_vendor_id`. A later change to `built_by_vendor_id` cannot move an open contest to a different decider.
+The route is decided at submit and stored on the row, with the owner snapshot in `owner_vendor_id`. A later change to `built_by_vendor_id` cannot move an open contest to a different decider.
 
-- **`owner`** when the integration is claimed, the field is not `owner`, and a builder is on file.
+- **`owner`** when the integration is claimed, the field is not `owner`, and an owner is on file.
 - **`aeci`** otherwise.
-- **An `owner` contest always routes to AECi.** The builder cannot judge whether it is the builder.
+- **An `owner` contest always routes to AECi.** The owner cannot judge whether it is the owner.
 
 `isIntegrationClaimed()` in `lib/integration-contests.ts` is a **stub that returns `false`**. **AECI-1005** replaces it. Until then every contest routes to AECi, and the owner path runs only in tests, where the submit handler takes an injected predicate.
 
@@ -1968,7 +1968,7 @@ Three surfaces, one store resource, one wire addition.
 
 **Field contests in Messages** (`components/vendor-contests-list.ts`, §6.5). Two lists off one read:
 
-- **Received** is the owner inbox. Each row shows the field and integration, the value on record and the proposal, the reason, the submitting vendor and the date, with an optional note (encouraged on a decline) and Accept / Decline. An accept revalidates `integrations` too, because it wrote the catalog. The empty state says the inbox fills once the vendor claims an integration it built, and that AEC Integrations reviews contests until then. That is the production state until AECI-1005 replaces the `isIntegrationClaimed()` stub.
+- **Received** is the owner inbox. Each row shows the field and integration, the value on record and the proposal, the reason, the submitting vendor and the date, with an optional note (encouraged on a decline) and Accept / Decline. An accept revalidates `integrations` too, because it wrote the catalog. The empty state says the inbox fills once the vendor claims an integration it owns, and that AEC Integrations reviews contests until then. That is the production state until AECI-1005 replaces the `isIntegrationClaimed()` stub.
 - **Submitted** shows a status pill (Open, Accepted, Declined, Withdrawn), "With the owner" or "With AEC Integrations" while open, the decision note, and Withdraw on open rows. Withdraw confirms inline, never with `confirm()`, and moves focus to the confirm button and back.
 - **Every write is pessimistic and re-read**, the `vendor-seat-roster.ts` pattern. A `409 CONTEST_NOT_OPEN` says "already decided or withdrawn" beside the row and reloads the list, so the row shows the state that won.
 
@@ -1977,6 +1977,20 @@ Three surfaces, one store resource, one wire addition.
 **Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined". The secondary line names the field and the integration. The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
 
 **Overview.** "What needs you" gains one Needs-you-now row for open received contests, linked to Messages (§6.10).
+
+**The owner field is labelled "Owner", not "Builder".** AECI-1003 (ruled 2026-09-18) defined `built_by_vendor_id` as the vendor that owns and offers the integration, and AECI-1021 relabelled the public byline "Offered by". PR B had shipped "Builder" and "the card the caller did not build". PR C renamed the field label, the owner hint, the own-integration refusal and the empty Received copy to owner language under new i18n ids. The column and the code identifiers keep their names.
+
+### 11b.11 As built — the admin queue (PR C, 2026-09-18)
+
+`/admin/contests` (`apps/web/src/app/admin/contests/contest-queue.ts`), under Operations beside Vendor claims. The IA, the badge and what the screen will not do are in `ADMIN_PANEL_SPEC.md` §5.12. What matters for this section's contract:
+
+- **Two filters.** Status tabs (Open, Accepted, Declined, Withdrawn; default Open) and "Decided by" (AEC Integrations, the default, or The owner). Both map one-to-one onto `ListAdminContestsQuerySchema`.
+- **Owner-routed rows are read-only.** They carry a "With the owner" pill and a sentence saying the owner decides, and render no Accept or Decline. That is §11b.5's single-decider rule shown in the UI rather than discovered as a `409 CONTEST_ROUTED_TO_OWNER`.
+- **Accept says what it does not do.** The help text under the button, tied to it by `aria-describedby`, says accepting does not change the live listing and files a REVIEW issue for the review app (playbook AECI-1025). The success announcement repeats it. That is §11b.6's "an AECi accept writes no catalog data" in the operator's words.
+- **The note is optional on both decisions and encouraged on decline.** The API accepts no note, so the form does not require one. Both forms say the note is shown to the vendor that filed the contest, and the accept form says it is also copied into the Linear issue.
+- **Accepted AECi rows show the issue.** A link from `upstream_linear_issue_url`, or "Linear issue pending" while the post-commit filing or the §6.7 sweep has not landed it.
+- **Pessimistic, one decision at a time.** A success drops the row and decrements the `contests` badge. `409 CONTEST_NOT_OPEN` announces "Already decided" and reloads, so the row shows the state that won, and does not decrement. `409 CONTEST_ROUTED_TO_OWNER` keeps the row with an inline alert.
+- **No detail route.** The API has no single-contest read, and the row already carries every field a decision needs.
 
 ## 12. Cross-references
 

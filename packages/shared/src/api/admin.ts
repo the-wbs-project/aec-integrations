@@ -45,9 +45,9 @@ export const AdminSummaryResponseSchema = z.object({
    *  pending by construction, because Done deletes it. */
   pending_reindex: z.number().int().nonnegative(),
   /** Open integration field contests routed to AECi (AECI-1008). Disjoint from
-   *  the three Operations queues above: a different table. Optional on the wire
-   *  type for deploy skew, and because the console does not render it until the
-   *  `/admin/contests` screen ships (AECI-1008 PR C). The server always sends it. */
+   *  the Operations queues above: a different table. Badges `/admin/contests`.
+   *  Optional on the wire type for deploy skew only; the server always sends it,
+   *  and the store leaves an absent key alone rather than zeroing it. */
   pending_contests: z.number().int().nonnegative().optional(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;

@@ -52,7 +52,7 @@ export function contestFieldLabel(field: IntegrationContestField): string {
     case 'maturity':
       return $localize`:@@vendor.contest.field.maturity:Maturity`;
     case 'owner':
-      return $localize`:@@vendor.contest.field.owner:Builder`;
+      return $localize`:@@vendor.contest.field.integrationOwner:Owner`;
   }
 }
 
@@ -187,7 +187,7 @@ export function contestSubmitErrorMessage(err: unknown): string {
     case 'CONTEST_INVALID_VALUE':
       return $localize`:@@vendor.contest.submit.error.invalid:That value is not valid for this field. Check it and try again.`;
     case 'CONTEST_OWN_INTEGRATION':
-      return $localize`:@@vendor.contest.submit.error.own:Your company is recorded as the builder of this integration, so you cannot contest it.`;
+      return $localize`:@@vendor.contest.submit.error.isOwner:Your company is recorded as the owner of this integration, so you cannot contest it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.contest.submit.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:
