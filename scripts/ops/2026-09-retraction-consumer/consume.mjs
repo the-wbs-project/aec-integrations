@@ -259,6 +259,9 @@ const HOLD_REASON =
  */
 // 2026-09-18 (AECI-1024): pinned to `4 / 0 / 4` for the four admission-test removals, then
 // reset here in the same change, per the standing rule. What ran is in the README.
+// 2026-09-18 (AECI-1020, the cleanup window): pinned to `6 / 0 / 6` for the six journalled
+// cleanup removals, then to `1 / 0 / 1` for the Unanet ERP -> SAP S/4HANA row, and reset
+// here in the same change. What ran is in the README.
 const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
@@ -310,6 +313,9 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 // 2026-09-18 (AECI-1024): raised to `3 / 3` by a named ruling (Chris), not by twin-count —
 // the three edges were ruled OUT of the catalog under the admission test, so no superseding
 // row exists by construction (the AECI-809 self-edge shape). Reset here in the same change.
+// 2026-09-18 (AECI-1020, the cleanup window): raised to `5 / 5` for the six journalled
+// cleanup removals and then to `1 / 1` for the Unanet row, both by Chris's ruling and not by
+// twin-count, and reset here in the same change. What ran is in the README.
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**
