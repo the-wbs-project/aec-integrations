@@ -257,6 +257,8 @@ const HOLD_REASON =
  * An empty feed never reaches this gate in journal mode — the run returns at the
  * `feed.length === 0` check well before it.
  */
+// 2026-09-18 (AECI-1024): pinned to `4 / 0 / 4` for the four admission-test removals, then
+// reset here in the same change, per the standing rule. What ran is in the README.
 const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
@@ -305,6 +307,9 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
  * are trying to check. Every one of the 21 resolved to a twin, and the one live App Xchange
  * pair matched 4 = 4 object for object and direction for direction.
  */
+// 2026-09-18 (AECI-1024): raised to `3 / 3` by a named ruling (Chris), not by twin-count —
+// the three edges were ruled OUT of the catalog under the admission test, so no superseding
+// row exists by construction (the AECI-809 self-edge shape). Reset here in the same change.
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**
