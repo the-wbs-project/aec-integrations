@@ -501,7 +501,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. **§6.13 added a read-only Connectors section below that list** (AECI-1013): the connectors that deliver or reach the product, with no new tab. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -1508,6 +1508,44 @@ removal confirmation and its cancel, untagged points shown, the length cap, both
 the store splice), `vendor-bullet-list-editor.component.spec.ts` (add at bottom, cap, remove, move,
 focus after each, announcements, Enter never submits, read-only), `vendor-portal-nav.component.spec.ts`
 and `vendor-dashboard-tabbed.component.spec.ts` (six product tabs), and `vendor-overview-model.spec.ts` (the categories link).
+
+### 6.13 As built — a read-only Connectors section on the Integrations tab (AECI-1013 — 2026-09-18)
+
+Vendors cannot edit, create or retire connector-powered integrations. They still need to see which
+connectors reach their product. This section shows that, and nothing on it is editable.
+
+**A section, not a seventh tab.** The product row stays at six tabs (§6.12). Most products have no
+connector reach, so a Connectors tab would be empty on most of them. The section sits at the bottom
+of `…/products/:productSlug/integrations`, below the vendor's own integrations list, and renders
+nothing when no connector reaches the product. That matches the public page's reach line, which is
+hidden at zero (`STAGE_1_5_SPEC.md` §13.7).
+
+- **Component:** `components/vendor-product-connectors.ts`, rendered by
+  `sections/vendor-integrations-page.ts` with the product-context id.
+- **Read:** `GET /api/vendor/products/:id/connectors` (`API_CONTRACTS.md` §6.14). It requires
+  ownership only. It has no entitlement gate and no rate limit.
+- **One card per connector.** A card has up to two blocks, each with its own label:
+  - **Delivered.** The partner products the connector ships a listing for. These are
+    `connector_evidenced_pairs` rows.
+  - **Reachable.** Partner products that sit in the connector's catalogue alongside this one. The
+    block is a closed `<details>`, because Kroo's catalogue reaches hundreds of products. Its
+    summary always carries an "as of" date: the catalogue's latest `last_ingested_at`, or "catalogue
+    date not recorded". The body says plainly that nobody has confirmed a working integration.
+    Reach never counts toward any integration count.
+- **No links.** Most reachable pairs are `derived` and have no vendor page to cite (§13.7). The
+  section therefore links nowhere, not even to the connector's own pages.
+- **Outside the live cursor.** The section fetches in the browser when the tab mounts, and again on
+  every product switch. It clears the previous list before each fetch. Nothing polls it
+  (`STAGE_2_REALTIME_SPEC.md` §2.3). A failed read shows a retry and does not touch the list above.
+- **Not listed here:** a Convention-A self-reference, and an `iPaaS` edge with no named connector.
+  Both are `integrations` rows, and the list above already shows them as read-only cards.
+
+**Tests.** `vendor-connectors.spec.ts` covers the handler: the 404, both tiers, the canonical-B
+orientation, and the delivered subtraction across both tables. `vendor.authz-matrix.spec.ts` adds
+the route to every guard cell, a cross-vendor 404 and an unverified-owner read.
+`connector-reach.spec.ts` covers `reachablePartnersByConnector`.
+`vendor-product-connectors.component.spec.ts` covers hidden at zero, the tier labels and "as of",
+no links, product switch and retry.
 
 ---
 

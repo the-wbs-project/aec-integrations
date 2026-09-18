@@ -27,6 +27,7 @@ export * from './stats';
 export * from './taxonomy';
 export * from './vendor';
 export * from './vendor-attestations';
+export * from './vendor-connectors';
 export * from './vendor-notifications';
 export * from './vendor-updates';
 export * from './vendors';

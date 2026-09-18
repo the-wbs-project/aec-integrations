@@ -21,6 +21,7 @@ import type {
   VendorMeResponse,
   VendorNotification,
   VendorProduct,
+  VendorProductConnectorsResponse,
   VendorSeat,
   ManageableSeatInvite,
 } from '@aeci/shared';
@@ -978,3 +979,72 @@ export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorNotification[] = [
     created_at: '2026-06-15T08:00:00.000Z',
   },
 ];
+
+// ─── Connectors (AECI-1013) ──────────────────────────────────────────────────
+
+const link = (n: string, slug: string, name: string) => ({
+  id: `00000000-0000-4000-8000-00000000${n}`,
+  slug,
+  name,
+  logo_url: null,
+});
+
+const KROO_LINK = link('5501', 'kroo-connector', 'Kroo Connector');
+const AQUIFER_LINK = link('5502', 'aquifer', 'Aquifer');
+
+/**
+ * `GET /api/vendor/products/:id/connectors`, keyed by product id. The primary
+ * product models both tiers under one connector plus a reach-only connector; the
+ * secondary product has none, which is the common case and renders nothing.
+ */
+export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
+  Record<string, VendorProductConnectorsResponse>
+> = {
+  [PRIMARY_PRODUCT.id]: {
+    product_id: PRIMARY_PRODUCT.id,
+    connectors: [
+      {
+        connector: KROO_LINK,
+        catalog_as_of: '2026-09-10T00:00:00.000Z',
+        delivered: [
+          {
+            id: '00000000-0000-4000-8000-000000005510',
+            name: 'Summit Model Coordination + Sage Intacct',
+            mechanism_kind: null,
+            mechanism_name: 'Kroo Connector',
+            direction: 'a_to_b',
+            source: {
+              id: PRIMARY_PRODUCT.id,
+              slug: PRIMARY_PRODUCT.slug,
+              name: PRIMARY_PRODUCT.name,
+              logo_url: null,
+            },
+            target: link('5520', 'sage-intacct', 'Sage Intacct'),
+            via: KROO_LINK,
+            created_at: '2026-09-01T00:00:00.000Z',
+            updated_at: '2026-09-01T00:00:00.000Z',
+            context_direction: 'outbound',
+            powered_by_product: null,
+          },
+        ],
+        reachable: [
+          link('5521', 'acumatica', 'Acumatica'),
+          link('5522', 'netsuite', 'NetSuite'),
+          link('5523', 'quickbooks-online', 'QuickBooks Online'),
+        ],
+      },
+      {
+        connector: AQUIFER_LINK,
+        catalog_as_of: null,
+        delivered: [],
+        reachable: [
+          link('5524', 'bluebeam-revu', 'Bluebeam Revu'),
+          link('5525', 'deltek-vantagepoint', 'Deltek Vantagepoint'),
+          link('5526', 'egnyte', 'Egnyte'),
+          link('5527', 'microsoft-project', 'Microsoft Project'),
+          link('5528', 'viewpoint-vista', 'Viewpoint Vista'),
+        ],
+      },
+    ],
+  },
+};

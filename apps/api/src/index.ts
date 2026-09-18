@@ -132,6 +132,7 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
+import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
 import {
   createRemoveSeatHandler,
   createResendSeatInviteHandler,
@@ -822,6 +823,13 @@ authVendor.get(
   '/api/vendor/products/:id/versions',
   requireVendor(),
   createListProductVersionsHandler(),
+);
+// AECI-1013. Read-only, ownership-checked, outside the AECI-516 cursor — see the
+// route module's header for why this read does not poll.
+authVendor.get(
+  '/api/vendor/products/:id/connectors',
+  requireVendor(),
+  createListVendorProductConnectorsHandler(),
 );
 authVendor.post(
   '/api/vendor/products/:id/versions',

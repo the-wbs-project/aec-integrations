@@ -4841,7 +4841,7 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-updates.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -5183,6 +5183,38 @@ Two consequences that do **not** follow the sibling pattern:
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
+
+#### `GET /api/vendor/products/:id/connectors`
+
+Stage 2.1 (AECI-1013, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13). The connectors that deliver or reach one owned product, for the read-only Connectors section at the bottom of the product's Integrations tab. Zod in `packages/shared/src/api/vendor-connectors.ts`, handler in `apps/api/src/routes/vendor-connectors.ts`.
+
+| Gate | Success |
+|---|---|
+| `requireVendor()` **+ ownership** (`requireOwnedProduct`). No entitlement gate, no `vendors.verified` gate, no rate limit | `200 { product_id, connectors }`, `Cache-Control: private, no-store` |
+
+```typescript
+export const VendorProductConnectorSchema = z.object({
+  connector: ProductLinkSchema,
+  catalog_as_of: z.string().nullable(),               // MAX(connector_catalog_surfaces.last_ingested_at)
+  delivered: z.array(ProductIntegrationItemSchema),   // connector_evidenced_pairs rows, via = connector
+  reachable: z.array(ProductLinkSchema),              // partner products, never delivered by any path
+});
+
+export const VendorProductConnectorsResponseSchema = z.object({
+  product_id: z.string().uuid(),
+  connectors: z.array(VendorProductConnectorSchema),
+});
+```
+
+**Two tiers, never merged** (`STAGE_1_5_SPEC.md` §13.1). `delivered` is the product's `connector_evidenced_pairs` rows, read through the same `productDetailConfig` → `toProductDetail` path as the public product page, so each item is the public `ProductIntegrationItem` framed against the owned product. `reachable` is `reachablePartnersByConnector` (`apps/api/src/lib/connector-reach.ts`): the public reach count's predicates clause for clause, including **no `surface` filter**, but de-duplicated by `(connector, partner)` rather than by partner. A partner already delivered by any path is subtracted using `deliveredPartnerIdsOf`, the same set the public "N more" line subtracts.
+
+**Not listed:** a Convention-A self-reference and an `iPaaS` edge with no named connector. Both stay in `integrations`, and `GET /api/vendor/integrations` already returns them with `attestable: false`.
+
+**Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`. Partners by name through `compareText`. Nothing paid is read.
+
+**Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync or a promote moves it, and nothing a vendor does. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
+
+Errors: `NOT_FOUND` (unknown product, or one owned by another vendor, deliberately indistinguishable), plus the §6.14 guard errors.
 
 #### Product versions — `/api/vendor/products/:id/versions`
 
