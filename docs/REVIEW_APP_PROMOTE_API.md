@@ -374,7 +374,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `name` | string \| null | — | |
 | `sourceProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | One endpoint. `{ ref: <product.ref> }` for the product in this bundle. |
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
-| `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
+| `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | **The vendor that owns the integration** — the one a customer pays for it or gets it from — not whoever wrote the code (AECI-1021; the public label is "Offered by"). `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. **Do not put a builder that is not a vendor of this product into `vendors[]` just to reference it** — every entry there becomes a vendor of the product (§3.2). Create it first with a vendor-only push (§3.5) and send its id. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
 | `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). **Explicit `null` clears the stored kind; omitting the key leaves it untouched** (the §5 rule, restated here because the two are easy to confuse). One exception: on the §3.4a connector-evidenced path the field is **dropped entirely** — see that section. |
 | `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` \| null | — | **Changed by AECI-921 — both vocabularies are accepted.** Anchored to **this payload's own `sourceProduct` (A) and `targetProduct` (B)**, exactly like a claim's `direction`. The old spellings still land and are normalised on ingest (`one-way` → `a_to_b`, `bidirectional` → `both`), so nothing breaks if you send them; see the cutover note below. |
@@ -593,6 +593,16 @@ integration-only push (send only `integrations[]`) — but note that without a
 > Creating a brand-new vendor with no product is allowed (omit `supabaseId`), but
 > the usual flow is: vendors are created the first time their product is promoted,
 > and this vendor-only form is for **editing** an already-promoted vendor.
+>
+> **One create path does depend on this form (AECI-1019, review PR #128).** When an
+> integration's `builtByVendor` is a vendor with no `supabaseId` yet, the review app
+> pushes that vendor alone first, under a deterministic `jobId`
+> (`<vendorRecId>-builder-<n>`), waits for the job, stores the returned id, and only
+> then sends the product bundle with `builtByVendor: { supabaseId }`. It does **not**
+> add the owner to the bundle's `vendors[]`, because that would make it a vendor of
+> the product (§3.2). A vendor created this way has a public page with no products;
+> under the AECI-1021 ownership definition that shape is a warning sign, since an
+> owner nearly always has a product of its own.
 
 ### 3.6 `lastReviewedAt` — the review signal (AECI-616)
 

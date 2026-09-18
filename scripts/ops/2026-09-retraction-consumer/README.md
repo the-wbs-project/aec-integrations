@@ -1,13 +1,15 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024)
 
-**Status: RUN — seven tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — eight tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
 (1 row, **AECI-957 — the first cohort since AECI-878 to resolve in `integrations`**), and
 2026-09-16 (3 rows, **AECI-809 — the first cohort that is a product MERGE rather than a
-retirement, and the first to cascade claims that no surviving row holds**).
-**The feed is at zero pending and no hold is active.**
+retirement, and the first to cascade claims that no surviving row holds**), and 2026-09-18
+(4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**).
+**The feed is at zero pending and no hold is active.** The daily audit is red on
+`vendorNoLiveProducts 8`, which is the AECI-1024 vendor half and is deliberate — see that entry.
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
 than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
@@ -915,6 +917,102 @@ run below. The sweep also warned that it could not read `recUSx3EmOX3YCb6G` (the
 `rejected` record), so that measurement is marked INCOMPLETE and was re-run after the
 retraction. **A merge leaves the audit red between the two halves, and that is expected** —
 consume first, retract the product second, re-run the audit last.
+
+## What ran — 2026-09-18, 4 rows (AECI-1024, the first admission-test removals)
+
+The app-repo half of the AECI-1024 owner re-triage. Chris's 2026-09-18 ruling (AECI-1020 /
+AECI-1022) redefined `built_by_vendor_id` as the vendor that OWNS an integration, and added an
+admission test ahead of it: an integration that is not offered to anyone who needs it is not a
+catalog row. Upstream re-ruled the 14 AECI-1016 rows against both questions, re-owned 10, and
+deleted 4 that failed admission, journalling all four.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 4
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 951 | 947 | −4 |
+| `connector_evidenced_pairs` | 36 | 36 | 0 |
+| `claims` | 1932 | 1929 | −3 |
+| `attestations` | 1932 | 1929 | −3 |
+| feed, pending | 4 | 0 | −4 |
+
+**6 products** had `integration_count` repaired and `updated_at` bumped. `db:reconcile-counts`
+afterwards reported **no drift**, independently. No Time Travel bookmark was captured by the
+script; the timestamped `rollback-2026-09-18T03-53-13-533Z.sql` is the local rollback.
+
+### All 4 resolved in `integrations`, all four were `integrator` rows
+
+`resolve: integrations 4, connector_evidenced_pairs 0, already gone 0`. Every row carried
+`mechanism_kind = 'integrator'` — the kind the retired R5 rule assigned to services firms.
+After this run and the upstream re-kinding of the survivors, that kind may hold zero live
+rows; it stays in the enum because removing it is a destructive recreate across six spellings
+(AECI-735).
+
+| Journal entry | Row | Edge | Ruled | Claims |
+|---|---|---|---|--:|
+| Skyway GeoSync | `1092051f-2ec7-49c4-8629-469f59127be6` | Smartsheet ↔ ArcGIS | not shipped | 1 (Inspections, both) |
+| SYSTEC | `c9fcd5dc-c337-4ce1-b588-6ca1bd323415` | Smartsheet ↔ Oracle Primavera P6 | listing unpublished | 1 (Schedules, both) |
+| Juiced | `2669ac24-d168-4a87-9084-4d28e9218c90` | Egnyte ↔ Quickbase, named "Quickbase (web)" | existing customers only after the Quickbase acquisition | 1 (Documents, both) |
+| Optimum | `988df397-83de-433e-b1db-ac58e3597e93` | Bluebeam Revu → Smartsheet Takeoff & Estimation | a tailored build service | 0 |
+
+### `MAX_CASCADE` moved to 3 / 3, by ruling and not by twin-count
+
+Three rows carried one claim and one attestation each. Unlike the AECI-889 runs there is no
+`connector_pairs` twin to compare against, and unlike two of the AECI-809 rows there is no
+surviving edge to prove supersession against: these edges were ruled out of the catalog, so
+nothing supersedes them by construction. That is the AECI-809 *self-edge* shape, and the proof
+is the same kind — a named human's ruling that the claims go with the edge. Chris ruled it on
+2026-09-18 in the session that ran this, after seeing the three claims listed. Do not
+generalise: it applies to rows that fail the admission test, not to rows whose counterpart you
+merely failed to find.
+
+### The two guards, pinned and reset
+
+`EXPECTED` was pinned to `4 / 0 / 4` and `MAX_CASCADE` to `3 / 3` for the run, and both are
+reset to zero in this same change. `HOLD` was already empty and stayed empty.
+
+### Algolia, eighth run — 4 orphans, all ours
+
+```
+products      production_products        indexed 278   promoted 278    orphans 0
+vendors       production_vendors         indexed 187   promoted 187    orphans 0
+integrations  production_integrations    indexed 987   promoted 983    orphans 4
+```
+
+The four orphan objectIDs were exactly the four deleted rows. Removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+### Cache, eighth run
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc`: the `production` env block has no
+`exports`, so it serves uncached.
+
+### Verification, live (2026-09-18, browser UA)
+
+- `/products/smartsheet/integrations/arcgis` → **200 + `noindex`**. The edge is gone and the
+  pair page has nothing to render, which is the documented no-edge state, not a 404.
+- `/api/vendors/skyway-consulting`, `juiced-technologies`, `optimum-consultancy-services`,
+  `systec` → each now `product_count 0, integration_count 0`. Before the run the four read
+  `integration_count 1`, because `integrations.built_by_vendor_id` still pointed at them.
+- The AECI-878 sentinel read present before and after.
+
+### Daily audit after this run — RED, and correctly so
+
+`pendingRetractions` **0**, `orphanChildren` 0c / 0a, every stranded bucket **0** except
+**`vendorNoLiveProducts 8`**, exit **1**. The eight are the AECI-1016 vendor rows that own
+nothing after the re-triage: Availent, Juiced, Incture, Skyway, Cyberco, Rego, Optimum, SYSTEC.
+All eight are live pages and in search. **They cannot come down through this lane today**: the
+review app refuses to delete a vendor that is live in production, and the retraction journal
+accepts only products and integrations, so there is no feed entry to consume. The route is a
+decision on AECI-1024 (a vendor arm on the journal + this consumer, or a one-off `ops` delete by
+id). Until it lands the audit stays red on this bucket, which is the right pressure — do not
+add the eight to a hold list to make it green.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 

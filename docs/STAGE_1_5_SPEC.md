@@ -716,7 +716,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   a pure connector that number is factually correct. (Its *populated* branch does gain the §12.7
   scope note.)
 - **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
-  byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
+  byline (relabelled "Offered by" in AECI-1021 — the vendor that owns the edge) is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
   the connector's own page — the return path into this surface.
 
 ⚠️ **Amended by AECI-841 (2026-09-10): the cards collapse, the section filters, and the hub name
@@ -1719,6 +1719,19 @@ moving it to a better shelf. AECI-852 stopped the first sweep for exactly that r
   - **Resolved, and it is why the I24 sweep waits only for the count:** the first bullet's
     "our filtered view" has no route, so the line ships **unlinked**. An unlinked line inherits
     nothing from the publication gate. See that bullet for the record.
+- ✅ **The first per-connector reach surface is private (AECI-1013, 2026-09-18).** The vendor
+  portal's read-only Connectors section (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13) names the connector,
+  which the public line above must not. It can, because it is not a publication. It sits behind a
+  vendor seat and the product-ownership check, and it is `noindex` and uncacheable like the rest of
+  `/vendor/*`. It still keeps every rule this section sets for the tier. Reach renders under its own
+  "Reachable" label, apart from "Delivered", and always with an "as of" date. It never counts, and it
+  links to no connector page. Its read is `reachablePartnersByConnector` in
+  `apps/api/src/lib/connector-reach.ts`. That is the public count's two-branch query with the same
+  predicates and still no `surface` filter, grouped by `(connector, partner)` instead of by partner.
+  It is the third caller of `publishableMappingOn`. The delivered subtraction reuses the same
+  `deliveredPartnerIdsOf` set the public line uses, so the two-table, two-orientation rule still has
+  one copy. **This does not open the publication gate.** A public, per-connector reach list is still
+  AECI-716's, and it still filters to `curated`.
 - **A claim CAN anchor to reach, and AECi carries it (AECI-891, operator ruling 2026-09-13).**
   This bullet previously said the opposite, and the asymmetry it recorded is closed the mirroring
   way: `claims` gains a third anchor, `connector_pair_id` → `connector_pairs(id)` (§3.1's second

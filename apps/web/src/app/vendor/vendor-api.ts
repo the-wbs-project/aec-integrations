@@ -41,6 +41,7 @@ import type {
   UpsertVendorAttestationInput,
   VendorClaimResponse,
   VendorMeResponse,
+  VendorProductConnectorsResponse,
   VendorUpdatesResponse,
 } from '@aeci/shared';
 
@@ -190,6 +191,18 @@ export class VendorApi {
     return firstValueFrom(
       this.http.get<ListProductVersionsResponse>(
         `/api/vendor/products/${encodeURIComponent(productId)}/versions`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/products/:id/connectors` — the connectors that deliver
+   *  or reach an owned product, grouped per connector (AECI-1013). Read-only and
+   *  outside the live cursor, so it is fetched once per product and never
+   *  polled. */
+  listProductConnectors(productId: string): Promise<VendorProductConnectorsResponse> {
+    return firstValueFrom(
+      this.http.get<VendorProductConnectorsResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/connectors`,
       ),
     );
   }

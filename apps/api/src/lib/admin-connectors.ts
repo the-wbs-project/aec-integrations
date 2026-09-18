@@ -109,7 +109,9 @@ type PublishabilityColumns = {
  * so needs the predicate over an `alias()` rather than over the base table.
  * Spec §13.7 is explicit that the reach count and AECI-715's coverage surface
  * "share one predicate … and nothing else", so the reach read takes an aliased
- * copy of THIS function rather than restating four clauses.
+ * copy of THIS function rather than restating four clauses. AECI-1013's
+ * per-connector reach (`reachablePartnersByConnector`) is the third caller, on
+ * the same terms.
  */
 export function publishableMappingOn(t: PublishabilityColumns): SQL {
   return and(

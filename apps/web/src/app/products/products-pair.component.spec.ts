@@ -466,7 +466,7 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('aec-not-found')).toBeTruthy();
   });
 
-  describe('connector byline (Built by / Powered by)', () => {
+  describe('connector byline (Offered by / Powered by)', () => {
     const agaveVendor = {
       id: '00000000-0000-4000-8000-0000000000v1',
       name: 'Agave',
@@ -499,7 +499,7 @@ describe('ProductsPairPage', () => {
     it('links both the vendor and the connector product when both are set', () => {
       const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
 
-      expect(el.textContent).toContain('Built by');
+      expect(el.textContent).toContain('Offered by');
       expect(el.textContent).toContain('Powered by');
       const vendorLink = el.querySelector('a[href="/vendors/agave"]');
       const productLink = el.querySelector('a[href="/products/agave-erp-sync"]');
@@ -510,19 +510,19 @@ describe('ProductsPairPage', () => {
 
     it('keeps a space between the label and its link', () => {
       // Angular strips the newline between `</ng-container>` and `<a>` under the
-      // default `preserveWhitespaces: false`, which rendered "Built byAgave".
+      // default `preserveWhitespaces: false`, which rendered "Offered byAgave".
       // The `&ngsp;` entities in the template are what put the space back.
       const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
       const text = el.textContent!.replace(/\s+/g, ' ');
 
-      expect(text).toContain('Built by Agave');
+      expect(text).toContain('Offered by Agave');
       expect(text).toContain('Powered by Agave ERP Sync');
     });
 
     it('falls back to the vendor-only segment when powered_by_product is null', () => {
       const { el } = setup(buildPairWithProvenance(agaveVendor, null));
 
-      expect(el.textContent).toContain('Built by');
+      expect(el.textContent).toContain('Offered by');
       expect(el.querySelector('a[href="/vendors/agave"]')).toBeTruthy();
       expect(el.textContent).not.toContain('Powered by');
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeNull();
@@ -538,13 +538,13 @@ describe('ProductsPairPage', () => {
 
       expect(el.textContent).toContain('Powered by');
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
-      expect(el.textContent).not.toContain('Built by');
+      expect(el.textContent).not.toContain('Offered by');
     });
 
     it('renders no byline when neither field is set', () => {
       const { el } = setup(buildPair());
 
-      expect(el.textContent).not.toContain('Built by');
+      expect(el.textContent).not.toContain('Offered by');
       expect(el.textContent).not.toContain('Powered by');
     });
 
@@ -554,7 +554,7 @@ describe('ProductsPairPage', () => {
       });
 
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
-      expect(el.textContent).toContain('Built by');
+      expect(el.textContent).toContain('Offered by');
     });
   });
 

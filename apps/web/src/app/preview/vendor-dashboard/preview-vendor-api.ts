@@ -25,6 +25,7 @@ import type {
   VendorClaim,
   VendorClaimResponse,
   VendorMeResponse,
+  VendorProductConnectorsResponse,
   VendorSeat,
   VendorUpdatesResponse,
 } from '@aeci/shared';
@@ -37,6 +38,7 @@ import {
   VENDOR_DATA_OBJECTS_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
+  VENDOR_PRODUCT_CONNECTORS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
   VENDOR_SEATS_FIXTURE,
   VENDOR_TAXONOMY_FIXTURE,
@@ -257,6 +259,14 @@ export class PreviewVendorApi extends VendorApi {
 
   override async listProductVersions(productId: string): Promise<ListProductVersionsResponse> {
     return { versions: clone([...(VENDOR_PRODUCT_VERSIONS_FIXTURE[productId] ?? [])]) };
+  }
+
+  override async listProductConnectors(
+    productId: string,
+  ): Promise<VendorProductConnectorsResponse> {
+    return clone(
+      VENDOR_PRODUCT_CONNECTORS_FIXTURE[productId] ?? { product_id: productId, connectors: [] },
+    );
   }
 
   override async createClaim(input: CreateVendorClaimInput): Promise<VendorClaimResponse> {

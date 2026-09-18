@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
+import { VendorProductConnectors } from '../components/vendor-product-connectors';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -25,10 +26,14 @@ import { vendorProductContext } from './vendor-product-context';
  * it to become a capability"), so flipping the client half first would show
  * enabled controls that collect a 403. Both halves move in one change or
  * neither does.
+ *
+ * AECI-1013 adds the read-only Connectors section below the list: the connectors
+ * that deliver or reach this product. It is its own per-product read, outside the
+ * live cursor, and it renders nothing when no connector reaches the product.
  */
 @Component({
   selector: 'aec-vendor-integrations-page',
-  imports: [VendorIntegrationsSection],
+  imports: [VendorIntegrationsSection, VendorProductConnectors],
   template: `
     @if (me(); as m) {
       <div>
@@ -39,6 +44,9 @@ import { vendorProductContext } from './vendor-product-context';
             [contextProductId]="contextProductId()"
             [urlState]="true"
           />
+        </div>
+        <div class="mt-10">
+          <aec-vendor-product-connectors [productId]="contextProductId()" />
         </div>
       </div>
     }
