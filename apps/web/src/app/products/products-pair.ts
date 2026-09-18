@@ -213,9 +213,12 @@ interface MechanismView {
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
-  /** Stage 1 §4.4 "Built by (vendor) / Powered by (product)" — rendered as a
-   *  linked byline so a via-connector mechanism (e.g. "via Agave ERP Sync")
-   *  navigates to the connector's own pages instead of being dead text.
+  /** Stage 1 §4.4 "Offered by (vendor) / Powered by (product)" — rendered as a
+   *  linked byline. "Offered by" is the vendor that OWNS the integration (the one a
+   *  customer pays for it or gets it from), not whoever wrote the code — the
+   *  `built_by_vendor_id` column name predates that ruling (AECI-1021). Linked so a
+   *  via-connector mechanism (e.g. "via Agave ERP Sync") navigates to the connector's
+   *  own pages instead of being dead text.
    *
    *  `poweredByProduct` is the UNION of the payload's `powered_by_product` and
    *  `via` (AECI-721) — the same fact carried by rows in the two delivered-tier
@@ -681,17 +684,19 @@ function writePairViewCookie(mode: PairViewMode): void {
                   }
                 </header>
 
-                <!-- Linked provenance byline (Stage 1 §4.4: "Built by" / "Powered
+                <!-- Linked provenance byline (Stage 1 §4.4: "Offered by" / "Powered
                      by"). Mechanism identity, not detail, so it renders in Basic too.
                      Until the connector FK is backfilled, via-connector rows fall
-                     back to the vendor-only "Built by" segment. -->
+                     back to the vendor-only "Offered by" segment. The i18n id keeps
+                     its historical "builtBy" name (AECI-1021). -->
                 @if (m.builtByVendor || m.poweredByProduct) {
                   <p
                     class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
                   >
                     @if (m.builtByVendor; as bv) {
                       <span>
-                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>&ngsp;
+                        <ng-container i18n="@@pair.mechanism.builtBy">Offered by</ng-container
+                        >&ngsp;
                         <a
                           [routerLink]="['/vendors', bv.slug]"
                           class="text-(--accent-primary) underline underline-offset-2"

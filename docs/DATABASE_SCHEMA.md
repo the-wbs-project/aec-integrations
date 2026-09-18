@@ -368,6 +368,13 @@ create table integrations (
   direction text check (direction in ('a_to_b', 'b_to_a', 'both')),   -- AECI-921; A = source, B = target
 
   -- Attribution
+  -- `built_by_vendor_id` is the vendor that OWNS the integration -- the one a customer pays
+  -- for it or gets it from -- not the firm that wrote the code (AECI-1021, 2026-09-18). The
+  -- column name predates that ruling and is kept: renaming it is a destructive table
+  -- recreate on D1 (docs/migrations.md 3.3a). Rendered as "Offered by" on the pair page.
+  -- An owner nearly always has a product: a third-party owner's edge is a connector product,
+  -- so it should also carry `powered_by_product_id`; an endpoint-vendor owner already has one.
+  -- A one-off build for a single customer is not a catalog row at all.
   built_by_vendor_id uuid references vendors(id),
   powered_by_product_id uuid references products(id),
 
