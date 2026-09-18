@@ -1,15 +1,17 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020)
 
-**Status: RUN — eight tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — ten tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
 (1 row, **AECI-957 — the first cohort since AECI-878 to resolve in `integrations`**), and
 2026-09-16 (3 rows, **AECI-809 — the first cohort that is a product MERGE rather than a
 retirement, and the first to cascade claims that no surviving row holds**), and 2026-09-18
-(4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**).
+(4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**), and
+2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**).
 **The feed is at zero pending and no hold is active.** The daily audit is red on
-`vendorNoLiveProducts 8`, which is the AECI-1024 vendor half and is deliberate — see that entry.
+`vendorNoLiveProducts 2` + `integrationEndpointStranded 7`, which is the Bluebeam / Graphisoft
+cohort and is nothing to do with this lane — see the AECI-1020 entry.
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
 than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
@@ -1013,6 +1015,154 @@ accepts only products and integrations, so there is no feed entry to consume. Th
 decision on AECI-1024 (a vendor arm on the journal + this consumer, or a one-off `ops` delete by
 id). Until it lands the audit stays red on this bucket, which is the right pressure — do not
 add the eight to a hold list to make it green.
+
+## What ran — 2026-09-18, 6 rows then 1 (AECI-1020 cleanup window)
+
+The app-repo half of the AECI-1020 cleanup window, run twice on the same day and recorded as
+one entry. Upstream re-read the leftovers of the 18-window owner run against the 2026-09-18
+admission test and deleted seven edges: six in the cleanup window itself, then Unanet ERP ↔
+SAP S/4HANA, which that window deliberately left for a separate ruling. All seven were
+journalled, so both cohorts came down this lane rather than through `--ruling`.
+
+### Run 1 — the six cleanup-window rows
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 6
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 942 | 936 | −6 |
+| `connector_evidenced_pairs` | 43 | 43 | 0 |
+| `claims` | 1931 | 1926 | −5 |
+| `attestations` | 1931 | 1926 | −5 |
+| feed, pending | 6 | 0 | −6 |
+
+`resolve: integrations 6, connector_evidenced_pairs 0, already gone 0`. **10 products** had
+`integration_count` repaired and `updated_at` bumped. `db:reconcile-counts` afterwards
+reported **no drift**, independently. The local rollback is
+`rollback-2026-09-18T09-45-40-373Z.sql`; no Time Travel bookmark was captured.
+
+| Journal entry | Row | Edge | Ruled | Claims |
+|---|---|---|---|--:|
+| `rec9s72rPLVSrMwML` | `eb52264d-6d38-47e2-81eb-9b1172bb0bf6` | Illoca → Autodesk Revit, named "Autodesk Revit export" | roadmap, not shipped: illoca.com lists .rvt / .ifc export under "More features coming soon" | 2 |
+| `recDn156ZVuieE6xK` | `9d43b9f4-883a-461e-a095-8e1c0349be8d` | InspectMind AI → Fieldwire, named "Fieldwire (manual)" | absent from inspectmind.ai/integrations/, the row's only cited source, and fieldwire.com never names InspectMind | 1 |
+| `rec0xiv250p9cl4iL` | `6f55c08d-0793-411e-a20a-036633b6cc6b` | InspectMind AI → Smartsheet, named "Smartsheet (manual)" | absent from the same page; the only other source is a third-party directory describing a generic Excel handoff | 1 |
+| `recSPFBDa0RMXsDEq` | `cb8f303e-0f62-43db-84f5-6a58130a741c` | Sage Intacct → AppFolio, named "AppFolio (manual)" | absent from AppFolio's integrations page and the Sage Intacct marketplace; `listing_url` is the bare marketplace root | 1 |
+| `recIx2U8nCQOr12nV` | `75aac9e2-4183-4a96-97fc-0a818f5d17ff` | Tenderd ↔ Tableau | sole source is Tenderd's vendor-supplied Capterra profile; Tenderd's own /integration/ index is a "Coming Soon..." placeholder | 0 |
+| `recHG4iVCBpQEfCBM` | `7ebb247a-76db-47f9-94f3-781f3271db1d` | Sage Intacct Real Estate ↔ Autodesk Forma | duplicate of `recahFmiH6BOIb2Zm`, which absorbed it under AECI-441; Real Estate is the lease/property module, the wrong endpoint | 0 |
+
+### Run 2 — Unanet ERP ↔ SAP S/4HANA
+
+Deleted upstream in its own AECI-881 writer slot, then consumed here.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 1
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 936 | 935 | −1 |
+| `connector_evidenced_pairs` | 43 | 43 | 0 |
+| `claims` | 1926 | 1925 | −1 |
+| `attestations` | 1926 | 1925 | −1 |
+| feed, pending | 1 | 0 | −1 |
+
+`resolve: integrations 1, connector_evidenced_pairs 0, already gone 0`. **2 products** had
+`integration_count` repaired. `db:reconcile-counts` reported **no drift**. Local rollback:
+`rollback-2026-09-18T09-48-42-005Z.sql`.
+
+| Journal entry | Row | Edge | Ruled | Claims |
+|---|---|---|---|--:|
+| `rec2NaxPUJwkF6d6v` | `269145b2-c52a-4dd1-904c-00701c960ded` | Unanet ERP ↔ SAP S/4HANA | fails admission: no Unanet page names SAP. The 2026-08-26 I5 finding read both first-party surfaces end to end and found zero occurrences of "SAP" | 1 |
+
+### `MAX_CASCADE` moved on a ruling, and only for AECi-origin claims
+
+Run 1 raised it to `5 / 5`, run 2 to `1 / 1`. Neither figure came from a twin-count. These
+edges were ruled out of the catalog under the admission test, so nothing supersedes them by
+construction — the AECI-809 self-edge / AECI-1024 shape. The authorisation is Chris Walton's
+in-session ruling of 2026-09-18 and nothing else.
+
+What was checked before each raise: every cascading claim reads `origin = 'aeci'` with an
+`aeci`-source attestation and a NULL `attested_by_vendor_id`, so no vendor authored any of
+them. The Unanet claim was read directly out of production before the guard moved. **Do not
+generalise this.** It applies to rows that fail the admission test with no vendor authorship
+behind their claims, not to a row whose counterpart you merely failed to find.
+
+### The two guards, pinned and reset
+
+`EXPECTED` was pinned to `6 / 0 / 6` and then `1 / 0 / 1`; `MAX_CASCADE` to `5 / 5` and then
+`1 / 1`. Both are reset to zero in this same change. `HOLD` was already empty and stayed
+empty.
+
+### Algolia, ninth and tenth runs — 6 orphans then 1, all ours
+
+```
+products      production_products        indexed 282   promoted 282    orphans 0
+vendors       production_vendors         indexed 185   promoted 185    orphans 0
+integrations  production_integrations    indexed 985   promoted 979    orphans 6
+```
+
+The six orphan objectIDs were exactly the six deleted rows, and after run 2 the single
+orphan was `269145b2-c52a-4dd1-904c-00701c960ded`. Both sweeps removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+### Cache, both runs
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc`: the `production` env block still has
+no `exports`, so it serves uncached.
+
+### Verification, live (2026-09-18, browser UA)
+
+- `/products/tenderd/integrations/tableau` → **200 + `noindex`**.
+- `/products/inspectmind-ai/integrations/fieldwire` → **200 + `noindex`**.
+- `/products/unanet-erp/integrations/sap-s-4hana` → **200 + `noindex`**.
+
+All three are the documented no-edge state, not a 404. Product slugs were resolved from the
+endpoint ids in the rollback file rather than guessed.
+
+### Daily audit after these runs — RED, and not on this lane
+
+`node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache`,
+exit **1**:
+
+```
+productRejectedUpstream            0
+productDeletedUpstream             0
+vendorNoLiveProducts               2
+vendorSourceGone                   0
+integrationSourceGone              0
+integrationEndpointStranded        7
+evidencedPairSourceGone            0
+pendingRetractions                 0
+orphanChildren                6c / 6a
+```
+
+**`pendingRetractions` is 0, so this lane is clean.** The red is a different cohort, and it
+is not the AECI-1024 eight — those cleared. The two stranded vendors are **Bluebeam, Inc.**
+(`6e8b3c88`) and **Graphisoft** (`e5f3b345`), both live and in search with zero live
+products. The seven stranded edges all read `built_by vendor stranded` pointing at one of
+those two:
+
+| Row | Edge | Vendor |
+|---|---|---|
+| `93e4e165` | AutoCAD ↔ Bluebeam Revu ("Bluebeam Revu (manual)") | Bluebeam |
+| `6c134332` | Microsoft SharePoint ↔ Bluebeam Revu | Bluebeam |
+| `c2f77d3c` | Navisworks → Bluebeam Revu | Bluebeam |
+| `4d967bbc` | Bluebeam Revu ↔ Microsoft Excel | Bluebeam |
+| `024a5c21` | Egnyte ↔ Bluebeam Revu (Bluebeam-built) | Bluebeam |
+| `10f65857` | Graphisoft Archicad ↔ Autodesk Revit | Graphisoft |
+| `d8fea008` | Graphisoft Archicad ↔ Bluebeam Revu | Graphisoft |
+
+`orphanChildren 6c / 6a` is derived from those seven rows, not from anything these runs
+deleted — the consumer's own verify read `orphan claims 0` on both applies. The cohort needs
+a ruling on AECI-1020; it cannot come down through this lane, because nothing about it is in
+the retraction journal.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
