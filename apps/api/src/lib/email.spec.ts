@@ -32,6 +32,7 @@ import {
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
+  sendLandingFeedbackNotification,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
@@ -1613,6 +1614,69 @@ describe('entitlement expiry templates', () => {
     const c = fakeContext({ RESEND_API_KEY: undefined });
     expect(await sendEntitlementExpiringEmail(c, SUBJECT)).toBe('skipped');
     expect(await sendEntitlementExpiringAdminEmail(c, ADMIN_SUBJECT)).toBe('skipped');
+  });
+});
+
+describe('sendLandingFeedbackNotification', () => {
+  const FEEDBACK = {
+    email: null,
+    features: null,
+    tools: 'Howell Opportunity Radar, https://radar.example.com/?utm_source=aec_integrations',
+    subscribed: false,
+    city: 'Willow Springs',
+    region: 'Missouri',
+    country: 'US',
+    referrer: 'https://www.aecintegrations.com/products',
+  };
+
+  it('renders on the house layout with the feedback inbox as its CTA', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLandingFeedbackNotification(
+      fakeContext({
+        ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      FEEDBACK,
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('ops@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] New feedback submitted');
+
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).not.toContain('border="1"');
+    expect(html).toContain('https://www.aecintegrations.com/admin/audience');
+    expect(html).toContain('href="https://www.aecintegrations.com/products"');
+    // Free text that merely mentions a URL is escaped, never half-linked.
+    expect(html).not.toContain('href="https://radar.example.com');
+    expect(html).toContain('New feedback from an anonymous visitor.');
+
+    const text = String(body.text);
+    expect(text).toContain('From: (anonymous)');
+    expect(text).toContain('Features requested: (none)');
+    expect(text).toContain('Subscribed: no');
+    expect(text).toContain('Location: Willow Springs, Missouri, US');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:landing-feedback']);
+  });
+
+  it('drops the button when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLandingFeedbackNotification(
+      fakeContext({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
+      FEEDBACK,
+    );
+    expect(String(lastBody(fetchSpy).html)).not.toContain('/admin/audience');
+  });
+
+  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+    expect(
+      await sendLandingFeedbackNotification(
+        fakeContext({ ADMIN_ALERT_EMAIL: undefined }),
+        FEEDBACK,
+      ),
+    ).toBe('skipped');
   });
 });
 
