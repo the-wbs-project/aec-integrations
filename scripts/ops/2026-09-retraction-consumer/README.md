@@ -8,8 +8,8 @@ fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
 2026-09-16 (3 rows, **AECI-809 — the first cohort that is a product MERGE rather than a
 retirement, and the first to cascade claims that no surviving row holds**), and 2026-09-18
 (4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**).
-**The feed is at zero pending and no hold is active.** The daily audit is red on
-`vendorNoLiveProducts 8`, which is the AECI-1024 vendor half and is deliberate — see that entry.
+**The feed is at zero pending and no hold is active.** The AECI-1024 vendor half ran the same
+day through the new `ops:retract-vendor` lane (8 vendor rows), and the daily audit is green.
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
 than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
@@ -1002,7 +1002,7 @@ Nothing to purge. Re-checked `apps/web/wrangler.jsonc`: the `production` env blo
   `integration_count 1`, because `integrations.built_by_vendor_id` still pointed at them.
 - The AECI-878 sentinel read present before and after.
 
-### Daily audit after this run — RED, and correctly so
+### Daily audit after this run — RED between the two halves, green after
 
 `pendingRetractions` **0**, `orphanChildren` 0c / 0a, every stranded bucket **0** except
 **`vendorNoLiveProducts 8`**, exit **1**. The eight are the AECI-1016 vendor rows that own
@@ -1013,6 +1013,17 @@ accepts only products and integrations, so there is no feed entry to consume. Th
 decision on AECI-1024 (a vendor arm on the journal + this consumer, or a one-off `ops` delete by
 id). Until it lands the audit stays red on this bucket, which is the right pressure — do not
 add the eight to a hold list to make it green.
+
+**Route chosen 2026-09-18 (AECI-1024): a one-off `ops` lane, not a journal arm.**
+`pnpm --filter @aeci/api ops:retract-vendor` removes a vendor from a deployed D1 when, and only
+when, it owns nothing — zero products and zero rows in **both** `integrations.built_by_vendor_id`
+and `connector_evidenced_pairs.built_by_vendor_id`. There is no `--force`. It detaches `claims`,
+`attestations` and `page_views`, deletes the vendor and writes one `audit_log` row
+(`action = 'vendor.deleted'`) in the same batch, then de-indexes the `<env>_vendors` Algolia
+object. `--apply` needs `--confirm-count N` matching the resolved plan, and one refusing vendor
+refuses the whole run. Clearing the upstream `supabase_vendor_id` and deleting the review-app
+record stays a separate manual step. That is what takes `vendorNoLiveProducts` to 0 for these
+eight, by deleting them rather than by holding them.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 

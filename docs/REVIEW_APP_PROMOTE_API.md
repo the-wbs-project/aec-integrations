@@ -1471,6 +1471,16 @@ delete while the AECi delivered copies stay put — a promote creates the reach 
 remove the delivered ones. The two numbers answer different questions and only the dry run
 answers the one the ceiling is guarding.
 
+**Vendors have no journal arm, and so have their own lane (AECI-1024).** The journal carries
+products and integrations only, and the review app refuses to delete a vendor that is live in
+production, so a vendor row that ends up owning nothing is unreachable from both directions. A
+vendor with **zero products and zero owned edges** — owned edges meaning both
+`integrations.built_by_vendor_id` and `connector_evidenced_pairs.built_by_vendor_id` — is removed
+on the AECi side with `pnpm --filter @aeci/api ops:retract-vendor`, which refuses any vendor that
+owns something and has no `--force`. It detaches `claims`, `attestations` and `page_views`, deletes
+the vendor, and writes one `audit_log` row (`action = 'vendor.deleted'`) in the same batch. Only
+**after** that run does the review app clear the record's `supabase_vendor_id` and delete it.
+
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 
 **Since Stage 2, a claim absent from your payload is no longer a guaranteed delete.**
