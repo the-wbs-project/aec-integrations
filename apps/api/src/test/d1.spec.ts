@@ -921,8 +921,11 @@ describe('connector lane (AECI-714)', () => {
     // `PRAGMA defer_foreign_keys` does not stop them. 0027 measured 1,697 claims
     // and 1,697 attestations lost when that was got wrong on this exact table.
     //
-    // `claims` alone today, but the chain is TWO deep — `attestations` hangs off
-    // `claims` — so a recreate needs both carry tables, not one.
+    // `claims` and — since AECI-1008 — `integration_field_challenges`. The claims
+    // chain is TWO deep (`attestations` hangs off `claims`), so a recreate needs a
+    // carry table for each of the three, not one. The contest table is a leaf: its
+    // own children are none, but its `ON DELETE CASCADE` means a recreate of
+    // `integrations` in drizzle-kit's generated order would delete every contest.
     const t = await makeTestDb();
     const inbound = t.raw
       .prepare(
@@ -934,7 +937,7 @@ describe('connector lane (AECI-714)', () => {
       )
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(inbound).toEqual(['claims']);
+    expect(inbound).toEqual(['claims', 'integration_field_challenges']);
     t.dispose();
   });
 

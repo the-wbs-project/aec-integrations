@@ -19,7 +19,7 @@ import type {
   TaxonomyTermWithCount,
   VendorIntegration,
   VendorMeResponse,
-  VendorNotification,
+  VendorAttestationNotification,
   VendorProduct,
   VendorSeat,
   ManageableSeatInvite,
@@ -29,6 +29,18 @@ import type {
 // (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
 import { capabilitiesFor } from '@aeci/shared/entitlements';
+import { EMPTY_CONTESTABLE_FIELDS } from '@aeci/shared';
+
+/**
+ * The AECI-1008 contest fields every fixture integration carries. Nobody here is
+ * the builder and nothing is on file, so the portal half (PR B) can add a
+ * non-owner fixture with real values without touching the others.
+ */
+const NOT_OWNER = {
+  is_owner: false,
+  owner: null,
+  contestable_fields: EMPTY_CONTESTABLE_FIELDS,
+} as const;
 
 /**
  * `description` is not decoration here. The taxonomy editor (AECI-915) renders
@@ -674,6 +686,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   mechanism_kind: 'native',
   mechanism_name: 'Native connector',
   attestable: true,
+  ...NOT_OWNER,
   powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: OTHER_PROCORE,
@@ -761,6 +774,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
   mechanism_kind: 'api',
   mechanism_name: null,
   attestable: true,
+  ...NOT_OWNER,
   powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: CONTEXT_SECONDARY,
@@ -805,6 +819,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   mechanism_kind: 'marketplace-app',
   mechanism_name: 'Autodesk App Store listing',
   attestable: true,
+  ...NOT_OWNER,
   powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach
@@ -833,6 +848,7 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
   mechanism_kind: null,
   mechanism_name: null,
   attestable: true,
+  ...NOT_OWNER,
   powered_by: null,
   context_product: CONTEXT_SECONDARY,
   other_product: OTHER_PROCORE,
@@ -855,6 +871,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
   mechanism_kind: 'iPaaS',
   mechanism_name: 'Agave ERP Sync',
   attestable: false,
+  ...NOT_OWNER,
   powered_by: {
     id: '00000000-0000-4000-8000-0000000053a0',
     slug: 'agave-erp-sync',
@@ -894,6 +911,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
   mechanism_kind: 'iPaaS',
   mechanism_name: 'Kroo Connector',
   attestable: false,
+  ...NOT_OWNER,
   powered_by: {
     id: '00000000-0000-4000-8000-0000000053a1',
     slug: 'kroo-connector',
@@ -944,7 +962,7 @@ export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse =
  * counterparty finding addressed to a real vendor, so a fixture for it is not a
  * lie the way an `aeci-denied` fixture would have been.
  */
-export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorNotification[] = [
+export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorAttestationNotification[] = [
   {
     id: '00000000-0000-4000-8000-000000005351',
     detector: 'open-conflict',

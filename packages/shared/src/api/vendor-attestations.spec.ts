@@ -22,6 +22,7 @@ import {
   VendorIntegrationSchema,
   VENDOR_ATTESTATION_SLOTS,
 } from './vendor-attestations';
+import { EMPTY_CONTESTABLE_FIELDS } from './integration-contests';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -57,6 +58,13 @@ const INTEGRATION = {
   attestable: true,
   powered_by: null,
   claims: [CLAIM],
+  is_owner: false,
+  owner: { id: uuid(40), name: 'Bentley' },
+  contestable_fields: {
+    ...EMPTY_CONTESTABLE_FIELDS,
+    name: 'Revit ↔ MicroStation',
+    direction: 'outbound',
+  },
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -162,6 +170,22 @@ describe('VendorIntegrationSchema', () => {
       attestable: true,
       powered_by: null,
     });
+  });
+
+  it('defaults the AECI-1008 contest fields for a pre-contest API', () => {
+    const { is_owner: _i, owner: _o, contestable_fields: _c, ...older } = INTEGRATION;
+    expect(VendorIntegrationSchema.parse(older)).toMatchObject({
+      is_owner: false,
+      owner: null,
+      contestable_fields: EMPTY_CONTESTABLE_FIELDS,
+    });
+  });
+
+  it('requires every contestable field to be present when the map is sent', () => {
+    const { website: _w, ...partial } = INTEGRATION.contestable_fields;
+    expect(
+      VendorIntegrationSchema.safeParse({ ...INTEGRATION, contestable_fields: partial }).success,
+    ).toBe(false);
   });
 });
 

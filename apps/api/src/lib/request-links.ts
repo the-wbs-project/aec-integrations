@@ -82,3 +82,23 @@ export function adminRequestUrl(env: Env, kind: RequestKind, requestId: string):
   if (!base) return null;
   return kind === 'claim' ? `${base}/admin/claims/${requestId}` : `${base}/admin/requests`;
 }
+
+/**
+ * The admin console URL for one integration field contest (AECI-1008).
+ *
+ * Points at `/admin/contests/:id`, the detail route the admin queue ships in
+ * AECI-1008 PR C. Until that lands the link resolves to the console's not-found
+ * render; the contest id in the issue body is the fallback an operator can search.
+ */
+export function adminContestUrl(env: Env, contestId: string): string | null {
+  const base = siteBaseUrl(env);
+  if (!base) return null;
+  return `${base}/admin/contests/${contestId}`;
+}
+
+/** The public pair page for two product slugs, as an absolute URL, or `null`. */
+export function publicPairUrl(env: Env, pairPath: string | null): string | null {
+  const base = siteBaseUrl(env);
+  if (!base || !pairPath) return null;
+  return `${base}${pairPath}`;
+}

@@ -330,6 +330,14 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `index:products` is omitted for the same reason as versions: claims never render
   on the catalog.
 
+- **Owner accept of an integration field contest** (`POST
+  /api/vendor/contests/:id/decision` with `accept`, AECI-1008) → the **same three
+  tags** as an attestation write: `pair:{min}__{max}` plus both `product:{slug}`.
+  It writes a column the pair page and the product-detail integrations table both
+  render, and it transfers `maintained_by`, which the marker rule above says must
+  purge. Submit, withdraw and decline purge **nothing** (no public page reads a
+  contest), and neither does an AECi accept, which writes no catalog data.
+
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with
 search: the purge makes SSR immediate, while Algolia only catches up on the

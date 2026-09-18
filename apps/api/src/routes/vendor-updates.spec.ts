@@ -1,7 +1,8 @@
 /**
  * `GET /api/vendor/updates` (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2).
  *
- * The endpoint is six cursors, and it is only useful if each one moves for
+ * The endpoint is seven cursors (six until AECI-1008 added `contests`, whose
+ * parity case lives in `vendor-contests.spec.ts`), and it is only useful if each one moves for
  * **exactly** the writes its section's payload would show. So the spec is
  * organised around that property rather than around the response shape:
  *
@@ -289,6 +290,7 @@ describe('GET /api/vendor/updates — shape and headers', () => {
       integrations: null,
       notifications: null,
       requests: null,
+      contests: null,
     });
     expect(() => VendorUpdatesResponseSchema.parse(body)).not.toThrow();
   });

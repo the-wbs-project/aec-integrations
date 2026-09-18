@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { VendorNotification } from '@aeci/shared';
+import { isAttestationNotification, type VendorAttestationNotification } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
@@ -165,9 +165,15 @@ export class VendorNotificationsList {
    * The empty-title guard is kept rather than removed. It is the one thing that
    * stops a detector added later, before its copy is written, from rendering a
    * blank row here.
+   *
+   * Contest rows (AECI-1008) are skipped for now: the feed carries them since the
+   * API half of AECI-1008 shipped, and their copy lands with the portal half
+   * (PR B). Filtering here keeps this list exactly as it rendered before.
    */
   protected readonly visible = computed(() =>
-    this.notifications().filter((n) => detectorTitle(n.detector) !== ''),
+    this.notifications()
+      .filter(isAttestationNotification)
+      .filter((n) => detectorTitle(n.detector) !== ''),
   );
 
   protected readonly summaryLabel = computed(() => {
@@ -226,7 +232,7 @@ export class VendorNotificationsList {
     });
   }
 
-  protected titleFor(notification: VendorNotification): string {
+  protected titleFor(notification: VendorAttestationNotification): string {
     return detectorTitle(notification.detector);
   }
 

@@ -765,7 +765,7 @@ Choosing one navigates to `…/products/:productSlug`.
   the DOM; gating the widget does. Zero matches renders a plain sentence, never an
   unselectable "No matches" option.
 - **The option list is frozen while the panel is open.** `VendorLiveSync` refetches
-  `me` every 20 s and products is one of its six scopes; a poll that adds or drops
+  `me` every 20 s and products is one of its scopes; a poll that adds or drops
   a row under a pointer already travelling toward one is exactly what
   `STAGE_2_REALTIME_SPEC.md` §6.3 forbids. The list re-syncs on close.
 - **The menu declares no live region.** A "20 products match" `role="status"` here
@@ -1774,7 +1774,7 @@ The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is
 
 ### 11a.8 Deliberately deferred
 
-- **An `invites` scope on `GET /api/vendor/updates`.** There are exactly six cursor scopes, and both `STAGE_2_REALTIME_SPEC.md` and `CLAUDE.md` state "six SELECTs in one `db.batch`". A seventh is its own change. Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
+- **An `invites` scope on `GET /api/vendor/updates`.** There were exactly six cursor scopes when this shipped. AECI-1008 has since added a seventh, `contests` (§11b.8), so an `invites` scope would be the eighth, and it is still its own change. Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
 - ~~**Cross-domain invites.**~~ **Shipped 2026-08-26** — the domain gate was removed outright; see §11a.3. The §5 claim queue remains the path for someone with no owner to ask.
 - **Bulk/CSV invite, and role tiers beyond owner/member.**
 - **A seat-count capability or per-seat billing** — a Paid Tiers (AECI-515) decision, not this one's.
@@ -1848,6 +1848,99 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ---
 
+## 11b. Integration field contests (AECI-1008)
+
+**API half shipped 2026-09-18 (PR A).** The portal UI lands in PR B and the admin queue screen in PR C. Until PR B ships, a vendor has no button that reaches these endpoints. This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
+
+### 11b.1 What a contest is
+
+A seated vendor says one field of an integration is wrong. It names the field, proposes a value, and gives a reason. The row is a request, never the value. Nothing public reads it.
+
+### 11b.2 Who may contest
+
+- **An endpoint vendor.** The caller must own one of the integration's two products in `product_vendors`. Authority resolves through `resolveAttestationSlots`, the same rule attestations use. Anyone else gets a `404` that looks exactly like an unknown id.
+- **Not the builder.** The vendor named in `built_by_vendor_id` gets `403 CONTEST_OWN_INTEGRATION`. It owns the row and edits it through the claim flow instead (AECI-1005).
+- **A seat is the whole gate.** The route carries `requireVendor()` and nothing else. There is no `requireCapability` and no Verified check.
+
+That last point is a **named exception to §6.14 of `API_CONTRACTS.md`**, which says vendor writes are entitlement-gated. A contest asks for a fact on a public page to be fixed. Gating it behind a paid tier would make accuracy something a vendor buys, which is the pay-for-placement line from the other side. A contest also writes nothing public by itself.
+
+### 11b.3 The fields
+
+Twelve: `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`, and `owner`. `owner` names `built_by_vendor_id`. `notes` is AECi's own curation column and is not contestable.
+
+Per-field rules live in `contestValueProblem` in `@aeci/shared`, so the portal form can run the same check.
+
+| Field | Rule |
+|---|---|
+| the four URL fields | an absolute `http(s)` URL |
+| `mechanism_kind` | a value of `IntegrationMechanismKindSchema`, not a new spelling |
+| `direction` | `inbound`, `outbound` or `both`, relative to the caller's product |
+| `owner` | one of the integration's endpoint vendor ids, or `null` for "neither endpoint vendor built it" |
+| every field | a value is required, except the `owner` `null` case; length is capped per field |
+
+`direction` is stored canonical (`a_to_b`, `b_to_a`, `both`) and translated at the boundary with `claimDirectionFromContext`. A body that sends `context_product_id` picks the frame when the caller owns both endpoints, exactly as `POST /api/vendor/claims` does.
+
+A shape error is a `400`. A value wrong for its field is `422 CONTEST_INVALID_VALUE`. A value equal to the current one is `422 CONTEST_NO_CHANGE`. A second open contest on the same (integration, field, vendor) is `409 CONTEST_DUPLICATE`, backed by a partial unique index.
+
+### 11b.4 Routing
+
+The route is decided at submit and stored on the row, with the builder snapshot in `owner_vendor_id`. A later change to `built_by_vendor_id` cannot move an open contest to a different decider.
+
+- **`owner`** when the integration is claimed, the field is not `owner`, and a builder is on file.
+- **`aeci`** otherwise.
+- **An `owner` contest always routes to AECi.** The builder cannot judge whether it is the builder.
+
+`isIntegrationClaimed()` in `lib/integration-contests.ts` is a **stub that returns `false`**. **AECI-1005** replaces it. Until then every contest routes to AECi, and the owner path runs only in tests, where the submit handler takes an injected predicate.
+
+### 11b.5 States and deciders
+
+`open`, then one of `accepted`, `declined` or `withdrawn`.
+
+| Transition | Who | Endpoint |
+|---|---|---|
+| `open → withdrawn` | the submitting vendor only | `POST /api/vendor/contests/:id/withdraw` |
+| `open → accepted \| declined` on an `owner` row | the owner vendor only | `POST /api/vendor/contests/:id/decision` |
+| `open → accepted \| declined` on an `aeci` row | an AECi admin | `PATCH /api/admin/contests/:id` |
+
+Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. The admin PATCH refuses an owner-routed row with `409 CONTEST_ROUTED_TO_OWNER`.
+
+### 11b.6 What an accept does
+
+**An owner accept writes the catalog.** In the same batch it sets the column, transfers maintenance to the vendor (`maintained_by = 'vendor'`, a fresh `last_reviewed_at`), and writes an `integration.updated` audit row with before and after. `metadata.maintenanceTransfer` is present only when the row changes hands. This is the sixth vendor-authorized catalog write site under `STAGE_2_ATTESTATIONS_SPEC.md` §13.9. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the re-crawl, like an attestation edit.
+
+**An AECi accept writes no catalog data.** The catalog is curated upstream and arrives through promote. A value written here would be undone by the next promote of that edge. So the accept records the decision and, after commit, files a Linear issue through `ctx.waitUntil`:
+
+- title `REVIEW - Apply contested field: <field> on <integration>`, on the AECi team, with **no project**, per the three-repo routing in `docs/linear-issue-conventions.md`;
+- a body carrying the app-DB integration id, the pair page, the current and accepted values, the vendor's reason, the admin note, the admin link, and a pointer to the playbook, **AECI-1025**;
+- `createLinearIssueForContest` in `lib/linear.ts`, on the same contract as the request path: it never throws, an absent key is a metric-silent no-op, a read-guard makes a re-fire safe, and the persist is a compare-and-set onto `upstream_linear_issue_id` and `upstream_linear_issue_url`.
+
+The request reconciliation sweep (Phase 6.7, `STAGE_1_PHASE_6_SPEC.md` §6.4) retries accepted AECi rows that still have no issue id. The issue id is **never** written to `workflow_instances.linear_issue_id`, so the inbound Linear webhook cannot mistake a contest issue for a request's.
+
+### 11b.7 One batch per transition
+
+Every transition writes, in one `db.batch`:
+
+- the contest row change, guarded on `status = 'open'` for a decision and followed by the race sentinel;
+- an `audit_log` row (`integration.contest.submitted | withdrawn | accepted | declined`, entity type `integration_field_challenge`);
+- a `workflow_transitions` row, plus the instance insert or close;
+- a `notification.sent` audit row for the other side, when there is a vendor on the other side.
+
+**The workflow type is `correction_request`, reused.** `workflow_instances_type_check` is closed, and opening it is a table recreate. `entity_id` is the contest id, which cannot collide with a `vendor_requests` id. The webhook and the request sweep both key off `vendor_requests`, so neither can pick a contest up.
+
+**A lost decision race writes nothing and answers `409`.** Each guarded `UPDATE … WHERE status = 'open'` is followed immediately by a sentinel statement (`contestStillOpenSentinel` in `lib/integration-contests.ts`). It reads SQLite's `changes()`; when the UPDATE matched no row it evaluates `json('contest-not-open')`, which raises and rolls the whole batch back. Every other statement sits after it. So the loser commits no audit row, no transition, no catalog write, and no notification that could tell the other side the wrong outcome. The handler recognises that one error and answers `409 CONTEST_NOT_OPEN`; anything else rethrows. This is stricter than the §26.3 lean relaxation `admin-requests.ts` accepts, because a wrong notification is visible harm.
+
+### 11b.8 Notifications and freshness
+
+**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. There is no email. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
+
+**`contests` is the seventh cursor scope** on `GET /api/vendor/updates`. It reports `MAX(updated_at)` under `vendorContestsWhere`, which is the same predicate `GET /api/vendor/contests` imports (`STAGE_2_REALTIME_SPEC.md` §2.2). The list is capped at 100 rows per side; the cursor covers the whole scope, so an edit past the cap costs one wasted refetch and nothing else.
+
+### 11b.9 Known risk: a cascade can delete contests
+
+`integration_id` is `ON DELETE CASCADE`. A promote cross-table move (AECI-888) or a retraction deletes the `integrations` row and takes its contests with it. This is accepted for now because it matters only on unclaimed rows, which carry no owner-side state, and AECI-1005 fences moves on claimed rows.
+
+The table is now the second cascade child of `integrations`. `apps/api/src/test/d1.spec.ts` pins the list, so the next recreate of `integrations` must carry it out of the way first (`docs/migrations.md` §3.3a).
+
 ## 12. Cross-references
 
 | Topic | Doc |
@@ -1862,6 +1955,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 | Stage 2 scope, decisions, epic map | `STAGE_2_SPEC.md` (§2.1 scope, §8.3 decisions) |
 | Connector lane — who pays, and what a connector vendor gets instead | `STAGE_2_SPEC.md` §8.8 (payer) + §8.9 (return side); the operator procedure is §5.2 here. Tracked catalogues/stubs and `docs/connector-vendors.md` live in the **`aec-integrations-review`** repo |
 | Paid tiers & entitlements — the successor epic (AECI-515) | `STAGE_2_PAID_TIERS_SPEC.md` (§3's un-verify owner, §6.1's paid-tier display, §9's billing notices, §11's deferrals) |
+| Integration field contests (§11b) | Wire shapes and error codes: `API_CONTRACTS.md` §4, §6.10, §6.14. Table: `DATABASE_SCHEMA.md` §8.7. Notifications: `STAGE_2_ATTESTATIONS_SPEC.md` §7.5. The owner-accept write: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9. The `contests` cursor: `STAGE_2_REALTIME_SPEC.md` §2. The Linear retry: `STAGE_1_PHASE_6_SPEC.md` §6.4 (the Phase 6.7 sweep). What "claimed" means: AECI-1005 |
 
 ---
 

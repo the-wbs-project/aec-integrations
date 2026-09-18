@@ -107,6 +107,12 @@ routing signal is the title prefix and the project, not the team. This mirrors `
 | `aec-integrations-review` (curation upstream of promote) | **`REVIEW - `** | none |
 | `aec-integrations-marketing` (all Markdown, no code) | none | **"Marketing"** |
 
+**The app files one kind of `REVIEW - ` issue itself** (AECI-1008). An AECi accept of an
+integration field contest creates `REVIEW - Apply contested field: <field> on <integration>` on
+the AECi team with no project, through `createLinearIssueForContest` in `apps/api/src/lib/linear.ts`.
+It follows this table rather than the "Vendor Requests" project the request pipeline uses, because
+the work it asks for is a change in the review app.
+
 This was AECI-601's open question 4 — *should review-app issues live on the AECi team at all?* —
 and the answer is yes. One team, prefixed titles. Twenty-plus issues already follow it.
 

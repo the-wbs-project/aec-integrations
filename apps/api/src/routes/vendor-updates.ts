@@ -5,7 +5,7 @@
  * ADR 0023 answered `STAGE_2_SPEC.md` §8.2's deferred transport question with
  * **scoped client revalidation over a cheap per-vendor cursor**, not Durable-Object
  * WebSockets and not SSE. Nothing that changes a vendor's portal state is
- * sub-second — two of the six producers are once-a-day crons — so a socket would
+ * sub-second — two of the seven producers are once-a-day crons — so a socket would
  * deliver a 24-hour-stale event with 50 ms of transport latency, at the cost of a
  * `durable_objects` binding in four wrangler environments, a WebSocket upgrade
  * threaded through the SSR Worker's `/api/*` passthrough, and fan-out coupling on
@@ -39,6 +39,7 @@
  *   | `integrations` | `ownedEndpointJoin` (`lib/attestation-authority.ts`)         |
  *   | `notifications`| `vendorNotificationLedgerWhere` (`vendor-notifications.ts`)  |
  *   | `requests`     | `vendorRequestsWhere` (`vendor-shared.ts`)                   |
+ *   | `contests`     | `vendorContestsWhere` (`lib/integration-contests.ts`)        |
  *
  * `vendorId` comes from `c.get('auth')` and never from the request — the AECI-520
  * invariant; the endpoint takes no parameters at all.
@@ -51,14 +52,15 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Six SELECTs in one `db.batch([...])`. The Worker pays per D1 hop, and this is
- * the most frequently called endpoint on the surface, so six sequential reads
- * would multiply the epic's cost by six for no benefit. Each statement returns a
- * single aggregate row, so the response payload of the batch is six scalars.
+ * Seven SELECTs in one `db.batch([...])` (six until AECI-1008 added `contests`).
+ * The Worker pays per D1 hop, and this is the most frequently called endpoint on
+ * the surface, so seven sequential reads would multiply the epic's cost by seven
+ * for no benefit. Each statement returns a single aggregate row, so the response
+ * payload of the batch is seven scalars.
  *
  * `db.batch` here carries **no** mutation, which makes it the one batch in the
  * codebase that is not about atomicity. It is about the round trip. (Atomicity is
- * free anyway: six aggregate reads have nothing to roll back.)
+ * free anyway: seven aggregate reads have nothing to roll back.)
  */
 
 import {
@@ -74,6 +76,7 @@ import {
   attestations,
   auditLog,
   claims,
+  integrationFieldChallenges,
   integrations,
   productVendors,
   products,
@@ -84,6 +87,7 @@ import {
 import { submitCount } from '../posthog';
 import { json } from '../http';
 import { ownedEndpointJoin } from '../lib/attestation-authority';
+import { vendorContestsWhere } from '../lib/integration-contests';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
 import {
@@ -157,75 +161,91 @@ export function createVendorUpdatesHandler(
     // rather than skipped by a client treating it as a high-water mark.
     const asOf = Date.now();
 
-    const [profileRows, entitlementRows, productRows, integrationRows, ledgerRows, requestRows] =
-      await db.batch([
-        // `profile` — the vendor's own row. Also moves on the `verified` mirror
-        // flip, which is the point: that flip is an admin action the vendor must
-        // see without reloading.
-        db.select({ value: vendors.updatedAt }).from(vendors).where(eq(vendors.id, vendorId)),
+    const [
+      profileRows,
+      entitlementRows,
+      productRows,
+      integrationRows,
+      ledgerRows,
+      requestRows,
+      contestRows,
+    ] = await db.batch([
+      // `profile` — the vendor's own row. Also moves on the `verified` mirror
+      // flip, which is the point: that flip is an admin action the vendor must
+      // see without reloading.
+      db.select({ value: vendors.updatedAt }).from(vendors).where(eq(vendors.id, vendorId)),
 
-        // `entitlement` — `vendor_entitlements.vendor_id` is UNIQUE, so this is a
-        // MAX over at most one row. `max()` rather than a plain select anyway:
-        // an aggregate with no GROUP BY always returns exactly one row (NULL when
-        // the set is empty), so the "no entitlement ever arranged" case needs no
-        // branch here.
-        db
-          .select({ value: max(vendorEntitlements.updatedAt) })
-          .from(vendorEntitlements)
-          .where(eq(vendorEntitlements.vendorId, vendorId)),
+      // `entitlement` — `vendor_entitlements.vendor_id` is UNIQUE, so this is a
+      // MAX over at most one row. `max()` rather than a plain select anyway:
+      // an aggregate with no GROUP BY always returns exactly one row (NULL when
+      // the set is empty), so the "no entitlement ever arranged" case needs no
+      // branch here.
+      db
+        .select({ value: max(vendorEntitlements.updatedAt) })
+        .from(vendorEntitlements)
+        .where(eq(vendorEntitlements.vendorId, vendorId)),
 
-        // `products` — every product the vendor owns, via the shared subquery.
-        db
-          .select({ value: max(products.updatedAt) })
-          .from(products)
-          .where(inArray(products.id, ownedProductIds(db, vendorId))),
+      // `products` — every product the vendor owns, via the shared subquery.
+      db
+        .select({ value: max(products.updatedAt) })
+        .from(products)
+        .where(inArray(products.id, ownedProductIds(db, vendorId))),
 
-        // `integrations` — claims ∪ attestations on the caller's ATTESTABLE
-        // surface, over the exact three-table join `resolveClaimAuthority` uses.
-        //
-        // Two deliberate choices:
-        //   1. `LEFT JOIN attestations`, so a claim with no attestation still
-        //      contributes its own `updated_at`. The join multiplies rows
-        //      (a vendor owning both endpoints matches `product_vendors` twice);
-        //      MAX is insensitive to duplicates, so that costs nothing but scan.
-        //   2. **No `retracted_at IS NULL` filter**, unlike the list handler's
-        //      `liveAttestationsWhere`. That is a CONTENT filter, not a scoping
-        //      one, and applying it here would break the cursor: a bare retract
-        //      (DELETE with no replacement) only stamps `retracted_at` on the
-        //      existing row, so a live-only cursor would not move even though the
-        //      lane the vendor is looking at just emptied.
-        db
-          .select({
-            claims: max(claims.updatedAt),
-            attestations: max(attestations.updatedAt),
-          })
-          .from(claims)
-          .innerJoin(integrations, eq(integrations.id, claims.integrationId))
-          .innerJoin(productVendors, ownedEndpointJoin(vendorId))
-          .leftJoin(attestations, eq(attestations.claimId, claims.id)),
+      // `integrations` — claims ∪ attestations on the caller's ATTESTABLE
+      // surface, over the exact three-table join `resolveClaimAuthority` uses.
+      //
+      // Two deliberate choices:
+      //   1. `LEFT JOIN attestations`, so a claim with no attestation still
+      //      contributes its own `updated_at`. The join multiplies rows
+      //      (a vendor owning both endpoints matches `product_vendors` twice);
+      //      MAX is insensitive to duplicates, so that costs nothing but scan.
+      //   2. **No `retracted_at IS NULL` filter**, unlike the list handler's
+      //      `liveAttestationsWhere`. That is a CONTENT filter, not a scoping
+      //      one, and applying it here would break the cursor: a bare retract
+      //      (DELETE with no replacement) only stamps `retracted_at` on the
+      //      existing row, so a live-only cursor would not move even though the
+      //      lane the vendor is looking at just emptied.
+      db
+        .select({
+          claims: max(claims.updatedAt),
+          attestations: max(attestations.updatedAt),
+        })
+        .from(claims)
+        .innerJoin(integrations, eq(integrations.id, claims.integrationId))
+        .innerJoin(productVendors, ownedEndpointJoin(vendorId))
+        .leftJoin(attestations, eq(attestations.claimId, claims.id)),
 
-        // `notifications` — the §7.3 `notification.sent` ledger, under the list
-        // endpoint's own predicate (action + 90-day window + the `json_extract`
-        // vendor filter). Ops-routed rows store `metadata.vendorId = null`, which
-        // `json_extract` returns as SQL NULL and can therefore never equal a
-        // caller's id — the same structural isolation the list relies on.
-        db
-          .select({ value: max(auditLog.createdAt) })
-          .from(auditLog)
-          .where(vendorNotificationLedgerWhere(vendorId)),
+      // `notifications` — the §7.3 `notification.sent` ledger, under the list
+      // endpoint's own predicate (action + 90-day window + the `json_extract`
+      // vendor filter). Ops-routed rows store `metadata.vendorId = null`, which
+      // `json_extract` returns as SQL NULL and can therefore never equal a
+      // caller's id — the same structural isolation the list relies on.
+      db
+        .select({ value: max(auditLog.createdAt) })
+        .from(auditLog)
+        .where(vendorNotificationLedgerWhere(vendorId)),
 
-        // `requests` — `vendor_requests` carries NO `updated_at` column (verified
-        // against `db/schema.ts`), and its only mutation after insert is the
-        // admin resolve, which stamps `resolved_at`. So COALESCE over the two
-        // lifecycle columns is the whole change surface: an open request reports
-        // when it arrived, a resolved one when it was answered.
-        db
-          .select({
-            value: max(sql`coalesce(${vendorRequests.resolvedAt}, ${vendorRequests.createdAt})`),
-          })
-          .from(vendorRequests)
-          .where(vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId))),
-      ]);
+      // `requests` — `vendor_requests` carries NO `updated_at` column (verified
+      // against `db/schema.ts`), and its only mutation after insert is the
+      // admin resolve, which stamps `resolved_at`. So COALESCE over the two
+      // lifecycle columns is the whole change surface: an open request reports
+      // when it arrived, a resolved one when it was answered.
+      db
+        .select({
+          value: max(sql`coalesce(${vendorRequests.resolvedAt}, ${vendorRequests.createdAt})`),
+        })
+        .from(vendorRequests)
+        .where(vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId))),
+
+      // `contests` (AECI-1008) — every contest this vendor filed or decides,
+      // under the SAME predicate `GET /api/vendor/contests` uses. `updated_at`
+      // moves on submit, withdraw and every decision, which is the whole change
+      // surface of a contest row.
+      db
+        .select({ value: max(integrationFieldChallenges.updatedAt) })
+        .from(integrationFieldChallenges)
+        .where(vendorContestsWhere(vendorId)),
+    ]);
 
     const integrationRow = integrationRows[0];
     const revisions: VendorRevisions = {
@@ -238,6 +258,7 @@ export function createVendorUpdatesHandler(
       integrations: laterOf(integrationRow?.claims ?? null, integrationRow?.attestations ?? null),
       notifications: ledgerRows[0]?.value ?? null,
       requests: requestRows[0]?.value ?? null,
+      contests: contestRows[0]?.value ?? null,
     };
 
     const body: VendorUpdatesResponse = {

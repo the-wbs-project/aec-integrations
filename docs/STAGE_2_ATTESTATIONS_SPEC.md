@@ -1545,6 +1545,16 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   never match a caller — the isolation is structural, not a clause someone must remember. The
   mapper is tolerant: an unreadable snapshot is skipped, because these rows outlive the code that
   wrote them.
+- **Since AECI-1008 (2026-09-18) the feed also carries contest rows.** The contest handlers write
+  `notification.sent` rows with `metadata.kind = 'contest'` and `entity_type =
+  'integration_field_challenge'`, in the same batch as the contest transition, addressed through
+  `metadata.vendorId` to the other side of the contest (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.8).
+  They have no `detector`, so the sweep's suppression read (`loadSuppressed`) skips them and they
+  can never suppress a nudge. The wire list is now a union on `kind`
+  (`VendorAttestationNotification | VendorContestNotification`); the mapper recognises a contest
+  row by `kind`, never by the absence of `detector`. The scoping predicate
+  (`vendorNotificationLedgerWhere`) is unchanged, so the `notifications` cursor is too. There is no
+  email behind a contest row; the portal feed is the whole delivery.
 - **⚠️ Merge hazard for `stage-2` / `main`.** `main` carries
   `apps/api/src/lib/cron-schedules.ts` — a `CRON_SCHEDULES` / `ADMIN_CRON_JOB` registry with a
   spec that asserts **byte-equality against `wrangler.jsonc`**. That file does not exist on
@@ -2316,7 +2326,7 @@ unconditionally. That is §13.4's own reasoning applied to the rest of the surfa
 the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
 "Updated" is the accurate verb for a save.
 
-The five write sites are the complete list:
+The six write sites are the complete list (five at AECI-981; AECI-1008 added the sixth):
 
 | Endpoint | Row | Shape |
 |---|---|---|
@@ -2325,6 +2335,15 @@ The five write sites are the complete list:
 | `POST /api/vendor/products/:id/versions` | `products` | own statement + own audit row |
 | `PATCH …/versions/:versionId` | `products` | own statement + own audit row |
 | `DELETE …/versions/:versionId` | `products` | own statement + own audit row |
+| `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations` | folded into the field write; one `integration.updated` row with before/after, `metadata.reason = 'contest-accepted'` |
+
+The sixth is the owner of an integration accepting another vendor's contest
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). It writes the contested column and the
+transfer in one statement, and marks `metadata.maintenanceTransfer: true` only when
+the row changes hands, like the other five. It is dormant in production until
+AECI-1005 makes an integration claimable, because until then no contest routes to an
+owner. An **AECi** accept of a contest (`PATCH /api/admin/contests/:id`) writes no
+catalog data and is not on this list.
 
 Two shapes, because each is the right one for its batch. The two `PATCH`es already
 carry a `vendor.updated` / `product.updated` audit row on the row they are writing,
@@ -2346,7 +2365,7 @@ Four consequences worth stating, because each is a thing someone will otherwise
    transition instead sets `metadata.maintenanceTransfer: true`, and only on the
    write that actually changes hands — flagging every later save would make the
    flag useless for finding the ones that mattered. The key is **omitted**, not
-   set to `false`, on every later save, and identically on all five sites: a
+   set to `false`, on every later save, and identically on all six sites: a
    key-presence query over `audit_log.metadata` has to mean the same thing
    whichever surface wrote the row.
 2. **Per row, never transitive.** A vendor editing its company profile does not flip

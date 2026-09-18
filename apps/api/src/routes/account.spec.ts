@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  integrationFieldChallenges,
+  integrations,
   products,
   profiles,
   reviews,
@@ -145,6 +147,7 @@ describe('GET /api/account', () => {
       pending_requests: null,
       pending_claims: null,
       pending_reindex: null,
+      pending_contests: null,
     });
   });
 
@@ -196,6 +199,7 @@ describe('GET /api/account', () => {
       pending_requests: 0,
       pending_claims: 0,
       pending_reindex: 0,
+      pending_contests: 0,
     });
   });
 });
@@ -357,7 +361,7 @@ describe('DELETE /api/account', () => {
   });
 
   it('declares vendor_entitlements.granted_by ON DELETE SET NULL (AECI-609 / R6)', () => {
-    // This is what actually keeps erasure working. `granted_by` is one of the eight
+    // This is what actually keeps erasure working. `granted_by` is one of the ten
     // inbound FKs to `profiles(id)` (`AUTH_AND_RLS.md` §8 is the live register); the
     // five NO ACTION refs are each nulled by hand in the
     // batch, and if this one were left at the house default it would join them — except
@@ -409,6 +413,44 @@ describe('DELETE /api/account', () => {
     expect(ent).toBeDefined();
     expect(ent!.grantedBy).toBeNull();
     expect(ent!.status).toBe('active');
+  });
+
+  it('nulls the contest submitted_by / decided_by without deleting the contest (AECI-1008)', async () => {
+    // Two more of the ten inbound FKs. The contest is the VENDOR's record, so it
+    // survives; only the person who filed or decided it is severed.
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db.insert(products).values([
+      { id: u(3), slug: 'a', name: 'A' },
+      { id: u(4), slug: 'b', name: 'B' },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(5), sourceProductId: u(3), targetProductId: u(4) });
+    await t.db.insert(integrationFieldChallenges).values({
+      id: u(6),
+      integrationId: u(5),
+      field: 'name',
+      proposedValue: 'New',
+      reason: 'r',
+      submitterVendorId: u(2),
+      submittedBy: USER,
+      decidedBy: USER,
+      routedTo: 'aeci',
+      status: 'declined',
+    });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profiles)).toHaveLength(0);
+    const [contest] = await t.db.select().from(integrationFieldChallenges);
+    expect(contest).toMatchObject({ submittedBy: null, decidedBy: null, status: 'declined' });
   });
 
   it('still succeeds (data erased) when the auth-user delete fails', async () => {

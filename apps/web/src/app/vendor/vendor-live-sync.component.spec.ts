@@ -103,6 +103,8 @@ const BASE_REVISIONS: VendorRevisions = {
   // A vendor with no requests: the steady-state `null` that must never read as
   // "changed" on its own.
   requests: null,
+  // AECI-1008: no contests either. Same steady-state `null`.
+  contests: null,
 };
 
 function updates(

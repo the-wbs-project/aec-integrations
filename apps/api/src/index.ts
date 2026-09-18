@@ -120,6 +120,16 @@ import {
 } from './routes/vendor';
 import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
 import {
+  createDecideContestHandler,
+  createListVendorContestsHandler,
+  createSubmitContestHandler,
+  createWithdrawContestHandler,
+} from './routes/vendor-contests';
+import {
+  createAdminContestsListHandler,
+  createModerateContestHandler,
+} from './routes/admin-contests';
+import {
   createDeleteProductVersionHandler,
   createListProductVersionsHandler,
   createProductVersionHandler,
@@ -598,6 +608,16 @@ authAdmin.patch(
   requireAdmin(),
   createModerateClaimHandler(getDb, resolveClaimantIdentity, sendClaimDecisionEmail),
 );
+// AECI-1008: integration field contests, the AECi queue. The PATCH is the eighth
+// named write exception in `ADMIN_PANEL_SPEC.md`: a DECISION write. An accept
+// writes no catalog data; it files a `REVIEW - ` Linear issue post-commit.
+authAdmin.get('/api/admin/contests', requireAdmin(), createAdminContestsListHandler());
+authAdmin.patch(
+  '/api/admin/contests/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createModerateContestHandler(),
+);
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 // Stage 2 / AECI-532: the admin entitlement action (set / renew / clear). Owns the
@@ -778,7 +798,8 @@ app.route('/', authAdmin);
 // verified-gated either, for the same reason the two lists above are not.
 //   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
 //
-// Stage 2 / AECI-627 adds the surface's polling endpoint — six per-scope
+// Stage 2 / AECI-627 adds the surface's polling endpoint — six (seven since
+// AECI-1008) per-scope
 // `updated_at` cursors in one response, so the dashboard can refetch only the
 // section that moved instead of reloading (ADR 0023 chose this over Durable-Object
 // WebSockets / SSE; `STAGE_2_REALTIME_SPEC.md` §2). It is a pure read, so it writes
@@ -877,6 +898,29 @@ authVendor.delete(
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 // AECI-627. No path overlap with anything above, so ordering is free.
 authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandler());
+// AECI-1008: integration field contests. A SEAT IS THE WHOLE GATE — no
+// `requireCapability`, deliberately (the §6.14 exception in
+// `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Writes carry `rateLimit('write')`; the
+// GET does not, and must not.
+authVendor.post(
+  '/api/vendor/integrations/:id/contests',
+  requireVendor(),
+  rateLimit('write'),
+  createSubmitContestHandler(),
+);
+authVendor.get('/api/vendor/contests', requireVendor(), createListVendorContestsHandler());
+authVendor.post(
+  '/api/vendor/contests/:id/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawContestHandler(),
+);
+authVendor.post(
+  '/api/vendor/contests/:id/decision',
+  requireVendor(),
+  rateLimit('write'),
+  createDecideContestHandler(),
+);
 //
 // Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on
 // this surface that change who can reach it. Three gates in order: `requireVendor()`

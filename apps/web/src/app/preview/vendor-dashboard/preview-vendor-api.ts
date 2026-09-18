@@ -59,6 +59,8 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
     // A vendor with no requests keeps a `null` cursor forever. Kept as `null`
     // here so the preview exercises the value most likely to be mishandled.
     requests: null,
+    // AECI-1008. The preview has no contests until the portal half (PR B).
+    contests: null,
   },
   server_time: '2026-08-18T12:00:00.000Z',
 };

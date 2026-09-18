@@ -5,8 +5,12 @@
  * §7.3 chose `audit_log` as the detector sweep's dedupe ledger and noted that this
  * "gives the in-portal list its backing query for free". This module is that
  * query. There is no notifications table (decision §1.3(6)) and no new store:
- * every row here is a `notification.sent` audit row the daily sweep
- * (`lib/attestation-notify.ts`) wrote after a successful send.
+ * every row here is a `notification.sent` audit row. Most are the daily sweep's
+ * (`lib/attestation-notify.ts`), written after a successful send. Since AECI-1008
+ * the contest handlers also write them (`metadata.kind = 'contest'`), in the same
+ * batch as the contest transition, addressed to the other side of the contest.
+ * The list is a union on `kind`; the scoping predicate below is unchanged, so the
+ * `notifications` cursor needed no change either.
  *
  * ── THIS IS THE FIRST PRODUCTION READ OF `audit_log` ────────────────────────
  * Everything else in the codebase only ever writes to it (plus the GDPR
@@ -38,10 +42,14 @@
  */
 
 import {
+  CONTEST_NOTIFICATION_EVENTS,
+  INTEGRATION_CONTEST_FIELDS,
   ListVendorNotificationsResponseSchema,
   type AttestationDetector,
+  type ContestNotificationEvent,
   type ListVendorNotificationsResponse,
   type NotificationProductRef,
+  type VendorContestNotification,
   type VendorNotification,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
@@ -55,6 +63,7 @@ import {
   type NotificationLedgerMetadata,
 } from '../lib/attestation-notify';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { pairPathFor, type ContestNotificationMetadata } from '../lib/integration-contests';
 import { sessionVendorId, type VendorContext } from './vendor-shared';
 
 const DAY_MS = 86_400_000;
@@ -69,6 +78,8 @@ export const NOTIFICATION_HISTORY_DAYS = 90;
 export const NOTIFICATION_PAGE_SIZE = 50;
 
 const DETECTORS = new Set<string>(ATTESTATION_DETECTORS);
+const CONTEST_EVENTS = new Set<string>(CONTEST_NOTIFICATION_EVENTS);
+const CONTEST_FIELDS = new Set<string>(INTEGRATION_CONTEST_FIELDS);
 
 /**
  * The ledger scoping predicate — action, window, and vendor, in that order.
@@ -114,6 +125,12 @@ function toVendorNotification(row: {
   createdAt: string;
   metadata: unknown;
 }): VendorNotification | null {
+  // AECI-1008: contest events share the ledger. They are recognised by
+  // `metadata.kind`, never by the absence of `detector`, so a malformed detector
+  // row can never be misread as a contest.
+  if ((row.metadata as { kind?: unknown } | null)?.kind === 'contest') {
+    return toContestNotification(row);
+  }
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -127,6 +144,7 @@ function toVendorNotification(row: {
   }
 
   return {
+    kind: 'attestation',
     id: row.id,
     detector: meta.detector as AttestationDetector,
     claim_id: row.entityId,
@@ -134,6 +152,41 @@ function toVendorNotification(row: {
     data_object: productRef(meta.dataObject),
     counterpart_product: productRef(meta.counterpartProduct),
     pair_path: pairPath,
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one contest ledger row (AECI-1008), or `null` when it is not recognisable.
+ * Same tolerance as the detector mapper: a row this code cannot read is skipped,
+ * never a 500.
+ */
+function toContestNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorContestNotification | null {
+  const meta = row.metadata as Partial<ContestNotificationMetadata> | null;
+  if (!meta || typeof meta.contestId !== 'string' || typeof meta.integrationId !== 'string') {
+    return null;
+  }
+  if (typeof meta.event !== 'string' || !CONTEST_EVENTS.has(meta.event)) return null;
+  if (typeof meta.field !== 'string' || !CONTEST_FIELDS.has(meta.field)) return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'contest',
+    id: row.id,
+    event: meta.event as ContestNotificationEvent,
+    contest_id: meta.contestId,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    field: meta.field,
+    pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };
 }

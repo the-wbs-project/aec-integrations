@@ -1,5 +1,5 @@
 /**
- * The operator console's four queue counters, in one place (AECI-922, extended
+ * The operator console's queue counters, in one place (AECI-922, extended
  * by AECI-946).
  *
  * `GET /api/admin/summary` (the `/admin` SSR resolver's gate and the in-shell
@@ -30,6 +30,11 @@
  * in `gsc_recrawl_queue` IS a pending item — the Done button deletes rather than
  * flagging, precisely so that "is it waiting" never becomes a column whose
  * predicate this file would have to keep in step with a screen.
+
+`pending_contests` (AECI-1008) is a different table too
+(`integration_field_challenges`), counted as `routed_to = 'aeci' AND status =
+'open'`, so it is disjoint from all four. The console does not sum it into the
+Operations trigger until the `/admin/contests` screen exists (AECI-1008 PR C).
  *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
  * `vendor_requests.status` allows `open | in_review | resolved | rejected`, and
@@ -50,23 +55,24 @@
 import { and, count, eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { gscRecrawlQueue, reviews, vendorRequests } from '../db/schema';
+import { gscRecrawlQueue, integrationFieldChallenges, reviews, vendorRequests } from '../db/schema';
 
-/** The four counters, in the wire shape both endpoints return. */
+/** The five counters, in the wire shape both endpoints return. */
 export interface AdminQueueCounts {
   pending_reviews: number;
   pending_requests: number;
   pending_claims: number;
   pending_reindex: number;
+  pending_contests: number;
 }
 
 /**
- * All four counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
- * because four trivial `COUNT(*)`s are not worth four binding calls, and this
+ * All five counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
+ * because five trivial `COUNT(*)`s are not worth five binding calls, and this
  * runs on the header probe of every signed-in admin page load.
  */
 export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
-  const [reviewRows, requestRows, claimRows, reindexRows] = await db.batch([
+  const [reviewRows, requestRows, claimRows, reindexRows, contestRows] = await db.batch([
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
     db
       .select({ value: count() })
@@ -78,6 +84,17 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'claim'))),
     // No `where`: every row here is pending by construction. See the header.
     db.select({ value: count() }).from(gscRecrawlQueue),
+    // AECI-1008: the AECi queue only. Owner-routed contests are decided by a
+    // vendor, so counting them would nag an operator about work that is not theirs.
+    db
+      .select({ value: count() })
+      .from(integrationFieldChallenges)
+      .where(
+        and(
+          eq(integrationFieldChallenges.routedTo, 'aeci'),
+          eq(integrationFieldChallenges.status, 'open'),
+        ),
+      ),
   ]);
 
   return {
@@ -85,5 +102,6 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     pending_requests: requestRows[0]?.value ?? 0,
     pending_claims: claimRows[0]?.value ?? 0,
     pending_reindex: reindexRows[0]?.value ?? 0,
+    pending_contests: contestRows[0]?.value ?? 0,
   };
 }

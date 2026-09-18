@@ -139,7 +139,7 @@ export interface ActivateEntitlementParams {
   /** The vendor's `verified` BEFORE the write. Drives `verified_flipped`, and lets a
    *  drifted `verified = 1`-with-no-row vendor self-heal without churning `updated_at`. */
   vendorWasVerified: boolean;
-  /** `profiles.id` of the granting admin — one of the eight inbound FKs to
+  /** `profiles.id` of the granting admin — one of the ten inbound FKs to
    *  `profiles` (R6). `AUTH_AND_RLS.md` §8 is the live register; count it there
    *  rather than here, because an ordinal in a comment goes stale every time a
    *  table is added (this one has already been renumbered twice). */

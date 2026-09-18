@@ -206,7 +206,7 @@ import {
   oldestPendingAgeHours,
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
-import { runReconciliationSweep } from './lib/reconciliation-sweep';
+import { runContestIssueReconciliation, runReconciliationSweep } from './lib/reconciliation-sweep';
 import {
   emitRetentionPruneMetrics,
   resolveRetentionWindows,
@@ -972,8 +972,25 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // consumer `retry()`s. `withJobRun` records that throw as `outcome:'failed'` and
   // rethrows it, so the retry behaviour is unchanged and each attempt is its own
   // row (a successful retry supersedes by `started_at`).
-  const result = await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
-  return { outcome: 'ok', detail: { job: 'request-reconcile', ...result } };
+  const alertCtx = { env, executionCtx: ctx, req: { raw: req } };
+  const result = await runReconciliationSweep(alertCtx, db);
+  // AECI-1008: the contest `REVIEW - ` issue backstop rides the same tick. Caught
+  // rather than propagated: the request pass above has already done its work, and
+  // a queue retry would re-run it for a failure that is not its own. The next tick
+  // retries the contests anyway.
+  let contests: Awaited<ReturnType<typeof runContestIssueReconciliation>> | { error: string };
+  try {
+    contests = await runContestIssueReconciliation(alertCtx, db);
+  } catch (error) {
+    contests = { error: error instanceof Error ? error.message : String(error) };
+    logToPosthog(ctx, env, req, {
+      level: 'warn',
+      message: 'aeci.linear.reconcile: contest pass failed',
+      source: 'reconcile',
+      reason: contests.error,
+    });
+  }
+  return { outcome: 'ok', detail: { job: 'request-reconcile', ...result, contests } };
 }
 
 /** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): the read-only

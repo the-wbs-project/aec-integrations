@@ -74,6 +74,7 @@ describe('GET /api/admin/summary', () => {
       pending_requests: 0,
       pending_claims: 0,
       pending_reindex: 0,
+      pending_contests: 0,
     });
   });
 
@@ -83,6 +84,7 @@ describe('GET /api/admin/summary', () => {
       pending_requests: 0,
       pending_claims: 0,
       pending_reindex: 0,
+      pending_contests: 0,
     });
   });
 
@@ -106,6 +108,7 @@ describe('GET /api/admin/summary', () => {
       pending_requests: 2,
       pending_claims: 1,
       pending_reindex: 0,
+      pending_contests: 0,
     });
   });
 });

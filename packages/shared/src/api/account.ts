@@ -90,6 +90,10 @@ export interface AccountProfileResponse {
   pending_requests: number | null;
   pending_claims: number | null;
   pending_reindex: number | null;
+  /** Open AECi-routed integration field contests (AECI-1008). Optional for the
+   *  same skew reason as `AdminSummaryResponse.pending_contests`; the server
+   *  always sends it, `null` for a non-admin like the others. */
+  pending_contests?: number | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

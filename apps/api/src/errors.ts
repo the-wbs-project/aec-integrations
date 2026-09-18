@@ -61,6 +61,10 @@ type ResourceKind =
   // not an error: the detail resolvers ask this endpoint about every slug that
   // already missed, and almost all of them are junk.
   | 'slug_redirect'
+  // An integration field contest (AECI-1008). The vendor surface answers this 404
+  // for a contest the caller neither filed nor decides, which must look exactly
+  // like one that does not exist.
+  | 'contest'
   | 'profile';
 
 export type ApiErrorOptions = {

@@ -47,11 +47,11 @@ import {
 import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { vendorRequests, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges, vendorRequests, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
-import { adminRequestUrl, environmentHost } from './request-links';
+import { adminContestUrl, adminRequestUrl, environmentHost, publicPairUrl } from './request-links';
 
 // ─── Verified Linear board constants ─────────────────────────────────────────
 // Queried live (2026-06-13). Hardcoded rather than env-configured because they
@@ -544,6 +544,209 @@ export async function createLinearIssueForRequest(
   return { status: 'created', issueId: issue.id, issueUrl: issue.url };
 }
 
+// ─── Contest issues (AECI-1008) ──────────────────────────────────────────────
+
+/**
+ * Persistence seam for a contest's `REVIEW - ` issue. Same shape of contract as
+ * {@link LinearRequestStore}, with one deliberate difference: it writes the issue
+ * onto `integration_field_challenges` ONLY, never onto the contest's
+ * `workflow_instances.linear_issue_id`.
+ *
+ * That omission is load-bearing. The inbound Linear webhook (`routes/webhooks.ts`)
+ * and the request sweep resolve an issue back to a `vendor_requests` row through
+ * that column. A contest issue lives in the review lane (no project, a `REVIEW - `
+ * title) and its state changes must never be mistaken for a request's.
+ */
+export interface LinearContestStore {
+  getLinkedIssueId(contestId: string): Promise<string | null>;
+  linkIssue(contestId: string, issueId: string, issueUrl: string): Promise<void>;
+}
+
+/** Drizzle/D1 {@link LinearContestStore}: compare-and-set by primary key with an
+ *  `upstream_linear_issue_id IS NULL` guard, so a retry race keeps the first id. */
+export function drizzleContestLinearStore(db: Db): LinearContestStore {
+  return {
+    async getLinkedIssueId(contestId) {
+      const row = await db.query.integrationFieldChallenges.findFirst({
+        columns: { upstreamLinearIssueId: true },
+        where: eq(integrationFieldChallenges.id, contestId),
+      });
+      return row?.upstreamLinearIssueId ?? null;
+    },
+    async linkIssue(contestId, issueId, issueUrl) {
+      await db
+        .update(integrationFieldChallenges)
+        .set({ upstreamLinearIssueId: issueId, upstreamLinearIssueUrl: issueUrl })
+        .where(
+          and(
+            eq(integrationFieldChallenges.id, contestId),
+            isNull(integrationFieldChallenges.upstreamLinearIssueId),
+          ),
+        );
+    },
+  };
+}
+
+/** What the `REVIEW - ` issue needs. Values are in STORAGE form; `direction`
+ *  therefore reads `a_to_b | b_to_a | both` against the two product names. */
+export interface LinearContestIssueInput {
+  contestId: string;
+  integrationId: string;
+  /** `integrations.name`, or `null` — the title falls back to the pair. */
+  integrationName: string | null;
+  sourceProductName: string;
+  targetProductName: string;
+  /** Site-relative canonical pair page, when both slugs are known. */
+  pairPath: string | null;
+  field: string;
+  currentValue: string | null;
+  acceptedValue: string | null;
+  /** Display names for an `owner` contest, whose values are vendor ids. */
+  currentLabel?: string | null;
+  acceptedLabel?: string | null;
+  submitterVendorName: string;
+  reason: string;
+  adminNote: string | null;
+}
+
+/** The playbook the review lane follows to apply an accepted contest upstream. */
+export const CONTEST_PLAYBOOK_ISSUE = 'AECI-1025';
+
+/**
+ * File the `REVIEW - Apply contested field: …` issue for an AECi-accepted contest
+ * (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), and link it back onto the row.
+ *
+ * An AECi accept records a decision and writes NO catalog data here. The catalog
+ * is curated upstream in the review app and pushed through promote, so a value
+ * written here would be undone by the next promote of that edge. The issue is how
+ * the decision reaches the curation lane.
+ *
+ * Same contract as {@link createLinearIssueForRequest}: never throws, an absent
+ * key is a metric-silent `{ status:'failed', reason:'no_api_key' }`, the read-guard
+ * makes a re-fire a no-op, and the persist is a compare-and-set. The §6.7 sweep
+ * retries accepted rows that still have no issue id
+ * (`runContestIssueReconciliation`).
+ *
+ * The issue goes to the AECi team with NO project, per the three-repo routing
+ * convention: a `REVIEW - ` title is how review-app work is filed
+ * (`docs/linear-issue-conventions.md`).
+ */
+export async function createLinearIssueForContest(
+  c: LinearContext,
+  store: LinearContestStore,
+  input: LinearContestIssueInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LinearIssueOutcome> {
+  const apiKey = c.env.LINEAR_API_KEY;
+  // Metric-silent, NOT caller-silent — identical to the request path.
+  if (!apiKey) return { status: 'failed', reason: 'no_api_key' };
+
+  try {
+    if (await store.getLinkedIssueId(input.contestId)) {
+      emit(c, 'skipped_exists', 'contest');
+      return { status: 'skipped_exists' };
+    }
+  } catch (err) {
+    const message = errMsg(err);
+    warn(c, `linear contest idempotency read failed: ${message}`);
+    emit(c, 'failed', 'contest', 'db_error');
+    return { status: 'failed', reason: 'db_error', message };
+  }
+
+  const started = Date.now();
+  const assigneeId = pickAssignee(input.contestId);
+  const createRes = await linearGraphql<IssueCreatePayload>(
+    apiKey,
+    ISSUE_CREATE_MUTATION,
+    {
+      input: {
+        teamId: AECI_TEAM_ID,
+        title: buildContestTitle(input),
+        description: buildContestDescription(c.env, input),
+        ...(assigneeId ? { assigneeId } : {}),
+      },
+    },
+    fetchImpl,
+  );
+
+  const issue = createRes.ok ? createRes.data.issueCreate.issue : null;
+  if (!createRes.ok || !createRes.data.issueCreate.success || !issue) {
+    const reason: LinearIssueFailureReason = createRes.ok ? 'graphql_error' : createRes.reason;
+    const message = createRes.ok ? 'issueCreate success=false' : createRes.message;
+    error(c, `linear contest issueCreate failed (${reason}): ${message}`);
+    emit(c, 'failed', 'contest', reason, Date.now() - started);
+    return { status: 'failed', reason, message };
+  }
+
+  try {
+    await store.linkIssue(input.contestId, issue.id, issue.url);
+  } catch (err) {
+    const message = errMsg(err);
+    error(c, `linear contest id persist failed (issue ${issue.id}): ${message}`);
+    emit(c, 'failed', 'contest', 'db_error', Date.now() - started);
+    return { status: 'failed', reason: 'db_error', message };
+  }
+
+  emit(c, 'ok', 'contest', undefined, Date.now() - started);
+  return { status: 'created', issueId: issue.id, issueUrl: issue.url };
+}
+
+function contestSubject(input: LinearContestIssueInput): string {
+  return input.integrationName?.trim()
+    ? input.integrationName.trim()
+    : `${input.sourceProductName} ↔ ${input.targetProductName}`;
+}
+
+/** Exported for the spec: the title is the routing signal, so it is asserted. */
+export function buildContestTitle(input: LinearContestIssueInput): string {
+  return `REVIEW - Apply contested field: ${input.field} on ${contestSubject(input)}`;
+}
+
+function contestValue(value: string | null, label?: string | null): string {
+  if (value === null) return '_(none)_';
+  return label ? `${label} (\`${value}\`)` : `\`${value}\``;
+}
+
+function buildContestDescription(env: Env, input: LinearContestIssueInput): string {
+  const lines = [
+    `**Integration:** ${contestSubject(input)}`,
+    `**App-DB integration id:** \`${input.integrationId}\``,
+    `**Endpoints:** A = ${input.sourceProductName}, B = ${input.targetProductName}`,
+  ];
+  if (input.pairPath) {
+    lines.push(`**Pair page:** ${publicPairUrl(env, input.pairPath) ?? input.pairPath}`);
+  }
+  lines.push(
+    `**Field:** \`${input.field}\``,
+    `**Current value:** ${contestValue(input.currentValue, input.currentLabel)}`,
+    `**Accepted value:** ${contestValue(input.acceptedValue, input.acceptedLabel)}`,
+  );
+  if (input.field === 'direction') {
+    lines.push('_Direction values are stored form: `a_to_b` means A sends to B._');
+  }
+  if (input.field === 'owner' && input.acceptedValue === null) {
+    lines.push('_The accepted owner is "neither endpoint vendor": clear `built_by`._');
+  }
+  lines.push(`**Contested by:** ${input.submitterVendorName}`);
+  const host = environmentHost(env);
+  if (host) lines.push(`**Environment:** ${host}`);
+  const adminUrl = adminContestUrl(env, input.contestId);
+  if (adminUrl) lines.push(`**Admin:** ${adminUrl}`);
+  lines.push('', '**Vendor reason:**', '', `> ${input.reason.replace(/\n/g, '\n> ')}`);
+  if (input.adminNote) {
+    lines.push('', '**Admin note:**', '', `> ${input.adminNote.replace(/\n/g, '\n> ')}`);
+  }
+  lines.push(
+    '',
+    `Apply the accepted value in the review app and re-promote the edge. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
+    'AECi wrote nothing to the catalog on accept; the next promote carries the change.',
+    '',
+    '---',
+    `Contest: ${input.contestId}`,
+  );
+  return lines.join('\n');
+}
+
 /**
  * Site → Linear sync on an admin resolve/reject (`STAGE_1_PHASE_6_SPEC.md` §6.5;
  * `STAGE_1_SPEC.md` §26.4 — the outbound half of the bidirectional sync). After
@@ -785,7 +988,7 @@ function buildDuplicateNote(input: LinearIssueInput): string {
 function emit(
   c: LinearContext,
   outcome: 'ok' | 'failed' | 'skipped_exists',
-  kind: RequestKind,
+  kind: RequestKind | 'contest',
   reason?: string,
   durationMs?: number,
 ): void {

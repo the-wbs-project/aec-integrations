@@ -22,7 +22,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorNotification } from '@aeci/shared';
+import type { VendorAttestationNotification, VendorNotification } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
@@ -85,11 +85,33 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
   });
 
+  it('skips contest rows until the portal half of AECI-1008 gives them copy', async () => {
+    const withContest: readonly VendorNotification[] = [
+      ...VENDOR_NOTIFICATIONS_FIXTURE,
+      {
+        kind: 'contest',
+        id: '00000000-0000-4000-8000-00000000c0de',
+        event: 'submitted',
+        contest_id: '00000000-0000-4000-8000-00000000c0df',
+        integration_id: '00000000-0000-4000-8000-00000000c0e0',
+        integration_name: 'Summit ↔ Procore',
+        field: 'name',
+        pair_path: null,
+        created_at: '2026-09-18T12:00:00.000Z',
+      },
+    ];
+    getNotifications.mockResolvedValue({ notifications: withContest });
+
+    const fixture = await create();
+    expect(el(fixture).querySelectorAll('li')).toHaveLength(3);
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
+  });
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and
     // the vendor is the party that most needs to read it.
-    const withDenial: readonly VendorNotification[] = [
+    const withDenial: readonly VendorAttestationNotification[] = [
       ...VENDOR_NOTIFICATIONS_FIXTURE,
       { ...VENDOR_NOTIFICATIONS_FIXTURE[0], id: 'denied-row', detector: 'claim-denied' },
     ];
@@ -147,7 +169,7 @@ describe('VendorNotificationsList', () => {
  */
 describe('VendorNotificationsList — "N new" (§6.2)', () => {
   /** A row that did not exist at first load. */
-  const arrival = (id: string): VendorNotification => ({
+  const arrival = (id: string): VendorAttestationNotification => ({
     ...VENDOR_NOTIFICATIONS_FIXTURE[0],
     id,
     created_at: '2026-08-19T08:00:00.000Z',

@@ -70,7 +70,8 @@ import { VendorApi } from './vendor-api';
 
 /**
  * The client scope vocabulary from `docs/STAGE_2_REALTIME_SPEC.md` §3 — the same
- * six keys `GET /api/vendor/updates` reports a cursor for (AECI-627), so a caller
+ * seven keys `GET /api/vendor/updates` reports a cursor for (AECI-627; `contests`
+ * since AECI-1008), so a caller
  * can hand the store exactly the scopes the cursor said moved.
  */
 export type VendorPortalScope =
@@ -79,7 +80,8 @@ export type VendorPortalScope =
   | 'products'
   | 'integrations'
   | 'notifications'
-  | 'requests';
+  | 'requests'
+  | 'contests';
 
 /** What the store actually holds, one per endpoint. Four scopes collapse onto
  *  `me` because they are four views of one payload. */
@@ -148,6 +150,9 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   requests: 'me',
   integrations: 'integrations',
   notifications: 'notifications',
+  // AECI-1008: no contests resource until the portal half (PR B). Mapped onto
+  // notifications, which every counterparty-side contest event also moves.
+  contests: 'notifications',
 };
 
 /** Section → the resource whose refetch would replace what that section renders. */
