@@ -1446,7 +1446,18 @@ export function sendClaimSubmittedNotification(
   });
 }
 
-/** Operator alert: a feedback submission (`POST /api/feedback`). */
+/**
+ * Operator alert: a feedback submission (`POST /api/feedback`).
+ *
+ * **On the house layout (`lib/email-layout.ts`), not the old `opsTable()` grid**, the same
+ * move its sibling `landing-signup` made. The facts ride the layout's `table`, so a bare-URL
+ * `Referrer` row links. A `Tools/software` answer that merely mentions a URL stays plain
+ * text, because the layout links a value only when the whole value is a URL. The plain-text
+ * part is the same `Key: value` block `opsText()` emitted, under the heading.
+ *
+ * The single Forest CTA is `/admin/audience`, whose Feedback inbox is this alert's screen
+ * equivalent (AECI-586). No `PUBLIC_SITE_URL` means no button.
+ */
 export function sendLandingFeedbackNotification(
   c: EmailContext,
   opts: {
@@ -1468,12 +1479,21 @@ export function sendLandingFeedbackNotification(
     ['Location', `${opts.city ?? '—'}, ${opts.region ?? '—'}, ${opts.country ?? '—'}`],
     ['Referrer', opts.referrer ?? '—'],
   ];
+  const base = siteUrl(c.env);
+  const intro = 'Someone just submitted feedback on AEC Integrations.';
+  const shared = {
+    preheader: `New feedback from ${opts.email ?? 'an anonymous visitor'}.`,
+    heading: 'New feedback submitted',
+    table: rows,
+    ...(base ? { cta: { label: 'Open the feedback inbox', url: `${base}/admin/audience` } } : {}),
+  };
+
   return sendTransactionalEmail(c, {
     to: c.env.ADMIN_ALERT_EMAIL ?? '',
     template: 'landing-feedback',
     subject: '[AECi] New feedback submitted',
-    text: opsText('Someone just submitted feedback on AEC Integrations.', rows),
-    html: opsTable('Someone just submitted feedback on AEC Integrations.', rows),
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
   });
 }
 
@@ -1620,8 +1640,8 @@ function pairUrl(env: Env, slugA: string, slugB: string): string | null {
  * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
  * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
  * that. These two remain only for the templates not yet migrated — the three sibling
- * attestation nudges, the review/account/mailing-list templates, and the two remaining
- * operator alerts (`landing-feedback`, `entitlement-expiring-admin`);
+ * attestation nudges, the review/account/mailing-list templates, and the one remaining
+ * operator alert (`entitlement-expiring-admin`);
  * `docs/email.md` (§House layout) carries the migration list.
  *
  * Note the sign-off: the house layout deliberately has none, because its footer wordmark
