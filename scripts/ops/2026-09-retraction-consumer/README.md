@@ -9,9 +9,9 @@ fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
 retirement, and the first to cascade claims that no surviving row holds**), and 2026-09-18
 (4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**), and
 2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**).
-**The feed is at zero pending and no hold is active.** The daily audit is red on
-`vendorNoLiveProducts 2` + `integrationEndpointStranded 7`, which is the Bluebeam / Graphisoft
-cohort and is nothing to do with this lane — see the AECI-1020 entry.
+**The feed is at zero pending and no hold is active.** The AECI-1024 vendor half ran the same
+day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
+the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
 than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
@@ -1004,7 +1004,7 @@ Nothing to purge. Re-checked `apps/web/wrangler.jsonc`: the `production` env blo
   `integration_count 1`, because `integrations.built_by_vendor_id` still pointed at them.
 - The AECI-878 sentinel read present before and after.
 
-### Daily audit after this run — RED, and correctly so
+### Daily audit after this run — RED between the two halves, green after
 
 `pendingRetractions` **0**, `orphanChildren` 0c / 0a, every stranded bucket **0** except
 **`vendorNoLiveProducts 8`**, exit **1**. The eight are the AECI-1016 vendor rows that own
@@ -1015,6 +1015,17 @@ accepts only products and integrations, so there is no feed entry to consume. Th
 decision on AECI-1024 (a vendor arm on the journal + this consumer, or a one-off `ops` delete by
 id). Until it lands the audit stays red on this bucket, which is the right pressure — do not
 add the eight to a hold list to make it green.
+
+**Route chosen 2026-09-18 (AECI-1024): a one-off `ops` lane, not a journal arm.**
+`pnpm --filter @aeci/api ops:retract-vendor` removes a vendor from a deployed D1 when, and only
+when, it owns nothing — zero products and zero rows in **both** `integrations.built_by_vendor_id`
+and `connector_evidenced_pairs.built_by_vendor_id`. There is no `--force`. It detaches `claims`,
+`attestations` and `page_views`, deletes the vendor and writes one `audit_log` row
+(`action = 'vendor.deleted'`) in the same batch, then de-indexes the `<env>_vendors` Algolia
+object. `--apply` needs `--confirm-count N` matching the resolved plan, and one refusing vendor
+refuses the whole run. Clearing the upstream `supabase_vendor_id` and deleting the review-app
+record stays a separate manual step. That is what takes `vendorNoLiveProducts` to 0 for these
+eight, by deleting them rather than by holding them.
 
 ## What ran — 2026-09-18, 6 rows then 1 (AECI-1020 cleanup window)
 
@@ -1163,6 +1174,52 @@ those two:
 deleted — the consumer's own verify read `orphan claims 0` on both applies. The cohort needs
 a ruling on AECI-1020; it cannot come down through this lane, because nothing about it is in
 the retraction journal.
+
+### The vendor half — Nemetschek Group (`ops:retract-vendor`)
+
+**Why.** The AECI-1020 holding-company ruling moved Nemetschek Group's two live products,
+Bluebeam Revu and Graphisoft Archicad, to their operating companies Bluebeam, Inc. and
+Graphisoft, and re-pointed three owned edges with them. That left the holding-company vendor
+row owning nothing, live, and in search, and it is what turned the daily audit's
+`vendorNoLiveProducts` bucket red. Chris's standing rule is that a vendor with no products and
+no edges is removed.
+
+```
+pnpm --filter @aeci/api ops:retract-vendor -- --env production --id 8c83a9d5-b6c4-4117-be00-a02eebf9fee6
+pnpm --filter @aeci/api ops:retract-vendor -- --env production --id 8c83a9d5-b6c4-4117-be00-a02eebf9fee6 --apply --allow-production --confirm-count 1
+```
+
+Dry-run footprint, all six refusal counters zero:
+
+| Counter | Rows |
+|---|---|
+| products (`product_vendors`) | 0 |
+| integrations built | 0 |
+| connector-evidenced pairs built | 0 |
+| profiles attached | 0 |
+| entitlements | 0 |
+| seat invites | 0 |
+| claims → `created_by_vendor_id` NULLed | 0 |
+| attestations → `attested_by_vendor_id` NULLed | 0 |
+| `page_views` → `vendor_id` NULLed | 48 |
+
+**Result.** D1 reported 50 rows changed across 5 statements, with one `audit_log` row
+(`action = 'vendor.deleted'`, `entity_id = 8c83a9d5-b6c4-4117-be00-a02eebf9fee6`) in the same
+batch. Algolia removed `8c83a9d5-…` from `production_vendors`. The cache step printed its
+manual command and had nothing to do, because production serves uncached.
+`/api/vendors/nemetschek-group` now returns **404** to a browser User-Agent.
+
+**Daily audit after this run.** `--refresh-cache` against production read every bucket **0** —
+`productRejectedUpstream`, `productDeletedUpstream`, `vendorNoLiveProducts`, `vendorSourceGone`,
+`integrationSourceGone`, `integrationEndpointStranded`, `evidencedPairSourceGone`,
+`pendingRetractions`, and `orphanChildren 0c / 0a` — with 0 publicly reachable stranded rows and
+exit **0**.
+
+The review-side record still exists, still holds five unpromoted products (Allplan, Solibri,
+Vectorworks Architect, Vectorworks Landmark, Verifi3D), and still carries a now-dead
+`supabase_vendor_id`, because the review app's pointer-clear tool (AECI-1026) refuses while
+product links remain — so the next promote of any of those five will take the AECI-568 stale-id
+insert path and re-create the vendor here.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
