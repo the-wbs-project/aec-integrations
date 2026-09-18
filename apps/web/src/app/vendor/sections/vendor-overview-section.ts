@@ -284,6 +284,7 @@ export class VendorOverviewSection {
       integrations: this.store.integrations(),
       integrationsReady: this.integrationsReady(),
       seatInviteCount: this.store.seatInvites().length,
+      contestsToDecide: this.store.contests().received.filter((c) => c.status === 'open').length,
       canManageSeats: this.store.canManageSeats(),
       // `vendor.verified`, as the Integrations tab gates today. See
       // `vendor-integrations-page.ts` on why it is not `attestation.author` yet.
@@ -336,6 +337,7 @@ export class VendorOverviewSection {
     afterNextRender(() => {
       void this.store.ensure('integrations');
       void this.store.ensure('seats');
+      void this.store.ensure('contests');
     });
   }
 
@@ -402,6 +404,20 @@ export class VendorOverviewSection {
           body: $localize`:@@vendor.overview.item.correction.body:Filed ${date}:DATE:. AEC Integrations reviews it and records the outcome in Messages.`,
         };
       }
+      case 'contests':
+        return {
+          key: item.key,
+          commands,
+          queryParams,
+          icon: 'clock',
+          tone: 'attention',
+          pill: $localize`:@@vendor.overview.item.contests.pill:To decide`,
+          title:
+            item.count === 1
+              ? $localize`:@@vendor.overview.item.contests.title.one:A vendor contested a field on an integration you built`
+              : $localize`:@@vendor.overview.item.contests.title.many:${item.count}:COUNT: field contests are waiting for your decision`,
+          body: $localize`:@@vendor.overview.item.contests.body:Accept or decline them in Messages. An accepted contest changes the public integration page.`,
+        };
       case 'waiting': {
         const name = item.product.name;
         return {

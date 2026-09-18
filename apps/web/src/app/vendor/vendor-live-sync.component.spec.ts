@@ -115,7 +115,7 @@ function updates(
 }
 
 let api: Record<
-  'getUpdates' | 'getMe' | 'getIntegrations' | 'getNotifications' | 'getSeats',
+  'getUpdates' | 'getMe' | 'getIntegrations' | 'getNotifications' | 'getContests' | 'getSeats',
   ReturnType<typeof vi.fn>
 >;
 let store: { revalidate: ReturnType<typeof vi.fn> };
@@ -174,17 +174,19 @@ beforeEach(() => {
     getMe: vi.fn().mockResolvedValue(VENDOR_ME_FIXTURE),
     getIntegrations: vi.fn().mockResolvedValue({ integrations: [] }),
     getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
+    getContests: vi.fn().mockResolvedValue({ submitted: [], received: [] }),
     getSeats: vi
       .fn()
       .mockResolvedValue({ seats: [], pending_invites: [], can_manage_seats: false }),
   };
-  failed = { me: false, integrations: false, notifications: false, seats: false };
+  failed = { me: false, integrations: false, notifications: false, seats: false, contests: false };
   store = {
     revalidate: vi.fn().mockResolvedValue(undefined),
     meFailed: () => failed.me,
     integrationsFailed: () => failed.integrations,
     notificationsFailed: () => failed.notifications,
     seatsFailed: () => failed.seats,
+    contestsFailed: () => failed.contests,
   } as unknown as { revalidate: ReturnType<typeof vi.fn> };
 });
 
@@ -330,6 +332,30 @@ describe('VendorLiveSync — a cursor is seen only once its refetch landed', () 
     failed.notifications = false;
     await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
     expect(store.revalidate).toHaveBeenNthCalledWith(2, ['notifications']);
+  });
+
+  it('holds the contests cursor on its OWN resource, not on notifications (AECI-1008)', async () => {
+    // PR A mapped `contests` onto the notifications refetch as a stopgap. With a
+    // real resource, a failed notifications read must not pin the contests
+    // cursor, and a failed contests read must pin exactly that one.
+    await started();
+    api.getUpdates.mockResolvedValue(
+      updates({
+        contests: '2026-09-18T08:00:00.000Z',
+        notifications: '2026-09-18T08:01:00.000Z',
+      }),
+    );
+    failed.contests = true;
+
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(store.revalidate).toHaveBeenNthCalledWith(1, ['notifications', 'contests']);
+
+    failed.contests = false;
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(store.revalidate).toHaveBeenNthCalledWith(2, ['contests']);
+
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(store.revalidate).toHaveBeenCalledTimes(2);
   });
 
   it('ignores a `failed` resource that this poll never asked to refresh', async () => {

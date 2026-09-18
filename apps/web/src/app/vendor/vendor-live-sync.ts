@@ -104,10 +104,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   requests: 'me',
   integrations: 'integrations',
   notifications: 'notifications',
-  // AECI-1008: the contest list has no resource of its own until the portal half
-  // (PR B) adds one. Every event the OTHER side of a contest causes also writes a
-  // notification row, so refreshing notifications is the closest existing effect.
-  contests: 'notifications',
+  // AECI-1008: its own resource, `GET /api/vendor/contests`.
+  contests: 'contests',
 };
 
 /**
@@ -349,6 +347,8 @@ export class VendorLiveSync {
         return this.store.integrationsFailed();
       case 'notifications':
         return this.store.notificationsFailed();
+      case 'contests':
+        return this.store.contestsFailed();
       case 'seats':
         // Not reachable from any scope (no cursor feeds the seat roster), but
         // the exhaustive switch is what makes a future scope→resource addition

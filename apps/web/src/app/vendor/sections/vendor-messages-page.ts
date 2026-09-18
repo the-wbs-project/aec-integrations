@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 
+import { VendorContestsList } from '../components/vendor-contests-list';
 import { VendorNotificationsList } from '../components/vendor-notifications-list';
 import { VendorRequestStatus } from '../components/vendor-request-status';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -36,10 +37,17 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * Requests are different in kind and are shown above: `vendor_requests` rows ARE
  * current state, they come down on `GET /api/vendor/me`, and they carry a
  * resolved/unresolved status the vendor can act on.
+ *
+ * Field contests (AECI-1008) sit between the two for the same reason: each row
+ * carries a status the vendor acts on (accept, decline, withdraw), so they are
+ * current state and render open, not inside the archive's disclosure. Their
+ * events ALSO appear in the archive as history, which is not a duplicate: the
+ * archive says what happened when, the contests block says where each one
+ * stands now.
  */
 @Component({
   selector: 'aec-vendor-messages-page',
-  imports: [VendorNotificationsList, VendorRequestStatus],
+  imports: [VendorContestsList, VendorNotificationsList, VendorRequestStatus],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
@@ -52,10 +60,11 @@ import { VendorPortalStore } from '../vendor-portal-store';
           </h2>
           <p
             class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-            i18n="@@vendor.messages.intro"
+            i18n="@@vendor.messages.intro.contests"
           >
-            Updates about your company: where your claim and correction requests stand, and the
-            reminders we have emailed you about your integrations.
+            Updates about your company: where your claim and correction requests stand, the field
+            contests you have sent or received, and the reminders we have sent you about your
+            integrations.
           </p>
         </div>
 
@@ -70,6 +79,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
             <aec-vendor-request-status [requests]="m.requests" />
           </div>
         </div>
+
+        <aec-vendor-contests-list />
 
         <aec-vendor-notifications-list />
       </div>

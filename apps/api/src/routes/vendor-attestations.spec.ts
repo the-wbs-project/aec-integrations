@@ -381,6 +381,15 @@ describe('GET /api/vendor/integrations', () => {
       owner: VENDOR_B,
     });
     expect(Object.keys(a.contestable_fields)).toHaveLength(12);
+    // Both endpoints' vendors, sorted by name: the only values an `owner`
+    // contest may propose, so the portal offers exactly these.
+    expect(a.endpoint_vendors.map((v: { name: string }) => v.name)).toEqual(
+      [...a.endpoint_vendors.map((v: { name: string }) => v.name)].sort(),
+    );
+    expect(a.endpoint_vendors.map((v: { id: string }) => v.id)).toEqual(
+      expect.arrayContaining([VENDOR_A, VENDOR_B]),
+    );
+    expect(a.endpoint_vendors).toHaveLength(2);
 
     const b = (await call('/api/vendor/integrations', {}, AUTH_B)).body.integrations[0];
     expect(b.is_owner).toBe(true);

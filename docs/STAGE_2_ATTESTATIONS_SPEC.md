@@ -1554,7 +1554,10 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   (`VendorAttestationNotification | VendorContestNotification`); the mapper recognises a contest
   row by `kind`, never by the absence of `detector`. The scoping predicate
   (`vendorNotificationLedgerWhere`) is unchanged, so the `notifications` cursor is too. There is no
-  email behind a contest row; the portal feed is the whole delivery.
+  email behind a contest row; the portal feed is the whole delivery. The portal's archive
+  (`vendor-notifications-list.ts`) renders them with a title per event since AECI-1008 PR B, and
+  its framing sentence no longer says every row was emailed (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+  §11b.10).
 - **⚠️ Merge hazard for `stage-2` / `main`.** `main` carries
   `apps/api/src/lib/cron-schedules.ts` — a `CRON_SCHEDULES` / `ADMIN_CRON_JOB` registry with a
   spec that asserts **byte-equality against `wrangler.jsonc`**. That file does not exist on

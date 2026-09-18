@@ -70,6 +70,7 @@ function input(over: Partial<NeedsInput> = {}): NeedsInput {
     integrationsReady: true,
     seatInviteCount: 0,
     canManageSeats: false,
+    contestsToDecide: 0,
     canAttest: true,
     canEditProducts: true,
     canEditProfile: true,
@@ -267,6 +268,32 @@ describe('buildNeedsItems', () => {
   });
 });
 
+describe('buildNeedsItems — field contests to decide (AECI-1008)', () => {
+  it('adds one Needs you now row, linked to Messages, after conflicts and corrections', () => {
+    const { now } = buildNeedsItems(input({ contestsToDecide: 2 }));
+    const row = now.find((i) => i.type === 'contests');
+    expect(row).toMatchObject({ count: 2, link: { kind: 'messages' } });
+    expect(now.at(-1)?.type).toBe('contests');
+  });
+
+  it('is absent at zero', () => {
+    expect(buildNeedsItems(input()).now.some((i) => i.type === 'contests')).toBe(false);
+  });
+
+  it('is never capability-gated: deciding needs a seat only (§11b.2)', () => {
+    const { now, paused } = buildNeedsItems(
+      input({
+        contestsToDecide: 1,
+        canAttest: false,
+        canEditProducts: false,
+        canEditProfile: false,
+      }),
+    );
+    expect(paused).toBe(true);
+    expect(now.some((i) => i.type === 'contests')).toBe(true);
+  });
+});
+
 describe('linkQueryParams (AECI-999)', () => {
   it('pre-filters integrations links to the state they count', () => {
     expect(linkQueryParams({ kind: 'integrations', productSlug: 'x', status: 'conflict' })).toEqual(
@@ -286,6 +313,7 @@ describe('linkQueryParams (AECI-999)', () => {
       canEditProfile: false,
       canManageSeats: false,
       seatInviteCount: 0,
+      contestsToDecide: 0,
     });
     const conflict = now.find((i) => i.type === 'conflict');
     const waiting = worthDoing.find((i) => i.type === 'waiting');

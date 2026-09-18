@@ -59,6 +59,7 @@ import {
 } from '@angular/core';
 
 import type {
+  ListVendorContestsResponse,
   VendorIntegration,
   VendorMeResponse,
   VendorNotification,
@@ -85,7 +86,7 @@ export type VendorPortalScope =
 
 /** What the store actually holds, one per endpoint. Four scopes collapse onto
  *  `me` because they are four views of one payload. */
-export type VendorPortalResource = 'me' | 'integrations' | 'notifications' | 'seats';
+export type VendorPortalResource = 'me' | 'integrations' | 'notifications' | 'seats' | 'contests';
 
 /** A user-facing section: the granularity at which unsaved edits are registered
  *  and at which a "reload this section" affordance is offered. */
@@ -94,7 +95,8 @@ export type VendorPortalSection =
   | 'products'
   | 'integrations'
   | 'notifications'
-  | 'seats';
+  | 'seats'
+  | 'contests';
 
 /**
  * Per-resource load state. Each resource gets its own because each has its own
@@ -113,7 +115,13 @@ export interface VendorPortalData {
   integrations: readonly VendorIntegration[];
   notifications: readonly VendorNotification[];
   seats: readonly VendorSeat[];
+  /** `GET /api/vendor/contests` (AECI-1008): both lists, as one payload. */
+  contests: ListVendorContestsResponse;
 }
+
+/** The empty contests payload: the value before the first read, and the one a
+ *  read-failure leaves in place if nothing ever loaded. */
+const NO_CONTESTS: ListVendorContestsResponse = { submitted: [], received: [] };
 
 /**
  * The handle {@link VendorPortalStore.apply} returns. An optimistic write ends
@@ -150,9 +158,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   requests: 'me',
   integrations: 'integrations',
   notifications: 'notifications',
-  // AECI-1008: no contests resource until the portal half (PR B). Mapped onto
-  // notifications, which every counterparty-side contest event also moves.
-  contests: 'notifications',
+  // AECI-1008: its own endpoint, `GET /api/vendor/contests`.
+  contests: 'contests',
 };
 
 /** Section → the resource whose refetch would replace what that section renders. */
@@ -162,6 +169,7 @@ const SECTION_RESOURCE: Readonly<Record<VendorPortalSection, VendorPortalResourc
   integrations: 'integrations',
   notifications: 'notifications',
   seats: 'seats',
+  contests: 'contests',
 };
 
 const SECTIONS = Object.keys(SECTION_RESOURCE) as readonly VendorPortalSection[];
@@ -180,6 +188,7 @@ export class VendorPortalStore {
     integrations: signal<readonly VendorIntegration[]>([]),
     notifications: signal<readonly VendorNotification[]>([]),
     seats: signal<readonly VendorSeat[]>([]),
+    contests: signal<ListVendorContestsResponse>(NO_CONTESTS),
   };
 
   private readonly statuses: Readonly<
@@ -189,6 +198,7 @@ export class VendorPortalStore {
     integrations: signal<VendorPortalStatus>('idle'),
     notifications: signal<VendorPortalStatus>('idle'),
     seats: signal<VendorPortalStatus>('idle'),
+    contests: signal<VendorPortalStatus>('idle'),
   };
 
   /**
@@ -201,6 +211,7 @@ export class VendorPortalStore {
     integrations: 0,
     notifications: 0,
     seats: 0,
+    contests: 0,
   };
 
   /** Fresh server payloads held back because a dirty section is rendering the
@@ -236,6 +247,8 @@ export class VendorPortalStore {
   readonly notifications: Signal<readonly VendorNotification[]> =
     this.state.notifications.asReadonly();
   readonly seats: Signal<readonly VendorSeat[]> = this.state.seats.asReadonly();
+  /** Field contests, both sides (AECI-1008 / §11b). */
+  readonly contests: Signal<ListVendorContestsResponse> = this.state.contests.asReadonly();
 
   /**
    * The two other halves of `GET /api/vendor/seats` (AECI-664 / §11a).
@@ -261,17 +274,20 @@ export class VendorPortalStore {
   readonly notificationsStatus: Signal<VendorPortalStatus> =
     this.statuses.notifications.asReadonly();
   readonly seatsStatus: Signal<VendorPortalStatus> = this.statuses.seats.asReadonly();
+  readonly contestsStatus: Signal<VendorPortalStatus> = this.statuses.contests.asReadonly();
 
   /** "Nothing to show yet". `idle` counts: a lazy section paints its loading
    *  state during SSR, before `afterNextRender` has asked for anything. */
   readonly integrationsLoading = computed(() => isPending(this.integrationsStatus()));
   readonly notificationsLoading = computed(() => isPending(this.notificationsStatus()));
   readonly seatsLoading = computed(() => isPending(this.seatsStatus()));
+  readonly contestsLoading = computed(() => isPending(this.contestsStatus()));
 
   readonly meFailed = computed(() => this.meStatus() === 'failed');
   readonly integrationsFailed = computed(() => this.integrationsStatus() === 'failed');
   readonly notificationsFailed = computed(() => this.notificationsStatus() === 'failed');
   readonly seatsFailed = computed(() => this.seatsStatus() === 'failed');
+  readonly contestsFailed = computed(() => this.contestsStatus() === 'failed');
 
   // ── Seeding ──────────────────────────────────────────────────────────────
 
@@ -484,6 +500,9 @@ export class VendorPortalStore {
         case 'notifications':
           this.receive('notifications', (await this.api.getNotifications()).notifications);
           break;
+        case 'contests':
+          this.receive('contests', await this.api.getContests());
+          break;
         case 'seats': {
           const payload = await this.api.getSeats();
           this.receive('seats', payload.seats);
@@ -561,7 +580,7 @@ export class VendorPortalStore {
   }
 
   /**
-   * The one cast in this file. `this.state[resource]` is a union of four
+   * The one cast in this file. `this.state[resource]` is a union of five
    * `WritableSignal`s; TypeScript cannot prove the indexed access lines up with
    * `VendorPortalData[R]`, even though it does by construction. Isolating it here
    * keeps every call site — and every consumer of `apply()` — cast-free.

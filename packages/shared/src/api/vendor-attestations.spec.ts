@@ -65,6 +65,10 @@ const INTEGRATION = {
     name: 'Revit ↔ MicroStation',
     direction: 'outbound',
   },
+  endpoint_vendors: [
+    { id: uuid(40), name: 'Bentley' },
+    { id: uuid(41), name: 'Autodesk' },
+  ],
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -173,11 +177,18 @@ describe('VendorIntegrationSchema', () => {
   });
 
   it('defaults the AECI-1008 contest fields for a pre-contest API', () => {
-    const { is_owner: _i, owner: _o, contestable_fields: _c, ...older } = INTEGRATION;
+    const {
+      is_owner: _i,
+      owner: _o,
+      contestable_fields: _c,
+      endpoint_vendors: _e,
+      ...older
+    } = INTEGRATION;
     expect(VendorIntegrationSchema.parse(older)).toMatchObject({
       is_owner: false,
       owner: null,
       contestable_fields: EMPTY_CONTESTABLE_FIELDS,
+      endpoint_vendors: [],
     });
   });
 

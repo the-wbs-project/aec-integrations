@@ -315,6 +315,14 @@ export const VendorIntegrationSchema = z.object({
    * this entry; `owner` is the builder's vendor id.
    */
   contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
+  /**
+   * Every vendor that owns either endpoint product (`product_vendors`), sorted
+   * by name. These are the only values an `owner` contest may propose
+   * (§11b.3), so the portal offers them as the choices. Defaulted to `[]` for
+   * deploy skew; an empty list degrades the owner picker to "Neither endpoint
+   * vendor" plus the caller's own company.
+   */
+  endpoint_vendors: z.array(ContestVendorRefSchema).default([]),
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;

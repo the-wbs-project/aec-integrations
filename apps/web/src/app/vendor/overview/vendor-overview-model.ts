@@ -185,6 +185,14 @@ export type NeedsItem =
       readonly link: NeedsItemLink;
     }
   | {
+      /** Open field contests routed to this vendor as an integration's owner
+       *  (AECI-1008 / §11b). One row, however many: they share one inbox. */
+      readonly type: 'contests';
+      readonly key: string;
+      readonly count: number;
+      readonly link: NeedsItemLink;
+    }
+  | {
       readonly type: 'waiting';
       readonly key: string;
       readonly product: ProductClaimCount['product'];
@@ -232,6 +240,9 @@ export interface NeedsInput {
   /** Pending invites, only meaningful when {@link canManageSeats}. */
   readonly seatInviteCount: number;
   readonly canManageSeats: boolean;
+  /** Open contests in the Received list (AECI-1008). Seat-only, like the
+   *  decision itself, so never gated on a capability. `0` until the read lands. */
+  readonly contestsToDecide: number;
   /** `vendor.verified`, the gate the Integrations tab uses today (see
    *  `vendor-integrations-page.ts` on why it is not yet `attestation.author`). */
   readonly canAttest: boolean;
@@ -280,6 +291,15 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
       key: `correction:${request.id}`,
       request,
       targetName: targetNames.get(request.target_id) ?? null,
+      link: { kind: 'messages' },
+    });
+  }
+
+  if (input.contestsToDecide > 0) {
+    now.push({
+      type: 'contests',
+      key: 'contests',
+      count: input.contestsToDecide,
       link: { kind: 'messages' },
     });
   }

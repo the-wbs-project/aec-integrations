@@ -34,6 +34,7 @@ let api: {
   getDataObjects: ReturnType<typeof vi.fn>;
   listProductVersions: ReturnType<typeof vi.fn>;
   getNotifications: ReturnType<typeof vi.fn>;
+  getContests: ReturnType<typeof vi.fn>;
   upsertAttestation: ReturnType<typeof vi.fn>;
   retractAttestation: ReturnType<typeof vi.fn>;
 };
@@ -49,6 +50,9 @@ beforeEach(() => {
       versions: VENDOR_PRODUCT_VERSIONS_FIXTURE[id] ?? [],
     })),
     getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
+    // AECI-1008: every non-owned card mounts the contest form, which loads the
+    // contests list once for its "open contest" line.
+    getContests: vi.fn().mockResolvedValue({ submitted: [], received: [] }),
     upsertAttestation: vi.fn(),
     retractAttestation: vi.fn().mockResolvedValue(undefined),
   };

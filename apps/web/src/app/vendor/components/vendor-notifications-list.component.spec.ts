@@ -85,26 +85,40 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
   });
 
-  it('skips contest rows until the portal half of AECI-1008 gives them copy', async () => {
+  it.each([
+    ['submitted', 'Another vendor contested a field on your integration'],
+    ['withdrawn', 'A contest on your integration was withdrawn'],
+    ['accepted', 'Your contest was accepted'],
+    ['declined', 'Your contest was declined'],
+  ] as const)('renders a contest `%s` row with its own title (AECI-1008)', async (event, title) => {
     const withContest: readonly VendorNotification[] = [
       ...VENDOR_NOTIFICATIONS_FIXTURE,
       {
         kind: 'contest',
         id: '00000000-0000-4000-8000-00000000c0de',
-        event: 'submitted',
+        event,
         contest_id: '00000000-0000-4000-8000-00000000c0df',
         integration_id: '00000000-0000-4000-8000-00000000c0e0',
         integration_name: 'Summit ↔ Procore',
-        field: 'name',
-        pair_path: null,
+        field: 'docs_url',
+        pair_path: '/products/procore/integrations/summit',
         created_at: '2026-09-18T12:00:00.000Z',
       },
     ];
     getNotifications.mockResolvedValue({ notifications: withContest });
 
     const fixture = await create();
-    expect(el(fixture).querySelectorAll('li')).toHaveLength(3);
-    expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
+    const items = [...el(fixture).querySelectorAll('li')];
+    expect(items).toHaveLength(4);
+    const row = items.find((li) => li.textContent?.includes(title));
+    expect(row).toBeDefined();
+    // The field is named as a vendor reads it, then the integration.
+    expect(row!.textContent).toContain('Documentation link');
+    expect(row!.textContent).toContain('Summit ↔ Procore');
+    expect(row!.querySelector('a')?.getAttribute('href')).toBe(
+      '/products/procore/integrations/summit',
+    );
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
   });
 
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {

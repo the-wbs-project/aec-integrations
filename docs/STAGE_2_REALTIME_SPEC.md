@@ -204,7 +204,7 @@ type VendorPortalScope =
 | `profile` · `entitlement` · `products` · `requests` | `GET /api/vendor/me` — **one call**, deduped when several of the four move together |
 | `integrations` | `GET /api/vendor/integrations` |
 | `notifications` | `GET /api/vendor/notifications` |
-| `contests` | `GET /api/vendor/contests` once the portal half of AECI-1008 ships (PR B). Until then the web client maps it onto `notifications`, the closest existing refetch, because every counterparty-side contest event also writes a notification row |
+| `contests` | `GET /api/vendor/contests` — its own `contests` resource in `VendorPortalStore` since the portal half of AECI-1008 (PR B, 2026-09-18). PR A had mapped it onto `notifications` as a stopgap; that mapping is gone from both the store and `VendorLiveSync`, so a failed contests read holds back the `contests` cursor alone |
 
 Four of the seven scopes collapse onto `me` because that is what the payload already is: `GET /api/vendor/me` returns vendor + owned products + claim/correction status + seat count in one shot (`apps/api/src/routes/vendor.ts`). Splitting them at the cursor while collapsing them at the refetch is deliberate — the **cursor** is where per-scope granularity is cheap (one more `MAX` in a batch already being issued) and the **refetch** is where it would cost a round trip.
 

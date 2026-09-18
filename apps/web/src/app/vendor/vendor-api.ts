@@ -22,6 +22,10 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   CreateVendorClaimInput,
+  DecideContestInput,
+  ListVendorContestsResponse,
+  SubmitIntegrationContestInput,
+  VendorContestResponse,
   ListDataObjectsResponse,
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
@@ -77,7 +81,7 @@ export class VendorApi {
     return firstValueFrom(this.http.get<VendorMeResponse>('/api/vendor/me'));
   }
 
-  /** `GET /api/vendor/updates` — the per-scope freshness cursor (AECI-627): six
+  /** `GET /api/vendor/updates` — the per-scope freshness cursor (AECI-627): seven
    *  revisions plus the server's clock at read, in one D1 round trip and with no
    *  writes. Polled by `VendorLiveSync` (AECI-629), which diffs the revisions
    *  against the last seen and refetches only what moved. Each value is an ISO
@@ -242,6 +246,51 @@ export class VendorApi {
   getNotifications(): Promise<ListVendorNotificationsResponse> {
     return firstValueFrom(
       this.http.get<ListVendorNotificationsResponse>('/api/vendor/notifications'),
+    );
+  }
+
+  // ─── Field contests (AECI-1008 / §11b) ──────────────────────────────────────
+
+  /** `GET /api/vendor/contests` — what this vendor submitted and what routes to
+   *  it as an integration's owner. Newest first, 100 per list. Seat-gated only. */
+  getContests(): Promise<ListVendorContestsResponse> {
+    return firstValueFrom(this.http.get<ListVendorContestsResponse>('/api/vendor/contests'));
+  }
+
+  /** `POST /api/vendor/integrations/:id/contests` — contest one field (201).
+   *  `proposed_value` is in wire form: `direction` caller-relative, `owner` a
+   *  vendor id or `null`. */
+  submitContest(
+    integrationId: string,
+    body: SubmitIntegrationContestInput,
+  ): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/contests`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/contests/:id/withdraw` — the submitter withdraws an open
+   *  contest. A closed one is `409 CONTEST_NOT_OPEN`. */
+  withdrawContest(contestId: string): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/contests/${encodeURIComponent(contestId)}/withdraw`,
+        null,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/contests/:id/decision` — the owner accepts or declines an
+   *  owner-routed contest. An accept writes the catalog in the same batch. */
+  decideContest(contestId: string, body: DecideContestInput): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/contests/${encodeURIComponent(contestId)}/decision`,
+        body,
+      ),
     );
   }
 }

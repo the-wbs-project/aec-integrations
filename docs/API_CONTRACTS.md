@@ -5178,7 +5178,7 @@ Two consumer rules follow from what a cursor is:
 
 `server_time` is stamped **before** the read, so it is never later than the data it describes — a change landing mid-read is reported on the next poll rather than skipped by a client treating it as a high-water mark. It is advisory: do **not** do clock arithmetic against it to decide whether to refetch (browser clocks are wrong often enough to matter).
 
-Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; the web client maps it onto `notifications` until the portal half ships, PR B).
+Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B).
 
 Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the events the transport exists to deliver, not a leak.
 
@@ -5398,12 +5398,16 @@ export const VendorIntegrationSchema = z.object({
   powered_by: ProductLinkSchema.nullable().default(null),  // null when the
                                         // connector is not a promoted product
   claims: z.array(VendorClaimSchema),
-  // AECI-1008. All three defaulted for deploy skew.
+  // AECI-1008. All four defaulted for deploy skew.
   is_owner: z.boolean().default(false),                    // caller built it (built_by_vendor_id)
   owner: ContestVendorRefSchema.nullable().default(null),  // { id, name } of the builder
   contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
     // Record<field, string | null> over all twelve contest fields: current values,
     // `direction` framed against context_product, `owner` a vendor id
+  endpoint_vendors: z.array(ContestVendorRefSchema).default([]),
+    // every vendor owning either endpoint product (`product_vendors`), deduped
+    // and sorted by name: the only values an `owner` contest may propose, so
+    // the portal's owner picker offers exactly these (AECI-1008 PR B)
 });
 
 export const ListVendorIntegrationsResponseSchema = z.object({

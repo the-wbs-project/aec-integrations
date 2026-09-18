@@ -20,6 +20,8 @@ import type {
   VendorIntegration,
   VendorMeResponse,
   VendorAttestationNotification,
+  VendorContestNotification,
+  ListVendorContestsResponse,
   VendorProduct,
   VendorSeat,
   ManageableSeatInvite,
@@ -32,15 +34,26 @@ import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { EMPTY_CONTESTABLE_FIELDS } from '@aeci/shared';
 
 /**
- * The AECI-1008 contest fields every fixture integration carries. Nobody here is
- * the builder and nothing is on file, so the portal half (PR B) can add a
- * non-owner fixture with real values without touching the others.
+ * The AECI-1008 contest fields a fixture integration carries by default: the
+ * caller is not the builder and nothing is on file. `INTEGRATION_PROCORE` and
+ * `INTEGRATION_VENDOR_B` override them with real values and an owned row.
  */
-const NOT_OWNER = {
+const NOT_OWNER: Pick<
+  VendorIntegration,
+  'is_owner' | 'owner' | 'contestable_fields' | 'endpoint_vendors'
+> = {
   is_owner: false,
   owner: null,
   contestable_fields: EMPTY_CONTESTABLE_FIELDS,
-} as const;
+  endpoint_vendors: [],
+};
+
+/** The counterpart vendor on the Procore edges, for contest fixtures. */
+const PROCORE_VENDOR = { id: '00000000-0000-4000-8000-0000000052f1', name: 'Procore Technologies' };
+/** The counterpart vendor on the Autodesk Build edge. */
+const AUTODESK_VENDOR = { id: '00000000-0000-4000-8000-0000000052f2', name: 'Autodesk' };
+/** The caller's own company as a contest names it. Mirrors VENDOR_ME_FIXTURE. */
+const SUMMIT_VENDOR = { id: '00000000-0000-4000-8000-000000005200', name: 'Summit BIM' };
 
 /**
  * `description` is not decoration here. The taxonomy editor (AECI-915) renders
@@ -686,7 +699,26 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   mechanism_kind: 'native',
   mechanism_name: 'Native connector',
   attestable: true,
-  ...NOT_OWNER,
+  // AECI-1008: the non-owner fixture with real values, so the contest form's
+  // "On record now" line and every field control have something to show.
+  // Procore is on record as the builder; the caller (Summit) is not.
+  is_owner: false,
+  owner: PROCORE_VENDOR,
+  contestable_fields: {
+    name: 'Summit Model Coordination ↔ Procore',
+    mechanism_kind: 'native',
+    mechanism_name: 'Native connector',
+    direction: 'both',
+    description: 'Syncs coordination issues and RFIs between Summit and Procore projects.',
+    listing_url: 'https://marketplace.procore.com/apps/summit-model-coordination',
+    docs_url: null,
+    website: 'https://summitbim.example.com/procore',
+    mechanism_url: null,
+    pricing_model: 'Included',
+    maturity: 'GA',
+    owner: PROCORE_VENDOR.id,
+  },
+  endpoint_vendors: [PROCORE_VENDOR, SUMMIT_VENDOR],
   powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: OTHER_PROCORE,
@@ -819,7 +851,12 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   mechanism_kind: 'marketplace-app',
   mechanism_name: 'Autodesk App Store listing',
   attestable: true,
+  // AECI-1008: the caller BUILT this one, so the card shows no contest action and
+  // other vendors' contests about it arrive in the caller's Messages inbox.
   ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [AUTODESK_VENDOR, SUMMIT_VENDOR],
   powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach
@@ -994,5 +1031,140 @@ export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorAttestationNotificatio
     counterpart_product: null,
     pair_path: null,
     created_at: '2026-06-15T08:00:00.000Z',
+  },
+];
+
+/**
+ * Field contests (AECI-1008 / §11b), both sides of `GET /api/vendor/contests`.
+ *
+ *  - **Received**: one open contest from Autodesk on the integration the caller
+ *    built ({@link INTEGRATION_VENDOR_B}), so the owner inbox renders its Accept
+ *    and Decline controls in the preview. Owner routing is dormant in production
+ *    until claiming ships; the fixture shows the surface it will use.
+ *  - **Submitted**: one open (with AECi), one declined with a note, and one
+ *    accepted, so every submitter-side pill and the decision note render.
+ */
+export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
+  received: [
+    {
+      id: '00000000-0000-4000-8000-000000005c01',
+      integration_id: INTEGRATION_VENDOR_B.id,
+      integration_name: INTEGRATION_VENDOR_B.name,
+      context_product: CONTEXT_SECONDARY,
+      other_product: OTHER_AUTODESK_BUILD,
+      field: 'docs_url',
+      current_value: null,
+      proposed_value: 'https://aps.autodesk.com/docs/summit-field-issues',
+      current_label: null,
+      proposed_label: null,
+      reason: 'Our App Store listing links to this page as the setup guide.',
+      routed_to: 'owner',
+      status: 'open',
+      submitter_vendor: AUTODESK_VENDOR,
+      owner_vendor: SUMMIT_VENDOR,
+      decision_note: null,
+      decided_at: null,
+      created_at: '2026-09-15T09:30:00.000Z',
+      updated_at: '2026-09-15T09:30:00.000Z',
+    },
+  ],
+  submitted: [
+    {
+      id: '00000000-0000-4000-8000-000000005c11',
+      integration_id: INTEGRATION_PROCORE.id,
+      integration_name: INTEGRATION_PROCORE.name,
+      context_product: CONTEXT_PRIMARY,
+      other_product: OTHER_PROCORE,
+      field: 'pricing_model',
+      current_value: 'Included',
+      proposed_value: 'Included with a Summit Pro plan',
+      current_label: null,
+      proposed_label: null,
+      reason: 'The connector is only available on the Pro plan since 2026.1.',
+      routed_to: 'aeci',
+      status: 'open',
+      submitter_vendor: SUMMIT_VENDOR,
+      owner_vendor: PROCORE_VENDOR,
+      decision_note: null,
+      decided_at: null,
+      created_at: '2026-09-16T14:00:00.000Z',
+      updated_at: '2026-09-16T14:00:00.000Z',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005c12',
+      integration_id: INTEGRATION_PROCORE.id,
+      integration_name: INTEGRATION_PROCORE.name,
+      context_product: CONTEXT_PRIMARY,
+      other_product: OTHER_PROCORE,
+      field: 'owner',
+      current_value: PROCORE_VENDOR.id,
+      proposed_value: SUMMIT_VENDOR.id,
+      current_label: PROCORE_VENDOR.name,
+      proposed_label: SUMMIT_VENDOR.name,
+      reason: 'We built and maintain this connector.',
+      routed_to: 'aeci',
+      status: 'declined',
+      submitter_vendor: SUMMIT_VENDOR,
+      owner_vendor: PROCORE_VENDOR,
+      decision_note:
+        'Procore lists this as their own marketplace app. Send us a link if that is wrong.',
+      decided_at: '2026-09-10T11:00:00.000Z',
+      created_at: '2026-09-08T10:00:00.000Z',
+      updated_at: '2026-09-10T11:00:00.000Z',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005c13',
+      integration_id: INTEGRATION_NO_CLAIMS.id,
+      integration_name: null,
+      context_product: CONTEXT_SECONDARY,
+      other_product: OTHER_PROCORE,
+      field: 'mechanism_kind',
+      current_value: null,
+      proposed_value: 'api',
+      current_label: null,
+      proposed_label: null,
+      reason: 'It uses the Procore REST API.',
+      routed_to: 'aeci',
+      status: 'accepted',
+      submitter_vendor: SUMMIT_VENDOR,
+      owner_vendor: null,
+      decision_note: null,
+      decided_at: '2026-09-02T08:00:00.000Z',
+      created_at: '2026-09-01T08:00:00.000Z',
+      updated_at: '2026-09-02T08:00:00.000Z',
+    },
+  ],
+};
+
+export const VENDOR_CONTESTS_EMPTY_FIXTURE: ListVendorContestsResponse = {
+  submitted: [],
+  received: [],
+};
+
+/** Contest rows in the notification archive (AECI-1008): one per viewpoint the
+ *  preview vendor can hold. Kept apart from {@link VENDOR_NOTIFICATIONS_FIXTURE}
+ *  so specs counting attestation rows are unaffected. */
+export const VENDOR_CONTEST_NOTIFICATIONS_FIXTURE: readonly VendorContestNotification[] = [
+  {
+    kind: 'contest',
+    id: '00000000-0000-4000-8000-000000005c21',
+    event: 'submitted',
+    contest_id: '00000000-0000-4000-8000-000000005c01',
+    integration_id: INTEGRATION_VENDOR_B.id,
+    integration_name: INTEGRATION_VENDOR_B.name,
+    field: 'docs_url',
+    pair_path: '/products/summit-field-issues/integrations/autodesk-build',
+    created_at: '2026-09-15T09:30:00.000Z',
+  },
+  {
+    kind: 'contest',
+    id: '00000000-0000-4000-8000-000000005c22',
+    event: 'declined',
+    contest_id: '00000000-0000-4000-8000-000000005c12',
+    integration_id: INTEGRATION_PROCORE.id,
+    integration_name: INTEGRATION_PROCORE.name,
+    field: 'owner',
+    pair_path: '/products/procore/integrations/summit-model-coordination',
+    created_at: '2026-09-10T11:00:00.000Z',
   },
 ];

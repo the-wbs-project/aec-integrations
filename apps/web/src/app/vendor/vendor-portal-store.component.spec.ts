@@ -25,6 +25,7 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
 import {
+  VENDOR_CONTESTS_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
@@ -44,6 +45,7 @@ let api: {
   getIntegrations: ReturnType<typeof vi.fn>;
   getNotifications: ReturnType<typeof vi.fn>;
   getSeats: ReturnType<typeof vi.fn>;
+  getContests: ReturnType<typeof vi.fn>;
 };
 
 function makeStore(): VendorPortalStore {
@@ -69,6 +71,7 @@ beforeEach(() => {
       pending_invites: [],
       can_manage_seats: true,
     }),
+    getContests: vi.fn().mockResolvedValue(VENDOR_CONTESTS_FIXTURE),
   };
 });
 afterEach(() => vi.restoreAllMocks());
@@ -125,6 +128,31 @@ describe('VendorPortalStore — the refetch map', () => {
     expect(api.getMe).not.toHaveBeenCalled();
     expect(store.integrations()).toEqual(VENDOR_INTEGRATIONS_FIXTURE.integrations);
     expect(store.notifications()).toEqual(VENDOR_NOTIFICATIONS_FIXTURE);
+  });
+
+  it('routes `contests` to its own endpoint, not the notifications refetch (AECI-1008)', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    expect(store.contestsLoading()).toBe(true);
+    expect(store.contests()).toEqual({ submitted: [], received: [] });
+
+    await store.revalidate(['contests']);
+
+    expect(api.getContests).toHaveBeenCalledTimes(1);
+    expect(api.getNotifications).not.toHaveBeenCalled();
+    expect(store.contests()).toEqual(VENDOR_CONTESTS_FIXTURE);
+    expect(store.contestsStatus()).toBe('loaded');
+  });
+
+  it('keeps the last good contests and reports `failed` when a refresh fails', async () => {
+    const store = makeStore();
+    await store.ensure('contests');
+    api.getContests.mockRejectedValueOnce(new Error('boom'));
+
+    await store.reload('contests');
+
+    expect(store.contestsFailed()).toBe(true);
+    expect(store.contests()).toEqual(VENDOR_CONTESTS_FIXTURE);
   });
 
   it('coalesces two overlapping revalidations of the same endpoint into one request', async () => {

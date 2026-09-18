@@ -765,6 +765,15 @@ function attestationState(row: AttestationRow | RawAttestation): Record<string, 
 
 // ─── GET /api/vendor/integrations ────────────────────────────────────────────
 
+/** The vendors behind one endpoint product (AECI-1008). Two columns each: the
+ *  owner picker needs an id and a name, nothing more. */
+const endpointVendorsWith = {
+  productVendors: {
+    columns: { vendorId: true },
+    with: { vendor: { columns: { id: true, companyName: true } } },
+  },
+} as const;
+
 /** The list read's hydration. Column lists are deliberately narrow: this is
  *  roughly integrations × claims × attestations rows for one vendor. */
 const vendorIntegrationConfig = {
@@ -788,8 +797,9 @@ const vendorIntegrationConfig = {
   },
   with: {
     builtByVendor: { columns: { id: true, companyName: true } },
-    sourceProduct: { columns: productLinkColumns },
-    targetProduct: { columns: productLinkColumns },
+    // AECI-1008: each endpoint's vendors, for the `owner` contest picker.
+    sourceProduct: { columns: productLinkColumns, with: endpointVendorsWith },
+    targetProduct: { columns: productLinkColumns, with: endpointVendorsWith },
     claims: {
       columns: { id: true, direction: true, origin: true },
       with: {
@@ -884,6 +894,7 @@ export function createListVendorIntegrationsHandler(
             ? { id: row.builtByVendor.id, name: row.builtByVendor.companyName }
             : null,
           contestable_fields: contestableFieldsFor(row, contextIsSource),
+          endpoint_vendors: endpointVendorsFor(row),
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],
@@ -941,6 +952,21 @@ function contestableFieldsFor(
       toWireValue(field, storedFieldValue(row, field), contextIsSource),
     ]),
   ) as ContestableFields;
+}
+
+/** Both endpoints' vendors, deduped by id and sorted by name (AECI-1008). A
+ *  vendor owning both products appears once. */
+function endpointVendorsFor(row: {
+  sourceProduct: { productVendors: { vendor: { id: string; companyName: string } | null }[] };
+  targetProduct: { productVendors: { vendor: { id: string; companyName: string } | null }[] };
+}): VendorIntegration['endpoint_vendors'] {
+  const byId = new Map<string, string>();
+  for (const link of [...row.sourceProduct.productVendors, ...row.targetProduct.productVendors]) {
+    if (link.vendor) byId.set(link.vendor.id, link.vendor.companyName);
+  }
+  return [...byId]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 function surfaceBody(

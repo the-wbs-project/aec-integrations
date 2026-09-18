@@ -34,8 +34,8 @@ import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integr
  * 4. **Per-field validity is a business rule, not a shape rule.** The body shape
  *    (field name, reason, lengths) fails with a `400`; a value that is wrong for its
  *    field fails with a `422 CONTEST_INVALID_VALUE` naming `proposed_value`. The
- *    rule lives here in {@link contestValueProblem} so the portal form (PR B) can
- *    run the same check before it sends.
+ *    rule lives here in {@link contestValueProblem} so the portal form
+ *    (`vendor-contest-form.ts`) runs the same check before it sends.
  *
  * i18n note: framework-agnostic package (no `$localize`). The messages below are
  * for API consumers and logs; the Angular surfaces render their own copy.

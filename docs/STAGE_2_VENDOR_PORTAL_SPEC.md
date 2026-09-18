@@ -501,7 +501,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor did not build, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -926,6 +926,13 @@ is not the same as asserting it is current state.
 Requests are shown above the archive because they are different in kind: `vendor_requests`
 rows **are** current state, ride `GET /api/vendor/me`, and carry a status the vendor acts on.
 
+**Field contests (AECI-1008, 2026-09-18) sit between requests and the archive**, for the
+same reason requests sit above it: each contest carries a status the vendor acts on
+(accept, decline, withdraw), so the block renders open, not inside a disclosure. It is
+two lists, Received and Submitted, off `GET /api/vendor/contests` (§11b.10). Contest
+events also land in the archive below as history. That is not a duplicate: the archive
+says what happened when, and the contests block says where each one stands now.
+
 #### Taxonomy is a projection, not a second form
 
 > **Superseded by §6.12 (AECI-994).** The `section` input and the projection are gone. The Profile tab renders `vendor-product-form.ts` alone, and each facet tab renders `vendor-product-facet-editor.ts`, which owns its own baseline and dirty-diff. The two never race: each sends only the fields it renders.
@@ -1290,6 +1297,7 @@ plain Vitest spec. The section only turns them into copy.
 | -- | -- | -- | -- |
 | Needs you now | One row per product with conflicts | ≥ 1 claim with `agreement = 'conflict'` | `products/:slug/integrations` |
 | Needs you now | One row per open correction | `kind = 'correction'`, status `open` or `in_review` | `messages` |
+| Needs you now | One row for field contests to decide (AECI-1008) | ≥ 1 `received` contest with status `open`. Seat-only, never capability-gated (§11b.2), so it shows while the other rows are paused | `messages` |
 | Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
 | Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
 | Worth doing | Company profile gaps | `profile.edit` | `profile` |
@@ -1364,6 +1372,7 @@ heading outline is unchanged.
 | Plan strip, corrections, gaps | `me` (`profile`, `entitlement`, `products`, `requests` scopes) | Yes |
 | Conflicts and waiting | `integrations` scope | Yes, including integration-row edits once AECI-992 lands |
 | Seat invites | `seats`, which has no cursor | Loads on entry only, the same accepted posture as the Seats tab |
+| Contests to decide | `contests` scope (AECI-1008) | Yes |
 | Views | none | Placeholder |
 
 **The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
@@ -1850,7 +1859,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A).** The portal UI lands in PR B and the admin queue screen in PR C. Until PR B ships, a vendor has no button that reaches these endpoints. This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10.** The admin queue screen lands in PR C; until it does, an AECi-routed contest is decided through `PATCH /api/admin/contests/:id` directly. This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
 
 ### 11b.1 What a contest is
 
@@ -1940,6 +1949,34 @@ Every transition writes, in one `db.batch`:
 `integration_id` is `ON DELETE CASCADE`. A promote cross-table move (AECI-888) or a retraction deletes the `integrations` row and takes its contests with it. This is accepted for now because it matters only on unclaimed rows, which carry no owner-side state, and AECI-1005 fences moves on claimed rows.
 
 The table is now the second cascade child of `integrations`. `apps/api/src/test/d1.spec.ts` pins the list, so the next recreate of `integrations` must carry it out of the way first (`docs/migrations.md` §3.3a).
+
+### 11b.10 As built — the portal (PR B, 2026-09-18)
+
+Three surfaces, one store resource, one wire addition.
+
+**"Contest a field" on the integration card** (`components/vendor-contest-form.ts`, mounted by `vendor-integration-card.ts`).
+
+- **Shown when `!integration.is_owner`, and on nothing else.** It is not gated on `canWrite` (the Verified gate), not on the entitlement, and not on `attestable`. A vendor without active access, or on a connector-powered edge, can still ask for a wrong public fact to be fixed. That is §11b.2 carried to the UI.
+- **A disclosure button, then a pessimistic form.** Field is a native `<select>` over the twelve fields, in the §11b.3 order. A field the vendor already has an open contest on is a disabled option, so the form never collects a `409 CONTEST_DUPLICATE` it could have prevented. The value on record renders read-only above the control.
+- **The control follows the field.** URL fields get `<input type="url">`, `description` a textarea, `mechanism_kind` a native select over `IntegrationMechanismKindSchema`, `direction` a native select of the pair page's own caller-relative sentences ("Sends to X", "Syncs both ways", "Receives from X"), `owner` a native select of the endpoint vendors plus "Neither endpoint vendor", and a text input otherwise. Native selects follow the 2026-09-17 data-flow pickers (ADR 0010 deviation (d)).
+- **Every control starts at the current value.** A vendor edits what is on record rather than retyping it, and an unchanged value is refused client-side before the server's `CONTEST_NO_CHANGE`.
+- **One rule, shared.** The value check is `contestValueProblem`, and the body is parsed with `SubmitIntegrationContestSchema` before it is sent. Only the sentence is chosen locally (`vendor-contest-labels.ts`). `context_product_id` is always the card's context product.
+- **On `201`** the form announces through `VendorPortalAnnouncer` ("sent to the integration's owner" or "sent to AEC Integrations", from `routed_to`), closes, returns focus to the trigger, and revalidates `contests`. **On an error** a `role="alert"` beside the form maps `CONTEST_DUPLICATE`, `CONTEST_NO_CHANGE`, `CONTEST_INVALID_VALUE`, `CONTEST_OWN_INTEGRATION` and `RATE_LIMITED` to plain copy.
+- **The card also says when the vendor has an open contest on it**, one line naming the fields, read from the `contests` resource.
+
+**The owner picker needed one wire field.** `GET /api/vendor/integrations` gains `endpoint_vendors`: every vendor owning either endpoint product, deduped and sorted by name. Those are the only values an `owner` contest may propose, and the portal had no way to know them. It is `.default([])` for deploy skew, and an empty list degrades the picker to the caller's own company plus "Neither endpoint vendor".
+
+**Field contests in Messages** (`components/vendor-contests-list.ts`, §6.5). Two lists off one read:
+
+- **Received** is the owner inbox. Each row shows the field and integration, the value on record and the proposal, the reason, the submitting vendor and the date, with an optional note (encouraged on a decline) and Accept / Decline. An accept revalidates `integrations` too, because it wrote the catalog. The empty state says the inbox fills once the vendor claims an integration it built, and that AEC Integrations reviews contests until then. That is the production state until AECI-1005 replaces the `isIntegrationClaimed()` stub.
+- **Submitted** shows a status pill (Open, Accepted, Declined, Withdrawn), "With the owner" or "With AEC Integrations" while open, the decision note, and Withdraw on open rows. Withdraw confirms inline, never with `confirm()`, and moves focus to the confirm button and back.
+- **Every write is pessimistic and re-read**, the `vendor-seat-roster.ts` pattern. A `409 CONTEST_NOT_OPEN` says "already decided or withdrawn" beside the row and reloads the list, so the row shows the state that won.
+
+**Store and live sync.** `contests` is a fifth `VendorPortalResource` (and a `VendorPortalSection`) with its own status, version and retry. PR A's stopgap mapping of the `contests` scope onto the notifications refetch is gone from both `vendor-portal-store.ts` and `vendor-live-sync.ts`.
+
+**Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined". The secondary line names the field and the integration. The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
+
+**Overview.** "What needs you" gains one Needs-you-now row for open received contests, linked to Messages (§6.10).
 
 ## 12. Cross-references
 
