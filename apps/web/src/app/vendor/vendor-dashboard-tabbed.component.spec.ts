@@ -96,6 +96,7 @@ beforeEach(() => {
           getIntegrations: vi.fn().mockResolvedValue({ integrations: [] }),
           getDataObjects: vi.fn().mockResolvedValue({ data_objects: [] }),
           listProductVersions: vi.fn().mockResolvedValue({ versions: [] }),
+          listProductConnectors: vi.fn().mockResolvedValue({ product_id: '', connectors: [] }),
           getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
         } as Partial<VendorApi>,
       },

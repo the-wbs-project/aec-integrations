@@ -83,6 +83,7 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './vendor';
+import { createListVendorProductConnectorsHandler } from './vendor-connectors';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
 import {
   createDeleteProductVersionHandler,
@@ -261,6 +262,12 @@ function makeApp() {
     requireVendor(guard),
     createUpdateVendorProfileHandler(t.factory),
   );
+  // AECI-1013, registered where `index.ts` registers it.
+  app.get(
+    '/api/vendor/products/:id/connectors',
+    requireVendor(guard),
+    createListVendorProductConnectorsHandler(t.factory),
+  );
   // Version routes registered BEFORE `/products/:id`, matching `index.ts`.
   app.get(
     '/api/vendor/products/:id/versions',
@@ -352,6 +359,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     body: { description: 'edited' },
   },
   { path: `/api/vendor/products/${PRODUCT_A}/versions`, method: 'GET' },
+  { path: `/api/vendor/products/${PRODUCT_A}/connectors`, method: 'GET' },
   {
     path: `/api/vendor/products/${PRODUCT_A}/versions`,
     method: 'POST',
@@ -500,6 +508,16 @@ describe('/api/vendor/products/:id/versions — the Verified capability gate (AE
       expect(res.error.code).toBe(ApiErrorCode.NOT_FOUND);
     },
   );
+
+  it('lets an UNVERIFIED vendor READ its own connectors — the read is ownership-gated only (AECI-1013)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNVERIFIED}/connectors`,
+      'GET',
+      SEAT_UNVERIFIED,
+    );
+    expect(status).toBe(200);
+    expect(body.connectors).toEqual([]);
+  });
 
   it('lets an UNVERIFIED vendor READ its own versions — authoring is the gated capability', async () => {
     const { status, body } = await call(
@@ -676,6 +694,16 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT_B));
     expect(row?.description).toBe('B product');
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('GET /connectors on another vendor’s product → 404 (AECI-1013)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_B}/connectors`,
+      'GET',
+      SEAT_A,
+    );
+    expect(status).toBe(404);
+    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
   });
 
   it.each([

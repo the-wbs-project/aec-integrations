@@ -4,8 +4,11 @@
  * Reachable is not a table (§13.1). It is derived at read time from the mapping
  * graph, gated for publication by `connector_pairs.surface`, and it **never
  * counts** — not in the `Integrations (N)` heading, not in `integration_count`,
- * not in a facet, not in the home stats (§13.5). Everything this module returns
- * feeds exactly one unattributed sentence on the endpoint product page.
+ * not in a facet, not in the home stats (§13.5). It has two readers: one
+ * unattributed sentence on the public endpoint product page
+ * ({@link reachablePartnerProductIds}), and the private, read-only Connectors
+ * section in the vendor portal ({@link reachablePartnersByConnector}, AECI-1013).
+ * Neither one counts.
  *
  * ── WHY THIS EXISTS AT ALL ──────────────────────────────────────────────────
  * AECI-889 retires `integrations` rows that are also a reachable pair in the
@@ -115,6 +118,82 @@ export async function reachablePartnerProductIds(db: Db, productId: string): Pro
   // `product_id` is nullable in the column type and non-null by predicate. The
   // narrowing is the type system catching up, not a defensive filter.
   return rows.map((r) => r.productId).filter((id): id is string => id !== null);
+}
+
+/** One reachable (connector, partner) edge — see {@link reachablePartnersByConnector}. */
+export interface ReachByConnector {
+  connectorProductId: string;
+  partnerProductId: string;
+}
+
+/**
+ * The same reach as {@link reachablePartnerProductIds}, kept **per connector**
+ * (AECI-1013 — the vendor portal's read-only Connectors section).
+ *
+ * Every predicate is the public count's, clause for clause: both branches, both
+ * `publishableMappingOn` ends, the tombstone, the self and connector-product
+ * exclusions, and **no `surface` predicate**. The only difference is the grain.
+ * The public count de-duplicates by partner, because its question is "how many
+ * more partners"; this read de-duplicates by `(connector, partner)`, because its
+ * question is "which connector reaches which partner". A partner reachable through
+ * two connectors is one row there and two rows here, which is why this is a
+ * second function rather than a flag on the first.
+ *
+ * Still two arms, so still three away from D1's compound-SELECT ceiling of 5.
+ * The caller subtracts delivered partners exactly as the public page does
+ * ({@link reachOnlyPartnerCount}'s contract): off the product-detail arrays,
+ * never off a hand-written `NOT EXISTS`.
+ */
+export async function reachablePartnersByConnector(
+  db: Db,
+  productId: string,
+): Promise<ReachByConnector[]> {
+  const branch = (entrySide: 'a' | 'b') => {
+    const entry = alias(connectorStubMappings, `entry_${entrySide}`);
+    const partner = alias(connectorStubMappings, `partner_${entrySide}`);
+    const entryStub = entrySide === 'a' ? connectorPairs.stubAId : connectorPairs.stubBId;
+    const partnerStub = entrySide === 'a' ? connectorPairs.stubBId : connectorPairs.stubAId;
+
+    return db
+      .select({
+        // `sql<>` on both columns for the reason given in the function above: the
+        // two arms alias the table differently, and bare columns would type the
+        // union as `never`.
+        connectorProductId: sql<string>`${connectorCatalogs.connectorProductId}`.as(
+          'connector_product_id',
+        ),
+        partnerProductId: sql<string | null>`${partner.productId}`.as('partner_product_id'),
+      })
+      .from(connectorPairs)
+      .innerJoin(
+        entry,
+        and(eq(entry.stubId, entryStub), eq(entry.catalogId, connectorPairs.catalogId)),
+      )
+      .innerJoin(
+        partner,
+        and(eq(partner.stubId, partnerStub), eq(partner.catalogId, connectorPairs.catalogId)),
+      )
+      .innerJoin(connectorCatalogs, eq(connectorCatalogs.id, connectorPairs.catalogId))
+      .where(
+        and(
+          isNull(connectorPairs.removedAt),
+          eq(entry.productId, productId),
+          publishableMappingOn(entry),
+          publishableMappingOn(partner),
+          isNotNull(partner.productId),
+          ne(partner.productId, productId),
+          ne(partner.productId, connectorCatalogs.connectorProductId),
+        ),
+      );
+  };
+
+  const rows = await union(branch('a'), branch('b'));
+  const out: ReachByConnector[] = [];
+  for (const r of rows) {
+    if (r.partnerProductId === null) continue;
+    out.push({ connectorProductId: r.connectorProductId, partnerProductId: r.partnerProductId });
+  }
+  return out;
 }
 
 /**

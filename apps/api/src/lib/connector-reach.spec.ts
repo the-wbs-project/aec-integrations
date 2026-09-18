@@ -40,7 +40,11 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 
-import { reachablePartnerProductIds, reachOnlyPartnerCount } from './connector-reach';
+import {
+  reachablePartnerProductIds,
+  reachablePartnersByConnector,
+  reachOnlyPartnerCount,
+} from './connector-reach';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -300,5 +304,78 @@ describe('reachOnlyPartnerCount', () => {
 
   it('is zero for an empty reach set', () => {
     expect(reachOnlyPartnerCount([], new Set([PARTNER]))).toBe(0);
+  });
+});
+
+describe('reachablePartnersByConnector — the per-connector grain (AECI-1013)', () => {
+  const sortRows = (rows: { connectorProductId: string; partnerProductId: string }[]) =>
+    [...rows].sort((a, b) =>
+      `${a.connectorProductId}${a.partnerProductId}`.localeCompare(
+        `${b.connectorProductId}${b.partnerProductId}`,
+      ),
+    );
+
+  it('names the connector and resolves both sides of the canonical pair', async () => {
+    await seedReachablePair();
+    await expect(reachablePartnersByConnector(t.db, PAGE)).resolves.toEqual([
+      { connectorProductId: CONNECTOR, partnerProductId: PARTNER },
+    ]);
+    await expect(reachablePartnersByConnector(t.db, PARTNER)).resolves.toEqual([
+      { connectorProductId: CONNECTOR, partnerProductId: PAGE },
+    ]);
+  });
+
+  it('keeps one row per connector when two connectors reach the same partner', async () => {
+    // The public count collapses these to one partner. This read must not: its
+    // question is WHICH connector reaches the partner.
+    const OTHER_CATALOG = 'cat-aquifer';
+    const OTHER_CONNECTOR = u(14);
+    await t.db
+      .insert(products)
+      .values({ id: OTHER_CONNECTOR, slug: 'aquifer', name: 'Aquifer', productRole: 'connector' });
+    await t.db.insert(connectorCatalogs).values({
+      id: OTHER_CATALOG,
+      connectorProductId: OTHER_CONNECTOR,
+      connectorAuthorship: 'platform',
+    });
+    await seedReachablePair();
+    await seedStub('stub-x', OTHER_CATALOG);
+    await seedStub('stub-y', OTHER_CATALOG);
+    await seedMapping('m-page-x', 'stub-x', PAGE, { catalogId: OTHER_CATALOG });
+    await seedMapping('m-partner-y', 'stub-y', PARTNER, { catalogId: OTHER_CATALOG });
+    await seedPair('p2', 'stub-x', 'stub-y', { catalogId: OTHER_CATALOG });
+
+    expect(sortRows(await reachablePartnersByConnector(t.db, PAGE))).toEqual(
+      sortRows([
+        { connectorProductId: CONNECTOR, partnerProductId: PARTNER },
+        { connectorProductId: OTHER_CONNECTOR, partnerProductId: PARTNER },
+      ]),
+    );
+    // …while the public count still says one partner.
+    await expect(reachablePartnerProductIds(t.db, PAGE)).resolves.toEqual([PARTNER]);
+  });
+
+  it('shares every predicate with the public count', async () => {
+    // A `derived` pair counts, an auto-decided mapping does not, the connector's
+    // own product is never a partner, and editions collapse.
+    await seedStub('stub-a');
+    await seedStub('stub-b');
+    await seedStub('stub-c');
+    await seedStub('stub-d');
+    await seedStub('stub-e');
+    await seedMapping('m-page', 'stub-a', PAGE);
+    await seedMapping('m-p1', 'stub-b', PARTNER);
+    await seedMapping('m-p2', 'stub-c', PARTNER);
+    await seedMapping('m-auto', 'stub-d', OTHER, { decidedBy: 'auto-name-match' });
+    await seedMapping('m-conn', 'stub-e', CONNECTOR);
+    await seedPair('p1', 'stub-a', 'stub-b');
+    await seedPair('p2', 'stub-a', 'stub-c');
+    await seedPair('p3', 'stub-a', 'stub-d');
+    await seedPair('p4', 'stub-a', 'stub-e');
+
+    await expect(reachablePartnersByConnector(t.db, PAGE)).resolves.toEqual([
+      { connectorProductId: CONNECTOR, partnerProductId: PARTNER },
+    ]);
+    await expect(reachablePartnerProductIds(t.db, PAGE)).resolves.toEqual([PARTNER]);
   });
 });

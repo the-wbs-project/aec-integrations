@@ -2077,6 +2077,23 @@ function evidencedPairsForEndpoint(
     .filter((item) => (item.source.id === raw.id) === wantSource);
 }
 
+/**
+ * Every partner a product is already DELIVERED to, across both delivered tables
+ * and both orientations, read off the two endpoint buckets `toProductDetail`
+ * builds (the reasoning is at its call site there). Exported so the vendor
+ * portal's per-connector reach (AECI-1013) subtracts exactly this set rather
+ * than writing a fourth copy of the rule.
+ */
+export function deliveredPartnerIdsOf(
+  asSource: readonly Pick<ProductIntegrationItem, 'target'>[],
+  asTarget: readonly Pick<ProductIntegrationItem, 'source'>[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of asSource) ids.add(item.target.id);
+  for (const item of asTarget) ids.add(item.source.id);
+  return ids;
+}
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
@@ -2107,9 +2124,7 @@ export function toProductDetail(
   // independent copy of that rule, and a copy that loses either half
   // over-counts silently — AECI-882 lost the table half, AECI-795 the
   // orientation half.
-  const deliveredPartnerIds = new Set<string>();
-  for (const item of asSource) deliveredPartnerIds.add(item.target.id);
-  for (const item of asTarget) deliveredPartnerIds.add(item.source.id);
+  const deliveredPartnerIds = deliveredPartnerIdsOf(asSource, asTarget);
   return {
     ...base,
     description: raw.description,
