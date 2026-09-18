@@ -327,7 +327,15 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 - Direction (one-way / bidirectional)
 - Description
 - Links: listing URL, docs URL, mechanism URL
-- Built by (vendor) and Powered by (product) if applicable
+- Offered by (vendor) and Powered by (product) if applicable. **"Offered by" is the vendor
+  that owns the integration** — the one a customer pays for it or gets it from — not the firm
+  that wrote the code (AECI-1021, 2026-09-18; the label was "Built by" until then, and the
+  `integrations.built_by_vendor_id` column keeps its original name). Two questions decide the
+  value: (1) is the integration offered to anyone who needs it? A one-off build for a single
+  customer is not a catalog row at all. (2) Who does the customer pay for it, or get it from?
+  If a services firm built it for the endpoint vendor and the endpoint vendor deploys it, the
+  endpoint vendor owns it; if customers pay the services firm, it is that firm's product and
+  the row should also carry Powered by
 - "Report an error" link
 
 ### 4.5 Category/Audience/Phase/Trade pages

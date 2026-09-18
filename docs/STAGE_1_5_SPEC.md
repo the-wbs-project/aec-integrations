@@ -716,7 +716,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   a pure connector that number is factually correct. (Its *populated* branch does gain the §12.7
   scope note.)
 - **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
-  byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
+  byline (relabelled "Offered by" in AECI-1021 — the vendor that owns the edge) is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
   the connector's own page — the return path into this surface.
 
 ⚠️ **Amended by AECI-841 (2026-09-10): the cards collapse, the section filters, and the hub name
