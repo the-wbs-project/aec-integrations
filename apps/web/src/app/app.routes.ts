@@ -318,6 +318,13 @@ export const routes: Routes = [
         path: 'claims/:id',
         loadComponent: () => import('./admin/claims/claim-detail').then((m) => m.ClaimDetail),
       },
+      // AECI-1008 — the integration field contest queue (`ADMIN_PANEL_SPEC.md`
+      // §5.12). One flat child and no detail route: the API has no single-contest
+      // read, and a row already carries everything a decision needs.
+      {
+        path: 'contests',
+        loadComponent: () => import('./admin/contests/contest-queue').then((m) => m.ContestQueue),
+      },
       // AECI-946 — the manual Google re-index worklist (`ADMIN_PANEL_SPEC.md`
       // §5.11). Google publishes no API that accepts our content types, so a
       // changed page is re-fetched only by a human pasting its URL into Search

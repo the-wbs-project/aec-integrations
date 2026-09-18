@@ -358,6 +358,45 @@ describe('GET /api/vendor/integrations', () => {
     expect(integration.powered_by).toBeNull();
   });
 
+  it('carries ownership and the current contestable values, framed per entry (AECI-1008)', async () => {
+    await t.db
+      .update(integrations)
+      .set({
+        builtByVendorId: VENDOR_B,
+        direction: 'a_to_b',
+        name: 'Revit for MicroStation',
+        docsUrl: 'https://docs.example.test',
+      })
+      .where(eq(integrations.id, I_MAIN));
+
+    const a = (await call('/api/vendor/integrations')).body.integrations[0];
+    expect(a.is_owner).toBe(false);
+    expect(a.owner).toEqual({ id: VENDOR_B, name: 'Bentley' });
+    expect(a.contestable_fields).toMatchObject({
+      name: 'Revit for MicroStation',
+      mechanism_kind: 'native',
+      direction: 'outbound',
+      docs_url: 'https://docs.example.test',
+      website: null,
+      owner: VENDOR_B,
+    });
+    expect(Object.keys(a.contestable_fields)).toHaveLength(12);
+    // Both endpoints' vendors, sorted by name: the only values an `owner`
+    // contest may propose, so the portal offers exactly these.
+    expect(a.endpoint_vendors.map((v: { name: string }) => v.name)).toEqual(
+      [...a.endpoint_vendors.map((v: { name: string }) => v.name)].sort(),
+    );
+    expect(a.endpoint_vendors.map((v: { id: string }) => v.id)).toEqual(
+      expect.arrayContaining([VENDOR_A, VENDOR_B]),
+    );
+    expect(a.endpoint_vendors).toHaveLength(2);
+
+    const b = (await call('/api/vendor/integrations', {}, AUTH_B)).body.integrations[0];
+    expect(b.is_owner).toBe(true);
+    // Same stored `a_to_b`, framed from endpoint B.
+    expect(b.contestable_fields.direction).toBe('inbound');
+  });
+
   it('lists a connector-powered edge, flagged and attributed (AECI-705)', async () => {
     // Listed rather than filtered out, deliberately: the vendor's own public pair
     // page shows this edge, so a hole in the portal would read as data loss, and

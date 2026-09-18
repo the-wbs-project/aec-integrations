@@ -2,7 +2,7 @@
  * `VendorLiveSync` (AECI-629 / RT-4) — the revalidation loop that makes the
  * vendor portal live, per `docs/STAGE_2_REALTIME_SPEC.md` §4.
  *
- * It polls `GET /api/vendor/updates` (AECI-627), diffs the six per-scope
+ * It polls `GET /api/vendor/updates` (AECI-627), diffs the seven per-scope
  * revisions against the last-seen map, and calls
  * {@link VendorPortalStore.revalidate} with **only** the scopes that moved. That
  * is the whole of the transport: ADR 0023 chose scoped client revalidation over
@@ -37,7 +37,7 @@
  * store already holds data — but there is no cursor in that payload, and the
  * endpoint keeps no per-client state to derive one from. So the first poll
  * **seeds** the baseline: it records the revisions and refetches nothing. Diffing
- * against an empty baseline would treat all six scopes as moved and fire three
+ * against an empty baseline would treat all seven scopes as moved and fire four
  * refetches of data that is already on screen, on every single portal load.
  *
  * ── A CURSOR IS "SEEN" ONLY ONCE ITS REFETCH LANDED ─────────────────────────
@@ -90,7 +90,7 @@ import { VendorPortalStore, type VendorPortalResource } from './vendor-portal-st
  * resource is `failed`" into "these scopes must not advance".
  *
  * A deliberate mirror of the store's own `SCOPE_RESOURCE`, which is module-
- * private there — copying six entries is the cheaper of the two options against
+ * private there — copying seven entries is the cheaper of the two options against
  * widening the store's public surface while other work is in it. It is typed
  * against the store's EXPORTED {@link VendorPortalResource}, so renaming a
  * resource breaks this file at compile time rather than silently mapping a scope
@@ -104,6 +104,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   requests: 'me',
   integrations: 'integrations',
   notifications: 'notifications',
+  // AECI-1008: its own resource, `GET /api/vendor/contests`.
+  contests: 'contests',
 };
 
 /**
@@ -345,6 +347,8 @@ export class VendorLiveSync {
         return this.store.integrationsFailed();
       case 'notifications':
         return this.store.notificationsFailed();
+      case 'contests':
+        return this.store.contestsFailed();
       case 'seats':
         // Not reachable from any scope (no cursor feeds the seat roster), but
         // the exhaustive switch is what makes a future scope→resource addition

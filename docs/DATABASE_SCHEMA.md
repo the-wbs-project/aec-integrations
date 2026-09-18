@@ -126,6 +126,7 @@ Tables grouped by domain:
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
+- `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 
 **Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
 - `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
@@ -1210,6 +1211,15 @@ create index workflow_instances_state_idx on workflow_instances(workflow_type, c
 create index workflow_instances_linear_idx on workflow_instances(linear_issue_id) where linear_issue_id is not null;
 ```
 
+**`correction_request` also covers integration field contests (AECI-1008).** A contest's
+instance has `workflow_type = 'correction_request'` and `entity_id` = the
+`integration_field_challenges.id`, not a `vendor_requests.id`. The type was reused because
+the CHECK above is closed and opening it is a table recreate. A contest instance never
+carries `linear_issue_id`: its `REVIEW - ` issue is stored on the contest row, so the
+Linear webhook and the request sweep, which resolve issues through this column and through
+`vendor_requests`, cannot reach it. Read `entity_id` together with the table that
+references it, never by `workflow_type` alone.
+
 ### 8.3 `workflow_transitions`
 
 State changes for workflow instances. Append-only.
@@ -1278,6 +1288,15 @@ is invisible rather than a constraint violation:
 | `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
 | `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written only after a *successful* send, so a failed or skipped one is retried by the next sweep. |
+
+**Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
+
+| Action | `entity_type` | Written by | Notes |
+|---|---|---|---|
+| `integration.contest.submitted` / `.withdrawn` | `integration_field_challenge` | `routes/vendor-contests.ts` | `metadata.source = 'vendor-portal'`, plus `vendorId`, `contestId`, `integrationId`, `field` |
+| `integration.contest.accepted` / `.declined` | `integration_field_challenge` | `routes/vendor-contests.ts` (owner) and `routes/admin-contests.ts` (AECi) | `actor_type` tells the two apart; the admin rows carry `metadata.source = 'admin-moderation'` |
+| `integration.updated` with `metadata.reason = 'contest-accepted'` | `integration` | `routes/vendor-contests.ts` | Only on an owner accept. Before/after of the contested column plus the maintenance pair; `maintenanceTransfer: true` only when the row changes hands |
+| `notification.sent` | **`integration_field_challenge`** | both contest route modules | A second writer of the §7.3 ledger. `metadata.kind = 'contest'` and **no `detector`**, so the sweep's suppression read skips it. `metadata.vendorId` is the recipient, which is what the vendor feed filters on |
 
 ---
 
@@ -1367,7 +1386,7 @@ create table vendor_entitlements (
   invoice_ref text,
   notes text,
 
-  granted_by uuid references profiles(id) on delete set null, -- one of the 8 inbound FKs to profiles (AUTH_AND_RLS.md §8)
+  granted_by uuid references profiles(id) on delete set null, -- one of the 10 inbound FKs to profiles (AUTH_AND_RLS.md §8)
   granted_at timestamptz not null default now(),
   ended_at timestamptz,             -- stamped when status leaves 'active'
   expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence
@@ -1497,6 +1516,67 @@ Notes:
   check is the proof the backfill actually landed on every tier.
 - **No public or read path may query this table** (§4.1). It is written by the sole-writer
   module, read by the authz guard and the two admin/vendor surfaces, and by nothing else.
+
+### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
+
+A seated endpoint vendor's contest of one integration field. The row is a **request, never
+the value**: no public page reads it, and the catalog changes only when the owner accepts.
+Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b. Migration `0043_needy_hobgoblin.sql`, purely
+additive.
+
+```sql
+create table integration_field_challenges (
+  id text primary key not null,
+  integration_id text not null references integrations(id) on delete cascade,
+  field text not null check (field in ('name', 'mechanism_kind', 'mechanism_name', 'direction',
+    'description', 'listing_url', 'docs_url', 'website', 'mechanism_url', 'pricing_model',
+    'maturity', 'owner')),
+  current_value text,   -- snapshot at submit, storage form
+  proposed_value text,  -- storage form; null ONLY for an owner contest meaning "neither endpoint vendor"
+  reason text not null,
+
+  submitter_vendor_id text not null references vendors(id) on delete cascade,
+  submitted_by text references profiles(id) on delete set null,
+
+  routed_to text not null check (routed_to in ('owner', 'aeci')),   -- frozen at submit
+  owner_vendor_id text references vendors(id) on delete set null,  -- built_by_vendor_id snapshot
+
+  status text not null default 'open' check (status in ('open', 'accepted', 'declined', 'withdrawn')),
+  decision_note text,
+  decided_by text references profiles(id) on delete set null,
+  decided_at text,
+
+  upstream_linear_issue_id text,   -- the REVIEW - issue an AECi accept files
+  upstream_linear_issue_url text,
+  workflow_id text references workflow_instances(id) on delete set null,
+
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index integration_field_challenges_open_key
+  on integration_field_challenges(integration_id, field, submitter_vendor_id) where status = 'open';
+create index integration_field_challenges_owner_idx on integration_field_challenges(owner_vendor_id, status);
+create index integration_field_challenges_queue_idx on integration_field_challenges(routed_to, status, created_at);
+create index integration_field_challenges_submitter_idx on integration_field_challenges(submitter_vendor_id, updated_at);
+```
+
+- **Values are in storage form.** `direction` is `a_to_b | b_to_a | both`, anchored like
+  `integrations.direction`. `owner` values are vendor ids. The vendor wire re-frames
+  `direction` per caller; the admin wire does not.
+- **Routing and the owner are snapshots.** A later change to `built_by_vendor_id` does not
+  hand an open contest to a different decider.
+- **`upstream_linear_issue_url` is an addition to the AECI-1008 brief**, for the reason
+  `vendor_requests.linear_issue_url` exists (AECI-261): an admin screen cannot build a link
+  from a Linear node id.
+- **Two more inbound FKs to `profiles`.** `submitted_by` and `decided_by` are `SET NULL` and
+  are also nulled explicitly in the erasure batch, which brings the register in
+  `AUTH_AND_RLS.md` §8 to ten.
+- **A second cascade child of `integrations`.** The next recreate of `integrations` must
+  carry this table as well as `claims` and `attestations` (`migrations.md` §3.3a).
+  `apps/api/src/test/d1.spec.ts` pins the list. A promote cross-table move or a retraction
+  deletes the contests on the moved row; that is an accepted risk for unclaimed rows
+  (§11b.9 of the vendor portal spec).
 
 ---
 

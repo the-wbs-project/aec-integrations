@@ -2,7 +2,9 @@
  * Vendor attestation authoring (`/api/vendor/*`, AECI-301 /
  * `STAGE_2_ATTESTATIONS_SPEC.md` §5) — Drizzle/D1.
  *
- *   GET    /api/vendor/integrations                 — the attestable surface.
+ *   GET    /api/vendor/integrations                 — the attestable surface (and,
+ *                                                     since AECI-1008, the
+ *                                                     contestable one).
  *   POST   /api/vendor/claims                       — create a claim + affirm it.
  *   PUT    /api/vendor/claims/:claimId/attestation  — assert or deny.
  *   DELETE /api/vendor/claims/:claimId/attestation  — retract (204).
@@ -101,11 +103,13 @@ import {
   claimDirectionForContext,
   claimDirectionFromContext,
   CreateVendorClaimSchema,
+  INTEGRATION_CONTEST_FIELDS,
   ListVendorIntegrationsResponseSchema,
   UpsertVendorAttestationSchema,
   VendorClaimResponseSchema,
   type AgreementAttestation,
   type ClaimDirection,
+  type ContestableFields,
   type CounterpartyAttestation,
   type ListVendorIntegrationsResponse,
   type VendorClaim,
@@ -118,6 +122,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import { storedFieldValue, toWireValue } from '../lib/integration-contests';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -760,6 +765,15 @@ function attestationState(row: AttestationRow | RawAttestation): Record<string, 
 
 // ─── GET /api/vendor/integrations ────────────────────────────────────────────
 
+/** The vendors behind one endpoint product (AECI-1008). Two columns each: the
+ *  owner picker needs an id and a name, nothing more. */
+const endpointVendorsWith = {
+  productVendors: {
+    columns: { vendorId: true },
+    with: { vendor: { columns: { id: true, companyName: true } } },
+  },
+} as const;
+
 /** The list read's hydration. Column lists are deliberately narrow: this is
  *  roughly integrations × claims × attestations rows for one vendor. */
 const vendorIntegrationConfig = {
@@ -769,10 +783,23 @@ const vendorIntegrationConfig = {
     mechanismKind: true,
     mechanismName: true,
     poweredByProductId: true,
+    // AECI-1008: every contestable column, so the portal can prefill a contest
+    // with the current value, plus the owner for `is_owner` / `owner`.
+    direction: true,
+    description: true,
+    listingUrl: true,
+    docsUrl: true,
+    website: true,
+    mechanismUrl: true,
+    pricingModel: true,
+    maturity: true,
+    builtByVendorId: true,
   },
   with: {
-    sourceProduct: { columns: productLinkColumns },
-    targetProduct: { columns: productLinkColumns },
+    builtByVendor: { columns: { id: true, companyName: true } },
+    // AECI-1008: each endpoint's vendors, for the `owner` contest picker.
+    sourceProduct: { columns: productLinkColumns, with: endpointVendorsWith },
+    targetProduct: { columns: productLinkColumns, with: endpointVendorsWith },
     claims: {
       columns: { id: true, direction: true, origin: true },
       with: {
@@ -860,6 +887,14 @@ export function createListVendorIntegrationsHandler(
           // the union predicate is non-obvious and a client copy would drift.
           attestable: !isConnectorPoweredEdge(row),
           powered_by: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
+          // AECI-1008. Computed per entry because `direction` is framed against
+          // this entry's context product, like every other direction here.
+          is_owner: row.builtByVendorId === vendorId,
+          owner: row.builtByVendor
+            ? { id: row.builtByVendor.id, name: row.builtByVendor.companyName }
+            : null,
+          contestable_fields: contestableFieldsFor(row, contextIsSource),
+          endpoint_vendors: endpointVendorsFor(row),
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],
@@ -902,6 +937,36 @@ export function createListVendorIntegrationsHandler(
 
     return json(surfaceBody(c, surface));
   };
+}
+
+/** The current value of every contestable field, in WIRE form for one frame
+ *  (AECI-1008). One mapping, shared with the contest handlers through
+ *  `lib/integration-contests.ts`, so the prefill and the stored snapshot agree. */
+function contestableFieldsFor(
+  row: Parameters<typeof storedFieldValue>[0],
+  contextIsSource: boolean,
+): ContestableFields {
+  return Object.fromEntries(
+    INTEGRATION_CONTEST_FIELDS.map((field) => [
+      field,
+      toWireValue(field, storedFieldValue(row, field), contextIsSource),
+    ]),
+  ) as ContestableFields;
+}
+
+/** Both endpoints' vendors, deduped by id and sorted by name (AECI-1008). A
+ *  vendor owning both products appears once. */
+function endpointVendorsFor(row: {
+  sourceProduct: { productVendors: { vendor: { id: string; companyName: string } | null }[] };
+  targetProduct: { productVendors: { vendor: { id: string; companyName: string } | null }[] };
+}): VendorIntegration['endpoint_vendors'] {
+  const byId = new Map<string, string>();
+  for (const link of [...row.sourceProduct.productVendors, ...row.targetProduct.productVendors]) {
+    if (link.vendor) byId.set(link.vendor.id, link.vendor.companyName);
+  }
+  return [...byId]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 function surfaceBody(

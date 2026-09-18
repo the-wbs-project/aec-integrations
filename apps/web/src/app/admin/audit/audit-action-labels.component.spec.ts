@@ -35,6 +35,12 @@ const EMITTED_ACTIONS = [
   'product.extension_created',
   'integration.created',
   'integration.updated',
+  // AECI-1008. `declined` is templated (`integration.contest.${status}`) in both
+  // decision handlers, so it has no literal to grep for; it is listed by hand.
+  'integration.contest.submitted',
+  'integration.contest.withdrawn',
+  'integration.contest.accepted',
+  'integration.contest.declined',
   'category.created',
   'audience.created',
   'phase.created',
@@ -107,6 +113,14 @@ describe('describeAuditAction', () => {
     for (const entity of ['category', 'audience', 'phase']) {
       expect(isKnownAuditAction(`${entity}.created`)).toBe(true);
     }
+  });
+
+  it('names every contest transition distinctly (AECI-1008)', () => {
+    const labels = ['submitted', 'withdrawn', 'accepted', 'declined'].map((status) =>
+      describeAuditAction(`integration.contest.${status}`),
+    );
+    expect(new Set(labels).size).toBe(4);
+    expect(describeAuditAction('integration.contest.accepted')).toBe('Field contest accepted');
   });
 
   it('humanises an action this build has never heard of', () => {

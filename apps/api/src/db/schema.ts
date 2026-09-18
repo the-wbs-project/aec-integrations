@@ -1252,7 +1252,7 @@ export const vendorRequests = sqliteTable(
  * `workflow_instances_type_check` (below) is a CLOSED check and opening it on SQLite
  * is a full table rebuild (§1.2 / R1). Settled here so §5 never has to discover it.
  *
- * `granted_by` is one of the eight inbound FKs to `profiles.id` — `ON DELETE SET NULL`
+ * `granted_by` is one of the ten inbound FKs to `profiles.id` — `ON DELETE SET NULL`
  * AND nulled explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
  * `docs/AUTH_AND_RLS.md` §8, which is the live register). Miss either and account
  * deletion FK-fails for any admin who ever granted an entitlement (R6).
@@ -1341,7 +1341,7 @@ export const vendorEntitlements = sqliteTable(
  * (`vendor_seat.invite_accepted`, `actor_id` = the redeemer), not here — which
  * keeps `profiles` at its existing inbound-FK count plus one rather than plus two.
  *
- * `invited_by_id` IS that one — one of the eight inbound FKs to `profiles.id`. Like
+ * `invited_by_id` IS that one — one of the ten inbound FKs to `profiles.id`. Like
  * `vendor_entitlements.granted_by` it is `ON DELETE SET NULL` **and** nulled
  * explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
  * `docs/AUTH_AND_RLS.md` §8, which is the live register) — miss either and account
@@ -1460,6 +1460,119 @@ export const workflowTransitions = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [index('workflow_transitions_workflow_idx').on(t.workflowId, t.createdAt)],
+);
+
+/**
+ * The contestable integration fields (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b). Eleven content columns on `integrations` plus `owner`, which names
+ * `built_by_vendor_id`. The wire list (`INTEGRATION_CONTEST_FIELDS` in
+ * `@aeci/shared`) and the CHECK below must agree; `integration-contests.spec.ts`
+ * asserts it against `sqlite_master`, because a CHECK change here is a table
+ * recreate.
+ */
+const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism_name', 'direction', 'description', 'listing_url', 'docs_url', 'website', 'mechanism_url', 'pricing_model', 'maturity', 'owner')`;
+
+/**
+ * Integration field contests (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
+ *
+ * A seated endpoint vendor that does NOT own an integration says "this field is
+ * wrong, here is the right value, here is why". One row per challenge. The row is
+ * a REQUEST, never the value: nothing here is read by a public page, and the
+ * catalog only changes when the owner accepts (routed to `owner`) — an AECi accept
+ * files a `REVIEW - ` Linear issue and writes nothing.
+ *
+ * ── ROUTING IS FROZEN AT SUBMIT ─────────────────────────────────────────────
+ * `routed_to` and `owner_vendor_id` are snapshots taken at insert, so a later
+ * change to `built_by_vendor_id` (a promote, or AECI-1005's claim flow) cannot
+ * silently hand an open contest to a different decider. `current_value` is a
+ * snapshot for the same reason: the decider judges what the submitter saw.
+ *
+ * ── `direction` IS STORED CANONICAL ─────────────────────────────────────────
+ * `a_to_b | b_to_a | both`, anchored exactly as `integrations.direction` is. The
+ * vendor wire speaks `inbound | outbound | both`; the translation happens at the
+ * API boundary through `claimDirectionFromContext` / `…ForContext`.
+ *
+ * ── `proposed_value` IS NULL IN EXACTLY ONE CASE ────────────────────────────
+ * An `owner` contest proposing "neither endpoint vendor owns this" (an SI or a
+ * connector offers it). Every other field requires a value; the handler enforces it.
+ *
+ * ── CASCADE ─────────────────────────────────────────────────────────────────
+ * `integration_id` is `ON DELETE CASCADE`: a promote cross-table move (AECI-888)
+ * or a retraction deletes the `integrations` row and takes its contests with it.
+ * Accepted for unclaimed rows, which carry no owner-side state; AECI-1005 fences
+ * moves on claimed ones. This table is therefore the second cascade child of
+ * `integrations` (after `claims`), and `test/d1.spec.ts` pins the list — the next
+ * `integrations` recreate must carry it out of the way first (`docs/migrations.md`
+ * §3.3a).
+ *
+ * ── PROFILES ────────────────────────────────────────────────────────────────
+ * `submitted_by` and `decided_by` are two of the ten inbound FKs to
+ * `profiles.id`, both `ON DELETE SET NULL` AND nulled explicitly in the
+ * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8).
+ *
+ * `workflow_id` points at a `correction_request` instance whose `entity_id` is this
+ * row's id. That type is REUSED rather than added, because
+ * `workflow_instances_type_check` is closed and opening it is a table recreate.
+ */
+export const integrationFieldChallenges = sqliteTable(
+  'integration_field_challenges',
+  {
+    id: uuidPk(),
+    integrationId: text('integration_id')
+      .notNull()
+      .references(() => integrations.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    /** What the integration held at submit time, in storage form. */
+    currentValue: text('current_value'),
+    proposedValue: text('proposed_value'),
+    reason: text('reason').notNull(),
+
+    submitterVendorId: text('submitter_vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+    submittedBy: text('submitted_by').references(() => profiles.id, { onDelete: 'set null' }),
+
+    routedTo: text('routed_to').notNull(),
+    /** Snapshot of `integrations.built_by_vendor_id` at submit. */
+    ownerVendorId: text('owner_vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+
+    status: text('status').notNull().default('open'),
+    decisionNote: text('decision_note'),
+    decidedBy: text('decided_by').references(() => profiles.id, { onDelete: 'set null' }),
+    decidedAt: text('decided_at'),
+
+    /** The `REVIEW - ` issue an AECi accept files (routed_to = 'aeci' only). The
+     *  URL rides along for the same reason `vendor_requests.linear_issue_url` does
+     *  (AECI-261): an admin screen cannot build a Linear link from a node id. */
+    upstreamLinearIssueId: text('upstream_linear_issue_id'),
+    upstreamLinearIssueUrl: text('upstream_linear_issue_url'),
+
+    workflowId: text('workflow_id').references(() => workflowInstances.id, {
+      onDelete: 'set null',
+    }),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // One OPEN contest per (integration, field, submitting vendor). Partial, so a
+    // decided or withdrawn row never blocks a fresh challenge.
+    uniqueIndex('integration_field_challenges_open_key')
+      .on(t.integrationId, t.field, t.submitterVendorId)
+      .where(sql`"status" = 'open'`),
+    // The owner's "received" list and its cursor.
+    index('integration_field_challenges_owner_idx').on(t.ownerVendorId, t.status),
+    // The admin queue: AECi-routed rows by status, newest first.
+    index('integration_field_challenges_queue_idx').on(t.routedTo, t.status, t.createdAt),
+    // The submitter's "submitted" list and its cursor.
+    index('integration_field_challenges_submitter_idx').on(t.submitterVendorId, t.updatedAt),
+    check('integration_field_challenges_field_check', CONTEST_FIELD_CHECK),
+    check('integration_field_challenges_routed_to_check', sql`"routed_to" IN ('owner', 'aeci')`),
+    check(
+      'integration_field_challenges_status_check',
+      sql`"status" IN ('open', 'accepted', 'declined', 'withdrawn')`,
+    ),
+  ],
 );
 
 export const auditLog = sqliteTable(
@@ -3221,6 +3334,7 @@ export const schema = {
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
+  integrationFieldChallenges,
   auditLog,
   promoteJobs,
   pageViews,

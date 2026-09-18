@@ -12,6 +12,7 @@ export * from './admin-users';
 export * from './admin-vendors';
 export * from './common';
 export * from './integrations';
+export * from './integration-contests';
 export * from './landing';
 export * from './page-views';
 export * from './product-facets';

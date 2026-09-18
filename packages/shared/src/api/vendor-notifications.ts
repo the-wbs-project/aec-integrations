@@ -25,6 +25,10 @@ import { z } from 'zod';
  *    clause someone has to remember: `claim-denied` writes BOTH an ops row and a
  *    counterparty row, and only the second one is addressed to a vendor id.
  *
+ * Since AECI-1008 the same ledger also carries **contest** rows, written by the
+ * contest handlers rather than the sweep, so the list is a union on `kind` (see
+ * `VendorNotificationSchema` below).
+ *
  * i18n note: framework-agnostic package (no `$localize`) — the Angular dashboard
  * (AECI-606) renders its own copy from `detector`.
  */
@@ -59,15 +63,21 @@ export const NotificationProductRefSchema = z.object({
 export type NotificationProductRef = z.infer<typeof NotificationProductRefSchema>;
 
 /**
- * One notification the sweep sent to this vendor.
+ * One notification the §7 sweep sent to this vendor (`kind: 'attestation'`).
  *
  * `id` is the `audit_log` row id — stable, so the dashboard can key a list on it.
  * `pair_path` is the site-relative product-pair page
  * (`/products/{context}/integrations/{other}`), or `null` when either product had
  * no slug at send time. `counterpart_product` is null for `stale-version`, which
  * is about the vendor's own assertion rather than about the other side.
+ *
+ * `kind` is OPTIONAL on this member, and that is deliberate. It was added by
+ * AECI-1008 when contest rows joined the feed, and the SSR and API Workers deploy
+ * per-commit but not atomically: a client must still read a pre-AECI-1008 row,
+ * which carries no `kind`, as an attestation. The server always sends it now.
  */
-export const VendorNotificationSchema = z.object({
+export const VendorAttestationNotificationSchema = z.object({
+  kind: z.literal('attestation').optional(),
   id: z.string().uuid(),
   detector: z.enum(ATTESTATION_DETECTORS),
   claim_id: z.string().uuid(),
@@ -77,7 +87,57 @@ export const VendorNotificationSchema = z.object({
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });
+export type VendorAttestationNotification = z.infer<typeof VendorAttestationNotificationSchema>;
+
+/**
+ * What happened to a contest that this row tells the vendor about (AECI-1008 /
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). The recipient is always "the other side":
+ * `submitted` and `withdrawn` go to the owner, the decisions go to the submitter.
+ */
+export const CONTEST_NOTIFICATION_EVENTS = [
+  'submitted',
+  'withdrawn',
+  'accepted',
+  'declined',
+] as const;
+export type ContestNotificationEvent = (typeof CONTEST_NOTIFICATION_EVENTS)[number];
+
+/**
+ * One contest event addressed to this vendor (`kind: 'contest'`, AECI-1008).
+ *
+ * Written by the contest handlers as a `notification.sent` audit row in the SAME
+ * batch as the transition, so it is a snapshot like every other row here: the
+ * field and the integration's name as they were when the event happened. There is
+ * no email behind it; the portal feed is the whole delivery.
+ */
+export const VendorContestNotificationSchema = z.object({
+  kind: z.literal('contest'),
+  id: z.string().uuid(),
+  event: z.enum(CONTEST_NOTIFICATION_EVENTS),
+  contest_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  integration_name: z.string().nullable(),
+  field: z.string(),
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorContestNotification = z.infer<typeof VendorContestNotificationSchema>;
+
+/** One row of the feed. Discriminated on `kind`; see the attestation member for
+ *  why its `kind` may be absent. */
+export const VendorNotificationSchema = z.union([
+  VendorContestNotificationSchema,
+  VendorAttestationNotificationSchema,
+]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
+
+/** Narrow a feed row to the attestation member. `kind` absent counts as
+ *  attestation, which is what every pre-AECI-1008 row is. */
+export function isAttestationNotification(
+  notification: VendorNotification,
+): notification is VendorAttestationNotification {
+  return notification.kind !== 'contest';
+}
 
 export const ListVendorNotificationsResponseSchema = z.object({
   notifications: z.array(VendorNotificationSchema),

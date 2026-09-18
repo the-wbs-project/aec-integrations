@@ -458,6 +458,8 @@ SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
 
 **Run that query; do not reuse yesterday's answer.** `connector_pairs` had no cascade children on the morning of 2026-09-13 and had one by the evening: **AECI-891** added `claims.connector_pair_id` with `ON DELETE cascade`, which also puts `attestations` two levels below it. So `0032`'s cheap recreate is not precedent for the next one on that table. AECI-891's own migration, **`0033_solid_nightcrawler.sql`**, is a second `claims` recreate in the dangerous class — roughly **1,872 claims and 1,872 attestations** in production, `attestations` cascading from `claims` — and it carries both through `__carry_*` tables exactly as `0027` does.
 
+**`integrations` gained a second cascade child on 2026-09-18.** AECI-1008's `0043_needy_hobgoblin.sql` added `integration_field_challenges.integration_id` with `ON DELETE CASCADE`. So a recreate of `integrations` now empties that table as well as `claims` → `attestations`. `apps/api/src/test/d1.spec.ts` asserts the child list.
+
 **A fifth rule, from the third one of these: a loud failure can hide a quiet one.** `0034_sloppy_dakota_north.sql` (AECI-921, the `integrations.direction` CHECK moving to `a_to_b | b_to_a | both`) is the second recreate of `integrations` and sits in the same dangerous class as `0027` — same table, same two-level `integrations` → `claims` → `attestations` cascade. What is new is the failure ordering, measured 2026-09-14:
 
 | What you apply | Result |

@@ -2,6 +2,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  DecideContestInput,
+  ListVendorContestsResponse,
+  SubmitIntegrationContestInput,
+  VendorContest,
+  VendorContestResponse,
   CreateSeatInviteResponse,
   ResendSeatInviteResponse,
   AgreementAttestation,
@@ -24,10 +29,12 @@ import type {
   VendorSeat,
   VendorUpdatesResponse,
 } from '@aeci/shared';
-import { computeAgreement } from '@aeci/shared';
+import { computeAgreement, contestValueProblem } from '@aeci/shared';
 
 import { VendorApi, type VendorAttestationPosition } from '../../vendor/vendor-api';
 import {
+  VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
+  VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
@@ -61,6 +68,9 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
     // A vendor with no requests keeps a `null` cursor forever. Kept as `null`
     // here so the preview exercises the value most likely to be mishandled.
     requests: null,
+    // AECI-1008. Frozen like the rest: the preview's contest writes revalidate
+    // the list directly, so the cursor never needs to move.
+    contests: '2026-08-18T12:00:00.000Z',
   },
   server_time: '2026-08-18T12:00:00.000Z',
 };
@@ -130,6 +140,8 @@ export class PreviewVendorApi extends VendorApi {
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
   private integrations: ListVendorIntegrationsResponse = clone(VENDOR_INTEGRATIONS_FIXTURE);
   private nextClaimSeq = 0;
+  private contests: ListVendorContestsResponse = clone(VENDOR_CONTESTS_FIXTURE);
+  private nextContestSeq = 0;
 
   /** Point the fake at the fixture the preview is currently showing, so writes
    *  merge onto the matching vendor/products. Clones so the shared fixture
@@ -143,6 +155,8 @@ export class PreviewVendorApi extends VendorApi {
     this.seats = clone([...seats]);
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
+    this.contests = clone(VENDOR_CONTESTS_FIXTURE);
+    this.nextContestSeq = 0;
   }
 
   override async getMe(): Promise<VendorMeResponse> {
@@ -348,7 +362,110 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   override async getNotifications(): Promise<ListVendorNotificationsResponse> {
-    return { notifications: clone([...VENDOR_NOTIFICATIONS_FIXTURE]) };
+    // Newest first, as the ledger read orders them.
+    const rows = [...VENDOR_CONTEST_NOTIFICATIONS_FIXTURE, ...VENDOR_NOTIFICATIONS_FIXTURE].sort(
+      (a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0),
+    );
+    return { notifications: clone(rows) };
+  }
+
+  // ─── Field contests (AECI-1008) ────────────────────────────────────────────
+
+  override async getContests(): Promise<ListVendorContestsResponse> {
+    return clone(this.contests);
+  }
+
+  /**
+   * Mirrors the handler's refusals in its order: owner 403, value 422, no-change
+   * 422, duplicate 409. Every contest routes to AECi, which is what production
+   * does until claiming ships (`isIntegrationClaimed()` is a stub).
+   */
+  override async submitContest(
+    integrationId: string,
+    body: SubmitIntegrationContestInput,
+  ): Promise<VendorContestResponse> {
+    const integration = this.integrations.integrations.find(
+      (i) =>
+        i.id === integrationId &&
+        (!body.context_product_id || i.context_product.id === body.context_product_id),
+    );
+    if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (integration.is_owner) {
+      throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
+    }
+    const problem = contestValueProblem(body.field, body.proposed_value);
+    if (problem) {
+      throw apiError(422, 'CONTEST_INVALID_VALUE', problem, { field: 'proposed_value' });
+    }
+    const current = integration.contestable_fields[body.field] ?? null;
+    if (current === body.proposed_value) {
+      throw apiError(422, 'CONTEST_NO_CHANGE', 'Same as the current value', {
+        field: 'proposed_value',
+      });
+    }
+    if (
+      this.contests.submitted.some(
+        (c) => c.integration_id === integrationId && c.field === body.field && c.status === 'open',
+      )
+    ) {
+      throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
+    }
+
+    const now = '2026-09-18T12:00:00.000Z';
+    const nameOf = (id: string | null) =>
+      id === null ? null : (integration.endpoint_vendors.find((v) => v.id === id)?.name ?? null);
+    const self = this.me?.vendor;
+    const contest: VendorContest = {
+      id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
+      integration_id: integration.id,
+      integration_name: integration.name,
+      context_product: integration.context_product,
+      other_product: integration.other_product,
+      field: body.field,
+      current_value: current,
+      proposed_value: body.proposed_value,
+      current_label: body.field === 'owner' ? nameOf(current) : null,
+      proposed_label: body.field === 'owner' ? nameOf(body.proposed_value) : null,
+      reason: body.reason,
+      routed_to: 'aeci',
+      status: 'open',
+      submitter_vendor: { id: self?.id ?? '', name: self?.company_name ?? '' },
+      owner_vendor: integration.owner,
+      decision_note: null,
+      decided_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.contests.submitted.unshift(contest);
+    return { contest: clone(contest) };
+  }
+
+  override async withdrawContest(contestId: string): Promise<VendorContestResponse> {
+    const contest = this.contests.submitted.find((c) => c.id === contestId);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
+    if (contest.status !== 'open') {
+      throw apiError(409, 'CONTEST_NOT_OPEN', 'This contest is no longer open');
+    }
+    contest.status = 'withdrawn';
+    contest.updated_at = '2026-09-18T12:00:00.000Z';
+    return { contest: clone(contest) };
+  }
+
+  override async decideContest(
+    contestId: string,
+    body: DecideContestInput,
+  ): Promise<VendorContestResponse> {
+    const contest = this.contests.received.find((c) => c.id === contestId);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
+    if (contest.status !== 'open') {
+      throw apiError(409, 'CONTEST_NOT_OPEN', 'This contest is no longer open');
+    }
+    const now = '2026-09-18T12:00:00.000Z';
+    contest.status = body.decision === 'accept' ? 'accepted' : 'declined';
+    contest.decision_note = body.note ?? null;
+    contest.decided_at = now;
+    contest.updated_at = now;
+    return { contest: clone(contest) };
   }
 
   private findClaim(claimId: string) {

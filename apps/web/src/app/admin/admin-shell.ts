@@ -193,6 +193,8 @@ export class AdminShell {
         reviews: s.pending_reviews,
         requests: s.pending_requests,
         claims: s.pending_claims,
+        // Optional on the wire (AECI-1008 deploy skew): `undefined` is left alone.
+        contests: s.pending_contests,
         reindex: s.pending_reindex,
       });
 

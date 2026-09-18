@@ -9,10 +9,12 @@ import type {
 
 import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorAddClaimForm, type DuplicateClaimHit } from './vendor-add-claim-form';
 import { healthCountsLine } from './vendor-attestation-labels';
 import { VendorClaimLane } from './vendor-claim-lane';
+import { VendorContestForm } from './vendor-contest-form';
 import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
 
@@ -46,7 +48,7 @@ import { summarizeIntegration } from './vendor-integration-health';
  */
 @Component({
   selector: 'aec-vendor-integration-card',
-  imports: [VendorAddClaimForm, VendorClaimLane, VendorHealthPill],
+  imports: [VendorAddClaimForm, VendorClaimLane, VendorContestForm, VendorHealthPill],
   styles: [':host { display: block; }'],
   template: `
     <article [attr.aria-labelledby]="fieldId('heading')">
@@ -155,6 +157,20 @@ import { summarizeIntegration } from './vendor-integration-health';
             (duplicate)="onDuplicate($event)"
           />
         }
+
+        <!--
+          AECI-1008 (spec 11b). Seat-only: gated on NOT being the owner, never
+          on canWrite or the edge being attestable. A vendor without active
+          access, or on a connector-powered edge, can still ask for a wrong
+          public fact to be fixed.
+        -->
+        @if (!integration().is_owner) {
+          <aec-vendor-contest-form
+            [integration]="integration()"
+            [vendorId]="vendorId()"
+            [vendorName]="vendorName()"
+          />
+        }
       </div>
     </article>
   `,
@@ -172,6 +188,10 @@ export class VendorIntegrationCard {
   readonly retracted = output<string>();
 
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly store = inject(VendorPortalStore);
+
+  /** The caller's vendor id, for the contest form's owner picker fallback. */
+  protected readonly vendorId = computed(() => this.store.me()?.vendor.id ?? '');
 
   private readonly lanes = viewChildren(VendorClaimLane);
 

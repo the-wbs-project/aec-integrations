@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 import { AGREEMENT_STATES } from '../agreement';
 import { ProductLinkSchema } from './common';
+import {
+  ContestableFieldsSchema,
+  ContestVendorRefSchema,
+  EMPTY_CONTESTABLE_FIELDS,
+} from './integration-contests';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import type { AttestationSource } from './promote';
 
@@ -294,6 +299,31 @@ export const VendorIntegrationSchema = z.object({
    */
   powered_by: ProductLinkSchema.nullable().default(null),
   claims: z.array(VendorClaimSchema),
+  /**
+   * Whether the caller's vendor OWNS this integration (`built_by_vendor_id`,
+   * AECI-1008; the vendor that offers it, per AECI-1003). The owner cannot contest
+   * its own integration; the portal hides
+   * the affordance and `POST …/contests` answers `403 CONTEST_OWN_INTEGRATION`.
+   * Defaulted for the same deploy-skew reason as `attestable`.
+   */
+  is_owner: z.boolean().default(false),
+  /** The owner, when one is recorded. `null` means nobody is on file. */
+  owner: ContestVendorRefSchema.nullable().default(null),
+  /**
+   * The current value of every contestable field (AECI-1008 /
+   * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), so the portal can prefill a contest.
+   * `direction` is framed against `context_product`, like every direction on
+   * this entry; `owner` is the owner's vendor id.
+   */
+  contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
+  /**
+   * Every vendor that owns either endpoint product (`product_vendors`), sorted
+   * by name. These are the only values an `owner` contest may propose
+   * (§11b.3), so the portal offers them as the choices. Defaulted to `[]` for
+   * deploy skew; an empty list degrades the owner picker to "Neither endpoint
+   * vendor" plus the caller's own company.
+   */
+  endpoint_vendors: z.array(ContestVendorRefSchema).default([]),
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;

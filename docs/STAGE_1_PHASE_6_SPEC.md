@@ -110,6 +110,20 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > wording was additionally false for a row the sweep could not rebuild, which is skipped and never
 > retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
 
+> **AECI-1008 amendment — the sweep also retries contest issues.** An AECi accept of an
+> integration field contest files a `REVIEW - Apply contested field: …` issue once, in
+> `ctx.waitUntil` (`createLinearIssueForContest`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). The same
+> 15-minute tick now runs a second pass, `runContestIssueReconciliation`, over contests that are
+> `routed_to = 'aeci'`, `accepted`, older than `RECONCILE_STUCK_MINUTES` since `decided_at`, and
+> still have no `upstream_linear_issue_id`. It shares the retry threshold and the 50-row cap. It is
+> deliberately smaller than the request pass: no operator email, because the deciding admin is
+> looking at the row, and the signal is `aeci.linear.issue{kind:contest,outcome:failed}` plus
+> `aeci.linear.reconcile.attempt{kind:contest}` and a `warn` log. It never reads or writes
+> `vendor_requests` or `workflow_instances.linear_issue_id`, so the §6.3 webhook cannot resolve a
+> contest issue to a request. A failure in the contest pass is logged and does not fail the job, so
+> the queue never re-runs the request pass for it. The job's `job_runs` detail gains a `contests`
+> field.
+
 ### 6.4a Claim-ticket staleness check (AECI-862)
 
 The §6.4 sweep covers exactly one failure: an issue that was **never created**. Once the issue

@@ -41,7 +41,7 @@ import type { DataQualityCheckResult } from './data-quality';
 import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
-import type { ReconcileResult } from './reconciliation-sweep';
+import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -276,7 +276,12 @@ export type JobRunDetail =
       recheck?: MetricsRecheckSummary;
     }
   | { job: 'moderation-snapshot'; pendingCount: number; oldestPendingAgeHours: number }
-  | ({ job: 'request-reconcile' } & ReconcileResult)
+  | ({
+      job: 'request-reconcile';
+      /** AECI-1008: the contest `REVIEW - ` issue pass, or the error it hit.
+       *  Optional so rows written before it existed still parse. */
+      contests?: ContestReconcileResult | { error: string };
+    } & ReconcileResult)
   /** The 6-hourly AECI-862 staleness check. `stale` is the headline, but `checked`
    *  has to sit beside it: "0 stale" means something different when 0 claims were
    *  eligible than when 40 were. `readFailure` is present only when the Linear

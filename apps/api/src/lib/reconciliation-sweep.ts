@@ -32,6 +32,7 @@
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 import { and, asc, count as countRows, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { pairPathFor } from './integration-contests';
 
 import { crossedBand } from './alert-bands';
 import {
@@ -41,10 +42,22 @@ import {
   type StuckRequestSummary,
 } from './admin-alert';
 import { sendClaimSubmittedNotification } from './email';
-import { createLinearIssueForRequest, drizzleLinearStore } from './linear';
+import {
+  createLinearIssueForContest,
+  createLinearIssueForRequest,
+  drizzleContestLinearStore,
+  drizzleLinearStore,
+} from './linear';
 import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
-import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
+import {
+  integrationFieldChallenges,
+  integrations,
+  products,
+  vendorRequests,
+  vendors,
+  workflowInstances,
+} from '../db/schema';
 import { logToPosthog, submitCount, submitGauge } from '../posthog';
 
 const MINUTE_MS = 60_000;
@@ -418,6 +431,153 @@ export async function runReconciliationSweep(
     persistent: persistentRows.length,
     alerted,
   };
+}
+
+// ─── The contest pass (AECI-1008) ────────────────────────────────────────────
+
+export interface ContestReconcileDeps {
+  createIssue?: typeof createLinearIssueForContest;
+  now?: Date;
+}
+
+export interface ContestReconcileResult {
+  /** AECi-accepted contests with no issue id, older than the retry threshold. */
+  stuck: number;
+  retried: number;
+  cleared: number;
+  stillFailing: number;
+}
+
+/**
+ * Retry the `REVIEW - ` issue for AECi-accepted contests that still have none
+ * (AECI-1008 / `STAGE_1_PHASE_6_SPEC.md` §6.4, the Phase 6.7 sweep).
+ *
+ * The admin accept files the issue once, in `ctx.waitUntil`, and
+ * `createLinearIssueForContest` never throws, so a failure leaves
+ * `upstream_linear_issue_id = null`. This pass is the backstop, on the same
+ * 15-minute tick as the request sweep and with the same thresholds and cap.
+ *
+ * It is deliberately smaller than the request pass. There is no operator email:
+ * the accept has already been recorded and the admin who made it is looking at
+ * the row, and `aeci.linear.issue{kind:contest,outcome:failed}` plus the `warn` log
+ * below carry the signal. It never touches `vendor_requests` or
+ * `workflow_instances.linear_issue_id`, so the webhook cannot resolve a contest
+ * issue to a request.
+ *
+ * Idempotent for the same reason the request pass is: the read-guard plus the
+ * compare-and-set persist mean a re-run never files a second issue.
+ */
+export async function runContestIssueReconciliation(
+  c: AlertContext,
+  db: Db,
+  deps: ContestReconcileDeps = {},
+): Promise<ContestReconcileResult> {
+  const createIssue = deps.createIssue ?? createLinearIssueForContest;
+  const now = deps.now ?? new Date();
+  const cutoffIso = new Date(now.getTime() - RECONCILE_STUCK_MINUTES * MINUTE_MS).toISOString();
+
+  const rows = await db
+    .select({
+      id: integrationFieldChallenges.id,
+      integrationId: integrationFieldChallenges.integrationId,
+      field: integrationFieldChallenges.field,
+      currentValue: integrationFieldChallenges.currentValue,
+      proposedValue: integrationFieldChallenges.proposedValue,
+      reason: integrationFieldChallenges.reason,
+      decisionNote: integrationFieldChallenges.decisionNote,
+      submitterVendorId: integrationFieldChallenges.submitterVendorId,
+      integrationName: integrations.name,
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+    })
+    .from(integrationFieldChallenges)
+    .innerJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
+    .where(
+      and(
+        eq(integrationFieldChallenges.routedTo, 'aeci'),
+        eq(integrationFieldChallenges.status, 'accepted'),
+        isNull(integrationFieldChallenges.upstreamLinearIssueId),
+        lt(integrationFieldChallenges.decidedAt, cutoffIso),
+      ),
+    )
+    .orderBy(asc(integrationFieldChallenges.decidedAt))
+    .limit(RECONCILE_BATCH_CAP);
+
+  if (rows.length === 0) return { stuck: 0, retried: 0, cleared: 0, stillFailing: 0 };
+
+  const productIds = [...new Set(rows.flatMap((r) => [r.sourceProductId, r.targetProductId]))];
+  const vendorIds = [
+    ...new Set(
+      rows.flatMap((r) => [
+        r.submitterVendorId,
+        ...(r.field === 'owner'
+          ? [r.currentValue, r.proposedValue].filter((v): v is string => v !== null)
+          : []),
+      ]),
+    ),
+  ];
+  const [productRows, vendorRows] = await Promise.all([
+    db
+      .select({ id: products.id, name: products.name, slug: products.slug })
+      .from(products)
+      .where(inArray(products.id, productIds)),
+    db
+      .select({ id: vendors.id, name: vendors.companyName })
+      .from(vendors)
+      .where(inArray(vendors.id, vendorIds)),
+  ]);
+  const productById = new Map(productRows.map((p) => [p.id, p]));
+  const vendorName = new Map(vendorRows.map((v) => [v.id, v.name]));
+
+  let retried = 0;
+  let cleared = 0;
+  for (const row of rows) {
+    const source = productById.get(row.sourceProductId);
+    const target = productById.get(row.targetProductId);
+    if (!source || !target) continue;
+    retried++;
+    try {
+      const outcome = await createIssue(c, drizzleContestLinearStore(db), {
+        contestId: row.id,
+        integrationId: row.integrationId,
+        integrationName: row.integrationName,
+        sourceProductName: source.name,
+        targetProductName: target.name,
+        pairPath: pairPathFor([source.slug, target.slug]),
+        field: row.field,
+        currentValue: row.currentValue,
+        acceptedValue: row.proposedValue,
+        currentLabel:
+          row.field === 'owner' && row.currentValue ? vendorName.get(row.currentValue) : null,
+        acceptedLabel:
+          row.field === 'owner' && row.proposedValue ? vendorName.get(row.proposedValue) : null,
+        submitterVendorName: vendorName.get(row.submitterVendorId) ?? row.submitterVendorId,
+        reason: row.reason,
+        adminNote: row.decisionNote,
+      });
+      if (outcome.status !== 'failed') cleared++;
+    } catch (error) {
+      log(c, {
+        level: 'warn',
+        message: `aeci.linear.reconcile: contest ${row.id} retry errored: ${errMsg(error)}`,
+      });
+    }
+  }
+  const stillFailing = rows.length - cleared;
+  if (cleared > 0) {
+    count(c, 'aeci.linear.reconcile.attempt', cleared, ['outcome:cleared', 'kind:contest']);
+  }
+  if (stillFailing > 0) {
+    count(c, 'aeci.linear.reconcile.attempt', stillFailing, [
+      'outcome:still_failing',
+      'kind:contest',
+    ]);
+  }
+  log(c, {
+    level: stillFailing > 0 ? 'warn' : 'info',
+    message: `aeci.linear.reconcile: contests stuck=${rows.length} retried=${retried} cleared=${cleared} still_failing=${stillFailing}`,
+  });
+  return { stuck: rows.length, retried, cleared, stillFailing };
 }
 
 /**

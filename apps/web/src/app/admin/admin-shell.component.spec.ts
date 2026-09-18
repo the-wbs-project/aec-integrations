@@ -167,6 +167,7 @@ describe('AdminShell', () => {
         '/admin/reviews',
         '/admin/requests',
         '/admin/claims',
+        '/admin/contests',
         '/admin/reindex',
         '/admin/vendors',
         '/admin/users',
@@ -247,6 +248,7 @@ describe('AdminShell', () => {
         pending_reviews: 7,
         pending_requests: 2,
         pending_claims: 3,
+        pending_contests: 5,
         pending_reindex: 4,
       });
       const operations = categoryTrigger(root, 'Operations');
@@ -254,23 +256,26 @@ describe('AdminShell', () => {
       // the console's only live signal. Deliberately four DIFFERENT counts: a
       // trigger that mirrored one queue instead of summing them would still read
       // as a plausible number against equal ones.
-      expect(operations.textContent).toContain('16');
+      expect(operations.textContent).toContain('21');
 
       const badged = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter((a) =>
         a.querySelector('[aria-hidden="true"]'),
       );
       // AECI-946 adds the fourth. It counts `gsc_recrawl_queue`, a different table
-      // from the other three, so the sum cannot double-count it.
+      // from the other three, so the sum cannot double-count it. AECI-1008 adds
+      // the fifth, on `integration_field_challenges`, disjoint for the same reason.
       expect(badged.map((a) => a.getAttribute('href'))).toEqual([
         '/admin/reviews',
         '/admin/requests',
         '/admin/claims',
+        '/admin/contests',
         '/admin/reindex',
       ]);
       expect(badged.map((a) => a.querySelector('[aria-hidden="true"]')?.textContent)).toEqual([
         '7',
         '2',
         '3',
+        '5',
         '4',
       ]);
     });

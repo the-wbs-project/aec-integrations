@@ -116,9 +116,16 @@ The whole server side is one Hono route (`apps/api/src/routes/vendor-updates.ts`
 
 One endpoint, one D1 round trip, no writes. It answers exactly one question: *since when has each part of my portal been stale?*
 
+> **Seven scopes since AECI-1008 (2026-09-18).** The epic shipped six. AECI-1008 added
+> `contests`, the integration field contest list (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), as the
+> seventh SELECT in the same batch. Its predicate is `vendorContestsWhere` in
+> `apps/api/src/lib/integration-contests.ts`, which `GET /api/vendor/contests` imports too, so the
+> §2.2 invariant holds. Every "six" below that describes the endpoint today now reads seven; the
+> "as built" sections keep their numbers because they record what shipped on 2026-08-19.
+
 **Placement.** Contract in `packages/shared/src/api/vendor-updates.ts` (+ the `index.ts` barrel) per the API-contracts rule — shared TypeScript types validated by Zod, no OpenAPI, no codegen (`API_CONTRACTS.md` §2). Handler in `apps/api/src/routes/vendor-updates.ts`, registered in `apps/api/src/index.ts` alongside the other `/api/vendor/*` routes. Its shape row belongs in `API_CONTRACTS.md` §6.14.
 
-**Authorization.** Behind `requireVendor()` (`apps/api/src/lib/authz.ts:422`), which checks ban → `profiles.role = 'vendor_admin'` → non-null `profiles.vendor_id` before the handler runs. Scoped to `c.get('auth').vendorId`; **no vendor id crosses the wire** — the AECI-520 invariant. Passing the guard proves only *which* vendor the caller is; it scopes nothing, so every one of the six queries filters explicitly.
+**Authorization.** Behind `requireVendor()` (`apps/api/src/lib/authz.ts:422`), which checks ban → `profiles.role = 'vendor_admin'` → non-null `profiles.vendor_id` before the handler runs. Scoped to `c.get('auth').vendorId`; **no vendor id crosses the wire** — the AECI-520 invariant. Passing the guard proves only *which* vendor the caller is; it scopes nothing, so every one of the seven queries filters explicitly.
 
 > **Not entitlement-gated.** Do **not** call `requireCapability()` here. `authz.ts`'s own doc comment states the rule — *"Reads are never gated (§4.3 / R13)"* — and the reason applies with extra force to this endpoint: `/vendor` is gated by `vendorMeResolver`, which maps 403/404 onto a 404 render (a 401 goes to `/auth/login` instead — AECI-954), so a gated cursor would take the dashboard down for a vendor whose entitlement lapsed, hiding the renewal notice from exactly the cohort being billed.
 
@@ -136,7 +143,8 @@ One endpoint, one D1 round trip, no writes. It answers exactly one question: *si
     "products":      "2026-08-18T22:04:10.000Z",
     "integrations":  "2026-08-19T05:59:00.000Z",
     "notifications": "2026-08-19T10:00:03.000Z",
-    "requests":      null
+    "requests":      null,
+    "contests":      null                           // AECI-1008
   },
   "server_time": "2026-08-19T06:46:00.000Z"
 }
@@ -146,7 +154,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 
 `server_time` is the server's clock at read, carried so the client never has to compare a server timestamp against `Date.now()`. It exists because the two clocks are not the same clock and the difference between them is not bounded; without it, a modest client skew turns a fresh cursor into a permanently-stale one (or the reverse).
 
-**Six SELECTs in one `db.batch([...])`** — one D1 round trip, not six. The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
+**Seven SELECTs in one `db.batch([...])`** (six until AECI-1008) — one D1 round trip, not seven. The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
 
 ### 2.2 Scope → source of truth
 
@@ -174,6 +182,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 > already declines.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
+| `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision. The list caps each side at 100 rows and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |
 
 > **Invariant (the one to check by hand).** **Every cursor query reuses the scoping predicate of the handler it is a cursor for.** A cursor that scopes *differently* from its payload fails in one of two ways, both silent:
 >
@@ -186,7 +195,8 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 
 ```ts
 type VendorPortalScope =
-  | 'profile' | 'entitlement' | 'products' | 'integrations' | 'notifications' | 'requests';
+  | 'profile' | 'entitlement' | 'products' | 'integrations' | 'notifications' | 'requests'
+  | 'contests'; // AECI-1008
 ```
 
 | moved scope(s) | refetch |
@@ -194,8 +204,9 @@ type VendorPortalScope =
 | `profile` · `entitlement` · `products` · `requests` | `GET /api/vendor/me` — **one call**, deduped when several of the four move together |
 | `integrations` | `GET /api/vendor/integrations` |
 | `notifications` | `GET /api/vendor/notifications` |
+| `contests` | `GET /api/vendor/contests` — its own `contests` resource in `VendorPortalStore` since the portal half of AECI-1008 (PR B, 2026-09-18). PR A had mapped it onto `notifications` as a stopgap; that mapping is gone from both the store and `VendorLiveSync`, so a failed contests read holds back the `contests` cursor alone |
 
-Four of the six scopes collapse onto `me` because that is what the payload already is: `GET /api/vendor/me` returns vendor + owned products + claim/correction status + seat count in one shot (`apps/api/src/routes/vendor.ts`). Splitting them at the cursor while collapsing them at the refetch is deliberate — the **cursor** is where per-scope granularity is cheap (one more `MAX` in a batch already being issued) and the **refetch** is where it would cost a round trip.
+Four of the seven scopes collapse onto `me` because that is what the payload already is: `GET /api/vendor/me` returns vendor + owned products + claim/correction status + seat count in one shot (`apps/api/src/routes/vendor.ts`). Splitting them at the cursor while collapsing them at the refetch is deliberate — the **cursor** is where per-scope granularity is cheap (one more `MAX` in a batch already being issued) and the **refetch** is where it would cost a round trip.
 
 > **Unchanged by `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5 (2026-08-27), on purpose.** Integrations became a *per-product* tab, but neither the `integrations` scope nor its refetch is per-product: it is still one vendor-wide `GET /api/vendor/integrations` scoped by `ownedEndpointJoin`, and the tab narrows the result client-side via its `contextProductId` input. Making the fetch per-product would violate §2.2's invariant — the cursor's predicate would no longer match its list's — and would turn one call into one per product for a payload already bounded by the vendor's own catalog. What *did* change is the payload's grain: the handler now emits **one entry per owned endpoint**, so an owns-both integration appears twice and `(id, context_product.id)` is the key. That is invisible to the cursor, which still counts integrations, not listings.
 
@@ -203,8 +214,8 @@ Four of the six scopes collapse onto `me` because that is what the payload alrea
 
 ### 2.4 Tests the endpoint must carry
 
-- **Per-scope movement** — a write in each of the six domains moves that scope and **only** that scope.
-- **Cross-vendor isolation** — another vendor's write to each of the six domains moves **no** cursor for the caller. This is the test that catches a too-wide predicate.
+- **Per-scope movement** — a write in each of the seven domains moves that scope and **only** that scope. (Six at 2026-08-19; the `contests` case is in `vendor-contests.spec.ts`, which asserts the cursor equals the newest `updated_at` the list returns for each of three vendors.)
+- **Cross-vendor isolation** — another vendor's write to each of the seven domains moves **no** cursor for the caller. This is the test that catches a too-wide predicate.
 - **Null when empty** — a vendor with no products / no requests / no notifications gets `null`, not an epoch, not `server_time`.
 - **Ops-routed notifications** — an `audit_log` row with `metadata.vendorId = null` never matches any caller.
 - **`no-store`** on the response.
@@ -216,7 +227,7 @@ Four of the six scopes collapse onto `me` because that is what the payload alrea
 
 ### 2.6 As built (AECI-627 — 2026-08-19)
 
-Shipped as specified: one route, six SELECTs, one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
+Shipped as specified: one route, six SELECTs (seven since AECI-1008 added `contests`), one `db.batch`, no writes, no audit row, no new error codes (so `API_CONTRACTS.md` §4 gained nothing — the guard's own 401/403 are the whole error surface). Every §2.4 test landed, in `apps/api/src/routes/vendor-updates.spec.ts` plus five rows extended into the existing `vendor.authz-matrix.spec.ts` rather than a parallel matrix.
 
 Four decisions taken at build that §2.1–§2.5 did not pre-specify:
 
@@ -293,7 +304,7 @@ Hidden is *paused*, not *slowed*: a background tab left open overnight would oth
 
 The blanket `/api/*` rate-limit rule was **removed** when both Cloudflare Pro slots were spent on the two write endpoints (`docs/waf-rate-limits.md` §"2-slot trade-off"); both remaining rules are **POST-only**. A 20-second authenticated GET trips nothing, and this epic must not become the reason someone re-proposes a third slot that does not exist.
 
-**AECI-773 added a second limiting layer, in the Worker, and this endpoint is still untouched by it** — deliberately, and by a rule with no exceptions: **reads are never rate-limited, on any surface** (`docs/waf-rate-limits.md` §6.3, ADR 0026). This poll is the named reason that invariant exists. Do the arithmetic before proposing otherwise: a focused tab is 3 cursor reads per minute per seat, one poll can fan out to six scope refetches, and a multi-seat vendor with tabs open multiplies both — so any write-shaped per-minute ceiling trips inside a minute. The failure would then be silent in **both** directions, a permanently stale portal or a self-inflicted poll amplifier, with nothing logged either way. So: this epic must not become the reason someone re-proposes a third slot that does not exist, **nor the reason someone puts a limiter on a read**.
+**AECI-773 added a second limiting layer, in the Worker, and this endpoint is still untouched by it** — deliberately, and by a rule with no exceptions: **reads are never rate-limited, on any surface** (`docs/waf-rate-limits.md` §6.3, ADR 0026). This poll is the named reason that invariant exists. Do the arithmetic before proposing otherwise: a focused tab is 3 cursor reads per minute per seat, one poll can fan out to seven scope refetches, and a multi-seat vendor with tabs open multiplies both — so any write-shaped per-minute ceiling trips inside a minute. The failure would then be silent in **both** directions, a permanently stale portal or a self-inflicted poll amplifier, with nothing logged either way. So: this epic must not become the reason someone re-proposes a third slot that does not exist, **nor the reason someone puts a limiter on a read**.
 
 ### 4.4 The intervals are tunables, and the metric is their evidence
 
@@ -305,7 +316,7 @@ The three intervals and the backoff cap are **compute constants in the web bundl
 
 §4.1's two corrections above (`online` visibility gate, `Math.max` backoff floor) are the divergences. Four further rules were decided at build and are subtle enough to be re-broken:
 
-- **The first response seeds, it does not revalidate.** The page loads from the SSR-resolved `me` payload, but that payload carries no cursor and the endpoint keeps no per-client state to derive one from. So the first poll records the revision map and refetches nothing. Diffing against an empty baseline would read all six scopes as moved and fire three refetches of data already on screen, on **every** portal load.
+- **The first response seeds, it does not revalidate.** The page loads from the SSR-resolved `me` payload, but that payload carries no cursor and the endpoint keeps no per-client state to derive one from. So the first poll records the revision map and refetches nothing. Diffing against an empty baseline would read all seven scopes as moved and fire three refetches of data already on screen, on **every** portal load.
 - **A cursor is "seen" only once its refetch landed.** `revalidate()` never rejects (§3.1), so a baseline advanced on the strength of the cursor read alone would mean the loop never looks at that scope again: one transient 5xx on `GET /api/vendor/integrations` would strand the integrations tab behind a retry button until that cursor happened to move on its own, which can be hours. Instead the baseline is settled **per scope, after the refetch** — a moved scope whose resource came back `failed` keeps its *previous* revision, so the next poll re-detects it and retries. The existing cadence and backoff carry the retry rate; there is no second retry mechanism to keep in sync, and one failing endpoint never holds another back.
 - **A dirty-deferred scope is NOT a failed one, and must not be held back.** This is the rule most likely to be "fixed" into a bug by the next reader. When a section holds unsaved edits the store *stashes* the fresh payload deliberately and reports the resource `loaded` — the write succeeded, it is simply not being applied yet, and the vendor has an explicit "reload this section" affordance. `settle()` therefore tests `hasFailed(resource)` and **not** "did the value I hold change": treating a deferral as a failure would let one half-typed form pin that cursor and refetch the same payload every 20 s for as long as the form stays dirty, forever if the vendor walks away mid-edit. Reading `failed` specifically is the whole of what keeps the two apart (`vendor-live-sync.ts:325-337`).
 - **Revisions are compared with `!==` on the raw strings, never `Date.parse`.** SQLite's `MAX()` over a TEXT column is lexicographic and every `*_at` column is an ISO UTC string, so lexicographic and chronological order coincide; string equality also means a value the server can produce but `Date.parse` mangles can never be mistaken for "unchanged". Nothing in the loop does arithmetic between a server timestamp and `Date.now()` — `lastCheckedAt` reports the server's instant purely as an affordance, and scheduling uses relative `setTimeout` delays only.
@@ -474,7 +485,7 @@ This metric is not decorative — it is what makes ADR 0023 a **reviewable** dec
 - a high **`none`** ratio means the poll cadence is faster than the portal actually changes ⇒ **lengthen the interval** (§4.4), the cheapest possible response;
 - a high **`some`** ratio means there genuinely is that much to deliver ⇒ that is ADR 0023's **third re-open condition**, and the argument for adopting a hibernating Durable Object.
 
-Deliberately **not** emitted: a per-scope breakdown of *which* cursor moved. It would multiply the series by six to answer a question nobody has asked, and the two-value `changed` tag already separates the only two outcomes that lead to different actions.
+Deliberately **not** emitted: a per-scope breakdown of *which* cursor moved. It would multiply the series by seven to answer a question nobody has asked, and the two-value `changed` tag already separates the only two outcomes that lead to different actions.
 
 The endpoint also rides the existing `aeci.api.query.duration_ms{endpoint:…}` timing every route emits; no new latency metric is warranted for a single batched read.
 
@@ -482,7 +493,7 @@ The endpoint also rides the existing `aeci.api.query.duration_ms{endpoint:…}` 
 
 Shipped as one `submitCount(..., 'aeci.api.vendor.updates', 1, ['changed:…'])` at the end of the handler, one catalog row in `docs/OBSERVABILITY.md`, no widget, no monitor.
 
-**The `changed` tag needs a definition the spec did not give it, and the definition changes how the ratio must be read.** §7 says `some` vs `none` as though the endpoint knew whether anything changed *for this caller since their last poll* — it does not, and deliberately never will: it is **stateless** and keeps no per-client cursor (that is the same property that makes it cheap and makes `no-store` correct). So `changed:some` is defined as *"the newest of the six cursors falls inside `VENDOR_UPDATES_CHANGE_WINDOW_MS` of this response"* — i.e. **"would a poll at the shipped cadence have carried news?"**, which is the question the metric actually feeds.
+**The `changed` tag needs a definition the spec did not give it, and the definition changes how the ratio must be read.** §7 says `some` vs `none` as though the endpoint knew whether anything changed *for this caller since their last poll* — it does not, and deliberately never will: it is **stateless** and keeps no per-client cursor (that is the same property that makes it cheap and makes `no-store` correct). So `changed:some` is defined as *"the newest of the seven cursors (six before AECI-1008) falls inside `VENDOR_UPDATES_CHANGE_WINDOW_MS` of this response"* — i.e. **"would a poll at the shipped cadence have carried news?"**, which is the question the metric actually feeds.
 
 The window is **60 s**, the *longest* shipped interval (visible-but-unfocused), not the shortest. That over-counts `some` for a 20 s focused client — one write can be tagged `some` on three consecutive polls — and the over-count is deliberate: the decision this series feeds is "is polling still the right transport, or is it time for the Durable Object?", and that decision must not be biased toward "nothing ever changes". **Read the `some` ratio as an upper bound**; read the `none` ratio as the reliable one, since a `none` is unambiguous. An unparseable cursor counts as `none` — a metric must never be the thing that 500s a request.
 

@@ -6,7 +6,7 @@ import { z } from 'zod';
  *
  * ADR 0023 chose **scoped client revalidation over a cheap per-vendor cursor**
  * instead of Durable-Object WebSockets or SSE: nothing that changes a vendor's
- * portal state is sub-second (two of the six producers are once-a-day crons), so
+ * portal state is sub-second (two of the seven producers are once-a-day crons), so
  * the house "poll a tiny endpoint" pattern — the same one `GET
  * /api/promote/jobs/:id` uses — buys the whole §2.3 outcome at a fraction of the
  * moving parts. This module is that endpoint's wire contract.
@@ -16,7 +16,7 @@ import { z } from 'zod';
  * worse to consume: any write anywhere (a counterparty's attestation, the
  * nightly detector sweep, an admin's entitlement toggle) would invalidate the
  * whole dashboard and force a refetch of every section, which is exactly the
- * "reload the page" behaviour the epic exists to remove. Six independent cursors
+ * "reload the page" behaviour the epic exists to remove. Seven independent cursors
  * let the client refetch only what moved.
  *
  * ── WHAT A CURSOR IS, AND IS NOT ────────────────────────────────────────────
@@ -59,7 +59,8 @@ import { z } from 'zod';
  * (`STAGE_2_REALTIME_SPEC.md` §3): `profile` · `entitlement` · `products` ·
  * `requests` all resolve to `GET /api/vendor/me` (one deduped call),
  * `integrations` to `GET /api/vendor/integrations`, and `notifications` to
- * `GET /api/vendor/notifications`. Adding a scope here without adding it to that
+ * `GET /api/vendor/notifications`, and `contests` (AECI-1008) to
+ * `GET /api/vendor/contests`. Adding a scope here without adding it to that
  * map ships a cursor nothing acts on.
  */
 export const VendorRevisionsSchema = z.object({
@@ -75,6 +76,14 @@ export const VendorRevisionsSchema = z.object({
   notifications: z.string().nullable(),
   /** `MAX(COALESCE(resolved_at, created_at))` — `vendor_requests` has no `updated_at`. */
   requests: z.string().nullable(),
+  /**
+   * `MAX(integration_field_challenges.updated_at)` over the contests this vendor
+   * submitted or decides (AECI-1008), under `vendorContestsWhere` — the same
+   * predicate `GET /api/vendor/contests` uses. `.default(null)` for deploy skew: a
+   * pre-AECI-1008 API sends no such key, and `null` is the value that never
+   * triggers a refetch.
+   */
+  contests: z.string().nullable().default(null),
 });
 export type VendorRevisions = z.infer<typeof VendorRevisionsSchema>;
 
@@ -95,6 +104,7 @@ const SCOPE_INDEX = {
   integrations: true,
   notifications: true,
   requests: true,
+  contests: true,
 } satisfies Record<VendorPortalScope, true>;
 
 export const VENDOR_PORTAL_SCOPES = Object.keys(SCOPE_INDEX) as readonly VendorPortalScope[];

@@ -2,13 +2,14 @@ import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { VendorNotification } from '@aeci/shared';
+import { isAttestationNotification, type VendorNotification } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { detectorTitle } from './vendor-attestation-labels';
+import { contestFieldLabelLoose, contestNotificationTitle } from './vendor-contest-labels';
 
 /**
  * The in-portal notification list (AECI-606 rendering AECI-302's
@@ -75,9 +76,12 @@ import { detectorTitle } from './vendor-attestation-labels';
       </summary>
 
       <div class="mt-3 space-y-3" [attr.aria-busy]="loading() ? 'true' : null">
-        <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.notify.framing">
-          What we emailed you about these integrations in the last 90 days. Each note reflects the
-          state at the time it was sent.
+        <p
+          class="max-w-prose text-xs text-(--text-secondary)"
+          i18n="@@vendor.attest.notify.framing.contests"
+        >
+          What we sent you about these integrations in the last 90 days: the reminders we emailed,
+          and updates on field contests. Each note reflects the state at the time it was sent.
         </p>
 
         @if (loading()) {
@@ -115,12 +119,8 @@ import { detectorTitle } from './vendor-attestation-labels';
                   {{ titleFor(notification) }}
                 </p>
                 <p class="mt-0.5 text-xs text-(--text-secondary)">
-                  @if (notification.data_object; as dataObject) {
-                    <span>{{ dataObject.name }}</span>
-                    <span aria-hidden="true"> · </span>
-                  }
-                  @if (notification.counterpart_product; as counterpart) {
-                    <span>{{ counterpart.name }}</span>
+                  @for (part of detailParts(notification); track $index) {
+                    <span>{{ part }}</span>
                     <span aria-hidden="true"> · </span>
                   }
                   <span>{{ notification.created_at | date: 'mediumDate' }}</span>
@@ -165,9 +165,13 @@ export class VendorNotificationsList {
    * The empty-title guard is kept rather than removed. It is the one thing that
    * stops a detector added later, before its copy is written, from rendering a
    * blank row here.
+   *
+   * Contest rows (AECI-1008) are rendered too, titled by {@link titleFor} from
+   * their event. Only an attestation row can have an empty title, so the guard
+   * applies to that member alone.
    */
   protected readonly visible = computed(() =>
-    this.notifications().filter((n) => detectorTitle(n.detector) !== ''),
+    this.notifications().filter((n) => !isAttestationNotification(n) || titleOf(n) !== ''),
   );
 
   protected readonly summaryLabel = computed(() => {
@@ -227,7 +231,20 @@ export class VendorNotificationsList {
   }
 
   protected titleFor(notification: VendorNotification): string {
-    return detectorTitle(notification.detector);
+    return titleOf(notification);
+  }
+
+  /** The secondary line before the date. An attestation row names the data flow
+   *  and the counterpart; a contest row names the field and the integration. */
+  protected detailParts(notification: VendorNotification): readonly string[] {
+    if (isAttestationNotification(notification)) {
+      return [notification.data_object?.name, notification.counterpart_product?.name].filter(
+        (part): part is string => !!part,
+      );
+    }
+    return [contestFieldLabelLoose(notification.field), notification.integration_name].filter(
+      (part): part is string => !!part,
+    );
   }
 
   /**
@@ -245,4 +262,11 @@ export class VendorNotificationsList {
       );
     });
   }
+}
+
+/** One title rule for both union members. */
+function titleOf(notification: VendorNotification): string {
+  return isAttestationNotification(notification)
+    ? detectorTitle(notification.detector)
+    : contestNotificationTitle(notification.event);
 }

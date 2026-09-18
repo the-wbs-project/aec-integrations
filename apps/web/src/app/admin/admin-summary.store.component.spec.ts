@@ -87,6 +87,25 @@ describe('AdminSummaryStore', () => {
     expect(store.count('reindex')()).toBe(1);
   });
 
+  // AECI-1008. Field contests are the fifth key, on `integration_field_challenges`,
+  // a table no other queue reads, so the Operations sum cannot double-count them.
+  it('carries field contests as a fifth queue in the sum and decrements it', () => {
+    expect(store.pendingContests()).toBeNull();
+    store.seed({ reviews: 5, requests: 2, claims: 3, contests: 6, reindex: 4 });
+    expect(store.pendingContests()).toBe(6);
+    expect(store.operationsTotal()).toBe(20);
+    store.decrement('contests');
+    expect(store.count('contests')()).toBe(5);
+    expect(store.pendingClaims()).toBe(3);
+    expect(store.operationsTotal()).toBe(19);
+  });
+
+  it('leaves the contest count alone when an older API shape omits it', () => {
+    store.seed({ contests: 2 });
+    store.seed({ reviews: 1, contests: undefined });
+    expect(store.pendingContests()).toBe(2);
+  });
+
   it('never decrements below zero, and never invents a count for an unseeded queue', () => {
     store.seed({ reviews: 0 });
     store.decrement('reviews');

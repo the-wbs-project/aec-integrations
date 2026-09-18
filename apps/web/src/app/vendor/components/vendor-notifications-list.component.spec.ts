@@ -22,7 +22,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorNotification } from '@aeci/shared';
+import type { VendorAttestationNotification, VendorNotification } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
@@ -85,11 +85,47 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(3)');
   });
 
+  it.each([
+    ['submitted', 'Another vendor contested a field on your integration'],
+    ['withdrawn', 'A contest on your integration was withdrawn'],
+    ['accepted', 'Your contest was accepted'],
+    ['declined', 'Your contest was declined'],
+  ] as const)('renders a contest `%s` row with its own title (AECI-1008)', async (event, title) => {
+    const withContest: readonly VendorNotification[] = [
+      ...VENDOR_NOTIFICATIONS_FIXTURE,
+      {
+        kind: 'contest',
+        id: '00000000-0000-4000-8000-00000000c0de',
+        event,
+        contest_id: '00000000-0000-4000-8000-00000000c0df',
+        integration_id: '00000000-0000-4000-8000-00000000c0e0',
+        integration_name: 'Summit ↔ Procore',
+        field: 'docs_url',
+        pair_path: '/products/procore/integrations/summit',
+        created_at: '2026-09-18T12:00:00.000Z',
+      },
+    ];
+    getNotifications.mockResolvedValue({ notifications: withContest });
+
+    const fixture = await create();
+    const items = [...el(fixture).querySelectorAll('li')];
+    expect(items).toHaveLength(4);
+    const row = items.find((li) => li.textContent?.includes(title));
+    expect(row).toBeDefined();
+    // The field is named as a vendor reads it, then the integration.
+    expect(row!.textContent).toContain('Documentation link');
+    expect(row!.textContent).toContain('Summit ↔ Procore');
+    expect(row!.querySelector('a')?.getAttribute('href')).toBe(
+      '/products/procore/integrations/summit',
+    );
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
+  });
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and
     // the vendor is the party that most needs to read it.
-    const withDenial: readonly VendorNotification[] = [
+    const withDenial: readonly VendorAttestationNotification[] = [
       ...VENDOR_NOTIFICATIONS_FIXTURE,
       { ...VENDOR_NOTIFICATIONS_FIXTURE[0], id: 'denied-row', detector: 'claim-denied' },
     ];
@@ -147,7 +183,7 @@ describe('VendorNotificationsList', () => {
  */
 describe('VendorNotificationsList — "N new" (§6.2)', () => {
   /** A row that did not exist at first load. */
-  const arrival = (id: string): VendorNotification => ({
+  const arrival = (id: string): VendorAttestationNotification => ({
     ...VENDOR_NOTIFICATIONS_FIXTURE[0],
     id,
     created_at: '2026-08-19T08:00:00.000Z',
