@@ -35,7 +35,7 @@
     "better-sqlite3": "^12.11.1",
     "typescript": "~5.9.2",
     "vite": "8.3.0",
-    "vitest": "^3.2.4",
+    "vitest": "^4.1.11",
     "wrangler": "^4.135.0"
   }
 }

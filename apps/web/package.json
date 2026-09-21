@@ -89,7 +89,7 @@
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.3",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.11",
     "wrangler": "^4.123.0",
     "xhr2": "^0.2.1"
   }
