@@ -121,6 +121,34 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
   });
 
+  it('renders an integration claim row, naming the owner and the integration (AECI-1005)', async () => {
+    const withClaim: readonly VendorNotification[] = [
+      ...VENDOR_NOTIFICATIONS_FIXTURE,
+      {
+        kind: 'integration_claim',
+        id: '00000000-0000-4000-8000-00000000c1a1',
+        integration_id: '00000000-0000-4000-8000-00000000c1a2',
+        integration_name: 'Summit ↔ Procore',
+        owner_name: 'Summit Software',
+        pair_path: '/products/procore/integrations/summit',
+        created_at: '2026-09-21T12:00:00.000Z',
+      },
+    ];
+    getNotifications.mockResolvedValue({ notifications: withClaim });
+
+    const fixture = await create();
+    const row = [...el(fixture).querySelectorAll('li')].find((li) =>
+      li.textContent?.includes('The owner claimed an integration on your product'),
+    );
+    expect(row).toBeDefined();
+    expect(row!.textContent).toContain('Summit Software');
+    expect(row!.textContent).toContain('Summit ↔ Procore');
+    expect(row!.querySelector('a')?.getAttribute('href')).toBe(
+      '/products/procore/integrations/summit',
+    );
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
+  });
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and
