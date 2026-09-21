@@ -1860,7 +1860,8 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   `id` — exposing nothing new in kind, since `ProductPairMechanism.id` is already a UUID on the wire
   and AECI-604 guarantees claim ids survive a re-promote.
 - **`integrationTimelineConfig` is the ONE read in the system that omits
-  `liveAttestationsWhere`.** Retracted rows are the point. Its doc comment says so loudly and
+  `liveAttestationsWhere`** (with its evidenced-pair twin `connectorEvidencedPairTimelineConfig`,
+  added by AECI-1035 so claims on a connector-evidenced pair have a history too). Retracted rows are the point. Its doc comment says so loudly and
   forbids calling `computeAgreement` on its output — routing history through the vote engine is
   exactly how a withdrawn assertion finds its way back into a tally, the hazard §2.5 handed to §4.
 - **The seam clamps; it never 403s.** A 403 would make the gate a control-flow branch (§2.2 forbids

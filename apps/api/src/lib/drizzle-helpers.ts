@@ -271,9 +271,39 @@ export const connectorEvidencedPairDetailConfig = {
   },
 } as const;
 
+/**
+ * The pair page's `claims` hydration (§8), shared by BOTH delivered-tier tables so
+ * the two arms of one pair read cannot select different claim or attestation
+ * columns. Why each column is here is documented at `integrationPairConfig`, the
+ * first consumer. Hoisted above both configs because a `const` cannot be read
+ * before its declaration.
+ */
+const pairClaimsConfig = {
+  columns: { id: true, direction: true },
+  with: {
+    dataObject: { columns: { slug: true, name: true, displayOrder: true } },
+    attestations: {
+      columns: {
+        source: true,
+        asserted: true,
+        attestedByVendorId: true,
+        retractedAt: true,
+        note: true,
+        introducedAt: true,
+        deprecatedAt: true,
+        introducedVersionId: true,
+        deprecatedVersionId: true,
+      },
+      where: liveAttestationsWhere,
+    },
+  },
+} as const;
+
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
- *  card's body and the maintenance marker, mirroring `integrationPairConfig`.
- *  `claims` joins in AECI-721 PR-B, once the anchor column exists. */
+ *  card's body, the maintenance marker and the §8 claims, mirroring
+ *  `integrationPairConfig`. The claims ride the polymorphic anchor AECI-721 PR-B
+ *  added; until AECI-1035 this config omitted them and every connector-powered
+ *  pair page rendered "We haven't catalogued what syncs yet". */
 export const connectorEvidencedPairPairConfig = {
   columns: {
     ...connectorEvidencedPairListConfig.columns,
@@ -286,6 +316,38 @@ export const connectorEvidencedPairPairConfig = {
   with: {
     ...connectorEvidencedPairListConfig.with,
     builtByVendor: { columns: vendorLinkColumns },
+    claims: pairClaimsConfig,
+  },
+} as const;
+
+/**
+ * Timeline hydration for an evidenced pair (AECI-303 / §9.1, AECI-1035) — the twin
+ * of `integrationTimelineConfig`, and like it **deliberately without
+ * `liveAttestationsWhere`**: the retracted rows are the history. It needs endpoint
+ * A only, because an evidenced pair's claims are framed against A (see
+ * `toProductPairMechanismFromEvidencedPair`).
+ */
+export const connectorEvidencedPairTimelineConfig = {
+  columns: { id: true },
+  with: {
+    productA: { columns: { id: true } },
+    claims: {
+      columns: { id: true },
+      with: {
+        attestations: {
+          columns: {
+            id: true,
+            source: true,
+            asserted: true,
+            note: true,
+            retractedAt: true,
+            createdAt: true,
+            introducedVersionId: true,
+            deprecatedVersionId: true,
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -314,6 +376,8 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   lastReviewedAt: string | null;
   maintainedBy: string;
   builtByVendor: RawVendorLink | null;
+  /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
+  claims: RawPairClaimRow[];
 }
 
 /**
@@ -508,26 +572,7 @@ export const integrationPairConfig = {
     // relations here would mean two more joins on the heaviest read in the system
     // (and both would need their disambiguated `relationName`, since two FKs point
     // at one table) for data already in hand.
-    claims: {
-      columns: { id: true, direction: true },
-      with: {
-        dataObject: { columns: { slug: true, name: true, displayOrder: true } },
-        attestations: {
-          columns: {
-            source: true,
-            asserted: true,
-            attestedByVendorId: true,
-            retractedAt: true,
-            note: true,
-            introducedAt: true,
-            deprecatedAt: true,
-            introducedVersionId: true,
-            deprecatedVersionId: true,
-          },
-          where: liveAttestationsWhere,
-        },
-      },
-    },
+    claims: pairClaimsConfig,
   },
 } as const;
 
@@ -535,8 +580,9 @@ export const integrationPairConfig = {
  * Per-claim **history** hydration for the pair timeline read
  * (`GET …/integrations/:otherSlug/timeline`, AECI-303 / §9.1).
  *
- * ⚠️ **This is the ONE read in the system that deliberately omits
- * `liveAttestationsWhere`.** Retracted rows are the point: §2.1's supersession is
+ * ⚠️ **This read, and its evidenced-pair twin `connectorEvidencedPairTimelineConfig`
+ * (AECI-1035), are the ONLY reads in the system that deliberately omit
+ * `liveAttestationsWhere`.** Both feed the one timeline endpoint. Retracted rows are the point: §2.1's supersession is
  * retract-then-insert, so the append-only history *is* the retracted rows plus the
  * live one. Consequences, both load-bearing:
  *
@@ -994,6 +1040,13 @@ export interface RawTimelineAttestationRow {
 export interface RawTimelineIntegrationRow {
   id: string;
   sourceProduct: { id: string };
+  claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
+}
+
+/** `connectorEvidencedPairTimelineConfig`'s output (AECI-1035). */
+export interface RawTimelineEvidencedPairRow {
+  id: string;
+  productA: { id: string };
   claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
 }
 
@@ -1546,16 +1599,23 @@ function toProductPairMechanism(
  * after the migration — a pair that plainly has a delivered integration reading
  * as though it has none, purely because of an internal storage move.
  *
- * `claims` is `[]` until PR-B adds `claims.connector_evidenced_pair_id`; the
- * migration preserves each edge's id verbatim as the pair's id, so the 85
- * production claims re-anchor without their stored value changing.
+ * **Two frames, two flags (AECI-1035).** The mechanism's own direction is framed
+ * against the ORIENTED source `orientEvidencedPair` returns, which is B whenever
+ * the stored direction is `b_to_a`. Its claims are not: a claim's `direction` and
+ * its attestations' `vendor_a` / `vendor_b` slots are stored in the canonical A/B
+ * frame, A being `product_a_id` (`claim-frame.ts`, AECI-996). So the claims read
+ * `contextIsA`, never `contextIsSource`. Reading them against the oriented source
+ * would reverse every one-way claim, and swap every vendor slot, on each pair whose
+ * stored direction is `b_to_a`.
  */
 function toProductPairMechanismFromEvidencedPair(
   raw: RawConnectorEvidencedPairDetailRow,
   contextProductId: string,
+  versions?: PairVersionResolver,
 ): ProductPairMechanism {
   const { source, direction } = orientEvidencedPair(raw);
   const contextIsSource = source.id === contextProductId;
+  const contextIsA = raw.productA.id === contextProductId;
   return {
     id: raw.id,
     // Null by construction — see the section header. The connector is in `via`.
@@ -1571,7 +1631,11 @@ function toProductPairMechanismFromEvidencedPair(
     // renderer print the connector twice.
     powered_by_product: null,
     via: toProductLink(raw.connectorProduct),
-    claims: [],
+    // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
+    claims: [...raw.claims]
+      .sort(compareClaims)
+      .map((claim) => toProductPairClaim(claim, contextIsA, versions))
+      .filter((claim): claim is ProductPairClaim => claim !== null),
   };
 }
 
@@ -1603,7 +1667,9 @@ export function toProductPairResponse(
 ): ProductPairResponse {
   const mechanisms = [
     ...integrations.map((row) => toProductPairMechanism(row, contextProduct.id, versions)),
-    ...evidencedPairs.map((row) => toProductPairMechanismFromEvidencedPair(row, contextProduct.id)),
+    ...evidencedPairs.map((row) =>
+      toProductPairMechanismFromEvidencedPair(row, contextProduct.id, versions),
+    ),
   ];
   const claims = mechanisms.flatMap((m) => m.claims);
   return {
@@ -1656,13 +1722,25 @@ function countVersionStatuses(claims: readonly ProductPairClaim[]): PairVersionD
  */
 export function toPairTimelines(
   integrations: readonly RawTimelineIntegrationRow[],
+  /**
+   * The evidenced-pair arm (AECI-1035). **Required, not optional**, for the same
+   * reason as `toProductPairResponse`'s: a defaulted parameter is how the timeline
+   * went blank on every claim an evidenced pair carries.
+   */
+  evidencedPairs: readonly RawTimelineEvidencedPairRow[],
   contextProductId: string,
   versions: Pick<PairVersionResolver, 'versionLabel'>,
 ): ClaimTimeline[] {
+  // Each anchor's claims are framed against its own endpoint A: `source_product_id`
+  // on an integration, `product_a_id` on an evidenced pair (`claim-frame.ts`).
+  const anchors = [
+    ...integrations.map((row) => ({ aId: row.sourceProduct.id, claims: row.claims })),
+    ...evidencedPairs.map((row) => ({ aId: row.productA.id, claims: row.claims })),
+  ];
   const timelines: ClaimTimeline[] = [];
-  for (const integration of integrations) {
-    const contextIsSource = integration.sourceProduct.id === contextProductId;
-    for (const claim of integration.claims) {
+  for (const anchor of anchors) {
+    const contextIsSource = anchor.aId === contextProductId;
+    for (const claim of anchor.claims) {
       if (claim.attestations.length === 0) continue;
       const entries = [...claim.attestations]
         .sort((a, b) => {

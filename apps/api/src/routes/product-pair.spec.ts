@@ -1315,3 +1315,76 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     expect(res.moved_to).toBeNull();
   });
 });
+
+// AECI-1035. The evidenced-pair arm returned a hardcoded `claims: []`, so every
+// connector-powered pair page read "We haven't catalogued what syncs yet". The
+// fixture is chosen to catch the frame trap as well as the omission: the edge is
+// stored `b_to_a`, so the ORIENTED source is B (Revit), while the claim and its
+// `vendor_a` slot are framed against canonical A (Procore). A mapper that framed
+// the claim against the oriented source would reverse it on both pages.
+describe('GET /api/products/:slug/integrations/:otherSlug — claims on a connector-evidenced pair (AECI-1035)', () => {
+  async function seedEvidencedPairWithClaim() {
+    await seedProducts();
+    await seedVendors();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    // u(1) Procore sorts first, so it is canonical A.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: u(1),
+      productBId: u(2),
+      direction: 'b_to_a',
+    });
+    await dataObject(u(20), 'employees', 'Employees');
+    // Revit → Procore, physically: `b_to_a` in the canonical frame.
+    await t.db.insert(claims).values({
+      id: u(61),
+      connectorEvidencedPairId: u(60),
+      dataObjectId: u(20),
+      direction: 'b_to_a',
+    });
+    await t.db.insert(attestations).values({
+      id: u(62),
+      claimId: u(61),
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: ACME,
+    });
+  }
+
+  it('renders the claim and counts it in the sync headline', async () => {
+    await seedEvidencedPairWithClaim();
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const [m] = parsed.mechanisms;
+    expect(m?.claims.map((c) => c.id)).toEqual([u(61)]);
+    expect(m?.claims[0]?.data_object_slug).toBe('employees');
+    expect(parsed.sync_headline.total).toBe(1);
+  });
+
+  it('reads a one-way claim the same physical way from both sides of the pair URL', async () => {
+    await seedEvidencedPairWithClaim();
+    const fromProcore = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const fromRevit = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    // Revit → Procore: inbound to Procore, outbound from Revit. The mechanism's own
+    // direction agrees, which is what makes the lane and its claims coherent.
+    expect(fromProcore.mechanisms[0]?.direction).toBe('inbound');
+    expect(fromProcore.mechanisms[0]?.claims[0]?.direction).toBe('inbound');
+    expect(fromRevit.mechanisms[0]?.direction).toBe('outbound');
+    expect(fromRevit.mechanisms[0]?.claims[0]?.direction).toBe('outbound');
+    // `vendor_a` is Procore's slot, whichever product is the oriented source.
+    expect(fromProcore.mechanisms[0]?.claims[0]?.attestations[0]?.attestor).toBe('context');
+    expect(fromRevit.mechanisms[0]?.claims[0]?.attestations[0]?.attestor).toBe('other');
+  });
+});
