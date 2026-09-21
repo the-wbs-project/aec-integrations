@@ -35,6 +35,10 @@
 // candidate findings, not noise, and the first scheduled run rules on them.
 //
 
+import { isVendorHeld } from '../2026-09-retraction-consumer/vendor-held.mjs';
+
+export { isVendorHeld };
+
 /**
  * The floor under {@link comparandLooksBroken}.
  *
@@ -147,6 +151,14 @@ export function evidencedPairEntry(row, reason, deps) {
  * claims it, but something it points at is stranded, so the row renders a link to a page
  * that should not exist.
  *
+ * `vendorHeld` (AECI-1005 / ADR 0035) — the row is claimed by its owner or was created by
+ * a vendor, and no upstream record carries it. That is EXPECTED, not a strand: promote
+ * stopped writing a claimed row, so upstream may drop or never hold its record, and a
+ * vendor-created row never had one. It is reported as a count, never as a finding, and
+ * never reaches the `--ids-out` list an operator deletes from. A vendor-held row whose
+ * ENDPOINT is stranded is still an `endpointStranded` finding, because the stranded thing
+ * is the product, and its entry carries `vendorHeld: true` so nobody deletes the edge.
+ *
  * Identical logic for both tables; only the entry builder and the column names differ.
  * That is deliberate — the reason the pairs table went unaudited for so long is that
  * nobody wrote the second copy, so there is exactly one copy here.
@@ -162,9 +174,12 @@ export function classifyRows({
 }) {
   const sourceGone = [];
   const endpointStranded = [];
+  const vendorHeld = [];
   for (const row of rows) {
+    const held = isVendorHeld(row);
     if (!claimedIds.has(row.id)) {
-      sourceGone.push(entryFor(row, 'no upstream record carries this id', deps));
+      if (held) vendorHeld.push(entryFor(row, 'vendor-held: owned by a vendor, not AECi', deps));
+      else sourceGone.push(entryFor(row, 'no upstream record carries this id', deps));
       continue;
     }
     const broken = [];
@@ -173,9 +188,13 @@ export function classifyRows({
     if (strandedProductIds.has(b)) broken.push('target product stranded');
     if (connector && strandedProductIds.has(connector)) broken.push(`${connectorLabel} stranded`);
     if (builtBy && strandedVendorIds.has(builtBy)) broken.push('built_by vendor stranded');
-    if (broken.length > 0) endpointStranded.push(entryFor(row, broken.join('; '), deps));
+    if (broken.length > 0) {
+      const entry = entryFor(row, broken.join('; '), deps);
+      if (held) entry.vendorHeld = true;
+      endpointStranded.push(entry);
+    }
   }
-  return { sourceGone, endpointStranded };
+  return { sourceGone, endpointStranded, vendorHeld };
 }
 
 /** Column mapping for `integrations`, passed to {@link classifyRows}. */

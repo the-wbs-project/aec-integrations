@@ -201,6 +201,16 @@ describe('prunePlan', () => {
     expect(plan.blocked).toContain('orphansRicherThanTwin');
   });
 
+  it('lists vendor-held ids: claimed, or created by a vendor (AECI-1005)', async () => {
+    expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([]);
+    h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);
+    expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([ORPHAN]);
+    h.raw
+      .prepare(`UPDATE integrations SET claimed_at = NULL, origin = 'vendor' WHERE id = ?`)
+      .run(ORPHAN);
+    expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([ORPHAN]);
+  });
+
   it('reports unmatched ids as missing instead of failing', async () => {
     const ghost = 'cccccccc-0000-4000-8000-000000000003';
     const plan = await prunePlan(h.db, [ORPHAN, ghost]);
@@ -244,6 +254,15 @@ describe('pruneExecute', () => {
       { slug: 'procore', c: 1 },
       { slug: 'smartsheet', c: 1 },
     ]);
+  });
+
+  it('refuses a vendor-held id even when called without the route (AECI-1005)', async () => {
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);
+    await expect(pruneExecute(h.db, [ORPHAN], plan.affectedProductIds)).rejects.toThrow(
+      /vendor-held/,
+    );
+    expect(h.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
   });
 
   it('produces rollback SQL that restores the deleted rows verbatim', async () => {

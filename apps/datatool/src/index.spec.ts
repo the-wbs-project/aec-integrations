@@ -327,6 +327,52 @@ describe('datatool routes', () => {
     expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
   });
 
+  // ── Vendor-held rows (AECI-1005 / ADR 0035) ────────────────────────────────
+
+  it('refuses a claimed row on the execute path, and no acknowledgment overrides it', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    staging.raw
+      .prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?')
+      .run('2026-09-21T00:00:00.000Z', orphan);
+
+    const dry = await call('/api/prune-integrations', { target: 'staging', ids: orphan }, TOKEN);
+    const plan = (await dry.json()) as { ok: boolean; vendorHeld: string[]; note: string };
+    expect(plan.ok).toBe(false);
+    expect(plan.vendorHeld).toEqual([orphan]);
+    expect(plan.note).toMatch(/vendor-held/);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: [],
+        acknowledgeReason: 'trying to override the vendor-held refusal',
+      },
+      TOKEN,
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VENDOR_HELD');
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
+  });
+
+  it('refuses a vendor-created row the same way', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    staging.raw.prepare(`UPDATE integrations SET origin = 'vendor' WHERE id = ?`).run(orphan);
+
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VENDOR_HELD');
+  });
+
   // ── Overriding a tripped guard (AECI-593) ──────────────────────────────────
   //
   // A curator can editorially retract an edge — delete the upstream record on

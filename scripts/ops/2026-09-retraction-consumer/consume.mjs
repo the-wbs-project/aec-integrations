@@ -152,6 +152,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { listAll, openMcpSession } from './mcp-client.mjs';
+import { vendorHeldColumnsSql, vendorHeldRefusals } from './vendor-held.mjs';
 
 // A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
 // Node exits 1 on an uncaught throw, which is this script's refusal code. Route every
@@ -938,6 +939,14 @@ async function main() {
 
   const integrationRows = [];
   const pairRows = [];
+  // AECI-1005: the vendor-held columns, probed from the live DDL rather than assumed,
+  // because migration 0044 reaches production only at the next prod promote. A table
+  // without them projects NULL, which is also the right answer for it (vendor-held.mjs).
+  const ddlOf = (table) =>
+    d1Read(target, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`)[0]
+      ?.sql ?? '';
+  const integrationsHeldSql = vendorHeldColumnsSql('i', ddlOf('integrations'));
+  const pairsHeldSql = vendorHeldColumnsSql('e', ddlOf('connector_evidenced_pairs'));
   for (const part of chunk(allIds, ID_CHUNK)) {
     const ph = sqlIdList(part);
     integrationRows.push(
@@ -945,7 +954,7 @@ async function main() {
         target,
         `SELECT i.id AS id, s.slug AS aSlug, t.slug AS bSlug, i.name AS name,
                 i.mechanism_kind AS mechanismKind, i.source_product_id AS p1,
-                i.target_product_id AS p2, NULL AS p3,
+                i.target_product_id AS p2, NULL AS p3, ${integrationsHeldSql},
                 (SELECT COUNT(*) FROM claims WHERE integration_id = i.id) AS claims,
                 (SELECT COUNT(*) FROM attestations WHERE claim_id IN
                    (SELECT id FROM claims WHERE integration_id = i.id)) AS attestations
@@ -960,7 +969,7 @@ async function main() {
         target,
         `SELECT e.id AS id, a.slug AS aSlug, b.slug AS bSlug, e.name AS name,
                 e.mechanism_name AS mechanismKind, e.product_a_id AS p1,
-                e.product_b_id AS p2, e.connector_product_id AS p3,
+                e.product_b_id AS p2, e.connector_product_id AS p3, ${pairsHeldSql},
                 (SELECT COUNT(*) FROM claims WHERE connector_evidenced_pair_id = e.id) AS claims,
                 (SELECT COUNT(*) FROM attestations WHERE claim_id IN
                    (SELECT id FROM claims WHERE connector_evidenced_pair_id = e.id)) AS attestations
@@ -1096,6 +1105,41 @@ async function main() {
     console.error(
       `\n${missingHolds.length} held id(s) are NOT in the resolved plan:\n  ${missingHolds.join('\n  ')}\n` +
         'The hold list was written against a state that no longer exists. Refusing.',
+    );
+    return 1;
+  }
+
+  // ─── 3a. Vendor-held rows are never deleted (AECI-1005 / ADR 0035) ─────────
+  //
+  // A row its owner has CLAIMED (`claimed_at` set) or a vendor CREATED
+  // (`origin = 'vendor'`) is the vendor's, not AECi's. An upstream delete of its
+  // curation record is not a ruling on it: promote stopped writing that row the
+  // moment it was claimed, so the review app no longer describes it. Deleting it here
+  // would destroy the vendor's own row, its claims, its attestations and its contests.
+  //
+  // So this is a REFUSAL of the whole run, in dry-run and apply alike, not a silent
+  // skip: a skipped entry would still be confirmable later by `--confirm-already-gone`
+  // reasoning, and a quiet skip is how an operator learns about it from a vendor. To
+  // proceed, put each id on HOLD with the reason. A held entry is never deleted and
+  // never confirmed, so it stays pending on the journal until someone rules on it.
+  const vendorHeld = vendorHeldRefusals(live, HOLD);
+  if (vendorHeld.length) {
+    console.error(
+      `\nREFUSING: ${vendorHeld.length} row(s) in this cohort are VENDOR-HELD and will not be deleted.`,
+    );
+    console.table(
+      vendorHeld.map((v) => ({
+        id: v.entry.supabaseId,
+        name: v.entry.name,
+        table: v.table,
+        claimedAt: v.row.claimedAt ?? null,
+        origin: v.row.origin ?? null,
+      })),
+    );
+    console.error(
+      '\nA claimed or vendor-created integration belongs to its owner, and an upstream delete\n' +
+        'is not a ruling on it (ADR 0035). Add each id to HOLD with the reason and re-run.\n' +
+        'Nothing was written to D1 or to the review app.',
     );
     return 1;
   }
