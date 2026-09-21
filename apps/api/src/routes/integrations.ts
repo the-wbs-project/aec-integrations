@@ -40,6 +40,7 @@ import { resolveMovedPair } from '../lib/pair-redirect';
 import {
   coerceDirection,
   connectorEvidencedPairPairConfig,
+  connectorEvidencedPairTimelineConfig,
   integrationDetailConfig,
   integrationListConfig,
   integrationPairConfig,
@@ -523,7 +524,8 @@ export function createProductPairHandler(
     // can have releases while nothing on this pair varies by them, and selectors
     // that cannot change anything are worse than none — so this decides, with the
     // claims in hand, whether §9 applies at all.
-    const hasVersionStamps = rows.some((row) =>
+    // Both arms, since AECI-1035 gave evidenced pairs their claims.
+    const hasVersionStamps = [...rows, ...evidencedRows].some((row) =>
       row.claims.some((claim) =>
         claim.attestations.some(
           (a) => a.introducedVersionId !== null || a.deprecatedVersionId !== null,
@@ -639,7 +641,15 @@ export function createPairTimelineHandler(
       return json(gated);
     }
 
-    const [rows, versionRows] = await Promise.all([
+    // Canonical order for the evidenced arm, exactly as the pair read computes it.
+    const [pairA, pairB] =
+      contextProduct.id < otherProduct.id
+        ? [contextProduct.id, otherProduct.id]
+        : [otherProduct.id, contextProduct.id];
+
+    // The evidenced arm is AECI-1035: without it every claim on a connector-powered
+    // pair had no history, and its provenance popover rendered blank.
+    const [rows, evidencedRows, versionRows] = await Promise.all([
       db.query.integrations.findMany({
         ...integrationTimelineConfig,
         where: or(
@@ -653,6 +663,13 @@ export function createPairTimelineHandler(
           ),
         ),
       }),
+      db.query.connectorEvidencedPairs.findMany({
+        ...connectorEvidencedPairTimelineConfig,
+        where: and(
+          eq(connectorEvidencedPairs.productAId, pairA),
+          eq(connectorEvidencedPairs.productBId, pairB),
+        ),
+      }),
       db.query.productVersions.findMany({
         columns: { id: true, label: true },
         where: inArray(productVersions.productId, [contextProduct.id, otherProduct.id]),
@@ -663,7 +680,7 @@ export function createPairTimelineHandler(
     // read's job, and a history row is rendered, never compared.
     const labelById = new Map(versionRows.map((row) => [row.id, row.label]));
     const body: PairTimelineResponse = {
-      claims: toPairTimelines(rows, contextProduct.id, {
+      claims: toPairTimelines(rows, evidencedRows, contextProduct.id, {
         versionLabel: (versionId) => (versionId === null ? undefined : labelById.get(versionId)),
       }),
       diff_access: access,

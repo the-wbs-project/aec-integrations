@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   products,
   productVendors,
@@ -363,5 +364,54 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
     // On the reversed mechanism, Revit is endpoint A — so `vendor_a` there is the
     // OTHER product relative to a Procore-context page.
     expect(body.claims.find((c) => c.claim_id === u(31))!.entries[0]!.attestor).toBe('other');
+  });
+});
+
+// AECI-1035. The timeline queried `integrations` alone, so every claim on a
+// connector-evidenced pair had no history and its provenance popover was blank.
+// The edge is stored `b_to_a`, so its ORIENTED source is Revit; the `vendor_a` slot
+// is still Procore's, because evidenced claims are framed against canonical A.
+describe('GET …/integrations/:otherSlug/timeline — connector-evidenced pairs (AECI-1035)', () => {
+  it('returns history for a claim anchored on an evidenced pair, framed against A', async () => {
+    await seedPair();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: u(1),
+      productBId: u(2),
+      direction: 'b_to_a',
+    });
+    await t.db.insert(claims).values({
+      id: u(61),
+      connectorEvidencedPairId: u(60),
+      dataObjectId: u(20),
+      direction: 'b_to_a',
+    });
+    await t.db.insert(attestations).values({
+      id: u(62),
+      claimId: u(61),
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: ACME,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const fromProcore = PairTimelineResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit/timeline')).json(),
+    );
+    const fromRevit = PairTimelineResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore/timeline')).json(),
+    );
+    expect(fromProcore.claims.find((c) => c.claim_id === u(61))!.entries[0]!.attestor).toBe(
+      'context',
+    );
+    expect(fromRevit.claims.find((c) => c.claim_id === u(61))!.entries[0]!.attestor).toBe('other');
   });
 });

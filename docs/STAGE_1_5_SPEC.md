@@ -474,6 +474,13 @@ The cause is structural rather than a defect in the promote: an edge's identity 
   i18n ids: `@@pair.dataflow.empty.directional` / `@@pair.dataflow.empty.subline.directional`; the
   original two ids keep their copy and their meaning.
 
+- **Claims render from both delivered-tier tables (AECI-1035).** A pair's mechanisms come from
+  `integrations` **and** `connector_evidenced_pairs` (§13.1), and each carries its own claims on the
+  polymorphic anchor (§3.1). Until AECI-1035 the evidenced arm returned `claims: []`, so every
+  connector-powered pair page showed the empty band with its claims hidden. The frame differs by
+  table: an `integrations` row's claims are read against its source, an evidenced pair's against
+  canonical endpoint A (`product_a_id`), never the oriented source. The pair timeline reads both
+  tables the same way.
 - **Sync headline.** Lead with the `confirmed / total` headline (§3.5) — in 1.5, `confirmed = 0`, so it communicates breadth honestly.
 - API: a pair-page read (extend the integrations read path / a `GET /api/claims` for a pair) returns claims with context-relative direction already translated (§3.2) and the computed agreement state — the browser does not re-derive identity.
 - **Basic / Detailed disclosure toggle.** The consolidated page carries a lot of per-mechanism detail; a segmented **Basic / Detailed** control in the header lets readers collapse it. **Detailed** (the default) is the full page above. **Basic** ("Overview") keeps the rail, the sync headline, and each mechanism's kind/name + description + external links, and hides the granular data transfers — the Layer-B `data_object` claim lanes **and** the standalone Layer-A direction arrow. State is a **content-affecting URL param** `?view=basic|detailed` (absent ⇒ `detailed`), so the page stays deep-linkable, SSR-correct, and visitor-state-neutral; it is **added to the pair route's `cacheKeyParams`** (`CACHE_STRATEGY.md` §4a), mirroring `/products ?view=table` (AECI-190). The default (param-absent) URL renders the full claim set, so the crawler-indexed page and the canonical are unaffected. The toggle is suppressed when no mechanism has a claim lane or a direction arrow (nothing to collapse).
@@ -1757,6 +1764,9 @@ Stated explicitly so a reviewer can check them rather than infer them:
   AECI-698 / AECI-721 — **landed 2026-08-31**: `integrator` added at 1, the connector-evidenced pin
   at 4, `iPaaS` retained (§4.1–§4.3), and §5's `integration_count` tie-break re-scoped to both
   delivered-tier tables.
+- **Pair page claims (AECI-1035).** A connector-evidenced pair's claims render on the pair page and
+  in its timeline exactly as an `integrations` row's do (§8). This is a claims change only. No
+  `integration_count` lockstep site (§13.5) reads claims, so none changed.
 - **`CACHE_STRATEGY.md`** — §13.4(3) applies its existing §3 embedded-entity rule; no new rule.
 - **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
   Confirmed by AECI-707: it shipped §13.4(2) **and** §13.6 with no edit here, because the
