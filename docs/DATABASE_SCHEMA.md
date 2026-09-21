@@ -1626,8 +1626,8 @@ create table page_views (
   -- Which taxonomy term a facet browse page showed (AECI-585 / ADMIN_PANEL_SPEC.md §7.3).
   -- Two columns for four facets ('category' | 'audience' | 'phase' | 'trade'), and
   -- deliberately NOT foreign keys: SQLite cannot point one column at four tables, and a
-  -- hard FK would block ever deleting a term (retract-product.ts already has to delete
-  -- page_views rows for exactly that reason on products). Integrity comes from the
+  -- hard FK would block ever deleting a term (retract-product.ts has to NULL
+  -- page_views.product_id for exactly that reason on products). Integrity comes from the
   -- ingest-time existence check in routes/page-views.ts — an unknown id stores as null,
   -- and the KIND is stored only alongside a confirmed id, so a dangling kind can never
   -- inflate a per-facet count with unattributable rows. No CHECK on the kind either: this

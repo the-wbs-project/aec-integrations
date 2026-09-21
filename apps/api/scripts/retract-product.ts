@@ -8,7 +8,9 @@
  * `reconcile-product-counts.ts` / `purge-algolia-orphans.ts`.
  *
  * WHAT IT DOES (on `--apply`):
- *   1. D1: ordered child→parent delete of the product + everything hanging off it.
+ *   1. D1: ordered child→parent delete of the product + everything hanging off it,
+ *      with a tombstone `audit_log` row for each deleted domain row, in the SAME
+ *      `wrangler d1 execute` batch (§26.1, AECI-687 — see the core-lib header).
  *   2. Algolia: delete the `products` object (objectID = product id) so search
  *      doesn't keep an orphan (reuses the AECI-267 orphan-purge core).
  *   3. Cache: purge the product/index/browse Cache-Tags so no edge-cached page
@@ -16,11 +18,15 @@
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the writes.
- *   - Refuses a product that has integrations or reviews unless `--force` (those
- *     should be merged onto the canonical product, not cascaded away).
+ *   - Refuses a product that has integrations, connector-evidenced pairs, reviews,
+ *     or product versions unless `--force` (those should be merged onto the
+ *     canonical product, not cascaded away).
+ *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
+ *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
- *   - Emits NO `audit_log` row (there is no handler; see the core-lib header). The
- *     audited path is the future Tier-1 `retract` endpoint.
+ *   - Writes the §26.1 tombstones itself (`product.deleted`, `integration.deleted`,
+ *     `integration.updated`, `review.deleted`, `product_version.deleted`), actor
+ *     `system`, operator named by `--operator <email>` in `metadata.operator`.
  *
  * USAGE (from apps/api; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
  *   # dry-run — read + report footprint, delete nothing:
@@ -38,6 +44,7 @@
  * Skip either side effect with --skip-algolia / --skip-cache.
  */
 
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 import { localizedIndexNamesFor, type AlgoliaEnv } from '@aeci/shared/algolia';
@@ -257,6 +264,15 @@ export async function main(argv: string[]): Promise<number> {
 
   // 3. Safety gate.
   const classification = classifyRetraction(footprint);
+  if (classification.refusals.length > 0) {
+    console.error('✗ This product cannot be retracted by this tool, --force or not:');
+    for (const r of classification.refusals) console.error(`     • ${r}`);
+    console.error(
+      '\nThe connector-catalogue sync owns those rows. Unmap or retire the catalogue upstream,\n' +
+        'let the sync carry it, then re-run.',
+    );
+    return 1;
+  }
   if (!classification.safe) {
     console.warn(`⚠  Not a clean stub — this product carries content a delete would DESTROY:`);
     for (const b of classification.blockers) console.warn(`     • ${b}`);
@@ -286,13 +302,18 @@ export async function main(argv: string[]): Promise<number> {
 
   // 5. Apply: D1 delete (one execute, ordered statements) → Algolia → cache.
   console.log('Deleting from D1…');
-  const statements = buildDeleteStatements(product.id).join('\n');
+  const statements = buildDeleteStatements({
+    product,
+    footprint,
+    auditId: randomUUID(),
+    now: new Date().toISOString(),
+    operator: readValueFlag(argv, '--operator'),
+    force,
+  }).join('\n');
   const results = runD1<unknown>(target, statements);
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
-  console.log(`✓ D1: ${changed} row(s) removed across ${results.length} statement(s).`);
-  console.log(
-    '   (No audit_log row is written — Tier-0 raw delete; see the Tier-1 retract endpoint.)',
-  );
+  console.log(`✓ D1: ${changed} row(s) written across ${results.length} statement(s),`);
+  console.log('   tombstones included (product.deleted + one per deleted edge/review/version).');
   console.log('');
 
   if (!argv.includes('--skip-algolia')) await deindexAlgolia(target, product);

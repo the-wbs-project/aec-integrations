@@ -45,7 +45,7 @@
  * child→parent and writes every SET NULL explicitly rather than leaning on the FK action,
  * so the statement list is correct and readable regardless of what the engine does.
  *
- * AUDIT (§26.1). Unlike `retract-product.ts`, this lane DOES write an `audit_log` row —
+ * AUDIT (§26.1). Like `retract-product.ts` (since AECI-687), this lane writes an `audit_log` row —
  * one per deleted vendor, in the SAME `wrangler d1 execute` batch as the delete, in the
  * shape `scripts/ops/2026-09-retraction-consumer/consume.mjs` writes. A vendor delete is
  * catalog domain state and the row is the only surviving account of it.
