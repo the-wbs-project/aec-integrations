@@ -1,0 +1,41 @@
+{
+  "name": "@aeci/agent",
+  "private": true,
+  "type": "module",
+  "description": "Spike: Flue-based agent Worker for catalog Q&A. Hand-deployed only (not deployed by CI).",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "build:production": "CLOUDFLARE_ENV=production vite build",
+    "preview": "vite preview",
+    "deploy": "pnpm run build && wrangler deploy -c dist/aeci_agent/wrangler.json --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "deploy:production": "pnpm run build:production && wrangler deploy -c dist/aeci_agent/wrangler.json --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:unit": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "deploy:dry-run": "pnpm run build && wrangler deploy --dry-run -c dist/aeci_agent/wrangler.json",
+    "deploy:dry-run:production": "pnpm run build:production && wrangler deploy --dry-run -c dist/aeci_agent/wrangler.json"
+  },
+  "dependencies": {
+    "@aeci/shared": "workspace:*",
+    "@flue/runtime": "2.1.0",
+    "hono": "4.12.32",
+    "jose": "^6.2.3",
+    "valibot": "^1.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.56.0",
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "@flue/vite": "2.1.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@vitest/coverage-v8": "^3.2.4",
+    "better-sqlite3": "^12.11.1",
+    "typescript": "~5.9.2",
+    "vite": "8.3.0",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.135.0"
+  }
+}

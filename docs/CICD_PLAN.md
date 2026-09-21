@@ -424,6 +424,21 @@ Both Workers (SSR and API) deploy together as a single pipeline step. If either 
 
 Implementation: deploy API Worker first, run health check, deploy SSR Worker, run smoke tests. If smoke tests fail, rollback both.
 
+### 4.4 Workers that are deliberately NOT deployed by CI
+
+Two Workers in this repo are **hand-deployed**. No job builds, deploys or version-gates them. They are **not** outside the PR suite: `apps/*` is a pnpm workspace glob and the root `pnpm lint` / `pnpm typecheck` / `pnpm test:unit` are `pnpm -r` fan-outs, so the required `Lint & typecheck` and `Unit tests` checks run each package's own `lint`, `typecheck` and `test:unit`, and the root Prettier `format:check` covers their files. A failure there blocks a merge to `main`. Both are internal tools behind Cloudflare Access, neither serves public traffic, and neither is part of the atomic SSR+API deploy in §4.3.
+
+| Worker | What it is | Deploy |
+| --- | --- | --- |
+| `apps/datatool` | Internal admin Worker: clone D1 data env→env (full mirror), seed reviews, reindex Algolia, and (WC-7 / AECI-321) enqueue a bulk cache purge. | `pnpm --filter @aeci/datatool deploy` |
+| `apps/agent` | Catalog question-answering **spike** on Flue (ADR 0034). Reads D1 read-only, writes only its own R2 corpus. | `pnpm --filter @aeci/agent deploy` / `deploy:production` |
+
+Both deploy scripts pass `--var COMMIT_SHA` and `--var DEPLOYED_AT` per the AECI-74 convention, so a hand deploy still reports a real SHA.
+
+**`apps/agent` deploys differently from every other Worker here, and this is the part that bites.** Its build is Vite, not bare wrangler: Flue's plugin contributes `main` and one Durable Object binding per agent, and `@cloudflare/vite-plugin` writes the merged result to `dist/aeci_agent/wrangler.json`. So `wrangler deploy` reads that **emitted** file with `-c`, not the hand-authored `apps/agent/wrangler.jsonc` (which declares no `main` and cannot be deployed). The tier is chosen at **build** time by `CLOUDFLARE_ENV`, not at deploy time by `--env` — `CLOUDFLARE_ENV=production vite build` is what flattens `env.production` in. Passing `--env production` to a preview build does not switch tiers.
+
+The cost of staying out of the deploy pipeline is real and accepted for a spike: **a change that breaks either Worker's build or deploy config passes the PR suite**, because no job runs `vite build` for `apps/agent` or a `wrangler deploy --dry-run` for either. Run `pnpm --filter @aeci/agent deploy:dry-run` (and `:production`) before merging a change to its `vite.config.ts` or `wrangler.jsonc`, and re-deploy by hand afterwards. Wiring `apps/agent`'s build and deploy into `deploy.yml` is the first thing to do if the spike graduates.
+
 ---
 
 ## 5. Database migrations

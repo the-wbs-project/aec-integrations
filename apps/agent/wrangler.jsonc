@@ -1,0 +1,160 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aeci-agent",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  // SPIKE WORKER. Built on Flue (the Astro team's agent framework). Deployed BY
+  // HAND, like apps/datatool — deliberately not deployed by CI (the root
+  // `pnpm -r` lint/typecheck/test:unit lanes still run this package on every PR).
+  //
+  // `main` is NOT declared here. Flue's Vite plugin contributes it (a virtual
+  // Worker entry that registers the scanned `'use agent'` modules and exports
+  // one Durable Object class per agent), along with one `FLUE_*` Durable Object
+  // binding per agent. Never hand-author those bindings.
+  //
+  // What stays OURS to author, and why:
+  //   - `compatibility_flags: ["nodejs_compat"]` — Flue's runtime uses Node APIs.
+  //     The plugin unions it in, but declaring it keeps the file honest.
+  //   - `compatibility_date` — Flue enforces a floor of 2026-04-01. The AI
+  //     Search namespace binding needs 2026-03-27 or newer, so both are met.
+  //   - `migrations` — an ordered, append-only record Flue never writes. Adding
+  //     an agent is always a triple: the `'use agent'` file, the mount in
+  //     `src/app.ts`, and a new uniquely tagged migration. Generated agent
+  //     classes require Durable Object SQLite, so they enter through
+  //     `new_sqlite_classes`, never the legacy `new_classes`.
+  //   - every application-owned binding below.
+  //
+  // No `migrations_dir`: this Worker must NEVER run D1 migrations — apps/api
+  // owns the schema.
+  //
+  // Two wrangler environments only: the default block (preview tier) and
+  // `env.production`. Bindings are NOT inherited into a named environment, so
+  // every one of them is repeated in the production block.
+  "compatibility_date": "2026-07-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+  // Flue's generated Durable Object classes. ONE ENTRY PER AGENT; the class name
+  // follows the exported function's name (`Catalog` → `FlueCatalogAgent`,
+  // `CatalogClaude` → `FlueCatalogClaudeAgent`). Renaming a function is a
+  // storage-identity change — express it with `renamed_classes`, never by
+  // editing a deployed tag.
+  //
+  // The scaffold's `flue-class-FlueHelloAgent` tag is GONE rather than followed
+  // by a `deleted_classes` entry: `Hello` was never deployed, so no account ever
+  // saw that class and there is no stored state to migrate. A `deleted_classes`
+  // tag for a class Cloudflare never knew about would fail the deploy.
+  "migrations": [
+    {
+      "tag": "flue-class-FlueCatalogAgent",
+      "new_sqlite_classes": ["FlueCatalogAgent"],
+    },
+    {
+      "tag": "flue-class-FlueCatalogClaudeAgent",
+      "new_sqlite_classes": ["FlueCatalogClaudeAgent"],
+    },
+  ],
+  "vars": {
+    "ENV": "preview",
+    // Cloudflare Access, read by src/access.ts. Without BOTH, the middleware
+    // skips JWT verification and every signed-in request is a 403. Values are
+    // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
+    "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
+    "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+    // AECI-74 convention: overridden at dev/deploy time via
+    // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+    "COMMIT_SHA": "unknown",
+    "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aeci-app-preview",
+      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+    },
+  ],
+  "ai": {
+    "binding": "AI",
+  },
+  // AI Search (formerly AutoRAG). This is the NAMESPACE binding form, which
+  // needs no instance to exist — `default` is the namespace every instance
+  // created without one belongs to. `remote: true` because AI Search has no
+  // local emulation; `wrangler dev` proxies to the deployed service.
+  "ai_search_namespaces": [
+    {
+      "binding": "AI_SEARCH",
+      "namespace": "default",
+      "remote": true,
+    },
+  ],
+  // Corpus bucket for the documents AI Search indexes. Not yet provisioned.
+  "r2_buckets": [
+    {
+      "binding": "CORPUS",
+      "bucket_name": "aeci-agent-corpus-preview",
+    },
+  ],
+  "services": [
+    {
+      "binding": "API",
+      "service": "aeci-api-preview",
+    },
+  ],
+  "env": {
+    "production": {
+      "name": "aeci-agent-production",
+      "workers_dev": true,
+      "vars": {
+        "ENV": "production",
+        // Cloudflare Access, read by src/access.ts. Without BOTH, the middleware
+        // skips JWT verification and every signed-in request is a 403. Values are
+        // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
+        "ACCESS_AUD": "15a26a295f44bb640bcd6e52a19b49196162d3615d095d53f61d8baa853541ae",
+        "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+        // AECI-74: overridden at deploy time via
+        // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+        },
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-production",
+          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+        },
+      ],
+      "ai": {
+        "binding": "AI",
+      },
+      "ai_search_namespaces": [
+        {
+          "binding": "AI_SEARCH",
+          "namespace": "default",
+          "remote": true,
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "CORPUS",
+          "bucket_name": "aeci-agent-corpus-production",
+        },
+      ],
+      "services": [
+        {
+          "binding": "API",
+          "service": "aeci-api-production",
+        },
+      ],
+    },
+  },
+}

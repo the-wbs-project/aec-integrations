@@ -1,0 +1,44 @@
+# Local secrets for `vite dev` (workerd). Copy to `.dev.vars` — never commit it.
+#
+# This Worker takes TWO secrets, and BOTH are optional.
+#
+# TOOL_TOKEN — the shared-secret bearer fallback accepted by src/access.ts when
+# no Cloudflare Access assertion is present (curl, CI, local dev). Every route
+# on this Worker, including the Flue agent mounts, is behind that gate and FAILS
+# CLOSED, so with neither a TOOL_TOKEN nor an Access JWT every request is 403.
+# Set it locally to be able to reach the agent at all.
+TOOL_TOKEN=
+
+# Cloudflare Access verification, for the browser path. Plain vars in a deployed
+# environment; set here only if you are exercising the JWT branch locally.
+# ACCESS_AUD=
+# ACCESS_TEAM_DOMAIN=
+
+# API_BASE_URL — LOCAL DEVELOPMENT ONLY. Absolute origin of a locally-running
+# API Worker (e.g. http://localhost:8789), used when the `API` service binding
+# does not resolve under `vite dev`. Never set in a deployed environment; no
+# wrangler.jsonc env block declares it.
+# API_BASE_URL=
+#
+# There is NO model-provider secret. Both model families are reached through the
+# `AI` binding: Workers AI as `cloudflare/@cf/...` and Claude as
+# `cloudflare/anthropic/...`. AI Gateway authenticates the Anthropic leg against
+# Cloudflare's Unified Billing credits, so there is no Anthropic API key and no
+# Anthropic account. Traffic is pinned to the named gateway in src/app.ts.
+#
+# TYPESAFE_API_KEY — OPTIONAL, and leaving it unset is the supported default.
+#
+# TypeSafe AI key for the Jev relevance filter (src/lib/jev.ts). Jev is a hosted
+# classifier: after search_catalog retrieves, it scores each passage for
+# relevance and for whether the passage is trying to instruct the system, and
+# the weak ones are dropped before the answering model sees them.
+#
+# It takes TWO switches, not one. With no key here the filter returns its input
+# unchanged and opens no connection. With a key but no per-conversation toggle,
+# likewise — the toggle is `initialData.jevFilter`, set when a conversation is
+# created (`POST /agents/catalog/:id`), never by the model.
+#
+# Setting it means passage text and the user's question leave Cloudflare for
+# api.typesafe.ai. The passages are public catalog data. No user identity, no
+# session or conversation id and no internal column goes with them.
+# TYPESAFE_API_KEY=
