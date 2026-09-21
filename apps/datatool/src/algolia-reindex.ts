@@ -33,6 +33,7 @@ import {
   callAlgoliaBatch,
 } from '@aeci/shared/algolia-batch';
 import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-records';
+import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
@@ -70,7 +71,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
   const { results } = await db
     .prepare(
       `SELECT
-         p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.has_api_docs,
+         p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website, p.has_api_docs,
          p.integration_count, p.review_count, p.rating_overall_avg,
          (SELECT v.company_name FROM product_vendors pv JOIN vendors v ON v.id = pv.vendor_id
             WHERE pv.product_id = p.id ORDER BY pv.is_primary DESC LIMIT 1) AS vendor_name,
@@ -94,6 +95,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       slug: string;
       description: string | null;
       logo_url: string | null;
+      website: string | null;
       has_api_docs: number;
       integration_count: number;
       review_count: number;
@@ -108,6 +110,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
     }>();
   return results.map((r) => {
     const trades = splitNames(r.trades);
+    const categories = splitNames(r.categories);
     return {
       objectID: r.objectID,
       name: r.name,
@@ -115,7 +118,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       description: r.description,
       vendor_name: r.vendor_name,
       vendor_slug: r.vendor_slug,
-      categories: splitNames(r.categories),
+      categories,
       audiences: splitNames(r.audiences),
       phases: splitNames(r.phases),
       trades,
@@ -127,6 +130,17 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       rating_overall_avg: r.rating_overall_avg,
       has_api_docs: Boolean(r.has_api_docs),
       logo_url: r.logo_url,
+      // AECI-636 — the SHARED computation, so this builder and `toAlgoliaProduct`
+      // cannot disagree about a product's tier. Omitted, not null, when absent.
+      ...listingTierField(
+        productListingTier({
+          name: r.name,
+          description: r.description,
+          categories,
+          website: r.website,
+          logo_url: r.logo_url,
+        }),
+      ),
     };
   });
 }
@@ -136,7 +150,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     .prepare(
       `SELECT
          v.id AS objectID, v.company_name, v.slug, v.description, v.headquarters,
-         v.founded_year, v.logo_url,
+         v.founded_year, v.logo_url, v.website,
          (SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = v.id) AS product_count,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
@@ -154,6 +168,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
       headquarters: string | null;
       founded_year: number | null;
       logo_url: string | null;
+      website: string | null;
       product_count: number;
       integration_count: number;
     }>();
@@ -169,6 +184,16 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     product_count: r.product_count,
     integration_count: r.integration_count,
     logo_url: r.logo_url,
+    // AECI-636 — shared with `toAlgoliaVendor`. Content inputs only.
+    ...listingTierField(
+      vendorListingTier({
+        company_name: r.company_name,
+        description: r.description,
+        headquarters: r.headquarters,
+        website: r.website,
+        logo_url: r.logo_url,
+      }),
+    ),
   }));
 }
 

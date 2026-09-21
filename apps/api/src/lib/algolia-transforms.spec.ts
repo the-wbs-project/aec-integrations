@@ -319,6 +319,87 @@ describe('toAlgoliaVendor', () => {
 });
 
 // ---------------------------------------------------------------------------
+// listing_tier (AECI-636)
+// ---------------------------------------------------------------------------
+
+describe('listing_tier on the product and vendor records (AECI-636)', () => {
+  it('emits tier 2 for a fully described product, from its OWN website', async () => {
+    await t.db.insert(products).values({
+      id: u(1),
+      slug: 'procore',
+      name: 'Procore',
+      description: 'Construction management platform.',
+      website: 'https://procore.example',
+      logoUrl: 'https://cdn.brandfetch.io/procore.png',
+    });
+    await t.db
+      .insert(taxonomyCategories)
+      .values({ id: u(21), slug: 'project-management', name: 'Project Management' });
+    await t.db.insert(productCategories).values({ productId: u(1), categoryId: u(21) });
+
+    const record = toAlgoliaProduct((await productById(u(1)))!);
+    expect(record.listing_tier).toBe(2);
+    expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
+  });
+
+  it('ignores the vendor website when the product has none (D3)', async () => {
+    await t.db.insert(products).values({
+      id: u(1),
+      slug: 'procore',
+      name: 'Procore',
+      description: 'Construction management platform.',
+      logoUrl: 'https://cdn.brandfetch.io/procore.png',
+    });
+    await t.db.insert(vendors).values({
+      id: u(11),
+      slug: 'procore-technologies',
+      companyName: 'Procore Technologies',
+      website: 'https://procore.example',
+    });
+    await t.db.insert(productVendors).values({ productId: u(1), vendorId: u(11), isPrimary: true });
+
+    // Description + name + logo; category and website missing: tier 1.
+    const record = toAlgoliaProduct((await productById(u(1)))!);
+    expect(record.listing_tier).toBe(1);
+  });
+
+  it('OMITS the key for a product with no description', async () => {
+    await t.db.insert(products).values({ id: u(1), slug: 'procore', name: 'Procore' });
+    const record = toAlgoliaProduct((await productById(u(1)))!);
+    // Absent, not null: the sync writes `updateObject` (a full replace), and
+    // Algolia sorts a record missing a customRanking attribute last.
+    expect('listing_tier' in record).toBe(false);
+    expect(JSON.stringify(record)).not.toContain('listing_tier');
+  });
+
+  it('emits a vendor tier and ignores `verified`', async () => {
+    const full = {
+      slug: 'procore-technologies',
+      companyName: 'Procore Technologies',
+      description: 'Construction software.',
+      headquarters: 'Carpinteria, CA',
+      website: 'https://procore.example',
+      logoUrl: 'https://cdn.brandfetch.io/procore.png',
+    };
+    await t.db.insert(vendors).values([
+      { id: u(1), ...full, verified: true },
+      { id: u(2), ...full, slug: 'procore-2', verified: false },
+    ]);
+    const verified = toAlgoliaVendor((await vendorById(u(1)))!);
+    const unverified = toAlgoliaVendor((await vendorById(u(2)))!);
+    expect(verified.listing_tier).toBe(2);
+    expect(unverified.listing_tier).toBe(2);
+    expect(() => AlgoliaVendorRecordSchema.parse(verified)).not.toThrow();
+  });
+
+  it('OMITS the key for a vendor with no description', async () => {
+    await t.db.insert(vendors).values({ id: u(1), slug: 'lonely', companyName: 'Lonely Co' });
+    const record = toAlgoliaVendor((await vendorById(u(1)))!);
+    expect('listing_tier' in record).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // toAlgoliaIntegration
 // ---------------------------------------------------------------------------
 

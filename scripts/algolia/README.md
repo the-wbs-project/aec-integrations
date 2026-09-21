@@ -118,6 +118,15 @@ records already in an index.
 (`apps/datatool`, `POST /reindex`). Until it runs, that environment's "Name (A–Z)" tab ranks on an
 absent attribute. Nothing errors; the tab just orders arbitrarily.
 
+**AECI-636 adds a second attribute that needs the same backfill: `listing_tier`** on product and
+vendor records. It ranks nothing until AECI-636's settings change ships, and that change must not
+ship to an environment until the backfill has run there, or every record ties on an absent
+attribute. Prefer the watermark sweep in `docs/SEARCH_RANKING.md` §1.2 for it: it re-pushes every
+record without emptying the index (its script targets `integrations` only today, so it needs a
+`products` / `vendors` option first), and the same pass carries `name_sort` / `company_name_sort`. The
+datatool reindex empties the index while it runs, and until AECI-1038 is fixed it drops `verified`
+from every vendor record.
+
 ## Verify (in the Algolia dashboard, after a run)
 
 - Each `<env>_*` index shows the expected searchable attributes, facets, and custom ranking.

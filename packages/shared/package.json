@@ -61,6 +61,10 @@
       "types": "./src/algolia-records.ts",
       "default": "./src/algolia-records.ts"
     },
+    "./listing-tier": {
+      "types": "./src/listing-tier.ts",
+      "default": "./src/listing-tier.ts"
+    },
     "./cache-purge": {
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"

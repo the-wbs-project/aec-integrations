@@ -28,6 +28,7 @@ import {
   algoliaSortKey,
   flattenTradeAliases,
 } from '@aeci/shared/algolia-records';
+import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import { sql } from 'drizzle-orm';
 
 import { presentedDirection } from '@aeci/shared';
@@ -87,6 +88,10 @@ export const algoliaProductConfig = {
     name: true,
     description: true,
     logoUrl: true,
+    // AECI-636 — a `listing_tier` input. The product's OWN website, never its
+    // vendor's: a vendor edit does not re-push that vendor's products, so a
+    // vendor-sourced input would go stale on every product record (D3).
+    website: true,
     hasApiDocs: true,
     integrationCount: true,
     reviewCount: true,
@@ -122,6 +127,7 @@ export const algoliaVendorConfig = {
     headquarters: true,
     foundedYear: true,
     logoUrl: true,
+    website: true, // AECI-636 — a `listing_tier` input
     verified: true, // AECI-529: denormalized onto the record for the search-card badge
     promotionStatus: true,
     updatedAt: true,
@@ -174,6 +180,7 @@ export interface RawAlgoliaProductRow {
   name: string;
   description: string | null;
   logoUrl: string | null;
+  website: string | null;
   hasApiDocs: boolean;
   integrationCount: number;
   reviewCount: number;
@@ -204,6 +211,7 @@ export interface RawAlgoliaVendorRow {
   headquarters: string | null;
   foundedYear: number | null;
   logoUrl: string | null;
+  website: string | null;
   verified: boolean;
   promotionStatus: string;
   updatedAt: string;
@@ -229,6 +237,7 @@ export interface RawAlgoliaIntegrationRow {
 export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecord {
   const vendor = pickPrimaryVendor(row.productVendors);
   const tradeNames = row.productTrades.map((r) => r.trade.name);
+  const categories = row.productCategories.map((r) => r.category.name);
   return {
     objectID: row.id,
     name: row.name,
@@ -236,7 +245,7 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     description: row.description,
     vendor_name: vendor?.name ?? null,
     vendor_slug: vendor?.slug ?? null,
-    categories: row.productCategories.map((r) => r.category.name),
+    categories,
     audiences: row.productAudiences.map((r) => r.audience.name),
     phases: row.productPhases.map((r) => r.phase.name),
     trades: tradeNames,
@@ -252,6 +261,17 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     rating_overall_avg: row.ratingOverallAvg,
     has_api_docs: row.hasApiDocs,
     logo_url: row.logoUrl,
+    // AECI-636 — omitted, not null, when there is no tier. Content inputs only;
+    // must stay identical to `buildProductRecords` in `apps/datatool`.
+    ...listingTierField(
+      productListingTier({
+        name: row.name,
+        description: row.description,
+        categories,
+        website: row.website,
+        logo_url: row.logoUrl,
+      }),
+    ),
   };
 }
 
@@ -270,6 +290,16 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     product_count: row.productCount,
     integration_count: row.integrationCount,
     logo_url: row.logoUrl,
+    // AECI-636 — see `toAlgoliaProduct`. `verified` is deliberately NOT an input.
+    ...listingTierField(
+      vendorListingTier({
+        company_name: row.companyName,
+        description: row.description,
+        headquarters: row.headquarters,
+        website: row.website,
+        logo_url: row.logoUrl,
+      }),
+    ),
   };
 }
 

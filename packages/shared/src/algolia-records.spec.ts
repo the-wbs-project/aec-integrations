@@ -175,6 +175,34 @@ describe('AlgoliaVendorRecordSchema', () => {
   });
 });
 
+describe('listing_tier on the product and vendor records (AECI-636)', () => {
+  it.each([
+    ['product', AlgoliaProductRecordSchema, PRODUCT],
+    ['vendor', AlgoliaVendorRecordSchema, VENDOR],
+  ] as const)('accepts 1 and 2 on the %s record', (_label, schema, record) => {
+    expect(schema.parse({ ...record, listing_tier: 1 }).listing_tier).toBe(1);
+    expect(schema.parse({ ...record, listing_tier: 2 }).listing_tier).toBe(2);
+  });
+
+  it.each([
+    ['product', AlgoliaProductRecordSchema, PRODUCT],
+    ['vendor', AlgoliaVendorRecordSchema, VENDOR],
+  ] as const)('keeps the key ABSENT on a %s record with no tier', (_label, schema, record) => {
+    // No default: absence is the "no tier" state Algolia sorts last, so parsing
+    // must not invent a value.
+    expect('listing_tier' in schema.parse(record)).toBe(false);
+  });
+
+  it.each([
+    ['product', AlgoliaProductRecordSchema, PRODUCT],
+    ['vendor', AlgoliaVendorRecordSchema, VENDOR],
+  ] as const)('rejects a sentinel on the %s record (0, 3, null)', (_label, schema, record) => {
+    for (const bad of [0, 3, null, '2']) {
+      expect(() => schema.parse({ ...record, listing_tier: bad })).toThrow();
+    }
+  });
+});
+
 describe('AlgoliaIntegrationRecordSchema', () => {
   it('accepts a valid denormalized integration record (§7.1)', () => {
     expect(AlgoliaIntegrationRecordSchema.parse(INTEGRATION)).toEqual(INTEGRATION);

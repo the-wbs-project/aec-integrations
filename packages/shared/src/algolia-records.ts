@@ -26,6 +26,19 @@ import { z } from 'zod';
 import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './api/integrations';
 
 /**
+ * `listing_tier` (AECI-636) on the product and vendor records: `1 | 2`, or ABSENT.
+ *
+ * Absent is the "no tier" state, and it is a real value rather than a gap:
+ * Algolia sorts a record that lacks a `customRanking` attribute last. So the
+ * schema is `.optional()` with no default, and it rejects `null` and `0` — a
+ * sentinel would sort as a number and defeat the omission. Computed only by
+ * `productListingTier` / `vendorListingTier` in `./listing-tier`, which both
+ * record builders share. Not yet named in `INDEX_SETTINGS`, so it ranks nothing
+ * until AECI-636's settings change ships (`SEARCH_RANKING.md` §3.1).
+ */
+const ListingTierSchema = z.union([z.literal(1), z.literal(2)]).optional();
+
+/**
  * `products` index record (§7.1). `objectID` is the Supabase product UUID.
  * `vendor_name` / `vendor_slug` denormalize the product's primary vendor and are
  * nullable because a product may carry no vendor link (AECI-115, mirrors
@@ -76,6 +89,7 @@ export const AlgoliaProductRecordSchema = z.object({
   rating_overall_avg: z.number().nullable(),
   has_api_docs: z.boolean(),
   logo_url: LogoReadUrlSchema.nullable(),
+  listing_tier: ListingTierSchema,
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;
@@ -170,6 +184,7 @@ export const AlgoliaVendorRecordSchema = z.object({
   product_count: z.number().int().min(0),
   integration_count: z.number().int().min(0),
   logo_url: LogoReadUrlSchema.nullable(),
+  listing_tier: ListingTierSchema,
 });
 
 export type AlgoliaVendorRecord = z.infer<typeof AlgoliaVendorRecordSchema>;
