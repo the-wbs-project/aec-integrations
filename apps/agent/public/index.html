@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>AECi catalog agent — internal test page</title>
+    <!--
+      INTERNAL TEST TOOL. Not a product surface.
+
+      This page is deliberately outside every rule that governs `apps/web`:
+      no i18n attributes, no Tailwind, no design system, no build step, no
+      framework and no npm dependency. It is one file of plain HTML, CSS and
+      JavaScript, inlined into the Worker bundle at build time by
+      `src/app.ts` and served behind the same `requireAccess()` gate as the
+      agent mounts. See `apps/agent/README.md`.
+
+      The Flue client protocol it speaks is the documented one
+      (node_modules/@flue/runtime/docs/reference/streaming-protocol.md):
+        POST <mount>/<conversationId>   -> 202 { streamUrl, offset, submissionId, uid }
+        GET  <mount>/<conversationId>?view=updates&offset=<o>&live=sse
+      SSE is read with `fetch` plus a manual parser rather than `EventSource`,
+      because `EventSource` cannot send an `Authorization` header and the
+      bearer-token path is the only way in during local development.
+    -->
+    <style>
+      :root {
+        --ink: #13171c;
+        --muted: #5b6672;
+        --line: #d7dce2;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --accent: #12507a;
+        --warn: #8a4b00;
+        --bad: #a01b1b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+      }
+      header {
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        padding: 12px 16px;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 2px;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      fieldset {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        margin: 0 0 16px;
+        padding: 12px;
+      }
+      legend {
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 0 6px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: flex-end;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      select,
+      input,
+      textarea,
+      button {
+        font: inherit;
+        color: inherit;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        padding: 6px 8px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 72px;
+        resize: vertical;
+      }
+      button {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        border-color: var(--line);
+        color: var(--ink);
+      }
+      button[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      :focus-visible {
+        outline: 3px solid #0b6bb5;
+        outline-offset: 2px;
+      }
+      .checkline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .checkline label {
+        color: var(--ink);
+      }
+      .meta {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 8px;
+        word-break: break-all;
+      }
+      #transcript {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .turn {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        padding: 10px 12px;
+      }
+      .turn .who {
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .turn .body {
+        white-space: pre-wrap;
+      }
+      .turn.user {
+        background: #eef3f7;
+      }
+      .turn.notice {
+        background: #fdf6e8;
+        border-color: #e6d5ab;
+        color: var(--warn);
+      }
+      .turn.error {
+        background: #fdeeee;
+        border-color: #e6b4b4;
+        color: var(--bad);
+      }
+      .activity {
+        margin-top: 8px;
+        border-top: 1px dashed var(--line);
+        padding-top: 6px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .activity div {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .reasoning {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--muted);
+        white-space: pre-wrap;
+        border-left: 3px solid var(--line);
+        padding-left: 8px;
+      }
+      .composer {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        padding: 12px;
+      }
+      .composer .row {
+        margin-top: 8px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>AECi catalog agent — internal test page</h1>
+      <p class="sub">
+        Spike. Two models, one harness. Not a product surface, and not behind any of the rules that
+        govern the public site.
+      </p>
+    </header>
+
+    <main>
+      <fieldset>
+        <legend>Conversation settings</legend>
+        <div class="row">
+          <div class="field">
+            <label for="model">Model</label>
+            <select id="model">
+              <option value="/agents/catalog" selected>
+                Workers AI — @cf/zai-org/glm-5.3-flash
+              </option>
+              <option value="/agents/catalog-claude">Claude — anthropic/claude-sonnet-4-6</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="token">Bearer token (local dev only)</label>
+            <input
+              id="token"
+              type="password"
+              autocomplete="off"
+              placeholder="TOOL_TOKEN, or blank behind Access"
+              size="28"
+            />
+          </div>
+
+          <div class="field checkline">
+            <input id="jev" type="checkbox" />
+            <label for="jev">Jev relevance filter</label>
+          </div>
+
+          <div class="field">
+            <button id="new-conversation" type="button" class="secondary">New conversation</button>
+          </div>
+        </div>
+
+        <p class="meta">
+          Model and the Jev filter are fixed when a conversation is created. Changing either starts a
+          new conversation, and the transcript says so.
+        </p>
+        <p class="meta">Conversation: <span id="conversation-id">—</span></p>
+      </fieldset>
+
+      <div id="transcript"></div>
+
+      <form class="composer" id="composer">
+        <label for="prompt">Message</label>
+        <textarea
+          id="prompt"
+          placeholder="Ask about a product, a vendor, or an integration between two products."
+        ></textarea>
+        <div class="row">
+          <span class="hint">Enter sends. Shift+Enter is a newline.</span>
+          <button id="send" type="submit">Send</button>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var TOKEN_KEY = 'aeci-agent-tool-token';
+
+        var modelEl = document.getElementById('model');
+        var jevEl = document.getElementById('jev');
+        var tokenEl = document.getElementById('token');
+        var newEl = document.getElementById('new-conversation');
+        var idEl = document.getElementById('conversation-id');
+        var transcriptEl = document.getElementById('transcript');
+        var formEl = document.getElementById('composer');
+        var promptEl = document.getElementById('prompt');
+        var sendEl = document.getElementById('send');
+
+        // ── Conversation state ────────────────────────────────────────────
+        // `mount` and `jevFilter` are recorded when the conversation is
+        // CREATED. Flue consults `initialData` only on the creating send, so a
+        // later flip cannot reach an existing conversation. `startConversation`
+        // is therefore the only way to change either.
+        var state = {
+          mount: modelEl.value,
+          jevFilter: false,
+          id: '',
+          created: false,
+          busy: false,
+        };
+
+        function newConversationId() {
+          var rand = Math.random().toString(36).slice(2, 8);
+          return 'web-' + Date.now().toString(36) + '-' + rand;
+        }
+
+        function startConversation(noticeText) {
+          state.mount = modelEl.value;
+          state.jevFilter = jevEl.checked;
+          state.id = newConversationId();
+          state.created = false;
+          idEl.textContent = state.mount + '/' + state.id;
+          if (noticeText) addNotice(noticeText);
+        }
+
+        function settingsLabel() {
+          var model = modelEl.options[modelEl.selectedIndex].text;
+          return model + ', Jev filter ' + (jevEl.checked ? 'ON' : 'off');
+        }
+
+        // ── Rendering ─────────────────────────────────────────────────────
+
+        function addTurn(kind, who) {
+          var turn = document.createElement('div');
+          turn.className = 'turn ' + kind;
+          var head = document.createElement('div');
+          head.className = 'who';
+          head.textContent = who;
+          var body = document.createElement('div');
+          body.className = 'body';
+          turn.appendChild(head);
+          turn.appendChild(body);
+          transcriptEl.appendChild(turn);
+          turn.scrollIntoView({ block: 'nearest' });
+          return { turn: turn, body: body };
+        }
+
+        function addNotice(text) {
+          addTurn('notice', 'note').body.textContent = text;
+        }
+
+        function addError(text) {
+          addTurn('error', 'error').body.textContent = text;
+        }
+
+        function activityLine(turn, text) {
+          var box = turn.querySelector('.activity');
+          if (!box) {
+            box = document.createElement('div');
+            box.className = 'activity';
+            turn.appendChild(box);
+          }
+          var line = document.createElement('div');
+          line.textContent = text;
+          box.appendChild(line);
+          return line;
+        }
+
+        function reasoningBox(turn) {
+          var box = turn.querySelector('.reasoning');
+          if (!box) {
+            box = document.createElement('div');
+            box.className = 'reasoning';
+            turn.appendChild(box);
+          }
+          return box;
+        }
+
+        function shorten(value, max) {
+          var text;
+          try {
+            text = typeof value === 'string' ? value : JSON.stringify(value);
+          } catch (e) {
+            text = String(value);
+          }
+          if (text === undefined) text = 'undefined';
+          return text.length > max ? text.slice(0, max) + '…' : text;
+        }
+
+        // ── HTTP ──────────────────────────────────────────────────────────
+
+        function headers(extra) {
+          var h = extra || {};
+          var token = tokenEl.value.trim();
+          if (token) h['Authorization'] = 'Bearer ' + token;
+          return h;
+        }
+
+        function errorText(status, body) {
+          if (body && body.error && body.error.message) {
+            return status + ' ' + body.error.type + ': ' + body.error.message;
+          }
+          return 'HTTP ' + status;
+        }
+
+        // ── SSE, read over fetch ──────────────────────────────────────────
+        // `EventSource` cannot carry an `Authorization` header, and the bearer
+        // token is the only credential available outside Cloudflare Access. So
+        // the event stream is read from the response body and framed by hand.
+
+        function parseEventBlock(block) {
+          var event = 'message';
+          var data = '';
+          var lines = block.split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            if (line.charAt(0) === ':') continue;
+            if (line.indexOf('event:') === 0) event = line.slice(6).trim();
+            else if (line.indexOf('data:') === 0) data += line.slice(5).trim();
+          }
+          return { event: event, data: data };
+        }
+
+        async function followSubmission(mount, conversationId, offset, submissionId, turn) {
+          var url =
+            mount +
+            '/' +
+            encodeURIComponent(conversationId) +
+            '?view=updates&offset=' +
+            encodeURIComponent(offset) +
+            '&live=sse';
+
+          var controller = new AbortController();
+          var res = await fetch(url, { headers: headers({}), signal: controller.signal });
+          if (!res.ok || !res.body) {
+            var body = null;
+            try {
+              body = await res.json();
+            } catch (e) {
+              /* not a JSON envelope */
+            }
+            addError('Could not open the conversation stream: ' + errorText(res.status, body));
+            return;
+          }
+
+          var reader = res.body.getReader();
+          var decoder = new TextDecoder();
+          var buffer = '';
+          var seen = Object.create(null);
+          var text = '';
+          var toolLines = Object.create(null);
+          var done = false;
+
+          try {
+            while (!done) {
+              var step = await reader.read();
+              if (step.done) break;
+              buffer += decoder.decode(step.value, { stream: true });
+
+              var split = buffer.split('\n\n');
+              buffer = split.pop();
+
+              for (var b = 0; b < split.length && !done; b++) {
+                var frame = parseEventBlock(split[b]);
+                if (!frame.data) continue;
+                var payload;
+                try {
+                  payload = JSON.parse(frame.data);
+                } catch (e) {
+                  continue;
+                }
+                if (frame.event !== 'data') continue;
+
+                for (var c = 0; c < payload.length; c++) {
+                  var chunk = payload[c];
+                  var key = chunk.position
+                    ? chunk.position.batch + ':' + chunk.position.index
+                    : null;
+                  if (key) {
+                    if (seen[key]) continue;
+                    seen[key] = true;
+                  }
+
+                  if (chunk.type === 'message-delta') {
+                    if (chunk.kind === 'reasoning') {
+                      var rbox = reasoningBox(turn.turn);
+                      rbox.textContent += chunk.delta;
+                    } else {
+                      text += chunk.delta;
+                      turn.body.textContent = text;
+                    }
+                  } else if (chunk.type === 'tool-input') {
+                    toolLines[chunk.toolCallId] = activityLine(
+                      turn.turn,
+                      '→ ' + chunk.toolName + ' ' + shorten(chunk.input, 160),
+                    );
+                  } else if (chunk.type === 'tool-output') {
+                    var okLine = toolLines[chunk.toolCallId];
+                    var okText = '← ok ' + shorten(chunk.output, 220);
+                    if (okLine) okLine.textContent += '\n' + okText;
+                    else activityLine(turn.turn, okText);
+                  } else if (chunk.type === 'tool-output-error') {
+                    var badLine = toolLines[chunk.toolCallId];
+                    var badText = '← failed: ' + chunk.errorText;
+                    if (badLine) badLine.textContent += '\n' + badText;
+                    else activityLine(turn.turn, badText);
+                  } else if (chunk.type === 'submission-settled') {
+                    if (chunk.submissionId !== submissionId) continue;
+                    if (chunk.outcome !== 'completed') {
+                      addError(
+                        'The agent ' + chunk.outcome + ': ' + shorten(chunk.error || '', 400),
+                      );
+                    } else if (!text) {
+                      turn.body.textContent = '(the agent completed with no text)';
+                    }
+                    done = true;
+                    break;
+                  }
+                }
+              }
+              turn.turn.scrollIntoView({ block: 'nearest' });
+            }
+          } finally {
+            controller.abort();
+          }
+        }
+
+        // ── Send ──────────────────────────────────────────────────────────
+
+        async function send(message) {
+          var mount = state.mount;
+          var conversationId = state.id;
+
+          var payload = { kind: 'user', body: message };
+          // `initialData` is consulted ONLY by the send that creates the
+          // conversation. Sending it later would be silently ignored, so it is
+          // sent once and the toggle is enforced by starting a new conversation.
+          if (!state.created) payload.initialData = { jevFilter: state.jevFilter };
+
+          var res = await fetch(mount + '/' + encodeURIComponent(conversationId), {
+            method: 'POST',
+            headers: headers({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(payload),
+          });
+
+          var body = null;
+          try {
+            body = await res.json();
+          } catch (e) {
+            /* not a JSON envelope */
+          }
+
+          if (res.status !== 202 || !body) {
+            addError('Send rejected: ' + errorText(res.status, body));
+            return;
+          }
+
+          state.created = true;
+          var turn = addTurn('assistant', 'agent');
+          await followSubmission(mount, conversationId, body.offset, body.submissionId, turn);
+        }
+
+        // ── Wiring ────────────────────────────────────────────────────────
+
+        function setBusy(busy) {
+          state.busy = busy;
+          sendEl.disabled = busy;
+          promptEl.disabled = busy;
+          sendEl.textContent = busy ? 'Working…' : 'Send';
+        }
+
+        formEl.addEventListener('submit', async function (event) {
+          event.preventDefault();
+          if (state.busy) return;
+          var message = promptEl.value.trim();
+          if (!message) return;
+
+          addTurn('user', 'you').body.textContent = message;
+          promptEl.value = '';
+          setBusy(true);
+          try {
+            await send(message);
+          } catch (error) {
+            addError('Request failed: ' + (error && error.message ? error.message : error));
+          } finally {
+            setBusy(false);
+            promptEl.focus();
+          }
+        });
+
+        promptEl.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            formEl.requestSubmit();
+          }
+        });
+
+        // A settings change cannot reach a live conversation, so it starts a
+        // fresh one and says so rather than appearing to take effect.
+        function onSettingChange() {
+          if (state.created) {
+            startConversation('New conversation started: ' + settingsLabel() + '.');
+          } else {
+            startConversation();
+          }
+        }
+
+        modelEl.addEventListener('change', onSettingChange);
+        jevEl.addEventListener('change', onSettingChange);
+
+        newEl.addEventListener('click', function () {
+          startConversation('New conversation started: ' + settingsLabel() + '.');
+          promptEl.focus();
+        });
+
+        tokenEl.addEventListener('change', function () {
+          try {
+            sessionStorage.setItem(TOKEN_KEY, tokenEl.value);
+          } catch (e) {
+            /* private mode */
+          }
+        });
+
+        try {
+          tokenEl.value = sessionStorage.getItem(TOKEN_KEY) || '';
+        } catch (e) {
+          /* private mode */
+        }
+
+        startConversation();
+      })();
+    </script>
+  </body>
+</html>
