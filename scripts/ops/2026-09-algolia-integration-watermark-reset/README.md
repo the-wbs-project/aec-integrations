@@ -1,8 +1,13 @@
-# Algolia `integrations` watermark reset — AECI-880
+# Algolia watermark reset — AECI-880, extended for AECI-636
 
-One-shot operator script. Forces **one** full sweep of the `integrations` entity in the
-nightly Algolia incremental sync, by resetting that entity's watermark field to the epoch
-sentinel. It touches one field of one `stats_cache` row and nothing else.
+Operator script. Forces **one** full sweep of **one** entity in the nightly Algolia
+incremental sync, by resetting that entity's watermark field to the epoch sentinel. It
+touches one field of one `stats_cache` row and nothing else.
+
+It was written for `integrations` (AECI-880, the record of that run is below). **Since
+AECI-636 it takes `--entity products|vendors|integrations`**, so the same path can backfill
+`listing_tier` onto the product and vendor records without emptying either index. The
+directory keeps its original name so existing links still resolve.
 
 Linear: [AECI-880](https://linear.app/aec-integrations/issue/AECI-880) (parent AECI-885,
 project Stage 2.5 Hardening).
@@ -46,12 +51,18 @@ the index.
 ## Usage
 
 ```
-node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production
-node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --apply --allow-production
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env staging --entity products
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env staging --entity products --apply
 ```
 
+`--entity` is **required** and takes exactly one of `products`, `vendors` or `integrations`.
+To reset two entities, run the script twice, once per entity. There is no default, so the
+AECI-880 command without `--entity` now fails instead of resetting `integrations` again.
+
 Dry run by default. `--apply` writes; `--allow-production` is required on top of it for
-`--env production`. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (or a
+`--env production`. A production dry run needs no extra flag, because it only reads. Unknown
+flags are refused rather than ignored. The rules live in `args.mjs` and are unit-tested in
+`apps/api/src/test/watermark-reset-args.spec.ts`. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (or a
 `wrangler login`) with D1 read+write.
 
 The write is a **compare-and-swap**: the `UPDATE` carries a `WHERE "value" = '<the exact JSON
@@ -63,7 +74,7 @@ successful apply is a no-op ("already at the epoch sentinel").
 
 | | Why |
 |---|---|
-| Reset `products` / `vendors` | Would sweep the whole catalog through Algolia for no reason. Those fields are rewritten byte-identically. |
+| Reset more than one entity per run | Each run is one compare-and-swap on one field. The other two fields are rewritten byte-identically. |
 | Stamp `computed_at` | That column is the admin panel's derived "when did `algolia-sync` last run" signal (`CRON_DERIVATIONS`, `routes/admin-system.ts`). Stamping it reports a sync that never happened. |
 | Write an `audit_log` row | `stats_cache` is derived state — ADR 0022. |
 | Create the row if absent | A missing row already reads as epoch for all three entities, so the next run sweeps everything. The script refuses rather than resetting products and vendors as a side effect. |

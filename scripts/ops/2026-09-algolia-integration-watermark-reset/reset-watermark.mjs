@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 //
-// reset-watermark.mjs — force ONE full sweep of the `integrations` entity in the
-// nightly Algolia incremental sync, by resetting that entity's watermark field to
-// the epoch sentinel (AECI-880).
+// reset-watermark.mjs — force ONE full sweep of ONE entity (`products`, `vendors`
+// or `integrations`) in the nightly Algolia incremental sync, by resetting that
+// entity's watermark field to the epoch sentinel. Written for `integrations`
+// (AECI-880); `--entity` was added for the AECI-636 `listing_tier` backfill of
+// `products` and `vendors`.
 //
 // ─── WHY THIS EXISTS ─────────────────────────────────────────────────────────
 //
@@ -25,10 +27,10 @@
 //
 // ─── WHAT IT TOUCHES, AND WHAT IT MUST NOT ───────────────────────────────────
 //
-// ONE field of ONE row. `products` and `vendors` keep their current timestamps and
-// are rewritten byte-identical. Resetting all three would sweep the full catalog
-// through Algolia for no reason and burn operations on an app whose index quota is
-// already exhausted.
+// ONE field of ONE row, named by the required `--entity`. The other two fields keep
+// their current timestamps and are rewritten byte-identical. Two entities means two
+// runs. Resetting all three at once would sweep the full catalog through Algolia,
+// which is only worth doing when every entity actually needs it.
 //
 // The write is a targeted UPDATE of `stats_cache."value"`, not an upsert of the
 // whole row, and it is guarded by a `WHERE "value" = '<the exact JSON we read>'`
@@ -61,10 +63,12 @@
 // ─── USAGE ───────────────────────────────────────────────────────────────────
 //
 //   node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs \
-//     --env production
+//     --env staging --entity products
 //
 //   node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs \
-//     --env production --apply --allow-production
+//     --env production --entity products --apply --allow-production
+//
+// Argument rules live in `args.mjs` (pure, unit-tested).
 //
 // Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (or a `wrangler login`)
 // with D1 read+write on the target account.
@@ -75,6 +79,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { INDEX_ENTITIES, parseArgs } from './args.mjs';
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const API_DIR = join(REPO_ROOT, 'apps', 'api');
 
@@ -84,23 +90,9 @@ const WATERMARK_KEY = 'algolia_sync_watermark';
 /** Must match `EPOCH_ISO` in the same file: `new Date(0).toISOString()`. */
 const EPOCH_ISO = new Date(0).toISOString();
 
-/** Must match `INDEX_ENTITIES` in `packages/shared/src/algolia.ts`. */
-const INDEX_ENTITIES = ['products', 'vendors', 'integrations'];
-
-/**
- * The one field this script resets. Named `integrations`, plural — the ticket text
- * says "the integration entity", but the JSON key the sync reads is the plural
- * `INDEX_ENTITIES` member. Resetting a singular `integration` key would write a
- * field nothing reads and change nothing.
- */
-const TARGET_ENTITY = 'integrations';
-
-const D1_ENVS = {
-  preview: { db: 'aeci-app-preview', flags: ['--env', 'preview'] },
-  staging: { db: 'aeci-app-staging', flags: ['--env', 'staging'] },
-  demo: { db: 'aeci-app-demo', flags: ['--env', 'demo'] },
-  production: { db: 'aeci-app-production', flags: ['--env', 'production'] },
-};
+// The entity names are the PLURAL `INDEX_ENTITIES` members, because those are the
+// JSON keys the sync reads. A singular `integration` key would be a field nothing
+// reads, so `args.mjs` accepts only the three plural names.
 
 // ─── D1 I/O ──────────────────────────────────────────────────────────────────
 
@@ -147,45 +139,31 @@ function sqlLiteral(v) {
 
 function usage() {
   console.log(`
-reset-watermark.mjs — force one full Algolia sweep of the "${TARGET_ENTITY}" entity (AECI-880)
+reset-watermark.mjs — force one full Algolia sweep of one entity (AECI-880, AECI-636)
 
   --env <preview|staging|demo|production>   target D1 (required)
+  --entity <${INDEX_ENTITIES.join('|')}>  the ONE watermark field to reset (required)
   --apply                                   perform the write. Dry-run otherwise.
   --allow-production                        required on top of --apply when --env production
   --help
 
-Resets stats_cache['${WATERMARK_KEY}'].${TARGET_ENTITY} to ${EPOCH_ISO}.
+Resets stats_cache['${WATERMARK_KEY}'].<entity> to ${EPOCH_ISO}.
 Leaves the other entities untouched. Writes no audit_log row (ADR 0022: derived state).
 `);
 }
 
-function readValueFlag(argv, name) {
-  const eq = argv.find((a) => a.startsWith(`${name}=`));
-  if (eq) return eq.slice(name.length + 1);
-  const i = argv.indexOf(name);
-  return i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined;
-}
-
 async function main(argv) {
-  if (argv.includes('--help') || argv.includes('-h')) {
+  const args = parseArgs(argv);
+  if (args.kind === 'help') {
     usage();
     return 0;
   }
-
-  const envName = (readValueFlag(argv, '--env') ?? '').trim();
-  const target = D1_ENVS[envName];
-  if (!target) {
-    console.error(
-      `--env must be one of: ${Object.keys(D1_ENVS).join(', ')}. Got: ${envName || '(unset)'}`,
-    );
+  if (args.kind === 'error') {
+    console.error(args.message);
+    usage();
     return 1;
   }
-
-  const apply = argv.includes('--apply');
-  if (apply && envName === 'production' && !argv.includes('--allow-production')) {
-    console.error('Refusing to write PRODUCTION without --allow-production.');
-    return 1;
-  }
+  const { envName, target, entity: targetEntity, apply } = args;
   if (!process.env.CLOUDFLARE_API_TOKEN && !process.env.CLOUDFLARE_ACCOUNT_ID) {
     console.warn(
       '⚠  Neither CLOUDFLARE_API_TOKEN nor CLOUDFLARE_ACCOUNT_ID is set — wrangler --remote will need an interactive login.',
@@ -235,20 +213,20 @@ async function main(argv) {
   if (extras.length > 0) console.log(`  (unrecognised fields, preserved: ${extras.join(', ')})`);
   console.log(`  raw         : ${rawValue}\n`);
 
-  if (parsed[TARGET_ENTITY] === EPOCH_ISO) {
-    console.log(`"${TARGET_ENTITY}" is already at the epoch sentinel. Nothing to do.`);
+  if (parsed[targetEntity] === EPOCH_ISO) {
+    console.log(`"${targetEntity}" is already at the epoch sentinel. Nothing to do.`);
     return 0;
   }
 
   // ─── 2. Build the next value ───────────────────────────────────────────────
   // Spread-then-override: every other field survives byte-for-byte, including any
-  // key a future entity adds. Only `${TARGET_ENTITY}` moves.
-  const next = { ...parsed, [TARGET_ENTITY]: EPOCH_ISO };
+  // key a future entity adds. Only `${targetEntity}` moves.
+  const next = { ...parsed, [targetEntity]: EPOCH_ISO };
   const nextValue = JSON.stringify(next);
 
   console.log('AFTER (proposed)');
   for (const entity of INDEX_ENTITIES) {
-    const changed = entity === TARGET_ENTITY;
+    const changed = entity === targetEntity;
     console.log(
       `  ${entity.padEnd(12)}: ${next[entity] ?? '(absent)'}${changed ? '   ← reset' : ''}`,
     );
@@ -267,7 +245,7 @@ async function main(argv) {
   // "when did the algolia-sync cron last run" signal (`CRON_DERIVATIONS` in
   // `routes/admin-system.ts`); stamping it here would report a sync that never
   // happened. `writeWatermark` will set it honestly on the next real run.
-  const scratch = mkdtempSync(join(tmpdir(), 'aeci-880-'));
+  const scratch = mkdtempSync(join(tmpdir(), 'aeci-watermark-reset-'));
   const sql =
     `UPDATE "stats_cache" SET "value" = ${sqlLiteral(nextValue)}\n` +
     `  WHERE "key" = ${sqlLiteral(WATERMARK_KEY)} AND "value" = ${sqlLiteral(rawValue)};\n`;
@@ -310,12 +288,12 @@ async function main(argv) {
   }
   console.log(`  raw         : ${afterRaw}\n`);
 
-  if (afterParsed[TARGET_ENTITY] !== EPOCH_ISO) {
-    console.error(`Verification failed: "${TARGET_ENTITY}" is not at the epoch sentinel.`);
+  if (afterParsed[targetEntity] !== EPOCH_ISO) {
+    console.error(`Verification failed: "${targetEntity}" is not at the epoch sentinel.`);
     return 1;
   }
   for (const entity of INDEX_ENTITIES) {
-    if (entity === TARGET_ENTITY) continue;
+    if (entity === targetEntity) continue;
     if (afterParsed[entity] !== parsed[entity]) {
       console.error(
         `Verification failed: "${entity}" changed. Expected ${parsed[entity]}, got ${afterParsed[entity]}.`,
@@ -325,9 +303,9 @@ async function main(argv) {
   }
 
   console.log(
-    `Done. The next 08:00 UTC algolia-sync cron will sweep the whole "${TARGET_ENTITY}" membership.\n` +
+    `Done. The next 08:00 UTC algolia-sync cron will sweep the whole "${targetEntity}" membership.\n` +
       'Then confirm with:\n' +
-      '  pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production\n' +
+      `  pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env ${envName}\n` +
       `and watch the data-quality cron's algolia_index_drift line for two consecutive clean runs.`,
   );
   return 0;

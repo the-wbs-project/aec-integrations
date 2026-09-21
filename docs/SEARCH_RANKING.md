@@ -68,9 +68,11 @@ emptied, so search keeps serving throughout — which is the difference that mat
 the datatool's `POST /api/reindex`, whose CLEAR step returns zero hits for the duration.
 
 ```
-node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production
-node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --apply --allow-production
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --entity integrations
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --entity integrations --apply --allow-production
 ```
+
+`--entity` is required and takes one of `products`, `vendors` or `integrations` (AECI-636 added the first two, for the `listing_tier` backfill). One run resets one field.
 
 Five things to know before using it.
 
