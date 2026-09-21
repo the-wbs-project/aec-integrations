@@ -106,6 +106,59 @@ describe('algolia reindex — record builders', () => {
     });
   });
 
+  /**
+   * AECI-636 — `listing_tier` must come out of this raw-SQL builder exactly as it
+   * comes out of `toAlgoliaProduct` / `toAlgoliaVendor`. Both call the shared
+   * `productListingTier` / `vendorListingTier`, so what this proves is that the
+   * SQL feeds the function the right columns: the product's OWN `website`, the
+   * `logo_url`, the category names.
+   */
+  describe('listing_tier (AECI-636)', () => {
+    it('emits tier 2 for a fully described product and omits the key for a thin one', async () => {
+      h.raw
+        .prepare(
+          "UPDATE products SET description = 'BIM authoring.', website = 'https://revit.example', logo_url = 'https://cdn.example/revit.png' WHERE id = 'prod-1'",
+        )
+        .run();
+      const records = await buildProductRecords(h.db);
+      const revit = records.find((r) => r.slug === 'revit')!;
+      const autocad = records.find((r) => r.slug === 'autocad')!;
+      expect(revit.listing_tier).toBe(2);
+      // No description: no tier. The key is ABSENT, not null — Algolia sorts a
+      // record missing a customRanking attribute last, and null would not.
+      expect('listing_tier' in autocad).toBe(false);
+    });
+
+    it('reads the product website, not the vendor website', async () => {
+      h.raw
+        .prepare(
+          "UPDATE products SET description = 'BIM authoring.', logo_url = 'https://cdn.example/revit.png' WHERE id = 'prod-1'",
+        )
+        .run();
+      h.raw
+        .prepare("UPDATE vendors SET website = 'https://autodesk.example' WHERE id = 'ven-1'")
+        .run();
+      const revit = (await buildProductRecords(h.db)).find((r) => r.slug === 'revit')!;
+      // Description + name + category + logo present, website missing: tier 1.
+      expect(revit.listing_tier).toBe(1);
+    });
+
+    it('emits a vendor tier from description, headquarters, website and logo', async () => {
+      h.raw
+        .prepare(
+          "UPDATE vendors SET description = 'Design software.', headquarters = 'San Francisco, CA', website = 'https://autodesk.example', logo_url = 'https://cdn.example/adsk.png' WHERE id = 'ven-1'",
+        )
+        .run();
+      const [vendor] = await buildVendorRecords(h.db);
+      expect(vendor!.listing_tier).toBe(2);
+    });
+
+    it('omits the vendor key when the vendor has no description', async () => {
+      const [vendor] = await buildVendorRecords(h.db);
+      expect('listing_tier' in vendor!).toBe(false);
+    });
+  });
+
   it('builds integration records with a numeric mechanism_rank', async () => {
     const records = await buildIntegrationRecords(h.db);
     expect(records).toHaveLength(1);

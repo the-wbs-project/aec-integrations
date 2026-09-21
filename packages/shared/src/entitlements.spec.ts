@@ -14,6 +14,12 @@ import {
   type EntitlementTier,
   PAID_TIERS,
 } from './entitlements';
+import {
+  PRODUCT_LISTING_TIER_INPUTS,
+  VENDOR_LISTING_TIER_INPUTS,
+  productListingTier,
+  vendorListingTier,
+} from './listing-tier';
 
 /**
  * The capability registry + **the ranking firewall** (AECI-610 /
@@ -167,6 +173,134 @@ describe('the entitlement and ranking vocabularies are disjoint (§3.2) [invaria
         `"${banned}" is an entitlement concept and must not appear in INDEX_SETTINGS`,
       ).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. listing_tier reads content only (AECI-636) — the firewall's third half.
+// ---------------------------------------------------------------------------
+
+/**
+ * Blocks 1–3 prove no entitlement concept is NAMED in `INDEX_SETTINGS`. That stops
+ * being enough once a ranking attribute is COMPUTED: `listing_tier` could carry a
+ * plan through its inputs while its name stays clean. AECI-636 trap 1 is exactly
+ * that ("`listing_tier` keyed on plan status instead of content"). So this block
+ * proves the computation's inputs, not just its name.
+ *
+ * Two checks, because either alone has a hole:
+ *   - the DECLARED input lists carry no plan, entitlement or verified concept; and
+ *   - the functions READ nothing outside those lists (a recording Proxy), so a
+ *     field slipped into the body without being declared fails too.
+ */
+
+/** Substrings no listing_tier input may contain. The §3.2 six, plus two neighbours. */
+const PLAN_SHAPED = [
+  'verified',
+  'tier',
+  'entitlement',
+  'status',
+  'paid',
+  'plan',
+  'priority',
+  'seat',
+];
+
+/** Run `fn` on a Proxy of `input` and return every property name it read. */
+function propertiesRead<T extends object>(fn: (input: T) => unknown, input: T): Set<string> {
+  const reads = new Set<string>();
+  const proxy = new Proxy(input, {
+    get(target, property, receiver) {
+      if (typeof property === 'string') reads.add(property);
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  fn(proxy);
+  return reads;
+}
+
+const fullProduct = {
+  name: 'Procore',
+  description: 'Construction management.',
+  categories: ['Project Management'],
+  website: 'https://procore.example',
+  logo_url: 'https://cdn.example/procore.png',
+};
+const fullVendor = {
+  company_name: 'Procore Technologies',
+  description: 'Construction software.',
+  headquarters: 'Carpinteria, CA',
+  website: 'https://procore.example',
+  logo_url: 'https://cdn.example/procore.png',
+};
+/** Every plan-shaped property a careless caller might hand over. */
+const planFields = {
+  verified: true,
+  tier: 'verified',
+  entitlement: 'verified',
+  entitlementTier: 'verified',
+  status: 'active',
+  plan: 'manage',
+  paid: true,
+  priority_tier: 'high',
+  logo_source: 'vendor',
+};
+
+describe('listing_tier reads content only (AECI-636) [invariant]', () => {
+  it('declares no plan, entitlement or verified concept among its inputs', () => {
+    for (const field of [...PRODUCT_LISTING_TIER_INPUTS, ...VENDOR_LISTING_TIER_INPUTS]) {
+      for (const banned of PLAN_SHAPED) {
+        expect(
+          field.toLowerCase(),
+          `listing_tier input "${field}" names "${banned}"`,
+        ).not.toContain(banned);
+      }
+      expect(CAPABILITIES as readonly string[], `"${field}" is a capability id`).not.toContain(
+        field,
+      );
+      expect(TIERS as readonly string[], `"${field}" is an entitlement tier`).not.toContain(field);
+      expect(ENTITLEMENT_STATUSES as readonly string[]).not.toContain(field);
+    }
+  });
+
+  it('reads exactly its declared product inputs, across every tier outcome', () => {
+    const shapes = [
+      fullProduct,
+      { ...fullProduct, description: null },
+      { ...fullProduct, website: null, logo_url: '  ' },
+      { ...fullProduct, categories: [], website: null, logo_url: null },
+    ];
+    for (const shape of shapes) {
+      const reads = propertiesRead(productListingTier, { ...shape, ...planFields });
+      expect([...reads].sort()).toEqual([...PRODUCT_LISTING_TIER_INPUTS].sort());
+    }
+  });
+
+  it('reads exactly its declared vendor inputs, across every tier outcome', () => {
+    const shapes = [
+      fullVendor,
+      { ...fullVendor, description: null },
+      { ...fullVendor, headquarters: null },
+      { ...fullVendor, headquarters: null, website: null, logo_url: null },
+    ];
+    for (const shape of shapes) {
+      const reads = propertiesRead(vendorListingTier, { ...shape, ...planFields });
+      expect([...reads].sort()).toEqual([...VENDOR_LISTING_TIER_INPUTS].sort());
+    }
+  });
+
+  it('gives the same tier whatever plan-shaped fields ride along', () => {
+    const flipped = { verified: false, tier: 'unclaimed', status: 'revoked', paid: false };
+    expect(productListingTier({ ...fullProduct, ...planFields })).toBe(
+      productListingTier({ ...fullProduct, ...flipped }),
+    );
+    expect(vendorListingTier({ ...fullVendor, ...planFields })).toBe(
+      vendorListingTier({ ...fullVendor, ...flipped }),
+    );
+  });
+
+  it('takes one argument, so a plan cannot arrive as a second parameter', () => {
+    expect(productListingTier.length).toBe(1);
+    expect(vendorListingTier.length).toBe(1);
   });
 });
 

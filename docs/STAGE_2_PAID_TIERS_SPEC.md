@@ -262,6 +262,14 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 > **The entitlement vocabulary and the Algolia ranking vocabulary are disjoint sets, and the disjointness is asserted, not documented.**
 
+4. **Computed-attribute inputs (added by AECI-636, 2026-09-21).** Assertion 3 checks attribute *names*. That stops being enough once a ranking attribute is *computed*: `listing_tier` could carry a plan through its inputs while its own name stays clean. So the same spec now asserts, for `productListingTier` and `vendorListingTier` in `packages/shared/src/listing-tier.ts`:
+   - the declared input lists (`PRODUCT_LISTING_TIER_INPUTS`, `VENDOR_LISTING_TIER_INPUTS`) contain no `verified`, `tier`, `entitlement`, `status`, `paid`, `plan`, `priority` or `seat` substring, and no capability id, tier id or status value;
+   - each function reads **exactly** its declared inputs and nothing else, checked with a recording `Proxy` over inputs that also carry every plan-shaped field;
+   - the tier is identical whatever plan-shaped fields ride along; and
+   - each function takes one argument, so a plan cannot arrive as a second parameter.
+
+   Adding a plan-shaped input, or reading one without declaring it, fails the build. It is an invariant test like the other three.
+
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
 
 ### 3.3 Where `hasCapability` is consulted — and where it is forbidden
