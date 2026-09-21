@@ -435,19 +435,21 @@ async function auditEventsPerDay(
  * row removed tomorrow leaves today's bucket smaller than it reads today.
  *
  * That attribution — subtracting a removal from the bucket the row was ADDED in
- * rather than the one it was removed in — is not a modelling preference, it is
- * the only option available. Nothing records deletions: there is no `*.deleted`
- * action in the vocabulary, and every path that removes catalog rows is raw SQL
- * running outside the Worker where the `lib/audit.ts` batch builders cannot reach
- * (`lib/retract-product.ts` says so in its header). Restore per-row tombstones
- * and a true removed-on-day-D series becomes computable; until then this is the
- * closest honest thing, and the response says so via
+ * rather than the one it was removed in — was the only option when this shipped,
+ * because nothing recorded deletions. Since AECI-687 every live delete path writes
+ * a `*.deleted` tombstone (`STAGE_1_SPEC.md` §26.1 lists them), so a true
+ * removed-on-day-D series is computable FORWARD from those rows. It is not
+ * computable backwards: deletes before the tombstones landed left nothing. Whether
+ * `basis=net` gains a true-delta sibling or is replaced by one is a separate
+ * decision; until then this stays, and the response says so via
  * `catalog_series_is_surviving_rows`.
  *
  * `created_at` is untouched by promote's upsert path (`routes/promote.ts` never
  * writes `createdAt`), so a re-promoted product keeps its original arrival date.
- * The one exception is `claims`, which promote deletes and re-inserts wholesale —
- * hence the separate `catalog_claims_recreated_by_promote` caveat.
+ * The one exception is `claims`, which promote deleted and re-inserted wholesale
+ * until AECI-604 made it upsert by identity. Rows recreated before that still carry
+ * a last-promote `created_at`, hence the separate
+ * `catalog_claims_recreated_by_promote` caveat.
  */
 async function catalogRowsPerDay(
   db: Db,

@@ -1949,6 +1949,27 @@ These are observable through `job_runs` and the emitted metrics instead, not thr
 
 > **A third queue delete exists and this exception does NOT cover it (AECI-946).** `DELETE /api/admin/reindex/:id` removes one `gsc_recrawl_queue` row when the operator clicks Done. It looks like the drain's delete and is governed by the opposite rule, because **it is not scheduled**. The exception above exists to stop a cron erasing its own tracks with one cheap summary row. An operator action on an admin screen has an actor, a request and a single subject, so the ordinary per-write invariant applies unchanged: one `audit_log` row per cleared row, in the same `db.batch`, `actor_type` the admin rather than `'system'`. Reading the exception as "queue deletes get summary rows" is the mistake to avoid. The discriminator is *scheduled*, not *queue*.
 
+**Deletion tombstones — the `*.deleted` vocabulary (AECI-687).** A removed row cannot be recovered from the data afterwards, so every live path that deletes catalog domain rows writes a tombstone: an `audit_log` row naming the entity, with the row's prior state in `before_state`, in the same batch as the delete. `actor_type` is `'system'` for tools and promote, `'admin'` for the retraction consumer, which acts on a curator ruling. Raw-SQL writers outside the Worker supply `id` and `created_at` themselves, because both defaults run only in application code.
+
+| action | `entity_type` | written by | granularity |
+|---|---|---|---|
+| `product.deleted` | `product` | `ops:retract-product` (`lib/retract-product.ts`) | one per product; `before_state.removed` counts the facet rows and edges that went with it |
+| `integration.deleted` | `integration` | `ops:retract-product`, the retraction consumer (`scripts/ops/2026-09-retraction-consumer/`), and the 2026-09 one-off retraction lanes | one per edge. **`metadata.table` says which table** — `integrations` or `connector_evidenced_pairs` — because both are integrations to a reader. Claim, attestation and field-contest counts ride in `before_state.cascade` |
+| `integration.updated` | `integration` | `ops:retract-product` | one per edge whose `powered_by_product_id` was NULLed because its connector was retracted |
+| `review.deleted` | `review` | `ops:retract-product` (`--force` only) | one per review. `before_state` omits the body and the reviewer's firm, since this table is kept indefinitely (§26.6) |
+| `product_version.deleted` | `product_version` | `ops:retract-product` (`--force` only) | one per version |
+| `claim.deleted` | `claim` | promote (`lib/promote-claims.ts`, since AECI-604) | one per dropped `origin='aeci'` claim. Bounded: an unchanged claim is re-used, not deleted and re-inserted |
+| `vendor.deleted` | `vendor` | `ops:retract-vendor` (`lib/retract-vendor.ts`) | one per vendor |
+| `vendor.retracted` | `vendor` | the one-off 2026-09 Bluebeam vendor lane (`scripts/ops/2026-09-bluebeam-vendor-retraction/`) | one row. **A documented inconsistency, deliberately not renamed:** it means `vendor.deleted`, and a reader counting vendor removals must match both |
+
+Three delete paths deliberately write **no** `*.deleted` row, and each is covered another way:
+
+- **Promote's facet join-set replacement** (`product_vendors`, `_categories`, `_audiences`, `_phases`, `_trades`, `product_extensions`) is deleted and re-inserted on every product promote. A join row is a facet of its product, not an entity, and the same batch already carries `product.updated`. A summary row would fire on every promote and record nothing new.
+- **Promote's cross-table move** between `integrations` and `connector_evidenced_pairs` (AECI-888) writes one `*.updated` row on the destination with `metadata.movedFrom` naming the source table. That row *is* the removal marker for the source table; a second `integration.deleted` row would double-log one event.
+- **The connector-catalogue sync** removes mappings, surfaces and claims under the bulk-mirror granularity rule above; its one `connector_catalog.synced` row carries the per-table `deleted` counts and `deletedClaimIds`.
+
+**Closed going forward, open backwards.** Tombstones exist only from the date each writer started emitting them. Deletes before that — the 2026-07-25 catalog reset (one `catalog.integrations_reset` summary row, 309 integrations), the 2026-08 orphan cleanup, and the 2026-09-07 Polycam lane — left no per-row record, and nothing can recreate one. So "how many integrations existed on 2026-07-01" stays unanswerable, while a created-minus-removed series is computable forward. Whether `basis=net` gains a true-delta sibling is AECI-1037 (`ADMIN_PANEL_SPEC.md` §5.5).
+
 ### 26.2 Workflow instances
 
 Multi-step processes (with approval gates, multiple actors, or external system handoffs) get explicit workflow tracking.

@@ -731,7 +731,8 @@ export const claims = sqliteTable(
   {
     id: uuidPk(),
     // Nullable since AECI-721 — see the header. Cascade is retained on BOTH anchors:
-    // `retract-product.ts` and the AECI-627 freshness cursor lean on it.
+    // the AECI-627 freshness cursor leans on it. (`retract-product.ts` deletes claims
+    // explicitly since AECI-687, so it no longer depends on the cascade.)
     integrationId: text('integration_id').references(() => integrations.id, {
       onDelete: 'cascade',
     }),
@@ -1684,8 +1685,8 @@ export const pageViews = sqliteTable(
     //
     // Two columns for four facets, and deliberately NOT a foreign key: SQLite cannot
     // point one column at four tables, and a hard FK would block ever deleting a term
-    // (`lib/retract-product.ts` already has to delete `page_views` rows for exactly
-    // that reason on products). Integrity comes from the ingest-time existence check
+    // (`lib/retract-product.ts` has to NULL `page_views.product_id` for exactly that
+    // reason on products). Integrity comes from the ingest-time existence check
     // in `routes/page-views.ts` instead — an unknown id stores as null, never as a
     // lie. No CHECK on `taxonomy_kind` for the same reason the write is swallowed on
     // error: this is a log table, and a constraint violation would silently drop the

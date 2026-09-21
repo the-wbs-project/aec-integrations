@@ -29,8 +29,9 @@
  * demo" is otherwise invisible until a reader notices a missing badge.
  *
  * CAVEAT (§26.1): a raw backfill writes no `audit_log` row — there is no handler to
- * route it through, exactly as with `retract-product.ts`. That is inherent to Tier 0;
- * `notes` carries the provenance instead, and the CLI prints the caveat.
+ * route it through. `notes` carries the provenance instead, and the CLI prints the
+ * caveat. (`retract-product.ts` used to share this caveat; since AECI-687 it writes
+ * its own tombstones as raw SQL, so "Tier 0" no longer implies "unaudited".)
  */
 
 import { escapeSqlLiteral } from './retract-product';

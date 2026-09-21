@@ -28,8 +28,8 @@
  *   - Dry-run by default; `--apply` performs the writes.
  *   - `--apply` additionally requires `--confirm-count N` equal to the resolved plan size.
  *   - Refuses `production` writes without `--allow-production`.
- *   - Writes ONE `audit_log` row per deleted vendor, in the same batch (§26.1). This is
- *     the one place it differs from `retract-product.ts`, which emits none.
+ *   - Writes ONE `audit_log` row per deleted vendor, in the same batch (§26.1), as
+ *     `retract-product.ts` does for products since AECI-687.
  *
  * WHAT IT DOES NOT DO:
  *   - It does not touch the review app. After this run, clear the upstream record's

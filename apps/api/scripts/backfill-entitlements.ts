@@ -28,8 +28,8 @@
  *     script is not exempt. Reverse drift means a batch half-landed and wants a human.
  *   - Idempotent: every INSERT carries a `WHERE NOT EXISTS` re-guard, so a partially
  *     completed run can simply be re-run.
- *   - Emits NO `audit_log` row (there is no handler; same as `retract-product.ts`). The
- *     `notes` column carries the provenance instead.
+ *   - Emits NO `audit_log` row (there is no handler). The `notes` column carries the
+ *     provenance instead.
  *
  * PROOF IT LANDED is the `entitlement_mirror_drift` data-quality check (Guard 2, 04:00
  * UTC): "the backfill ran on staging but not demo" is otherwise invisible until a

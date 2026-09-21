@@ -3444,18 +3444,20 @@ against.
 | note | `catalog_series_is_additions_only` (+ `catalog_series_starts_at`) | `catalog_series_is_surviving_rows` |
 
 `additions` over-reports whatever has since been deleted — 11,827 `claim.created`
-events back 1,691 live claims in production, because promote **replaces** an
-integration's claims on every push — and under-reports anything created before the
-audit log's first row. `net` has neither problem, and pays for it by attributing a
-removal to the bucket the row was *added* in: nothing records **when** a row was
-removed (there is no `*.deleted` action, and every delete path is raw SQL outside
-the Worker), so that is the only attribution available. `catalog_series_is_surviving_rows`
-states it on every `net` response.
+events back 1,691 live claims in production, because promote **replaced** an
+integration's claims on every push until AECI-604 — and under-reports anything created
+before the audit log's first row. `net` has neither problem, and pays for it by
+attributing a removal to the bucket the row was *added* in. When `net` shipped nothing
+recorded **when** a row was removed, so that was the only attribution available.
+Since AECI-687 every live delete path writes a `*.deleted` tombstone
+(`STAGE_1_SPEC.md` §26.1), so removals are datable going forward but not backwards;
+`net` is unchanged, and AECI-1037 decides whether it gains a true-delta sibling.
+`catalog_series_is_surviving_rows` states the attribution on every `net` response.
 
 `basis=net` on `catalog.claims_created` additionally carries
-`catalog_claims_recreated_by_promote`: because promote rewrites claim rows, their
-`created_at` is a last-promote date, so the column is a valid count of live claims
-and a poor history of when they arrived.
+`catalog_claims_recreated_by_promote`: because promote rewrote claim rows until
+AECI-604, their `created_at` is a last-promote date, so the column is a valid count of
+live claims and a poor history of when they arrived.
 
 **`catalog.products_created` is the one series whose `additions` reading is not
 audit-log-only, and both notes say so (AECI-684).** The 00:15 cron and the live

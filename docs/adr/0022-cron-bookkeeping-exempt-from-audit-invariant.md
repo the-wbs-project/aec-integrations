@@ -106,3 +106,46 @@ which suppresses only the granularity finding on the two connector-sync files. I
 **not** suppress a missing audit row, a row written outside the batch, or the decision-bearing
 `managed_by` flip above — those stay reportable. EX-002 covered those files until AECI-734 split them
 out; its bare-audit-vocabulary matcher was hiding genuine findings.
+
+## Amendment 2026-09-21 — deletion tombstones on every live delete path (AECI-687)
+
+Nothing above is reversed. The original decision gave *scheduled* deletes a summary row
+because "deletion is the one write whose fact cannot be recovered from the data afterwards".
+That reasoning never depended on the delete being scheduled, and this amendment applies it
+to the unscheduled ones.
+
+**The rule.** Every live path that deletes catalog domain rows writes a `*.deleted`
+tombstone in the same batch as the delete, per row, with the row's prior state in
+`before_state`. Children that go with a parent (claims and attestations under an edge,
+facet rows under a product) are counted on the parent's tombstone rather than tombstoned
+themselves. The vocabulary and the writers are listed in `STAGE_1_SPEC.md` §26.1.
+
+**Why per row here and per run for the crons.** A retention prune removes log-class rows
+whose individual identity nobody will ask about. A retraction removes a named product or
+edge that a reader saw on a public page, and "when did *this* one go, and why" is the
+question the audit log exists to answer. The volumes differ too: a retraction touches
+single digits of rows, not thousands.
+
+**Raw SQL outside the Worker is not an excuse.** `lib/retract-product.ts` used to say that
+writing no audit row was "inherent to Tier 0". It was not. `lib/retract-vendor.ts` and the
+retraction consumer already wrote their rows as raw SQL in the same `wrangler d1 execute`
+batch, and `retract-product.ts` now does too. What running outside the Worker costs is
+the `auditInsert()` builder and its column defaults, so those writers supply `id` and
+`created_at` themselves.
+
+**Three delete paths are deliberately left without a `*.deleted` row**, each for a stated
+reason in §26.1: promote's facet join-set replacement (a facet of `product.updated`, fired
+on every promote), promote's cross-table move (its `*.updated` row with
+`metadata.movedFrom` already marks the removal), and the connector-catalogue sync (the
+bulk-mirror granularity amendment above).
+
+**What this does not do.** It is not retroactive. The 2026-07-25 catalog reset, the 2026-08
+orphan cleanup and the Polycam lane left no per-row record, so a past total such as "how
+many integrations existed on 2026-07-01" stays unanswerable. The gap is closed going
+forward and open backwards, and `ADMIN_PANEL_SPEC.md` §4 and §5.5 say so. Whether the
+admin panel's `basis=net` series gains a true-delta sibling is AECI-1037.
+
+**A documented inconsistency.** The one-off 2026-09 Bluebeam vendor lane wrote
+`vendor.retracted` where every other vendor removal writes `vendor.deleted`. It is recorded
+in §26.1 rather than renamed, because rewriting an existing audit row would make the log
+say something that did not happen when it was written.

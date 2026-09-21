@@ -223,7 +223,10 @@ README rather than left for a reader to discover.
 - **This is the first code path in the repo that can delete from
   `connector_evidenced_pairs`.** Neither the datatool prune nor `ops:retract-product` can
   touch that table; the latter also cannot *see* it, which is a separate latent defect
-  (its `products` delete cascades evidenced pairs away silently).
+  (its `products` delete cascades evidenced pairs away silently). *(Fixed 2026-09-21 by
+  AECI-687: `ops:retract-product` now counts evidenced pairs in its footprint, refuses them
+  without `--force`, and deletes them explicitly with an `integration.deleted` tombstone. It
+  is still a product-level tool, not a per-pair one — this consumer remains the per-pair path.)*
 - **A crashed run is recoverable by construction.** The consumer recognises its own
   `audit_log` rows by `metadata.tool` and confirms entries it can prove it deleted. The
   first production run exercised this for real: the confirm step died on an expired MCP

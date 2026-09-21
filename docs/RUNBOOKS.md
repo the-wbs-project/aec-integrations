@@ -1564,9 +1564,11 @@ one, and two production pairs do. Only "both tables, one unreferenced upstream" 
 shape, which is the AECI-888 signature.
 
 > **`evidencedPairSourceGone` has a repair tool since 2026-09-14 (AECI-916), and which route
-> you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** Neither
-> `ops:retract-product` nor the datatool prune can touch `connector_evidenced_pairs`. The
-> retraction consumer can, and it takes two cohorts:
+> you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
+> datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
+> tombstones) them only as a side effect of retracting an endpoint or connector product under
+> `--force` (AECI-687), so it is not a tool for one stranded pair. The retraction consumer is,
+> and it takes two cohorts:
 >
 > - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the
 >   curator delete the record so the journal carries it, then run the consumer normally. It
