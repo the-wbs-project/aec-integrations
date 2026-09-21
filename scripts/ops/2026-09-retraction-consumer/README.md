@@ -1,6 +1,6 @@
 # 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020)
 
-**Status: RUN — ten tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — eleven tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
@@ -8,7 +8,9 @@ fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
 2026-09-16 (3 rows, **AECI-809 — the first cohort that is a product MERGE rather than a
 retirement, and the first to cascade claims that no surviving row holds**), and 2026-09-18
 (4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**), and
-2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**).
+2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**), and 2026-09-21
+(1 row, **the ADP Workforce Now ↔ Sage 100 Contractor leftover of that same AECI-1020
+window, ruled withdrawn**).
 **The feed is at zero pending and no hold is active.** The AECI-1024 vendor half ran the same
 day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
 the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
@@ -1220,6 +1222,115 @@ Vectorworks Architect, Vectorworks Landmark, Verifi3D), and still carries a now-
 `supabase_vendor_id`, because the review app's pointer-clear tool (AECI-1026) refuses while
 product links remain — so the next promote of any of those five will take the AECI-568 stale-id
 insert path and re-create the vendor here.
+
+## What ran — 2026-09-21, 1 row (AECI-1020 leftovers, the ADP row)
+
+**Why.** Chris Walton ruled on 2026-09-21 that ADP Workforce Now ↔ Sage 100 Contractor is
+**withdrawn**. ADP Marketplace app 298612, "Sage 100 Contractor Connector for ADP Workforce
+Now", returns ADP's 401 not-found page to both `curl` and Chrome, and is absent from
+`apps.adp.com/sitemap.xml`, which lists 789 apps. The sibling Sage Intacct app 321819 returns
+200 and is in that sitemap, so this is a delisting rather than a bot wall. Wayback holds no
+snapshot. The only other evidence was a 2021 ADP Professional Services data sheet hosted on a
+partner's site. Upstream deleted the record and journalled it, so the row came down this lane
+rather than through `--ruling`.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 1
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 935 | 934 | −1 |
+| `connector_evidenced_pairs` | 44 | 44 | 0 |
+| `claims` | 1925 | 1923 | −2 |
+| `attestations` | 1925 | 1923 | −2 |
+| feed, pending | 1 | 0 | −1 |
+
+`resolve: integrations 1, connector_evidenced_pairs 0, already gone 0`. Verify read
+`integrations left 0, pairs left 0, orphan claims 0`, and confirm read `requested 1,
+confirmed 1`. **2 products** had `integration_count` repaired and `updated_at` bumped —
+ADP Workforce Now to 17 and Sage 100 Contractor to 18. `db:reconcile-counts` afterwards
+reported **no drift**, independently. The local rollback is
+`rollback-2026-09-21T02-08-17-845Z.sql`; no Time Travel bookmark was captured.
+
+| Journal entry | Row | Edge | Ruled | Claims |
+|---|---|---|---|--:|
+| `recDwYDTIqG1sTyq9` | `9f7884dd-8ab6-403c-ba53-c6f1852d224a` | ADP Workforce Now ↔ Sage 100 Contractor, named "ADP Marketplace connector" | withdrawn: ADP Marketplace app 298612 is delisted — 401 not-found to browser and `curl`, absent from a sitemap that lists 789 apps, while the sibling Sage Intacct app resolves | 2 |
+
+### `MAX_CASCADE` moved on a ruling, and only for AECi-origin claims
+
+Raised to `2 / 2`. That figure did not come from a twin-count. The edge was ruled **withdrawn**
+under the admission test, so nothing supersedes it by construction — the AECI-809 self-edge /
+AECI-1024 shape. The authorisation is Chris Walton's in-session ruling of 2026-09-21 and
+nothing else.
+
+What was checked before the raise: both cascading claims were read directly out of production
+before the guard moved, and both read `origin = 'aeci'` with a `source = 'aeci'` attestation
+and a NULL `attested_by_vendor_id`, so no vendor authored either.
+
+| Claim | Data object | Direction | Origin | Attestation source |
+|---|---|---|---|---|
+| `56b86ad6` | Time & Labor | `a_to_b` | `aeci` | `aeci` |
+| `3e7bbcfb` | Directory & Contacts | `both` | `aeci` | `aeci` |
+
+**Do not generalise this.** It applies to a row ruled withdrawn with no vendor authorship
+behind its claims, not to a row whose counterpart you merely failed to find.
+
+### The two guards, pinned and reset
+
+`EXPECTED` was pinned to `1 / 0 / 1` and `MAX_CASCADE` to `2 / 2`. Both are reset to zero in
+this same change. `HOLD` was already empty and stayed empty.
+
+### Algolia, eleventh run — 1 orphan, ours
+
+```
+products      production_products        indexed 283   promoted 283    orphans 0
+vendors       production_vendors         indexed 187   promoted 187    orphans 0
+integrations  production_integrations    indexed 979   promoted 978    orphans 1
+```
+
+The single orphan objectID was `9f7884dd-8ab6-403c-ba53-c6f1852d224a`, the row just deleted.
+Removed with:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+### Cache
+
+Nothing to purge. Re-checked `apps/web/wrangler.jsonc`: the `production` env block still has
+no `exports`, so it serves uncached.
+
+### Verification, live (2026-09-21, browser UA)
+
+- `/products/adp-workforce-now/integrations/sage-100-contractor` → **200 + `noindex`**.
+- `/products/sage-100-contractor/integrations/adp-workforce-now` → **200 + `noindex`**.
+
+Both are the documented no-edge state, not a 404, and the pair was checked in **both**
+orientations. Product slugs were resolved from the endpoint ids in the rollback file rather
+than guessed.
+
+### Daily audit after this run — clean, exit 0
+
+`node scripts/ops/2026-09-stranded-row-audit/audit.mjs --env production --refresh-cache`,
+exit **0**:
+
+```
+productRejectedUpstream            0
+productDeletedUpstream             0
+vendorNoLiveProducts               0
+vendorSourceGone                   0
+integrationSourceGone              0
+integrationEndpointStranded        0
+evidencedPairSourceGone            0
+pendingRetractions                 0
+orphanChildren                0c / 0a
+```
+
+Every bucket zero, 0 publicly reachable stranded rows, 978/978 edges accounted. The
+`vendorNoLiveProducts` red this run was warned about — BIMLauncher and ProjectReady, whose
+connector products are not promoted yet — **did not appear**. That bucket reads 0.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 

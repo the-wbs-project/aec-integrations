@@ -262,6 +262,8 @@ const HOLD_REASON =
 // 2026-09-18 (AECI-1020, the cleanup window): pinned to `6 / 0 / 6` for the six journalled
 // cleanup removals, then to `1 / 0 / 1` for the Unanet ERP -> SAP S/4HANA row, and reset
 // here in the same change. What ran is in the README.
+// 2026-09-21 (AECI-1020, the ADP row): pinned to `1 / 0 / 1` for the run, reset here in the
+// same change. What ran is in the README.
 const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
@@ -316,6 +318,9 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 // 2026-09-18 (AECI-1020, the cleanup window): raised to `5 / 5` for the six journalled
 // cleanup removals and then to `1 / 1` for the Unanet row, both by Chris's ruling and not by
 // twin-count, and reset here in the same change. What ran is in the README.
+// 2026-09-21 (AECI-1020, the ADP row): raised to `2 / 2` for the run by Chris Walton's
+// in-session ruling and not by twin-count, reset here in the same change. What ran is in the
+// README.
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**
