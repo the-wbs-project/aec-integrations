@@ -2331,7 +2331,7 @@ unconditionally. That is §13.4's own reasoning applied to the rest of the surfa
 the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
 "Updated" is the accurate verb for a save.
 
-The six write sites are the complete list (five at AECI-981; AECI-1008 added the sixth):
+The seven write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh):
 
 | Endpoint | Row | Shape |
 |---|---|---|
@@ -2341,14 +2341,22 @@ The six write sites are the complete list (five at AECI-981; AECI-1008 added the
 | `PATCH …/versions/:versionId` | `products` | own statement + own audit row |
 | `DELETE …/versions/:versionId` | `products` | own statement + own audit row |
 | `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations` | folded into the field write; one `integration.updated` row with before/after, `metadata.reason = 'contest-accepted'` |
+| `POST /api/vendor/integrations/:id/claim` (AECI-1005) | `integrations` | folded into the claim write (`claimed_at` + the transfer in one statement); one `integration.claimed` row with before/after, `metadata.reason = 'owner-claim'` |
 
 The sixth is the owner of an integration accepting another vendor's contest
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). It writes the contested column and the
 transfer in one statement, and marks `metadata.maintenanceTransfer: true` only when
-the row changes hands, like the other five. It is dormant in production until
-AECI-1005 makes an integration claimable, because until then no contest routes to an
-owner. An **AECi** accept of a contest (`PATCH /api/admin/contests/:id`) writes no
-catalog data and is not on this list.
+the row changes hands, like the other five. It went live with AECI-1005, which made an
+integration claimable, because only a claimed integration routes a contest to an
+owner. An **AECi** accept of a contest (`PATCH /api/admin/contests/:id`) is not on this
+list: it is an AECi write, not a vendor-authorized one.
+
+The seventh is the owner's claim itself (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, ADR 0035).
+It is the act that makes a row vendor-owned, so it is the clearest case of "who is on
+the hook for this page" changing hands. What it does NOT change: `maintained_by` is
+still only the display marker. The promote fence keys on `claimed_at`, never on
+`maintained_by` (AECI-1003 decision 13), because an attestation also flips
+`maintained_by` and an attestation is not ownership.
 
 Two shapes, because each is the right one for its batch. The two `PATCH`es already
 carry a `vendor.updated` / `product.updated` audit row on the row they are writing,
@@ -2370,7 +2378,7 @@ Four consequences worth stating, because each is a thing someone will otherwise
    transition instead sets `metadata.maintenanceTransfer: true`, and only on the
    write that actually changes hands — flagging every later save would make the
    flag useless for finding the ones that mattered. The key is **omitted**, not
-   set to `false`, on every later save, and identically on all six sites: a
+   set to `false`, on every later save, and identically on all seven sites: a
    key-presence query over `audit_log.metadata` has to mean the same thing
    whichever surface wrote the row.
 2. **Per row, never transitive.** A vendor editing its company profile does not flip
@@ -2405,10 +2413,12 @@ closes the same hole at the row grain, on the write side.
 `maintained_by` itself was already safe: promote does not accept it (§13.3) and the
 column never appears in any projection. Two holes survived that:
 
-- **`integrations` has no claimed-vendor block.** AECI-520 refuses to write a seated
-  vendor's row or any product it owns, but nothing equivalent guards edges, and an
-  edge is vendor-maintainable today through §13.4. This is the arm that fires in
-  production.
+- **`integrations` had no claimed-vendor block.** AECI-520 refuses to write a seated
+  vendor's row or any product it owns, and until AECI-1005 nothing equivalent guarded
+  edges, while an edge is vendor-maintainable through §13.4. This is the arm that fires
+  in production. **Since AECI-1005 a CLAIMED edge is blocked wholesale** (the ownership
+  fence, `REVIEW_APP_PROMOTE_API.md` §4b), so this `last_reviewed_at` fence now does its
+  work on the unclaimed-but-attested edge only.
 - **`claimedVendorIds` is seat-derived.** Revoke or ban every `vendor_admin` seat and
   the block lifts while `maintained_by` stays `'vendor'`. So the `vendors` and
   `products` arms of the fence are near-unreachable while a seat exists and fire

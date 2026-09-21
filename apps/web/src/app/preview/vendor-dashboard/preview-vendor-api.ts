@@ -377,8 +377,9 @@ export class PreviewVendorApi extends VendorApi {
 
   /**
    * Mirrors the handler's refusals in its order: owner 403, value 422, no-change
-   * 422, duplicate 409. Every contest routes to AECi, which is what production
-   * does until claiming ships (`isIntegrationClaimed()` is a stub).
+   * 422, duplicate 409. Every contest routes to AECi here. Production routes a
+   * content contest on a claimed integration to its owner (AECI-1005); the preview
+   * has no claimed state to route on.
    */
   override async submitContest(
     integrationId: string,

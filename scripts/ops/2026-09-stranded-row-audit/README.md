@@ -222,6 +222,20 @@ ruling first, then execute it. AECI-916's took evidence from `promote_jobs`, `au
 one thing it could not establish — why the promote's write-back never landed — is recorded in
 the ruling file as an absence rather than guessed at.
 
+### Vendor-held rows are counted, never reported (AECI-1005)
+
+An `integrations` row its owner has **claimed**, or one a vendor **created**
+(`origin = 'vendor'`), is the vendor's (ADR 0035). "No upstream record carries this id"
+is expected for such a row: promote stopped writing it at the claim, and a vendor-created
+row never had a record. So `classifyRows` puts it in a `vendorHeld` list that the run
+logs as a count and never adds to `integrationSourceGone`, the exit code or the
+`--ids-out` file. A vendor-held row whose **endpoint** is stranded is still an
+`integrationEndpointStranded` finding, because the stranded thing is the product, and
+the entry carries `vendorHeld: true` so nobody deletes the edge to fix it. The columns
+are probed from the live DDL, because production applies migration `0044` only at its
+next promote. The rule lives in `../2026-09-retraction-consumer/vendor-held.mjs`, shared
+with the consumer, and `apps/api/src/test/vendor-held.spec.ts` pins it.
+
 ### What is deliberately out of scope
 
 - **`connector_pairs`.** The **reachable** tier (AECI-891). Nobody built those edges — they

@@ -79,6 +79,13 @@ that tier's own SSR Worker consumes.
   them) and datatool owns the dangerous half: guards, rollback SQL, an ordered
   delete, count repair, and the refresh. That split also keeps the tool reusable
   for any future stranded-row set instead of hard-coding one batch.
+- **A vendor-held row is never pruned (AECI-1005 / ADR 0035).** A row its owner has
+  claimed (`claimed_at` set) or a vendor created (`origin = 'vendor'`) belongs to the
+  vendor, so "no upstream record points at it" is not evidence that it is residue. The
+  plan lists such ids in `vendorHeld`, and the execute path refuses with **409
+  `VENDOR_HELD`**. Unlike the three guards below, **no acknowledgment overrides it**.
+  The check reads `SELECT *`, so it degrades to "none held" on a tier that has not yet
+  applied migration `0044`.
 - **Three guards block the prune**, and a non-zero value on *any* of them refuses
   the run — on the execute path too, not just in the dry-run summary. Each means
   "this row is not actually a redundant copy": `claimsUniqueToOrphans` (the
@@ -175,7 +182,7 @@ ungated (the edge Access gates the host).
 | `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff). Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
 | `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). Same confirm rules. |
 | `/api/reindex` | `{ target, entities?, purge? }` | Rebuild search from current D1 (no DB write). |
-| `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; same confirm rules as above. |
+| `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; a vendor-held id ⇒ **409 `VENDOR_HELD`**, not overridable (AECI-1005); same confirm rules as above. |
 
 `refresh` defaults **true** (reindex + cache purge after a write); set `false` to
 skip. The reindex is a graceful no-op without Algolia creds; the purge is a no-op on

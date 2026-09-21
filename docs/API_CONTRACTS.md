@@ -254,6 +254,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
+| `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
+| `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
+| `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
+| `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -4641,8 +4645,21 @@ routine push would silently revert their work. Therefore:
   cascade-skip (matched by both `ref` and `supabaseId` — the payload's
   `superRefine` only constrains the `ref` form). The cascade is scoped to this
   payload's product: an integration whose *far* endpoint is some other claimed
-  vendor's product still writes, because integrations are AECi-curated and are
-  not vendor-editable, so no vendor-owned content is at stake.
+  vendor's product still writes, because owning a PRODUCT does not make a vendor
+  the owner of every integration touching it. Integrations are vendor-owned and
+  AECi seeds them (ADR 0035); ownership is fenced per ROW by the claimed-integration
+  block below, keyed on `integrations.claimed_at`.
+- **A claimed integration is not written at all (AECI-1005).** Once its owner has
+  claimed it, promote skips the edge wholesale: no content column, no
+  `built_by_vendor_id`, no endpoint re-point, no cross-table move, and no write to
+  its claims or attestations. Reported as `skipped[] { kind: 'integration',
+  reason: 'integration is claimed by its owner; promote writes nothing to a
+  vendor-owned integration' }` plus a `promote.blocked` audit row, and omitted from
+  `integrations[]`. An in-batch sentinel covers a claim that lands between plan and
+  commit: the whole batch rolls back and the job errors with
+  `INTEGRATION_CLAIMED_DURING_PROMOTE`. The fence keys on `claimed_at`, never on
+  `maintained_by`. Promote never writes `claimed_at`, `origin` or `retired_at`.
+  Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4b.
 - **Creation is never blocked** — nothing vendor-owned exists yet.
 - Unrelated vendors and integrations in the same payload still promote.
 - "Claimed" requires an **active** seat. Banning a vendor's only admin un-claims
@@ -4912,7 +4929,7 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` + `integration-contests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -4922,6 +4939,8 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 3. **Writes are entitlement-gated; reads never are.** Every write handler calls `requireCapability(c, …)` and answers **403 `ENTITLEMENT_REQUIRED`** without it (`details: { capability, tier, fields? }`). The gate is a DB-free assertion over `c.get('auth').entitlementTier`, which the guard loaded in the same round-trip as the profile. Two ordering rules: on `/profile` it runs immediately after the session's vendor is known, but on any **product**-scoped write it runs **after ownership settles**, because a 403 raised first would confirm a foreign product exists and 404-never-403 is the harder invariant. And the field-level rejection **throws rather than silently dropping** — the dirty-diff forms re-seed their baseline from the echo and would settle *clean* on a value that never landed.
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
+
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so will every later owner write on integrations (1006 edit, 1007 per-side links, 1010 retire, 1011 create). Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5138,8 +5157,18 @@ export const VendorContestNotificationSchema = z.object({   // AECI-1008
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });
+export const VendorIntegrationClaimNotificationSchema = z.object({ // AECI-1005
+  kind: z.literal('integration_claim'),
+  id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  integration_name: z.string().nullable(),
+  owner_name: z.string().nullable(),     // the claiming owner, as named at claim time
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
+  VendorIntegrationClaimNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export const ListVendorNotificationsResponseSchema = z.object({
@@ -5147,7 +5176,7 @@ export const ListVendorNotificationsResponseSchema = z.object({
 });
 ```
 
-**The list is a union on `kind` (AECI-1008).** A contest event is written by the contest handlers as a `notification.sent` row with `entity_type: 'integration_field_challenge'` and `metadata.kind = 'contest'`, in the same batch as the transition it announces. The scoping predicate is unchanged, so the `notifications` cursor did not move. `kind` is optional on the attestation member only so a client can read a pre-contest API during a rolling deploy; the server always sends it. Use `isAttestationNotification` from `@aeci/shared` to narrow.
+**The list is a union on `kind` (AECI-1008).** A contest event is written by the contest handlers as a `notification.sent` row with `entity_type: 'integration_field_challenge'` and `metadata.kind = 'contest'`, in the same batch as the transition it announces. The scoping predicate is unchanged, so the `notifications` cursor did not move. Since AECI-1005 an integration claim writes a third member, `kind: 'integration_claim'` (`entity_type: 'integration'`), to every vendor of either endpoint other than the owner, in the claim's own batch. `kind` is optional on the attestation member only so a client can read a pre-contest API during a rolling deploy; the server always sends it. Use `isAttestationNotification` from `@aeci/shared` to narrow.
 
 `pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
 
@@ -5166,7 +5195,7 @@ export const VendorRevisionsSchema = z.object({
   profile: z.string().nullable(),        // vendors.updated_at (moves on the `verified` mirror flip too)
   entitlement: z.string().nullable(),    // MAX(vendor_entitlements.updated_at) — vendor_id is UNIQUE, so ≤ 1 row
   products: z.string().nullable(),       // MAX(products.updated_at) over product_vendors
-  integrations: z.string().nullable(),   // MAX over integrations ∪ claims ∪ attestations on the attestable surface (row term: AECI-992)
+  integrations: z.string().nullable(),   // MAX over integrations ∪ claims ∪ attestations on the attestable surface (row term: AECI-992; it is also what moves on an AECI-1005 claim)
   notifications: z.string().nullable(),  // MAX(audit_log.created_at) over this vendor's notification.sent ledger
   requests: z.string().nullable(),       // MAX(COALESCE(resolved_at, created_at)) — vendor_requests has no updated_at
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
@@ -5576,8 +5605,36 @@ export const VendorContestSchema = z.object({
 - **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each newest first with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as owner is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
 - **Withdraw** is the submitter's alone. **Decision** is the owner's alone, and only on an owner-routed row. Everyone else gets `404`. A closed contest is `409 CONTEST_NOT_OPEN`, which is also the answer to the loser of a race.
 - **An owner accept writes the catalog** in the same batch: the column, the §13.9 maintenance transfer, and an `integration.updated` audit row. It then purges `pair:{a}__{b}` and both `product:` tags. A decline, a withdraw and a submit purge nothing.
-- **Routing is fixed at submit.** Until AECI-1005 replaces the `isIntegrationClaimed` stub, every contest routes to AECi, so `received` is always empty in production.
+- **Routing is fixed at submit.** A contest routes to the owner when the integration is claimed (`claimed_at IS NOT NULL`, AECI-1005 replaced the stub) and the field is not `owner`. Otherwise it routes to AECi. The `owner` field routes to AECi even on a claimed row.
 - **Every write** carries its `audit_log` row (`integration.contest.*`, `entity_type: 'integration_field_challenge'`, `metadata.source: 'vendor-portal'`), a `workflow_transitions` row on a `correction_request` instance, and a `notification.sent` row for the other side, all in one batch.
+
+#### Integration ownership claim — `POST /api/vendor/integrations/:id/claim`
+
+Stage 2.1 (AECI-1005, ADR 0035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). The recorded owner of an integration (`built_by_vendor_id`) takes the row. Zod in `packages/shared/src/api/integration-claims.ts`, handler in `apps/api/src/routes/vendor-integration-claims.ts`, shared rules in `apps/api/src/lib/integration-claims.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/integrations/:id/claim` | seat, `rateLimit('write')`, caller = `built_by_vendor_id` | `200 { integration }` |
+
+**No body and no capability gate.** A seat is the whole gate (AECI-1003 decision 15), the same named exception to invariant 3 that contests took. No approval: the owner is on file, so the claim goes straight through.
+
+```typescript
+export const ClaimIntegrationResponseSchema = z.object({
+  integration: z.object({
+    id: z.string().uuid(),
+    owner_vendor_id: z.string(),     // the caller's vendor
+    claimed_at: z.string(),
+    maintained_by: z.literal('vendor'),
+    last_reviewed_at: z.string(),    // = claimed_at: the §13.9 maintenance transfer
+  }),
+});
+```
+
+**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`. A connector-powered row may be claimed (decision 9's one exception); the audit row carries `metadata.connectorPowered: true`.
+
+**One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it, an `integration.claimed` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers `409`. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl.
+
+**After the claim,** promote writes nothing to the row (§6.12) and content contests on it route to the owner.
 
 ## 7. Validation rules
 

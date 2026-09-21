@@ -1040,8 +1040,8 @@ export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorAttestationNotificatio
  *
  *  - **Received**: one open contest from Autodesk on the integration the caller
  *    built ({@link INTEGRATION_VENDOR_B}), so the owner inbox renders its Accept
- *    and Decline controls in the preview. Owner routing is dormant in production
- *    until claiming ships; the fixture shows the surface it will use.
+ *    and Decline controls in the preview. Owner routing is live in production
+ *    for claimed integrations since AECI-1005; the fixture shows that surface.
  *  - **Submitted**: one open (with AECi), one declined with a note, and one
  *    accepted, so every submitter-side pill and the decision note render.
  */

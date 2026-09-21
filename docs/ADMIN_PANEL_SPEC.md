@@ -1009,8 +1009,9 @@ Four IA notes, in §5.10's voice:
 - **Owner-routed rows are visible but read-only.** They render "With the owner" and no
   decision buttons. An operator can see a dispute it does not own, but two deciders on one
   row is how a contest gets accepted twice with two values. The API refuses the PATCH with
-  `409 CONTEST_ROUTED_TO_OWNER` anyway. Until AECI-1005 replaces the `isIntegrationClaimed()`
-  stub, every contest routes to AECi, so this view is empty in production.
+  `409 CONTEST_ROUTED_TO_OWNER` anyway. Since AECI-1005 replaced the `isIntegrationClaimed()`
+  stub, a content contest on a CLAIMED integration routes to its owner and shows here
+  read-only. An `owner` contest always routes to AECi.
 - **No detail route.** The API has no single-contest read, and a row already carries every
   field a decision needs. A parameterised route would cost a breadcrumb rule (§5.0b) for no
   content.

@@ -320,9 +320,9 @@ function isOpenContestConflict(error: unknown): boolean {
 // ─── POST /api/vendor/integrations/:id/contests ──────────────────────────────
 
 /**
- * `claimed` is the routing predicate. It defaults to the AECI-1005 stub
- * ({@link isIntegrationClaimed}, always `false`), and is a parameter so the owner
- * path can be exercised end to end before AECI-1005 ships.
+ * `claimed` is the routing predicate. It defaults to {@link isIntegrationClaimed},
+ * the real `claimed_at` test since AECI-1005 replaced the stub, and stays a
+ * parameter so a spec can pin either route without seeding a claim.
  */
 export function createSubmitContestHandler(
   dbFor: DbFactory = getDb,
