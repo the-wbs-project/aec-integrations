@@ -167,8 +167,8 @@ export class VendorNotificationsList {
    * blank row here.
    *
    * Contest rows (AECI-1008) are rendered too, titled by {@link titleFor} from
-   * their event. Only an attestation row can have an empty title, so the guard
-   * applies to that member alone.
+   * their event, and so are claim rows (AECI-1005). Only an attestation row can
+   * have an empty title, so the guard applies to that member alone.
    */
   protected readonly visible = computed(() =>
     this.notifications().filter((n) => !isAttestationNotification(n) || titleOf(n) !== ''),
@@ -242,6 +242,11 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    if (notification.kind === 'integration_claim') {
+      return [notification.owner_name, notification.integration_name].filter(
+        (part): part is string => !!part,
+      );
+    }
     return [contestFieldLabelLoose(notification.field), notification.integration_name].filter(
       (part): part is string => !!part,
     );
@@ -264,9 +269,12 @@ export class VendorNotificationsList {
   }
 }
 
-/** One title rule for both union members. */
+/** One title rule for every union member. The claim row (AECI-1005) carries
+ *  plain copy for now; AECI-1023 owns the reader- and vendor-facing wording. */
 function titleOf(notification: VendorNotification): string {
-  return isAttestationNotification(notification)
-    ? detectorTitle(notification.detector)
-    : contestNotificationTitle(notification.event);
+  if (isAttestationNotification(notification)) return detectorTitle(notification.detector);
+  if (notification.kind === 'integration_claim') {
+    return $localize`:@@vendor.claim.notify.claimed:The owner claimed an integration on your product`;
+  }
+  return contestNotificationTitle(notification.event);
 }

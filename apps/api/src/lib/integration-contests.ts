@@ -5,7 +5,7 @@
  * Four things live here so no handler re-derives them:
  *
  *   1. **Routing** — who decides a contest. {@link routeContest} is the one
- *      implementation, and {@link isIntegrationClaimed} is its stub.
+ *      implementation, and {@link isIntegrationClaimed} (AECI-1005) its claim test.
  *   2. **The field ↔ column map**, and the two translations between the storage
  *      form of a value and the caller-relative wire form (`direction` only).
  *   3. **The vendor scoping predicate** ({@link vendorContestsWhere}), which
@@ -33,6 +33,7 @@ import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { integrationFieldChallenges, integrations, vendors } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import { isClaimed } from './integration-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -41,23 +42,23 @@ type IntegrationRow = typeof integrations.$inferSelect;
 export const CONTEST_ENTITY_TYPE = 'integration_field_challenge';
 
 /**
- * Is this integration CLAIMED, i.e. does its owner hold an accountable seat that
- * may decide contests on it?
+ * Is this integration CLAIMED, i.e. has its owner taken the row, so that it decides
+ * contests on it?
  *
- * ⚠️ **STUB. Always `false` until AECI-1005 replaces it.** AECI-1005 defines what
- * "claimed" means for an integration (a seated owner that has taken
- * responsibility for the row) and fences promote moves on claimed rows. Until it
- * ships, every contest routes to AECi, which is the safe direction: an AECi accept
- * writes nothing and files a `REVIEW - ` issue for the curation lane.
+ * AECI-1005 replaced the stub that stood here (always `false`) with the real test:
+ * `claimed_at IS NOT NULL`, via {@link isClaimed} in `lib/integration-claims.ts`,
+ * which is the single definition. A claim is an act (the owner's own claim, or an
+ * admin approval of an owner-unknown claim), and it is the same column that fences
+ * promote, so an owner accept can no longer be reverted by the next promote of the
+ * edge.
  *
- * It takes the row rather than an id so the replacement can decide from columns
- * it already has, and so the owner path can be exercised in tests by injecting a
- * different predicate into the handler factory.
+ * It still takes the row rather than an id, and the submit handler still takes it
+ * as an injectable predicate, so a spec can pin either route without seeding a claim.
  */
 export function isIntegrationClaimed(
-  _integration: Pick<IntegrationRow, 'id' | 'builtByVendorId'>,
+  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
 ): boolean {
-  return false;
+  return isClaimed(integration);
 }
 
 export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
@@ -73,7 +74,7 @@ export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
  * AECi-routed row it is informational (the admin screen shows who is on file).
  */
 export function routeContest(
-  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId'>,
+  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
   field: IntegrationContestField,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
 ): { routedTo: ContestRoute; ownerVendorId: string | null } {

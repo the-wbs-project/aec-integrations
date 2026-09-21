@@ -9,6 +9,8 @@
  * (`lib/attestation-notify.ts`), written after a successful send. Since AECI-1008
  * the contest handlers also write them (`metadata.kind = 'contest'`), in the same
  * batch as the contest transition, addressed to the other side of the contest.
+ * Since AECI-1005 so does the integration claim (`metadata.kind =
+ * 'integration_claim'`), addressed to every other endpoint vendor.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -50,6 +52,7 @@ import {
   type ListVendorNotificationsResponse,
   type NotificationProductRef,
   type VendorContestNotification,
+  type VendorIntegrationClaimNotification,
   type VendorNotification,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
@@ -63,6 +66,7 @@ import {
   type NotificationLedgerMetadata,
 } from '../lib/attestation-notify';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { CLAIM_NOTIFICATION_KIND, type ClaimNotificationMetadata } from '../lib/integration-claims';
 import { pairPathFor, type ContestNotificationMetadata } from '../lib/integration-contests';
 import { sessionVendorId, type VendorContext } from './vendor-shared';
 
@@ -128,9 +132,10 @@ function toVendorNotification(row: {
   // AECI-1008: contest events share the ledger. They are recognised by
   // `metadata.kind`, never by the absence of `detector`, so a malformed detector
   // row can never be misread as a contest.
-  if ((row.metadata as { kind?: unknown } | null)?.kind === 'contest') {
-    return toContestNotification(row);
-  }
+  const kind = (row.metadata as { kind?: unknown } | null)?.kind;
+  if (kind === 'contest') return toContestNotification(row);
+  // AECI-1005: an owner claimed an integration on one of this vendor's products.
+  if (kind === CLAIM_NOTIFICATION_KIND) return toClaimNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -186,6 +191,34 @@ function toContestNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     field: meta.field,
+    pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one claim ledger row (AECI-1005), or `null` when it is not recognisable.
+ * Same tolerance as the other two mappers.
+ */
+function toClaimNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorIntegrationClaimNotification | null {
+  const meta = row.metadata as Partial<ClaimNotificationMetadata> | null;
+  if (!meta || typeof meta.integrationId !== 'string') return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'integration_claim',
+    id: row.id,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

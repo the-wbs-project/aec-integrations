@@ -125,6 +125,7 @@ import {
   createSubmitContestHandler,
   createWithdrawContestHandler,
 } from './routes/vendor-contests';
+import { createClaimIntegrationHandler } from './routes/vendor-integration-claims';
 import {
   createAdminContestsListHandler,
   createModerateContestHandler,
@@ -928,6 +929,17 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createDecideContestHandler(),
+);
+// AECI-1005 / ADR 0035: the recorded owner (`built_by_vendor_id`) claims its
+// integration, with no approval. A SEAT IS THE WHOLE GATE (decision 15), exactly as
+// for contests above: no `requireCapability`. Gate order is `requireVendor()` →
+// `rateLimit('write')` → ownership inside the handler (404, never 403, for a row the
+// caller cannot see). Once claimed, promote writes nothing to the row.
+authVendor.post(
+  '/api/vendor/integrations/:id/claim',
+  requireVendor(),
+  rateLimit('write'),
+  createClaimIntegrationHandler(),
 );
 //
 // Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on

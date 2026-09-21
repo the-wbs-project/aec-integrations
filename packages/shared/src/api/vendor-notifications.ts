@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { VendorIntegrationClaimNotificationSchema } from './integration-claims';
+
 /**
  * Vendor notification list (`GET /api/vendor/notifications`, AECI-302 /
  * `STAGE_2_ATTESTATIONS_SPEC.md` §7.2), behind the `requireVendor()` guard.
@@ -124,19 +126,22 @@ export const VendorContestNotificationSchema = z.object({
 export type VendorContestNotification = z.infer<typeof VendorContestNotificationSchema>;
 
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
- *  why its `kind` may be absent. */
+ *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
+ *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
+  VendorIntegrationClaimNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
 
 /** Narrow a feed row to the attestation member. `kind` absent counts as
- *  attestation, which is what every pre-AECI-1008 row is. */
+ *  attestation, which is what every pre-AECI-1008 row is. Every other member
+ *  carries an explicit `kind`, so this names them rather than testing for one. */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
-  return notification.kind !== 'contest';
+  return notification.kind !== 'contest' && notification.kind !== 'integration_claim';
 }
 
 export const ListVendorNotificationsResponseSchema = z.object({

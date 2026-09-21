@@ -381,6 +381,29 @@ describe('GET /api/vendor/updates — each scope moves independently', () => {
     expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
   });
 
+  it('`integrations` moves when a claim writes only the row, with no claim on it (AECI-1005)', async () => {
+    // A claim and an owner's contest accept write only the `integrations` row. The
+    // row-level read AECI-992 added is what makes the cursor see them.
+    const before = await revisions();
+    await t.db
+      .update(integrations)
+      .set({ claimedAt: MOVED, maintainedBy: 'vendor', updatedAt: MOVED })
+      .where(eq(integrations.id, INTEGRATION_AB));
+
+    expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
+  });
+
+  it('`integrations` does not move when a row the vendor owns no endpoint of is claimed (AECI-1005)', async () => {
+    // INTEGRATION_BC is B → C, both Bentley's. Vendor A must not see it move.
+    const before = await revisions();
+    await t.db
+      .update(integrations)
+      .set({ claimedAt: MOVED, updatedAt: MOVED })
+      .where(eq(integrations.id, INTEGRATION_BC));
+
+    expect(await revisions()).toEqual(before);
+  });
+
   it('`integrations` moves when an attestation on that surface changes', async () => {
     await seedClaim(CLAIM_AB, INTEGRATION_AB);
     await seedAttestation(uuid(50), CLAIM_AB);

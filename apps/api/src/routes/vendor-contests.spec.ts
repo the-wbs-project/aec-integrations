@@ -6,9 +6,9 @@
  * transaction, so the partial unique index, the FK from the contest to its
  * workflow instance, and the audit-in-batch rule are exercised, not mocked.
  *
- * The owner path is dormant in production until AECI-1005 replaces the
- * `isIntegrationClaimed` stub. It is driven here by injecting a predicate into the
- * submit handler, which is the seam that exists for exactly this.
+ * The owner path is live since AECI-1005 replaced the `isIntegrationClaimed` stub
+ * with the real `claimed_at` test. Most cases still drive it by injecting a
+ * predicate into the submit handler; `routeContest` below also pins the real one.
  */
 
 import {
@@ -185,10 +185,21 @@ const NAME_CONTEST = {
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
 describe('routeContest', () => {
-  const row = { id: I_MAIN, builtByVendorId: VENDOR_B };
+  const row = { id: I_MAIN, builtByVendorId: VENDOR_B, claimedAt: null };
 
-  it('routes to AECi while the AECI-1005 stub says unclaimed', () => {
+  it('routes to AECi while the integration is unclaimed', () => {
     expect(routeContest(row, 'name')).toEqual({ routedTo: 'aeci', ownerVendorId: VENDOR_B });
+  });
+
+  it('routes to the owner once claimed_at is set, with the real predicate (AECI-1005)', () => {
+    const claimedRow = { ...row, claimedAt: '2026-09-21T00:00:00.000Z' };
+    expect(routeContest(claimedRow, 'name')).toEqual({
+      routedTo: 'owner',
+      ownerVendorId: VENDOR_B,
+    });
+    // The owner field still goes to AECi on a claimed row: the owner cannot judge
+    // whether it is the owner.
+    expect(routeContest(claimedRow, 'owner').routedTo).toBe('aeci');
   });
 
   it('routes to the owner once the integration is claimed', () => {
@@ -203,7 +214,9 @@ describe('routeContest', () => {
   });
 
   it('routes to AECi when no builder is on file', () => {
-    expect(routeContest({ id: I_MAIN, builtByVendorId: null }, 'name', () => true)).toEqual({
+    expect(
+      routeContest({ id: I_MAIN, builtByVendorId: null, claimedAt: null }, 'name', () => true),
+    ).toEqual({
       routedTo: 'aeci',
       ownerVendorId: null,
     });
@@ -508,7 +521,7 @@ describe('POST /api/vendor/contests/:id/withdraw', () => {
 
 // ─── POST /api/vendor/contests/:id/decision ──────────────────────────────────
 
-describe('POST /api/vendor/contests/:id/decision (owner path, AECI-1005 stubbed on)', () => {
+describe('POST /api/vendor/contests/:id/decision (owner path, predicate injected on)', () => {
   async function ownerContest(body: object = NAME_CONTEST): Promise<string> {
     claimed = true;
     const res = await submit(AUTH_A, I_MAIN, body);

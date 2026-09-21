@@ -13,6 +13,7 @@ export * from './admin-vendors';
 export * from './common';
 export * from './integrations';
 export * from './integration-contests';
+export * from './integration-claims';
 export * from './landing';
 export * from './page-views';
 export * from './product-facets';
