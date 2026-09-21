@@ -1723,6 +1723,12 @@ Autodesk, Trimble, Deltek and Sage Group each own connector-role products while 
 among the largest endpoint accounts, so a per-vendor flag would catch the exact inverse
 of the intent. Ownership counts every `product_vendors` row, not just `is_primary`.
 
+> **Half the test since 2026-09-18.** `STAGE_2_SPEC.md` §8.10 added a second payer clause: a
+> pure connector vendor that owns integrations it manages (`built_by_vendor_id`) is a paying
+> third-party owner and takes the ordinary Grant (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a).
+> These payloads carry no owned-integration count, so `is_pure_connector_vendor: true` no longer
+> means "park". Adding the count over both delivered-tier tables is AECI-1041.
+
 **Three states, not two.** `is_pure_connector_vendor: false` covers both "owns an
 endpoint product" (an ordinary vendor) and "owns no products at all" — the second is
 **unknown, never exempt**, and `product_roles.total === 0` is how a surface tells them

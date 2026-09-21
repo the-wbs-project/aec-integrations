@@ -78,7 +78,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).
 - Watch the vendor-surface metrics through whichever observability stack §2(3) resolved to.
 - Process accumulated parked claims as part of §5's controlled activation — none are approved before the exit gate opens.
-- **Connector-vendor claims stay parked per the §8.8/§8.9 commercial model** (parked, never granted or rejected) — Stage 2.1's activation does not override that carve-out.
+- **Connector-vendor claims stay parked per the §8.8/§8.9 commercial model** (parked, never granted or rejected) — Stage 2.1's activation does not override that carve-out. **Exception (`STAGE_2_SPEC.md` §8.10, AECI-1017):** a connector vendor that owns integrations it manages is a paying vendor and takes the ordinary Grant (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a).
 
 ### 3.5 Vendor-guide docs dependency (AECI-634 — stays Stage 2 work)
 
