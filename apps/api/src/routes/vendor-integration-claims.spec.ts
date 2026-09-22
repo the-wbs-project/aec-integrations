@@ -204,7 +204,6 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
       reason: 'owner-claim',
       maintenanceTransfer: true,
     });
-    expect(audit!.metadata).not.toHaveProperty('connectorPowered');
   });
 
   it('notifies the other endpoint vendor, and never the owner', async () => {
@@ -255,11 +254,28 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
     expect(recipients).toEqual([VENDOR_A, VENDOR_B].sort());
   });
 
-  it('allows a connector-powered row to be claimed, and records that it is one (decision 9)', async () => {
+  it('refuses a connector-powered row with 403, and writes nothing (decision 9, Q1 ruling)', async () => {
     const res = await claim(AUTH_B, I_POWERED);
-    expect(res.status).toBe(200);
-    const [audit] = await claimAudits();
-    expect(audit!.metadata).toMatchObject({ connectorPowered: true });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+    expect((await row(I_POWERED)).claimedAt).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses an iPaaS row with no powered_by the same way', async () => {
+    await t.db
+      .update(integrations)
+      .set({ poweredByProductId: null, mechanismKind: 'iPaaS' })
+      .where(eq(integrations.id, I_MAIN));
+    const res = await claim(AUTH_B, I_MAIN);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+  });
+
+  it('still answers a non-owner on a connector-powered row with the ownership refusal', async () => {
+    const res = await claim(AUTH_A, I_POWERED);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
   });
 });
 

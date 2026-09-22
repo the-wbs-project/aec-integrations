@@ -25,11 +25,15 @@
  * portal, so it gets the specific answer: `403 INTEGRATION_NOT_OWNER` when someone
  * else owns it, `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file.
  *
- * ── 4. CONNECTOR-POWERED ROWS MAY BE CLAIMED, AND NOTHING ELSE ──────────────
+ * ── 4. CONNECTOR-POWERED ROWS CANNOT BE CLAIMED IN V1 ───────────────────────
  * Decision 9 keeps connector-powered integrations out of every vendor write, and
- * the 2026-09-21 ruling carves exactly one thing out of that for v1: the owner may
- * claim. So this route does NOT refuse a connector-powered row. Every later owner
- * write (1006 edit, 1007 links, 1010 retire) must.
+ * the 2026-09-22 ruling (AECI-1005 Q1, option A) puts the claim inside that fence
+ * too. A claimed row is frozen to promote (decision 5) and a connector-powered row
+ * is frozen to the owner (decision 9), so a claim there would leave a row nobody
+ * could correct. The owner gets `403 INTEGRATION_CONNECTOR_POWERED`, decided by
+ * `isConnectorPoweredEdge` (so Convention-A self-references and `iPaaS` rows are
+ * refused too). AECI-1040 delivers claim, edit and retire on those rows together.
+ * Every later owner write (1006 edit, 1007 links, 1010 retire) refuses them too.
  *
  * ── 5. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded `UPDATE … WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`,
@@ -142,6 +146,15 @@ async function refusalFor(db: Db, vendorId: string, row: IntegrationRow): Promis
       'Another company is recorded as the owner of this integration. Contest the owner field if that is wrong.',
     );
   }
+  // Decision 9, v1 (AECI-1005 Q1): the owner of a connector-powered row cannot claim
+  // it. Asked after ownership, so a non-owner still gets the ownership answer.
+  if (isConnectorPoweredEdge(row)) {
+    return new ApiError(
+      403,
+      ApiErrorCode.INTEGRATION_CONNECTOR_POWERED,
+      'This integration is delivered through a connector product, and connector-delivered integrations cannot be claimed yet.',
+    );
+  }
   if (isClaimed(row)) {
     return new ApiError(
       409,
@@ -217,8 +230,6 @@ export function createClaimIntegrationHandler(
           reason: 'owner-claim',
           // Present only on the hand-changing write, never as `false` (§13.9).
           ...(isMaintenanceTransfer(row) ? { maintenanceTransfer: true } : {}),
-          // The one vendor write decision 9 allows on a connector-powered row.
-          ...(isConnectorPoweredEdge(row) ? { connectorPowered: true } : {}),
         },
       },
       ...recipients.map((recipient) =>
