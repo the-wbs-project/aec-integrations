@@ -3015,6 +3015,8 @@ export async function runPromoteIngest(
     //      re-point does. An UPDATE that changes none of the four leaves the key as it
     //      was, so it cannot create a match that did not already exist and is not
     //      asked. A direction swap of the same two products changes no key field.
+    //      An UPDATE is skipped only for a NEW twin: a vendor-held row the stored row
+    //      already twinned does not count, so the write goes through.
     // The evidenced branch above needs no guard: every row it writes carries a
     // third-party connector, and no vendor-held row has one (a vendor create cannot
     // set `powered_by`, and a claim is refused on a connector-powered row).
@@ -3047,11 +3049,34 @@ export async function runPromoteIngest(
         (finalMechanismKind !== storedIntegration.mechanismKind ||
           finalOwnerId !== storedIntegration.builtByVendorId));
     if (!located || located.table === 'evidenced' || keyChanged) {
+      // On an UPDATE, the guard asks only about a NEW twin (ruled on AECI-1012). A
+      // vendor-held row the stored row already twinned is excluded, so an
+      // already-twinned curated row keeps receiving curator updates (the owner
+      // backfill is exactly that push). The row itself is excluded too: if it is
+      // claimed mid-promote, the sentinel must not read it as its own twin, so the
+      // abort is reported as the AECI-1005 claim race it is.
+      const excludeIds: string[] = [];
+      if (storedIntegration !== null && located) {
+        excludeIds.push(located.id);
+        const alreadyTwinned = await findStrongMatches(
+          db,
+          {
+            productIds: [storedIntegration.sourceProductId, storedIntegration.targetProductId],
+            poweredByProductId: storedIntegration.poweredByProductId,
+            ownerVendorId: storedIntegration.builtByVendorId,
+            mechanismKind: storedIntegration.mechanismKind,
+            excludeIds: [located.id],
+          },
+          { vendorHeldOnly: true },
+        );
+        excludeIds.push(...alreadyTwinned.map((row) => row.id));
+      }
       const twinCandidate: TwinCandidate = {
         productIds: [sourceId, targetId],
         poweredByProductId: finalConnectorId,
         ownerVendorId: finalOwnerId,
         mechanismKind: finalMechanismKind,
+        ...(excludeIds.length ? { excludeIds } : {}),
       };
       const [twin] = await findStrongMatches(db, twinCandidate, { vendorHeldOnly: true });
       if (twin) {

@@ -8,7 +8,8 @@
  * row. Three writes are guarded: an INSERT (brand new, or the AECI-568 fallback for a
  * dead id), a DE-ROUTE out of `connector_evidenced_pairs`, and an UPDATE that changes
  * any key field of an unclaimed row (endpoints, connector, kind or owner). An UPDATE
- * that changes none of them is not asked. Live OR retired: this is what
+ * that changes none of them is not asked, and an UPDATE is skipped only for a twin the
+ * stored row did not already have. Live OR retired: this is what
  * keeps a curator's re-add from undoing an owner's retire in public (the AECI-1010
  * gap, ADR 0035).
  *
@@ -463,6 +464,99 @@ describe('the UPDATE guard: a kind or owner change is a key change too', () => {
       where: eq(integrations.id, VENDOR_ROW),
     });
     expect(vendorRow!.retiredAt).toBe(NOW);
+  });
+
+  it('treats an explicit mechanismKind: null as a key change (none twins none)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ mechanismKind: null })
+      .where(eq(integrations.id, VENDOR_ROW));
+    await seedCurated({ mechanismKind: 'api' });
+    const before = await curatedRow();
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { mechanismKind: null, description: 'after' }),
+    );
+    await expectUpdateSkip(response, before);
+  });
+
+  it('does not treat an unresolvable builtByVendor as a key change', async () => {
+    // Unresolvable means unstated: the stored owner stays, so the key is unchanged.
+    await seedCurated({ builtByVendorId: OTHER });
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, {
+        builtByVendor: { supabaseId: uuid(99) },
+        description: 'after',
+      }),
+    );
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OTHER, description: 'after' });
+  });
+
+  it('writes an owner backfill onto a row that ALREADY twinned the vendor row', async () => {
+    // Unknown owner already matches the vendor row. Filling it in creates no NEW twin,
+    // so the curator's update must land (ruled on AECI-1012).
+    await seedCurated({ builtByVendorId: null });
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }));
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
+    ]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OWNER, description: 'after' });
+  });
+
+  it('still skips an already-twinned row whose update makes a twin of ANOTHER vendor row', async () => {
+    const SECOND_VENDOR_ROW = uuid(24);
+    await t.db.insert(integrations).values({
+      id: SECOND_VENDOR_ROW,
+      name: 'Vendor-listed API',
+      sourceProductId: NAVIS,
+      targetProductId: REVIT,
+      mechanismKind: 'api',
+      builtByVendorId: OWNER,
+      origin: 'vendor',
+      claimedAt: NOW,
+      maintainedBy: 'vendor',
+      lastReviewedAt: NOW,
+    });
+    // Twins VENDOR_ROW (native) today; the update moves it onto the api row.
+    await seedCurated({});
+    const before = await curatedRow();
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { mechanismKind: 'api', description: 'after' }),
+    );
+    expect(response.skipped).toContainEqual({
+      ref: 'i1',
+      kind: 'integration',
+      reason: VENDOR_OWNED_TWIN,
+      existingId: SECOND_VENDOR_ROW,
+    });
+    expect(await curatedRow()).toEqual(before);
+  });
+
+  it('reports a mid-promote claim on the UPDATED row as the claim race, not a twin', async () => {
+    // No vendor twin at all: the update clears the owner, which would match the row
+    // itself once it is claimed. The row must never count as its own twin.
+    await t.db.delete(integrations).where(eq(integrations.id, VENDOR_ROW));
+    await seedCurated({ builtByVendorId: OTHER });
+    let raced = false;
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (raced) return batch(stmts);
+        raced = true;
+        t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(NOW, CURATED_ROW);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    await expect(
+      ingest(curatorUpdate(CURATED_ROW, { builtByVendor: null }), {
+        jobId: 'job-claim-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'INTEGRATION_CLAIMED_DURING_PROMOTE' });
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OTHER });
   });
 
   it('lets a kind-only change through when the new kind twins nothing', async () => {

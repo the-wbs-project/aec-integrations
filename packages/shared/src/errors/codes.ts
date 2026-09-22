@@ -54,8 +54,9 @@ export const ApiErrorCode = {
   // AECI-1006 owner edits (`API_CONTRACTS.md` §4): a value that is wrong for its field.
   INTEGRATION_INVALID_VALUE: 'INTEGRATION_INVALID_VALUE',
   // AECI-1011: a vendor created (or took) a row that strongly matches an integration
-  // this promote planned to INSERT, after the plan read and before the batch. The
-  // batch rolls back; re-push and the VENDOR_OWNED_TWIN guard skips the insert.
+  // this promote planned to insert, de-route or update, after the plan read and before
+  // the batch. The batch rolls back; re-push and the VENDOR_OWNED_TWIN guard skips
+  // that write. A claim on the updated row itself is INTEGRATION_CLAIMED_DURING_PROMOTE.
   VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',

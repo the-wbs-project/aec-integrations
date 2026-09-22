@@ -4715,8 +4715,9 @@ routine push would silently revert their work. Therefore:
   `supabaseId`, or the AECI-568 fallback), a de-route out of `connector_evidenced_pairs`,
   and an UPDATE that changes any key field of an unclaimed row (its endpoints as a pair,
   its connector, its `mechanism_kind` or its owner). An UPDATE that changes none of the
-  four is not checked, so a curated row that already twins a vendor row is still
-  written on a re-promote that leaves its key alone. When the row
+  four is not checked. An UPDATE is skipped only for a twin the stored row did not
+  already have, so a curated row that already twins a vendor row keeps receiving
+  curator updates, an owner backfill included. When the row
   as it would be after the write has a vendor-held strong match (claimed, or
   `origin = 'vendor'`, live or retired), the edge is written not at all (no partial
   UPDATE, and a de-routed evidenced row is left untouched) and reported as

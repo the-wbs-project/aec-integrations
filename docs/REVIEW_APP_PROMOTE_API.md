@@ -1212,16 +1212,16 @@ upstream record holds its id. AECI-1047 is the review-side follow-up.
 
 The risk that creates is a duplicate from your side. A curator who adds the same pair
 upstream pushes it with no `supabaseId`, and promote would insert a second row beside
-the vendor's. So **promote refuses any write that would leave a curated row a
-strong-match twin of a vendor-held row** (ruled on AECI-1012, 2026-09-22, and narrowed
+the vendor's. So **promote refuses any write that would make a curated row a
+strong-match twin of a vendor-held row it did not already twin** (ruled on AECI-1012, 2026-09-22, and narrowed
 the same day to include `mechanismKind`):
 
 | Term | Meaning |
 |---|---|
 | Vendor-held | Claimed (`claimed_at` set), or vendor-created (`origin = 'vendor'`). Live **or retired**: a retired row is the owner's withdrawal, and a live twin would undo it in public. |
-| Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), the same `mechanismKind` (none equal to none, and none does not match a stated kind), and an owner that is the same **or unknown on either side**. `name` is not compared. Every value is the one the row **would hold after the write**: an absent field keeps the stored value. |
+| Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), the same `mechanismKind` (none equal to none, and none does not match a stated kind), and an owner that is the same **or unknown on either side**. `name` is not compared. Every value is the one the row **would hold after the write**. On an UPDATE or a de-route, an absent field keeps the stored value, and so does a `builtByVendor` or `poweredByProduct` that does not resolve, because an unresolvable link is left unwritten (§3.4). On an INSERT there is no stored value, so an absent `mechanismKind` means none, and an absent or unresolvable owner means unknown. |
 | Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that changes a key field** of an unclaimed row: its two products change as a pair, its connector changes, its `mechanismKind` changes, or its owner (`builtByVendor`) changes. A kind change (`api` to `native` beside a vendor's `native` row) or an owner change (to none, or to the vendor's own id) makes a twin as surely as a re-point. Every connector-delivered edge that stays connector-delivered is unaffected, because its table can never be vendor-held. |
-| Where it does not | An UPDATE of a row you already hold that changes none of those four fields. Its key is unchanged, so it cannot create a match that did not already exist, and it is written as before. That includes a direction swap of the same two products, and it includes a row that already twins a vendor row. A vendor-held row itself is §4b's, and never reaches this check. |
+| Where it does not | (a) An UPDATE of a row that already exists that changes none of those four fields. Its key is unchanged, so it cannot create a match that did not already exist, and it is written as before. That includes a direction swap of the same two products. (b) An UPDATE that changes a key field but creates no **new** twin. The guard exists to stop promote creating a twin, so a vendor-held row that the stored row already twinned does not count (ruled on AECI-1012). An already-twinned curated row keeps receiving your updates, an owner backfill included. The UPDATE is skipped only when the row after the write would twin a vendor-held row it did not twin before. A vendor-held row itself is §4b's, and never reaches this check. |
 
 The edge is written **not at all**: no row, no claims, no partial UPDATE of the row you
 addressed, and on a de-route the `connector_evidenced_pairs` row is left exactly as it was,
@@ -1250,7 +1250,7 @@ gets §4b's `claimed` skip instead, and a retraction feed entry names the right 
 to leave it unpromoted.
 
 **One race is an error, deliberately, as in §4b.** If a vendor creates (or claims) the
-twin after AECi planned the insert and before it committed, the whole promote rolls
+twin after AECi planned the insert, de-route or update and before it committed, the whole promote rolls
 back and the job ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409).
 Nothing was written. Re-push under a new job id; the re-push reports the skip.
 
