@@ -343,6 +343,13 @@ function seed(t: TestDb): void {
   run(
     `INSERT INTO integrations (id, source_product_id, target_product_id, powered_by_product_id, created_at, updated_at) VALUES ('i2', '${Q}', '${R}', '${P}', ${TS}, ${TS});`,
   );
+  // AECI-1007: a link that still names P on i2, a row P does not sit on (left by an
+  // endpoint re-point). `product_id` has no FK, so only the plan can clear it.
+  if (t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()) {
+    run(
+      `INSERT INTO integration_vendor_links (id, integration_id, product_id, kind, url, vendor_id, created_at, updated_at) VALUES ('vl2', 'i2', '${P}', 'docs', 'https://example.com/d', 'v1', ${TS}, ${TS});`,
+    );
+  }
   // Evidenced pair with P as endpoint A (A < B by id order: 'prod-other' < 'prod-retract').
   run(
     `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, created_at, updated_at) VALUES ('ep1', '${C}', '${Q}', '${P}', ${TS}, ${TS});`,
@@ -423,7 +430,8 @@ describe('buildDeleteStatements against the migrated schema', () => {
       claims: 2,
       attestations: 1,
       fieldChallenges: 1,
-      vendorLinks: 1,
+      // vl1 on the endpoint row i1, plus vl2 naming P on i2.
+      vendorLinks: 2,
       reviews: 1,
       productVersions: 1,
       pageViews: 1,
@@ -458,6 +466,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
     expect(count(`SELECT count(*) AS n FROM claims`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM attestations`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM integration_field_challenges`)).toBe(0);
+    // Both: vl1 went with i1, and vl2 (naming P on the surviving i2) by product_id.
     expect(count(`SELECT count(*) AS n FROM integration_vendor_links`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM reviews`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM product_versions`)).toBe(0);
@@ -517,6 +526,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         evidenced_pairs: 1,
         reviews: 1,
         product_versions: 1,
+        vendor_links: 2,
       },
       detached: { page_views: 1, powered_by: 1 },
     });

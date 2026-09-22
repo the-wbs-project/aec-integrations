@@ -241,11 +241,14 @@ export function buildFootprintSql(
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
   const s = scopes(p);
-  // AECI-1007: per-side links the integration delete would cascade. The schema at
-  // HEAD has the table, so the default is true; the CLI passes its probe.
+  // AECI-1007: per-side links the delete removes. Those on an endpoint integration
+  // (the cascade), plus any link that names this product on a row it no longer sits
+  // on (an endpoint re-point leaves the old product's link stored, and `product_id`
+  // has no FK to clear it). The schema at HEAD has the table, so the default is
+  // true; the CLI passes its probe.
   const vendorLinks =
     (opts.vendorLinksTable ?? true)
-      ? `(SELECT count(*) FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations}))`
+      ? `(SELECT count(*) FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations}) OR "product_id" = ${p})`
       : '0';
   // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
   // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
@@ -559,6 +562,9 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
       },
       reviews: f.reviews,
       product_versions: f.productVersions,
+      // AECI-1007: every per-side link the plan deletes, on endpoint rows and on
+      // rows the product no longer sits on.
+      vendor_links: f.vendorLinks,
     },
     detached: { page_views: f.pageViews, powered_by: f.poweredBy },
   };
@@ -672,7 +678,13 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
     `DELETE FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations});`,
     ...(vendorLinksTable
-      ? [`DELETE FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations});`]
+      ? [
+          `DELETE FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations});`,
+          // `product_id` has no FK, so a link naming this product on a row it no
+          // longer sits on (left by an endpoint re-point) would otherwise outlive
+          // the product it speaks for.
+          `DELETE FROM "integration_vendor_links" WHERE "product_id" = ${p};`,
+        ]
       : []),
     // NULL the no-action `powered_by` ref before deleting the product it points at.
     `UPDATE "integrations" SET "powered_by_product_id" = NULL WHERE "powered_by_product_id" = ${p};`,
