@@ -320,7 +320,7 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
-  return contestNotificationTitle(notification.event);
+  return contestNotificationTitle(notification.event, notification.retired_by);
 }
 
 /**
@@ -349,6 +349,6 @@ function noteOf(notification: VendorNotification): string | null {
     case 'integration_update':
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
     case 'contest':
-      return contestNotificationNote(notification.event);
+      return contestNotificationNote(notification.event, notification.retired_by);
   }
 }

@@ -168,6 +168,7 @@ export class VendorIntegrationsPanel {
         code === 'INTEGRATION_RETIRED' ||
         code === 'INTEGRATION_NOT_RETIRED' ||
         code === 'INTEGRATION_RETIRED_BY_OWNER' ||
+        code === 'INTEGRATION_NOT_VENDOR_HELD' ||
         code === 'INTEGRATION_CHANGED_WHILE_SAVING'
       ) {
         this.formFor.set(null);
@@ -210,7 +211,7 @@ export function adminRetireErrorMessage(err: unknown): string {
     case 'INTEGRATION_RETIRED_BY_OWNER':
       return $localize`:@@admin.vendors.integrations.error.byOwner:The owner retired this integration, so only the owner can restore it. The list has been reloaded.`;
     case 'INTEGRATION_NOT_VENDOR_HELD':
-      return $localize`:@@admin.vendors.integrations.error.notVendorHeld:AEC Integrations maintains this integration, so change it through the review app, not here.`;
+      return $localize`:@@admin.vendors.integrations.error.notVendorHeld:AEC Integrations maintains this integration now, so change it through the review app, not here. The list has been reloaded.`;
     case 'INTEGRATION_CHANGED_WHILE_SAVING':
       return $localize`:@@admin.vendors.integrations.error.changed:This integration changed while you were saving. The list has been reloaded.`;
     case 'VALIDATION_FAILED':

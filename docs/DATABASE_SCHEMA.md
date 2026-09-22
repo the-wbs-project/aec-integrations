@@ -403,8 +403,8 @@ create table integrations (
   -- `POST /api/vendor/integrations`, which is born claimed). Its CHECK is a
   -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
   -- drizzle-kit renders a CHECK change there as a table recreate.
-  -- `retired_at` set = the owner retired the row (AECI-1010). Written ONLY by the
-  -- retire/restore routes, never by promote. A retired row keeps its claims and
+  -- `retired_at` set = the owner (AECI-1010) or an AECi admin (AECI-1046) retired the
+  -- row. Written ONLY by the retire/restore routes, never by promote. A retired row keeps its claims and
   -- attestations but counts nowhere and is on no public read: every lockstep site
   -- filters `retired_at IS NULL` (`STAGE_1_5_SPEC.md` §13.5). Retired implies vendor-held
   -- (claimed, or origin = 'vendor'; "claimed" until AECI-1046); the 04:00 data-quality

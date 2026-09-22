@@ -275,6 +275,27 @@ describe('POST /api/admin/integrations/:id/retire', () => {
     });
     expect(contest!.status).toBe('withdrawn');
     expect(contest!.id).toBe(CONTEST);
+
+    // The submitter is told AEC Integrations retired it, and no row but the
+    // integration's own audit row carries the admin's reason.
+    const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
+    const contestNotice = notices.find((n) => (n.metadata as { kind: string }).kind === 'contest');
+    expect(contestNotice!.metadata).toMatchObject({
+      vendorId: VENDOR_A,
+      event: 'closed_by_retire',
+      retiredBy: 'aeci',
+    });
+    expect(JSON.stringify(contestNotice!.metadata)).not.toContain(REASON);
+    const [withdrawn] = await auditsFor('integration.contest.withdrawn');
+    expect(JSON.stringify(withdrawn!.metadata)).not.toContain(REASON);
+    for (const n of notices) expect(JSON.stringify(n.metadata)).not.toContain(REASON);
+
+    const feed = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+    expect(() => ListVendorNotificationsResponseSchema.parse(feed.body)).not.toThrow();
+    const row = (feed.body.notifications as { kind: string; retired_by?: string }[]).find(
+      (n) => n.kind === 'contest',
+    );
+    expect(row).toMatchObject({ event: 'closed_by_retire', retired_by: 'aeci' });
   });
 
   it('retires a vendor-created row whose claim was cleared', async () => {

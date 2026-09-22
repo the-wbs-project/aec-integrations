@@ -260,6 +260,52 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it('names AEC Integrations on a contest its retire closed (AECI-1046)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'contest',
+          id: '00000000-0000-4000-8000-00000000c2c1',
+          event: 'closed_by_retire',
+          contest_id: '00000000-0000-4000-8000-00000000c2c2',
+          integration_id: '00000000-0000-4000-8000-00000000c2c3',
+          integration_name: 'Summit ↔ Procore',
+          field: 'name',
+          retired_by: 'aeci',
+          pair_path: null,
+          created_at: '2026-09-22T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain(
+      'Your contest was closed because AEC Integrations retired the integration',
+    );
+    expect(body).toContain('Only AEC Integrations can restore the integration');
+    expect(body).not.toContain('the owner retired');
+  });
+
+  it('keeps the owner wording on a retire close with no retired_by (pre-AECI-1046)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'contest',
+          id: '00000000-0000-4000-8000-00000000c2d1',
+          event: 'closed_by_retire',
+          contest_id: '00000000-0000-4000-8000-00000000c2d2',
+          integration_id: '00000000-0000-4000-8000-00000000c2d3',
+          integration_name: 'Summit ↔ Procore',
+          field: 'name',
+          pair_path: null,
+          created_at: '2026-09-21T12:00:00.000Z',
+        },
+      ],
+    });
+    expect(text(await create())).toContain(
+      'Your contest was closed because the owner retired the integration',
+    );
+  });
+
   it('titles and explains an integration another vendor added (AECI-1011 / AECI-1023)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

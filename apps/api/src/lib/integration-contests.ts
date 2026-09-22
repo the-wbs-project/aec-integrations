@@ -26,6 +26,7 @@ import {
   type ContestRoute,
   type ContextDirection,
   type IntegrationContestField,
+  type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
@@ -182,6 +183,9 @@ export interface ContestNotificationMetadata {
   integrationName: string | null;
   field: IntegrationContestField;
   event: ContestNotificationEvent;
+  /** On `closed_by_retire` only (AECI-1046): who retired the integration. Absent on
+   *  rows written before it, which were owner retires. Never the admin's reason. */
+  retiredBy?: IntegrationRetiredBy;
   pairSlugs: readonly [string, string] | null;
 }
 

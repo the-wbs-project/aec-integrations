@@ -74,7 +74,8 @@ export interface RetireBatchInput {
   retiredBy: IntegrationRetiredBy;
   /** `metadata.source` on every audit row the batch writes. */
   source: string;
-  /** Extra `metadata` on the integration audit row and each contest audit row. */
+  /** Extra `metadata` on the integration audit row. Each contest audit row gets the
+   *  same keys except `reason`, which stays on the integration's row. */
   metadata: Record<string, unknown>;
   /** The route's own UPDATE guard, beside the retired-state guard this builds. */
   guard: SQL;
@@ -149,11 +150,15 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
   ];
   const audits: AuditLogEntry[] = [];
 
+  // The admin's reason (AECI-1046) belongs on the integration's audit row only. The
+  // contest rows and their workflow transitions carry the fixed retire reason.
+  const { reason: _adminReason, ...contestExtra } = input.metadata;
+
   // Retire closes every open contest on the row as withdrawn (ruled 2026-09-22).
   for (const contest of contests) {
     const metadata = {
       source: input.source,
-      ...input.metadata,
+      ...contestExtra,
       contestId: contest.id,
       integrationId,
       field: contest.field,
@@ -179,6 +184,8 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
             integrationName: row.name,
             field: contest.field as IntegrationContestField,
             event: 'closed_by_retire',
+            // AECI-1046: the submitter is told who retired it. No reason travels here.
+            retiredBy: input.retiredBy,
             pairSlugs,
           })
         : null;

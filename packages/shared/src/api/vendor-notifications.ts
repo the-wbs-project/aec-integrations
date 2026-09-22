@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 import { VendorIntegrationClaimNotificationSchema } from './integration-claims';
 import { VendorIntegrationCreateNotificationSchema } from './integration-create';
-import { VendorIntegrationRetireNotificationSchema } from './integration-retire';
+import {
+  IntegrationRetiredBySchema,
+  VendorIntegrationRetireNotificationSchema,
+} from './integration-retire';
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 
 /**
@@ -98,8 +101,9 @@ export type VendorAttestationNotification = z.infer<typeof VendorAttestationNoti
  * What happened to a contest that this row tells the vendor about (AECI-1008 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). The recipient is always "the other side":
  * `submitted` and `withdrawn` go to the owner, the decisions go to the submitter.
- * `closed_by_retire` (AECI-1010) also goes to the submitter: the owner retired the
- * integration, and the retire closed the open contest as withdrawn.
+ * `closed_by_retire` (AECI-1010) also goes to the submitter: the owner, or since
+ * AECI-1046 AEC Integrations, retired the integration, and the retire closed the open
+ * contest as withdrawn. `retired_by` on the row says which.
  */
 export const CONTEST_NOTIFICATION_EVENTS = [
   'submitted',
@@ -126,6 +130,12 @@ export const VendorContestNotificationSchema = z.object({
   integration_id: z.string().uuid(),
   integration_name: z.string().nullable(),
   field: z.string(),
+  /**
+   * On a `closed_by_retire` row only (AECI-1046): who retired the integration.
+   * Absent on every other event, and on a retire close written before AECI-1046,
+   * which was always the owner's. The admin's reason is never on this row.
+   */
+  retired_by: IntegrationRetiredBySchema.optional(),
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });
