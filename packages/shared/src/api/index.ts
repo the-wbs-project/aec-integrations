@@ -16,6 +16,7 @@ export * from './integration-contests';
 export * from './integration-claims';
 export * from './integration-retire';
 export * from './integration-edits';
+export * from './integration-create';
 export * from './integration-vendor-links';
 export * from './https-url';
 export * from './landing';

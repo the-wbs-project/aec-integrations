@@ -23,6 +23,9 @@ import { firstValueFrom } from 'rxjs';
 import type {
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
+  CreateVendorIntegrationInput,
+  CreateVendorIntegrationResponse,
+  ProductsListResponse,
   CreateVendorClaimInput,
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
@@ -362,6 +365,26 @@ export class VendorApi {
         body,
       ),
     );
+  }
+
+  // ─── Vendor create (AECI-1011) ─────────────────────────────────────────────
+
+  /** `POST /api/vendor/integrations` — list a new integration between one of the
+   *  caller's products and a promoted counterpart. Goes live with no moderation.
+   *  `possible_duplicates` in the 201 is a warning, never a refusal. */
+  createIntegration(body: CreateVendorIntegrationInput): Promise<CreateVendorIntegrationResponse> {
+    return firstValueFrom(
+      this.http.post<CreateVendorIntegrationResponse>('/api/vendor/integrations', body),
+    );
+  }
+
+  /** The counterpart picker's search: the PUBLIC `GET /api/products?search=`, over
+   *  the same-origin passthrough. Public on purpose: the counterpart is any
+   *  published product, and this list is exactly what a visitor can see. The
+   *  server re-checks that the pick is promoted. */
+  searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
+    const params = new URLSearchParams({ search: query, perPage: String(perPage) });
+    return firstValueFrom(this.http.get<ProductsListResponse>(`/api/products?${params}`));
   }
 
   // ─── Per-side integration links (AECI-1007) ────────────────────────────────

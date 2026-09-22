@@ -1,9 +1,11 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 
 import type { VendorSeat } from '@aeci/shared';
 
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
+import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-integration-create';
 import { VendorApi } from '../../vendor/vendor-api';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
@@ -71,6 +73,15 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     PreviewVendorApi,
     { provide: VendorApi, useExisting: PreviewVendorApi },
     VendorPortalStore,
+    // AECI-1011: `?create=open` renders the "Add an integration" form open on first
+    // paint, so the design detector (which reads only the first render) sees it. Use
+    // it on a child route, e.g. `products/summit-model-coordination/integrations`:
+    // the bare `/preview/vendor-dashboard` redirects and drops the query. `?concept=b`
+    // on a child route selects the single-page concept the same way.
+    {
+      provide: VENDOR_CREATE_FORM_START_OPEN,
+      useFactory: () => inject(ActivatedRoute).snapshot.queryParamMap.get('create') === 'open',
+    },
   ],
   template: `
     <!-- Dev-only concept switcher. Not part of the surface under review. -->
@@ -131,7 +142,9 @@ export class VendorDashboardPreview {
   private readonly previewApi = inject(PreviewVendorApi);
   private readonly store = inject(VendorPortalStore);
 
-  protected readonly concept = signal<Concept>('a');
+  protected readonly concept = signal<Concept>(
+    inject(ActivatedRoute).snapshot.queryParamMap.get('concept') === 'b' ? 'b' : 'a',
+  );
   protected readonly fixture = signal<FixtureKey>('verified');
 
   /** The four §8 entitlement states, in the order a vendor would meet them. */

@@ -251,6 +251,13 @@ export const ProductPairMechanismSchema = z.object({
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
   /**
+   * Who created the row (AECI-1011): `'aeci'` for a promote-seeded row, `'vendor'`
+   * when the vendor in `built_by_vendor` created it in its portal. The card renders a
+   * small provenance note for `'vendor'`; AECI-1023 owns the wording. Always `'aeci'`
+   * on a connector-evidenced pair. `.default` for SSR/API deploy skew.
+   */
+  origin: z.enum(['aeci', 'vendor']).default('aeci'),
+  /**
    * The connector that delivers this mechanism — non-null **only** when the row
    * came from `connector_evidenced_pairs` rather than `integrations` (AECI-721).
    *

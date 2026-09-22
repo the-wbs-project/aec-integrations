@@ -123,6 +123,13 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
 import { isPromoteClaimFenceError, promoteClaimFenceSentinel } from '../lib/integration-claims';
 import {
+  anyVendorOwnedTwin,
+  findStrongMatches,
+  VENDOR_OWNED_TWIN,
+  vendorOwnedTwinSentinel,
+  type TwinCandidate,
+} from '../lib/integration-twins';
+import {
   loadDataObjectResolver,
   safeSlugify,
   type DataObjectResolver,
@@ -2662,6 +2669,9 @@ export async function runPromoteIngest(
   // Claim work, collected per resolved integration and planned in one pass after
   // the loop (AECI-604 — see the `planClaimIngest` call below).
   const claimIngestItems: ClaimIngestItem[] = [];
+  // AECI-1011: every insert the twin guard let through, so a sentinel abort can be
+  // told apart from an AECI-1005 fence abort after the batch fails.
+  const twinCandidates: TwinCandidate[] = [];
 
   // An integration touching THIS payload's blocked product is skipped too
   // (AECI-520).
@@ -2953,6 +2963,50 @@ export async function runPromoteIngest(
         });
       }
       continue;
+    }
+    // ── AECI-1011 / AECI-1012: the VENDOR_OWNED_TWIN guard. ──────────────────
+    // This edge is about to be INSERTED (brand new, or the AECI-568 fallback for a
+    // dead id). If a vendor already holds a strong match for it (the same two
+    // products in either order, no connector, an owner that agrees or is unknown),
+    // the insert would put a second row beside the vendor's. The review app cannot
+    // see vendor-created rows, and a curator re-adding the pair under a new upstream
+    // id is exactly this case. So skip it, name the vendor's row, and write nothing
+    // else about this edge: no row, no claims. Live OR retired: a retired row is the
+    // owner's withdrawal, and a live twin would undo it in public (the AECI-1010
+    // gap, ADR 0035). It never deletes anything, and an edge whose only match is
+    // AECi-curated is inserted as before. Only this arm can be vendor-held, so the
+    // evidenced branch above needs no guard (`lib/integration-twins.ts`).
+    if (!located) {
+      const twinCandidate: TwinCandidate = {
+        productIds: [sourceId, targetId],
+        poweredByProductId: typeof poweredBy.value === 'string' ? poweredBy.value : null,
+        ownerVendorId: typeof builtBy.value === 'string' ? builtBy.value : null,
+      };
+      const [twin] = await findStrongMatches(db, twinCandidate, { vendorHeldOnly: true });
+      if (twin) {
+        skipped.push({
+          ref: intg.ref,
+          kind: 'integration',
+          reason: VENDOR_OWNED_TWIN,
+          existingId: twin.id,
+        });
+        audit({
+          actorType: 'system',
+          action: 'promote.blocked',
+          entityType: 'integration',
+          entityId: twin.id,
+          metadata: {
+            reason: VENDOR_OWNED_TWIN,
+            ref: intg.ref,
+            ...(intg.supabaseId ? { supabaseId: intg.supabaseId } : {}),
+          },
+        });
+        continue;
+      }
+      // The commit-time half: a vendor create (or claim) that lands between this
+      // read and the batch aborts the whole promote, as the AECI-1005 fence does.
+      twinCandidates.push(twinCandidate);
+      stmts.push(vendorOwnedTwinSentinel(db, twinCandidate));
     }
     // Only a pointer dead in BOTH tables is stale (AECI-888 narrows AECI-568). An id
     // resolving in `connector_evidenced_pairs` used to land here and take the create
@@ -3266,6 +3320,15 @@ export async function runPromoteIngest(
       // whole batch rolled back, so nothing was written, including the ledger row, and
       // a re-push plans against the claimed row and skips it.
       if (isPromoteClaimFenceError(err)) {
+        // AECI-1011: the twin sentinel raises the same SQLite error, so re-read to
+        // say which one fired. Both mean "nothing was written; re-push".
+        if (await anyVendorOwnedTwin(db, twinCandidates)) {
+          throw new ApiError(
+            409,
+            'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
+            'A vendor created an integration that duplicates one in this bundle while the promote was running. Nothing was written; re-push the bundle.',
+          );
+        }
         throw new ApiError(
           409,
           'INTEGRATION_CLAIMED_DURING_PROMOTE',

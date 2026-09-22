@@ -4,6 +4,11 @@ import { Injectable } from '@angular/core';
 import type {
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
+  CreateVendorIntegrationInput,
+  CreateVendorIntegrationResponse,
+  ProductListItem,
+  ProductsListResponse,
+  VendorIntegration,
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
   DecideContestInput,
@@ -36,6 +41,7 @@ import type {
   VendorUpdatesResponse,
 } from '@aeci/shared';
 import {
+  CreateVendorIntegrationSchema,
   INTEGRATION_EDIT_FIELDS,
   computeAgreement,
   contestValueProblem,
@@ -159,6 +165,40 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   integrations: [...VENDOR_INTEGRATIONS_FIXTURE.integrations, INTEGRATION_RETIRED_BY_OTHER],
 };
 
+/**
+ * The public catalogue the preview's counterpart search answers from (AECI-1011).
+ * Real-looking names, including the fixture's existing counterparts, so a search
+ * for "pro" finds Procore and the "already on record" hint has something to show.
+ */
+const PREVIEW_CATALOGUE: readonly ProductListItem[] = [
+  ['00000000-0000-4000-8000-000000005301', 'procore', 'Procore', 'Procore Technologies'],
+  ['00000000-0000-4000-8000-000000005302', 'autodesk-build', 'Autodesk Build', 'Autodesk'],
+  ['00000000-0000-4000-8000-000000005303', 'acumatica', 'Acumatica', 'Acumatica'],
+  ['00000000-0000-4000-8000-000000005304', 'procurepro', 'ProcurePro', 'ProcurePro'],
+  ['00000000-0000-4000-8000-000000005305', 'bluebeam-revu', 'Bluebeam Revu', 'Bluebeam'],
+  ['00000000-0000-4000-8000-000000005306', 'sage-intacct', 'Sage Intacct', 'Sage'],
+].map(([id, slug, name, vendor], index) => ({
+  id: id!,
+  slug: slug!,
+  name: name!,
+  logo_url: null,
+  product_role: 'application' as const,
+  vendor: {
+    id: `00000000-0000-4000-8000-00000000560${index}`,
+    slug: slug!,
+    name: vendor!,
+    logo_url: null,
+    verified: false,
+  },
+  primary_category: null,
+  integration_count: 0,
+  review_count: 0,
+  rating_overall_avg: null,
+  rating_onboarding_avg: null,
+  created_at: '2026-08-01T00:00:00.000Z',
+  updated_at: '2026-08-01T00:00:00.000Z',
+}));
+
 // Intentionally component-scoped, not `providedIn: 'root'`: this fake is provided
 // only in the vendor-dashboard preview's `providers` (shadowing the real
 // `VendorApi`), so it must never leak into the app-wide injector.
@@ -171,6 +211,7 @@ export class PreviewVendorApi extends VendorApi {
   private nextClaimSeq = 0;
   private contests: ListVendorContestsResponse = clone(VENDOR_CONTESTS_FIXTURE);
   private nextContestSeq = 0;
+  private nextCreateSeq = 0;
 
   /** Point the fake at the fixture the preview is currently showing, so writes
    *  merge onto the matching vendor/products. Clones so the shared fixture
@@ -571,6 +612,97 @@ export class PreviewVendorApi extends VendorApi {
     return { contest: clone(contest) };
   }
 
+  // ─── Vendor create (AECI-1011) ─────────────────────────────────────────────
+
+  override async searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
+    const needle = query.trim().toLowerCase();
+    const items = PREVIEW_CATALOGUE.filter((p) => p.name.toLowerCase().includes(needle)).slice(
+      0,
+      perPage,
+    );
+    return { data: clone(items), total: items.length, page: 1, perPage };
+  }
+
+  /** The create, fixture-side: the schema and value rule the handler applies, the
+   *  strong-match warning computed from the in-memory list (same pair, either
+   *  orientation, owner the caller or unknown), and a new owned, claimed entry. */
+  override async createIntegration(
+    body: CreateVendorIntegrationInput,
+  ): Promise<CreateVendorIntegrationResponse> {
+    const parsed = CreateVendorIntegrationSchema.safeParse(body);
+    if (!parsed.success) throw apiError(400, 'VALIDATION_FAILED', 'Check the body');
+    for (const field of INTEGRATION_EDIT_FIELDS) {
+      const value = parsed.data[field];
+      if (value === undefined || value === null) continue;
+      const problem = integrationEditValueProblem(field, value);
+      if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
+    }
+    const me = this.me;
+    const own = me?.products.find((p) => p.id === parsed.data.product_id);
+    const other = PREVIEW_CATALOGUE.find((p) => p.id === parsed.data.counterpart_product_id);
+    if (!me || !own || !other) throw apiError(404, 'NOT_FOUND', 'Product not found');
+
+    const duplicates = this.integrations.integrations
+      .filter(
+        (entry) =>
+          entry.context_product.id === own.id &&
+          entry.other_product.id === other.id &&
+          entry.attestable &&
+          (entry.owner === null || entry.owner.id === me.vendor.id),
+      )
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        mechanism_kind: entry.mechanism_kind,
+        mechanism_name: entry.mechanism_name,
+        orientation: 'same' as const,
+        owner: entry.owner,
+        claimed: entry.claimed_at !== null,
+        retired: entry.retired_at !== null,
+      }));
+
+    const now = '2026-09-22T12:00:00.000Z';
+    const id = `00000000-0000-4000-8000-${String(900000000000 + this.nextCreateSeq++)}`;
+    const fields = Object.fromEntries(
+      INTEGRATION_EDIT_FIELDS.map((field) => [field, parsed.data[field] ?? null]),
+    ) as VendorIntegration['contestable_fields'];
+    const entry: VendorIntegration = {
+      id,
+      name: parsed.data.name ?? null,
+      mechanism_kind: (parsed.data.mechanism_kind ?? null) as VendorIntegration['mechanism_kind'],
+      mechanism_name: parsed.data.mechanism_name ?? null,
+      context_product: { id: own.id, slug: own.slug, name: own.name, logo_url: null },
+      other_product: { id: other.id, slug: other.slug, name: other.name, logo_url: null },
+      slots: ['vendor_a'],
+      attestable: true,
+      powered_by: null,
+      claims: [],
+      is_owner: true,
+      owner: { id: me.vendor.id, name: me.vendor.company_name },
+      claimed_at: now,
+      retired_at: null,
+      contestable_fields: fields,
+      endpoint_vendors: [{ id: me.vendor.id, name: me.vendor.company_name }],
+      own_links: { listing_url: null, docs_url: null },
+    };
+    this.integrations.integrations.push(entry);
+    return {
+      integration: {
+        id,
+        source_product_id: own.id,
+        target_product_id: other.id,
+        origin: 'vendor',
+        owner_vendor_id: me.vendor.id,
+        claimed_at: now,
+        maintained_by: 'vendor',
+        last_reviewed_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+      possible_duplicates: duplicates,
+    };
+  }
+
   /** AECI-1010. Mirrors the server's owner / claimed / state checks, and closes the
    *  row's open contests on retire, so the preview shows the real outcomes. */
   override async retireIntegration(integrationId: string): Promise<RetireIntegrationResponse> {
@@ -590,7 +722,6 @@ export class PreviewVendorApi extends VendorApi {
       throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
     }
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
-    if (first.retired_at) throw apiError(409, 'INTEGRATION_RETIRED', 'Retired');
     if (mode === 'retire' && first.retired_at !== null) {
       throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
     }

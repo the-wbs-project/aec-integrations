@@ -264,8 +264,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` on a live row (AECI-1010) |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore or owner edit whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
-| `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`: a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. `field` names the field (AECI-1006) |
+| `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
+| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, after the promote planned the insert and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }` (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -888,6 +889,9 @@ export const ProductPairMechanismSchema = z.object({
                                         // Always both-null on a connector_evidenced_pairs row.
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
+  origin: z.enum(['aeci', 'vendor']).default('aeci'),   // AECI-1011: 'vendor' when the vendor
+                                        // created the row in its portal; the card adds a small
+                                        // provenance note. Always 'aeci' on an evidenced pair.
   via: ProductLinkSchema.nullable().default(null),   // the connector, when this mechanism is a
                                         // `connector_evidenced_pairs` row (AECI-721). Never set
                                         // together with `powered_by_product`; the byline renders
@@ -4704,7 +4708,18 @@ routine push would silently revert their work. Therefore:
   `INTEGRATION_CLAIMED_DURING_PROMOTE`. The fence keys on `claimed_at`, never on
   `maintained_by`. Promote never writes `claimed_at`, `origin` or `retired_at`.
   Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4b.
-- **Creation is never blocked** — nothing vendor-owned exists yet.
+- **Creating a new vendor or product is never blocked** — nothing vendor-owned exists yet.
+- **An integration create is refused in exactly one case: a twin of a vendor-held
+  integration (AECI-1011).** Where promote would INSERT an `integrations` row (no `supabaseId`,
+  or the AECI-568 fallback) and a strong match is vendor-held (claimed, or
+  `origin = 'vendor'`, live or retired), the edge is written not at all and reported
+  as `skipped[] { kind: 'integration', reason: 'VENDOR_OWNED_TWIN', existingId }`
+  with a `promote.blocked` audit row. A strong match is the same two products in
+  either order, the same connector (none equal to none), and an owner that agrees or
+  is unknown (`lib/integration-twins.ts`). An in-batch sentinel covers a vendor
+  create that lands between plan and commit (`VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE`).
+  Nothing is deleted. Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4c. Every
+  other create is unaffected.
 - Unrelated vendors and integrations in the same payload still promote.
 - "Claimed" requires an **active** seat. Banning a vendor's only admin un-claims
   it, so promote can write again — moderation returns control to AECi instead of
@@ -4984,7 +4999,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so will every later owner write on integrations (1010 retire, 1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5710,6 +5725,58 @@ export const ClaimIntegrationResponseSchema = z.object({
 **One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it, an `integration.claimed` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers `409`. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl.
 
 **After the claim,** promote writes nothing to the row (§6.12) and content contests on it route to the owner.
+
+#### Vendor create — `POST /api/vendor/integrations`
+
+Stage 2.1 (AECI-1011, ADR 0035 decision 7, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7). A vendor lists an integration between one of its own products and a promoted counterpart. It goes live at once, with no moderation (decision 8). Zod in `packages/shared/src/api/integration-create.ts`, handler in `apps/api/src/routes/vendor-integration-create.ts`, the duplicate rule in `apps/api/src/lib/integration-twins.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/integrations` | seat, `rateLimit('write')`, `product_id` held by the caller | `201 { integration, possible_duplicates }` |
+
+**No capability gate.** A seat is the whole gate (decision 15).
+
+```typescript
+export const CreateVendorIntegrationSchema = z
+  .object({
+    product_id: z.string().uuid(),              // the caller's product: becomes the SOURCE
+    counterpart_product_id: z.string().uuid(),  // any promoted product: the TARGET
+    // The owner edit's eleven fields, same caps and value rule. `name`,
+    // `mechanism_kind` and `direction` are required; `direction` is framed
+    // against `product_id`.
+    name, mechanism_kind, mechanism_name, direction, description,
+    listing_url, docs_url, website, mechanism_url, pricing_model, maturity,
+  })
+  .strict();   // `powered_by_product_id`, `built_by_vendor_id`, `origin`, … is a 400
+
+export const CreateVendorIntegrationResponseSchema = z.object({
+  integration: z.object({
+    id, source_product_id, target_product_id,
+    origin: z.literal('vendor'),
+    owner_vendor_id,                 // the caller
+    claimed_at,                      // set: promote never writes this row
+    maintained_by: z.literal('vendor'),
+    last_reviewed_at, created_at, updated_at,
+  }),
+  possible_duplicates: z.array(z.object({   // a warning, never a refusal
+    id, name, mechanism_kind, mechanism_name,
+    orientation: z.enum(['same', 'reversed']),
+    owner: z.object({ id, name }).nullable(),
+    claimed: z.boolean(),
+    retired: z.boolean(),
+  })),
+});
+```
+
+**Order: shape → endpoints → values.** A shape error, a missing required field, or equal ids is `400`. A `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`. A value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming it, including a connector-delivered kind (`iPaaS`, `integrator`): a vendor-created row is never connector-powered (decision 9).
+
+**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`.
+
+**One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
+
+**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue; queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue.
+
+**The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
 
 #### Integration retire and restore — `POST /api/vendor/integrations/:id/retire` + `/restore`
 

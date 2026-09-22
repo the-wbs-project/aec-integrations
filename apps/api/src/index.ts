@@ -131,6 +131,7 @@ import {
   createRestoreIntegrationHandler,
   createRetireIntegrationHandler,
 } from './routes/vendor-integration-retire';
+import { createCreateVendorIntegrationHandler } from './routes/vendor-integration-create';
 import {
   createDeleteIntegrationLinkHandler,
   createPutIntegrationLinkHandler,
@@ -798,6 +799,7 @@ app.route('/', authAdmin);
 // request), a miss is a 404, and only then is `vendors.verified` checked. `GET`
 // is not Verified-gated, for the same reason the version list is not.
 //   - GET    /api/vendor/integrations                — the attestable surface.
+//   - POST   /api/vendor/integrations                — create one (AECI-1011, 201).
 //   - POST   /api/vendor/claims                      — create a claim (201).
 //   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
 //   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
@@ -891,6 +893,17 @@ authVendor.patch(
 );
 // AECI-301. No path overlap with the product routes above, so ordering is free.
 authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());
+// AECI-1011 / ADR 0035 decision 7: a vendor CREATES an integration on one of its own
+// products. A SEAT IS THE WHOLE GATE (decision 15): no `requireCapability`. The
+// endpoint checks (own product 404, promoted counterpart 404) are in the handler. The
+// row is born claimed (`origin = 'vendor'`), so promote never writes it. Duplicates
+// warn in the 201 and are never refused (decision 10).
+authVendor.post(
+  '/api/vendor/integrations',
+  requireVendor(),
+  rateLimit('write'),
+  createCreateVendorIntegrationHandler(),
+);
 authVendor.post(
   '/api/vendor/claims',
   requireVendor(),

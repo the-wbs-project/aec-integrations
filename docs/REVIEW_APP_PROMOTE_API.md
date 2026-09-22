@@ -1198,6 +1198,53 @@ The fence reads `claimed_at` only, never `maintained_by`. A row can be
 vendor-maintained because an endpoint vendor attested to it, and promote still
 writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
+## 4c. Vendor-created integrations, and the `VENDOR_OWNED_TWIN` skip (AECI-1011)
+
+Vendors can **create** integrations in the AECi portal (`POST /api/vendor/integrations`,
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7). Such a row has `origin = 'vendor'`, its creator
+in `built_by_vendor_id`, and `claimed_at` set from its first moment, so §4b's fence keeps
+promote off it. **The review app has no record of it**: it was never promoted, so no
+upstream record holds its id. AECI-1047 is the review-side follow-up.
+
+The risk that creates is a duplicate from your side. A curator who adds the same pair
+upstream pushes it with no `supabaseId`, and promote would insert a second row beside
+the vendor's. So **promote refuses to insert a strong-match twin of a vendor-held row**
+(ruled on AECI-1012, 2026-09-22):
+
+| Term | Meaning |
+|---|---|
+| Vendor-held | Claimed (`claimed_at` set), or vendor-created (`origin = 'vendor'`). Live **or retired**: a retired row is the owner's withdrawal, and a live twin would undo it in public. |
+| Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), and an owner that is the same **or unknown on either side**. `mechanismKind` and `name` are not compared. |
+| Where it applies | Only where promote would INSERT into `integrations`: an edge with no `supabaseId`, and the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. An UPDATE of a row you already hold is unaffected, and so is every connector-delivered edge (§3.4a), whose table can never be vendor-held. |
+
+The edge is written **not at all**: no row, no claims. It is reported once in `skipped[]`:
+
+```json
+{ "ref": "i1", "kind": "integration", "reason": "VENDOR_OWNED_TWIN", "existingId": "<app-DB id of the vendor-held row>" }
+```
+
+`reason` is the constant `VENDOR_OWNED_TWIN`, not a sentence, so match on it.
+`existingId` is the AECi id of the matching vendor-held row; it is set on this skip and
+on no other. The integration is absent from `integrations[]` in the response. A
+`promote.blocked` audit row names the vendor's row. Promote never deletes anything
+for this, and an edge whose only twin is AECi-curated and unclaimed is inserted as
+before.
+
+**This is not an error.** The response is `200`, and re-pushing will not help while the
+vendor's row exists. What to do with your record is AECI-1047's to decide; the options
+are to store `existingId` as the record's `supabase_integration_id` (a later push then
+gets §4b's `claimed` skip instead, and a retraction feed entry names the right row), or
+to leave it unpromoted.
+
+**One race is an error, deliberately, as in §4b.** If a vendor creates (or claims) the
+twin after AECi planned the insert and before it committed, the whole promote rolls
+back and the job ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409).
+Nothing was written. Re-push under a new job id; the re-push reports the skip.
+
+**This closes the AECI-1010 promotion gate.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md`
+§4.6.2 held AECI-1010 (retire) back from production until this guard existed, because a
+promote carrying a new upstream id for a retired pair would have inserted a live twin.
+
 ---
 
 ## 5. Idempotency, updates, and duplicates
@@ -1637,6 +1684,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
+| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest. |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is

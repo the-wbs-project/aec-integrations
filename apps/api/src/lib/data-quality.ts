@@ -501,6 +501,36 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
 }
 
 /**
+ * #15 — a vendor-created integration nobody holds a claim on (AECI-1011).
+ *
+ * A vendor create is born claimed. The one path that clears `claimed_at` is an AECi
+ * admin accept of an `owner` contest that reassigns the row to another vendor or to
+ * "neither" (`planAcceptWrites` in `routes/admin-contests.ts`). For a promote-seeded
+ * row that is fine: promote writes it again. A vendor-created row has no upstream
+ * record, so promote never will, and until the new owner claims it nobody can edit or
+ * retire it. `warn`, not `error`: the row is still public and correct as it stands,
+ * and the fix is a claim by the new owner, or a `REVIEW - ` issue when the accept said
+ * "neither". No seed writes `origin = 'vendor'`, so a clean environment reports zero.
+ */
+export async function checkVendorIntegrationsUnclaimed(db: Db): Promise<CheckFinding> {
+  const rows = await db
+    .select({
+      id: integrations.id,
+      name: integrations.name,
+      builtByVendorId: integrations.builtByVendorId,
+    })
+    .from(integrations)
+    .where(and(eq(integrations.origin, 'vendor'), isNull(integrations.claimedAt)))
+    .orderBy(asc(integrations.id));
+  return {
+    lines: rows.map(
+      (r) =>
+        `${r.name ?? '(unnamed)'} (${r.id}) vendor-created, unclaimed, owner ${r.builtByVendorId ?? 'none'}`,
+    ),
+  };
+}
+
+/**
  * #12 — arrival network-metadata coverage over the last 24 h (AECI-868).
  *
  * The one check in this suite that watches the telemetry pipeline rather than the
@@ -743,6 +773,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Retired integrations with no owner claim',
     severity: 'error',
     run: ({ db }) => checkRetiredIntegrationsUnclaimed(db),
+  },
+  {
+    id: 'vendor_integration_unclaimed',
+    label: 'Vendor-created integrations with no owner claim',
+    severity: 'warn',
+    run: ({ db }) => checkVendorIntegrationsUnclaimed(db),
   },
   {
     id: 'landing_cf_coverage',

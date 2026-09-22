@@ -315,11 +315,18 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   > marker is a claim about who is accountable and a stale one is a lie rather
   > than merely old.
 
+- **Integration create** (`POST /api/vendor/integrations`, AECI-1011) → **the same
+  seven tags as retire and restore below**, with the creating vendor as `vendor:{slug}`.
+  A create is the mirror of a restore: a new row joins every count and the pair URL
+  joins the sitemap's list, so every surface a retire repaints, a create repaints. The
+  endpoint counts are recomputed inside the create batch for the same reason, and the
+  pair and both product URLs are queued for re-crawl.
+
 - **Integration retire and restore** (`POST /api/vendor/integrations/:id/retire` /
   `/restore`, AECI-1010) → **seven tags**: `pair:{min}__{max}`, `product:{a}`,
   `product:{b}`, `vendor:{ownerSlug}`, `index:products`, `taxonomy`, `sitemap`. It is
-  the widest vendor tag set because retire is the only vendor write that changes
-  COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,
+  the widest vendor tag set because retire, restore and create (AECI-1011) are the
+  only vendor writes that change COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,
   which is baked into the cached HTML), both product pages and every browse page
   listing them (`integration_count` on the card, so `index:products` too), the owner's
   vendor page (the `built_by_vendor_id` count), the four taxonomy index pages (per-term

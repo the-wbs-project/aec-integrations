@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { VendorIntegrationClaimNotificationSchema } from './integration-claims';
+import { VendorIntegrationCreateNotificationSchema } from './integration-create';
 import { VendorIntegrationRetireNotificationSchema } from './integration-retire';
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 
@@ -134,12 +135,14 @@ export type VendorContestNotification = z.infer<typeof VendorContestNotification
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
  *  `integration_retire` in AECI-1010 (`./integration-retire`), and
- *  `integration_update` in AECI-1006 (`./integration-edits`). */
+ *  `integration_update` in AECI-1006 (`./integration-edits`), and
+ *  `integration_create` in AECI-1011 (`./integration-create`). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
   VendorIntegrationRetireNotificationSchema,
   VendorIntegrationUpdateNotificationSchema,
+  VendorIntegrationCreateNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -154,7 +157,8 @@ export function isAttestationNotification(
     notification.kind !== 'contest' &&
     notification.kind !== 'integration_claim' &&
     notification.kind !== 'integration_retire' &&
-    notification.kind !== 'integration_update'
+    notification.kind !== 'integration_update' &&
+    notification.kind !== 'integration_create'
   );
 }
 

@@ -399,7 +399,8 @@ create table integrations (
   -- Vendor ownership (AECI-1005 / ADR 0035, migration 0044, three plain ADD COLUMNs).
   -- `claimed_at` set = the owner took the row by an act (its claim, or an admin
   -- approval of an owner-unknown claim); promote then writes NOTHING to the row.
-  -- `origin` is who created it; nothing writes 'vendor' until AECI-1011. Its CHECK is a
+  -- `origin` is who created it: 'aeci' (promote) or 'vendor' (the AECI-1011 create,
+  -- `POST /api/vendor/integrations`, which is born claimed). Its CHECK is a
   -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
   -- drizzle-kit renders a CHECK change there as a table recreate.
   -- `retired_at` set = the owner retired the row (AECI-1010). Written ONLY by the

@@ -242,7 +242,11 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
-    if (notification.kind === 'integration_claim' || notification.kind === 'integration_retire') {
+    if (
+      notification.kind === 'integration_claim' ||
+      notification.kind === 'integration_retire' ||
+      notification.kind === 'integration_create'
+    ) {
       return [notification.owner_name, notification.integration_name].filter(
         (part): part is string => !!part,
       );
@@ -290,6 +294,10 @@ function titleOf(notification: VendorNotification): string {
   }
   if (notification.kind === 'integration_update') {
     return $localize`:@@vendor.integrationEdit.notify.updated:The owner edited an integration on your product`;
+  }
+  // AECI-1011. Plain copy, like the rows above; AECI-1023 owns the final wording.
+  if (notification.kind === 'integration_create') {
+    return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
   return contestNotificationTitle(notification.event);
 }
