@@ -524,7 +524,7 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
  * row that is fine: promote writes it again. A vendor-created row stays behind the
  * promote fence with or without a claim (the fence keys on `origin = 'vendor'` too,
  * AECI-1011), and it has no upstream record anyway, so promote never writes it. Until
- * the new owner claims it, nobody can edit or retire it. `warn`, not `error`: the row is still public and correct as it stands,
+ * the new owner claims it, nobody can edit it, and only an AECi admin can retire it (AECI-1046). `warn`, not `error`: the row is still public and correct as it stands,
  * and the fix is a claim by the new owner, or a `REVIEW - ` issue when the accept said
  * "neither". No seed writes `origin = 'vendor'`, so a clean environment reports zero.
  */

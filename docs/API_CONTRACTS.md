@@ -261,9 +261,12 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
 | `INTEGRATION_CONNECTOR_POWERED` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`). Decision 9 keeps the claim off those rows in v1; AECI-1040 opens it. Also `PUT /api/vendor/integrations/:id/links/…` on such a row, after the side check (AECI-1007). A `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
-| `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
-| `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` on a live row (AECI-1010) |
+| `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
+| `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore or owner edit whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
+| `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
+| `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
+| `INTEGRATION_NOT_VENDOR_HELD` | 409 | `POST /api/admin/integrations/:id/retire` or `/restore` on an AECi-held row (not claimed and `origin = 'aeci'`). Promote, the review app and the retraction tools own that row, and a retire here would hide a row the next promote still writes (AECI-1046) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
@@ -4472,6 +4475,10 @@ filter needs its counts computed both ways or the operator gets a smaller number
 compare it against — and that is a decision for whoever builds the screen, not one to settle in a
 spec draft.
 
+#### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
+
+The admin retire and restore of a vendor-held integration, and the vendor's list of them (the Integrations tab on `/admin/vendors/:id`). Specified beside the owner retire in §6.14, because they share one batch. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`
@@ -5828,17 +5835,47 @@ export const RetireIntegrationResponseSchema = z.object({
   integration: z.object({
     id: z.string().uuid(),
     retired_at: z.string().nullable(),   // set by retire, null after restore
+    retired_by: z.enum(['owner', 'aeci']).nullable(),  // AECI-1046; null after restore
     updated_at: z.string(),
   }),
   withdrawn_contest_ids: z.array(z.string().uuid()),  // contests the retire closed
 });
 ```
 
-**Order: row → ownership → connector-powered → claimed → state.** The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`). Then `403 INTEGRATION_CONNECTOR_POWERED` (decision 9), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). A refusal writes nothing.
+**Order: row → ownership → connector-powered → claimed → state.** The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`). Then `403 INTEGRATION_CONNECTOR_POWERED` (decision 9), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). Since AECI-1046 a restore of a row an AECi admin retired answers `403 INTEGRATION_RETIRED_BY_AECI`. A refusal writes nothing.
 
-**One batch.** The guarded `UPDATE integrations SET retired_at, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
+**One batch.** The guarded `UPDATE integrations SET retired_at, retired_by, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>` (restore adds `AND (retired_by IS NULL OR retired_by = 'owner')`; retire writes `retired_by = 'owner'`, restore clears it), a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
 
 **After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue, and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
+
+
+#### Admin retire and restore — `POST /api/admin/integrations/:id/retire` and `/restore` (AECI-1046)
+
+Stage 2.1 (AECI-1046, ADR 0035's 2026-09-22 note, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4). An AECi admin retires a **vendor-held** integration (claimed, or `origin = 'vendor'`) to take a false or abusive listing off the public site, audited and reversible. Zod in `packages/shared/src/api/integration-retire.ts`, handler in `apps/api/src/routes/admin-integration-retire.ts`, batch shared with the owner routes in `apps/api/src/routes/integration-retire-write.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/admin/integrations/:id/retire` | `requireAdmin()`, `rateLimit('write')`, row vendor-held and live | `200 { integration, withdrawn_contest_ids }` |
+| `POST` | `/api/admin/integrations/:id/restore` | the same, row retired with `retired_by = 'aeci'` | `200 { integration, withdrawn_contest_ids: [] }` |
+| `GET` | `/api/admin/vendors/:id/integrations` | `requireAdmin()`, never rate-limited | `200` paginated `AdminVendorIntegrationRow[]` |
+
+```typescript
+export const AdminRetireIntegrationBodySchema = z
+  .object({ reason: z.string().trim().min(1).max(1000) })
+  .strict();
+```
+
+**The reason is required on both** and lands in the audit row's `metadata.reason`. It is not shown to any vendor. The response is `RetireIntegrationResponseSchema` above, with `retired_by: 'aeci'` after a retire.
+
+**Refusals, in order:** `404` (unknown id), `409 INTEGRATION_NOT_VENDOR_HELD` (an AECi-held row belongs to promote and the review app), `409 INTEGRATION_RETIRED` (retire of a retired row, whoever retired it), `409 INTEGRATION_NOT_RETIRED` (restore of a live row), `409 INTEGRATION_RETIRED_BY_OWNER` (restore of an owner retire, or a pre-0046 retire with NULL `retired_by`). A body without a non-empty `reason` of at most 1,000 characters is `400 VALIDATION_FAILED`. A refusal writes nothing.
+
+**One batch, the owner retire's.** The guarded `UPDATE` requires the row to be vendor-held (`claimed_at IS NOT NULL OR origin = 'vendor'`) and, on restore, `retired_by = 'aeci'`. Retire writes `retired_by = 'aeci'`. Contests close exactly as above. The `integration.retired` / `integration.restored` row carries the admin as actor and `metadata { source: 'admin-moderation', reason, retiredBy: 'aeci' }`. One `notification.sent` row (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) goes to the **owner** and to every vendor of either endpoint, because the owner did not act. Both endpoint counts are recomputed in the batch. A lost race re-derives the refusal or answers `409 INTEGRATION_CHANGED_WHILE_SAVING`.
+
+**After commit:** the owner retire's tail: by-id Algolia sync (failures logged as `aeci.api.admin.retire_algolia_sync_failed`), the same purge tags through the queue with `source: 'moderation'`, and the re-crawl buffer.
+
+**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, ordered by name (`NOCASE`) then id: `id`, `name`, `source` / `target` (`{ id, slug, name }`), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. `404` for an unknown vendor. No audit row.
+
+**The owner's view.** `GET /api/vendor/integrations` carries `retired_by` on each entry, and a `kind: 'integration_retire'` row on `GET /api/vendor/notifications` carries `retired_by` (`'owner'` for rows written before AECI-1046).
 
 
 #### Owner edit — `PATCH /api/vendor/integrations/:id`

@@ -108,6 +108,18 @@ AECI-1017 raised that rule 7's original "can claim" did not hold as AECI-1005 wa
 - **Promotion order (AECI-1010 review, 2026-09-22), closed by the 1011 twin guard, which covers the insert, de-route and UPDATE paths.** The fence keys on the row, so it cannot see a promote that writes a *different* row onto the same pair: an insert under a new upstream id, a de-route of a connector-evidenced pair back into `integrations`, or an UPDATE of a curated row that changes a key field (its pair, connector, kind or owner). Against a retired row any of those would put a live twin beside it and undo the retire in public. The gate: AECI-1010 must not reach production before AECI-1011's `VENDOR_OWNED_TWIN` guard, which skips all three when the result would strongly match any vendor-held row, retired rows included. Both are on `main`: AECI-1010 at `8cc6daf8` and AECI-1011 at `99642693`, which descends from it. Neither is in production yet. **Any production promote at or after `99642693` carries both, which satisfies the order rule.** `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 records it.
 - **The review app does not see vendor-created rows.** It learns of one only through a `VENDOR_OWNED_TWIN` skip. AECI-1047 is the review-side follow-up.
 
+## 2026-09-22 note: AECi can retire a vendor-held integration (AECI-1046)
+
+Decision 7 gave retire to the owner. It left AECi with no audited way to act on a vendor-held row, because every AECi removal tool refuses one (the ops lanes above). Vendor edits and creates go live unmoderated (decision 8), and the Terms keep AECi's right to correct or remove a listing, so that gap meant unaudited SQL. This note adds the missing path without changing decisions 1 to 15.
+
+- **An admin retires and restores a vendor-held row** (claimed, or `origin = 'vendor'`) through `POST /api/admin/integrations/:id/retire` and `/restore`, with a required reason in the audit row. It is the owner retire's batch, so it deletes nothing and keeps claims, attestations, links and contests. An AECi-held row is refused (`INTEGRATION_NOT_VENDOR_HELD`): promote and the review app own it.
+- **Only an admin restores an admin retire, and an admin never undoes an owner retire** (ruled 2026-09-22). The owner restore answers `403 INTEGRATION_RETIRED_BY_AECI`; the admin restore of an owner retire answers `409 INTEGRATION_RETIRED_BY_OWNER`.
+- **Who retired a row is recorded in `integrations.retired_by`** (`'owner'` | `'aeci'`, migration `0046`, a plain `ADD COLUMN`). A retired row with NULL predates it and is an owner retire.
+- **The owner and the other endpoint vendors are told** in the same batch, and the portal names AEC Integrations as the actor.
+- **"Retired implies claimed" becomes "retired implies vendor-held"**, because an admin can retire a vendor-created row whose claim an `owner` accept cleared. The data-quality check keeps its id.
+
+Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4. This does not open any AECi *content* write on a vendor-held row. AECi still changes such a row's content only through an `owner` contest accept or an owner-routed decision.
+
 ## Revisit
 
 When AECI-1040 opens claim, edit and retire on connector-powered rows (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi other than by the owner-reassignment accept, which today is the only path.
