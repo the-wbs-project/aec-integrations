@@ -1132,6 +1132,11 @@ export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorAttestationNotificatio
   },
 ];
 
+/** Days from now, as ISO. The protest fixtures (AECI-1009) sit relative to the
+ *  real clock so the preview always shows a window that is open. */
+const daysFromNow = (days: number): string =>
+  new Date(Date.now() + days * 86_400_000).toISOString();
+
 /**
  * Field contests (AECI-1008 / §11b), both sides of `GET /api/vendor/contests`.
  *
@@ -1141,6 +1146,10 @@ export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorAttestationNotificatio
  *    for claimed integrations since AECI-1005; the fixture shows that surface.
  *  - **Submitted**: one open (with AECi), one declined with a note, and one
  *    accepted, so every submitter-side pill and the decision note render.
+ *  - **Protests (AECI-1009)**: a received contest with an open protest waiting for
+ *    the owner's reply, a submitted owner decline still inside its 30-day window
+ *    (the protest form), and a submitted contest whose protest AECi decided for
+ *    the owner (the cooldown line).
  */
 export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
   received: [
@@ -1164,6 +1173,50 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
       decided_at: null,
       created_at: '2026-09-15T09:30:00.000Z',
       updated_at: '2026-09-15T09:30:00.000Z',
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005c02',
+      integration_id: INTEGRATION_VENDOR_B.id,
+      integration_name: INTEGRATION_VENDOR_B.name,
+      context_product: CONTEXT_SECONDARY,
+      other_product: OTHER_AUTODESK_BUILD,
+      field: 'name',
+      current_value: INTEGRATION_VENDOR_B.name,
+      proposed_value: 'Autodesk Build Issues Sync',
+      current_label: null,
+      proposed_label: null,
+      reason: 'Autodesk lists it under this name in the App Store.',
+      routed_to: 'owner',
+      status: 'declined',
+      submitter_vendor: AUTODESK_VENDOR,
+      owner_vendor: SUMMIT_VENDOR,
+      decision_note: 'Our release notes use the current name.',
+      decided_at: daysFromNow(-6),
+      created_at: daysFromNow(-9),
+      updated_at: daysFromNow(-2),
+      protest: {
+        status: 'open',
+        basis: 'declined',
+        reason:
+          'The App Store listing and the setup guide both use the longer name, and customers search for it.',
+        evidence_urls: ['https://apps.autodesk.com/example-listing'],
+        protested_at: daysFromNow(-2),
+        reply_due_at: daysFromNow(12),
+        reply: null,
+        reply_evidence_urls: [],
+        replied_at: null,
+        decision_note: null,
+        decided_at: null,
+      },
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
     },
   ],
   submitted: [
@@ -1187,6 +1240,11 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
       decided_at: null,
       created_at: '2026-09-16T14:00:00.000Z',
       updated_at: '2026-09-16T14:00:00.000Z',
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
     },
     {
       id: '00000000-0000-4000-8000-000000005c12',
@@ -1209,6 +1267,11 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
       decided_at: '2026-09-10T11:00:00.000Z',
       created_at: '2026-09-08T10:00:00.000Z',
       updated_at: '2026-09-10T11:00:00.000Z',
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
     },
     {
       id: '00000000-0000-4000-8000-000000005c13',
@@ -1230,6 +1293,76 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
       decided_at: '2026-09-02T08:00:00.000Z',
       created_at: '2026-09-01T08:00:00.000Z',
       updated_at: '2026-09-02T08:00:00.000Z',
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005c14',
+      integration_id: INTEGRATION_PROCORE.id,
+      integration_name: INTEGRATION_PROCORE.name,
+      context_product: CONTEXT_PRIMARY,
+      other_product: OTHER_PROCORE,
+      field: 'docs_url',
+      current_value: 'https://support.procore.com/old-guide',
+      proposed_value: 'https://support.procore.com/summit-setup',
+      current_label: null,
+      proposed_label: null,
+      reason: 'The old guide was retired in August.',
+      routed_to: 'owner',
+      status: 'declined',
+      submitter_vendor: SUMMIT_VENDOR,
+      owner_vendor: PROCORE_VENDOR,
+      decision_note: 'The old guide still redirects correctly.',
+      decided_at: daysFromNow(-3),
+      created_at: daysFromNow(-8),
+      updated_at: daysFromNow(-3),
+      protest: null,
+      protest_opens_at: daysFromNow(-3),
+      protest_closes_at: daysFromNow(27),
+      protest_basis: 'declined',
+      cooldown_until: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005c15',
+      integration_id: INTEGRATION_PROCORE.id,
+      integration_name: INTEGRATION_PROCORE.name,
+      context_product: CONTEXT_PRIMARY,
+      other_product: OTHER_PROCORE,
+      field: 'maturity',
+      current_value: 'Beta',
+      proposed_value: 'Generally available',
+      current_label: null,
+      proposed_label: null,
+      reason: 'It left beta in 2026.2.',
+      routed_to: 'owner',
+      status: 'declined',
+      submitter_vendor: SUMMIT_VENDOR,
+      owner_vendor: PROCORE_VENDOR,
+      decision_note: 'Our side of the connector is still in beta.',
+      decided_at: '2026-08-20T10:00:00.000Z',
+      created_at: '2026-08-15T10:00:00.000Z',
+      updated_at: daysFromNow(-5),
+      protest: {
+        status: 'rejected',
+        basis: 'declined',
+        reason: 'Our release notes call it generally available.',
+        evidence_urls: [],
+        protested_at: '2026-08-25T10:00:00.000Z',
+        reply_due_at: '2026-09-08T10:00:00.000Z',
+        reply: 'The Procore half is still gated behind a beta flag.',
+        reply_evidence_urls: [],
+        replied_at: '2026-08-27T10:00:00.000Z',
+        decision_note:
+          'Both products have to be generally available for the integration to be. Procore says its half is not.',
+        decided_at: daysFromNow(-5),
+      },
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: daysFromNow(85),
     },
   ],
 };
@@ -1245,6 +1378,21 @@ export const VENDOR_CONTESTS_EMPTY_FIXTURE: ListVendorContestsResponse = {
 export const VENDOR_CONTEST_NOTIFICATIONS_FIXTURE: readonly VendorContestNotification[] = [
   {
     kind: 'contest',
+    id: '00000000-0000-4000-8000-000000005c23',
+    event: 'protested',
+    contest_id: '00000000-0000-4000-8000-000000005c02',
+    integration_id: INTEGRATION_VENDOR_B.id,
+    integration_name: INTEGRATION_VENDOR_B.name,
+    field: 'name',
+    pair_path: '/products/summit-field-issues/integrations/autodesk-build',
+    created_at: daysFromNow(-2),
+    recipient_role: null,
+    protest_closes_at: null,
+    reply_due_at: daysFromNow(12),
+    cooldown_until: null,
+  },
+  {
+    kind: 'contest',
     id: '00000000-0000-4000-8000-000000005c21',
     event: 'submitted',
     contest_id: '00000000-0000-4000-8000-000000005c01',
@@ -1253,6 +1401,10 @@ export const VENDOR_CONTEST_NOTIFICATIONS_FIXTURE: readonly VendorContestNotific
     field: 'docs_url',
     pair_path: '/products/summit-field-issues/integrations/autodesk-build',
     created_at: '2026-09-15T09:30:00.000Z',
+    recipient_role: null,
+    protest_closes_at: null,
+    reply_due_at: null,
+    cooldown_until: null,
   },
   {
     kind: 'contest',
@@ -1264,6 +1416,10 @@ export const VENDOR_CONTEST_NOTIFICATIONS_FIXTURE: readonly VendorContestNotific
     field: 'owner',
     pair_path: '/products/procore/integrations/summit-model-coordination',
     created_at: '2026-09-10T11:00:00.000Z',
+    recipient_role: null,
+    protest_closes_at: null,
+    reply_due_at: null,
+    cooldown_until: null,
   },
 ];
 

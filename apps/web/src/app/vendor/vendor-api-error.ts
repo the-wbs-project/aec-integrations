@@ -22,6 +22,9 @@ export interface VendorApiErrorInfo {
   readonly field: string | null;
   /** `details.claim_id` on the duplicate-claim 400, `null` on every other error. */
   readonly claimId: string | null;
+  /** The whole `details` object, when there is one. AECI-1009's
+   *  `PROTEST_NOT_AVAILABLE` carries `details.reason`. */
+  readonly details: Readonly<Record<string, unknown>> | null;
 }
 
 function str(value: unknown): string | null {
@@ -42,19 +45,21 @@ export function readVendorApiError(err: unknown): VendorApiErrorInfo | null {
   if (typeof inner !== 'object' || inner === null) {
     // Still useful: the status alone distinguishes a 403 (verification flipped
     // mid-session) from a network failure.
-    return { status: err.status, code: null, field: null, claimId: null };
+    return { status: err.status, code: null, field: null, claimId: null, details: null };
   }
 
-  const details = inner['details'];
-  const claimId =
-    typeof details === 'object' && details !== null
-      ? str((details as Record<string, unknown>)['claim_id'])
+  const raw = inner['details'];
+  const details =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
       : null;
+  const claimId = details ? str(details['claim_id']) : null;
 
   return {
     status: err.status,
     code: str(inner['code']),
     field: str(inner['field']),
     claimId,
+    details,
   };
 }

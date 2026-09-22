@@ -336,6 +336,13 @@ export class VendorPortalStore {
    */
   revalidate(scopes: readonly VendorPortalScope[]): Promise<void> {
     const resources = new Set(scopes.map((scope) => SCOPE_RESOURCE[scope]));
+    // AECI-1009: a contest's protest window and its cooldown depend on the LIVE
+    // field value, and an owner edit moves `integrations`, not `contests`. So an
+    // `integrations` refetch also refreshes the contests a section has already
+    // loaded (`STAGE_2_REALTIME_SPEC.md` §2.3). Never loads them from cold.
+    if (resources.has('integrations') && this.statuses.contests() !== 'idle') {
+      resources.add('contests');
+    }
     return Promise.all([...resources].map((resource) => this.fetch(resource))).then(
       () => undefined,
     );

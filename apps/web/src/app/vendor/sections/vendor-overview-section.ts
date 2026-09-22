@@ -285,6 +285,14 @@ export class VendorOverviewSection {
       integrationsReady: this.integrationsReady(),
       seatInviteCount: this.store.seatInvites().length,
       contestsToDecide: this.store.contests().received.filter((c) => c.status === 'open').length,
+      protestsToReply: this.store
+        .contests()
+        .received.filter(
+          (c) =>
+            c.protest?.status === 'open' &&
+            c.protest.reply === null &&
+            Date.parse(c.protest.reply_due_at) > Date.now(),
+        ).length,
       canManageSeats: this.store.canManageSeats(),
       // `vendor.verified`, as the Integrations tab gates today. See
       // `vendor-integrations-page.ts` on why it is not `attestation.author` yet.
@@ -404,6 +412,20 @@ export class VendorOverviewSection {
           body: $localize`:@@vendor.overview.item.correction.body:Filed ${date}:DATE:. AEC Integrations reviews it and records the outcome in Messages.`,
         };
       }
+      case 'protests':
+        return {
+          key: item.key,
+          commands,
+          queryParams,
+          icon: 'clock',
+          tone: 'attention',
+          pill: $localize`:@@vendor.overview.item.protests.pill:Reply by the due date`,
+          title:
+            item.count === 1
+              ? $localize`:@@vendor.overview.item.protests.title.one:A vendor asked AEC Integrations to review one of your contest decisions`
+              : $localize`:@@vendor.overview.item.protests.title.many:${item.count}:COUNT: review requests on your contest decisions are open`,
+          body: $localize`:@@vendor.overview.item.protests.body:You can reply once to each, in Messages. AEC Integrations says which side it agrees with. Its view is advice, and nothing about it is public.`,
+        };
       case 'contests':
         return {
           key: item.key,

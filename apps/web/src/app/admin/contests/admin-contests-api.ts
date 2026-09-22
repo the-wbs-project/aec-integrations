@@ -18,6 +18,7 @@ import { firstValueFrom } from 'rxjs';
 import type {
   AdminContest,
   DecideContestInput,
+  DecideContestProtestInput,
   ListAdminContestsQuery,
   ListAdminContestsResponse,
 } from '@aeci/shared';
@@ -44,6 +45,15 @@ export class AdminContestsApi {
   decide(id: string, input: DecideContestInput): Promise<AdminContest> {
     return firstValueFrom(
       this.http.patch<AdminContest>(`/api/admin/contests/${encodeURIComponent(id)}`, input),
+    );
+  }
+
+  /** `PATCH /api/admin/contests/:id/protest` (AECI-1009). AECi says which side it
+   *  agrees with. Advice only: it writes no catalog data and files no issue. The
+   *  note is required. Returns the row's post-decision state. */
+  decideProtest(id: string, input: DecideContestProtestInput): Promise<AdminContest> {
+    return firstValueFrom(
+      this.http.patch<AdminContest>(`/api/admin/contests/${encodeURIComponent(id)}/protest`, input),
     );
   }
 }

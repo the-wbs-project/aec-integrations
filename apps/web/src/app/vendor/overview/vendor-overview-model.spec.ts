@@ -303,6 +303,22 @@ describe('buildNeedsItems — field contests to decide (AECI-1008)', () => {
   });
 });
 
+describe('buildNeedsItems — protests to reply to (AECI-1009)', () => {
+  it('adds one Needs you now row after the contests row, linked to Messages', () => {
+    const { now } = buildNeedsItems(input({ contestsToDecide: 1, protestsToReply: 2 }));
+    const row = now.find((i) => i.type === 'protests');
+    expect(row).toMatchObject({ count: 2, link: { kind: 'messages' } });
+    expect(now.map((i) => i.type).slice(-2)).toEqual(['contests', 'protests']);
+  });
+
+  it('is absent at zero and when omitted', () => {
+    expect(buildNeedsItems(input()).now.some((i) => i.type === 'protests')).toBe(false);
+    expect(
+      buildNeedsItems(input({ protestsToReply: 0 })).now.some((i) => i.type === 'protests'),
+    ).toBe(false);
+  });
+});
+
 describe('linkQueryParams (AECI-999)', () => {
   it('pre-filters integrations links to the state they count', () => {
     expect(linkQueryParams({ kind: 'integrations', productSlug: 'x', status: 'conflict' })).toEqual(

@@ -12,6 +12,8 @@ import type {
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
   DecideContestInput,
+  FileContestProtestInput,
+  ReplyContestProtestInput,
   IntegrationLinkKind,
   IntegrationLinkResponse,
   ListVendorContestsResponse,
@@ -511,6 +513,11 @@ export class PreviewVendorApi extends VendorApi {
       decided_at: null,
       created_at: now,
       updated_at: now,
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
     };
     this.contests.submitted.unshift(contest);
     return { contest: clone(contest) };
@@ -614,6 +621,82 @@ export class PreviewVendorApi extends VendorApi {
     }
     contest.status = 'withdrawn';
     contest.updated_at = '2026-09-18T12:00:00.000Z';
+    return { contest: clone(contest) };
+  }
+
+  // ─── Protests to AECi (AECI-1009) ──────────────────────────────────────────
+
+  /** File, fixture-side: the window the list already computed, then an open
+   *  protest with a 14-day reply clock. */
+  override async fileContestProtest(
+    contestId: string,
+    body: FileContestProtestInput,
+  ): Promise<VendorContestResponse> {
+    const contest = this.contests.submitted.find((c) => c.id === contestId);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
+    const now = new Date();
+    const opens = contest.protest_opens_at ? Date.parse(contest.protest_opens_at) : NaN;
+    const closes = contest.protest_closes_at ? Date.parse(contest.protest_closes_at) : Infinity;
+    if (
+      contest.protest ||
+      Number.isNaN(opens) ||
+      now.getTime() < opens ||
+      now.getTime() >= closes
+    ) {
+      throw apiError(409, 'PROTEST_NOT_AVAILABLE', 'Not protestable', {
+        details: { reason: contest.protest ? 'already_protested' : 'window_closed' },
+      });
+    }
+    const iso = now.toISOString();
+    contest.status = 'declined';
+    contest.protest = {
+      status: 'open',
+      basis: contest.protest_basis ?? 'declined',
+      reason: body.reason,
+      evidence_urls: [...new Set(body.evidence_urls ?? [])],
+      protested_at: iso,
+      reply_due_at: new Date(now.getTime() + 14 * 86_400_000).toISOString(),
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
+      decision_note: null,
+      decided_at: null,
+    };
+    contest.protest_opens_at = null;
+    contest.protest_closes_at = null;
+    contest.protest_basis = null;
+    contest.updated_at = iso;
+    return { contest: clone(contest) };
+  }
+
+  override async replyContestProtest(
+    contestId: string,
+    body: ReplyContestProtestInput,
+  ): Promise<VendorContestResponse> {
+    const contest = this.contests.received.find((c) => c.id === contestId);
+    if (!contest?.protest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
+    if (contest.protest.status !== 'open') {
+      throw apiError(409, 'PROTEST_NOT_OPEN', 'This protest is closed');
+    }
+    if (contest.protest.reply !== null) {
+      throw apiError(409, 'PROTEST_REPLY_EXISTS', 'Already replied');
+    }
+    const iso = new Date().toISOString();
+    contest.protest.reply = body.reply;
+    contest.protest.reply_evidence_urls = [...new Set(body.evidence_urls ?? [])];
+    contest.protest.replied_at = iso;
+    contest.updated_at = iso;
+    return { contest: clone(contest) };
+  }
+
+  override async withdrawContestProtest(contestId: string): Promise<VendorContestResponse> {
+    const contest = this.contests.submitted.find((c) => c.id === contestId);
+    if (!contest?.protest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
+    if (contest.protest.status !== 'open') {
+      throw apiError(409, 'PROTEST_NOT_OPEN', 'This protest is closed');
+    }
+    contest.protest.status = 'withdrawn';
+    contest.updated_at = new Date().toISOString();
     return { contest: clone(contest) };
   }
 

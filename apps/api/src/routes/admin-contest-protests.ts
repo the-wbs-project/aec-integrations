@@ -113,15 +113,7 @@ export function createDecideContestProtestHandler(
           ),
         ),
       contestStillOpenSentinel(db, id),
-      ...closeProtestWorkflow(
-        db,
-        row,
-        status,
-        session.userId,
-        payload.note,
-        metadata,
-        now,
-      ),
+      ...closeProtestWorkflow(db, row, status, session.userId, payload.note, metadata, now),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
     const after = await runGuardedProtestBatch(db, id, stmts, async () => protestNotOpen());

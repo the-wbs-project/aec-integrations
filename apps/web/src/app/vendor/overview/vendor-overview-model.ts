@@ -195,6 +195,14 @@ export type NeedsItem =
       readonly link: NeedsItemLink;
     }
   | {
+      /** Open protests to AECi on this vendor's decisions, still waiting for its
+       *  one reply before the due date (AECI-1009 / §11b.12). One row. */
+      readonly type: 'protests';
+      readonly key: string;
+      readonly count: number;
+      readonly link: NeedsItemLink;
+    }
+  | {
       readonly type: 'waiting';
       readonly key: string;
       readonly product: ProductClaimCount['product'];
@@ -245,6 +253,9 @@ export interface NeedsInput {
   /** Open contests in the Received list (AECI-1008). Seat-only, like the
    *  decision itself, so never gated on a capability. `0` until the read lands. */
   readonly contestsToDecide: number;
+  /** Open protests in the Received list with no reply yet and the due date still
+   *  ahead (AECI-1009). `0` until the read lands, and when omitted. */
+  readonly protestsToReply?: number;
   /** `vendor.verified`, the gate the Integrations tab uses today (see
    *  `vendor-integrations-page.ts` on why it is not yet `attestation.author`). */
   readonly canAttest: boolean;
@@ -302,6 +313,15 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
       type: 'contests',
       key: 'contests',
       count: input.contestsToDecide,
+      link: { kind: 'messages' },
+    });
+  }
+
+  if ((input.protestsToReply ?? 0) > 0) {
+    now.push({
+      type: 'protests',
+      key: 'protests',
+      count: input.protestsToReply ?? 0,
       link: { kind: 'messages' },
     });
   }

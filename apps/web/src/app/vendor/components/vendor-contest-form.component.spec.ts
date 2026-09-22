@@ -237,6 +237,15 @@ describe('VendorContestForm — the controls', () => {
     const option = el(fixture).querySelector<HTMLOptionElement>('option[value="pricing_model"]')!;
     expect(option.disabled).toBe(true);
   });
+
+  it('disables a field inside a lost review cooldown, naming the end date (AECI-1009)', async () => {
+    api.getContests.mockResolvedValue(VENDOR_CONTESTS_FIXTURE);
+    const fixture = await createForm();
+    await open(fixture);
+    const option = el(fixture).querySelector<HTMLOptionElement>('option[value="maturity"]')!;
+    expect(option.disabled).toBe(true);
+    expect(option.textContent).toContain('not until');
+  });
 });
 
 describe('VendorContestForm — validation', () => {

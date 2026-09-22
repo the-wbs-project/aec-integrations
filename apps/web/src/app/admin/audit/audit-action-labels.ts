@@ -115,6 +115,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.contest.withdrawn': $localize`:@@admin.audit.action.contestWithdrawn:Field contest withdrawn`,
   'integration.contest.accepted': $localize`:@@admin.audit.action.contestAccepted:Field contest accepted`,
   'integration.contest.declined': $localize`:@@admin.audit.action.contestDeclined:Field contest declined`,
+  // AECI-1009. `lapsed` is a contest the owner left unanswered for 30 days, turned
+  // into a decline by the protest that followed. The protest decisions are advice.
+  'integration.contest.lapsed': $localize`:@@admin.audit.action.contestLapsed:Field contest unanswered for 30 days`,
+  'integration.contest.protested': $localize`:@@admin.audit.action.contestProtested:Field contest sent to AECi for review`,
+  'integration.contest.protest_replied': $localize`:@@admin.audit.action.contestProtestReplied:Owner replied to a contest review`,
+  'integration.contest.protest_withdrawn': $localize`:@@admin.audit.action.contestProtestWithdrawn:Contest review request withdrawn`,
+  'integration.contest.protest_upheld': $localize`:@@admin.audit.action.contestProtestUpheld:Contest review: AECi agreed with the submitter`,
+  'integration.contest.protest_rejected': $localize`:@@admin.audit.action.contestProtestRejected:Contest review: AECi agreed with the owner`,
 
   // ── Entitlements. `entity_id` on these rows is the VENDOR id, not the
   //    entitlement row id, so the whole trail shares one index key. ──────────

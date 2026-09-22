@@ -14,6 +14,7 @@ import {
   contestStatusLabel,
   contestValueDisplay,
 } from './vendor-contest-labels';
+import { VendorContestProtest } from './vendor-contest-protest';
 
 type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw' };
 
@@ -41,10 +42,14 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
  *
  * Withdraw confirms inline rather than with `confirm()`, which blocks the whole
  * page, and a withdrawn contest cannot be reopened.
+ *
+ * Each row also carries its protest to AECi (AECI-1009, §11b.12), rendered by
+ * `VendorContestProtest`: the request form on the submitted side, the one-time
+ * reply on the received side, and the whole record on both.
  */
 @Component({
   selector: 'aec-vendor-contests-list',
-  imports: [DatePipe, NgTemplateOutlet],
+  imports: [DatePipe, NgTemplateOutlet, VendorContestProtest],
   styles: [':host { display: block; }'],
   template: `
     <section aria-labelledby="vendor-contests-heading">
@@ -174,6 +179,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                           </p>
                         </div>
                       }
+                      <aec-vendor-contest-protest [contest]="contest" side="received" />
                       @if (rowError()?.id === contest.id) {
                         <p role="alert" class="text-sm font-medium text-(--text-primary)">
                           {{ rowError()?.message }}
@@ -269,6 +275,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                           </button>
                         }
                       }
+                      <aec-vendor-contest-protest [contest]="contest" side="submitted" />
                       @if (rowError()?.id === contest.id) {
                         <p role="alert" class="text-sm font-medium text-(--text-primary)">
                           {{ rowError()?.message }}
@@ -287,7 +294,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
     <ng-template #summary let-contest>
       <div class="flex flex-wrap items-start justify-between gap-2">
         <p class="font-label text-sm text-(--text-primary)">{{ rowName(contest) }}</p>
-        <span [class]="pillClass(contest.status)">{{ statusLabel(contest.status) }}</span>
+        <span [class]="pillClass(contest.status)">{{ statusLabelFor(contest) }}</span>
       </div>
       <dl class="grid max-w-prose grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
         <dt class="text-(--text-secondary)" i18n="@@vendor.contests.current">On record</dt>
@@ -484,8 +491,13 @@ export class VendorContestsList {
     return contestRouteLabel(contest.routed_to);
   }
 
-  protected statusLabel(status: ContestStatus): string {
-    return contestStatusLabel(status);
+  /** The contest's own state. A decline by 30 days of silence (AECI-1009) is not
+   *  the owner's act, so it reads as what happened rather than "Declined". */
+  protected statusLabelFor(contest: VendorContest): string {
+    if (contest.status === 'declined' && contest.protest?.basis === 'silence') {
+      return $localize`:@@vendor.contests.status.noAnswer:No answer in 30 days`;
+    }
+    return contestStatusLabel(contest.status);
   }
 
   protected pillClass(status: ContestStatus): string {

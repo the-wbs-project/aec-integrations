@@ -67,12 +67,7 @@ import {
   type ContestNotificationMetadata,
   type ContestRow,
 } from '../lib/integration-contests';
-import {
-  closeWorkflow,
-  CONTEST_WORKFLOW_TYPE,
-  echo,
-  endpointSlugs,
-} from './vendor-contests';
+import { closeWorkflow, CONTEST_WORKFLOW_TYPE, echo, endpointSlugs } from './vendor-contests';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
@@ -135,10 +130,7 @@ export async function protestNotifications(
   recipients: ReadonlyArray<{
     vendorId: string | null;
     extra?: Partial<
-      Pick<
-        ContestNotificationMetadata,
-        'recipientRole' | 'basis' | 'replyDueAt' | 'cooldownUntil'
-      >
+      Pick<ContestNotificationMetadata, 'recipientRole' | 'basis' | 'replyDueAt' | 'cooldownUntil'>
     >;
   }>,
 ): Promise<AuditLogEntry[]> {
@@ -508,7 +500,15 @@ export function createWithdrawContestProtestHandler(
           ),
         ),
       contestStillOpenSentinel(db, id),
-      ...closeProtestWorkflow(db, row, 'withdrawn', session.userId, 'protest withdrawn', metadata, now),
+      ...closeProtestWorkflow(
+        db,
+        row,
+        'withdrawn',
+        session.userId,
+        'protest withdrawn',
+        metadata,
+        now,
+      ),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
     const after = await runGuardedProtestBatch(db, id, stmts, async () => protestNotOpen());

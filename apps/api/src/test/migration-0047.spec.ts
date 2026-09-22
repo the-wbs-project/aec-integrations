@@ -122,9 +122,7 @@ describe(`${MIGRATION} — additive`, () => {
     try {
       seed(t);
       t.raw
-        .prepare(
-          `INSERT INTO profiles (id, created_at, updated_at) VALUES ('u1', ?, ?)`,
-        )
+        .prepare(`INSERT INTO profiles (id, created_at, updated_at) VALUES ('u1', ?, ?)`)
         .run(NOW, NOW);
       t.raw
         .prepare(
