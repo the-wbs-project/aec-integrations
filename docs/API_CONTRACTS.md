@@ -3511,7 +3511,8 @@ attributing a removal to the bucket the row was *added* in. When `net` shipped n
 recorded **when** a row was removed, so that was the only attribution available.
 Since AECI-687 every live delete path writes a `*.deleted` tombstone
 (`STAGE_1_SPEC.md` §26.1), so removals are datable going forward but not backwards;
-`net` is unchanged, and AECI-1037 decides whether it gains a true-delta sibling.
+`net` is unchanged. AECI-1037 decided on 2026-09-22 to add no true-delta basis yet
+(`ADMIN_PANEL_SPEC.md` §5.5 (7) names the trigger that reopens it).
 `catalog_series_is_surviving_rows` states the attribution on every `net` response.
 
 `basis=net` on `catalog.claims_created` additionally carries

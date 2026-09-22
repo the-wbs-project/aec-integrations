@@ -142,8 +142,9 @@ bulk-mirror granularity amendment above).
 **What this does not do.** It is not retroactive. The 2026-07-25 catalog reset, the 2026-08
 orphan cleanup and the Polycam lane left no per-row record, so a past total such as "how
 many integrations existed on 2026-07-01" stays unanswerable. The gap is closed going
-forward and open backwards, and `ADMIN_PANEL_SPEC.md` §4 and §5.5 say so. Whether the
-admin panel's `basis=net` series gains a true-delta sibling is AECI-1037.
+forward and open backwards, and `ADMIN_PANEL_SPEC.md` §4 and §5.5 say so. AECI-1037 decided on
+2026-09-22 that the admin panel's `basis=net` series gains no true-delta sibling yet
+(`ADMIN_PANEL_SPEC.md` §5.5 (7)).
 
 **A documented inconsistency.** The one-off 2026-09 Bluebeam vendor lane wrote
 `vendor.retracted` where every other vendor removal writes `vendor.deleted`. It is recorded
