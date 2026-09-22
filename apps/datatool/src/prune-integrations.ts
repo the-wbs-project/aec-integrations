@@ -353,6 +353,8 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
 
   // One row of scalar subqueries: footprint (3) + guards (3). The guard SQL is a
   // faithful port of cleanup.sh — see the module doc for what each one means.
+  // AECI-1010: a surviving twin must be LIVE. A retired row is off the public record,
+  // so it is not a surviving copy of anything the prune would delete.
   const [agg] = await selectAll(
     db,
     `SELECT
@@ -366,6 +368,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s JOIN claims sc ON sc.integration_id = s.id
               WHERE s.id NOT IN (${ph})
+                AND ${liveIntegrationSql('s')}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
@@ -377,12 +380,14 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s
               WHERE s.id NOT IN (${ph})
+                AND ${liveIntegrationSql('s')}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
            )) AS orphansWithoutATwin,
        (SELECT COUNT(*) FROM integrations o
           JOIN integrations s ON s.id NOT IN (${ph})
+            AND ${liveIntegrationSql('s')}
             AND s.source_product_id = o.source_product_id
             AND s.target_product_id = o.target_product_id
             AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
