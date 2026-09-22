@@ -516,6 +516,8 @@ function flipClaimDirection(direction: ClaimDirection): ClaimDirection {
 export const integrationDetailConfig = {
   columns: {
     ...integrationListConfig.columns,
+    // AECI-1010: a retired row answers only its two slugs (the legacy 301's needs).
+    retiredAt: true,
     description: true,
     listingUrl: true,
     docsUrl: true,

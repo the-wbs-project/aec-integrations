@@ -15,11 +15,13 @@
 
 import {
   IntegrationDetailSchema,
+  RetiredIntegrationDetailSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
   PairTimelineResponseSchema,
   ProductPairResponseSchema,
   type IntegrationDetail,
+  type RetiredIntegrationDetail,
   type IntegrationListItem,
   type IntegrationsListResponse,
   type PairTimelineResponse,
@@ -413,13 +415,28 @@ export function createIntegrationDetailHandler(
     // NOT filtered on `retired_at`, deliberately (AECI-1010 ruling, 2026-09-22). The
     // only caller is the SSR Worker's legacy `/integrations/:id` 301, which needs a
     // retired row's two slugs to keep redirecting to the pair page. The pair page
-    // then renders with no live mechanism and falls to its `noindex` branch.
+    // then renders with no live mechanism and falls to its `noindex` branch. A
+    // retired row answers ONLY those slugs (`RetiredIntegrationDetailSchema`): it is
+    // off the public record, so its name and content are not served.
     const row = await db.query.integrations.findFirst({
       ...integrationDetailConfig,
       where: eq(integrations.id, id),
     });
 
     if (!row) throw notFoundError('integration', { id });
+
+    if (row.retiredAt) {
+      const retired: RetiredIntegrationDetail = {
+        id: row.id,
+        retired: true,
+        source: { slug: row.sourceProduct.slug },
+        target: { slug: row.targetProduct.slug },
+      };
+      validateResponseInDev(c.env, () => {
+        RetiredIntegrationDetailSchema.parse(retired);
+      });
+      return json(retired);
+    }
 
     const body: IntegrationDetail = toIntegrationDetail(row);
 

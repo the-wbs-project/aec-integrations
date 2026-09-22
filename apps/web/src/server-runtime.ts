@@ -81,7 +81,7 @@ import {
   PAGE_VIEW_WRITER_HEADER,
   PAGE_VIEW_WRITERS,
 } from '@aeci/shared';
-import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
+import type { IntegrationDetailResponse, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
@@ -1512,9 +1512,10 @@ export function createApp(options: {
     const notFound = () => handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse);
     if (!id) return notFound();
 
-    let integration: IntegrationDetail | null = null;
+    // A retired row answers only its two slugs (AECI-1010), which is all this reads.
+    let integration: IntegrationDetailResponse | null = null;
     try {
-      integration = await createServerApiClient(c.env).request<IntegrationDetail>(
+      integration = await createServerApiClient(c.env).request<IntegrationDetailResponse>(
         `/api/integrations/${encodeURIComponent(id)}`,
       );
     } catch (err) {
