@@ -5160,7 +5160,7 @@ export const VendorRevisionsSchema = z.object({
   profile: z.string().nullable(),        // vendors.updated_at (moves on the `verified` mirror flip too)
   entitlement: z.string().nullable(),    // MAX(vendor_entitlements.updated_at) — vendor_id is UNIQUE, so ≤ 1 row
   products: z.string().nullable(),       // MAX(products.updated_at) over product_vendors
-  integrations: z.string().nullable(),   // MAX over claims ∪ attestations on the attestable surface
+  integrations: z.string().nullable(),   // MAX over integrations ∪ claims ∪ attestations on the attestable surface (row term: AECI-992)
   notifications: z.string().nullable(),  // MAX(audit_log.created_at) over this vendor's notification.sent ledger
   requests: z.string().nullable(),       // MAX(COALESCE(resolved_at, created_at)) — vendor_requests has no updated_at
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
@@ -5185,7 +5185,9 @@ Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary
 
 Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the events the transport exists to deliver, not a leak.
 
-Mechanics: seven SELECTs in one `db.batch([...])` = one D1 round trip; `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
+Since AECI-992 (2026-09-17) the `integrations` cursor also reads **`MAX(integrations.updated_at)` over the owned rows themselves**, under the same `ownedEndpointJoin`. The list ships row fields (`name`, `mechanism_kind`, `mechanism_name`, and `attestable` from `powered_by_product_id`), and a claims-only cursor missed an edit to any of them. It also missed an owned integration with no claim. The list reads no `connector_evidenced_pairs` row, so the cursor reads none either.
+
+Mechanics: eight SELECTs for seven scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by two); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
 
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 

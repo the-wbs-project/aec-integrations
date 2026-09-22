@@ -1,8 +1,9 @@
 /**
  * `GET /api/vendor/updates` (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2).
  *
- * The endpoint is seven cursors (six until AECI-1008 added `contests`, whose
- * parity case lives in `vendor-contests.spec.ts`), and it is only useful if each one moves for
+ * The endpoint is seven cursors over eight SELECTs (six cursors until AECI-1008 added
+ * `contests`, whose parity case lives in `vendor-contests.spec.ts`; `integrations` reads two
+ * statements since AECI-992), and it is only useful if each one moves for
  * **exactly** the writes its section's payload would show. So the spec is
  * organised around that property rather than around the response shape:
  *
@@ -287,7 +288,9 @@ describe('GET /api/vendor/updates — shape and headers', () => {
       profile: SEEDED,
       entitlement: null,
       products: SEEDED,
-      integrations: null,
+      // Not null: vendor A owns an endpoint of INTEGRATION_AB, which has no claim
+      // yet. The row itself is on the surface (AECI-992).
+      integrations: SEEDED,
       notifications: null,
       requests: null,
       contests: null,
@@ -425,6 +428,36 @@ describe('GET /api/vendor/updates — each scope moves independently', () => {
     expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
   });
 
+  it('`integrations` moves on an edit to the integration ROW alone (AECI-992)', async () => {
+    // The list ships `name`, `mechanism_*` and `attestable` (from
+    // `powered_by_product_id`). None of those writes touches a claim, so a
+    // claims-only cursor sat still while the portal showed a stale row.
+    await seedClaim(CLAIM_AB, INTEGRATION_AB);
+    const before = await revisions();
+
+    await t.db
+      .update(integrations)
+      .set({ name: 'Revit ↔ MicroStation', poweredByProductId: PRODUCT_C, updatedAt: MOVED })
+      .where(eq(integrations.id, INTEGRATION_AB));
+
+    expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
+  });
+
+  it('`integrations` moves when a CLAIMLESS owned integration is added (AECI-992)', async () => {
+    // Nothing to join through `claims` — the old cursor could not see this row at all.
+    const before = await revisions();
+
+    await t.db.insert(integrations).values({
+      id: uuid(22),
+      sourceProductId: PRODUCT_C,
+      targetProductId: PRODUCT_A,
+      createdAt: MOVED,
+      updatedAt: MOVED,
+    });
+
+    expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
+  });
+
   it('`notifications` moves when the sweep records a nudge for this vendor', async () => {
     const before = await revisions();
     await seedNotification(VENDOR_A, MOVED);
@@ -491,6 +524,28 @@ describe('GET /api/vendor/updates — cross-vendor isolation', () => {
     await seedNotification(VENDOR_B, MOVED_LATER);
 
     expect(await revisions()).toEqual(before);
+  });
+
+  it('an edit to, or a new, integration the vendor owns no endpoint of moves nothing', async () => {
+    // AECI-992's row-level read must scope exactly as the list does. A claimless
+    // B-only integration, and a row edit on another, are invisible to A.
+    const before = await revisions();
+
+    await t.db
+      .update(integrations)
+      .set({ name: 'B only', updatedAt: MOVED_LATER })
+      .where(eq(integrations.id, INTEGRATION_BC));
+    await t.db.insert(integrations).values({
+      id: uuid(23),
+      sourceProductId: PRODUCT_C,
+      targetProductId: PRODUCT_B,
+      createdAt: MOVED_LATER,
+      updatedAt: MOVED_LATER,
+    });
+
+    expect(await revisions()).toEqual(before);
+    // …while B, who owns both endpoints, does see it.
+    expect((await revisions({ ...AUTH, vendorId: VENDOR_B })).integrations).toBe(MOVED_LATER);
   });
 
   it('an ops-routed ledger row (metadata.vendorId = null) moves nobody’s cursor', async () => {

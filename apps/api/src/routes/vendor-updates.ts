@@ -52,15 +52,17 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Seven SELECTs in one `db.batch([...])` (six until AECI-1008 added `contests`).
- * The Worker pays per D1 hop, and this is the most frequently called endpoint on
- * the surface, so seven sequential reads would multiply the epic's cost by seven
- * for no benefit. Each statement returns a single aggregate row, so the response
- * payload of the batch is seven scalars.
+ * Eight SELECTs in one `db.batch([...])` for seven scopes (six until AECI-1008
+ * added `contests`, and one per scope until AECI-992 split `integrations` in
+ * two). The Worker pays per D1 hop, and this is the most frequently called
+ * endpoint on the surface, so eight sequential reads would multiply the epic's
+ * cost by eight for no benefit. Each statement returns a single aggregate row.
+ * `integrations` is the one scope fed by two statements (AECI-992): its own
+ * rows, and the claims and attestations under them.
  *
  * `db.batch` here carries **no** mutation, which makes it the one batch in the
  * codebase that is not about atomicity. It is about the round trip. (Atomicity is
- * free anyway: seven aggregate reads have nothing to roll back.)
+ * free anyway: aggregate reads have nothing to roll back.)
  */
 
 import {
@@ -134,6 +136,11 @@ function laterOf(a: string | null, b: string | null): string | null {
   return a >= b ? a : b;
 }
 
+/** {@link laterOf} folded over any number of cursors; `null` when all are. */
+function latestOf(...values: (string | null)[]): string | null {
+  return values.reduce<string | null>(laterOf, null);
+}
+
 /**
  * `some` when anything moved inside {@link VENDOR_UPDATES_CHANGE_WINDOW_MS} of
  * `asOf`, `none` otherwise. An unparseable cursor counts as `none` — a metric
@@ -165,6 +172,7 @@ export function createVendorUpdatesHandler(
       profileRows,
       entitlementRows,
       productRows,
+      integrationRowRows,
       integrationRows,
       ledgerRows,
       requestRows,
@@ -191,7 +199,24 @@ export function createVendorUpdatesHandler(
         .from(products)
         .where(inArray(products.id, ownedProductIds(db, vendorId))),
 
-      // `integrations` — claims ∪ attestations on the caller's ATTESTABLE
+      // `integrations`, first half (AECI-992) — the integration rows themselves.
+      //
+      // The list handler ships row fields (`name`, `mechanism_kind`,
+      // `mechanism_name`, and `attestable`, derived from
+      // `powered_by_product_id`). An edit to those moves no claim, and an owned
+      // integration with no claim at all has nothing for the second half to
+      // join through. So this reads `integrations.updated_at` from
+      // `integrations` directly, under the same `ownedEndpointJoin` the list
+      // resolves its authority map with. Same predicate, one more column: the
+      // scoping is unchanged, only what counts as a change widened.
+      //
+      // The list reads no `connector_evidenced_pairs` row, so neither does this.
+      db
+        .select({ value: max(integrations.updatedAt) })
+        .from(integrations)
+        .innerJoin(productVendors, ownedEndpointJoin(vendorId)),
+
+      // `integrations`, second half — claims ∪ attestations on the caller's ATTESTABLE
       // surface, over the exact three-table join `resolveClaimAuthority` uses.
       //
       // Two deliberate choices:
@@ -255,7 +280,11 @@ export function createVendorUpdatesHandler(
       profile: profileRows[0]?.value ?? null,
       entitlement: entitlementRows[0]?.value ?? null,
       products: productRows[0]?.value ?? null,
-      integrations: laterOf(integrationRow?.claims ?? null, integrationRow?.attestations ?? null),
+      integrations: latestOf(
+        integrationRowRows[0]?.value ?? null,
+        integrationRow?.claims ?? null,
+        integrationRow?.attestations ?? null,
+      ),
       notifications: ledgerRows[0]?.value ?? null,
       requests: requestRows[0]?.value ?? null,
       contests: contestRows[0]?.value ?? null,
