@@ -300,6 +300,48 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
     });
   });
 
+  it('syncs the integration record to search by id, behind the watchdog, and nothing else', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const env: Env = {
+        ...TEST_ENV,
+        ENV: 'staging',
+        ALGOLIA_APP_ID: 'APP',
+        ALGOLIA_ADMIN_KEY: 'KEY',
+      };
+      const execCtx = fakeExecutionContext();
+      const res = await app(AUTH_B).request(
+        `/api/vendor/integrations/${I_MAIN}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ description: 'Sends models to MicroStation.' }),
+          headers: { 'Content-Type': 'application/json' },
+        },
+        env,
+        execCtx,
+      );
+      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+      expect(res.status).toBe(200);
+      const algolia = fetchSpy.mock.calls
+        .map(([url, init]) => ({ url: String(url), init: init as RequestInit | undefined }))
+        .filter(({ url }) => url.includes('algolia'));
+      // One batch, to the integrations index only: an edit changes no count.
+      expect(algolia.map(({ url }) => url)).toEqual([
+        'https://APP.algolia.net/1/indexes/staging_integrations/batch',
+      ]);
+      // By id: the batch names this row and no other. (The fixture's products are
+      // not publishable, so the action is a delete. What matters here is that the
+      // edit reached search at all, rather than waiting for the nightly sweep.)
+      const sent = JSON.parse(String(algolia[0]!.init?.body)) as {
+        requests: Array<{ body: { objectID: string } }>;
+      };
+      expect(sent.requests.map((r) => r.body.objectID)).toEqual([I_MAIN]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('frames direction against the caller’s own endpoint by default', async () => {
     // B owns TARGET, so "outbound" from B means target → source.
     await edit(AUTH_B, I_MAIN, { direction: 'outbound' });

@@ -42,7 +42,10 @@ import { assertStoredLogo } from './logos';
  * Vendor edits deliberately do NOT trigger an Algolia reindex: they reach search
  * on the nightly watermark sync (≤24h) while SSR refreshes immediately via the
  * purge (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.2 / `STAGE_2_SPEC.md` §8.3(5)). The
- * dashboard copy must not promise "live in search".
+ * dashboard copy must not promise "live in search". The integration owner writes
+ * are the exception (AECI-1006 edit, AECI-1010 retire): they sync
+ * the records they change by id after commit (`syncOwnerWriteSearch`), because an
+ * integration that stays in, or missing from, search for a day misstates a pair.
  *
  * The mechanics above (`sessionVendorId`, `purgeTags`, the audit source, and the
  * `requireOwnedProduct` ownership proof) live in `./vendor-shared.ts` so the

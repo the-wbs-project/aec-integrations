@@ -41,11 +41,15 @@
  * told about (§11b.5). If the owner's edit already made the change a contest asked
  * for, the owner accepts or declines it in Messages as usual. See §4.5.6.
  *
- * After commit: purge `pair:{a}__{b}` and both `product:` tags, queue the pair
- * re-crawl, and forward the audit rows. No Algolia call: vendor edits reach search
- * on the nightly `updated_at` watermark sweep, as every vendor write does
- * (`routes/vendor.ts`), and bumping `updated_at` is what puts the row in it. The
- * same bump moves the `integrations` freshness cursor for both endpoint vendors.
+ * After commit: a by-id Algolia sync of the integration record, behind promote's
+ * `dispatchHook` watchdog, the same `syncOwnerWriteSearch` tail retire
+ * use. That is how a changed mechanism, direction or description reaches search
+ * without waiting for the nightly `updated_at` watermark sweep. Only the
+ * integration record is synced, because an edit changes no count on either product
+ * or the vendor. Then purge `pair:{a}__{b}` and both `product:` tags, queue the pair
+ * re-crawl, and forward the audit rows. The `updated_at` bump still puts the row in
+ * the watermark sweep as a backstop, and moves the `integrations` freshness cursor
+ * for both endpoint vendors.
  */
 
 import {
@@ -83,6 +87,7 @@ import {
 } from '../lib/integration-owner-writes';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './vendor-integration-retire';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,
@@ -279,6 +284,17 @@ export function createUpdateVendorIntegrationHandler(
         )
       );
     }
+
+    dispatchOwnerWriteSearch(
+      c,
+      'vendor-edit-algolia',
+      syncOwnerWriteSearch(
+        c,
+        db,
+        { integrations: [integrationId], products: [], vendors: [] },
+        'aeci.api.vendor.edit_algolia_sync_failed',
+      ),
+    );
 
     const tags = pairSlugs
       ? [

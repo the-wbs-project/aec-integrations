@@ -77,7 +77,7 @@ import { getDb, type Db } from '../db/client';
 import { integrationFieldChallenges, integrations, productVendors, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { syncIndexTargets } from '../lib/algolia-sync';
+import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics } from '../lib/algolia-sync-metrics';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
@@ -379,16 +379,15 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       );
     }
 
-    const rc: PromoteRunCtx = {
-      env: c.env,
-      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
-      request: c.req.raw,
-      bookmark: () => null,
-    };
-    dispatchHook(
-      rc,
+    dispatchOwnerWriteSearch(
+      c,
       `vendor-${mode}-algolia`,
-      syncRetireSearch(c, db, productIds, integrationId, vendorId),
+      syncOwnerWriteSearch(
+        c,
+        db,
+        { integrations: [integrationId], products: productIds, vendors: [vendorId] },
+        'aeci.api.vendor.retire_algolia_sync_failed',
+      ),
     );
 
     const tags = [
@@ -423,29 +422,27 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
 }
 
 /**
- * The post-commit search tail: a by-id Algolia sync of the integration, both
- * endpoint products and the owner vendor. The counts were committed in the batch, so
- * the product records read the new stored value. Never throws. Sequential by
+ * The post-commit search tail of an owner write: a by-id Algolia sync of the
+ * records the write changed. Retire passes the integration, both endpoint products
+ * and the owner vendor (the counts were committed in the batch, so the product and
+ * vendor records read the new stored value). The AECI-1006 edit passes the
+ * integration alone, because an edit changes no count. Never throws. Sequential by
  * construction (`syncIndexTargets`), so it holds at most one outbound connection at
- * a time. Each entity whose sync failed is logged, as the promote tail does.
+ * a time. Each entity whose sync failed is logged under `failureMessage`, as the
+ * promote tail does.
  */
-async function syncRetireSearch(
+export async function syncOwnerWriteSearch(
   c: VendorContext,
   db: Db,
-  productIds: readonly string[],
-  integrationId: string,
-  ownerVendorId: string,
+  targets: IndexTargetIds,
+  failureMessage: string,
 ): Promise<void> {
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   if (!creds.appId || !creds.apiKey) return;
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
   const started = Date.now();
   try {
-    const results = await syncIndexTargets(db, fetch, creds, env, {
-      integrations: [integrationId],
-      products: productIds,
-      vendors: [ownerVendorId],
-    });
+    const results = await syncIndexTargets(db, fetch, creds, env, targets);
     emitAlgoliaSyncMetrics(
       {
         count: (metric, value, tags) =>
@@ -458,17 +455,40 @@ async function syncRetireSearch(
       Date.now() - started,
     );
     for (const result of results) {
-      if (!result.ok) logRetireSyncFailure(c, result.entity, result.error ?? 'unknown');
+      if (!result.ok) logSyncFailure(c, failureMessage, result.entity, result.error ?? 'unknown');
     }
   } catch (error) {
-    logRetireSyncFailure(c, 'all', error instanceof Error ? error.message : String(error));
+    logSyncFailure(
+      c,
+      failureMessage,
+      'all',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
-function logRetireSyncFailure(c: VendorContext, entity: string, reason: string): void {
+/**
+ * Run {@link syncOwnerWriteSearch} behind promote's `dispatchHook` watchdog, so a
+ * wedged Algolia connection becomes a warning rather than a hung invocation.
+ */
+export function dispatchOwnerWriteSearch(
+  c: VendorContext,
+  hookName: string,
+  work: Promise<void>,
+): void {
+  const rc: PromoteRunCtx = {
+    env: c.env,
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    request: c.req.raw,
+    bookmark: () => null,
+  };
+  dispatchHook(rc, hookName, work);
+}
+
+function logSyncFailure(c: VendorContext, message: string, entity: string, reason: string): void {
   logToPosthog(c.executionCtx, c.env, c.req.raw, {
     level: 'warn',
-    message: 'aeci.api.vendor.retire_algolia_sync_failed',
+    message,
     entity,
     reason,
   });
