@@ -46,6 +46,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'product.extension_created': $localize`:@@admin.audit.action.productExtensionCreated:Product extension created`,
   'integration.created': $localize`:@@admin.audit.action.integrationCreated:Integration added`,
   'integration.updated': $localize`:@@admin.audit.action.integrationUpdated:Integration updated`,
+  'integration.retired': $localize`:@@admin.audit.action.integrationRetired:Integration retired`,
+  'integration.restored': $localize`:@@admin.audit.action.integrationRestored:Integration restored`,
   'category.created': $localize`:@@admin.audit.action.categoryCreated:Category term created`,
   'audience.created': $localize`:@@admin.audit.action.audienceCreated:Audience term created`,
   'phase.created': $localize`:@@admin.audit.action.phaseCreated:Phase term created`,

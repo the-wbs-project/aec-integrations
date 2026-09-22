@@ -20,6 +20,7 @@ import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
+import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
@@ -30,7 +31,7 @@ const PRODUCTS_PAGE_SIZE = 25;
 /** The three tabs, and the `?tab=` values that address them. `vendor` is the
  *  default and is written as the ABSENT value, so `/admin/vendors/:id` and
  *  `/admin/vendors/:id?tab=vendor` are the same page with one canonical URL. */
-export type AdminVendorTab = 'vendor' | 'products' | 'audit';
+export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
 
 /**
  * `/admin/vendors/:id` — the operator's vendor page (AECI-652 /
@@ -104,6 +105,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'audit';
     EntitlementControl,
     ProvisionSeatControl,
     VendorProductsTable,
+    VendorIntegrationsPanel,
     NewTabIcon,
     DatePipe,
   ],
@@ -132,12 +134,14 @@ export class VendorDetail {
    *  empty panel — a hand-edited or stale URL must still show the vendor. */
   protected readonly tab = computed<AdminVendorTab>(() => {
     const raw = this.queryParams().get('tab');
-    return raw === 'products' || raw === 'audit' ? raw : 'vendor';
+    return raw === 'products' || raw === 'integrations' || raw === 'audit' ? raw : 'vendor';
   });
 
   protected readonly tabs: ReadonlyArray<{ key: AdminVendorTab; label: string }> = [
     { key: 'vendor', label: $localize`:@@admin.vendors.tab.vendor:Vendor` },
     { key: 'products', label: $localize`:@@admin.vendors.tab.products:Products` },
+    // AECI-1046: the vendor-held integrations it owns, and the admin retire/restore.
+    { key: 'integrations', label: $localize`:@@admin.vendors.tab.integrations:Integrations` },
     { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit Trail` },
   ];
 

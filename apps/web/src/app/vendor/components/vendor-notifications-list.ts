@@ -254,6 +254,11 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
+    // is not repeated as if the owner had acted.
+    if (notification.kind === 'integration_retire' && notification.retired_by === 'aeci') {
+      return [notification.integration_name].filter((part): part is string => !!part);
+    }
     if (
       notification.kind === 'integration_claim' ||
       notification.kind === 'integration_retire' ||
@@ -299,6 +304,11 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_claim') {
     return $localize`:@@vendor.claim.notify.claimed:The owner claimed an integration on your product`;
   }
+  if (notification.kind === 'integration_retire' && notification.retired_by === 'aeci') {
+    return notification.event === 'retired'
+      ? $localize`:@@vendor.retire.notify.aeciRetired:AEC Integrations retired an integration on your product`
+      : $localize`:@@vendor.retire.notify.aeciRestored:AEC Integrations restored an integration on your product`;
+  }
   if (notification.kind === 'integration_retire') {
     return notification.event === 'retired'
       ? $localize`:@@vendor.retire.notify.retired:The owner retired an integration on your product`
@@ -326,6 +336,11 @@ function noteOf(notification: VendorNotification): string | null {
     case 'integration_claim':
       return $localize`:@@vendor.claim.notify.note:The owner now keeps this integration's details, and AEC Integrations no longer updates them. If the owner on file is wrong, contest the Owner field on the integration.`;
     case 'integration_retire':
+      if (notification.retired_by === 'aeci') {
+        return notification.event === 'retired'
+          ? $localize`:@@vendor.retire.notify.note.aeciRetired:It is no longer shown on the public site. Nothing was deleted, and only AEC Integrations can restore it.`
+          : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
+      }
       return notification.event === 'retired'
         ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`
         : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;

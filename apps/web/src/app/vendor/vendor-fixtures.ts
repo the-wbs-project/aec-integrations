@@ -41,7 +41,13 @@ import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
  */
 const NOT_OWNER: Pick<
   VendorIntegration,
-  'is_owner' | 'owner' | 'contestable_fields' | 'endpoint_vendors' | 'claimed_at' | 'retired_at'
+  | 'is_owner'
+  | 'owner'
+  | 'contestable_fields'
+  | 'endpoint_vendors'
+  | 'claimed_at'
+  | 'retired_at'
+  | 'retired_by'
 > = {
   is_owner: false,
   owner: null,
@@ -50,6 +56,7 @@ const NOT_OWNER: Pick<
   // AECI-1005 / AECI-1010: unclaimed and live unless a fixture says otherwise.
   claimed_at: null,
   retired_at: null,
+  retired_by: null,
 };
 
 /** The counterpart vendor on the Procore edges, for contest fixtures. */
@@ -715,6 +722,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   is_owner: false,
   owner: PROCORE_VENDOR,
   retired_at: null,
+  retired_by: null,
   contestable_fields: {
     name: 'Summit Model Coordination ↔ Procore',
     mechanism_kind: 'native',
@@ -1028,10 +1036,37 @@ export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
   endpoint_vendors: [PROCORE_VENDOR, SUMMIT_VENDOR],
   claimed_at: '2026-09-02T00:00:00.000Z',
   retired_at: '2026-09-18T00:00:00.000Z',
+  retired_by: 'owner',
   own_links: EMPTY_SIDE_LINKS,
   powered_by: null,
   context_product: CONTEXT_SECONDARY,
   other_product: OTHER_PROCORE,
+  slots: ['vendor_a'],
+  claims: [],
+};
+
+/**
+ * A row the CALLER owns that AEC Integrations retired (AECI-1046). The owner sees
+ * "Retired by AEC Integrations" and no Restore: only an admin restores an admin
+ * retire. Appended by the preview API, like {@link INTEGRATION_RETIRED_BY_OTHER}.
+ */
+export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005317',
+  name: 'Summit Field Issues ↔ Acumatica Projects',
+  mechanism_kind: 'api',
+  mechanism_name: null,
+  attestable: true,
+  ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [SUMMIT_VENDOR],
+  claimed_at: '2026-09-03T00:00:00.000Z',
+  retired_at: '2026-09-21T00:00:00.000Z',
+  retired_by: 'aeci',
+  own_links: EMPTY_SIDE_LINKS,
+  powered_by: null,
+  context_product: CONTEXT_SECONDARY,
+  other_product: OTHER_ACUMATICA,
   slots: ['vendor_a'],
   claims: [],
 };

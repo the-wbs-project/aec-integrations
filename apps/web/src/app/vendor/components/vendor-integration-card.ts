@@ -98,7 +98,7 @@ import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
               </span>
             </span>
             @if (retired()) {
-              <span [class]="retiredBadgeClass" i18n="@@vendor.retire.badge">Retired</span>
+              <span [class]="retiredBadgeClass">{{ retiredBadge() }}</span>
             }
             <span class="ps-7 sm:ps-0"><aec-vendor-health-pill [health]="summary().health" /></span>
           </button>
@@ -113,9 +113,7 @@ import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
             <span>{{ sourceLine() }}</span>
             @if (retired()) {
               <span aria-hidden="true"> · </span>
-              <span class="font-semibold text-(--text-primary)" i18n="@@vendor.retire.badge"
-                >Retired</span
-              >
+              <span class="font-semibold text-(--text-primary)">{{ retiredBadge() }}</span>
             }
           </p>
         </header>
@@ -315,6 +313,13 @@ export class VendorIntegrationCard {
    * write it takes is the owner's Restore, in the retire section.
    */
   protected readonly retired = computed(() => this.integration().retired_at !== null);
+  /** AECI-1046: an admin retire names AEC Integrations, because the owner cannot
+   *  restore it. */
+  protected readonly retiredBadge = computed(() =>
+    this.integration().retired_by === 'aeci'
+      ? $localize`:@@vendor.retire.badge.aeci:Retired by AEC Integrations`
+      : $localize`:@@vendor.retire.badge:Retired`,
+  );
   /** AECI-1007: the caller still holds a link on this entry's side. */
   protected readonly hasOwnLinks = computed(() => {
     const links = this.integration().own_links;

@@ -36,6 +36,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
  *   styled or localized, and it blocks the page.
  * - **Retired, owner** — a status line and a Restore button. Restore is immediate: it
  *   puts back exactly what was there.
+ * - **Retired by AEC Integrations** (AECI-1046, `retired_by = 'aeci'`) — "Retired by
+ *   AEC Integrations", and no Restore for anyone: only an admin restores an admin
+ *   retire (ruled 2026-09-22).
  * - **Retired, other endpoint vendor** — the status line only, read-only (ruled
  *   2026-09-22). It is what the retire notification lands on.
  * - **Anything else** — nothing. Unclaimed and connector-powered rows cannot be
@@ -65,7 +68,14 @@ import { VendorPortalStore } from '../vendor-portal-store';
         >
           {{ retiredLine(when) }}
         </p>
-        @if (isOwner()) {
+        @if (isOwner() && retiredByAeci()) {
+          <p
+            class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+            i18n="@@vendor.retire.retired.aeciOwnerHelp"
+          >
+            Its data flows and confirmations are kept. Only AEC Integrations can restore it.
+          </p>
+        } @else if (isOwner()) {
           <p
             class="mt-1 max-w-prose text-xs text-(--text-secondary)"
             i18n="@@vendor.retire.retired.ownerHelp"
@@ -181,6 +191,12 @@ export class VendorIntegrationRetire {
    * (the store's refetch) always wins over the local value.
    */
   protected readonly retiredAt = linkedSignal(() => this.integration().retired_at);
+  /** Who retired it (AECI-1046), tracked with `retiredAt`. On `'aeci'` the owner gets
+   *  no Restore: only an admin restores an admin retire. */
+  protected readonly retiredBy = linkedSignal(() => this.integration().retired_by);
+  protected readonly retiredByAeci = computed(
+    () => this.retiredAt() !== null && this.retiredBy() === 'aeci',
+  );
 
   protected readonly confirming = signal(false);
   protected readonly busy = signal(false);
@@ -204,6 +220,11 @@ export class VendorIntegrationRetire {
 
   protected retiredLine(when: string): string {
     const date = this.formatDay(when);
+    if (this.retiredByAeci()) {
+      return this.isOwner()
+        ? $localize`:@@vendor.retire.retired.aeciOwner:Retired by AEC Integrations on ${date}:DATE:. It is hidden from the public site, from search and from every count.`
+        : $localize`:@@vendor.retire.retired.aeciOther:Retired by AEC Integrations on ${date}:DATE:. It no longer appears on the public site. You can read it here, but not change it.`;
+    }
     if (this.isOwner()) {
       return $localize`:@@vendor.retire.retired.owner:You retired this integration on ${date}:DATE:. It is hidden from the public site, from search and from every count.`;
     }
@@ -236,6 +257,7 @@ export class VendorIntegrationRetire {
       this.busy.set(false);
       this.confirming.set(false);
       this.retiredAt.set(integration.retired_at);
+      this.retiredBy.set(integration.retired_by);
       this.announcer.announce(
         withdrawn_contest_ids.length > 0
           ? $localize`:@@vendor.retire.live.retiredContests:Integration retired. Its open contests were closed as withdrawn.`
@@ -257,6 +279,7 @@ export class VendorIntegrationRetire {
       const { integration } = await this.api.restoreIntegration(this.integration().id);
       this.busy.set(false);
       this.retiredAt.set(integration.retired_at);
+      this.retiredBy.set(integration.retired_by);
       this.announcer.announce(
         $localize`:@@vendor.retire.live.restored:Integration restored. It is back on the public site.`,
       );
@@ -295,6 +318,8 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.changed:This integration changed while you were saving. Reload and try again.`;
     case 'INTEGRATION_NOT_CLAIMED':
       return $localize`:@@vendor.retire.error.notClaimed:Claim this integration before retiring it.`;
+    case 'INTEGRATION_RETIRED_BY_AECI':
+      return $localize`:@@vendor.retire.error.retiredByAeci:AEC Integrations retired this integration, so only AEC Integrations can restore it. Reload to see its current state.`;
     case 'INTEGRATION_NOT_OWNER':
       return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
     case 'INTEGRATION_CONNECTOR_POWERED':

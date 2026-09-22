@@ -54,6 +54,7 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
@@ -162,7 +163,11 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  * fixture because the drill-down specs count its groups.
  */
 const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
-  integrations: [...VENDOR_INTEGRATIONS_FIXTURE.integrations, INTEGRATION_RETIRED_BY_OTHER],
+  integrations: [
+    ...VENDOR_INTEGRATIONS_FIXTURE.integrations,
+    INTEGRATION_RETIRED_BY_OTHER,
+    INTEGRATION_RETIRED_BY_AECI,
+  ],
 };
 
 /**
@@ -681,6 +686,7 @@ export class PreviewVendorApi extends VendorApi {
       owner: { id: me.vendor.id, name: me.vendor.company_name },
       claimed_at: now,
       retired_at: null,
+      retired_by: null,
       contestable_fields: fields,
       endpoint_vendors: [{ id: me.vendor.id, name: me.vendor.company_name }],
       own_links: { listing_url: null, docs_url: null },
@@ -728,10 +734,18 @@ export class PreviewVendorApi extends VendorApi {
     if (mode === 'restore' && first.retired_at === null) {
       throw apiError(409, 'INTEGRATION_NOT_RETIRED', 'Not retired');
     }
+    // AECI-1046: only an admin restores an admin retire.
+    if (mode === 'restore' && first.retired_by === 'aeci') {
+      throw apiError(403, 'INTEGRATION_RETIRED_BY_AECI', 'Retired by AEC Integrations');
+    }
     const now = '2026-09-22T12:00:00.000Z';
     const retiredAt = mode === 'retire' ? now : null;
+    const retiredBy = mode === 'retire' ? ('owner' as const) : null;
     // Both entries when the caller owns both endpoints: one row, two views.
-    for (const entry of entries) entry.retired_at = retiredAt;
+    for (const entry of entries) {
+      entry.retired_at = retiredAt;
+      entry.retired_by = retiredBy;
+    }
     const withdrawn: string[] = [];
     if (mode === 'retire') {
       for (const contest of [...this.contests.submitted, ...this.contests.received]) {
@@ -743,7 +757,12 @@ export class PreviewVendorApi extends VendorApi {
       }
     }
     return {
-      integration: { id: integrationId, retired_at: retiredAt, updated_at: now },
+      integration: {
+        id: integrationId,
+        retired_at: retiredAt,
+        retired_by: retiredBy,
+        updated_at: now,
+      },
       withdrawn_contest_ids: [...new Set(withdrawn)],
     };
   }

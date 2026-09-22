@@ -20,6 +20,8 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminVendorIntegrationsQuery,
+  AdminVendorIntegrationsResponse,
   AdminVendorAuditQuery,
   AdminVendorAuditResponse,
   AdminVendorDetail,
@@ -27,6 +29,7 @@ import type {
   AdminVendorProductsResponse,
   AdminVendorsListQuery,
   AdminVendorsListResponse,
+  RetireIntegrationResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -64,6 +67,39 @@ export class AdminVendorsApi {
       this.http.get<AdminVendorProductsResponse>(
         `/api/admin/vendors/${encodeURIComponent(id)}/products`,
         { params: toParams(query) },
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/integrations` (AECI-1046) — the vendor-held
+   * integrations this vendor owns, live and retired. The Integrations tab's read.
+   */
+  listIntegrations(
+    id: string,
+    query: Partial<Record<keyof AdminVendorIntegrationsQuery, string | number>> = {},
+  ): Promise<AdminVendorIntegrationsResponse> {
+    return firstValueFrom(
+      this.http.get<AdminVendorIntegrationsResponse>(
+        `/api/admin/vendors/${encodeURIComponent(id)}/integrations`,
+        { params: toParams(query) },
+      ),
+    );
+  }
+
+  /**
+   * `POST /api/admin/integrations/:id/retire` or `/restore` (AECI-1046). The reason
+   * is required and goes into the audit row only.
+   */
+  setIntegrationRetired(
+    integrationId: string,
+    mode: 'retire' | 'restore',
+    reason: string,
+  ): Promise<RetireIntegrationResponse> {
+    return firstValueFrom(
+      this.http.post<RetireIntegrationResponse>(
+        `/api/admin/integrations/${encodeURIComponent(integrationId)}/${mode}`,
+        { reason },
       ),
     );
   }

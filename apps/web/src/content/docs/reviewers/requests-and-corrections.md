@@ -42,7 +42,7 @@ How it ends:
 
 - **Accepted.** The proposed value replaces the one on record. When AEC Integrations accepts one on an integration nobody has claimed, the change usually arrives with the next catalogue update.
 - **Declined.** The value on record stays. You are told, with any note the decider added.
-- **Withdrawn.** You can withdraw your own open contest at any time. A contest also closes as withdrawn if the owner retires the integration, and restoring it does not reopen the contest.
+- **Withdrawn.** You can withdraw your own open contest at any time. A contest also closes as withdrawn if the owner or AEC Integrations retires the integration, and restoring it does not reopen the contest.
 
 You can have one open contest per field on each integration. To send a different value, withdraw the open one first.
 

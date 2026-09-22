@@ -378,7 +378,10 @@ export class VendorIntegrationOwnership {
       case 'owner-claimed':
         return $localize`:@@vendor.integrationOwnership.ownerClaimed:Your company owns this integration and keeps its details up to date.`;
       case 'owner-retired':
-        return $localize`:@@vendor.integrationOwnership.ownerRetired:Your company owns this integration and has retired it. Restore it to edit its details.`;
+        // AECI-1046: an admin retire is AECi's to undo, not the owner's.
+        return this.integration().retired_by === 'aeci'
+          ? $localize`:@@vendor.integrationOwnership.ownerRetiredByAeci:Your company owns this integration. AEC Integrations retired it, so it cannot be edited or restored here.`
+          : $localize`:@@vendor.integrationOwnership.ownerRetired:Your company owns this integration and has retired it. Restore it to edit its details.`;
       case 'owner-unclaimed':
         return $localize`:@@vendor.integrationOwnership.ownerUnclaimed:Your company is recorded as the owner of this integration. Claim it to edit its details.`;
       case 'owner-connector':

@@ -22,7 +22,7 @@ A listing is a factual catalogue entry, not an advertisement. We do not sell lis
 
 An integration belongs to the vendor that offers it, which the listing names on its "Offered by" line. We record integrations from public sources to start the catalogue. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalogue updates no longer change that integration. A vendor may also add an integration of its own, which it maintains from the start. Integrations delivered through a third-party connector product are not yet open to any of this and stay as we recorded them.
 
-An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. Retiring is the owner's choice and is separate from removal under this policy.
+An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. We may also retire an integration a vendor maintains, where this policy lets us remove a listing: to correct an error, or to enforce our terms. Only we may restore an integration we retired.
 
 ## We aim for accuracy, but we don't guarantee it
 
@@ -56,7 +56,7 @@ A contest ends in one of three ways:
 
 - **Accepted.** The proposed value replaces the value on record. Where we accept a contest on an integration nobody has claimed, the change is generally published with our next catalogue update.
 - **Declined.** The decider does not agree with the proposed value. The value on record stays, the contest is closed, and the vendor that sent it is told, together with any note the decider added.
-- **Withdrawn.** The vendor that sent a contest may withdraw it while it is open. An open contest is also closed as withdrawn if the owner retires the integration, and restoring the integration does not reopen it.
+- **Withdrawn.** The vendor that sent a contest may withdraw it while it is open. An open contest is also closed as withdrawn if the owner or we retire the integration, and restoring the integration does not reopen it.
 
 A contest is separate from a correction request. Anyone may still ask us for a correction under the section above.
 
