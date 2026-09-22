@@ -128,6 +128,7 @@ describe('AdminVendorDetailSchema', () => {
     product_count: 0,
     product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
     is_pure_connector_vendor: false,
+    owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
   };
@@ -327,6 +328,7 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     product_count: 0,
     product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
     is_pure_connector_vendor: false,
+    owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
   };
@@ -345,6 +347,14 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     expect(
       AdminVendorDetailSchema.safeParse({ ...detail, is_pure_connector_vendor: null }).success,
     ).toBe(false);
+  });
+
+  it('rejects a NULL or OMITTED owned-integration count (AECI-1041)', () => {
+    expect(AdminVendorDetailSchema.safeParse({ ...detail, owned_integrations: null }).success).toBe(
+      false,
+    );
+    const { owned_integrations: _o, ...without } = detail;
+    expect(AdminVendorDetailSchema.safeParse(without).success).toBe(false);
   });
 
   it('rejects an OMITTED breakdown (R10 — required, not optional)', () => {

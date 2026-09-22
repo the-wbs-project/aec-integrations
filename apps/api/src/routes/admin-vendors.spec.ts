@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  connectorEvidencedPairs,
   integrations,
   productVendors,
   products,
@@ -645,6 +646,57 @@ describe('GET /api/admin/vendors/:id', () => {
     expect(b.product_roles).toEqual({ application: 0, connector: 0, hybrid: 0, total: 0 });
     // Owning nothing is UNKNOWN, not exempt — it must never read as a carve-out.
     expect(b.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('splits owned integrations by table, live only, and keeps integration_count as the sum', async () => {
+    // AECI-1041 / §5.2 step 1a: the owner test. Both delivered-tier tables, and a
+    // retired row counts nowhere (AECI-1010).
+    await t.db.insert(products).values([
+      { id: u(40), slug: 'end-a', name: 'End A' },
+      { id: u(41), slug: 'end-b', name: 'End B' },
+      { id: u(42), slug: 'conn', name: 'Conn', productRole: 'connector' },
+      { id: u(43), slug: 'end-c', name: 'End C' },
+    ]);
+    await seedVendor(OTHER_VENDOR, { slug: 'other-co', companyName: 'Other Co' });
+    await t.db.insert(integrations).values([
+      { id: 'i-live', sourceProductId: u(40), targetProductId: u(41), builtByVendorId: VENDOR },
+      {
+        id: 'i-retired',
+        sourceProductId: u(41),
+        targetProductId: u(40),
+        builtByVendorId: VENDOR,
+        claimedAt: '2026-09-20T00:00:00.000Z',
+        retiredAt: '2026-09-20T00:00:00.000Z',
+      },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values([
+      {
+        id: 'e1',
+        connectorProductId: u(42),
+        productAId: u(40),
+        productBId: u(41),
+        builtByVendorId: VENDOR,
+      },
+      {
+        id: 'e2',
+        connectorProductId: u(42),
+        productAId: u(40),
+        productBId: u(43),
+        builtByVendorId: OTHER_VENDOR,
+      },
+    ]);
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    const b = await body(res);
+    expect(b.owned_integrations).toEqual({ integrations: 1, connector_evidenced: 1, total: 2 });
+    expect(b.integration_count).toBe(2);
   });
 
   it('counts a claim that targets a PRODUCT this vendor owns', async () => {

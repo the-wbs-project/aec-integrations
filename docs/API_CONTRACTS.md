@@ -1724,6 +1724,9 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // REQUIRED-nullable (R10); null = signal unavailable, and they move together.
   product_roles: VendorProductRolesSchema.nullable(),     // { application, connector, hybrid, total }
   is_pure_connector_vendor: z.boolean().nullable(),       // true ⇒ owns ≥1 product, ALL 'connector'
+  // The §5.2 step 1a OWNER test (AECI-1041), same resolved vendor, same null
+  // convention: zeroed when it owns nothing, null only when the read degraded.
+  owned_integrations: VendorOwnedIntegrationsSchema.nullable(), // { integrations, connector_evidenced, total }
 
   // The operator note (AECI-739 / §5.2 step 6). REQUIRED-nullable (R10); null =
   // no note. On the LIST as well as the detail, deliberately — a parked claim has
@@ -1760,11 +1763,26 @@ Autodesk, Trimble, Deltek and Sage Group each own connector-role products while 
 among the largest endpoint accounts, so a per-vendor flag would catch the exact inverse
 of the intent. Ownership counts every `product_vendors` row, not just `is_primary`.
 
-> **Half the test since 2026-09-18.** `STAGE_2_SPEC.md` §8.10 added a second payer clause: a
-> pure connector vendor that owns integrations it manages (`built_by_vendor_id`) is a paying
-> third-party owner and takes the ordinary Grant (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a).
-> These payloads carry no owned-integration count, so `is_pure_connector_vendor: true` no longer
-> means "park". Adding the count over both delivered-tier tables is AECI-1041.
+**The owner signal answers §5.2 step 1a (AECI-1041).** `STAGE_2_SPEC.md` §8.10 added a second
+payer clause on 2026-09-18: a pure connector vendor that owns integrations it manages
+(`built_by_vendor_id`) is a paying third-party owner and takes the ordinary Grant
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a). So `is_pure_connector_vendor: true` alone no longer
+means "park". Read it with `owned_integrations.total`:
+
+| `is_pure_connector_vendor` | `owned_integrations` | Reading |
+|---|---|---|
+| `true` | `total > 0` | Paying owner if it wants to manage them: Grant |
+| `true` | `total === 0` | §8.9 connector vendor: park, do not Grant or Reject |
+| `true` | `null` | Count unavailable: check step 1a before parking |
+| `false` | any | The connector carve-out does not apply |
+
+`owned_integrations` counts **both** delivered-tier tables by `built_by_vendor_id`:
+`integrations` live rows only (`retired_at IS NULL`, AECI-1010), and every
+`connector_evidenced_pairs` row, since that table has no `retired_at`. `total` is their sum.
+It comes from `apps/api/src/lib/vendor-owned-integrations.ts`, the module
+`GET /api/admin/vendors/:id` reads too, run inside the queue's existing fail-soft fan-out. It
+warns and never gates: the console cannot tell whether the claimant wants to manage those
+integrations.
 
 **Three states, not two.** `is_pure_connector_vendor: false` covers both "owns an
 endpoint product" (an ordinary vendor) and "owns no products at all" — the second is
@@ -2128,7 +2146,9 @@ export const AdminVendorDetailSchema = z.object({
   // copy: this comes out of the request's own `db.batch`, so it cannot degrade.
   product_roles: VendorProductRolesSchema,                   // { application, connector, hybrid, total }
   is_pure_connector_vendor: z.boolean(),
-  integration_count: z.number().int().min(0),
+  // The §5.2 step 1a owner test (AECI-1041). Non-nullable, like product_roles.
+  owned_integrations: VendorOwnedIntegrationsSchema,         // { integrations, connector_evidenced, total }
+  integration_count: z.number().int().min(0),                // always === owned_integrations.total
   claim_counts: z.object({                                   // ALL FOUR statuses
     open: z.number().int().min(0),
     in_review: z.number().int().min(0),
@@ -2371,7 +2391,10 @@ flow usable by the vendor without a second admin action per colleague.
 from the shared AECI-738 derivation and **recorded in the audit row and returned on the wire,
 never enforced**. `product_role` is curated upstream in the review app, so a mis-roled record
 must not hard-block a legitimate operator — the same rule that keeps the claim queue's
-Grant/Reject buttons enabled behind their warning banner (§5.2 step 1).
+Grant/Reject buttons enabled behind their warning banner (§5.2 step 1). Since AECI-1041 the
+control also warns, client-side, when the detail payload's `owned_integrations.total > 0`: a
+vendor that owns integrations pays if it wants to manage them (§8.10), so this free seat is the
+wrong tool for it. The owned count is not part of this endpoint's request, response or audit row.
 
 **An unchanged seat is a 200 no-op that writes nothing** (`noop: true`) — the
 `PATCH /api/admin/claims/:id/notes` rule that a trail of identical states is not a history.

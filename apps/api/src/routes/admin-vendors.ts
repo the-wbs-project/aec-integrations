@@ -70,8 +70,6 @@ import type { Context } from 'hono';
 import { getDb, type Db } from '../db/client';
 import {
   auditLog,
-  connectorEvidencedPairs,
-  integrations,
   productVendors,
   products,
   profiles,
@@ -88,7 +86,6 @@ import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { textAsc } from '../lib/collation';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { liveIntegrationWhere } from '../lib/live-integration';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
@@ -101,6 +98,11 @@ import {
   productRolesForVendor,
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
+import {
+  EMPTY_OWNED_INTEGRATIONS,
+  foldOwnedIntegrations,
+  selectOwnedIntegrationGroups,
+} from '../lib/vendor-owned-integrations';
 import { liveInvitesFor } from '../lib/vendor-seat-invites';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { logToPosthog, submitCount } from '../posthog';
@@ -282,7 +284,7 @@ const EMPTY_CLAIM_COUNTS: AdminVendorClaimCounts = {
  *
  * **Two D1 round trips, not seven.** The first is the 404 gate — nothing may be
  * reported about a vendor that does not exist. The second is one `db.batch` of
- * six reads: the batch is the round-trip tool here, not an atomicity one (the
+ * seven reads: the batch is the round-trip tool here, not an atomicity one (the
  * same use `GET /api/vendor/updates` documents). It is deliberately NOT a
  * `UNION` — D1 compiles SQLite with `SQLITE_MAX_COMPOUND_SELECT = 5`, which the
  * admin System screen already got bitten by, and a batch has no such ceiling.
@@ -355,21 +357,12 @@ export function createAdminVendorDetailHandler(
       // cannot undercount the old bare count — `product_vendors.product_id` is
       // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
       selectProductRoleGroups(db, productRolesForVendor(vendorId)),
-      // The vendor-detail `integration_count` — the third copy of the
-      // `built_by_vendor_id` rule (AECI-721 / §13.5 item 6, which names only the
-      // two Algolia copies). Written as a where-clause rather than a correlated
-      // subquery, but the same rule, so it needs the same second table: an
-      // operator opening Agave's vendor page must not read 0 while its product
-      // page renders twelve pairs.
-      db
-        .select({ value: count() })
-        .from(integrations)
-        // Live rows only (AECI-1010); the evidenced arm has no `retired_at`.
-        .where(and(eq(integrations.builtByVendorId, vendorId), liveIntegrationWhere)),
-      db
-        .select({ value: count() })
-        .from(connectorEvidencedPairs)
-        .where(eq(connectorEvidencedPairs.builtByVendorId, vendorId)),
+      // The owned-integration counts (AECI-1041 / §5.2 step 1a) — lockstep site
+      // 14b. Both delivered-tier tables, live rows only, through the module the
+      // claim queue reads too, so the two screens cannot count one vendor
+      // differently. An operator opening Agave's vendor page must not read 0 while
+      // its product page renders twelve pairs.
+      ...selectOwnedIntegrationGroups(db, [vendorId]),
       db
         .select({ status: vendorRequests.status, value: count() })
         .from(vendorRequests)
@@ -393,6 +386,10 @@ export function createAdminVendorDetailHandler(
     const productRoles = foldProductRoleGroups(productRoleGroups).get(vendorId) ?? {
       ...EMPTY_PRODUCT_ROLES,
     };
+
+    const ownedIntegrations = foldOwnedIntegrations(integrationCounts, evidencedCounts).get(
+      vendorId,
+    ) ?? { ...EMPTY_OWNED_INTEGRATIONS };
 
     const claimCounts: AdminVendorClaimCounts = { ...EMPTY_CLAIM_COUNTS };
     for (const row of claimRows) {
@@ -441,7 +438,8 @@ export function createAdminVendorDetailHandler(
       product_count: productRoles.total,
       product_roles: productRoles,
       is_pure_connector_vendor: isPureConnectorVendor(productRoles),
-      integration_count: (integrationCounts[0]?.value ?? 0) + (evidencedCounts[0]?.value ?? 0),
+      owned_integrations: ownedIntegrations,
+      integration_count: ownedIntegrations.total,
       claim_counts: claimCounts,
     };
 

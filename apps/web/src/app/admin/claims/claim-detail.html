@@ -246,6 +246,27 @@
           </dd>
         </div>
 
+        <!-- The §5.2 step 1a owner test (AECI-1041): both delivered-tier tables. -->
+        <div>
+          <dt
+            class="text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.claims.detail.signals.ownedIntegrations"
+          >
+            Integrations owned
+          </dt>
+          <dd class="mt-1 text-xs text-(--text-primary)">
+            @if (c.owned_integrations === null) {
+            <span
+              class="text-(--text-secondary)"
+              i18n="@@admin.claims.detail.signals.ownedUnavailable"
+              >Unavailable</span
+            >
+            } @else {
+            <p>{{ ownedLabel(c.owned_integrations) }}</p>
+            }
+          </dd>
+        </div>
+
         <div>
           <dt
             class="text-xs font-bold text-(--text-secondary)"

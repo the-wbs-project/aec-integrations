@@ -1,8 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 
-import type { ProvisionVendorSeatResponse, VendorProductRoles } from '@aeci/shared';
+import type {
+  ProvisionVendorSeatResponse,
+  VendorOwnedIntegrations,
+  VendorProductRoles,
+} from '@aeci/shared';
 
+import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { SeatProvisionApi } from './seat-provision-api';
 
@@ -45,6 +50,12 @@ const REASON_MAX_LENGTH = 500;
  * legitimate operator, and §5.2 is an operator procedure rather than an API rule.
  * Turning the procedure into a gate is a separate decision.
  *
+ * It also warns on a vendor that OWNS integrations (AECI-1041). `STAGE_2_SPEC.md`
+ * §8.10 made such a vendor a paying owner when it wants to manage them, so the
+ * free §8.9 seat is the wrong tool for it: it takes the claim Grant, or an
+ * entitlement opened on this page. Same rule: a warning, never a disabled button,
+ * because only the claimant can say whether it wants to manage those integrations.
+ *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
  * No heading and no live region, matching `EntitlementControl`'s and
  * `ManagedByControl`'s extraction contract: `VendorDetail` owns the page's single
@@ -63,6 +74,8 @@ export class ProvisionSeatControl {
    *  warning ONLY — never the disabled state. */
   readonly isPureConnectorVendor = input.required<boolean>();
   readonly productRoles = input.required<VendorProductRoles>();
+  /** The §5.2 step 1a owner test (AECI-1041). Drives the owner warning ONLY. */
+  readonly ownedIntegrations = input.required<VendorOwnedIntegrations>();
   /** Prefix for the form controls' `id`/`for` pairs, so two controls could share
    *  a page without colliding — the rule `EntitlementControl` states. */
   readonly idPrefix = input.required<string>();
@@ -88,6 +101,11 @@ export class ProvisionSeatControl {
    *  the warning too. `is_pure_connector_vendor` is already `false` in that case;
    *  this is only about which sentence to show. */
   protected readonly noProducts = computed(() => this.productRoles().total === 0);
+
+  /** A vendor that owns live integrations is a paying owner if it manages them
+   *  (§8.10), so the free seat needs a warning too, whatever its product roles. */
+  protected readonly ownsIntegrations = computed(() => this.ownedIntegrations().total > 0);
+  protected readonly ownedLabel = computed(() => ownedIntegrationsLabel(this.ownedIntegrations()));
 
   protected readonly reasonMaxLength = REASON_MAX_LENGTH;
 

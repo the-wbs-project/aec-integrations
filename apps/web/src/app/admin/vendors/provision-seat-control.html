@@ -55,6 +55,23 @@
     </p>
     }
 
+    <!-- The owner test (§8.10 / §5.2 step 1a, AECI-1041). A vendor that owns
+         integrations and wants to manage them pays, so this free seat is the
+         wrong tool for it. Warns, never disables: only the claimant can say
+         whether it wants to manage them. -->
+    @if (ownsIntegrations()) {
+    <p
+      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+      role="note"
+    >
+      <span i18n="@@admin.vendors.provision.warn.owner">
+        This vendor owns integrations ({{ ownedLabel() }}). If it wants to manage them through the
+        portal it is a paying owner: grant its claim, or open an entitlement on this page. Add a
+        seat here only if it wants its connector catalogue maintained and nothing more.
+      </span>
+    </p>
+    }
+
     <div>
       <label
         class="block text-sm font-medium text-(--text-primary)"

@@ -1590,7 +1590,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   | 12 | `admin-catalog.ts` exported `catalogTotals` | executed |
   | 13 | `algolia-drift-deps.ts` `drizzleDriftCounter` | executed |
   | 14a | `drizzle-helpers.ts` `vendorListConfig` | executed |
-  | 14b | `admin-vendors.ts` vendor detail count | scan |
+  | 14b | `vendor-owned-integrations.ts` `selectOwnedIntegrationGroups` (vendor detail and, since AECI-1041, the `/admin/claims` owner test) | executed |
   | 15 | `algolia-drift-deps.ts` `drizzlePromotedIds` (**deletes**) | executed |
   | 16 | `scripts/reconcile-algolia-drift.ts` `INTEGRATION_IDS_SQL` (**deletes**) | executed |
   | X1 | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**) | executed |

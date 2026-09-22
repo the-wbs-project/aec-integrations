@@ -80,6 +80,11 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         : { application: 1, connector: 0, hybrid: 0, total: 1 },
     is_pure_connector_vendor:
       'is_pure_connector_vendor' in over ? over.is_pure_connector_vendor! : false,
+    // AECI-1041: the §5.2 step 1a owner test. Default owns nothing.
+    owned_integrations:
+      'owned_integrations' in over
+        ? over.owned_integrations!
+        : { integrations: 0, connector_evidenced: 0, total: 0 },
     // AECI-739: the operator note. Default is "no note".
     admin_notes: 'admin_notes' in over ? over.admin_notes! : null,
   };
@@ -325,6 +330,47 @@ describe('ClaimQueue', () => {
     );
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('reads a pure connector vendor that owns integrations as a paying owner, not a park', async () => {
+    // AECI-1041 / §8.10: the third-party owner. The park banner would be wrong advice.
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
+          is_pure_connector_vendor: true,
+          owned_integrations: { integrations: 1, connector_evidenced: 3, total: 4 },
+        }),
+      ]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.textContent).toContain('Integrations owned');
+    expect(card.textContent).toContain('4 (1 direct, 3 via a connector)');
+    expect(card.textContent).toContain('a paying owner');
+    expect(card.textContent).not.toContain('do not Grant or Reject');
+    const buttons = [...card.querySelectorAll('button')].filter((b) =>
+      /Grant vendor account|Reject/.test(b.textContent ?? ''),
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('asks the operator to check step 1a when the owned count is unavailable', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
+          is_pure_connector_vendor: true,
+          owned_integrations: null,
+        }),
+      ]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.textContent).toContain('check what it owns before you act');
+    expect(card.textContent).toContain('Integrations owned');
+    expect(card.textContent).not.toContain('Connector vendor that owns integrations');
   });
 
   it('shows no connector warning on an ordinary vendor claim', async () => {

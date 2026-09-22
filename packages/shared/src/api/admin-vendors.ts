@@ -251,6 +251,31 @@ export const VendorProductRolesSchema = z.object({
 export type VendorProductRoles = z.infer<typeof VendorProductRolesSchema>;
 
 /**
+ * The live integrations a vendor OWNS, so the second clause of the §5.2 payer
+ * test is answerable from the console (AECI-1041).
+ *
+ * `STAGE_2_SPEC.md` §8.10(1): a pure connector vendor still pays when it is the
+ * recorded owner of a live integration and wants to manage it through the portal.
+ * The owner is `built_by_vendor_id`. This counts it over BOTH delivered-tier
+ * tables, because promote routes an edge whose connector is a third product into
+ * `connector_evidenced_pairs`, so a count over `integrations` alone reads zero for
+ * most third-party owners.
+ *
+ * - `integrations`: live rows only (`retired_at IS NULL`, AECI-1010).
+ * - `connector_evidenced`: every row. That table has no `retired_at`.
+ * - `total`: the sum, and the number the operator reads.
+ *
+ * It answers only "is it an owner". Whether it wants to manage those integrations
+ * is a question for the claimant, so no surface may treat `total > 0` as a gate.
+ */
+export const VendorOwnedIntegrationsSchema = z.object({
+  integrations: z.number().int().min(0),
+  connector_evidenced: z.number().int().min(0),
+  total: z.number().int().min(0),
+});
+export type VendorOwnedIntegrations = z.infer<typeof VendorOwnedIntegrationsSchema>;
+
+/**
  * The vendor detail payload.
  *
  * `seats` is `null` for UNAVAILABLE and `[]` for "no seats" — see the module note.
@@ -296,6 +321,11 @@ export const AdminVendorDetailSchema = z.object({
    *  none at all — zero products is unknown, not exempt (read `product_roles.total`
    *  to tell those two apart). */
   is_pure_connector_vendor: z.boolean(),
+  /** The live integrations this vendor owns, split by table (AECI-1041). The §5.2
+   *  step 1a owner test. Non-nullable for the same reason as `product_roles`. */
+  owned_integrations: VendorOwnedIntegrationsSchema,
+  /** Always equal to `owned_integrations.total`. Both come out of one fold. Kept
+   *  because it predates the split. */
   integration_count: z.number().int().min(0),
   claim_counts: AdminVendorClaimCountsSchema,
 });

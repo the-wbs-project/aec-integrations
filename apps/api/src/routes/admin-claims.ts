@@ -77,6 +77,7 @@ import {
   type ModerateClaimResponse,
   type RelatedRequestRef,
   type VendorEntitlementResponse,
+  type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
@@ -123,6 +124,7 @@ import {
   productRolesForVendors,
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
+import { EMPTY_OWNED_INTEGRATIONS, loadOwnedIntegrations } from '../lib/vendor-owned-integrations';
 import {
   activateEntitlementStatements,
   loadEntitlement,
@@ -1039,6 +1041,7 @@ export function createAdminClaimsListHandler(
       relatedByRow,
       entitlementByVendor,
       productRolesByVendor,
+      ownedIntegrationsByVendor,
     ] = await Promise.all([
       resolveRequestTargets(db, rows),
       fetchAuthAccounts(c.env, claimEmails),
@@ -1049,6 +1052,11 @@ export function createAdminClaimsListHandler(
         : null,
       vendorByRow
         ? loadVendorProductRoles(db, [...new Set(vendorByRow.values())]).catch(() => null)
+        : null,
+      // The owner half of the payer test (AECI-1041 / §5.2 step 1a), over both
+      // delivered-tier tables. Fail-soft like the role signal.
+      vendorByRow
+        ? loadOwnedIntegrations(db, [...new Set(vendorByRow.values())]).catch(() => null)
         : null,
     ]);
 
@@ -1079,6 +1087,17 @@ export function createAdminClaimsListHandler(
       return [roles, isPureConnectorVendor(roles)];
     };
 
+    /** The owner test for the same resolved vendor. Same null convention as
+     *  `productRolesFor`: zeroed when it owns nothing, `null` only when we could
+     *  not look. */
+    const ownedIntegrationsFor = (
+      row: RawAdminVendorRequestRow,
+    ): VendorOwnedIntegrations | null => {
+      const vendorId = vendorByRow?.get(row.id);
+      if (!vendorId || !ownedIntegrationsByVendor) return null;
+      return ownedIntegrationsByVendor.get(vendorId) ?? { ...EMPTY_OWNED_INTEGRATIONS };
+    };
+
     const body: ListVendorClaimsResponse = {
       data: rows.map((row) =>
         toAdminClaim(
@@ -1090,6 +1109,7 @@ export function createAdminClaimsListHandler(
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
           ...entitlementFor(row),
           ...productRolesFor(row),
+          ownedIntegrationsFor(row),
         ),
       ),
       page: query.page,
@@ -1231,6 +1251,7 @@ async function buildClaimDetail(
     relatedByRow,
     entitlementByVendor,
     productRolesByVendor,
+    ownedIntegrationsByVendor,
     duplicateSiblings,
   ] = await Promise.all([
     resolveRequestTargets(db, rows),
@@ -1239,6 +1260,7 @@ async function buildClaimDetail(
     loadRelatedRequests(db, rows, [row.submitterEmail]).catch(() => null),
     vendorByRow ? loadClaimEntitlements(db, vendorIds).catch(() => null) : null,
     vendorByRow ? loadVendorProductRoles(db, vendorIds).catch(() => null) : null,
+    vendorByRow ? loadOwnedIntegrations(db, vendorIds).catch(() => null) : null,
     loadDuplicateSiblings(db, row),
   ]);
 
@@ -1250,6 +1272,10 @@ async function buildClaimDetail(
   const roles =
     vendorId && productRolesByVendor
       ? (productRolesByVendor.get(vendorId) ?? { ...EMPTY_PRODUCT_ROLES })
+      : null;
+  const owned =
+    vendorId && ownedIntegrationsByVendor
+      ? (ownedIntegrationsByVendor.get(vendorId) ?? { ...EMPTY_OWNED_INTEGRATIONS })
       : null;
 
   return {
@@ -1265,6 +1291,7 @@ async function buildClaimDetail(
       entitlementHit ? entitlementHit.entitlement : null,
       roles,
       roles ? isPureConnectorVendor(roles) : null,
+      owned,
     ),
     duplicate_siblings: duplicateSiblings,
   };

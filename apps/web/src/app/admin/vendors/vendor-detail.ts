@@ -22,6 +22,7 @@ import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorProductsTable } from './vendor-products-table';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
@@ -200,6 +201,8 @@ export class VendorDetail {
 
   /** The §5.2 payer test as one readable line — shared with `/admin/claims`. */
   protected readonly roleBreakdownLabel = productRolesLabel;
+  /** The §5.2 step 1a owner signal (AECI-1041), shared with `/admin/claims`. */
+  protected readonly ownedLabel = ownedIntegrationsLabel;
 
   /** Flipped once the browser has rendered. Every fetch on this page is
    *  browser-only (the shell's resolver is the SSR gate), and the tab-driven

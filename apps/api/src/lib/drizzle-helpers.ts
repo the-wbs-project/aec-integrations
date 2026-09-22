@@ -65,6 +65,7 @@ import type {
   VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
+  VendorOwnedIntegrations,
   VendorProductRoles,
 } from '@aeci/shared';
 import {
@@ -2159,6 +2160,10 @@ export function toAdminVendorRequest(
  *  reviewable answer (unknown, not exempt) and must not read as "we could not
  *  look".
  *
+ *  `ownedIntegrations` (AECI-1041 / §5.2 step 1a) is the owner half of the same
+ *  test, with the same null convention: zeroed when the vendor owns nothing,
+ *  `null` only when we could not look.
+ *
  *  `admin_notes` (AECI-739 / §5.2 step 6) comes straight off the row — it is the
  *  CURRENT note, not its history; the history is the `vendor_claim.note_updated`
  *  audit rows. Surfaced on the LIST as well as the detail because a parked claim
@@ -2174,6 +2179,7 @@ export function toAdminClaim(
   entitlement: VendorEntitlementResponse | null = null,
   productRoles: VendorProductRoles | null = null,
   isPureConnectorVendor: boolean | null = null,
+  ownedIntegrations: VendorOwnedIntegrations | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
@@ -2185,6 +2191,7 @@ export function toAdminClaim(
     entitlement,
     product_roles: productRoles,
     is_pure_connector_vendor: isPureConnectorVendor,
+    owned_integrations: ownedIntegrations,
   };
 }
 

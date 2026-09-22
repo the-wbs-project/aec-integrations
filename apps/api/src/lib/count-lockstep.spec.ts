@@ -19,6 +19,7 @@ import { drizzleDriftCounter, drizzlePromotedIds } from './algolia-drift-deps';
 import { buildIntegrationRequests } from './algolia-sync';
 import { algoliaVendorConfig, type RawAlgoliaVendorRow } from './algolia-transforms';
 import { categoryTermConfig, vendorListConfig } from './drizzle-helpers';
+import { loadOwnedIntegrations } from './vendor-owned-integrations';
 import {
   computeIntegrationsAdded30d,
   computeMostActiveCategory,
@@ -489,10 +490,12 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     proof: 'executed',
   },
   {
+    // The vendor-detail count and, since AECI-1041, the /admin/claims owner test.
+    // Both read this one module, so the claim queue is not a site of its own.
     id: '14b',
-    file: 'src/routes/admin-vendors.ts',
-    marker: 'eq(integrations.builtByVendorId, vendorId)',
-    proof: 'scan',
+    file: 'src/lib/vendor-owned-integrations.ts',
+    marker: 'export function selectOwnedIntegrationGroups',
+    proof: 'executed',
   },
   {
     id: '15',
@@ -686,6 +689,17 @@ describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
     const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
     expect(listRow?.integrationCount).toBe(1);
   });
+
+  proves(
+    'site 14b: the owned-integration count drops it and still reads both tables',
+    ['14b'],
+    async (t) => {
+      await seedEvidencedPair(t, 'e1');
+      const owned = (await loadOwnedIntegrations(t.db, [BUILDER])).get(BUILDER);
+      // i1 (live) counts, r1 (retired) does not, e1 counts from the other table.
+      expect(owned).toEqual({ integrations: 1, connector_evidenced: 1, total: 2 });
+    },
+  );
 
   proves(
     'sites 8a-8d: the home totals, window, category tally and recent rail drop it',
