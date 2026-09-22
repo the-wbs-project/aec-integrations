@@ -127,8 +127,9 @@ export type OwnershipState =
             class="mt-1 max-w-prose text-xs text-(--text-secondary)"
             i18n="@@vendor.integrationClaim.hint"
           >
-            Claiming takes this integration over from AEC Integrations. After that, only your
-            company edits it, and your edits go live on the public page.
+            Claiming takes this integration over from AEC Integrations. Our catalogue updates stop
+            reaching it, and your edits go live on the public page with no review. The other
+            product's vendor is told that you claimed it.
           </p>
           <div class="mt-3 flex flex-wrap items-center gap-3">
             <button
@@ -383,7 +384,7 @@ export class VendorIntegrationOwnership {
       case 'owner-connector':
         return $localize`:@@vendor.integrationOwnership.ownerConnector:Your company is recorded as the owner of this integration. Integrations delivered through a connector cannot be claimed or edited yet.`;
       case 'other-owned':
-        return $localize`:@@vendor.integrationOwnership.otherOwned:Offered by ${owner}:owner:. ${owner}:owner: maintains its details, and reviews any contest you send about them.`;
+        return $localize`:@@vendor.integrationOwnership.otherOwned:Offered by ${owner}:owner:. ${owner}:owner: maintains its details, and reviews any contest you send about them. A contest about who owns it goes to AEC Integrations.`;
       case 'other-unclaimed':
         return $localize`:@@vendor.integrationOwnership.otherUnclaimed:Offered by ${owner}:owner:. ${owner}:owner: has not claimed it yet, so AEC Integrations reviews any contest you send about it.`;
       case 'no-owner':

@@ -1,12 +1,13 @@
 # Build-time Markdown content
 
 Long-form page copy that is authored as Markdown and **inlined into the bundle at build time**, not
-fetched at runtime. Two families live here:
+fetched at runtime. Two families live here, plus two unrendered product-docs drafts (AECI-1023):
 
 | Content | Registry | Route(s) | Governed by |
 | --- | --- | --- | --- |
 | `legal/*.md` (4 files) | `src/app/legal/legal-content.ts` | `/legal/terms`, `/legal/privacy`, `/legal/review-guidelines`, `/legal/listing-accuracy` | `STAGE_1_SPEC.md` §13 + §27 |
 | `methodology.md` | `src/app/methodology/methodology-content.ts` | `/methodology` | `STAGE_2_5_SPEC.md` §7.1 |
+| `docs/**/*.md` (2 drafts) | none yet: **not imported, not bundled** | none until AECI-634 builds `/docs` | `STAGE_2_PRODUCT_DOCS_SPEC.md` §3, §5 |
 
 The legal set has its own stricter workflow (versioning, counsel sign-off, frontmatter schema) in
 `legal/README.md`. **Read that one before touching anything under `legal/`.** This file covers the

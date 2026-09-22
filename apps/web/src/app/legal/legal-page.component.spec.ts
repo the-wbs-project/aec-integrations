@@ -58,6 +58,24 @@ describe('LegalPage', () => {
     expect(article!.querySelector('a[href="mailto:founders@thewbsproject.com"]')).toBeNull();
   });
 
+  it('puts the contest path beside the correction path on the listing-accuracy policy (AECI-1023)', () => {
+    const { host } = render('listing-accuracy');
+    const article = host.querySelector('article.aec-prose');
+    const h2s = Array.from(article!.querySelectorAll('h2')).map((h) => h.textContent?.trim());
+    // The contest section follows the correction section, so a reader looking for
+    // "how do I get this fixed" finds both routes in one place.
+    expect(h2s.indexOf('Contesting an integration detail')).toBe(
+      h2s.indexOf('Requesting a correction') + 1,
+    );
+    expect(h2s).toContain('Who maintains an integration');
+    const text = article!.textContent ?? '';
+    // Routing as `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4 builds it.
+    expect(text).toContain('if the owner has claimed the integration, the owner decides');
+    expect(text).toContain('always comes to us, even after a claim');
+    // AECI-1009 is designed, not built: the policy must not offer a protest.
+    expect(text).not.toMatch(/protest|appeal/i);
+  });
+
   it('sets the per-slug document title chrome via MetaService', () => {
     expect(render('terms').title.getTitle()).toBe('Terms of Service · AEC Integrations');
     expect(render('privacy').title.getTitle()).toBe('Privacy Policy · AEC Integrations');

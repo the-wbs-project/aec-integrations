@@ -279,7 +279,8 @@ interface MechanismView {
   readonly builtByVendor: VendorLink | null;
   readonly poweredByProduct: ProductLink | null;
   /** AECI-1011: a vendor created this row in its portal (`origin: 'vendor'`), so the
-   *  byline carries a small provenance note. AECI-1023 owns the final wording. */
+   *  byline carries a small provenance note, worded by AECI-1023 to match
+   *  `/methodology` ("its page says it was added by the vendor"). */
   readonly vendorAdded: boolean;
 }
 

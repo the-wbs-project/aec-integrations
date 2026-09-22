@@ -199,7 +199,7 @@ export class VendorIntegrationRetire {
 
   protected readonly confirmBody = computed(() => {
     const other = this.integration().other_product.name;
-    return $localize`:@@vendor.retire.confirm.body:It leaves the public site and search, and stops counting on your product and on ${other}:other:. ${other}:other:’s vendor is told. Open contests on it close as withdrawn. Its data flows and confirmations are kept, and you can restore it at any time.`;
+    return $localize`:@@vendor.retire.confirm.body:It leaves the public site and search, and stops counting on your product and on ${other}:other:. ${other}:other:’s vendor is told. Open contests on it close as withdrawn, and restoring it does not reopen them. Its data flows and confirmations are kept, and you can restore it at any time.`;
   });
 
   protected retiredLine(when: string): string {

@@ -13,8 +13,9 @@ import { readVendorApiError } from '../vendor-api-error';
  * come from `vendor-contest-labels.ts`, because the edit form and the contest
  * form name the same eleven fields and two spellings would drift.
  *
- * AECI-1023 owns the final reader- and vendor-facing wording for the ownership
- * epic. This copy is plain and accurate, not final.
+ * The wording is AECI-1023's and matches `/methodology` "Who owns an integration":
+ * the owner is the "Offered by" vendor, a claim stops AECi's catalogue updates,
+ * and an `owner` contest always goes to AEC Integrations.
  */
 
 /**

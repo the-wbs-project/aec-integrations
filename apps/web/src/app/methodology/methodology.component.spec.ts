@@ -55,6 +55,7 @@ describe('MethodologyPage', () => {
       'What we list, and why',
       'Where the data comes from',
       'What verification means',
+      'Who owns an integration',
       'No pay-for-placement',
       'Reviews',
       'Corrections and disputes',
@@ -77,8 +78,97 @@ describe('MethodologyPage', () => {
   it('qualifies the agreement ladder as not yet reachable (AC2: no aspirational claims)', () => {
     const { host } = setup();
     const text = host.textContent ?? '';
-    expect(text).toContain('the vendor portal that grants those accounts is not yet open');
-    expect(text).toContain('currently the source of every claim');
+    expect(text).toContain('Vendor accounts opened in September 2026');
+    expect(text).toContain('most claims and integrations are still recorded by');
+  });
+
+  // AECI-1023. The ownership model of ADR 0035 / AECI-1003, in the reader's words.
+  // Each sentence pinned here maps to one shipped rule, so a change to the rule
+  // has to come back and change the page on purpose.
+  describe('who owns an integration (AECI-1023)', () => {
+    it('names the owner as the "Offered by" vendor and says AECi seeds', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('An integration belongs to the vendor that offers it');
+      expect(text).toContain('"Offered by" line');
+      expect(text).toContain('We seeded the catalogue.');
+    });
+
+    it('says a claim needs no approval and fences our updates off the row (decisions 1 and 5)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('There is no approval step');
+      expect(text).toContain(
+        'Once an integration is claimed, the updates we publish from our research stop reaching it',
+      );
+      expect(text).toContain('each edit goes live without review by us');
+    });
+
+    it('routes contests the way the code does, owner field always to AECi (§11b.4)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('If the owner has claimed it, the owner decides.');
+      expect(text).toContain('If it has not been claimed, we decide.');
+      expect(text).toContain(
+        'A contest about who owns the integration always comes to us, even after a claim',
+      );
+      expect(text).toContain('A contest stays with whoever was deciding when it was sent.');
+    });
+
+    it('says an open contest is invisible to readers (§11b.1: nothing public reads it)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain(
+        'the page keeps showing the value on record and does not say a contest exists',
+      );
+    });
+
+    it('separates retire from delete and says restore does not reopen contests (§4.6)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('Retiring is not deleting.');
+      expect(text).toContain('Nothing is deleted.');
+      expect(text).toContain('restoring it does not reopen them');
+      expect(text).toContain('our catalogue tools refuse to delete an integration a vendor holds');
+      // Scoped to today on purpose: an admin retire path is filed as its own
+      // issue, so the page must not promise AECi never retires one.
+      expect(text).toContain('Today, only the owner retires or restores an integration.');
+      expect(text).not.toContain('We never retire');
+    });
+
+    it('says vendor-created integrations exist and are not researched by us', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('A vendor can also add an integration it offers');
+      expect(text).toContain('We did not research it');
+      // The pair card's label (`@@pair.mechanism.vendorAdded`, AECI-1011).
+      expect(text).toContain('"Added by the vendor"');
+      // Decision 10 and the VENDOR_OWNED_TWIN promote guard (§4.7.2, §4.7.3).
+      expect(text).toContain('the vendor is told, but it is not stopped');
+      expect(text).toContain('will not add a second copy of an integration a vendor holds');
+    });
+
+    it('keeps connector-delivered integrations out of every vendor write (decision 9)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain(
+        'no vendor can yet claim, edit, retire, add, or put its own links on the integration',
+      );
+    });
+
+    it('no longer says AECi is the source of every claim', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).not.toContain('currently the source of every claim');
+      expect(text).not.toContain('Nothing reaches the public catalogue on its own');
+    });
+
+    it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
+      const { host } = setup();
+      const text = host.textContent ?? '';
+      // The plan list is exactly four items, and claiming, editing and
+      // contesting are seat-gated, so none of them may appear in it.
+      const planList = Array.from(host.querySelectorAll('li'))
+        .map((li) => li.textContent?.trim() ?? '')
+        .filter((line) =>
+          /^(what a vendor may edit|whether (a vendor|the)|how far back)/.test(line),
+        );
+      expect(planList).toHaveLength(4);
+      expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
+      expect(text).toContain('this is the complete list');
+    });
   });
 
   it('states the no-pay-for-placement rule without naming a ranking signal', () => {

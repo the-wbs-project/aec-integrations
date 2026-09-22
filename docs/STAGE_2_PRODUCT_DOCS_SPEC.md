@@ -87,10 +87,11 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  ├─ your-dashboard                 — tour of /vendor: tabs, live updates, notifications
 │  ├─ editing-profile-and-products   — what's editable, guard-rails, when edits appear (search ≤24h)
 │  ├─ attesting-to-integrations      — assert/deny/retract, creating claims, conflicts, retraction
+│  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create, contests received (AECI-1023)
 │  └─ product-versions               — the version timeline, version-diff depth (and its paywall)
 ├─ reviewers/
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
-│  └─ requests-and-corrections       — requesting an integration, correcting a listing
+│  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
 ├─ account/
 │  ├─ signing-in                     — magic link + Google, common failure modes
 │  └─ your-data                      — links /legal/privacy; deletion/erasure path
@@ -108,6 +109,22 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 > Two things `/docs` inherits from that page when it lands: the `.aec-prose` class (renamed from
 > `.legal-prose` by AECI-804 precisely because it now styles more than the legal set), and the
 > "assemble, never invent" rule with its six do-not-say items in `STAGE_2_5_SPEC.md` §7.1.
+
+> **Two pages are drafted ahead of the epic (AECI-1023, 2026-09-22).** The vendor-owned
+> integrations epic (AECI-1003, ADR 0035) changed what a vendor can do to an integration, and the
+> docs were the fourth public surface that needed the new rule. This epic had not started, so there
+> is no `/docs` route and no registry. The two pages were written as Markdown at the paths §3
+> defines, with the frontmatter §3 lists, and **nothing imports them**: they are not in the bundle
+> and not reachable on the site. When the shell is built they are the first two entries of the
+> manifest. Until then they are held to the same-PR sync rule (§4) by hand: a change to claim, edit,
+> links, retire, create or contests updates them in the same change.
+>
+> - `apps/web/src/content/docs/vendors/owning-an-integration.md`
+> - `apps/web/src/content/docs/reviewers/requests-and-corrections.md`
+>
+> This runs ahead of the "vendor guide goes last" sequencing on purpose, and only for these two.
+> The contract they document is settled (ADR 0035), so the reason for waiting does not apply to
+> them.
 
 ## 6. Deliberately deferred (not in the v0 epic)
 

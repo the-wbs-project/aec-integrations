@@ -134,7 +134,9 @@ describe('retire', () => {
     button(fixture, 'Retire integration')!.click();
     await settle(fixture);
     expect(el(fixture).textContent).toContain('Retire this integration?');
-    expect(el(fixture).textContent).toContain('Open contests on it close as withdrawn.');
+    expect(el(fixture).textContent).toContain(
+      'Open contests on it close as withdrawn, and restoring it does not reopen them.',
+    );
     expect(api.retireIntegration).not.toHaveBeenCalled();
     // Focus lands on the confirm button, so Enter confirms and Tab reaches Cancel.
     expect(document.activeElement?.textContent?.trim()).toBe('Retire integration');

@@ -9,7 +9,11 @@ import { VendorNotificationBaseline } from '../vendor-notification-baseline';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { detectorTitle } from './vendor-attestation-labels';
-import { contestFieldLabelLoose, contestNotificationTitle } from './vendor-contest-labels';
+import {
+  contestFieldLabelLoose,
+  contestNotificationNote,
+  contestNotificationTitle,
+} from './vendor-contest-labels';
 
 /**
  * The in-portal notification list (AECI-606 rendering AECI-302's
@@ -81,7 +85,8 @@ import { contestFieldLabelLoose, contestNotificationTitle } from './vendor-conte
           i18n="@@vendor.attest.notify.framing.contests"
         >
           What we sent you about these integrations in the last 90 days: the reminders we emailed,
-          and updates on field contests. Each note reflects the state at the time it was sent.
+          updates on field contests, and what owners changed on integrations with your products.
+          Only the reminders were emailed. Each note reflects the state at the time it was sent.
         </p>
 
         @if (loading()) {
@@ -118,6 +123,9 @@ import { contestFieldLabelLoose, contestNotificationTitle } from './vendor-conte
                 <p class="font-label text-sm text-(--text-primary)">
                   {{ titleFor(notification) }}
                 </p>
+                @if (noteFor(notification); as note) {
+                  <p class="mt-0.5 max-w-prose text-xs text-(--text-primary)">{{ note }}</p>
+                }
                 <p class="mt-0.5 text-xs text-(--text-secondary)">
                   @for (part of detailParts(notification); track $index) {
                     <span>{{ part }}</span>
@@ -234,6 +242,10 @@ export class VendorNotificationsList {
     return titleOf(notification);
   }
 
+  protected noteFor(notification: VendorNotification): string | null {
+    return noteOf(notification);
+  }
+
   /** The secondary line before the date. An attestation row names the data flow
    *  and the counterpart; a contest row names the field and the integration. */
   protected detailParts(notification: VendorNotification): readonly string[] {
@@ -279,14 +291,14 @@ export class VendorNotificationsList {
   }
 }
 
-/** One title rule for every union member. The claim row (AECI-1005) carries
- *  plain copy for now; AECI-1023 owns the reader- and vendor-facing wording. */
+/** One title rule for every union member. The ownership rows (AECI-1005,
+ *  AECI-1006, AECI-1010) are written from the other endpoint vendor's seat, which
+ *  is the only seat they reach; the wording is AECI-1023's. */
 function titleOf(notification: VendorNotification): string {
   if (isAttestationNotification(notification)) return detectorTitle(notification.detector);
   if (notification.kind === 'integration_claim') {
     return $localize`:@@vendor.claim.notify.claimed:The owner claimed an integration on your product`;
   }
-  // AECI-1010. Plain copy, like the claim row; AECI-1023 owns the final wording.
   if (notification.kind === 'integration_retire') {
     return notification.event === 'retired'
       ? $localize`:@@vendor.retire.notify.retired:The owner retired an integration on your product`
@@ -295,9 +307,33 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_update') {
     return $localize`:@@vendor.integrationEdit.notify.updated:The owner edited an integration on your product`;
   }
-  // AECI-1011. Plain copy, like the rows above; AECI-1023 owns the final wording.
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
   return contestNotificationTitle(notification.event);
+}
+
+/**
+ * The sentence under an ownership or contest title that says what the event means
+ * for the recipient (AECI-1023), or `null`. Attestation rows have none: their
+ * detector titles already carry the ask. Every sentence here is true of every row
+ * of its kind, which is why `accepted` has no note (see
+ * {@link contestNotificationNote}).
+ */
+function noteOf(notification: VendorNotification): string | null {
+  if (isAttestationNotification(notification)) return null;
+  switch (notification.kind) {
+    case 'integration_claim':
+      return $localize`:@@vendor.claim.notify.note:The owner now keeps this integration's details, and AEC Integrations no longer updates them. If the owner on file is wrong, contest the Owner field on the integration.`;
+    case 'integration_retire':
+      return notification.event === 'retired'
+        ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`
+        : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
+    case 'integration_create':
+      return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, contest that field on the integration.`;
+    case 'integration_update':
+      return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
+    case 'contest':
+      return contestNotificationNote(notification.event);
+  }
 }

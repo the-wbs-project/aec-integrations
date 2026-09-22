@@ -144,9 +144,33 @@ export function contestNotificationTitle(event: ContestNotificationEvent): strin
       return $localize`:@@vendor.contest.notify.accepted:Your contest was accepted`;
     case 'declined':
       return $localize`:@@vendor.contest.notify.declined:Your contest was declined`;
-    // AECI-1010. Placeholder copy; AECI-1023 owns the final wording.
     case 'closed_by_retire':
       return $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
+  }
+}
+
+/**
+ * The one sentence under a contest event's title that says what it means for the
+ * recipient, or `null` when the title already says it all (AECI-1023).
+ *
+ * `accepted` carries no note on purpose. What an accept changes depends on who
+ * decided and whether the row was claimed (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.6), and the event does not say which, so any sentence about when the page
+ * changes would be wrong for some rows. `declined` says the value stays, and
+ * nothing more: a protest to AECi (AECI-1009) is designed, not built, so the
+ * note must not offer one.
+ */
+export function contestNotificationNote(event: ContestNotificationEvent): string | null {
+  switch (event) {
+    case 'submitted':
+      return $localize`:@@vendor.contest.notify.note.submitted:Accept or decline it under Field contests in Messages. Until you decide, the public page keeps the value on record.`;
+    case 'declined':
+      return $localize`:@@vendor.contest.notify.note.declined:The value on record stays as it is.`;
+    case 'closed_by_retire':
+      return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your contest. If it comes back and you still want the change, send a new one.`;
+    case 'withdrawn':
+    case 'accepted':
+      return null;
   }
 }
 
