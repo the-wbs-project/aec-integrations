@@ -1556,7 +1556,10 @@ mid-flight will make a local decision about a cross-cutting contract.
   **The asserted list** (`LOCKSTEP_SITES`). `executed` = run against the test D1 with a live and a
   retired row between the same promoted endpoints; `scan` = cannot run in the api suite, so a source
   scan requires the predicate within 40 lines of the named marker; `excluded` = deliberately
-  unfiltered, and the scan asserts the predicate is ABSENT. Delete authority on four:
+  unfiltered, with its reason recorded. Only X8 is scanned for the predicate's ABSENCE, because it
+  is the one exclusion where adding the filter would break something (a vendor delete would
+  proceed into a foreign-key failure). The other three are held by their reasons alone. Delete
+  authority on four:
 
   | Id | Site | Proof |
   |---|---|---|
@@ -1589,9 +1592,11 @@ mid-flight will make a local decision about a cross-cutting contract.
 
   The same predicate also filters the public reads that are not counts: the integrations list (and
   so the sitemap), the pair page and its timeline, `resolveMovedPair`, the product page's three
-  integration relations, `readPairCounterpartSlugs`, and the §7 detector sweep. It deliberately does
+  integration relations, `readPairCounterpartSlugs`, and the §7 detector sweep
+  (`apps/api/src/routes/retired-public-reads.spec.ts` runs each against a retired row). It deliberately does
   **not** filter `GET /api/integrations/:id`, which only the legacy `/integrations/:id` 301 reads
-  (ruled 2026-09-22): the redirect keeps working, and the pair page it lands on falls to its
+  (ruled 2026-09-22). For a retired row that route answers the two endpoint slugs and nothing
+  else (`RetiredIntegrationDetailSchema`): the redirect keeps working, and the pair page it lands on falls to its
   existing `noindex` branch when no live mechanism is left. Two pre-existing gaps surfaced and are
   unchanged: X3 and X4 read `integrations` alone, so evidenced pairs have never counted toward a
   taxonomy term or the net additions series.

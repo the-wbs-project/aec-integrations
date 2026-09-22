@@ -261,6 +261,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` on a live row (AECI-1010) |
+| `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire or restore whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire or restore by the recorded owner of a row it has not claimed. Ownership is taken by the claim (AECI-1010) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
@@ -769,7 +770,21 @@ export type IntegrationsListResponse = z.infer<typeof IntegrationsListResponseSc
 
 ```typescript
 export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
+
+// AECI-1010 (ruled 2026-09-22): a RETIRED row answers only what the legacy 301 needs.
+export const RetiredIntegrationDetailSchema = z.object({
+  id: z.string().uuid(),
+  retired: z.literal(true),
+  source: z.object({ slug: z.string() }),
+  target: z.object({ slug: z.string() }),
+});
+export const IntegrationDetailResponseSchema = z.union([
+  RetiredIntegrationDetailSchema,
+  IntegrationDetailSchema,
+]);
 ```
+
+The route is unfiltered on `retired_at` so a legacy link to a retired row still redirects. But a retired row is off the public record, so its answer is the two endpoint slugs and nothing else: no name, description, notes or links.
 
 > The standalone `/integrations/:id` **page** is retired in Stage 1.5 (AECI-294) — the SSR Worker 301-redirects it to the product-PAIR page. The `GET /api/integrations/:id` **endpoint** stays (the sitemap generator + the 301 handler read it to resolve a pair's two product slugs).
 
@@ -5675,7 +5690,7 @@ Stage 2.1 (AECI-1010, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6). The owner of a **c
 | `POST` | `/api/vendor/integrations/:id/retire` | seat, `rateLimit('write')`, caller = `built_by_vendor_id`, claimed | `200 { integration, withdrawn_contest_ids }` |
 | `POST` | `/api/vendor/integrations/:id/restore` | the same | `200 { integration, withdrawn_contest_ids: [] }` |
 
-**Retire is not retract** (ADR 0030). Nothing is deleted. The row, its claims and its attestations stay, so restore is lossless. A retired row counts nowhere, is in no Algolia index and renders on no public read (`STAGE_1_5_SPEC.md` §13.5). `GET /api/integrations/:id` still answers for it, because the legacy `/integrations/:id` 301 reads it (ruled 2026-09-22). `GET /api/vendor/integrations` still lists it for both endpoint vendors, with `retired_at` set.
+**Retire is not retract** (ADR 0030). Nothing is deleted. The row, its claims and its attestations stay, so restore is lossless. A retired row counts nowhere, is in no Algolia index and renders on no public read (`STAGE_1_5_SPEC.md` §13.5). `GET /api/integrations/:id` still answers for it, because the legacy `/integrations/:id` 301 reads it, but with the two endpoint slugs only (`RetiredIntegrationDetailSchema`, ruled 2026-09-22). `GET /api/vendor/integrations` still lists it for both endpoint vendors, with `retired_at` set.
 
 ```typescript
 export const RetireIntegrationResponseSchema = z.object({
@@ -5690,9 +5705,9 @@ export const RetireIntegrationResponseSchema = z.object({
 
 **Order: row → ownership → connector-powered → claimed → state.** The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`). Then `403 INTEGRATION_CONNECTOR_POWERED` (decision 9), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). A refusal writes nothing.
 
-**One batch.** The guarded `UPDATE integrations SET retired_at, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner. Restore reopens no contest. A lost race writes nothing and re-derives the refusal.
+**One batch.** The guarded `UPDATE integrations SET retired_at, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
 
-**After commit:** `recomputeProductCounts` for both endpoints, then a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`); then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue, and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
+**After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue, and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
 
 ## 7. Validation rules
 

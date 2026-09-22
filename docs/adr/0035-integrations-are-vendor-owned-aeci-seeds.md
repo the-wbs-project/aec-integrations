@@ -103,6 +103,7 @@ AECI-1017 raised that rule 7's original "can claim" did not hold as AECI-1005 wa
 - Every owner write refuses a connector-powered row, the claim included (decision 9, v1). AECI-1040 lifts that for claim, edit and retire together.
 - The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves (the AECI-992 row read); a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
 - `built_by_vendor_id` on a claimed row can change only through AECi's own admin path (an `owner` contest accept), never through promote. Reassigning it clears `claimed_at`.
+- **Promotion order (AECI-1010 review, 2026-09-22).** The fence keys on the row, so it cannot see a promote that arrives with a new upstream id for the same pair. Against a retired row that promote inserts a live twin and undoes the retire in public. AECI-1010 therefore must not reach production before AECI-1011's `VENDOR_OWNED_TWIN` promote guard, which skips inserting a strong-match twin of a claimed row. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 records the gate.
 
 ## Revisit
 
