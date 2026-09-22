@@ -235,6 +235,24 @@
               </dd>
             </div>
 
+            <!-- Integrations owned: the §5.2 step 1a owner test (AECI-1041).
+                 Both delivered-tier tables, live rows only. -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.ownedIntegrations"
+              >
+                Integrations owned
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                @if (r.owned_integrations === null) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.ownedUnavailable"
+                  >Unavailable</span
+                >
+                } @else { {{ ownedLabel(r.owned_integrations) }} }
+              </dd>
+            </div>
+
             <!-- Existing seats -->
             <div>
               <dt
@@ -449,14 +467,35 @@
           {{ r.body }}
         </p>
 
-        <!-- §5.2: on a pure-connector vendor BOTH actions are wrong, so the
-             warning repeats here rather than only in the signals list above —
-             the mistake is made at these buttons and it is one-way (Grant opens a
-             paid entitlement and shows the account label; Reject sends a real
-             decline email). The buttons stay enabled deliberately: `product_role`
-             is curated upstream, so a mis-roled record must not hard-block a
-             legitimate endpoint vendor's claim. -->
-        @if (isActionable(r.status) && r.is_pure_connector_vendor) {
+        <!-- §5.2: on a pure-connector vendor that owns NO integrations, BOTH
+             actions are wrong, so the warning repeats here rather than only in
+             the signals list above. The mistake is made at these buttons and it
+             is one-way (Grant opens a paid entitlement and shows the account
+             label; Reject sends a real decline email). A pure-connector vendor
+             that DOES own integrations is a paying third-party owner (§5.2 step
+             1a, AECI-1041), so for it the banner says Grant is right. The
+             buttons stay enabled in every case: `product_role` is curated
+             upstream, and a mis-roled record must not hard-block a claim. -->
+        @if (isActionable(r.status)) { @switch (payerState(r)) { @case ('third-party-owner') {
+        <div
+          class="mt-5 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-muted) p-4"
+        >
+          <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.claims.ownerGuard.title">
+            Connector vendor that owns integrations: a paying owner
+          </p>
+          <p
+            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
+            i18n="@@admin.claims.ownerGuard.body"
+          >
+            Every product this vendor owns is a connector, but it is the recorded owner of live
+            integrations (see Integrations owned above). If it wants to manage them through the
+            portal, it pays like any other vendor: Grant, with payment arranged offline. If it only
+            wants its connector catalogue maintained, leave the claim open and add a seat on the
+            vendor page instead. Before arranging payment, tell the claimant that in v1 the seat
+            cannot yet claim, edit or retire connector-powered integrations.
+          </p>
+        </div>
+        } @case ('catalogue-only') {
         <div
           class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
         >
@@ -467,7 +506,7 @@
             Pure connector vendor — do not Grant or Reject
           </p>
           <p
-            class="mt-1 text-xs leading-relaxed text-(--text-secondary)"
+            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
             i18n="@@admin.claims.connectorGuard.body"
           >
             Every product this vendor owns is a connector, so paid vendor access is not sold to
@@ -476,7 +515,27 @@
             unstarted state, and reply directly about the partnership track.
           </p>
         </div>
-        }
+        } @case ('owner-unknown') {
+        <div
+          class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
+        >
+          <p
+            class="text-sm font-bold text-(--text-primary)"
+            i18n="@@admin.claims.connectorGuard.unknownTitle"
+          >
+            Pure connector vendor: check what it owns before you act
+          </p>
+          <p
+            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
+            i18n="@@admin.claims.connectorGuard.unknownBody"
+          >
+            Every product this vendor owns is a connector, and we could not read how many
+            integrations it owns. If it owns none, do not Grant or Reject: leave the claim open and
+            reply about the partnership track. If it owns integrations and wants to manage them, it
+            is a paying owner and Grant is right. Reload, or check the vendor page, before deciding.
+          </p>
+        </div>
+        } } }
 
         <!-- Actions (open / in-review only) -->
         @if (isActionable(r.status)) {

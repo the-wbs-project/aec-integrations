@@ -78,6 +78,7 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     // products and 1 connector, i.e. the Autodesk shape the flag must NOT catch.
     product_roles: { application: 3, connector: 1, hybrid: 0, total: 4 },
     is_pure_connector_vendor: false,
+    owned_integrations: { integrations: 2, connector_evidenced: 0, total: 2 },
     integration_count: 2,
     claim_counts: { open: 1, in_review: 0, resolved: 2, rejected: 1 },
     ...over,
@@ -821,11 +822,32 @@ describe('VendorDetail — products by role', () => {
           product_count: 2,
           product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
           is_pure_connector_vendor: true,
+          owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
+          integration_count: 0,
         }),
       ),
     );
     expect(el.textContent).toContain('pure connector');
     expect(el.textContent).toContain('no paid vendor access');
+  });
+
+  it('reads a pure connector vendor that owns integrations as a paying owner (AECI-1041)', async () => {
+    // §8.10: the third-party owner. "No paid vendor access" would be wrong advice.
+    const { el } = await setup(
+      makeApiMock(
+        makeVendor({
+          product_count: 1,
+          product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
+          is_pure_connector_vendor: true,
+          owned_integrations: { integrations: 0, connector_evidenced: 5, total: 5 },
+          integration_count: 5,
+        }),
+      ),
+    );
+    expect(el.textContent).toContain('Integrations owned');
+    expect(el.textContent).toContain('5 (via a connector)');
+    expect(el.textContent).toContain('pure connector that owns integrations');
+    expect(el.textContent).not.toContain('no paid vendor access');
   });
 
   it('shows a vendor with no products as unrecorded, never as a carve-out', async () => {
@@ -912,12 +934,46 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     const vendor = makeVendor({
       product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
       is_pure_connector_vendor: true,
+      owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
+      integration_count: 0,
     });
     const { el, fixture } = await setup(makeApiMock(vendor));
     await openForm(el, fixture);
 
     expect(el.textContent).not.toContain('This vendor owns endpoint products');
     expect(el.textContent).not.toContain('role is unknown');
+    expect(el.textContent).not.toContain('This vendor owns integrations');
+  });
+
+  it('warns on a pure connector vendor that OWNS integrations, WITHOUT disabling the action', async () => {
+    // AECI-1041 / §8.10: a paying owner should not get the free §8.9 seat by accident.
+    const vendor = makeVendor({
+      product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
+      is_pure_connector_vendor: true,
+      owned_integrations: { integrations: 1, connector_evidenced: 2, total: 3 },
+      integration_count: 3,
+    });
+    const { el, fixture } = await setup(makeApiMock(vendor));
+    await openForm(el, fixture);
+    typeEmail(el, fixture);
+
+    expect(el.textContent).toContain('This vendor owns integrations');
+    expect(el.textContent).toContain('3 (1 direct, 2 via a connector)');
+    expect(el.textContent).toContain('a paying owner');
+    // The catalogue-only alternative and the v1 caveat (AECI-1040).
+    expect(el.textContent).toContain('connector catalogue maintained');
+    expect(el.textContent).toContain('cannot yet claim, edit or retire');
+    expect(buttonByText(el, 'Add the seat')!.disabled).toBe(false);
+  });
+
+  it('gives an ENDPOINT vendor that owns integrations no connector-catalogue advice', async () => {
+    // Default fixture: 3 application + 1 connector, owns 2 integrations.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+
+    expect(el.textContent).toContain('This vendor owns integrations');
+    expect(el.textContent).not.toContain('connector catalogue maintained');
+    expect(el.textContent).not.toContain('cannot yet claim, edit or retire');
   });
 
   it('treats a vendor with NO products as unknown, not exempt', async () => {

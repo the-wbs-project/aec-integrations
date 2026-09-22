@@ -16,6 +16,10 @@ import { AdminClaimsApi } from './admin-claims-api';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import {
+  connectorPayerState,
+  ownedIntegrationsLabel,
+} from '../product-roles/owned-integrations-label';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -249,6 +253,16 @@ export class ClaimQueue {
   /** The §5.2 payer test as one readable line — shared with `/admin/vendors/:id`
    *  so the two screens cannot describe the same vendor differently. */
   protected readonly roleBreakdownLabel = productRolesLabel;
+
+  /** The §5.2 step 1a owner signal (AECI-1041), through the label shared with
+   *  `/admin/claims/:id` and `/admin/vendors/:id`. */
+  protected readonly ownedLabel = ownedIntegrationsLabel;
+
+  /** Which connector banner, if any, sits above Grant/Reject. A pure connector
+   *  vendor that owns integrations is a paying owner (§8.10), not a park. */
+  protected payerState(r: AdminClaim) {
+    return connectorPayerState(r.is_pure_connector_vendor, r.owned_integrations);
+  }
 
   protected seatDisplayName(name: string | null): string {
     return name?.trim() ? name : $localize`:@@admin.claims.seat.unnamed:Unnamed seat`;

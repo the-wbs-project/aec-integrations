@@ -20,6 +20,7 @@ import { AdminClaimsApi } from './admin-claims-api';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 /**
  * AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 — one vendor claim, at
@@ -247,6 +248,8 @@ export class ClaimDetail {
   /** The §5.2 payer test as one readable line — the SAME helper `/admin/claims`
    *  and `/admin/vendors/:id` use. */
   protected readonly roleBreakdownLabel = productRolesLabel;
+  /** The §5.2 step 1a owner signal (AECI-1041), shared with the queue. */
+  protected readonly ownedLabel = ownedIntegrationsLabel;
 
   /** The term readout. A `null` `period_end` is PERPETUAL, never "unknown" —
    *  shared with `/admin/claims` and `<aec-entitlement-control>` so the three

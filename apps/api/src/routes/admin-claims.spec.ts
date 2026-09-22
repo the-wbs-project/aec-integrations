@@ -32,6 +32,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  connectorEvidencedPairs,
+  integrations,
   products,
   productVendors,
   profiles,
@@ -843,7 +845,7 @@ function factoryFailingProfilesSelect(): typeof t.factory {
  * lookup is the sole reader and this isolates it — throwing on a product claim
  * would degrade the vendor resolution instead and prove nothing about this signal.
  */
-function factoryFailingProductRoleSelect(): typeof t.factory {
+function factoryFailingProductRoleSelect(failOn: unknown = productVendors): typeof t.factory {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const real: any = t.db;
   const dbProxy = new Proxy(real, {
@@ -856,7 +858,7 @@ function factoryFailingProductRoleSelect(): typeof t.factory {
             get(b, bProp) {
               if (bProp === 'from') {
                 return (tbl: unknown) => {
-                  if (tbl === productVendors) throw new Error('role lookup boom');
+                  if (tbl === failOn) throw new Error('role lookup boom');
                   return b.from(tbl);
                 };
               }
@@ -1164,6 +1166,98 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(row.related_requests).not.toBeNull();
   });
 
+  // ── The §5.2 step 1a owner test (AECI-1041) ─────────────────────────────
+  //
+  // `STAGE_2_SPEC.md` §8.10(1): a pure connector vendor that owns live
+  // integrations (`built_by_vendor_id`) is a paying third-party owner. Counted
+  // over BOTH delivered-tier tables, live rows only.
+
+  /** Two endpoint products owned by nobody, plus a connector, for edges to join. */
+  async function seedEdgeEndpoints(): Promise<[string, string, string]> {
+    const a = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    const b = 'bbbbbbbb-0000-4000-8000-00000000000b';
+    const conn = 'cccccccc-0000-4000-8000-00000000000c';
+    await t.db.insert(products).values([
+      { id: a, slug: 'end-a', name: 'End A' },
+      { id: b, slug: 'end-b', name: 'End B' },
+      { id: conn, slug: 'conn', name: 'Conn', productRole: 'connector' },
+    ]);
+    return [a, b, conn];
+  }
+
+  it('counts owned integrations across both tables and drops a retired row', async () => {
+    await seedVendor();
+    await seedOwnedProducts('connector');
+    const [a, b, conn] = await seedEdgeEndpoints();
+    await t.db.insert(integrations).values([
+      { id: 'i-live', sourceProductId: a, targetProductId: b, builtByVendorId: VENDOR_ID },
+      {
+        id: 'i-retired',
+        sourceProductId: b,
+        targetProductId: a,
+        builtByVendorId: VENDOR_ID,
+        claimedAt: OLD_TS,
+        retiredAt: OLD_TS,
+      },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values([
+      {
+        id: 'e1',
+        connectorProductId: conn,
+        productAId: a,
+        productBId: b,
+        builtByVendorId: VENDOR_ID,
+      },
+    ]);
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.is_pure_connector_vendor).toBe(true);
+    expect(row.owned_integrations).toEqual({ integrations: 1, connector_evidenced: 1, total: 2 });
+  });
+
+  it('reports a vendor that owns no integrations as zeroed, not null', async () => {
+    await seedVendor();
+    await seedOwnedProducts('connector');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.owned_integrations).toEqual({ integrations: 0, connector_evidenced: 0, total: 0 });
+  });
+
+  it('counts only the resolved vendor, not another vendor’s integrations', async () => {
+    await seedVendor();
+    await t.db.insert(vendors).values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'Other' });
+    const [a, b, conn] = await seedEdgeEndpoints();
+    await t.db.insert(connectorEvidencedPairs).values([
+      {
+        id: 'e1',
+        connectorProductId: conn,
+        productAId: a,
+        productBId: b,
+        builtByVendorId: OTHER_VENDOR_ID,
+      },
+    ]);
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.owned_integrations?.total).toBe(0);
+  });
+
+  it('degrades a failed owner lookup to null without touching the role signal', async () => {
+    await seedVendor();
+    await seedOwnedProducts('connector');
+    await seedRequest();
+
+    const res = await getClaims({
+      dbFor: factoryFailingProductRoleSelect(connectorEvidencedPairs),
+    });
+    expect(res.status).toBe(200);
+    const row = (await parseClaims(res)).data[0]!;
+    expect(row.owned_integrations).toBeNull();
+    expect(row.is_pure_connector_vendor).toBe(true);
+  });
+
   it('paginates with a stable order', async () => {
     await seedVendor();
     await seedRequest({ id: REQUEST_ID, createdAt: '2026-06-02T00:00:00.000Z' });
@@ -1233,6 +1327,12 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
     // A resolved vendor owning no products is a ZEROED breakdown, not `null`.
     expect(body.product_roles?.total).toBe(0);
     expect(body.is_pure_connector_vendor).toBe(false);
+    // Same convention for the owner test (AECI-1041).
+    expect(body.owned_integrations).toEqual({
+      integrations: 0,
+      connector_evidenced: 0,
+      total: 0,
+    });
   });
 
   it('404s on an unknown id', async () => {

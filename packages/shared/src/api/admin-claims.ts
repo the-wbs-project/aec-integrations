@@ -6,7 +6,7 @@ import {
   EntitlementTierSchema,
   VendorEntitlementResponseSchema,
 } from './admin-entitlements';
-import { VendorProductRolesSchema } from './admin-vendors';
+import { VendorOwnedIntegrationsSchema, VendorProductRolesSchema } from './admin-vendors';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
@@ -225,6 +225,17 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * with `product_roles`.
    */
   is_pure_connector_vendor: z.boolean().nullable(),
+  /**
+   * The live integrations that vendor owns (`built_by_vendor_id`), over BOTH
+   * delivered-tier tables (AECI-1041). This is the owner half of the §5.2 payer
+   * test (step 1a, `STAGE_2_SPEC.md` §8.10). A pure connector vendor with
+   * `total > 0` is a paying third-party owner if it wants to manage those
+   * integrations, and takes the ordinary Grant rather than being parked.
+   *
+   * `null` = the signal was UNAVAILABLE, like `product_roles`. A vendor that owns
+   * nothing is a zeroed object, not `null`. It warns and never gates.
+   */
+  owned_integrations: VendorOwnedIntegrationsSchema.nullable(),
   /**
    * The free-text operator note (AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
    * step 6) — why a claim is parked, and what was said out of band. `null` when

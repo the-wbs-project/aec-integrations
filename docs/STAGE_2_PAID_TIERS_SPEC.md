@@ -506,8 +506,9 @@ Three consequences for this section specifically:
   the revoke does: this is the only screen showing the blast radius — the other seats, the
   entitlement state, `is_pure_connector_vendor` — that makes the decision safe. `ADMIN_PANEL_SPEC.md`
   §5.8's "this screen cannot edit the role" is unchanged and now points here.
-- **It warns and never gates** on a vendor owning endpoint products (the AECI-738 rule), and it
-  does **not** become a second writer of `banned_at`. A banned account is provisioned and flagged,
+- **It warns and never gates** on a vendor owning endpoint products (the AECI-738 rule), or,
+  since AECI-1041, on a vendor that owns integrations (a paying owner under `STAGE_2_SPEC.md`
+  §8.10), and it does **not** become a second writer of `banned_at`. A banned account is provisioned and flagged,
   not refused — ban policy is `PATCH /api/admin/reviewers/:id`'s.
 
 Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.3.

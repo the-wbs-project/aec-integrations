@@ -72,6 +72,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     entitlement: null,
     product_roles: { application: 1, connector: 0, hybrid: 0, total: 1 },
     is_pure_connector_vendor: false,
+    owned_integrations: { integrations: 0, connector_evidenced: 2, total: 2 },
     admin_notes: null,
     duplicate_siblings: [],
     ...over,
@@ -215,6 +216,12 @@ describe('ClaimDetail', () => {
       );
       expect(linkedInHrefs(el)[0]).toContain(encodeURIComponent('submitter@vendor.test'));
     });
+  });
+
+  it('shows the owned-integration count beside the role breakdown (AECI-1041)', async () => {
+    const { el } = await setup(makeApiMock(makeDetail()));
+    expect(el.textContent).toContain('Integrations owned');
+    expect(el.textContent).toContain('2 (via a connector)');
   });
 
   it('loads the claim by its route param', async () => {
