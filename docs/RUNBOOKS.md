@@ -1828,10 +1828,12 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    different: `aeci.indexnow.drain` is emitted on **every** tick, including empty ones. If it
    is missing, this is a cron-liveness problem — see
    [Cron runs missing or stuck](#cron-runs-missing-or-stuck-in-flight-on-adminsystem), and
-   the CI liveness sweep should already be red. If it is present but carries
-   `outcome:failed`, the tick threw, and the combined "Cron job failed" alert has fired
-   as well (AECI-864). A tick that crashes before it submits emits no
-   `aeci.indexnow.submit`, so this alert alone would read clean.
+   the CI liveness sweep should already be red. A tick that **throws** (a D1 error) also
+   lands here: the heartbeat is emitted after the drain returns, so a throw emits nothing.
+   If the heartbeat is present, read its `outcome`. `refused` is the refusal this alert
+   measures, one tick at a time. `failed` is a local fault, today an unparseable
+   `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert (AECI-864).
+   A refused batch does not fire that alert, so this ratio alert is the only page for it.
 
 ### The key is unverified, and a 429 cannot tell you otherwise
 

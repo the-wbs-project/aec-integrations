@@ -92,9 +92,12 @@ Two deliberate widenings ride along:
    AECI-862). Three of the fifteen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
-   AECI-826 wired its liveness heartbeat but not its failure half. Its `outcome:skipped`
-   (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) is the correct pre-launch and preview posture and
-   does not match `outcome = 'failed'`, so previews stay quiet.
+   AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
+   match: a batch IndexNow rejects is `outcome:refused`, not `failed`, because a throttled
+   tick is routine and this alert pages above zero. Refusals belong to
+   `indexnow-failure-rate`. Its `outcome:skipped` (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) is
+   the correct pre-launch and preview posture and does not match either, so previews stay
+   quiet.
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
    `aeci.stats.compute` also fire on `trigger:promote`, and a promote-path failure is a
    real failure. Datadog's Algolia monitor was already trigger-agnostic; its stats monitor

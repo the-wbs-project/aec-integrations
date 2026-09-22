@@ -132,6 +132,35 @@ export interface IndexNowDrainResult {
   attempts: number;
   ok: boolean;
   reason?: string;
+  /**
+   * Set only when a submission was attempted and did not succeed: IndexNow
+   * refused the batch (a 429 included) or the transport never reached it
+   * (status `0`). Distinguishes an upstream refusal from a local fault such as an
+   * unparseable `PUBLIC_SITE_URL`, which is the difference `drainMetricOutcome`
+   * reports (AECI-864).
+   */
+  refused?: true;
+}
+
+/** The `outcome` tag on `aeci.indexnow.drain`. */
+export type IndexNowDrainOutcome = 'ok' | 'skipped' | 'refused' | 'failed';
+
+/**
+ * Map a drain result to its heartbeat `outcome` (AECI-864).
+ *
+ * `refused` is split out from `failed` because the two need different alerting.
+ * The combined "Cron job failed" alert fires on any `outcome:failed` above zero,
+ * and IndexNow rate-limits per host with an undocumented limit, so counting a
+ * refusal as `failed` would page on every throttled tick. Refusals are judged by
+ * the ratio alert over `aeci.indexnow.submit` instead, which has a denominator
+ * floor for exactly that reason. `failed` is left meaning a local fault, which is
+ * never transient and should page on the first occurrence.
+ */
+export function drainMetricOutcome(result: IndexNowDrainResult): IndexNowDrainOutcome {
+  if (result.ok) return 'ok';
+  if (result.reason === 'no_creds') return 'skipped';
+  if (result.refused) return 'refused';
+  return 'failed';
 }
 
 /** The §26.1 action for the drain's scheduled delete. `audit_log.action` carries
@@ -327,6 +356,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
       attempts: outcome.attempts,
       ok: false,
       reason: `indexnow_${outcome.status}: ${outcome.message}`,
+      refused: true,
     };
   }
 

@@ -162,6 +162,7 @@ import { runClaimStaleCheck } from './lib/claim-stale-check';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   drainIndexNowQueue,
+  drainMetricOutcome,
   INDEXNOW_DRAIN_METRIC,
   INDEXNOW_PENDING_METRIC,
 } from './lib/indexnow-drain';
@@ -1581,13 +1582,20 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  * submit metric cannot serve that purpose, because a quiet twenty minutes
  * legitimately produces no submission at all.
  *
- * Outcome mapping, and why `skipped` is not `failed`:
+ * Metric outcome mapping (`drainMetricOutcome`):
  *   - `skipped` — no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`. That is the correct
  *     pre-launch and preview posture, not a fault. The buffer is gated on the same
  *     pair, so nothing is accumulating unserved.
- *   - `failed` — IndexNow rejected the batch, or `PUBLIC_SITE_URL` is unparseable.
- *     The rows stay buffered; the next tick retries them.
+ *   - `refused` — IndexNow rejected the batch or was unreachable. The rows stay
+ *     buffered; the next tick retries them. Kept out of `failed` so the combined
+ *     cron-failure alert does not page on a throttled tick (AECI-864).
+ *   - `failed` — a local fault: `PUBLIC_SITE_URL` is unparseable.
  *   - `ok` — submitted and drained, or there was simply nothing to send.
+ *
+ * `job_runs` has a closed `ok | failed | skipped` outcome set, so a `refused`
+ * tick is still recorded there as `failed`. A thrown tick (a D1 error) emits no
+ * heartbeat at all, because the count below runs only after the drain returns;
+ * the liveness sweep is what catches it.
  */
 async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/indexnow-drain');
@@ -1598,15 +1606,18 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
     log: (event) => logToPosthog(ctx, env, req, { ...event, source: 'indexnow-drain-cron' }),
   });
 
-  const outcome = result.ok ? 'ok' : result.reason === 'no_creds' ? 'skipped' : 'failed';
-  submitCount(ctx, env, req, INDEXNOW_DRAIN_METRIC, 1, ['trigger:cron', `outcome:${outcome}`]);
+  const metricOutcome = drainMetricOutcome(result);
+  submitCount(ctx, env, req, INDEXNOW_DRAIN_METRIC, 1, [
+    'trigger:cron',
+    `outcome:${metricOutcome}`,
+  ]);
   submitGauge(ctx, env, req, INDEXNOW_PENDING_METRIC, result.pending, ['trigger:cron']);
 
-  if (outcome === 'skipped') {
+  if (metricOutcome === 'skipped') {
     return { outcome: 'skipped', detail: { job: 'indexnow-drain', reason: 'no_creds' } };
   }
   return {
-    outcome,
+    outcome: metricOutcome === 'ok' ? 'ok' : 'failed',
     detail: {
       job: 'indexnow-drain',
       submitted: result.submitted,
