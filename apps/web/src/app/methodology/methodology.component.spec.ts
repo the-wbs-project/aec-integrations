@@ -78,8 +78,8 @@ describe('MethodologyPage', () => {
   it('qualifies the agreement ladder as not yet reachable (AC2: no aspirational claims)', () => {
     const { host } = setup();
     const text = host.textContent ?? '';
-    expect(text).toContain('Those accounts are only now being opened to vendors');
-    expect(text).toContain('almost every claim and integration on the site is still recorded by');
+    expect(text).toContain('Vendor accounts opened in September 2026');
+    expect(text).toContain('most claims and integrations are still recorded by');
   });
 
   // AECI-1023. The ownership model of ADR 0035 / AECI-1003, in the reader's words.

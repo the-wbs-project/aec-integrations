@@ -44,7 +44,7 @@ Two rules govern that table.
 
 **"Both vendors confirmed" means two different companies.** One company sometimes owns the products at both ends of an integration. The state is computed from distinct vendor identities, so a vendor cannot confirm both sides of its own integration and have it read as independent agreement.
 
-**Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Those accounts are only now being opened to vendors. So almost every claim and integration on the site is still recorded by AEC Integrations, and you will see "Unverified · AECi" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
+**Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Unverified · AECi" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
 Two other markers appear on listings and are easy to confuse with verification.
 
@@ -108,7 +108,7 @@ Every product and vendor listing carries two routes: a way to suggest a correcti
 
 When you send a correction, tell us what is wrong and what it should say, with a public source where you have one. We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify.
 
-An integration its owner has claimed is kept by that owner, and our catalogue updates no longer reach it. A vendor at either end can contest it, as described above. Anyone else can send us the correction, and we will take it up with the owner.
+An integration its owner has claimed is kept by that owner, and our catalogue updates no longer reach it. A vendor at either end can contest it, as described above. Anyone else can send us the correction. We will share it with the owner, who decides whether to change it.
 
 We correct factual errors, and we remove listings for companies and products that no longer exist. We will not remove an accurate listing because a vendor would prefer not to be listed. That independence is the point of the directory.
 
