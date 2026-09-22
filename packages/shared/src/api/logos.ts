@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url';
 import { LogoPathSchema } from './logo-read';
 
 /**
@@ -22,18 +23,9 @@ export const LogoKeySchema = z.string().regex(/^[a-f0-9]{64}$/);
  * `data:` / `javascript:` URL, never a bare relative path.
  */
 export const LogoUrlSchema = z.union([
-  z
-    .string()
-    .max(2048)
-    .url()
-    .refine((value) => {
-      try {
-        const url = new URL(value);
-        return url.protocol === 'https:' && !url.username && !url.password;
-      } catch {
-        return false;
-      }
-    }),
+  // `.trim()` is not applied here: a logo URL is written by the upload flow, never
+  // typed, and trimming would change what an existing stored value round-trips to.
+  z.string().max(HTTPS_URL_MAX_LENGTH).url().refine(isHttpsUrl),
   LogoPathSchema,
 ]);
 

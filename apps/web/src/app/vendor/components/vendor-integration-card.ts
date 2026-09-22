@@ -19,6 +19,8 @@ import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
 import { VendorIntegrationRetire } from './vendor-integration-retire';
 import { VendorIntegrationOwnership } from './vendor-integration-ownership';
+// AECI-1007: per-side links.
+import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
 
 /**
  * One integration touching a product this vendor owns (AECI-606 / §6), rendered
@@ -57,6 +59,7 @@ import { VendorIntegrationOwnership } from './vendor-integration-ownership';
     VendorHealthPill,
     VendorIntegrationRetire,
     VendorIntegrationOwnership,
+    VendorIntegrationLinksForm,
   ],
   styles: [':host { display: block; }'],
   template: `
@@ -182,6 +185,19 @@ import { VendorIntegrationOwnership } from './vendor-integration-ownership';
           never gated on canWrite.
         -->
         <aec-vendor-integration-ownership [integration]="integration()" />
+
+        <!--
+          AECI-1007 (spec 4.5.7): per-side links. Seat-only, like the contest
+          form below: gated on the edge taking vendor writes (attestable is the
+          server's connector-powered verdict, decision 9), never on canWrite.
+        -->
+        @if (integration().attestable) {
+          <aec-vendor-integration-links-form
+            [integration]="integration()"
+            [vendorName]="vendorName()"
+          />
+        }
+        <!-- end AECI-1007 -->
 
         <!--
           AECI-1008 (spec 11b). Seat-only: gated on NOT being the owner, never

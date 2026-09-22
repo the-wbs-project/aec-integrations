@@ -32,7 +32,7 @@ import type {
 // (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
 import { capabilitiesFor } from '@aeci/shared/entitlements';
-import { EMPTY_CONTESTABLE_FIELDS } from '@aeci/shared';
+import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
 
 /**
  * The AECI-1008 contest fields a fixture integration carries by default: the
@@ -703,6 +703,12 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   mechanism_kind: 'native',
   mechanism_name: 'Native connector',
   attestable: true,
+  // AECI-1007: the caller has set its own listing link on this edge, so the
+  // preview shows the filled state beside the empty docs field.
+  own_links: {
+    listing_url: 'https://summitbim.example.com/integrations/procore',
+    docs_url: null,
+  },
   // AECI-1008: the non-owner fixture with real values, so the contest form's
   // "On record now" line and every field control have something to show.
   // Procore is on record as the owner; the caller (Summit) is not.
@@ -814,6 +820,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
   mechanism_kind: 'api',
   mechanism_name: null,
   attestable: true,
+  own_links: EMPTY_SIDE_LINKS,
   ...NOT_OWNER,
   powered_by: null,
   context_product: CONTEXT_PRIMARY,
@@ -859,6 +866,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   mechanism_kind: 'marketplace-app',
   mechanism_name: 'Autodesk App Store listing',
   attestable: true,
+  own_links: EMPTY_SIDE_LINKS,
   // AECI-1008: the caller BUILT this one, so the card shows no contest action and
   // other vendors' contests about it arrive in the caller's Messages inbox.
   ...NOT_OWNER,
@@ -911,6 +919,7 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
   mechanism_kind: null,
   mechanism_name: null,
   attestable: true,
+  own_links: EMPTY_SIDE_LINKS,
   ...NOT_OWNER,
   powered_by: null,
   context_product: CONTEXT_SECONDARY,
@@ -934,6 +943,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
   mechanism_kind: 'iPaaS',
   mechanism_name: 'Agave ERP Sync',
   attestable: false,
+  own_links: EMPTY_SIDE_LINKS,
   ...NOT_OWNER,
   powered_by: {
     id: '00000000-0000-4000-8000-0000000053a0',
@@ -974,6 +984,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
   mechanism_kind: 'iPaaS',
   mechanism_name: 'Kroo Connector',
   attestable: false,
+  own_links: EMPTY_SIDE_LINKS,
   ...NOT_OWNER,
   powered_by: {
     id: '00000000-0000-4000-8000-0000000053a1',

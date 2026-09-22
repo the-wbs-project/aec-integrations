@@ -367,6 +367,12 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   type, direction, links, pricing, maturity) and transfers `maintained_by`. An
   integration `name` also appears in no `index:*` hub, so no index tag is needed.
   A body that changes nothing purges nothing.
+- **An endpoint vendor's own link** (`PUT` / `DELETE
+  /api/vendor/integrations/:id/links/:productId/:kind`, AECI-1007) → the **same three
+  tags**. The pair page renders the link, and the write transfers `maintained_by`.
+  A DELETE of a link that was never set writes nothing and purges nothing. The
+  product-detail page does not render links today; its `product:` tag is purged
+  because the maintenance marker moved, matching the claim.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with

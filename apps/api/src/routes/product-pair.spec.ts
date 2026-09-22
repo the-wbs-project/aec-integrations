@@ -14,6 +14,7 @@ import {
   connectorEvidencedPairs,
   integrationEndpointMoves,
   integrations,
+  integrationVendorLinks,
   products,
   productVendors,
   productVersions,
@@ -271,6 +272,48 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
   it('404s when the two slugs are equal', async () => {
     await seedProducts();
     expect((await get('/api/products/procore/integrations/procore')).status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — per-side vendor links (AECI-1007)', () => {
+  async function seedLinks() {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+    await t.db.insert(integrationVendorLinks).values([
+      { integrationId: u(10), productId: u(1), kind: 'listing', url: 'https://procore.example/l' },
+      { integrationId: u(10), productId: u(2), kind: 'docs', url: 'https://revit.example/d' },
+      // Left behind by an endpoint re-point: not an endpoint of the row any more.
+      { integrationId: u(10), productId: u(3), kind: 'listing', url: 'https://stale.example/l' },
+    ]);
+  }
+
+  it('frames each side to the context product, from either page orientation', async () => {
+    await seedLinks();
+    const fromProcore = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(fromProcore.mechanisms[0]!.vendor_links).toEqual({
+      context: { listing_url: 'https://procore.example/l', docs_url: null },
+      other: { listing_url: null, docs_url: 'https://revit.example/d' },
+    });
+    const fromRevit = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(fromRevit.mechanisms[0]!.vendor_links).toEqual({
+      context: { listing_url: null, docs_url: 'https://revit.example/d' },
+      other: { listing_url: 'https://procore.example/l', docs_url: null },
+    });
+  });
+
+  it('is null on both sides when nobody has set a link, and never reads a stale product', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { listingUrl: 'https://aeci.example/l' });
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.vendor_links).toEqual({ context: null, other: null });
+    // The AECi-curated link is still carried for the fallback.
+    expect(body.mechanisms[0]!.listing_url).toBe('https://aeci.example/l');
   });
 });
 

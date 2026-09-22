@@ -123,6 +123,7 @@ import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { assertIntegrationLive } from '../lib/live-integration';
+import { toSideLinks } from '../lib/integration-vendor-links';
 import { storedFieldValue, toWireValue } from '../lib/integration-contests';
 
 import { getDb, type Db } from '../db/client';
@@ -819,6 +820,8 @@ const vendorIntegrationConfig = {
     // is attestable (53 of 132 powered edges in production have no promoted
     // connector product to link to).
     poweredByProduct: { columns: productLinkColumns },
+    // AECI-1007: per-side links. The mapper keeps only the entry's own side.
+    vendorLinks: { columns: { productId: true, kind: true, url: true } },
   },
 } as const;
 
@@ -903,6 +906,13 @@ export function createListVendorIntegrationsHandler(
           retired_at: row.retiredAt,
           contestable_fields: contestableFieldsFor(row, contextIsSource),
           endpoint_vendors: endpointVendorsFor(row),
+          // AECI-1007: the caller's own links, on this entry's context side only.
+          own_links: toSideLinks(
+            row.vendorLinks.filter(
+              (link) =>
+                link.productId === (contextIsSource ? row.sourceProduct.id : row.targetProduct.id),
+            ),
+          ),
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],

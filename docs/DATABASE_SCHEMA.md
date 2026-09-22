@@ -127,6 +127,7 @@ Tables grouped by domain:
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
+- `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
 
 **Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
 - `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
@@ -457,9 +458,9 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).
 >
 > The three columns were added by `0044` as `ADD COLUMN`s so that `integrations` was **not**
-> recreated. Its cascade children (`claims` → `attestations`, `integration_field_challenges`)
-> are exactly what a recreate's DROP would have destroyed; `src/test/migration-0044.spec.ts`
-> is the tripwire.
+> recreated. Its cascade children (`claims` → `attestations`, `integration_field_challenges`,
+> and since `0045` `integration_vendor_links`) are exactly what a recreate's DROP would have
+> destroyed; `src/test/migration-0044.spec.ts` is the tripwire.
 
 **Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
 Drizzle relations file declares
@@ -1611,6 +1612,51 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
   `apps/api/src/test/d1.spec.ts` pins the list. A promote cross-table move or a retraction
   deletes the contests on the moved row; that is an accepted risk for unclaimed rows
   (§11b.9 of the vendor portal spec).
+
+### 8.8 `integration_vendor_links` (Stage 2.1 — AECI-1007)
+
+Each endpoint vendor's OWN marketplace listing and docs link on an integration, shown on the
+pair page beside the other side's (ADR 0035 decision 6). Written only by
+`PUT`/`DELETE /api/vendor/integrations/:id/links/:productId/:kind`
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.7). Promote never writes it. Migration
+`0045_ambitious_carlie_cooper.sql`: one `CREATE TABLE` and one index, nothing recreated.
+
+```sql
+create table integration_vendor_links (
+  id text primary key not null,
+  integration_id text not null references integrations(id) on delete cascade,
+  product_id text not null,          -- the endpoint the link speaks for; NO foreign key
+  kind text not null check (kind in ('listing', 'docs')),
+  url text not null,                 -- https only, no credentials, <= 2048 (HttpsUrlSchema)
+  vendor_id text references vendors(id) on delete set null,   -- provenance: who wrote it
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index integration_vendor_links_side_kind_key
+  on integration_vendor_links(integration_id, product_id, kind);
+```
+
+- **The side is an endpoint product id, not `a`/`b`.** Promote swaps an unclaimed row's
+  source and target in bulk (AECI-920's direction corrections). A positional key would hand
+  one vendor's link to the other on every swap. A product id survives it unchanged.
+- **An endpoint re-point leaves the old link stored and unread.** Every reader keeps only the
+  rows whose `product_id` is one of the integration's current endpoints.
+- **`product_id` has no FK on purpose.** Deleting an endpoint product cascades the integration,
+  which cascades the link. A second path into `products` would need its own decision in
+  `retract-product.ts` and buy nothing.
+- **No profile id is stored**, so GDPR erasure has nothing to null here. The acting seat is
+  on the `audit_log` row. `vendor_id` is `SET NULL` so a vendor retraction detaches the link
+  rather than deleting it; the link describes the product, not the company that typed it.
+- **A third cascade child of `integrations`**, and a leaf. The next recreate of `integrations`
+  must carry it (`migrations.md` §3.3a); `apps/api/src/test/d1.spec.ts` pins the list and
+  `migration-0045.spec.ts` guards the file. Its own `kind` CHECK is table-level, because a
+  recreate of THIS table fires nothing.
+- **Lost with its row, and only then.** A retraction of an unclaimed row, a datatool prune, an
+  `ops:retract-product` of an endpoint, or a promote cross-table move into
+  `connector_evidenced_pairs` deletes the row and the links go with it. A move means the row
+  became connector-powered, which takes no links (decision 9). A claimed or vendor-created row
+  is never deleted by any of those lanes (§4.5.5 of the vendor portal spec).
 
 ---
 

@@ -4,6 +4,7 @@ import { AGREEMENT_STATES } from '../agreement';
 import { VERSION_DIFF_ACCESS, VERSION_STATUSES } from '../version-diff';
 import { MaintenanceSchema, ProductLinkSchema, VendorLinkSchema } from './common';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
+import { EMPTY_PAIR_VENDOR_LINKS, PairVendorLinksSchema } from './integration-vendor-links';
 import { ProductListItemSchema } from './products';
 import { ATTESTATION_SOURCES } from './promote';
 
@@ -235,8 +236,18 @@ export const ProductPairMechanismSchema = z.object({
   // renders a neutral "connects" state rather than fabricating a direction.
   direction: ContextDirectionSchema.nullable(),
   description: z.string().nullable(),
+  /** AECi's curated links (promote-written). The pair page falls back to these per
+   *  kind when neither endpoint vendor has set its own (`vendor_links`). */
   listing_url: z.string().url().nullable(),
   docs_url: z.string().url().nullable(),
+  /**
+   * Each endpoint vendor's own listing and docs links (AECI-1007), framed to the
+   * context product. Always `{ context: null, other: null }` on a connector-evidenced
+   * pair, which takes no vendor writes (decision 9). A link is only returned for a
+   * product that is still an endpoint of the row: an endpoint re-point leaves the
+   * old product's link stored but unread. `.default` for SSR/API deploy skew.
+   */
+  vendor_links: PairVendorLinksSchema.default(EMPTY_PAIR_VENDOR_LINKS),
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
   /**

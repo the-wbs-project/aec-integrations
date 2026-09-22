@@ -1619,6 +1619,53 @@ export const integrationFieldChallenges = sqliteTable(
   ],
 );
 
+/**
+ * Per-side integration links (AECI-1007 / ADR 0035 decision 6). Each endpoint vendor
+ * stores its OWN marketplace listing and docs link on an integration, beside the
+ * other side's. Written only by `PUT`/`DELETE /api/vendor/integrations/:id/links/…`;
+ * promote never writes it (`promote-vendor-links.spec.ts` asserts that).
+ *
+ * **The side is an endpoint PRODUCT id, never `a`/`b` or source/target.** Promote
+ * swaps an unclaimed row's source and target in bulk (AECI-920's direction
+ * corrections), so a positional key would silently re-attribute one vendor's link to
+ * the other. A product id survives a swap unchanged. An endpoint RE-POINT (the row
+ * now joins a different product) leaves the old product's link stored and unread:
+ * every reader joins on the row's current endpoints.
+ *
+ * **`product_id` carries no foreign key, deliberately.** The link cannot outlive its
+ * product anyway, because deleting an endpoint product cascades the integration and
+ * the integration cascades this row. An FK would add a second path into `products`
+ * that `retract-product.ts` must decide for, and buy nothing.
+ *
+ * **A leaf child of `integrations`** (`ON DELETE CASCADE`). A recreate of
+ * `integrations` would empty it (`docs/migrations.md` §3.3a), which is why
+ * `src/test/d1.spec.ts` pins it in the child list. It has no children of its own,
+ * and its `kind` CHECK is table-level because a recreate of THIS table is cheap.
+ *
+ * No profile id is stored: the acting seat is on the audit row, so GDPR erasure has
+ * nothing to do here. `vendor_id` is provenance (which company wrote it), `SET NULL`
+ * so a vendor retraction detaches rather than deletes it.
+ */
+export const integrationVendorLinks = sqliteTable(
+  'integration_vendor_links',
+  {
+    id: uuidPk(),
+    integrationId: text('integration_id')
+      .notNull()
+      .references(() => integrations.id, { onDelete: 'cascade' }),
+    productId: text('product_id').notNull(),
+    kind: text('kind').notNull(),
+    url: text('url').notNull(),
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('integration_vendor_links_side_kind_key').on(t.integrationId, t.productId, t.kind),
+    check('integration_vendor_links_kind_check', sql`"kind" IN ('listing', 'docs')`),
+  ],
+);
+
 export const auditLog = sqliteTable(
   'audit_log',
   {
@@ -3125,6 +3172,15 @@ export const integrationsRelations = relations(integrations, ({ one, many }) => 
   // Stage 1.5 (§6.1): claims anchor to the mechanism row. Relations-only — no
   // `integrations`-table change — so the pair page can hydrate claims per integration.
   claims: many(claims),
+  // AECI-1007: each endpoint vendor's own links, for the pair page.
+  vendorLinks: many(integrationVendorLinks),
+}));
+
+export const integrationVendorLinksRelations = relations(integrationVendorLinks, ({ one }) => ({
+  integration: one(integrations, {
+    fields: [integrationVendorLinks.integrationId],
+    references: [integrations.id],
+  }),
 }));
 
 export const taxonomyCategoriesRelations = relations(taxonomyCategories, ({ many }) => ({
@@ -3379,6 +3435,7 @@ export const schema = {
   workflowInstances,
   workflowTransitions,
   integrationFieldChallenges,
+  integrationVendorLinks,
   auditLog,
   promoteJobs,
   pageViews,
@@ -3415,6 +3472,7 @@ export const schema = {
   vendorsRelations,
   productsRelations,
   integrationsRelations,
+  integrationVendorLinksRelations,
   connectorEvidencedPairsRelations,
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,

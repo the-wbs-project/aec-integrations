@@ -62,6 +62,7 @@ import {
   buildDeleteStatements,
   buildFootprintSql,
   ddlHasVendorHeldColumns,
+  VENDOR_LINKS_TABLE_SQL,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
@@ -269,9 +270,15 @@ export async function main(argv: string[]): Promise<number> {
   // tier only at its next deploy, and naming a missing column would fail the read.
   const integrationsDdl =
     runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  // AECI-1007: the same for migration 0045's per-side links table.
+  const vendorLinksTable =
+    (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   const rawFootprint = runD1<RawFootprintRow>(
     target,
-    buildFootprintSql(product.id, { vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl) }),
+    buildFootprintSql(product.id, {
+      vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl),
+      vendorLinksTable,
+    }),
   )[0]?.results[0];
   if (!rawFootprint) {
     console.error('Could not read footprint (empty result).');
@@ -344,6 +351,7 @@ export async function main(argv: string[]): Promise<number> {
     operator: readValueFlag(argv, '--operator'),
     force,
     deleteEvidencedPairs,
+    vendorLinksTable,
   }).join('\n');
   const results = runD1<unknown>(target, statements);
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);

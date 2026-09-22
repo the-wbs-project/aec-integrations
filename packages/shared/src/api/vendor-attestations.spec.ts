@@ -71,6 +71,7 @@ const INTEGRATION = {
     { id: uuid(40), name: 'Bentley' },
     { id: uuid(41), name: 'Autodesk' },
   ],
+  own_links: { listing_url: 'https://autodesk.example/listing', docs_url: null },
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -208,6 +209,14 @@ describe('VendorIntegrationSchema', () => {
       VendorIntegrationSchema.parse({ ...INTEGRATION, claimed_at: '2026-09-01T00:00:00.000Z' })
         .claimed_at,
     ).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  it('defaults own_links (AECI-1007) for an API that predates per-side links', () => {
+    const { own_links: _l, ...older } = INTEGRATION;
+    expect(VendorIntegrationSchema.parse(older).own_links).toEqual({
+      listing_url: null,
+      docs_url: null,
+    });
   });
 
   it('requires every contestable field to be present when the map is sent', () => {

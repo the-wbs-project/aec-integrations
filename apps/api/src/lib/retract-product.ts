@@ -156,6 +156,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
   'integration_field_challenges.integration_id': 'cascade-child',
+  // AECI-1007. Deleted explicitly, and counted on the integration's tombstone, only
+  // where the table exists (`vendorLinksTable`): migration 0045 reaches each tier at
+  // its next deploy, and naming a missing table would fail the whole batch.
+  'integration_vendor_links.integration_id': 'cascade-child',
   'attestations.introduced_version_id': 'detach',
   'attestations.deprecated_version_id': 'detach',
 };
@@ -227,9 +231,22 @@ export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean
 /** The DDL probe the CLI runs before {@link buildFootprintSql}. */
 export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
 
-export function buildFootprintSql(id: string, opts: { vendorHeldColumns?: boolean } = {}): string {
+/** AECI-1007: does the per-side links table exist on this tier yet? One row when it
+ *  does, none when migration 0045 has not reached it. */
+export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_vendor_links';`;
+
+export function buildFootprintSql(
+  id: string,
+  opts: { vendorHeldColumns?: boolean; vendorLinksTable?: boolean } = {},
+): string {
   const p = `'${escapeSqlLiteral(id)}'`;
   const s = scopes(p);
+  // AECI-1007: per-side links the integration delete would cascade. The schema at
+  // HEAD has the table, so the default is true; the CLI passes its probe.
+  const vendorLinks =
+    (opts.vendorLinksTable ?? true)
+      ? `(SELECT count(*) FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations}))`
+      : '0';
   // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
   // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
   const vendorHeld = opts.vendorHeldColumns
@@ -248,6 +265,7 @@ export function buildFootprintSql(id: string, opts: { vendorHeldColumns?: boolea
     (SELECT count(*) FROM (${s.claims})) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "claim_id" IN (${s.claims})) AS attestations,
     (SELECT count(*) FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations})) AS field_challenges,
+    ${vendorLinks} AS vendor_links,
     (SELECT count(*) FROM "reviews" WHERE "product_id" = ${p}) AS reviews,
     (SELECT count(*) FROM "product_versions" WHERE "product_id" = ${p}) AS product_versions,
     (SELECT count(*) FROM "page_views" WHERE "product_id" = ${p}) AS page_views,
@@ -279,6 +297,8 @@ export interface RawFootprintRow {
   claims: number;
   attestations: number;
   field_challenges: number;
+  /** AECI-1007. Optional so a row built before it still parses. */
+  vendor_links?: number;
   reviews: number;
   product_versions: number;
   page_views: number;
@@ -312,6 +332,7 @@ export interface RetractFootprint {
   claims: number;
   attestations: number;
   fieldChallenges: number;
+  vendorLinks: number;
   reviews: number;
   productVersions: number;
   pageViews: number;
@@ -347,6 +368,7 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     claims: row.claims,
     attestations: row.attestations,
     fieldChallenges: row.field_challenges,
+    vendorLinks: row.vendor_links ?? 0,
     reviews: row.reviews,
     productVersions: row.product_versions,
     pageViews: row.page_views,
@@ -458,6 +480,10 @@ export interface ProductDeleteArgs {
   /** `--delete-evidenced-pairs`. Without it the plan carries no pair delete, and the
    *  product DELETE is guarded on no pair existing (AECI-904). */
   deleteEvidencedPairs?: boolean;
+  /** AECI-1007: whether `integration_vendor_links` exists on the target tier. Defaults
+   *  to true, the schema at HEAD; the CLI passes its {@link VENDOR_LINKS_TABLE_SQL}
+   *  probe so a tier without migration 0045 gets a plan that never names the table. */
+  vendorLinksTable?: boolean;
 }
 
 function sqlLiteral(v: string | number | boolean | null | undefined): string {
@@ -572,6 +598,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const claimCount = (col: string) => `(SELECT count(*) FROM "claims" c WHERE c."${col}" = t."id")`;
   const attestationCount = (col: string) =>
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
+  const vendorLinksTable = args.vendorLinksTable ?? true;
   const refusalGuard =
     `NOT EXISTS (SELECT 1 FROM "connector_catalogs" WHERE "connector_product_id" = ${p})` +
     ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})` +
@@ -601,7 +628,11 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       beforeState:
         `json_object('table', 'integrations', 'row', ${rowJson(['id', 'name', 'source_product_id', 'target_product_id', 'mechanism_kind', 'mechanism_name', 'direction', 'powered_by_product_id', 'created_at'])}, ` +
         `'cascade', json_object('claims', ${claimCount('integration_id')}, 'attestations', ${attestationCount('integration_id')}, ` +
-        `'field_challenges', (SELECT count(*) FROM "integration_field_challenges" f WHERE f."integration_id" = t."id")))`,
+        `'field_challenges', (SELECT count(*) FROM "integration_field_challenges" f WHERE f."integration_id" = t."id")` +
+        (vendorLinksTable
+          ? `, 'vendor_links', (SELECT count(*) FROM "integration_vendor_links" l WHERE l."integration_id" = t."id")`
+          : '') +
+        `))`,
       from: `FROM "integrations" t WHERE t."id" IN (${s.integrations})`,
     }),
     ...(withPairs ? [pairTombstone] : []),
@@ -640,6 +671,9 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
     `DELETE FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations});`,
+    ...(vendorLinksTable
+      ? [`DELETE FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations});`]
+      : []),
     // NULL the no-action `powered_by` ref before deleting the product it points at.
     `UPDATE "integrations" SET "powered_by_product_id" = NULL WHERE "powered_by_product_id" = ${p};`,
     `DELETE FROM "integrations" WHERE "id" IN (${s.integrations});`,
@@ -709,6 +743,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['claims', footprint.claims],
     ['attestations', footprint.attestations],
     ['field contests', footprint.fieldChallenges],
+    ['per-side vendor links', footprint.vendorLinks],
     ['reviews', footprint.reviews],
     ['product_versions', footprint.productVersions],
     ['page_views (NULLed, kept)', footprint.pageViews],
