@@ -5,21 +5,46 @@
  *   GET   /api/admin/contests      — the queue, by status and route, paginated.
  *   PATCH /api/admin/contests/:id  — accept or decline an AECi-routed contest.
  *
- * ── AN ACCEPT HERE WRITES NO CATALOG DATA ───────────────────────────────────
- * The catalog is curated upstream in the review app and arrives through promote
- * (`docs/REVIEW_APP_PROMOTE_API.md`). A value written here would be overwritten by
- * the next promote of the same edge. So an accept records the decision and, after
- * commit, files a `REVIEW - Apply contested field: …` Linear issue for the review
- * lane (`createLinearIssueForContest`, playbook AECI-1025). The §6.7 sweep retries
- * the issue if that first attempt fails.
+ * ── WHAT AN ACCEPT WRITES DEPENDS ON THE INTEGRATION (AECI-1005) ────────────
+ * Every accept files a `REVIEW - ` Linear issue after commit
+ * (`createLinearIssueForContest`, playbook AECI-1025; the §6.7 sweep retries it).
+ * What it writes HERE follows from the row's ownership state at decision time,
+ * because a claimed integration is no longer written by promote (ADR 0035):
  *
- * That is also why this is the eighth named write exception in
- * `ADMIN_PANEL_SPEC.md`: a decision write, not a catalog write.
+ *   - content field, unclaimed row: nothing here (promote carries it).
+ *     Issue: "Apply contested field".
+ *   - content field, claimed row: the column plus `integration.updated`, and a
+ *     purge. Issue: "Apply contested field", worded "AECi already applied it".
+ *   - `owner`, proposed = submitter, not connector-powered: `built_by_vendor_id`,
+ *     `claimed_at`, the maintenance transfer, `integration.claimed`, and a claim
+ *     notification to the other endpoint vendors. Issue: "Record integration owner".
+ *   - `owner`, proposed = submitter, connector-powered: nothing here, because
+ *     decision 9 keeps the claim off those rows in v1. Issue: "Apply contested field".
+ *   - `owner`, proposed = someone else (or neither), claimed row: the new
+ *     `built_by_vendor_id` and `claimed_at = NULL`, so the new owner must claim by
+ *     its own act and the promote fence lifts. Issue: "Record integration owner".
+ *   - `owner`, proposed = someone else, unclaimed row: nothing here.
  *
- * ── OWNER-ROUTED ROWS ARE READ-ONLY HERE ────────────────────────────────────
+ * The owner-unknown claim of decision 11 is the third case: an endpoint vendor
+ * contests the `owner` field on a row with no owner and proposes itself. Only an
+ * endpoint vendor can file one, because contests require an endpoint seat. That is
+ * enough in v1: a non-endpoint owner's rows are connector-powered, and decision 9
+ * keeps the claim off them anyway.
+ *
+ * A second sentinel (`contestIntegrationStateSentinel`) aborts the batch if the
+ * row's claim state or owner moved after the read, so the cases above are always
+ * decided on the state the batch commits against (`409 CONTEST_INTEGRATION_CHANGED`).
+ *
+ * This is the eighth named write exception in `ADMIN_PANEL_SPEC.md`: a decision
+ * write, which since AECI-1005 also writes catalog data on the claimed-row paths.
+ *
+ * ── OWNER-ROUTED ROWS ARE READ-ONLY HERE, UNLESS STRANDED ───────────────────
  * The list can show them (`?routed_to=owner`) so an operator can see a dispute.
  * The PATCH refuses them with `409 CONTEST_ROUTED_TO_OWNER`: the owner decides, and
  * two deciders on one row is how a contest gets accepted twice with two values.
+ * The exception is a STRANDED row, whose `owner_vendor_id` went NULL because the
+ * owner vendor was deleted (`ON DELETE SET NULL`). No vendor can decide it any more,
+ * so AECi does, exactly as if it had been routed here (AECI-1005).
  *
  * One batch per decision: the guarded UPDATE (`WHERE status = 'open'`), its
  * `audit_log` row, the workflow transition and instance update, and the
@@ -48,7 +73,7 @@ import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { integrationFieldChallenges, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges, integrations, vendors, workflowInstances } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -56,8 +81,19 @@ import { logToPosthog, submitCount } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import {
+  claimColumns,
+  claimNotificationAudit,
+  INTEGRATION_CLAIMED_ACTION,
+  isClaimed,
+} from '../lib/integration-claims';
 import {
   CONTEST_ENTITY_TYPE,
+  CONTEST_FIELD_COLUMNS,
+  contestIntegrationStateSentinel,
+  storedFieldValue,
   contestValueLabel,
   hydrateContests,
   pairPathFor,
@@ -69,9 +105,17 @@ import {
 import {
   createLinearIssueForContest,
   drizzleContestLinearStore,
+  type ContestAppliedMode,
   type LinearIssueOutcome,
 } from '../lib/linear';
-import { CONTEST_WORKFLOW_TYPE, notificationFor, runGuardedContestBatch } from './vendor-contests';
+import { pairCacheTag } from './promote-pair';
+import {
+  CONTEST_WORKFLOW_TYPE,
+  endpointSlugs,
+  notificationFor,
+  runGuardedContestBatch,
+} from './vendor-contests';
+import { purgeTags } from './vendor-shared';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -222,7 +266,9 @@ export function createModerateContestHandler(
       where: eq(integrationFieldChallenges.id, id),
     });
     if (!row) throw notFoundError('contest', { id });
-    if (row.routedTo !== 'aeci') {
+    // A stranded owner-routed row (owner vendor deleted) is AECi's to decide.
+    const stranded = row.routedTo === 'owner' && row.ownerVendorId === null;
+    if (row.routedTo !== 'aeci' && !stranded) {
       emitModeration(c, payload.decision, 'routed_to_owner');
       throw new ApiError(
         409,
@@ -269,7 +315,24 @@ export function createModerateContestHandler(
       metadata,
     };
     const notify = await notificationFor(db, row, session, status);
-    const audits = notify ? [audit, notify] : [audit];
+    const accept =
+      status === 'accepted'
+        ? await planAcceptWrites(
+            db,
+            row,
+            { actorId: session.userId, actorType: auditActorType(session) },
+            now,
+          )
+        : null;
+    if (accept) {
+      // `appliedMode` is also what the §6.7 sweep reads back to re-file the issue.
+      audit.metadata = {
+        ...metadata,
+        appliedMode: accept.appliedMode,
+        ...(stranded ? { stranded: true } : {}),
+      };
+    }
+    const audits = [audit, ...(accept?.audits ?? []), ...(notify ? [notify] : [])];
 
     const stmts: BatchStmt[] = [
       db
@@ -287,6 +350,9 @@ export function createModerateContestHandler(
       // Immediately after the guarded UPDATE: a lost race aborts the batch here,
       // before the transition, the audit row and the notification.
       contestStillOpenSentinel(db, id),
+      // AECI-1005: then the integration-state guard and any catalog write the accept
+      // plans. Empty for a decline.
+      ...(accept?.stmts ?? []),
       row.workflowId
         ? db
             .update(workflowInstances)
@@ -322,8 +388,11 @@ export function createModerateContestHandler(
         forwardWorkflowTransition(transition, f.workflow),
       ]),
     );
-    if (status === 'accepted') {
-      c.executionCtx.waitUntil(fileContestIssue(c, db, fileIssue, after, hydration));
+    if (accept) {
+      if (accept.tags.length) c.executionCtx.waitUntil(purgeTags(c, accept.tags));
+      c.executionCtx.waitUntil(
+        fileContestIssue(c, db, fileIssue, after, hydration, accept.appliedMode),
+      );
     }
 
     const body = toAdminContest(after, hydration);
@@ -342,6 +411,7 @@ async function fileContestIssue(
   fileIssue: FileContestIssue,
   row: ContestRow,
   hydration: ContestHydration,
+  appliedMode: ContestAppliedMode,
 ): Promise<LinearIssueOutcome | null> {
   const integration = hydration.integrations.get(row.integrationId);
   if (!integration) return null;
@@ -360,7 +430,167 @@ async function fileContestIssue(
     submitterVendorName: hydration.vendorNames.get(row.submitterVendorId) ?? row.submitterVendorId,
     reason: row.reason,
     adminNote: row.decisionNote,
+    appliedMode,
   }).catch(() => null);
+}
+
+/**
+ * The integration-side half of an AECi accept (AECI-1005): the state guard, the
+ * catalog write the header's cases call for, its audit rows, and the purge tags.
+ * Every statement runs after the contest's own sentinel, so a lost decision race
+ * writes none of it.
+ */
+export async function planAcceptWrites(
+  db: Db,
+  row: ContestRow,
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+): Promise<{
+  stmts: BatchStmt[];
+  audits: AuditLogEntry[];
+  tags: string[];
+  appliedMode: ContestAppliedMode;
+}> {
+  const integration = await db.query.integrations.findFirst({
+    where: eq(integrations.id, row.integrationId),
+  });
+  if (!integration) throw notFoundError('contest', { id: row.id });
+  const claimed = isClaimed(integration);
+  const stmts: BatchStmt[] = [
+    contestIntegrationStateSentinel(db, integration.id, {
+      claimed,
+      ownerVendorId: integration.builtByVendorId,
+    }),
+  ];
+  const audits: AuditLogEntry[] = [];
+  const field = row.field as IntegrationContestField;
+  const base = { source: 'admin-moderation', contestId: row.id, integrationId: integration.id };
+  const where = eq(integrations.id, integration.id);
+
+  let appliedMode: ContestAppliedMode = 'upstream-only';
+  if (field !== 'owner') {
+    if (claimed) {
+      const column = CONTEST_FIELD_COLUMNS[field];
+      stmts.push(
+        db
+          .update(integrations)
+          .set({ [column]: row.proposedValue })
+          .where(where),
+      );
+      audits.push({
+        ...actor,
+        action: 'integration.updated',
+        entityType: 'integration',
+        entityId: integration.id,
+        beforeState: { [field]: storedFieldValue(integration, field) },
+        afterState: { [field]: row.proposedValue },
+        metadata: { ...base, reason: 'contest-accepted' },
+      });
+      appliedMode = 'applied-here';
+    }
+  } else if (row.proposedValue === row.submitterVendorId) {
+    // The owner-unknown claim (decision 11) and "we own it, not them" alike: an admin
+    // approval is an act, so it sets `claimed_at` (decision 12). Not on a
+    // connector-powered row, where decision 9 keeps the claim off in v1 (AECI-1005 Q1):
+    // the accept stands and the issue still goes upstream, but nothing is written here.
+    if (!isConnectorPoweredEdge(integration)) {
+      const newOwner = row.submitterVendorId;
+      stmts.push(
+        db
+          .update(integrations)
+          .set({ builtByVendorId: newOwner, ...claimColumns(now) })
+          .where(where),
+      );
+      audits.push({
+        ...actor,
+        action: INTEGRATION_CLAIMED_ACTION,
+        entityType: 'integration',
+        entityId: integration.id,
+        beforeState: {
+          claimed_at: integration.claimedAt,
+          built_by_vendor_id: integration.builtByVendorId,
+          maintained_by: integration.maintainedBy,
+          last_reviewed_at: integration.lastReviewedAt,
+        },
+        afterState: {
+          claimed_at: now,
+          built_by_vendor_id: newOwner,
+          maintained_by: 'vendor',
+          last_reviewed_at: now,
+        },
+        metadata: {
+          ...base,
+          reason: 'owner-approved',
+          ...(integration.maintainedBy !== 'vendor' ? { maintenanceTransfer: true } : {}),
+        },
+      });
+      // Tell every other endpoint vendor, exactly as the owner's own claim does.
+      const [slotVendors, pairSlugs, owner] = await Promise.all([
+        vendorsForIntegrationSlots(db, [integration.id]),
+        endpointSlugs(db, integration.sourceProductId, integration.targetProductId),
+        db.query.vendors.findFirst({
+          columns: { companyName: true },
+          where: eq(vendors.id, newOwner),
+        }),
+      ]);
+      const slots = slotVendors.get(integration.id)?.slots;
+      const recipients = [...new Set([...(slots?.vendor_a ?? []), ...(slots?.vendor_b ?? [])])]
+        .filter((vendorId) => vendorId !== newOwner)
+        .sort();
+      for (const vendorId of recipients) {
+        audits.push(
+          claimNotificationAudit(actor, {
+            vendorId,
+            integrationId: integration.id,
+            integrationName: integration.name,
+            ownerVendorId: newOwner,
+            ownerName: owner?.companyName ?? null,
+            pairSlugs,
+          }),
+        );
+      }
+      appliedMode = 'owner-recorded';
+    }
+  } else if (claimed) {
+    // Reassigned away from the vendor that claimed it, or to "neither": the new owner
+    // has not acted, so `claimed_at` clears and the promote fence lifts (ADR 0035).
+    stmts.push(
+      db
+        .update(integrations)
+        .set({ builtByVendorId: row.proposedValue, claimedAt: null })
+        .where(where),
+    );
+    audits.push({
+      ...actor,
+      action: 'integration.updated',
+      entityType: 'integration',
+      entityId: integration.id,
+      beforeState: {
+        built_by_vendor_id: integration.builtByVendorId,
+        claimed_at: integration.claimedAt,
+      },
+      afterState: { built_by_vendor_id: row.proposedValue, claimed_at: null },
+      metadata: { ...base, reason: 'owner-reassigned' },
+    });
+    appliedMode = 'owner-recorded';
+  }
+
+  let tags: string[] = [];
+  if (appliedMode !== 'upstream-only') {
+    const pairSlugs = await endpointSlugs(
+      db,
+      integration.sourceProductId,
+      integration.targetProductId,
+    );
+    if (pairSlugs) {
+      tags = [
+        pairCacheTag(pairSlugs[0], pairSlugs[1]),
+        `product:${pairSlugs[0]}`,
+        `product:${pairSlugs[1]}`,
+      ];
+    }
+  }
+  return { stmts, audits, tags, appliedMode };
 }
 
 async function readJson(c: AdminContext): Promise<unknown> {

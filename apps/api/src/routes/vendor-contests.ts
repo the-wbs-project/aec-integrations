@@ -226,7 +226,7 @@ async function echo(
 
 /** Both endpoint slugs, for the pair-page purge, the notification snapshot and
  *  the recrawl. */
-async function endpointSlugs(
+export async function endpointSlugs(
   db: Db,
   sourceId: string,
   targetId: string,
@@ -297,6 +297,15 @@ export async function runGuardedContestBatch(
       columns: { status: true },
       where: eq(integrationFieldChallenges.id, id),
     });
+    // Still open means the contest sentinel passed and the integration-state one
+    // tripped (`contestIntegrationStateSentinel`, AECI-1005).
+    if (current?.status === 'open') {
+      throw new ApiError(
+        409,
+        ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+        'The integration was claimed or its owner changed while you were deciding. Reload and decide again.',
+      );
+    }
     throw contestNotOpen(current?.status ?? 'closed');
   }
   const row = await db.query.integrationFieldChallenges.findFirst({

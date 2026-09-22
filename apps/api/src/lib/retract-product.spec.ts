@@ -9,6 +9,8 @@ import {
   buildCacheTagsForProduct,
   buildDeleteStatements,
   buildFootprintSql,
+  ddlHasVendorHeldColumns,
+  INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
   DELETE_EVIDENCED_PAIRS_FLAG,
@@ -547,6 +549,58 @@ describe('buildDeleteStatements against the migrated schema', () => {
         .prepare(`SELECT count(*) AS n FROM product_categories WHERE product_id = 'prod-stub'`)
         .get(),
     ).toEqual({ n: 0 });
+    t.dispose();
+  });
+});
+
+describe('vendor-held integrations are refused, --force or not (AECI-1005)', () => {
+  const footprintWithProbe = (t: TestDb, id: string): RetractFootprint => {
+    const ddl = (t.raw.prepare(INTEGRATIONS_DDL_SQL).get() as { sql: string } | undefined)?.sql;
+    return parseFootprint(
+      t.raw
+        .prepare(buildFootprintSql(id, { vendorHeldColumns: ddlHasVendorHeldColumns(ddl) }))
+        .get() as RawFootprintRow,
+    );
+  };
+  const markI1 = (t: TestDb, set: string) =>
+    t.raw.prepare(`UPDATE integrations SET ${set} WHERE id = 'i1'`).run();
+
+  it('refuses a product whose endpoint integration its owner has claimed', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    markI1(t, `claimed_at = ${TS}`);
+    const fp = footprintWithProbe(t, P);
+    expect(fp.vendorHeldIntegrations).toBe(1);
+    const verdict = classifyRetraction(fp);
+    expect(verdict.safe).toBe(false);
+    // A refusal, not a blocker: `--force` only waives blockers.
+    expect(verdict.refusals).toEqual([expect.stringMatching(/vendor-held/)]);
+    t.dispose();
+  });
+
+  it('refuses a product whose endpoint integration a vendor created', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    markI1(t, `origin = 'vendor'`);
+    expect(classifyRetraction(footprintWithProbe(t, P)).refusals).toHaveLength(1);
+    t.dispose();
+  });
+
+  it('does not refuse an AECi-seeded, unclaimed integration (still a --force blocker)', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    const verdict = classifyRetraction(footprintWithProbe(t, P));
+    expect(verdict.refusals).toEqual([]);
+    expect(verdict.blockers.length).toBeGreaterThan(0);
+    t.dispose();
+  });
+
+  it('still reads a footprint on a database without migration 0044', async () => {
+    const t = await makeTestDb({ upToExclusive: '0044_slippery_edwin_jarvis.sql' });
+    seed(t);
+    const ddl = (t.raw.prepare(INTEGRATIONS_DDL_SQL).get() as { sql: string }).sql;
+    expect(ddlHasVendorHeldColumns(ddl)).toBe(false);
+    expect(footprintWithProbe(t, P).vendorHeldIntegrations).toBe(0);
     t.dispose();
   });
 });

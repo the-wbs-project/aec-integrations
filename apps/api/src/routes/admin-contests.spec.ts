@@ -25,6 +25,8 @@ import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
+import { readAdminQueueCounts } from '../lib/admin-queue-counts';
+import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createAdminContestsListHandler, createModerateContestHandler } from './admin-contests';
@@ -371,5 +373,162 @@ describe('/api/admin/contests — authorization', () => {
   it('lets an admin through', async () => {
     const token = await jwks.mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
     expect((await request('/api/admin/contests', 'GET', token)).status).toBe(200);
+  });
+});
+
+// ─── AECI-1005: what an AECi accept writes once ownership exists ─────────────
+
+const CLAIMED_AT = '2026-09-20T00:00:00.000Z';
+
+async function setIntegration(values: Partial<typeof integrations.$inferInsert>) {
+  await t.db.update(integrations).set(values).where(eq(integrations.id, I_MAIN));
+}
+const integrationRow = async () =>
+  (await t.db.query.integrations.findFirst({ where: eq(integrations.id, I_MAIN) }))!;
+const accept = (id: string) =>
+  call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, { decision: 'accept' });
+const auditActions = async () => (await t.db.select().from(auditLog)).map((r) => r.action);
+
+describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', () => {
+  it('applies a content value here when the row is claimed, and says so on the issue', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    // Filed while unclaimed (so routed to AECi), then the owner claimed it.
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const res = await accept(id);
+    expect(res.status).toBe(200);
+    expect((await integrationRow()).name).toBe('Revit Link');
+    const updated = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.updated',
+    );
+    expect(updated).toMatchObject({ actorId: ADMIN_ID, entityId: I_MAIN });
+    expect(updated!.metadata).toMatchObject({ reason: 'contest-accepted', contestId: id });
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'applied-here' });
+    const decision = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.contest.accepted',
+    );
+    expect(decision!.metadata).toMatchObject({ appliedMode: 'applied-here' });
+  });
+
+  it('writes nothing here for a content accept on an unclaimed row (unchanged)', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await accept(id);
+    expect((await integrationRow()).name).toBe('Revit for MicroStation');
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'upstream-only' });
+  });
+
+  it('approves an owner-unknown claim: owner + claimed_at + transfer, one batch (decision 11)', async () => {
+    await setIntegration({ builtByVendorId: null });
+    const id = await fileContest('owner', VENDOR_A);
+    const res = await accept(id);
+    expect(res.status).toBe(200);
+    const row = await integrationRow();
+    expect(row).toMatchObject({ builtByVendorId: VENDOR_A, maintainedBy: 'vendor' });
+    expect(row.claimedAt).not.toBeNull();
+    expect(row.lastReviewedAt).toBe(row.claimedAt);
+    const audits = await t.db.select().from(auditLog);
+    const claimedAudit = audits.find((r) => r.action === 'integration.claimed');
+    expect(claimedAudit!.metadata).toMatchObject({ reason: 'owner-approved', contestId: id });
+    // The other endpoint vendor is told, like an owner's own claim.
+    const claimNotice = audits.find(
+      (r) =>
+        r.action === NOTIFICATION_SENT_ACTION &&
+        (r.metadata as { kind: string }).kind === 'integration_claim',
+    );
+    expect(claimNotice!.metadata).toMatchObject({ vendorId: VENDOR_B, ownerVendorId: VENDOR_A });
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({
+      field: 'owner',
+      appliedMode: 'owner-recorded',
+    });
+  });
+
+  it('refuses the ownership write on a connector-powered row, but the accept stands (decision 9)', async () => {
+    await setIntegration({ builtByVendorId: null, mechanismKind: 'iPaaS' });
+    const id = await fileContest('owner', VENDOR_A);
+    const res = await accept(id);
+    expect(res.status).toBe(200);
+    const row = await integrationRow();
+    expect(row.builtByVendorId).toBeNull();
+    expect(row.claimedAt).toBeNull();
+    expect(await auditActions()).not.toContain('integration.claimed');
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'upstream-only' });
+  });
+
+  it('reassigns a claimed row to someone else and clears claimed_at', async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    // Owned by B and claimed; A says "neither endpoint vendor offers it".
+    const id = await fileContest('owner', null);
+    const res = await accept(id);
+    expect(res.status).toBe(200);
+    const row = await integrationRow();
+    expect(row.builtByVendorId).toBeNull();
+    expect(row.claimedAt).toBeNull();
+    const updated = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.updated',
+    );
+    expect(updated!.metadata).toMatchObject({ reason: 'owner-reassigned' });
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'owner-recorded' });
+  });
+
+  it('writes nothing for an owner reassignment on an unclaimed row (promote carries it)', async () => {
+    const id = await fileContest('owner', null);
+    await accept(id);
+    expect((await integrationRow()).builtByVendorId).toBe(VENDOR_B);
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'upstream-only' });
+  });
+
+  it('lets AECi decide a STRANDED owner-routed contest (owner vendor gone)', async () => {
+    claimed = true;
+    const id = await fileContest('name', 'Revit Link');
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ ownerVendorId: null })
+      .where(eq(integrationFieldChallenges.id, id));
+    // It badges the queue, because AECi is now its decider.
+    expect((await readAdminQueueCounts(t.db)).pending_contests).toBe(1);
+    const res = await call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, { decision: 'decline' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('declined');
+    const decision = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.contest.declined',
+    );
+    expect(decision).toBeDefined();
+  });
+
+  it('aborts the whole decision when the row is claimed between read and commit', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        t.raw
+          .prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?')
+          .run(CLAIMED_AT, I_MAIN);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', ADMIN);
+      await next();
+    });
+    a.patch('/api/admin/contests/:id', createModerateContestHandler(racing, fileIssue));
+    const res = await a.request(
+      `/api/admin/contests/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: 'accept' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    const [contest] = await t.db.select().from(integrationFieldChallenges);
+    expect(contest!.status).toBe('open');
+    expect(await auditActions()).not.toContain('integration.contest.accepted');
+    expect(fileIssue).not.toHaveBeenCalled();
   });
 });

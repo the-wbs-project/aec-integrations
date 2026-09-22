@@ -151,9 +151,17 @@ export class ContestQueue {
     void this.load();
   }
 
-  /** Only open, AECi-routed rows can be decided here. */
+  /** Open rows AECi decides: AECi-routed ones, and stranded owner-routed ones. */
   protected isActionable(c: AdminContest): boolean {
-    return c.status === 'open' && c.routed_to === 'aeci';
+    return c.status === 'open' && (c.routed_to === 'aeci' || this.isStranded(c));
+  }
+
+  /**
+   * An owner-routed row whose owner vendor was deleted (`owner_vendor` is null). No
+   * vendor can decide it any more, so AECi does (AECI-1005).
+   */
+  protected isStranded(c: AdminContest): boolean {
+    return c.routed_to === 'owner' && c.owner_vendor === null;
   }
 
   // ── Display ──────────────────────────────────────────────────────────────
@@ -245,7 +253,7 @@ export class ContestQueue {
     const input: DecideContestInput = { decision, ...(note ? { note } : {}) };
     // Read before the row is dropped: only an open AECi row is in the count.
     const row = this.contests().find((c) => c.id === id);
-    const wasCounted = row?.status === 'open' && row.routed_to === 'aeci';
+    const wasCounted = !!row && this.isActionable(row);
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
     try {
@@ -255,7 +263,7 @@ export class ContestQueue {
       if (wasCounted) this.summaryStore.decrement('contests');
       this.liveMessage.set(
         decision === 'accept'
-          ? $localize`:@@admin.contests.announce.accepted:Contest accepted. A review issue is being filed in Linear. The live listing has not changed.`
+          ? $localize`:@@admin.contests.announce.accepted2:Contest accepted. A review issue is being filed in Linear.`
           : $localize`:@@admin.contests.announce.declined:Contest declined. The vendor that filed it can see your note.`,
       );
     } catch (err) {

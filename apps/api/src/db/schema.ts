@@ -1514,8 +1514,9 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * A seated endpoint vendor that does NOT own an integration says "this field is
  * wrong, here is the right value, here is why". One row per challenge. The row is
  * a REQUEST, never the value: nothing here is read by a public page, and the
- * catalog only changes when the owner accepts (routed to `owner`) — an AECi accept
- * files a `REVIEW - ` Linear issue and writes nothing.
+ * catalog changes when the owner accepts (routed to `owner`). An AECi accept files a
+ * `REVIEW - ` Linear issue, and since AECI-1005 writes here only when the row is
+ * claimed or it approves an owner (`routes/admin-contests.ts` header).
  *
  * ── ROUTING IS FROZEN AT SUBMIT ─────────────────────────────────────────────
  * `routed_to` and `owner_vendor_id` are snapshots taken at insert, so a later

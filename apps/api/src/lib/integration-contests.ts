@@ -332,6 +332,30 @@ export function contestStillOpenSentinel(db: Db, contestId: string) {
     .where(eq(integrationFieldChallenges.id, contestId));
 }
 
+/**
+ * A batch statement that ABORTS an admin accept when the integration's ownership
+ * state moved after the handler read it (AECI-1005). What an AECi accept writes
+ * depends on that state (`claimed_at` decides whether the value is applied here,
+ * `built_by_vendor_id` whether an owner accept is a reassignment), so a claim or an
+ * owner change landing between the read and the batch must not be decided on stale
+ * facts. Same `json()` abort as {@link contestStillOpenSentinel}; the handler tells
+ * the two apart by re-reading the contest, which is still `open` only in this case.
+ */
+export function contestIntegrationStateSentinel(
+  db: Db,
+  integrationId: string,
+  expected: { claimed: boolean; ownerVendorId: string | null },
+) {
+  return db
+    .select({
+      guard: sql`CASE WHEN (${integrations.claimedAt} IS NOT NULL) <> ${expected.claimed ? 1 : 0}
+        OR ifnull(${integrations.builtByVendorId}, '') <> ${expected.ownerVendorId ?? ''}
+        THEN json('contest-integration-changed') END`,
+    })
+    .from(integrations)
+    .where(eq(integrations.id, integrationId));
+}
+
 /** True for the error {@link contestStillOpenSentinel} raises, in D1 or SQLite. */
 export function isContestRaceError(error: unknown): boolean {
   const seen = new Set<unknown>();

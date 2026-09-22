@@ -26,6 +26,8 @@
  *     claims and their attestations are deleted explicitly, child to parent, and
  *     tombstoned in the same batch; their `pair:` and endpoint `product:` Cache-Tags
  *     join the purge.
+ *   - Refuses a vendor-held integration (claimed, or `origin = 'vendor'`) ALWAYS,
+ *     `--force` or `--delete-evidenced-pairs` or not (AECI-1005 / ADR 0035).
  *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
@@ -59,6 +61,8 @@ import {
   buildCacheTagsForProduct,
   buildDeleteStatements,
   buildFootprintSql,
+  ddlHasVendorHeldColumns,
+  INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
   DELETE_EVIDENCED_PAIRS_FLAG,
@@ -261,7 +265,14 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // 2. Footprint + report.
-  const rawFootprint = runD1<RawFootprintRow>(target, buildFootprintSql(product.id))[0]?.results[0];
+  // AECI-1005: probe for the vendor-held columns first. Migration 0044 reaches each
+  // tier only at its next deploy, and naming a missing column would fail the read.
+  const integrationsDdl =
+    runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  const rawFootprint = runD1<RawFootprintRow>(
+    target,
+    buildFootprintSql(product.id, { vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl) }),
+  )[0]?.results[0];
   if (!rawFootprint) {
     console.error('Could not read footprint (empty result).');
     return 1;

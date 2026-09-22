@@ -612,7 +612,8 @@ authAdmin.patch(
 );
 // AECI-1008: integration field contests, the AECi queue. The PATCH is the eighth
 // named write exception in `ADMIN_PANEL_SPEC.md`: a DECISION write. An accept
-// writes no catalog data; it files a `REVIEW - ` Linear issue post-commit.
+// files a `REVIEW - ` Linear issue post-commit, and since AECI-1005 also writes the
+// catalog when the integration is claimed or an owner is approved (ADR 0035).
 authAdmin.get('/api/admin/contests', requireAdmin(), createAdminContestsListHandler());
 authAdmin.patch(
   '/api/admin/contests/:id',
