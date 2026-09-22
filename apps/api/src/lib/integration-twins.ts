@@ -32,7 +32,8 @@
  *     strongly matching a **vendor-held** row, live or retired, with the kind in the
  *     key, and reports it as `VENDOR_OWNED_TWIN`. Three writes can do that: an
  *     insert, a de-route out of `connector_evidenced_pairs`, and an UPDATE that
- *     re-points an unclaimed row's endpoints or connector. It never deletes
+ *     changes any key field of an unclaimed row (its endpoints, connector,
+ *     `mechanism_kind` or owner). It never deletes
  *     anything, and curated-versus-curated behaviour is unchanged.
  *
  * `connector_evidenced_pairs` is not searched. Every row there is connector-powered
@@ -150,7 +151,7 @@ export async function findStrongMatches(
 /**
  * The commit-time half of promote's `VENDOR_OWNED_TWIN` guard. Pushed immediately
  * ahead of each `integrations` write the guard checked (an INSERT, a de-route move, or
- * a re-pointing UPDATE); ABORTS the whole batch when a
+ * an UPDATE that changes a key field); ABORTS the whole batch when a
  * vendor-held strong match exists by the time the batch runs, i.e. a vendor created
  * (or claimed) the twin after the plan read. Same shape as the AECI-1005
  * `promoteClaimFenceSentinel`: the job errors with
