@@ -207,7 +207,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               [attr.aria-invalid]="textError() ? 'true' : null"
               [class]="inputClass"
             ></textarea>
-            <p [id]="ids.replyHint" class="text-xs text-(--text-secondary)">
+            <p [id]="ids.replyHint" class="max-w-prose text-xs text-(--text-secondary)">
               <ng-container i18n="@@vendor.protest.reply.hint"
                 >You can reply once, by {{ p.reply_due_at | date: 'mediumDate' }}. AEC Integrations
                 and the vendor that sent the contest see it. Nothing about it is
@@ -227,7 +227,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
       </div>
     } @else if (side() === 'submitted') {
       @if (windowPhase() === 'not_yet') {
-        <p class="text-xs text-(--text-secondary)">
+        <p class="max-w-prose text-xs text-(--text-secondary)">
           <ng-container i18n="@@vendor.protest.notYet"
             >You can ask AEC Integrations to review this from
             {{ c.protest_opens_at | date: 'mediumDate' }} if the owner has not
@@ -325,7 +325,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
     }
 
     @if (side() === 'submitted' && c.cooldown_until; as until) {
-      <p class="mt-2 text-xs text-(--text-secondary)">
+      <p class="mt-2 max-w-prose text-xs text-(--text-secondary)">
         <ng-container i18n="@@vendor.protest.cooldown"
           >You can't contest this field again until {{ until | date: 'mediumDate' }}, unless its
           value changes.</ng-container
@@ -339,9 +339,10 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
 
     <ng-template #evidenceFields>
       <fieldset class="space-y-2">
-        <legend [class]="labelClass" i18n="@@vendor.protest.links.legend">
-          Supporting links (optional, up to three)
-        </legend>
+        <legend [class]="labelClass" i18n="@@vendor.protest.links.legend">Supporting links</legend>
+        <p class="text-xs text-(--text-secondary)" i18n="@@vendor.protest.links.hint">
+          Optional. Up to three.
+        </p>
         @for (url of links(); track $index) {
           <div class="flex flex-wrap items-center gap-2">
             <label [for]="ids.link + $index" class="sr-only" i18n="@@vendor.protest.links.label"

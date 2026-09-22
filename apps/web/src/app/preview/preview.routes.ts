@@ -74,6 +74,13 @@ export const previewRoutes: Routes = [
       import('./vendor-dashboard/vendor-dashboard-preview').then((m) => m.VendorDashboardPreview),
     children: VENDOR_SECTION_ROUTES,
   },
+  // AECI-1009 — the `/admin/contests` queue over a fixture-backed fake API, so the
+  // Protests view and its decision form render without an admin session.
+  {
+    path: 'admin-contests',
+    loadComponent: () =>
+      import('./admin-contests/admin-contests-preview').then((m) => m.AdminContestsPreview),
+  },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
   // too thin to tune against (the real-data run is AECI-283). No Algolia.

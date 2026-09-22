@@ -2556,6 +2556,7 @@ The two decision events carry `metadata.recipientRole` (`submitter` or `owner`),
 - **The decision form** has two choices, "Agree with the submitter" (`uphold`) and "Agree with the owner" (`reject`), and a required note that the form refuses to send empty. Help text tied to both buttons by `aria-describedby` says the answer is advice, changes nothing on the listing, files no Linear issue, is shown in full to both vendors, and that agreeing with the owner stops the submitter contesting the field for 90 days unless its value changes. Before the reply due date, with no reply on file, it also says the owner can still reply and that deciding now means deciding without that reply.
 - **Pessimistic, one decision at a time**, as §11b.11. A success drops the row, decrements the `contests` badge, and announces the outcome in the page's one live region. `409 PROTEST_NOT_OPEN` announces "Already decided or withdrawn" and reloads, without decrementing.
 - `ADMIN_PANEL_SPEC.md` §5.12 records the IA. The PATCH is a decision write under the same eighth named exception, and it writes no catalog data.
+- **A dev-only preview**, `/preview/admin-contests`, renders the real `ContestQueue` over a component-provided fake API with a contest and two protests, so the Protests view and its decision form can be reviewed and scanned without an admin session. Like every `/preview` route it is blocked on the public tiers.
 
 #### 11b.12.12 The vendor portal
 
