@@ -303,7 +303,9 @@ In parallel with `deploy-staging`, the independent **`migrate-preview`** job app
 8. Smoke test: poll until **both** Workers report the deployed SHA and `/api/health` is `db:ok` (`scripts/verify-version.sh` + `verify-health.sh`, §9.2). This is a version/health poll, **not** a Playwright suite
 9. Update Algolia staging index settings (AECI-137; as of AECI-175 this also links +
    configures each primary's sort **replicas** — needs the management key scoped to the
-   replicas, see §7.4/§7.5), then run the **report-only**
+   replicas, see §7.4/§7.5. Since AECI-636 PR-B those are the two `name_asc` replicas only.
+   The apply detaches the retired `*_integration_count_desc` pair without deleting it, per
+   `SEARCH_RANKING.md` §5a), then run the **report-only**
    Algolia ↔ D1 index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
    `continue-on-error`) — surfaces drift via the `aeci.algolia.index_drift` gauge without
    blocking the deploy. The scheduled (daily 09:00 UTC = 04:00 EST) drift check runs as the API Worker
@@ -598,7 +600,7 @@ PR previews are unaffected — they never carry the key (§7.2). Note the GDPR c
 1. `node scripts/algolia/provision.mjs --env <env> --rotate` — mints fresh search + management keys for that env and deletes the old ones (the index scope follows `searchKeyParams`/`managementKeyParams`).
 2. Re-set the affected secrets with the printed values: `gh secret set ALGOLIA_SEARCH_KEY` / `ALGOLIA_ADMIN_KEY` (single shared secrets, all envs), and `wrangler secret put ALGOLIA_SEARCH_KEY --env <env>` (web) / `ALGOLIA_ADMIN_KEY --env <env>` (API). ⚠️ Rotating per-env now overwrites the one shared secret — mint a key that covers every env's indexes (or rotate all envs together).
 
-**One-time scope widening (AECI-175).** The sort replicas (§7.5) widened both keys' index scope to include the replica names. Before the first deploy that runs the AECI-175 apply step in an env, **re-provision that env's keys** (`pnpm algolia:provision --env <env>` — or `--rotate`) and re-push the secrets per the two steps above, or the CI `setSettings` on a replica will 403 and the browser key will 401 on a replica query. This is a one-off per env; routine rotation (above) already carries the wider scope.
+**One-time scope widening (AECI-175).** The sort replicas (§7.5) widened both keys' index scope to include the replica names. Before the first deploy that runs the AECI-175 apply step in an env, **re-provision that env's keys** (`pnpm algolia:provision --env <env>` — or `--rotate`) and re-push the secrets per the two steps above, or the CI `setSettings` on a replica will 403 and the browser key will 401 on a replica query. This is a one-off per env; routine rotation (above) already carries the wider scope. *(AECI-636 PR-B, 2026-09-22: retiring the two "Most integrations" replicas needs no re-provision. A key scoped to an index name that no longer exists is harmless.)*
 3. Redeploy that env so the Workers pick up the new secrets.
 
 `ALGOLIA_APP_ID` is not a credential and does not rotate. Rotating the root admin key itself is a dashboard operation (Algolia → API Keys) followed by re-exporting it locally before the next provision run.
@@ -619,10 +621,10 @@ The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `
 **Three keys per app, two of them per-env-scoped:**
 
 - **Root admin key** — app-wide, all ACLs. **Operator-held**; used _only_ to run `scripts/algolia/provision.mjs`. Never a GitHub or Worker secret.
-- **Search-only key** (per env) — ACL `['search']`, scoped to that env's three indexes **and their sort replicas** (AECI-175: `<prefix>_products_name_asc`, etc. — `connectSortBy` queries replicas directly). → web Worker `ALGOLIA_SEARCH_KEY`. Client-exposed (rendered into the SSR HTML as `window.__AECI_ALGOLIA__` for InstantSearch, 3.9).
+- **Search-only key** (per env) — ACL `['search']`, scoped to that env's three indexes **and their sort replicas** (AECI-175: `<prefix>_products_name_asc`, etc. — `connectSortBy` queries replicas directly; since AECI-636 PR-B the live replicas are the two `name_asc` ones only). → web Worker `ALGOLIA_SEARCH_KEY`. Client-exposed (rendered into the SSR HTML as `window.__AECI_ALGOLIA__` for InstantSearch, 3.9).
 - **Management key** (per env) — ACL `search + addObject + deleteObject + editSettings + listIndexes`, scoped to that env's three indexes **and their sort replicas** (so the apply step can configure each replica's `ranking`); excludes the destructive/global ACLs (`deleteIndex`, `usage`, `logs`, …). → API Worker `ALGOLIA_ADMIN_KEY`. Server-only; used by sync from 3.5.
 
-The replica index names (`<prefix>_<entity>_<sort>`) are defined alongside the base names in `packages/shared/src/algolia.ts` (`replicaNamesFor`); the standard replicas auto-mirror their primary's records, so sync still pushes only to the base indexes (see `SEARCH_RANKING.md` §5a).
+The replica index names (`<prefix>_<entity>_<sort>`) are defined alongside the base names in `packages/shared/src/algolia.ts` (`replicaNamesFor`, two names per env since AECI-636 PR-B: `<prefix>_products_name_asc` and `<prefix>_vendors_name_asc`); the standard replicas auto-mirror their primary's records, so sync still pushes only to the base indexes (see `SEARCH_RANKING.md` §5a).
 
 Both per-env keys are standalone (`addApiKey`, not derived/secured keys), so each rotates independently per env (§7.4). The search and management keys are minted by the provision script; the operator pushes them to the Workers via `wrangler secret put`. **The management/admin key must never reach the browser** — it is deliberately absent from the web Worker's `WebEnv`, and a unit test (`apps/web/src/algolia-bootstrap-inject.spec.ts`) enforces that the bootstrap injection never serializes it.
 

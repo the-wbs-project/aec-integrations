@@ -20,6 +20,5 @@ export function productSortOptions(): readonly ListingSortOption[] {
     { value: 'updated', label: $localize`:@@listing.sort.updated:Recently updated` },
     { value: 'rating', label: $localize`:@@listing.sort.rating:Highest rated` },
     { value: 'reviews', label: $localize`:@@listing.sort.reviews:Most reviewed` },
-    { value: 'integrations', label: $localize`:@@listing.sort.integrations:Most integrations` },
   ];
 }

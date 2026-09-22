@@ -539,7 +539,7 @@ export class SearchPage implements OnDestroy {
     });
   }
 
-  /** The active sort token (`relevance` | `integrations` | `name`) for a tab. */
+  /** The active sort token (`relevance` | `name`) for a tab. */
   private currentSortToken(tab: EntityTab): string {
     const ctrl = this.controller();
     if (!ctrl) return 'relevance';
@@ -552,8 +552,6 @@ export class SearchPage implements OnDestroy {
     switch (key) {
       case 'relevance':
         return $localize`:@@search.sort.relevance:Relevance`;
-      case 'integrations':
-        return $localize`:@@search.sort.integrations:Most integrations`;
       case 'name':
         return $localize`:@@search.sort.name:Name (A–Z)`;
       default:
@@ -564,7 +562,9 @@ export class SearchPage implements OnDestroy {
   /**
    * Resolve the inbound `?sort=` token into a per-tab initial index name for the
    * controller, applied to the initial active tab only (the URL carries one sort,
-   * scoped to the visible tab). Relevance / unknown tokens seed nothing (primary).
+   * scoped to the visible tab). Relevance / unknown tokens seed nothing (primary),
+   * which is how a retired token such as `integrations` (the "Most integrations"
+   * replica, retired by AECI-636 PR-B) falls back to Relevance without an error.
    */
   private initialSort(config: AlgoliaPublicConfig): Partial<Record<EntityTab, string>> {
     const tab = this.activeTab();

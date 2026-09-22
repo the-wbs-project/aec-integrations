@@ -74,7 +74,7 @@ This is the deliberate contrast with `STAGE_2_VENDOR_PORTAL_SPEC.md` §1.2 ("no 
 | The offline-arrangement contract | `ClaimEntitlementSchema`, `packages/shared/src/api/admin-claims.ts` ~:29-36 | §2, §5 |
 | The grant's purge tag set (`vendor:{slug}` + every owned `product:{slug}` + `index:products`) | `grantPurgeTags`, `apps/api/src/routes/admin-claims.ts` ~:246-255 | §2 (promoted to a shared module), §5 |
 | Audit/workflow batch builders | `auditInsert` / `workflowTransitionInsert`, `apps/api/src/lib/audit.ts` ~:42-68 | §2, §5, §7 |
-| The ranking freeze that already makes half the firewall true | `packages/shared/src/algolia.spec.ts` ~:242/:262/:274 (per-entity `customRanking` frozen to its exact Stage-1 value) and ~:283-291 (regex over the union of `searchableAttributes ∪ attributesForFaceting ∪ customRanking`) | §3.2 |
+| The ranking freeze that already makes half the firewall true | `packages/shared/src/algolia.spec.ts` ~:242/:262/:274 (per-entity `customRanking` frozen to its exact Stage-1 value) and ~:283-291 (regex over the union of `searchableAttributes ∪ attributesForFaceting ∪ customRanking`). *(AECI-636 PR-B, 2026-09-22: no longer the Stage-1 values. AECI-636 reopened the freeze by decision; see §3.2.)* | §3.2 |
 | The email route-seam pattern (route declares a `Send*Email` type + no-op default as a factory param; `email.ts` exports a structurally-typed adapter; `index.ts` injects the real one) | `apps/api/src/routes/admin-claims.ts` ~:100-113 + `apps/api/src/lib/email.ts` ~:327-350 | §7 |
 | Inline (queue-less) cron precedent — `queueForJob` returns `undefined`, so the job always runs in the `scheduled` handler | `MODERATION_CRON = '0 6 * * *'`, `apps/api/src/scheduled.ts` ~:135-137 | §7 |
 | The daily data-quality check suite (report-only; each check is a pure async fn over an injected `Db`, emitting the `aeci.data_quality.check` gauge) | `apps/api/src/lib/data-quality.ts` | §2.1 |
@@ -277,6 +277,8 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
    Adding a plan-shaped input, or reading one without declaring it, fails the build. It is an invariant test like the other three.
 
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
+
+*(AECI-636 PR-B, 2026-09-22: the freeze was scoped to the AECI-515 epic. AECI-636 reopened it as a decision on 2026-08-23, not as test churn. `customRanking` is now `desc(listing_tier)`, `desc(review_count)` on products and `desc(listing_tier)` on vendors. The firewall also grew: `entitlements.spec.ts` now asserts that no entity's `customRanking` names a plan, entitlement or verified attribute. `listing_tier` is the one allowed name containing "tier", because the same spec proves its inputs are content only. See `SEARCH_RANKING.md` §1.)*
 
 ### 3.3 Where `hasCapability` is consulted — and where it is forbidden
 

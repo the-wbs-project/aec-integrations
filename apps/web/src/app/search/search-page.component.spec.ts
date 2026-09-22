@@ -266,6 +266,23 @@ describe('SearchPage shell', () => {
     expect(trigger.textContent).toContain('Name (A–Z)');
   });
 
+  // AECI-636 PR-B retired the "Most integrations" replica. A bookmarked or
+  // crawled /search?sort=integrations must land on Relevance, never error.
+  it('falls back to Relevance on the retired ?sort=integrations', async () => {
+    const { el } = await setupMounted('/search?sort=integrations');
+    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement;
+    expect(trigger.textContent).toContain('Relevance');
+    expect(trigger.textContent).not.toContain('Most integrations');
+  });
+
+  it('offers exactly Relevance and Name (A–Z) on the products tab', async () => {
+    const { fixture } = await setupMounted('/search');
+    const options = (
+      fixture.componentInstance as unknown as { sortUiOptions: () => readonly { label: string }[] }
+    ).sortUiOptions();
+    expect(options.map((option) => option.label)).toEqual(['Relevance', 'Name (A–Z)']);
+  });
+
   it('writes ?sort= when a non-relevance sort is chosen, and clears it for relevance', async () => {
     const { fixture, router } = await setupMounted('/search');
     const page = fixture.componentInstance as unknown as SortablePage;

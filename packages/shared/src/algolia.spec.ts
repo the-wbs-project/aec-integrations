@@ -130,9 +130,7 @@ describe('searchKeyParams', () => {
       'staging_products',
       'staging_vendors',
       'staging_integrations',
-      'staging_products_integration_count_desc',
       'staging_products_name_asc',
-      'staging_vendors_integration_count_desc',
       'staging_vendors_name_asc',
     ]);
     expect(params.description).toBe('aeci:search:staging');
@@ -161,9 +159,7 @@ describe('managementKeyParams', () => {
       'production_products',
       'production_vendors',
       'production_integrations',
-      'production_products_integration_count_desc',
       'production_products_name_asc',
-      'production_vendors_integration_count_desc',
       'production_vendors_name_asc',
     ]);
     expect(params.description).toBe('aeci:management:production');
@@ -195,20 +191,32 @@ describe('managementKeyParams', () => {
 // ---------------------------------------------------------------------------
 
 describe('sortReplicasFor', () => {
-  it('exposes "Most integrations" + "Name A–Z" for products & vendors', () => {
+  it('exposes only "Name A–Z" for products & vendors (AECI-636 retired "Most integrations")', () => {
     for (const entity of ['products', 'vendors'] as const) {
       const sorts = sortReplicasFor(entity);
-      expect(sorts.map((s) => s.sort)).toEqual(['integrations', 'name']);
-      expect(sorts.map((s) => s.suffix)).toEqual(['integration_count_desc', 'name_asc']);
+      expect(sorts.map((s) => s.sort)).toEqual(['name']);
+      expect(sorts.map((s) => s.suffix)).toEqual(['name_asc']);
+    }
+  });
+
+  // AECI-636: no replica may sort on a count again. A count of integrations
+  // rewards shallow connectors; re-adding the replica would also be refused at
+  // the Algolia index cap and fail the CI settings step.
+  it('no replica ranks on integration_count, product_count or review_count', () => {
+    for (const entity of INDEX_ENTITIES) {
+      for (const replica of sortReplicasFor(entity)) {
+        expect(replica.suffix).not.toMatch(/count/);
+        for (const criterion of replica.ranking) {
+          expect(criterion).not.toMatch(/integration_count|product_count|review_count/);
+        }
+      }
     }
   });
 
   it('leads each replica ranking with its sort attribute, then Algolia defaults', () => {
     const tail = ['typo', 'geo', 'words', 'filters', 'proximity', 'attribute', 'exact', 'custom'];
-    const products = sortReplicasFor('products');
-    expect(products[0]!.ranking).toEqual(['desc(integration_count)', ...tail]);
-    expect(products[1]!.ranking).toEqual(['asc(name_sort)', ...tail]);
-    expect(sortReplicasFor('vendors')[1]!.ranking).toEqual(['asc(company_name_sort)', ...tail]);
+    expect(sortReplicasFor('products')[0]!.ranking).toEqual(['asc(name_sort)', ...tail]);
+    expect(sortReplicasFor('vendors')[0]!.ranking).toEqual(['asc(company_name_sort)', ...tail]);
   });
 
   // AECI-825 — Algolia orders a string attribute by lexicographical Unicode order,
@@ -217,10 +225,10 @@ describe('sortReplicasFor', () => {
   // asserts the negative because the regression is silent: the sort keeps working,
   // it is just wrong, and no request fails.
   it('ranks A–Z on the folded sort key, never on the display attribute', () => {
-    expect(sortReplicasFor('products')[1]!.ranking[0]).toBe('asc(name_sort)');
-    expect(sortReplicasFor('products')[1]!.ranking).not.toContain('asc(name)');
-    expect(sortReplicasFor('vendors')[1]!.ranking[0]).toBe('asc(company_name_sort)');
-    expect(sortReplicasFor('vendors')[1]!.ranking).not.toContain('asc(company_name)');
+    expect(sortReplicasFor('products')[0]!.ranking[0]).toBe('asc(name_sort)');
+    expect(sortReplicasFor('products')[0]!.ranking).not.toContain('asc(name)');
+    expect(sortReplicasFor('vendors')[0]!.ranking[0]).toBe('asc(company_name_sort)');
+    expect(sortReplicasFor('vendors')[0]!.ranking).not.toContain('asc(company_name)');
   });
 
   it('gives the hidden integrations tab no replicas (§7.5)', () => {
@@ -235,9 +243,7 @@ describe('replicaIndexName / replicaNamesFor', () => {
 
   it('lists every replica physical name for an env in entity → sort order', () => {
     expect(replicaNamesFor('staging')).toEqual([
-      'staging_products_integration_count_desc',
       'staging_products_name_asc',
-      'staging_vendors_integration_count_desc',
       'staging_vendors_name_asc',
     ]);
     expect(replicaNamesFor('development')).toEqual(replicaNamesFor('preview'));
@@ -249,9 +255,22 @@ describe('replicaIndexName / replicaNamesFor', () => {
 // ---------------------------------------------------------------------------
 
 describe('indexSettingsFor', () => {
-  it('products: ranks by integration_count then review_count (§7.3)', () => {
+  it('products: ranks by listing_tier then review_count (AECI-636 PR-B)', () => {
     const s = indexSettingsFor('products');
-    expect(s.customRanking).toEqual(['desc(integration_count)', 'desc(review_count)']);
+    expect(s.customRanking).toEqual(['desc(listing_tier)', 'desc(review_count)']);
+  });
+
+  // AECI-636: integration evidence ranks the integrations index only. Products
+  // and vendors never consume a count of integrations or of products again. The
+  // counts stay faceted (a filter is the buyer's intent), just not ranked.
+  it('products & vendors: customRanking names neither integration_count nor product_count', () => {
+    for (const entity of ['products', 'vendors'] as const) {
+      const s = indexSettingsFor(entity);
+      expect(s.customRanking[0]).toBe('desc(listing_tier)');
+      for (const attr of s.customRanking) {
+        expect(attr).not.toMatch(/integration_count|product_count/);
+      }
+    }
   });
 
   it('products: facets categories/audiences/phases/trades/vendor_name/has_api_docs/integration_count (§7.2)', () => {
@@ -295,9 +314,9 @@ describe('indexSettingsFor', () => {
     }
   });
 
-  it('vendors: ranks by integration_count then product_count; facets HQ/founded/product_count (§7.2/§7.3)', () => {
+  it('vendors: ranks by listing_tier only; facets HQ/founded/product_count (§7.2, AECI-636 PR-B)', () => {
     const s = indexSettingsFor('vendors');
-    expect(s.customRanking).toEqual(['desc(integration_count)', 'desc(product_count)']);
+    expect(s.customRanking).toEqual(['desc(listing_tier)']);
     expect(s.attributesForFaceting).toEqual([
       'searchable(headquarters)',
       'founded_year',
@@ -411,10 +430,8 @@ describe('applyIndexSettings', () => {
     // Primary first, then its replicas, per entity (products, vendors, integrations).
     expect(calls.map((c) => c.indexName)).toEqual([
       'staging_products',
-      'staging_products_integration_count_desc',
       'staging_products_name_asc',
       'staging_vendors',
-      'staging_vendors_integration_count_desc',
       'staging_vendors_name_asc',
       'staging_integrations',
     ]);
@@ -422,10 +439,10 @@ describe('applyIndexSettings', () => {
     // Primary carries the §7.2/§7.3 settings + a `replicas` link to its replicas.
     expect(calls[0]!.indexSettings).toEqual({
       ...indexSettingsFor('products'),
-      replicas: ['staging_products_integration_count_desc', 'staging_products_name_asc'],
+      replicas: ['staging_products_name_asc'],
     });
     // The hidden integrations primary links an empty replica set.
-    expect(calls[6]!.indexSettings).toEqual({
+    expect(calls[4]!.indexSettings).toEqual({
       ...indexSettingsFor('integrations'),
       replicas: [],
     });
@@ -433,7 +450,7 @@ describe('applyIndexSettings', () => {
     // A replica inherits the primary's searchable/facet/customRanking and adds
     // its own `ranking` (sort attribute first).
     const base = indexSettingsFor('products');
-    expect(calls[2]!.indexSettings).toEqual({
+    expect(calls[1]!.indexSettings).toEqual({
       searchableAttributes: base.searchableAttributes,
       attributesForFaceting: base.attributesForFaceting,
       customRanking: base.customRanking,
@@ -445,22 +462,10 @@ describe('applyIndexSettings', () => {
 
     expect(applied).toEqual([
       { entity: 'products', indexName: 'staging_products', taskID: 101, role: 'primary' },
-      {
-        entity: 'products',
-        indexName: 'staging_products_integration_count_desc',
-        taskID: 102,
-        role: 'replica',
-      },
-      { entity: 'products', indexName: 'staging_products_name_asc', taskID: 103, role: 'replica' },
-      { entity: 'vendors', indexName: 'staging_vendors', taskID: 104, role: 'primary' },
-      {
-        entity: 'vendors',
-        indexName: 'staging_vendors_integration_count_desc',
-        taskID: 105,
-        role: 'replica',
-      },
-      { entity: 'vendors', indexName: 'staging_vendors_name_asc', taskID: 106, role: 'replica' },
-      { entity: 'integrations', indexName: 'staging_integrations', taskID: 107, role: 'primary' },
+      { entity: 'products', indexName: 'staging_products_name_asc', taskID: 102, role: 'replica' },
+      { entity: 'vendors', indexName: 'staging_vendors', taskID: 103, role: 'primary' },
+      { entity: 'vendors', indexName: 'staging_vendors_name_asc', taskID: 104, role: 'replica' },
+      { entity: 'integrations', indexName: 'staging_integrations', taskID: 105, role: 'primary' },
     ]);
   });
 
@@ -469,10 +474,8 @@ describe('applyIndexSettings', () => {
     await applyIndexSettings(client, 'development');
     expect(calls.map((c) => c.indexName)).toEqual([
       'preview_products',
-      'preview_products_integration_count_desc',
       'preview_products_name_asc',
       'preview_vendors',
-      'preview_vendors_integration_count_desc',
       'preview_vendors_name_asc',
       'preview_integrations',
     ]);
@@ -486,14 +489,12 @@ describe('applyIndexSettings', () => {
         return { taskID: 1 };
       },
     };
-    // 3 primaries + 4 replicas.
-    await expect(applyIndexSettings(client, 'production')).resolves.toHaveLength(7);
+    // 3 primaries + 2 replicas (the two "Most integrations" replicas retired, AECI-636).
+    await expect(applyIndexSettings(client, 'production')).resolves.toHaveLength(5);
     expect(calls.map((c) => c.indexName)).toEqual([
       'production_products',
-      'production_products_integration_count_desc',
       'production_products_name_asc',
       'production_vendors',
-      'production_vendors_integration_count_desc',
       'production_vendors_name_asc',
       'production_integrations',
     ]);
@@ -504,18 +505,14 @@ describe('applyIndexSettings', () => {
     const applied = await applyIndexSettingsTo(client, localizedIndexNamesFor('staging', 'es'));
     expect(calls.map((c) => c.indexName)).toEqual([
       'staging_products_es',
-      'staging_products_es_integration_count_desc',
       'staging_products_es_name_asc',
       'staging_vendors_es',
-      'staging_vendors_es_integration_count_desc',
       'staging_vendors_es_name_asc',
       'staging_integrations_es',
     ]);
     expect(applied.map((a) => a.entity)).toEqual([
       'products',
       'products',
-      'products',
-      'vendors',
       'vendors',
       'vendors',
       'integrations',

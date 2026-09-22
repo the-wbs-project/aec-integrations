@@ -32,6 +32,7 @@ function rec(partial: Partial<AlgoliaProductRecord> & { name: string }): Algolia
     rating_overall_avg: partial.rating_overall_avg ?? null,
     has_api_docs: partial.has_api_docs ?? false,
     logo_url: null,
+    ...(partial.listing_tier === undefined ? {} : { listing_tier: partial.listing_tier }),
   };
 }
 
@@ -70,11 +71,17 @@ describe('rankProducts — candidate set', () => {
     expect(rankProducts('zzz-nomatch', [a, b], 'baseline')).toHaveLength(0);
   });
 
-  it('includes everything for an empty query (browse), ordered by coverage under baseline', () => {
-    const small = rec({ name: 'Small', integration_count: 5 });
-    const big = rec({ name: 'Big', integration_count: 30 });
-    const mid = rec({ name: 'Mid', integration_count: 10 });
-    expect(names(rankProducts('', [small, big, mid], 'baseline'))).toEqual(['Big', 'Mid', 'Small']);
+  it('includes everything for an empty query (browse), ordered by listing_tier under baseline', () => {
+    // integration_count is deliberately inverted against the tier: since
+    // AECI-636 PR-B the baseline no longer reads it.
+    const thin = rec({ name: 'Thin', integration_count: 30 });
+    const full = rec({ name: 'Full', integration_count: 5, listing_tier: 2 });
+    const partial = rec({ name: 'Partial', integration_count: 10, listing_tier: 1 });
+    expect(names(rankProducts('', [thin, full, partial], 'baseline'))).toEqual([
+      'Full',
+      'Partial',
+      'Thin',
+    ]);
   });
 
   it('assigns contiguous 1-based ranks', () => {
@@ -101,9 +108,18 @@ describe('rankProducts — lexicographic strategies', () => {
     rating_overall_avg: 4.0,
   });
 
-  it('baseline breaks a textual tie by integration_count desc', () => {
-    // Equal textScore (both match "bim" in taxonomy) → higher integration_count wins.
-    expect(names(rankProducts('bim', [a, b], 'baseline'))).toEqual(['B-tool', 'A-tool']);
+  it('baseline breaks a textual tie by listing_tier desc, never by integration_count', () => {
+    // Equal textScore (both match "bim" in taxonomy). B has more integrations,
+    // A has the more complete listing, and the listing wins (AECI-636 PR-B).
+    const fuller = rec({ ...a, listing_tier: 2 });
+    const thinner = rec({ ...b, listing_tier: 1 });
+    expect(names(rankProducts('bim', [thinner, fuller], 'baseline'))).toEqual(['A-tool', 'B-tool']);
+  });
+
+  it('baseline falls through to review_count when the tiers tie', () => {
+    const fewer = rec({ ...a, listing_tier: 2, review_count: 1 });
+    const more = rec({ ...b, listing_tier: 2, review_count: 9 });
+    expect(names(rankProducts('bim', [fewer, more], 'baseline'))).toEqual(['B-tool', 'A-tool']);
   });
 
   it('ratings-forward breaks a textual tie by rating, ahead of coverage', () => {
@@ -166,8 +182,18 @@ describe('rankProducts — weighted strategies', () => {
 });
 
 describe('rankProducts — over the curated fixtures', () => {
-  it('"estimating" diverges: Baseline leads with coverage, Ratings-forward with the better-rated tool', () => {
-    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'baseline')[0].record.slug).toBe('proest');
+  // Before AECI-636 PR-B the baseline led with ProEst, the more-integrated tool.
+  // The fixtures carry no listing_tier, so the baseline now falls through to
+  // review_count and no longer rewards the integration count.
+  it('"estimating": Baseline no longer leads with the most-integrated tool', () => {
+    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'baseline')[0].record.slug).toBe('stack');
     expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'ratings')[0].record.slug).toBe('stack');
+  });
+
+  // e2e/preview-search-relevance.spec.ts relies on this divergence: switching
+  // from Baseline to Coverage-weighted must change the top row.
+  it('"estimating" diverges: Baseline leads with STACK, Coverage-weighted with ProEst', () => {
+    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'baseline')[0].record.slug).toBe('stack');
+    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'coverage')[0].record.slug).toBe('proest');
   });
 });

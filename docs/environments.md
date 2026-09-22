@@ -1247,6 +1247,23 @@ mechanism.
 The shared Algolia app is **over its index limit** (24 live against a 20 cap, verified
 2026-08-20: `✗ Algolia setSettings failed: Too many indices (24>20)`). A full tier set is
 7 more indexes (3 primaries + 4 sort replicas), so `provision.mjs` cannot create any.
+
+*(AECI-636 PR-B, 2026-09-22.)* A full tier set is now 5 indexes: 3 primaries and 2 `name_asc`
+replicas. PR-B retired the two "Most integrations" replicas in code only. Each environment's
+settings apply **detaches** its pair, which leaves them as standalone indexes that still count
+against the quota. The CI management key has no `deleteIndex` ACL, so an operator deletes them
+by hand in the dashboard or with the root key. Do staging and demo after verification, and
+production after a 7-day soak. The six names and the order are in `SEARCH_RANKING.md` §5a.
+Preview's manual apply goes **last**, because it creates `preview_products_name_asc` and
+`preview_vendors_name_asc`.
+
+| Step | Indexes |
+|---|---|
+| Recorded 2026-08-20 | 24 |
+| After deleting the six detached replicas | 18 |
+| After preview's apply | 20 of a 20 cap |
+
+That is exactly at the cap. A new tier set still cannot fit.
 `stage2` shipped **without search** for exactly this reason and lost nothing that mattered
 — the only Stage 2 feature reading Algolia is the AECI-529 account-status label on the search
 surfaces, verifiable on a PR preview against `preview_*`.

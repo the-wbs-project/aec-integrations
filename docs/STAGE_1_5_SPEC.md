@@ -841,7 +841,8 @@ should dominate. Three options — (A) keep endpoint-only, (B) count powered edg
 **Recommendation: B, as its own follow-up after the data backfill**, so the numbers change once and
 the Algolia products reindex (custom ranking + numeric facet buckets + sort replica, see
 `docs/SEARCH_RANKING.md`) happens once. `affectedProducts` in `promote.ts` is deliberately
-**unchanged** here.
+**unchanged** here. *(AECI-636 PR-B, 2026-09-22: the custom-ranking and sort-replica parts of that
+reindex no longer exist. See the note below.)*
 
 ✅ **Resolved by §13.5 (Addendum C, 2026-08-31): option B, scheduled into the AECI-721 migration**
 rather than shipped ahead of it, so the numbers move once and the Algolia reindex happens once —
@@ -850,6 +851,7 @@ are recorded there: B **is** a ranking change (it lifts connectors up `desc(inte
 both indices), and the count rule is duplicated across **ten** sites that must move in lockstep —
 including the Algolia *vendor* count, which is a different rule, and the `metrics_daily` cron,
 which is a time series.
+*(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)*
 
 ### 12.6 Known data state
 
@@ -1408,6 +1410,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   indices, in a numeric facet and in two sort replicas. The `SEARCH_RANKING.md` edit belongs to
   AECI-721, alongside AECI-698's enum revision. Ranking stays purely algorithmic throughout — this
   is a change in a signal's inputs, never in who can buy position.
+  *(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)*
   - **Landed 2026-08-31, with one clause of this bullet overturned by the data.** `iPaaS` does NOT
     leave §4's rank table. AECI-721 adds `integrator` (tied with the `partner` it replaces, so the
     upstream re-key is rank-neutral) and pins connector-evidenced pairs to a fixed rank of **4**
@@ -1520,7 +1523,9 @@ mid-flight will make a local decision about a cross-cutting contract.
   Plus two things that are not `integration_count` but move with it: the rendered section heading
   (computed from the payload, not the stored column — §13.3), and the Algolia settings themselves —
   custom ranking on both indices, the numeric facet, both sort replicas
-  (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a).
+  (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a). *(AECI-636 PR-B, 2026-09-22:
+  only the numeric facet still moves with the count. The custom ranking no longer names
+  `integration_count`, and both "Most integrations" replicas were retired.)*
 
   **The lockstep is regression-tested, not just enumerated.** `apps/api/src/lib/count-lockstep.spec.ts`
   seeds `connector_evidenced_pairs` and leaves `integrations` untouched, then asserts each

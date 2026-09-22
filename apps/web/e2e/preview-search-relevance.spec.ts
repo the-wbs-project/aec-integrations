@@ -9,8 +9,10 @@ import { expect, test } from '@playwright/test';
 // actually reordering the rendered results, the blend sliders, and axe.
 //
 // The reorder assertion uses the "estimating" preset because the unit spec
-// pins its divergence: Baseline #1 = ProEst (coverage), Ratings-forward #1 =
-// STACK (rating) — so a changed top row is deterministic, not incidental.
+// pins its divergence: Baseline #1 = STACK, Coverage-weighted #1 = ProEst — so a
+// changed top row is deterministic, not incidental. (Before AECI-636 PR-B the
+// Baseline ranked on integration_count and diverged from Ratings-forward
+// instead; it now ranks on listing_tier, which the fixtures do not carry.)
 
 const PATH = '/preview/search-relevance';
 
@@ -39,8 +41,8 @@ test.describe('preview search-relevance lab (AECI-286)', () => {
     await page.getByRole('button', { name: 'estimating', exact: true }).click();
     const baselineTop = await page.locator(TOP_PRODUCT).innerText();
 
-    await page.getByRole('button', { name: 'Ratings-forward' }).click();
-    await expect(page.getByRole('button', { name: 'Ratings-forward' })).toHaveAttribute(
+    await page.getByRole('button', { name: 'Coverage-weighted' }).click();
+    await expect(page.getByRole('button', { name: 'Coverage-weighted' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );

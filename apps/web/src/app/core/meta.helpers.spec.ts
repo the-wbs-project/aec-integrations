@@ -925,15 +925,19 @@ describe('vendorProductNames', () => {
     expect(vendorProductNames(makeProductVendor())).toEqual([]);
   });
 
-  it('orders most-integrated first, alphabetically within a tie', () => {
+  // AECI-636 PR-B: the integration count no longer decides which products a
+  // vendor snippet names first. Revit carries the most integrations and still
+  // lands last, alphabetically.
+  it('orders by name, case-insensitively, never by integration count', () => {
     const vendor = makeProductVendor({
       products: [
         makeListedProduct('civil-3d', 'Civil 3D', 0),
         makeListedProduct('revit', 'Revit', 40),
         makeListedProduct('autocad', 'AutoCAD', 0),
+        makeListedProduct('bim-360', 'bim 360', 3),
       ],
     });
-    expect(vendorProductNames(vendor)).toEqual(['Revit', 'AutoCAD', 'Civil 3D']);
+    expect(vendorProductNames(vendor)).toEqual(['AutoCAD', 'bim 360', 'Civil 3D', 'Revit']);
   });
 
   it('deduplicates by slug', () => {

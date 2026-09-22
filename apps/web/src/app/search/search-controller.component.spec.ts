@@ -198,16 +198,14 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
     expect(calls.sortBy).toHaveLength(2);
   });
 
-  it('builds the per-tab sort options: relevance (primary) + the two replicas', () => {
+  it('builds the per-tab sort options: relevance (primary) + the Name A–Z replica', () => {
     const { controller } = build();
     expect(controller.products.sortOptions).toEqual([
       { value: 'p_idx', key: 'relevance' },
-      { value: 'p_idx_integration_count_desc', key: 'integrations' },
       { value: 'p_idx_name_asc', key: 'name' },
     ]);
     expect(controller.vendors.sortOptions).toEqual([
       { value: 'v_idx', key: 'relevance' },
-      { value: 'v_idx_integration_count_desc', key: 'integrations' },
       { value: 'v_idx_name_asc', key: 'name' },
     ]);
   });
@@ -216,7 +214,6 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
     const { calls } = build();
     expect(calls.sortBy[0].params['items']).toEqual([
       { label: 'relevance', value: 'p_idx' },
-      { label: 'integrations', value: 'p_idx_integration_count_desc' },
       { label: 'name', value: 'p_idx_name_asc' },
     ]);
   });
@@ -227,8 +224,8 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
     const refine = vi.fn();
     calls.sortBy[0].renderFn({ currentRefinement: 'p_idx_name_asc', options: [], refine }, true);
     expect(controller.products.sortBy()).toBe('p_idx_name_asc');
-    controller.products.refineSort('p_idx_integration_count_desc');
-    expect(refine).toHaveBeenCalledWith('p_idx_integration_count_desc');
+    controller.products.refineSort('p_idx');
+    expect(refine).toHaveBeenCalledWith('p_idx');
   });
 
   it('seeds the index widgets + sortBy signal from initialSort (inbound ?sort=)', () => {

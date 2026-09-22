@@ -14,7 +14,6 @@ import { SearchSortBy, type SortUiOption } from './search-sort-by';
 
 const OPTIONS: readonly SortUiOption[] = [
   { value: 'preview_products', label: 'Relevance' },
-  { value: 'preview_products_integration_count_desc', label: 'Most integrations' },
   { value: 'preview_products_name_asc', label: 'Name (A–Z)' },
 ];
 
@@ -54,11 +53,9 @@ describe('SearchSortBy', () => {
   it('updates the trigger label when the bound value changes (tab switch)', () => {
     const { fixture, el } = setup('preview_products');
     expect((el.querySelector('button') as HTMLButtonElement).textContent).toContain('Relevance');
-    fixture.componentRef.setInput('value', 'preview_products_integration_count_desc');
+    fixture.componentRef.setInput('value', 'preview_products_name_asc');
     fixture.detectChanges();
-    expect((el.querySelector('button') as HTMLButtonElement).textContent).toContain(
-      'Most integrations',
-    );
+    expect((el.querySelector('button') as HTMLButtonElement).textContent).toContain('Name (A–Z)');
   });
 
   it('does not render the listbox while the popup is closed', () => {

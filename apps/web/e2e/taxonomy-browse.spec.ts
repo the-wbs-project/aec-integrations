@@ -115,7 +115,22 @@ for (const { kind, segment, listKey } of KINDS) {
       await page.goto(`/${segment}/${term!.slug}`);
       await expect(page.locator('app-root')).toBeAttached();
 
-      await chooseSort(page, 'integrations');
+      await chooseSort(page, 'reviews');
+    });
+
+    // AECI-636 PR-B retired "Most integrations". An old link carrying it must
+    // render the page on the default sort, never an error.
+    test('a retired ?sort=integrations falls back to the default sort', async ({
+      page,
+      request,
+    }) => {
+      const term = await firstTerm(request, listKey);
+      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+
+      const res = await page.goto(`/${segment}/${term!.slug}?sort=integrations`);
+      expect(res?.status()).toBe(200);
+      await expect(page.locator('app-root')).toBeAttached();
+      await expect(page.locator('option[value="integrations"]')).toHaveCount(0);
     });
 
     test('the view toggle switches cards ↔ table and reflects ?view=', async ({
