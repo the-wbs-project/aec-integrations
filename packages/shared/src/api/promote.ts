@@ -265,8 +265,9 @@ export const PromoteUsefulnessSchema = z.object({
 export type PromoteUsefulness = z.infer<typeof PromoteUsefulnessSchema>;
 
 /**
- * The product being promoted. Taxonomy is sent as names or slugs (find-or-
- * created by canonical slug). `extensionOf` lists host products this product
+ * The product being promoted. Taxonomy is sent as names or slugs (matched by
+ * stored slug, then stored name, and created only when both miss — AECI-970;
+ * trades never create). `extensionOf` lists host products this product
  * extends — host products must already be promoted (use `supabaseId`).
  */
 export const PromoteProductSchema = z.object({
