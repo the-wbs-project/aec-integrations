@@ -253,6 +253,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
 | `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed. The whole batch rolled back; reload and decide again (AECI-1005) |
+| `CONTEST_VALUE_STALE` | 409 | `PATCH /api/admin/contests/:id` accept of a **content** contest on a **claimed** row, when the column no longer holds the value recorded at submit (almost always the owner's own edit, AECI-1006). Accepting would overwrite that change, so nothing is written. Checked on the handler's read and again inside the batch. The admin declines, or the submitter withdraws and re-files against the current value |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
@@ -2858,6 +2859,9 @@ export const AdminContestSchema = z.object({
   proposed_value: z.string().nullable(),
   current_label: z.string().nullable(),    // vendor name for `owner`, else null
   proposed_label: z.string().nullable(),
+  live_value: z.string().nullable().default(null),  // AECI-1006: the field on the row NOW (storage form)
+  live_label: z.string().nullable().default(null),  // vendor name for a live `owner`, else null
+  value_stale: z.boolean().default(false),          // an accept would be 409 CONTEST_VALUE_STALE
   reason: z.string(),
   routed_to: z.enum(['owner', 'aeci']),
   status: z.enum(['open', 'accepted', 'declined', 'withdrawn']),
@@ -2894,7 +2898,9 @@ The third row is the **owner-unknown claim** of AECI-1003 decision 11: an endpoi
 
 One batch: the guarded contest UPDATE (`WHERE status = 'open'`), the contest sentinel, an integration-state sentinel (claim state and owner as read), any catalog write above with its audit rows, the contest's `audit_log` row (`integration.contest.accepted | declined`, `actor_type: 'admin'`), the workflow transition and instance close, and a `notification.sent` row that tells the submitting vendor. This is the eighth named write exception in `ADMIN_PANEL_SPEC.md`: a **decision** write, which writes catalog data only on the claimed-row and owner-approval paths. Emits `aeci.contest.moderation.action`.
 
-Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `400 VALIDATION_FAILED` for a bad body.
+**A stale accept is refused (AECI-1006).** On a claimed row a content accept writes the column, so it must not land on a value that moved since submit. Routing is frozen at submit, so a contest filed before the claim stays AECi's to decide after it, while the owner may have edited the same field through `PATCH /api/vendor/integrations/:id`. When the live column differs from the contest's recorded `current_value` (`NULL` counts as a value), the accept answers `409 CONTEST_VALUE_STALE` and writes nothing. The handler checks it on its own read, and a `contestValueUnchangedSentinel` (a `ONE_ROW` guard) checks it again inside the batch, so an owner edit that lands between the two is caught too. The list read carries `live_value` and `value_stale` so the queue can show why before the admin tries. Declining a stale contest is always allowed. An unclaimed row is never stale, because its accept writes nothing here, and an `owner` contest is decided on ownership rather than on a column.
+
+Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `409 CONTEST_VALUE_STALE` when a content accept on a claimed row would overwrite a value that changed since submit (nothing written); `400 VALIDATION_FAILED` for a bad body.
 
 #### `GET /api/admin/reindex` (AECI-946)
 

@@ -39,6 +39,15 @@ function makeContest(over: Partial<AdminContest> & { id: string }): AdminContest
     proposed_value: 'proposed_value' in over ? over.proposed_value! : 'https://new.example.com',
     current_label: over.current_label ?? null,
     proposed_label: over.proposed_label ?? null,
+    // AECI-1006: live equals recorded unless a test says otherwise.
+    live_value:
+      'live_value' in over
+        ? over.live_value!
+        : 'current_value' in over
+          ? over.current_value!
+          : 'https://old.example.com',
+    live_label: over.live_label ?? over.current_label ?? null,
+    value_stale: over.value_stale ?? false,
     reason: over.reason ?? 'The old link 404s.',
     routed_to: over.routed_to ?? 'aeci',
     status: over.status ?? 'open',
@@ -327,6 +336,47 @@ describe('ContestQueue', () => {
     const alert = el.querySelector('article [role="alert"]');
     expect(alert?.textContent).toContain("The integration's owner decides this contest");
     expect(el.querySelector('article')).not.toBeNull();
+  });
+
+  it('shows the live value beside the recorded one only when it moved (AECI-1006)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeContest({ id: 'fresh' }),
+        makeContest({ id: 'moved', live_value: 'https://owner.example.com' }),
+      ]),
+    );
+    const [fresh, moved] = [...el.querySelectorAll('article')];
+    expect(fresh!.querySelector('[data-testid="contest-live-value"]')).toBeNull();
+    expect(moved!.querySelector('[data-testid="contest-live-value"]')?.textContent).toContain(
+      'https://owner.example.com',
+    );
+  });
+
+  it('disables Accept on a stale contest, says why, and keeps Decline (AECI-1006)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeContest({ id: 'k1', live_value: 'https://owner.example.com', value_stale: true }),
+      ]),
+    );
+    const accept = buttonByText(el, 'Accept');
+    expect(accept.disabled).toBe(true);
+    expect(accept.getAttribute('aria-describedby')).toContain('contest-k1-stale');
+    expect(el.querySelector('[data-testid="contest-stale"]')?.textContent).toContain(
+      'Accepting would overwrite that change',
+    );
+    expect(buttonByText(el, 'Decline').disabled).toBe(false);
+  });
+
+  it('on 409 CONTEST_VALUE_STALE says why and reloads (AECI-1006)', async () => {
+    const api = makeApiMock([makeContest({ id: 'k1' })]);
+    const { fixture, el } = await setup(api);
+    api.decide.mockRejectedValueOnce(apiError(409, 'CONTEST_VALUE_STALE'));
+    buttonByText(el, 'Accept').click();
+    fixture.detectChanges();
+    submitForm(el);
+    await flush(fixture);
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Not accepted');
+    expect(api.listContests).toHaveBeenCalledTimes(2);
   });
 
   it('shows a generic retryable error on any other failure', async () => {

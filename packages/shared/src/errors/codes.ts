@@ -27,6 +27,9 @@ export const ApiErrorCode = {
   // AECI-1005: the integration was claimed, or its owner changed, while an admin
   // decided a contest on it. The whole decision batch rolled back.
   CONTEST_INTEGRATION_CHANGED: 'CONTEST_INTEGRATION_CHANGED',
+  // AECI-1006: an AECi accept of a content contest on a claimed row whose column no
+  // longer holds the value recorded at submit (usually the owner edited it).
+  CONTEST_VALUE_STALE: 'CONTEST_VALUE_STALE',
   // AECI-1005 integration ownership claims (`API_CONTRACTS.md` §4).
   INTEGRATION_NOT_OWNER: 'INTEGRATION_NOT_OWNER',
   INTEGRATION_OWNER_UNKNOWN: 'INTEGRATION_OWNER_UNKNOWN',

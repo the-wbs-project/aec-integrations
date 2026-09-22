@@ -1016,6 +1016,14 @@ Four IA notes, in §5.10's voice:
   When the owner's vendor record is deleted, `owner_vendor_id` goes NULL and no vendor can
   decide the contest any more, so the row says "The owner's vendor account no longer
   exists, so AEC Integrations decides this contest" and carries Accept and Decline.
+- **The live value, when it moved (AECI-1006).** An open card shows "On the integration
+  now" beside "On record" whenever the field's live value differs from the value recorded at
+  submit. When the row is claimed and the field is a content field, that difference makes
+  the accept stale (`value_stale`): Accept is disabled, and a sentence tied to it by
+  `aria-describedby` says the value changed after the contest was filed, most likely by the
+  owner, and that the admin should decline or ask the vendor to re-file. Decline stays
+  available. If the value moves after the list loaded, the API's `409 CONTEST_VALUE_STALE`
+  announces "Not accepted" and reloads, so the card shows the live value and the note.
 - **No detail route.** The API has no single-contest read, and a row already carries every
   field a decision needs. A parameterised route would cost a breadcrumb rule (§5.0b) for no
   content.

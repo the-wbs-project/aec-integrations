@@ -93,7 +93,10 @@ import {
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
   contestIntegrationStateSentinel,
+  contestValueUnchangedSentinel,
+  isContestValueStale,
   storedFieldValue,
+  type ContentContestField,
   contestValueLabel,
   hydrateContests,
   pairPathFor,
@@ -137,6 +140,7 @@ function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminCont
     logo_url: p.logoUrl,
   });
   const vendorRef = (id: string) => ({ id, name: hydration.vendorNames.get(id) ?? '' });
+  const liveValue = storedFieldValue(integration, row.field as IntegrationContestField);
   return {
     id: row.id,
     integration: {
@@ -152,6 +156,9 @@ function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminCont
     proposed_value: row.proposedValue,
     current_label: contestValueLabel(row.field, row.currentValue, hydration.vendorNames),
     proposed_label: contestValueLabel(row.field, row.proposedValue, hydration.vendorNames),
+    live_value: liveValue,
+    live_label: contestValueLabel(row.field, liveValue, hydration.vendorNames),
+    value_stale: row.status === 'open' && isContestValueStale(row, integration),
     reason: row.reason,
     routed_to: row.routedTo as AdminContest['routed_to'],
     status: row.status as AdminContest['status'],
@@ -376,6 +383,18 @@ export function createModerateContestHandler(
       if (error instanceof ApiError && error.code === ApiErrorCode.CONTEST_NOT_OPEN) {
         emitModeration(c, payload.decision, 'not_open');
       }
+      // Both integration-side sentinels surface as CONTEST_INTEGRATION_CHANGED from
+      // the shared runner, because SQLite's error does not carry the token. Tell the
+      // value case apart by re-reading: claim state and owner as planned, but the
+      // column moved, is the stale accept (AECI-1006).
+      if (
+        accept &&
+        error instanceof ApiError &&
+        error.code === ApiErrorCode.CONTEST_INTEGRATION_CHANGED &&
+        (await acceptWentStale(db, row))
+      ) {
+        throw contestValueStale();
+      }
       throw error;
     }
     emitModeration(c, payload.decision, 'ok');
@@ -505,6 +524,23 @@ async function rerouteOwnerContests(
   }
 }
 
+/** `409 CONTEST_VALUE_STALE` (AECI-1006). */
+function contestValueStale(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CONTEST_VALUE_STALE,
+    'The value on the integration changed after this contest was filed, most likely by its owner. Decline the contest, or ask the vendor to withdraw it and file again against the current value.',
+  );
+}
+
+/** After a lost batch: did the contested column move while claim state held? */
+async function acceptWentStale(db: Db, row: ContestRow): Promise<boolean> {
+  const integration = await db.query.integrations.findFirst({
+    where: eq(integrations.id, row.integrationId),
+  });
+  return integration ? isContestValueStale(row, integration) : false;
+}
+
 /**
  * The integration-side half of an AECi accept (AECI-1005): the state guard, the
  * catalog write the header's cases call for, its audit rows, and the purge tags.
@@ -527,12 +563,27 @@ export async function planAcceptWrites(
   });
   if (!integration) throw notFoundError('contest', { id: row.id });
   const claimed = isClaimed(integration);
+  // AECI-1006: a content accept on a claimed row writes the column here, so it
+  // must not land on a value that moved since submit (usually the owner's own
+  // edit). The pre-read answers the common case; the sentinel below is the
+  // in-batch half for an edit that lands after this read.
+  if (isContestValueStale(row, integration)) throw contestValueStale();
   const stmts: BatchStmt[] = [
     contestIntegrationStateSentinel(db, integration.id, {
       claimed,
       ownerVendorId: integration.builtByVendorId,
     }),
   ];
+  if (row.field !== 'owner' && claimed) {
+    stmts.push(
+      contestValueUnchangedSentinel(
+        db,
+        integration.id,
+        row.field as ContentContestField,
+        row.currentValue,
+      ),
+    );
+  }
   const audits: AuditLogEntry[] = [];
   const field = row.field as IntegrationContestField;
   const base = { source: 'admin-moderation', contestId: row.id, integrationId: integration.id };

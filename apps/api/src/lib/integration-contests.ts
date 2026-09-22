@@ -232,7 +232,10 @@ interface HydratedProduct {
   logoUrl: string | null;
 }
 
-export interface ContestIntegrationContext {
+export interface ContestIntegrationContext extends Pick<
+  IntegrationRow,
+  ContestColumn | 'builtByVendorId' | 'claimedAt'
+> {
   id: string;
   name: string | null;
   sourceProduct: HydratedProduct;
@@ -265,24 +268,48 @@ export async function hydrateContests(
       ),
     ),
   ];
-  const [integrationRows, vendorRows] = await Promise.all([
+  // Every contestable column and the claim state too (AECI-1006): the admin
+  // queue shows the LIVE value beside the one recorded at submit, so an operator
+  // can see why an accept would be refused as stale.
+  const integrationRows =
     integrationIds.length === 0
-      ? Promise.resolve([])
-      : db.query.integrations.findMany({
-          columns: { id: true, name: true },
+      ? []
+      : await db.query.integrations.findMany({
+          columns: {
+            id: true,
+            name: true,
+            mechanismKind: true,
+            mechanismName: true,
+            direction: true,
+            description: true,
+            listingUrl: true,
+            docsUrl: true,
+            website: true,
+            mechanismUrl: true,
+            pricingModel: true,
+            maturity: true,
+            builtByVendorId: true,
+            claimedAt: true,
+          },
           with: {
             sourceProduct: { columns: { id: true, name: true, slug: true, logoUrl: true } },
             targetProduct: { columns: { id: true, name: true, slug: true, logoUrl: true } },
           },
           where: inArray(integrations.id, integrationIds),
-        }),
+        });
+  // The live owner of an `owner` contest's row needs a name as well.
+  for (const r of rows) {
+    if (r.field !== 'owner') continue;
+    const live = integrationRows.find((i) => i.id === r.integrationId)?.builtByVendorId;
+    if (live && !vendorIds.includes(live)) vendorIds.push(live);
+  }
+  const vendorRows =
     vendorIds.length === 0
-      ? Promise.resolve([])
-      : db
+      ? []
+      : await db
           .select({ id: vendors.id, name: vendors.companyName })
           .from(vendors)
-          .where(inArray(vendors.id, vendorIds)),
-  ]);
+          .where(inArray(vendors.id, vendorIds));
   return {
     integrations: new Map(integrationRows.map((row) => [row.id, row])),
     vendorNames: new Map(vendorRows.map((row) => [row.id, row.name])),
@@ -360,6 +387,50 @@ export function contestIntegrationStateSentinel(
           AND (("claimed_at" IS NOT NULL) <> ${expected.claimed ? 1 : 0}
             OR ifnull("built_by_vendor_id", '') <> ${expected.ownerVendorId ?? ''}))
         THEN json('contest-integration-changed') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * Is an AECi accept of this contest STALE (AECI-1006)? True for a content contest
+ * on a CLAIMED row whose live column no longer holds the value recorded at submit.
+ *
+ * Such an accept would write the contest's proposal over whatever changed the
+ * column since, which on a claimed row is almost always the owner's own edit
+ * (`PATCH /api/vendor/integrations/:id`). So it is refused with
+ * `409 CONTEST_VALUE_STALE`: the admin declines, or the submitter withdraws and
+ * re-files against the current value. An unclaimed row writes nothing here on
+ * accept, so it is never stale, and an `owner` contest is decided on ownership,
+ * not on a column value.
+ */
+export function isContestValueStale(
+  row: Pick<ContestRow, 'field' | 'currentValue'>,
+  integration: Pick<IntegrationRow, ContestColumn | 'builtByVendorId' | 'claimedAt'>,
+): boolean {
+  if (row.field === 'owner' || !isClaimed(integration)) return false;
+  return storedFieldValue(integration, row.field as IntegrationContestField) !== row.currentValue;
+}
+
+/**
+ * A batch statement that ABORTS an AECi accept when the contested column no longer
+ * holds the value recorded at submit (AECI-1006). The in-batch half of
+ * {@link isContestValueStale}: the handler's pre-read refuses the common case, and
+ * this catches an owner edit that lands between that read and the batch. `IS NOT`
+ * compares NULLs as equal, which is what a recorded `null` means. A missing row is
+ * {@link contestIntegrationStateSentinel}'s to catch, so this passes on one.
+ */
+export function contestValueUnchangedSentinel(
+  db: Db,
+  integrationId: string,
+  field: ContentContestField,
+  expected: string | null,
+) {
+  const column = integrations[CONTEST_FIELD_COLUMNS[field]];
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId}
+          AND ${column} IS NOT ${expected})
+        THEN json('contest-value-stale') END`,
     })
     .from(ONE_ROW);
 }

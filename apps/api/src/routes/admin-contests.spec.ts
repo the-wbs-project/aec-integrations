@@ -559,3 +559,104 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
     expect(fileIssue).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AECI-1006)', () => {
+  it('refuses with 409 CONTEST_VALUE_STALE when the owner edited the field since submit, and writes nothing', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    // Claimed, then the owner edited the name itself.
+    await setIntegration({ claimedAt: CLAIMED_AT, name: 'Owner’s own name' });
+    const res = await accept(id);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_VALUE_STALE');
+    expect((await integrationRow()).name).toBe('Owner’s own name');
+    const [contest] = await t.db.select().from(integrationFieldChallenges);
+    expect(contest!.status).toBe('open');
+    expect(await auditActions()).not.toContain('integration.contest.accepted');
+    expect(fileIssue).not.toHaveBeenCalled();
+  });
+
+  it('still lets the admin decline a stale contest', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, name: 'Owner’s own name' });
+    const res = await call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, { decision: 'decline' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('declined');
+  });
+
+  it('treats a recorded null as a value: a null that became set is stale', async () => {
+    const id = await fileContest('website', 'https://revit.example/link');
+    await setIntegration({ claimedAt: CLAIMED_AT, website: 'https://owner.example' });
+    expect((await accept(id)).body.error.code).toBe('CONTEST_VALUE_STALE');
+  });
+
+  it('is not stale on an unclaimed row, which writes nothing here on accept', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ name: 'Changed by promote' });
+    expect((await accept(id)).status).toBe(200);
+  });
+
+  it('refuses in the batch when the owner edits between the pre-read and the batch', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    const factory = t.factory;
+    let fired = false;
+    const racing = createModerateContestHandler((env, opts) => {
+      const ctx = factory(env, opts);
+      if (!fired) {
+        const batch = ctx.db.batch.bind(ctx.db);
+        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+          fired = true;
+          t.raw
+            .prepare(`UPDATE integrations SET name = ? WHERE id = ?`)
+            .run('Late owner edit', I_MAIN);
+          return batch(stmts);
+        }) as typeof batch;
+      }
+      return ctx;
+    }, fileIssue);
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', ADMIN);
+      await next();
+    });
+    a.patch('/api/admin/contests/:id', racing);
+    const res = await a.request(
+      `/api/admin/contests/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: 'accept' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('CONTEST_VALUE_STALE');
+    expect((await integrationRow()).name).toBe('Late owner edit');
+    const [contest] = await t.db.select().from(integrationFieldChallenges);
+    expect(contest!.status).toBe('open');
+  });
+
+  it('shows the live value beside the recorded one, and flags it stale, on the queue', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, name: 'Owner’s own name' });
+    const res = await call(ADMIN, 'GET', '/api/admin/contests');
+    expect(() => ListAdminContestsResponseSchema.parse(res.body)).not.toThrow();
+    const row = res.body.data.find((c: JsonBody) => c.id === id);
+    expect(row).toMatchObject({
+      current_value: 'Revit for MicroStation',
+      live_value: 'Owner’s own name',
+      value_stale: true,
+    });
+  });
+
+  it('reports a fresh contest as not stale, with the live value equal to the recorded one', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    const row = (await call(ADMIN, 'GET', '/api/admin/contests')).body.data.find(
+      (c: JsonBody) => c.id === id,
+    );
+    expect(row).toMatchObject({ live_value: 'Revit for MicroStation', value_stale: false });
+  });
+});
