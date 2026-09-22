@@ -1596,7 +1596,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   | X1 | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**) | executed |
   | X2 | `algolia-reindex.ts` `buildIntegrationRecords` full rebuild (**deletes**) | scan |
   | X3 | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts) | executed |
-  | X4 | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series | scan |
+  | X4 | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series (both tables since AECI-1074) | executed |
   | X5 | `scripts/ops/2026-09-retraction-consumer/consume.mjs` recount | scan |
   | X6 | `apps/agent/src/tools/count-integrations.ts` `COUNT_SQL` | scan |
   | X7 | `apps/agent/src/lib/corpus.ts` `EDGES_SQL` | scan |
@@ -1610,9 +1610,11 @@ mid-flight will make a local decision about a cross-cutting contract.
   **not** filter `GET /api/integrations/:id`, which only the legacy `/integrations/:id` 301 reads
   (ruled 2026-09-22). For a retired row that route answers the two endpoint slugs and nothing
   else (`RetiredIntegrationDetailSchema`): the redirect keeps working, and the pair page it lands on falls to its
-  existing `noindex` branch when no live mechanism is left. Two pre-existing gaps surfaced and are
-  unchanged: X3 and X4 read `integrations` alone, so evidenced pairs have never counted toward a
-  taxonomy term or the net additions series.
+  existing `noindex` branch when no live mechanism is left. Two pre-existing gaps surfaced: X3 and
+  X4 read `integrations` alone, so evidenced pairs never counted toward a taxonomy term or the net
+  additions series. **AECI-1074 closed X4** (2026-09-22): the net series now reads both tables,
+  each bucketed by its own `created_at`, and the X4 case executes it against the card. X3 is
+  unchanged.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 

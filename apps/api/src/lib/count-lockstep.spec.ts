@@ -15,6 +15,7 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { catalogTotals, claimCoverage } from './admin-catalog';
+import { metricSeries, utcRangeWindow } from './admin-analytics';
 import { drizzleDriftCounter, drizzlePromotedIds } from './algolia-drift-deps';
 import { buildIntegrationRequests } from './algolia-sync';
 import { algoliaVendorConfig, type RawAlgoliaVendorRow } from './algolia-transforms';
@@ -534,8 +535,11 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
   {
     id: 'X4',
     file: 'src/lib/admin-analytics.ts',
-    marker: "'catalog.integrations_created': {",
-    proof: 'scan',
+    // The `basis=net` series. Executed since AECI-1074, which also made it read
+    // `connector_evidenced_pairs`: it was held here for the retired filter only, and
+    // the missing union went unseen.
+    marker: "'catalog.integrations_created': [",
+    proof: 'executed',
   },
   {
     id: 'X5',
@@ -737,6 +741,34 @@ describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
       expect(coverage.integrations_without_claims).toBe(1);
       expect(coverage.integrations_without_claims_sample.map((r) => r.id)).toEqual(['i1']);
       expect((await catalogTotals(t.db)).integrations).toBe(1);
+    },
+  );
+
+  /**
+   * The `basis=net` integrations column must read the population the totals card
+   * does: live `integrations` plus every `connector_evidenced_pairs` row (AECI-1074).
+   * The seed's evidenced pair is what proves the union; `r1` proves the filter.
+   */
+  proves(
+    'site X4: the net series drops the retired row, unions the evidenced pair, and matches the card',
+    ['X4'],
+    async (t) => {
+      await seedEvidencedPair(t);
+      // The seed stamps `created_at` with now, so a window around today holds it all.
+      const day = (offset: number) =>
+        new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      const { perDay } = await metricSeries(
+        t.db,
+        'catalog.integrations_created',
+        utcRangeWindow(day(-1), day(1)),
+        { available: false, applied: false, asns: [], predicate: undefined },
+        'net',
+      );
+      const total = [...perDay.values()].reduce((a, b) => a + b, 0);
+      // i1 + e1. Not 1 (the pre-AECI-1074 `integrations`-only read) and not 3
+      // (the retired `r1` leaking in).
+      expect(total).toBe(2);
+      expect(total).toBe((await catalogTotals(t.db)).integrations);
     },
   );
 

@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrations,
   metricsDaily,
   pageViews,
@@ -32,6 +33,7 @@ import {
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
+import { catalogTotals } from '../lib/admin-catalog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminTimeseriesHandler } from './admin-metrics';
@@ -615,6 +617,31 @@ describe('GET /api/admin/metrics/timeseries — basis=net (AECI-686)', () => {
       const body = await series(`metric=${metric}&from=2026-08-01&to=2026-08-11&basis=net`);
       expect(body.total.total, metric).toBe(live);
     }
+  });
+
+  it('counts both delivered-tier tables in the integrations column, as the card does (AECI-1074)', async () => {
+    // One row in each table, on different days. The totals card counts
+    // `integrations` + `connector_evidenced_pairs`, so the column must too, each
+    // row bucketed by its own `created_at`. Before AECI-1074 this read [0, 1].
+    const CONNECTOR = u(1003);
+    await t.db
+      .insert(products)
+      .values({ id: CONNECTOR, slug: 'agave', name: 'Agave', productRole: 'connector' });
+    const [a, b] = [P1, P2].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(3002),
+      connectorProductId: CONNECTOR,
+      productAId: a!,
+      productBId: b!,
+      createdAt: '2026-08-09T02:00:00.000Z',
+    });
+
+    const net = await series(
+      'metric=catalog.integrations_created&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(net.points.map((p) => p.value)).toEqual([1, 1]);
+    expect(net.total.total).toBe(2);
+    expect(net.total.total).toBe((await catalogTotals(t.db)).integrations);
   });
 
   it('echoes the basis it served, and defaults to additions when unasked', async () => {

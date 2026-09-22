@@ -529,12 +529,13 @@ What **is** exactly computable is the surviving cohort: rows present now, bucket
 | 2026-06 | 61 | 0 | 43 | 0 |
 | **total** | **247** | **944** | **165** | **1,691** |
 
-Four things follow, all of them stated on the wire rather than left to inference:
+Five things follow, all of them stated on the wire rather than left to inference:
 
 - **It restates.** A removal is subtracted from the bucket the row was *added* in, not the one it was removed in — the only attribution available before the AECI-687 tombstones, and still the only one for removals older than them — so a past bucket falls as its rows die. That restatement is precisely what makes the series reconcile. `catalog_series_is_surviving_rows` says so on every `net` response.
 - **It is never snapshotted.** A retroactive value must not be frozen into `metrics_daily`, so `net` bypasses the snapshot read entirely and always reports `source: 'live'` with `reconstructed: false`. The 00:15 cron keeps writing the `additions` reading to `metrics_daily`; that storage path is untouched.
 - **Claims are a valid count and a poor history.** Because promote rewrote them until AECI-604, a claim's `created_at` is the last promote of its integration before that — every live claim dates from 2026-08-09 or later, which is why the table reads 1,691 in August and zero before. `catalog_claims_recreated_by_promote` carries this, on the claims series only. AECI-604 now upserts claims by identity, so `created_at` survives a re-promote going forward; the rows it rewrote before then cannot be repaired.
 - **`additions` is retained and remains the endpoint default.** It is not wrong, it answers a different question, and it is the only one of the two that can show churn: a month that created and destroyed 300 integrations reads 0 net and 300 additions. An omitted `basis` param therefore changes nothing for an existing caller. §5.5 passes it explicitly for exactly that reason — silently inheriting the default would restore the mismatch.
+- **Each column reads the same population as its card (AECI-1074, 2026-09-22).** The integrations card counts live `integrations` rows plus every `connector_evidenced_pairs` row, which is the AECI-721 lockstep rule. The net integrations series now reads both tables too. Each row is bucketed by its own table's `created_at`, the retired filter applies to `integrations` (the other table has no `retired_at`), and the per-day counts are summed. Until this fix the series read `integrations` alone. Production on 2026-09-22 had 941 live `integrations` and 51 evidenced pairs, so the card read 992 and the column summed to 941. It also made every cross-table promote move (AECI-888) look like a removal. `count-lockstep.spec.ts` now executes this series against the card as site X4. **One residue remains:** a cross-table move re-inserts the row without carrying `created_at`, so a moved row lands in the bucket of the day it moved rather than the day it arrived. The count is right and the date is not. That is AECI-1076.
 
 This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
@@ -628,11 +629,10 @@ The three sub-questions, settled for whoever builds `basis=delta`:
    card counts `integrations` plus `connector_evidenced_pairs`
    (`catalogTotals` in `apps/api/src/lib/admin-catalog.ts`), which is the AECI-721
    lockstep rule. A move changes the table and not the count, so a delta ignores
-   `movedFrom` rows. **Today `basis=net` gets this wrong.** `CATALOG_NET_SOURCE`
-   reads `integrations` alone, so the net column sums to 941 against a card
-   reading 992 (51 evidenced pairs). That is a live reconciliation defect, filed as
-   **AECI-1074** (Stage 2.5). It is separate from this decision and does not wait
-   for it.
+   `movedFrom` rows. **`basis=net` got this wrong until AECI-1074 fixed it.**
+   `CATALOG_NET_SOURCE` read `integrations` alone, so the net column summed to 941
+   against a card reading 992 (51 evidenced pairs). The series now reads both
+   tables, and the column matches the totals card. See (5).
 2. **`integration.deleted` with `metadata.table = 'connector_evidenced_pairs'`
    subtracts from the integrations series,** for the same reason: those rows are in
    the card. A tombstone with no `table` key (the 4 above) counts too, because the
