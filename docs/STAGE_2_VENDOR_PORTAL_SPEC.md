@@ -400,7 +400,7 @@ Two consequences. First, an owner accept after an edit writes the contest's prop
 | Routes | `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind`, `kind` = `listing` or `docs`. Wire shape: `API_CONTRACTS.md` §6.14 |
 | Gate | `requireVendor()` → `rateLimit('write')` → side ownership → connector fence, all in that order. **A seat is the whole gate** (decision 15). |
 | Who may write a side | The vendor that holds that endpoint product through `product_vendors`. **Not** the integration's owner as such, and no claim is needed: a link is the endpoint vendor's statement about its own side. A vendor that owns both endpoints writes both sides, one at a time. A non-endpoint owner has no side to link. |
-| Refusals | Every miss is the same `404`: unknown id, a product that is not an endpoint, an endpoint the caller does not hold (including the other side of a row it can see). Then a connector-powered row is `403 INTEGRATION_CONNECTOR_POWERED` (decision 9, ruled 2026-09-18 for links). A non-https URL, credentials in the URL, or more than 2,048 characters is `400`. |
+| Refusals | Every miss is the same `404`: unknown id, a product that is not an endpoint, an endpoint the caller does not hold (including the other side of a row it can see). Then a connector-powered row is `403 INTEGRATION_CONNECTOR_POWERED` (decision 9, ruled 2026-09-18 for links), then a retired row is `409 INTEGRATION_RETIRED` (AECI-1010). A non-https URL, credentials in the URL, or more than 2,048 characters is `400`. |
 | Why a product id and not `a`/`b` | Promote swaps an unclaimed row's source and target in bulk (AECI-920). A positional key would hand one vendor's link to the other. An endpoint re-point leaves the old product's link stored and unread. |
 | One batch | The upsert (or the DELETE plus a one-row race sentinel), the §13.9 maintenance transfer on the `integrations` row, and one `integration.link_set` / `integration.link_removed` audit row. The transfer moves `integrations.updated_at`, which is how the §2.2 freshness cursor sees the write on both sides. |
 | After commit | Purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl (`CACHE_STRATEGY.md` §3). |
@@ -409,7 +409,9 @@ Two consequences. First, an owner accept after an edit writes the contest's prop
 
 **The portal.** `own_links` on `GET /api/vendor/integrations` carries the caller's own side per entry. The card's "Your links" block (`vendor-integration-links-form.ts`) shows them and opens a two-field form. It renders on every attestable card whatever the entitlement, and not at all on a connector-powered card. Saving is pessimistic: one request per changed field, each echo spliced into the store (never a whole-list refetch, which would clobber a concurrent data-flow write), then one announcement through the portal's live region.
 
-**Not built here.** A retired row (AECI-1010) does not yet refuse link writes; 1010 owns that rule. Links do not appear on the product-detail page, in Algolia, or in the public integration detail read.
+**Retired rows (AECI-1010).** A retired row refuses both PUT and DELETE with `409 INTEGRATION_RETIRED`, after the side check and the connector fence, through `assertIntegrationLive`. The batch opens with `integrationLiveSentinel`, so a retire that lands between the read and the batch stops the write. The card hides "Your links" on a retired row.
+
+**Not built here.** Links do not appear on the product-detail page, in Algolia, or in the public integration detail read.
 
 ### 4.6 The owner retires and restores an integration (AECI-1010 — 2026-09-22)
 

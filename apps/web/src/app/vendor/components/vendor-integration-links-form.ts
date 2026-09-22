@@ -35,6 +35,8 @@ export function linkSaveErrorMessage(err: unknown): string {
   switch (info?.code) {
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.links.error.connector:This integration is delivered through a connector product, so it cannot take your own links yet.`;
+    case 'INTEGRATION_RETIRED':
+      return $localize`:@@vendor.links.error.retired:This integration was retired by its owner, so its links cannot change until it is restored.`;
     case 'VALIDATION_FAILED':
       return $localize`:@@vendor.links.error.invalid:One of the links is not valid. Check it and try again.`;
     case 'NOT_FOUND':

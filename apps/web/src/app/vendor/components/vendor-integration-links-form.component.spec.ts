@@ -141,6 +141,11 @@ describe('VendorIntegrationLinksForm — visibility', () => {
     expect(trigger(fixture)).toBeUndefined();
   });
 
+  it('is absent on a retired card (AECI-1010)', async () => {
+    const fixture = await createCard({ ...PROCORE, retired_at: '2026-09-20T00:00:00.000Z' }, true);
+    expect(trigger(fixture)).toBeUndefined();
+  });
+
   it('summarises the saved links while closed', async () => {
     const fixture = await createForm();
     const summary = el(fixture).querySelector('[data-testid="own-links-summary"]')!.textContent!;

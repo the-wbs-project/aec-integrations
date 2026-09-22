@@ -190,8 +190,9 @@ import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
           AECI-1007 (spec 4.5.7): per-side links. Seat-only, like the contest
           form below: gated on the edge taking vendor writes (attestable is the
           server's connector-powered verdict, decision 9), never on canWrite.
+          Hidden on a retired row (AECI-1010): the API refuses link writes there.
         -->
-        @if (integration().attestable) {
+        @if (integration().attestable && !retired()) {
           <aec-vendor-integration-links-form
             [integration]="integration()"
             [vendorName]="vendorName()"

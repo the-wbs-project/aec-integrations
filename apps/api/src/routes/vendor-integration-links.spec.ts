@@ -374,3 +374,74 @@ describe('GET /api/vendor/integrations — own_links', () => {
     expect(powered.attestable).toBe(false);
   });
 });
+
+describe('a retired row takes no link write (AECI-1010)', () => {
+  const RETIRED_AT = '2026-09-20T00:00:00.000Z';
+  const retireMain = () =>
+    t.db
+      .update(integrations)
+      .set({ builtByVendorId: VENDOR_B, claimedAt: OLD, retiredAt: RETIRED_AT })
+      .where(eq(integrations.id, I_MAIN));
+
+  it('refuses PUT with 409 INTEGRATION_RETIRED and writes nothing', async () => {
+    await retireMain();
+    const res = await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/l');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await storedLinks()).toEqual([]);
+    expect(await auditRows()).toEqual([]);
+  });
+
+  it('refuses DELETE with 409 and keeps the link', async () => {
+    await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/l');
+    await retireMain();
+    const res = await del(AUTH_A, I_MAIN, P_SOURCE, 'listing');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await storedLinks()).toHaveLength(1);
+  });
+
+  it('still answers a stranger 404, not 409', async () => {
+    await retireMain();
+    const res = await put(AUTH_C, I_MAIN, P_SOURCE, 'listing', 'https://x.example/l');
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses a PUT whose batch meets a retire that landed after the read', async () => {
+    const racing: typeof t.factory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as { batch: unknown }).batch = async (stmts: Parameters<typeof batch>[0]) => {
+        t.raw
+          .prepare(
+            `UPDATE integrations SET built_by_vendor_id = ?, claimed_at = ?, retired_at = ? WHERE id = ?`,
+          )
+          .run(VENDOR_B, OLD, RETIRED_AT, I_MAIN);
+        return batch(stmts);
+      };
+      return ctx;
+    };
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', AUTH_A);
+      await next();
+    });
+    a.put('/x/:id/:productId/:kind', createPutIntegrationLinkHandler(racing));
+    const res = await a.request(
+      `/x/${I_MAIN}/${P_SOURCE}/listing`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ url: 'https://autodesk.example/l' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('INTEGRATION_RETIRED');
+    expect(await storedLinks()).toEqual([]);
+    expect(await auditRows()).toEqual([]);
+    expect((await row(I_MAIN)).maintainedBy).toBe('aeci');
+  });
+});

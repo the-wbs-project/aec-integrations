@@ -33,6 +33,12 @@
  * with `403 INTEGRATION_CONNECTOR_POWERED`. Asked AFTER the side check, so a caller
  * with no side still gets the 404.
  *
+ * ── 4b. RETIRED ROWS TAKE NO LINK WRITES (AECI-1010) ────────────────────────
+ * A retired row answers `409 INTEGRATION_RETIRED` to both PUT and DELETE, after the
+ * side check and the connector fence, through `assertIntegrationLive`. The batch
+ * opens with `integrationLiveSentinel`, so a retire that lands between the read and
+ * the batch stops the write too.
+ *
  * ── 5. ONE BATCH, AND THE WRITE TRANSFERS MAINTENANCE ───────────────────────
  * The link upsert (or delete), the §13.9 maintenance transfer on the integration
  * row, and one `integration.link_set` / `integration.link_removed` audit row. The
@@ -69,6 +75,11 @@ import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
 import { toSideLinks } from '../lib/integration-vendor-links';
+import {
+  assertIntegrationLive,
+  integrationLiveSentinel,
+  integrationRetiredError,
+} from '../lib/live-integration';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -124,6 +135,7 @@ interface Target {
     poweredByProductId: string | null;
     mechanismKind: string | null;
     maintainedBy: string;
+    retiredAt: string | null;
   };
   productId: string;
   kind: IntegrationLinkKind;
@@ -151,6 +163,7 @@ async function resolveTarget(c: VendorContext, db: Db, vendorId: string): Promis
       poweredByProductId: true,
       mechanismKind: true,
       maintainedBy: true,
+      retiredAt: true,
     },
     where: eq(integrations.id, integrationId),
   });
@@ -173,6 +186,9 @@ async function resolveTarget(c: VendorContext, db: Db, vendorId: string): Promis
       'This integration is delivered through a connector product, and connector-delivered integrations cannot take your own links yet.',
     );
   }
+  // AECI-1010: a retired row takes no link write, PUT or DELETE. Last, so a caller
+  // with no side still gets the 404.
+  assertIntegrationLive(row);
   return { row, productId, kind: kindParam.data };
 }
 
@@ -232,7 +248,18 @@ async function commit(
   audit: AuditLogEntry,
 ): Promise<void> {
   const pairSlugs = await endpointSlugs(db, target.row);
-  await db.batch(stmts as BatchTuple);
+  try {
+    // First in the batch: a retire that landed after the read aborts the write.
+    await db.batch([integrationLiveSentinel(db, target.row.id), ...stmts] as BatchTuple);
+  } catch (error) {
+    // Both sentinels raise the same malformed-JSON error, so ask the row which one.
+    const now = await db.query.integrations.findFirst({
+      columns: { retiredAt: true },
+      where: eq(integrations.id, target.row.id),
+    });
+    if (now?.retiredAt) throw integrationRetiredError();
+    throw error;
+  }
   const tags = pairSlugs
     ? [
         pairCacheTag(pairSlugs[0], pairSlugs[1]),
