@@ -344,6 +344,17 @@ export const integrations = sqliteTable(
      * CHECK constraint, which would recreate this table.
      */
     retiredAt: text('retired_at'),
+    /**
+     * Who retired the row (AECI-1046): `'owner'` (the vendor owner, AECI-1010) or
+     * `'aeci'` (an AECi admin, `routes/admin-integration-retire.ts`). NULL while
+     * the row is live. Set with `retired_at` and cleared with it on restore. The
+     * owner restore refuses an `'aeci'` retire; the admin restore refuses an
+     * `'owner'` retire. A retired row with NULL here predates 0046 and reads as
+     * `'owner'`, because AECI-1010 was the only retire path before it. Enforced
+     * by the hand-written column CHECK in 0046, never in this file (a table-level
+     * CHECK here would make drizzle-kit recreate the table).
+     */
+    retiredBy: text('retired_by'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
