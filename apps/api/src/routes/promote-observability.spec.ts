@@ -11,7 +11,7 @@
 import { PromotePayloadSchema, type PromoteResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { products } from '../db/schema';
+import { products, taxonomyCategories } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -123,6 +123,24 @@ function unresolvedLinkMetricCalls(): Array<{ value: number; tags: string[] }> {
     .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
 }
 
+/** The `logToPosthog` event whose message is the taxonomy-mint signal (AECI-970). */
+function taxonomyCreatedLog(): Record<string, unknown> | undefined {
+  const call = vi
+    .mocked(logToPosthog)
+    .mock.calls.find(
+      (c) => (c[3] as { message?: string })?.message === 'aeci.api.promote.taxonomy_created',
+    );
+  return call?.[3] as Record<string, unknown> | undefined;
+}
+
+/** All `aeci.api.promote.taxonomy_created` count submissions as `[value, tags]` pairs. */
+function taxonomyCreatedMetricCalls(): Array<{ value: number; tags: string[] }> {
+  return vi
+    .mocked(submitCount)
+    .mock.calls.filter((c) => c[3] === 'aeci.api.promote.taxonomy_created')
+    .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
+}
+
 describe('promote skip observability', () => {
   it('logs partial_skipped with per-kind detail + emits a skipped count per kind', async () => {
     const response = await promote({
@@ -185,6 +203,8 @@ describe('promote skip observability', () => {
     expect(staleIdMetricCalls()).toHaveLength(0);
     expect(unresolvedLinkLog()).toBeUndefined();
     expect(unresolvedLinkMetricCalls()).toHaveLength(0);
+    expect(taxonomyCreatedLog()).toBeUndefined();
+    expect(taxonomyCreatedMetricCalls()).toHaveLength(0);
   });
 });
 
@@ -326,5 +346,49 @@ describe('promote unresolved-link observability (AECI-730)', () => {
       ),
     ).not.toThrow();
     expect(unresolvedLinkLog()).toBeUndefined();
+  });
+});
+
+/**
+ * AECI-970. Promote still MINTS an unmatched category / audience / phase (making them
+ * find-only is option B), so a mint must at least be loud: it is a new public browse
+ * URL with no description and no display order.
+ */
+describe('promote taxonomy-mint observability (AECI-970)', () => {
+  it('logs taxonomy_created + emits one count per minted term, tagged kind and slug', async () => {
+    const response = await promote({
+      vendors: [],
+      product: { ref: 'p1', name: 'Revit', categories: ['Digital Twins'], phases: ['Handover'] },
+    });
+
+    expect(response.taxonomy.categories[0]?.operation).toBe('created');
+    const log = taxonomyCreatedLog();
+    expect(log).toMatchObject({ level: 'warn', outcome: 'minted', created_count: 2 });
+    expect(log?.created).toEqual([
+      expect.objectContaining({ kind: 'category', slug: 'digital-twins' }),
+      expect.objectContaining({ kind: 'phase', slug: 'handover' }),
+    ]);
+    expect(taxonomyCreatedMetricCalls()).toEqual([
+      { value: 1, tags: ['source:promote', 'kind:category', 'slug:digital-twins'] },
+      { value: 1, tags: ['source:promote', 'kind:phase', 'slug:handover'] },
+    ]);
+  });
+
+  it('emits nothing when every term resolves, including by name', async () => {
+    await t.db.insert(taxonomyCategories).values({
+      id: uuid(6),
+      slug: 'reality-capture',
+      name: 'Reality Capture (Scan-to-BIM)',
+    });
+    const response = await promote({
+      vendors: [],
+      product: { ref: 'p1', name: 'Revit', categories: ['Reality Capture (Scan-to-BIM)'] },
+    });
+
+    expect(response.taxonomy.categories).toEqual([
+      { slug: 'reality-capture', id: uuid(6), operation: 'reused' },
+    ]);
+    expect(taxonomyCreatedLog()).toBeUndefined();
+    expect(taxonomyCreatedMetricCalls()).toHaveLength(0);
   });
 });

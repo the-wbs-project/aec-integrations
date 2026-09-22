@@ -1073,6 +1073,73 @@ describe('runPromoteIngest', () => {
     expect(await auditActions()).not.toContain('category.created');
   });
 
+  describe('taxonomy name pass (AECI-970, option A)', () => {
+    // The AECI-926 shape: a stored row whose slug is NOT `slugify(name)`. The slug
+    // pass misses (`reality-capture-scan-to-bim` ≠ `reality-capture`), so before the
+    // name pass this minted a duplicate term with a public URL.
+    it('resolves a value whose slugified name matches a stored NAME, not its slug', async () => {
+      await t.db.insert(taxonomyCategories).values({
+        id: uuid(6),
+        slug: 'reality-capture',
+        name: 'Reality Capture (Scan-to-BIM)',
+      });
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit', categories: ['Reality Capture (Scan-to-BIM)'] },
+      });
+      const b = (await res.json()) as {
+        taxonomy: { categories: { slug: string; id: string; operation: string }[] };
+      };
+      // The STORED slug is reported: the cache purge builds `category:{slug}` from it.
+      expect(b.taxonomy.categories).toEqual([
+        { slug: 'reality-capture', id: uuid(6), operation: 'reused' },
+      ]);
+      expect(await t.db.select().from(taxonomyCategories)).toHaveLength(1);
+      expect(await auditActions()).not.toContain('category.created');
+    });
+
+    it('prefers a slug match over another row whose name slugifies to the same key', async () => {
+      await t.db.insert(taxonomyAudiences).values([
+        { id: uuid(6), slug: 'architects', name: 'Architecture Firms' },
+        { id: uuid(7), slug: 'architecture-firms', name: 'Architecture' },
+      ]);
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit', audiences: ['Architecture Firms'] },
+      });
+      const b = (await res.json()) as {
+        taxonomy: { audiences: { slug: string; id: string; operation: string }[] };
+      };
+      expect(b.taxonomy.audiences).toEqual([
+        { slug: 'architecture-firms', id: uuid(7), operation: 'reused' },
+      ]);
+    });
+
+    it('collapses a slug hit and a name hit on the same row to one join', async () => {
+      await t.db
+        .insert(taxonomyPhases)
+        .values({ id: uuid(6), slug: 'design', name: 'Design & Engineering' });
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit', phases: ['design', 'Design & Engineering'] },
+      });
+      const b = (await res.json()) as { taxonomy: { phases: { id: string }[] } };
+      expect(b.taxonomy.phases).toEqual([expect.objectContaining({ id: uuid(6) })]);
+    });
+
+    it('still mints a value that matches no slug and no name', async () => {
+      await t.db.insert(taxonomyCategories).values({ id: uuid(6), slug: 'bim', name: 'BIM' });
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit', categories: ['Digital Twins'] },
+      });
+      const b = (await res.json()) as {
+        taxonomy: { categories: { slug: string; operation: string }[] };
+      };
+      expect(b.taxonomy.categories).toEqual([
+        expect.objectContaining({ slug: 'digital-twins', operation: 'created' }),
+      ]);
+      expect(await t.db.select().from(taxonomyCategories)).toHaveLength(2);
+      expect(await auditActions()).toContain('category.created');
+    });
+  });
+
   it('skips an integration whose other endpoint is not promoted', async () => {
     const res = await promote({
       product: { ref: 'p1', name: 'Revit' },

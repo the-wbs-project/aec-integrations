@@ -117,8 +117,8 @@ one the original three facets carry:
   is **dropped from the stored set and reported in `skipped[]`** (`kind: "trade"`) — it is **not**
   auto-created, and it is **not** a promote failure (the same shape as `usefulness` groups and
   claim `dataObject`s — `REVIEW_APP_PROMOTE_API.md` §3.3). This deliberately diverges from
-  `categories` / `audiences` / `phases`, which promote resolves **find-or-create**
-  (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`). Trades follow the Stage 1.5 `data_object`
+  `categories` / `audiences` / `phases`, which promote resolves **find-or-create** by slug then
+  name (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`, AECI-970). Trades follow the Stage 1.5 `data_object`
   model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
   `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
   across two permanent URLs and quietly destroy the SEO asset the facet exists to build.

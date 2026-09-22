@@ -43,6 +43,10 @@
  *     `UPDATE … WHERE id = <gone>` that silently writes nothing and reports an
  *     empty slug (AECI-568). The fallback is reported on
  *     `PromoteIngestResult.staleSupabaseIds` → `aeci.api.promote.stale_id`.
+ *   - **Taxonomy resolves slug → name → mint (AECI-970).** A category / audience /
+ *     phase that matches no stored slug and no stored name is still created, and
+ *     every mint is reported as `aeci.api.promote.taxonomy_created`. Trades are
+ *     find-only and never mint.
  *   - **Slugs are server-owned.** Generated on create via `@aeci/shared/slug`;
  *     kept stable on update.
  *   - **Joins are replaced, not merged.** On update, the product's
@@ -1426,6 +1430,52 @@ function logPromoteUnresolvedLinks(
   }
 }
 
+/** The response key each mintable taxonomy kind reports under. */
+const FACET_KEY = { category: 'categories', audience: 'audiences', phase: 'phases' } as const;
+
+/**
+ * Surface every taxonomy term a promote MINTED (AECI-970). `categories` / `audiences` /
+ * `phases` are closed vocabularies that promote can still grow: a value that matches no
+ * stored slug and no stored name creates a row with a public browse URL, no
+ * `description` and no `display_order`. That used to be visible only as an
+ * `operation: 'created'` in the response and a `<kind>.created` audit row, which is how
+ * `reality-capture-scan-to-bim` carried 10 products for a month before anyone saw it
+ * (AECI-926).
+ *
+ * One `warn` log listing every `{ kind, slug, id }`, plus one
+ * `aeci.api.promote.taxonomy_created` count per term tagged `kind` and `slug`. `slug`
+ * is a tag on purpose: mints are rare (11 in production's whole history), so the
+ * cardinality is negligible and the series alone names the term to go and look at.
+ * Read off `response`, so an AECI-571 replay reports the same mints again, exactly as
+ * {@link logPromoteSkips} does. Fire-and-forget over the same self-gating transport.
+ * No-op when nothing was minted, which is the steady state.
+ */
+function logPromoteTaxonomyCreates(rc: PromoteRunCtx, response: PromoteResponse): void {
+  const created = (['category', 'audience', 'phase'] as const).flatMap((kind) =>
+    (response.taxonomy[FACET_KEY[kind]] ?? [])
+      .filter((r) => r.operation === 'created')
+      .map((r) => ({ kind, slug: r.slug, id: r.id })),
+  );
+  if (created.length === 0) return;
+
+  logToPosthog(rc, rc.env, rc.request, {
+    level: 'warn',
+    message: 'aeci.api.promote.taxonomy_created',
+    source: 'review-app-promote',
+    outcome: 'minted',
+    created_count: created.length,
+    created,
+  });
+
+  for (const term of created) {
+    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.taxonomy_created', 1, [
+      'source:promote',
+      `kind:${term.kind}`,
+      `slug:${term.slug}`,
+    ]);
+  }
+}
+
 /**
  * Surface an absorbed commit replay (AECI-571) in Datadog.
  *
@@ -1992,10 +2042,23 @@ export async function runPromoteIngest(
     }
   }
 
-  // ── Taxonomy (find-or-create by canonical slug) ───────────────────────────
+  // ── Taxonomy (find-or-create: slug pass, then name pass, then mint) ────────
   // Each facet returns the resolved ids + the public results, AND records a
-  // `{slug → {slug,name}}` map (existing + just-created) for usefulness to
+  // `{key → {slug,name}}` map (existing + just-created) for usefulness to
   // resolve against. New-term inserts are appended to the batch.
+  //
+  // AECI-970 (option A): an incoming value is normalized with `slugify` and looked
+  // up against every stored row twice — by its `slug` first, then by
+  // `slugify(name)` — before the mint path may run. The slug pass alone is what
+  // minted `reality-capture-scan-to-bim` beside the seeded `reality-capture`
+  // (AECI-926): the seeded row's NAME was `Reality Capture (Scan-to-BIM)`, which
+  // slugified to the incoming key, but nothing looked at names. Two separate
+  // passes (as in `resolveTrades`) make the precedence structural: a row's name
+  // can never shadow another row's slug. There is no alias pass because these
+  // tables have no `aliases` column. The mint itself is unchanged — making these
+  // facets find-only is option B, which waits on the review app surfacing
+  // `skipped[]` for them — but every mint is now reported post-commit as
+  // `aeci.api.promote.taxonomy_created` (`logPromoteTaxonomyCreates`).
   const resolveTaxonomy = async (
     names: string[],
     model: TaxonomyTable,
@@ -2003,25 +2066,34 @@ export async function runPromoteIngest(
   ): Promise<{
     ids: string[];
     results: PromoteTaxonomyResult[];
-    termBySlug: Map<string, { slug: string; name: string }>;
+    termByKey: Map<string, { slug: string; name: string }>;
   }> => {
     const existing = (await db
       .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
       .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
-    const bySlug = new Map(existing.map((r) => [r.slug, r.id]));
-    const termBySlug = new Map(existing.map((r) => [r.slug, { slug: r.slug, name: r.name }]));
-    const slugSet = new Set(bySlug.keys());
+    const byKey = new Map<string, { id: string; slug: string; name: string }>();
+    for (const r of existing) byKey.set(r.slug, r);
+    for (const r of existing) {
+      const key = safeSlugify(r.name);
+      if (key && !byKey.has(key)) byKey.set(key, r);
+    }
+    const termByKey = new Map(
+      [...byKey].map(([key, r]) => [key, { slug: r.slug, name: r.name }] as const),
+    );
+    const slugSet = new Set(existing.map((r) => r.slug));
     const ids: string[] = [];
     const results: PromoteTaxonomyResult[] = [];
     const seen = new Set<string>();
     for (const name of names) {
       const canonical = slugify(name);
-      const found = bySlug.get(canonical);
+      const found = byKey.get(canonical);
       if (found) {
-        if (!seen.has(found)) {
-          ids.push(found);
-          results.push({ slug: canonical, id: found, operation: 'reused' });
-          seen.add(found);
+        if (!seen.has(found.id)) {
+          ids.push(found.id);
+          // The STORED slug, not `canonical`: they differ on a name-pass hit, and
+          // the cache purge and IndexNow read this slug to build `category:{slug}`.
+          results.push({ slug: found.slug, id: found.id, operation: 'reused' });
+          seen.add(found.id);
         }
         continue;
       }
@@ -2029,8 +2101,9 @@ export async function runPromoteIngest(
       slugSet.add(slug);
       const id = crypto.randomUUID();
       stmts.push(db.insert(model.table).values({ id, slug, name } as Record<string, unknown>));
-      bySlug.set(canonical, id);
-      termBySlug.set(slug, { slug, name });
+      byKey.set(canonical, { id, slug, name });
+      termByKey.set(canonical, { slug, name });
+      termByKey.set(slug, { slug, name });
       ids.push(id);
       results.push({ slug, id, operation: 'created' });
       seen.add(id);
@@ -2041,7 +2114,7 @@ export async function runPromoteIngest(
         entityId: id,
       });
     }
-    return { ids, results, termBySlug };
+    return { ids, results, termByKey };
   };
 
   const p = payload.product;
@@ -2054,7 +2127,7 @@ export async function runPromoteIngest(
   const emptyTax = {
     ids: [] as string[],
     results: [] as PromoteTaxonomyResult[],
-    termBySlug: new Map<string, { slug: string; name: string }>(),
+    termByKey: new Map<string, { slug: string; name: string }>(),
   };
   const categories =
     writesProduct && p
@@ -2189,13 +2262,13 @@ export async function runPromoteIngest(
   // ── Usefulness (find-only resolution against existing+new terms) ───────────
   const resolveUsefulnessFacet = (
     groups: PromoteUsefulnessGroup[],
-    termBySlug: Map<string, { slug: string; name: string }>,
+    termByKey: Map<string, { slug: string; name: string }>,
     productRef: string,
   ): UsefulnessGroup[] => {
     const resolveOne = (value?: string) => {
       if (!value) return undefined;
       const key = safeSlugify(value);
-      return key ? termBySlug.get(key) : undefined;
+      return key ? termByKey.get(key) : undefined;
     };
     const merged = new Map<string, UsefulnessGroup>();
     for (const g of groups) {
@@ -2227,8 +2300,8 @@ export async function runPromoteIngest(
       usefulnessData = null;
     } else if (p.usefulness) {
       usefulnessData = {
-        audiences: resolveUsefulnessFacet(p.usefulness.audiences, audiences.termBySlug, p.ref),
-        phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termBySlug, p.ref),
+        audiences: resolveUsefulnessFacet(p.usefulness.audiences, audiences.termByKey, p.ref),
+        phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termByKey, p.ref),
       };
     }
   }
@@ -3241,4 +3314,8 @@ export function dispatchPromoteHooks(
   // response wholesale. `?? []` because a ledger row written before AECI-730 has no
   // such key, and this runs post-commit where a throw has nothing to roll back.
   logPromoteUnresolvedLinks(rc, response.unresolvedLinks ?? []);
+
+  // Surface any category / audience / phase term this promote minted (AECI-970). A
+  // mint is a new public browse URL with no copy, so it must never be silent.
+  logPromoteTaxonomyCreates(rc, response);
 }
