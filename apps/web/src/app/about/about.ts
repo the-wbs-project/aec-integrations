@@ -134,16 +134,17 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
                   class="font-display text-xl leading-snug text-(--text-primary)"
                   i18n="@@app.about.different.curation.title"
                 >
-                  Curated by us, never controlled by vendors
+                  Vendors maintain their integrations, never their ranking
                 </h3>
                 <p
                   class="mt-2 text-base leading-relaxed text-(--text-secondary)"
                   i18n="@@app.about.different.curation.body"
                 >
-                  Integration details are researched and published by AEC Integrations, and every
-                  claim stays labeled “Unverified” until the vendors involved confirm it. Vendors
-                  never pay to rank, never pay to remove a review, and never set their own position.
-                  Rankings are algorithmic, always.
+                  We seed the catalogue from public research. The vendor that offers an integration
+                  can take it over and keep its details current, and every claim stays labeled
+                  “Unverified” until the vendors involved confirm it. Vendors never pay to rank,
+                  never pay to remove a review, and never set their own position. Rankings are
+                  algorithmic, always.
                 </p>
               </li>
             </ul>

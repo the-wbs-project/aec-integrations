@@ -143,10 +143,82 @@ describe('VendorNotificationsList', () => {
     expect(row).toBeDefined();
     expect(row!.textContent).toContain('Summit Software');
     expect(row!.textContent).toContain('Summit ↔ Procore');
+    // AECI-1023: what the claim means for the other side, and its recourse.
+    expect(row!.textContent).toContain('AEC Integrations no longer updates them');
+    expect(row!.textContent).toContain('contest the Owner field');
     expect(row!.querySelector('a')?.getAttribute('href')).toBe(
       '/products/procore/integrations/summit',
     );
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
+  });
+
+  it.each([
+    ['declined', 'The value on record stays as it is.'],
+    ['closed_by_retire', 'Restoring the integration does not reopen your contest.'],
+    ['submitted', 'Accept or decline it under Field contests in Messages.'],
+  ] as const)('explains a contest `%s` row under its title (AECI-1023)', async (event, note) => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'contest',
+          id: '00000000-0000-4000-8000-00000000c0de',
+          event,
+          contest_id: '00000000-0000-4000-8000-00000000c0df',
+          integration_id: '00000000-0000-4000-8000-00000000c0e0',
+          integration_name: 'Summit ↔ Procore',
+          field: 'docs_url',
+          pair_path: null,
+          created_at: '2026-09-18T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain(note);
+    // AECI-1009's protest is designed, not built, so no row may offer one.
+    expect(body).not.toMatch(/protest|appeal/i);
+  });
+
+  it('gives an accepted contest no note, because when the page changes depends on the row', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'contest',
+          id: '00000000-0000-4000-8000-00000000c0de',
+          event: 'accepted',
+          contest_id: '00000000-0000-4000-8000-00000000c0df',
+          integration_id: '00000000-0000-4000-8000-00000000c0e0',
+          integration_name: 'Summit ↔ Procore',
+          field: 'docs_url',
+          pair_path: null,
+          created_at: '2026-09-18T12:00:00.000Z',
+        },
+      ],
+    });
+    const fixture = await create();
+    const row = el(fixture).querySelector('li')!;
+    // Title, then the detail line. No note paragraph between them.
+    expect(row.querySelectorAll('p')).toHaveLength(2);
+  });
+
+  it.each([
+    ['retired', 'Nothing was deleted, and the owner can restore it.'],
+    ['restored', 'It is back on the public site as it was before it was retired.'],
+  ] as const)('explains an integration `%s` row (AECI-1023)', async (event, note) => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'integration_retire',
+          id: '00000000-0000-4000-8000-00000000c2a1',
+          event,
+          integration_id: '00000000-0000-4000-8000-00000000c2a2',
+          integration_name: 'Summit ↔ Procore',
+          owner_name: 'Summit Software',
+          pair_path: null,
+          created_at: '2026-09-21T12:00:00.000Z',
+        },
+      ],
+    });
+    expect(text(await create())).toContain(note);
   });
 
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {

@@ -98,7 +98,8 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                 >
                   Nothing to decide. Once you claim an integration your company owns, contests other
                   vendors send about it arrive here for you to accept or decline. Until then AEC
-                  Integrations reviews them.
+                  Integrations reviews them. A contest about who owns an integration always goes to
+                  AEC Integrations.
                 </p>
               } @else {
                 <ul

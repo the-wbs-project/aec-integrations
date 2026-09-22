@@ -196,6 +196,16 @@ carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.m
 | `entitlement-expiring` | daily term-expiry sweep, 11:00 UTC (`lib/entitlement-expiry.ts`, AECI-613) | the vendor's seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The renewal prompt, sent once per term as `period_end` comes within `EXPIRY_WARNING_DAYS` (30). **The money is deliberately absent** — amount, payer, terms and PO reference are admin-side only (`STAGE_2_PAID_TIERS_SPEC.md` §8); this copy says what the status is, when the term ends, and asks the vendor to get in touch. States outright that **nothing changes on its own** (§7.3 — the sweep warns, it never lapses), so the email cannot read as a shut-off notice. Needs `SUPABASE_SERVICE_ROLE_KEY` for the seat addresses, so it resolves `skipped` locally and on PR previews. |
 | `entitlement-expiring-admin` | same sweep, one email **per term** | `ADMIN_ALERT_EMAIL` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
 
+**Integration ownership and contest events send no email (AECI-1023, checked 2026-09-22).** The
+claim (`integration_claim`), owner edit (`integration_update`), retire and restore
+(`integration_retire`) and every field-contest event (`contest`: `submitted`, `withdrawn`,
+`accepted`, `declined`, `closed_by_retire`) are delivered only as `notification.sent` audit rows,
+written in the same batch as the change and read by the vendor portal's notification archive
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, §4.6, §11b.8). Per-side link writes (AECI-1007) send no
+notification at all. None of them calls `lib/email.ts`, so none has a row in the catalogue above.
+The portal copy for them lives in `vendor-notifications-list.ts` and `vendor-contest-labels.ts`. If
+one of them ever gains an email, it gets a catalogue row here in the same change.
+
 **The two `landing-*` operator alerts got a screen behind them for a stronger reason
 than the digests did (AECI-586).** A digest is a summary of data that stays in D1
 either way, so its screen is a convenience. These two were the **only** record: the

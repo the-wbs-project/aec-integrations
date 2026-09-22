@@ -478,9 +478,10 @@ Every page sets:
   - **The vendor number is `product_count`, never `integration_count`.** A vendor's
     `integration_count` counts integrations that vendor *built* (`built_by_vendor_id`), not
     integrations across its products, and it is zero for almost every vendor.
-  - **The trust line must not claim verification.** `/methodology` states that AEC Integrations is
-    currently the source of every claim on the site and that readers will see "Unverified · AECi"
-    throughout, because no vendor seat has been granted (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
+  - **The trust line must not claim verification.** `/methodology` states that almost every claim and
+    integration on the site is still recorded by AEC Integrations and that readers will see
+    "Unverified · AECi" nearly everywhere, because vendor seats are only now being opened (wording
+    since AECI-1023) (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
     "vendor-verified" would contradict our own trust page on every indexed URL. When the first seat
     is granted this line becomes revisable, alongside the other edits §7.1 records as owed.
 
