@@ -242,7 +242,7 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
-    if (notification.kind === 'integration_claim') {
+    if (notification.kind === 'integration_claim' || notification.kind === 'integration_retire') {
       return [notification.owner_name, notification.integration_name].filter(
         (part): part is string => !!part,
       );
@@ -275,6 +275,12 @@ function titleOf(notification: VendorNotification): string {
   if (isAttestationNotification(notification)) return detectorTitle(notification.detector);
   if (notification.kind === 'integration_claim') {
     return $localize`:@@vendor.claim.notify.claimed:The owner claimed an integration on your product`;
+  }
+  // AECI-1010. Plain copy, like the claim row; AECI-1023 owns the final wording.
+  if (notification.kind === 'integration_retire') {
+    return notification.event === 'retired'
+      ? $localize`:@@vendor.retire.notify.retired:The owner retired an integration on your product`
+      : $localize`:@@vendor.retire.notify.restored:The owner restored an integration on your product`;
   }
   return contestNotificationTitle(notification.event);
 }

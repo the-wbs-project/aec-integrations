@@ -41,12 +41,15 @@ import { EMPTY_CONTESTABLE_FIELDS } from '@aeci/shared';
  */
 const NOT_OWNER: Pick<
   VendorIntegration,
-  'is_owner' | 'owner' | 'contestable_fields' | 'endpoint_vendors'
+  'is_owner' | 'owner' | 'contestable_fields' | 'endpoint_vendors' | 'claimed_at' | 'retired_at'
 > = {
   is_owner: false,
   owner: null,
   contestable_fields: EMPTY_CONTESTABLE_FIELDS,
   endpoint_vendors: [],
+  // AECI-1005 / AECI-1010: unclaimed and live unless a fixture says otherwise.
+  claimed_at: null,
+  retired_at: null,
 };
 
 /** The counterpart vendor on the Procore edges, for contest fixtures. */
@@ -705,6 +708,8 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   // Procore is on record as the owner; the caller (Summit) is not.
   is_owner: false,
   owner: PROCORE_VENDOR,
+  claimed_at: null,
+  retired_at: null,
   contestable_fields: {
     name: 'Summit Model Coordination ↔ Procore',
     mechanism_kind: 'native',
@@ -858,6 +863,8 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   is_owner: true,
   owner: SUMMIT_VENDOR,
   endpoint_vendors: [AUTODESK_VENDOR, SUMMIT_VENDOR],
+  // AECI-1010: claimed, so the card offers the owner Retire.
+  claimed_at: '2026-09-01T00:00:00.000Z',
   powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach
@@ -972,6 +979,31 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
       counterparty: null,
     },
   ],
+};
+
+/**
+ * A row the OTHER endpoint's owner has retired (AECI-1010). Listed for the caller,
+ * read-only and marked retired, which is what the retire notification lands on.
+ *
+ * Deliberately NOT in {@link VENDOR_INTEGRATIONS_FIXTURE}: the drill-down specs count
+ * its groups. The preview API appends it, so `/preview/vendor-dashboard` shows it.
+ */
+export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005316',
+  name: 'Summit Field Issues ↔ Procore Quality',
+  mechanism_kind: 'api',
+  mechanism_name: null,
+  attestable: true,
+  ...NOT_OWNER,
+  owner: PROCORE_VENDOR,
+  endpoint_vendors: [PROCORE_VENDOR, SUMMIT_VENDOR],
+  claimed_at: '2026-09-02T00:00:00.000Z',
+  retired_at: '2026-09-18T00:00:00.000Z',
+  powered_by: null,
+  context_product: CONTEXT_SECONDARY,
+  other_product: OTHER_PROCORE,
+  slots: ['vendor_a'],
+  claims: [],
 };
 
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
