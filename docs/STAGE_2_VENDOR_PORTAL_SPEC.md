@@ -364,7 +364,7 @@ A row is **vendor-held** when it is claimed or `origin = 'vendor'`. "No upstream
 | Retraction consumer (`scripts/ops/2026-09-retraction-consumer/consume.mjs`) | Refuses the whole run, loudly, when any resolved row is vendor-held and not on `HOLD`. A held entry is never deleted and never confirmed. |
 | `ops:retract-product` (`apps/api/src/lib/retract-product.ts`) | Refuses to retract a product whose deletion would cascade (or detach `powered_by` on) a vendor-held integration. A refusal, so `--force` does not override it. |
 
-All of them probe the live DDL for the columns (`vendor-held.mjs`, and `ddlHasVendorHeldColumns` in `retract-product.ts`), because migration `0044` reaches production only at the next prod promote and a query naming a missing column would fail every run until then.
+All of them probe the live DDL for the columns (`vendor-held.mjs`, and `ddlHasVendorHeldColumns` in `retract-product.ts`), because migration `0044` reaches production only at the next prod promote and a query naming a missing column would fail every run until then. Since AECI-1010 the same holds for `retired_at`: the datatool prune and reindex, the retraction consumer's count repair and both reconcile CLIs (`reconcile-product-counts.ts`, which runs daily against production, and `reconcile-algolia-drift.ts`) read the `integrations` DDL first and use `liveIntegrationSqlIf`, which degrades to always-true without the column. An empty DDL read is "could not check" and throws.
 
 A retired row is always claimed (§4.6), so every lane above already treats it as vendor-held. One lane needed a change anyway: the datatool prune's three twin guards now count only a LIVE twin as a surviving copy (AECI-1010), because a retired twin is off the public record.
 

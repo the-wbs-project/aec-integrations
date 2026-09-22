@@ -45,3 +45,49 @@ export function liveIntegrationSql(alias: string): string {
 export function retiredIntegrationSql(alias: string): string {
   return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NOT NULL`;
 }
+
+// ─── Tools that run against a DEPLOYED database ──────────────────────────────
+//
+// The datatool, the operator CLIs and the ops scripts query a deployed D1 directly.
+// Migration `0044` (which adds `retired_at`) reaches each tier only at that tier's
+// next deploy, and production can lag `main` by days. A query naming a missing column
+// fails outright, so those tools read the table definition first and ask
+// {@link liveIntegrationSqlIf} for a predicate that degrades to always-true when the
+// column is absent. A database without the column cannot hold a retired row, so the
+// degraded answer is also the correct one. This mirrors how the same tools probe
+// `claimed_at` / `origin` for the vendor-held rule (AECI-1005 review).
+
+/** The read that returns the `integrations` table's `CREATE TABLE` text. */
+export const INTEGRATIONS_DDL_QUERY = `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'integrations'`;
+
+/**
+ * Does this `CREATE TABLE` text (from `sqlite_master.sql`) declare `retired_at`?
+ * A declared type must follow the name, so a mention inside a CHECK does not count.
+ * Columns added by `ALTER TABLE … ADD` are rewritten into this text by SQLite.
+ */
+export function ddlHasRetiredColumn(ddl: string | null | undefined): boolean {
+  if (typeof ddl !== 'string') return false;
+  return new RegExp(
+    `[(,]\\s*[\`"\\[]?${INTEGRATION_RETIRED_COLUMN}[\`"\\]]?\\s+(text|integer|int|real|blob|numeric)\\b`,
+    'i',
+  ).test(ddl);
+}
+
+/**
+ * The DDL text out of an {@link INTEGRATIONS_DDL_QUERY} read, or a THROW. An empty
+ * read is "could not check", never "no column": falling back to `''` would silently
+ * count retired rows as live on a migrated database.
+ */
+export function integrationsDdlOrThrow(sql: unknown): string {
+  if (typeof sql !== 'string' || sql.trim() === '') {
+    throw new Error(
+      'Could not read the integrations table definition from sqlite_master, so retired rows cannot be excluded. Refusing to continue.',
+    );
+  }
+  return sql;
+}
+
+/** {@link liveIntegrationSql} when the column exists, else the always-true `1 = 1`. */
+export function liveIntegrationSqlIf(alias: string, hasRetiredColumn: boolean): string {
+  return hasRetiredColumn ? liveIntegrationSql(alias) : '1 = 1';
+}

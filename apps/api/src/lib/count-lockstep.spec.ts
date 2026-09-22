@@ -537,7 +537,8 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
   {
     id: 'X5',
     file: '../../scripts/ops/2026-09-retraction-consumer/consume.mjs',
-    marker: 'UPDATE products SET integration_count',
+    // The DDL-probed filter, which the recount's UPDATE below interpolates.
+    marker: "const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at')",
     proof: 'scan',
   },
   {
@@ -566,9 +567,11 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
 /** Lines after a marker the scan searches for the live predicate. */
 const SCAN_WINDOW = 40;
 
-/** Any of the three spellings of the live predicate. */
+/** Any spelling of the live predicate. `liveIntegrationSqlIf(` is the DDL-probed form
+ *  the tools that run against a deployed database use (it degrades to `1 = 1` on a
+ *  tier without migration 0044). */
 const LIVE_PREDICATE =
-  /liveIntegrationWhere|liveIntegrationSql\(|retired_at IS NULL|liveIntegrationOn\(/;
+  /liveIntegrationWhere|liveIntegrationSql\(|liveIntegrationSqlIf\(|retired_at IS NULL|liveIntegrationOn\(/;
 
 const RETIRED_AT = '2026-09-20T00:00:00.000Z';
 

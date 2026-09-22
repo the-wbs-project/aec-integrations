@@ -37,7 +37,23 @@ import {
 } from '@aeci/shared/algolia-batch';
 import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
-import { liveIntegrationSql } from '@aeci/shared/live-integration';
+import {
+  ddlHasRetiredColumn,
+  INTEGRATIONS_DDL_QUERY,
+  integrationsDdlOrThrow,
+  liveIntegrationSqlIf,
+} from '@aeci/shared/live-integration';
+
+/**
+ * Whether this tier's `integrations` has migration 0044's `retired_at` yet (AECI-1010).
+ * The datatool runs against deployed tiers whose migration can lag, and a query naming
+ * a missing column fails. Without the column no row is retired, so the predicate
+ * degrades to always-true. Same probe as the prune's.
+ */
+async function hasRetiredColumn(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(INTEGRATIONS_DDL_QUERY).first<{ sql: string }>();
+  return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
+}
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
@@ -150,6 +166,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
 }
 
 export async function buildVendorRecords(db: D1Database): Promise<Record<string, unknown>[]> {
+  const retiredColumn = await hasRetiredColumn(db);
   const { results } = await db
     .prepare(
       `SELECT
@@ -161,7 +178,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          -- product column. Both tables, or connector vendors' counts collapse.
          -- AECI-1010: live integrations only; the evidenced table has no retired_at.
          ((SELECT count(*) FROM integrations i
-             WHERE i.built_by_vendor_id = v.id AND ${liveIntegrationSql('i')})
+             WHERE i.built_by_vendor_id = v.id AND ${liveIntegrationSqlIf('i', retiredColumn)})
           + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = v.id))
            AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'`,
@@ -224,6 +241,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
  * forever — this is a full-index rebuild, so a missing arm is a missing record.
  */
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
+  const retiredColumn = await hasRetiredColumn(db);
   const { results } = await db
     .prepare(
       `SELECT
@@ -248,7 +266,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        -- AECI-1010: a retired row is not a member, so a full rebuild must not
        -- re-add it. Same predicate as the Worker sync's upsert arm.
        WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'
-         AND ${liveIntegrationSql('i')}
+         AND ${liveIntegrationSqlIf('i', retiredColumn)}
        UNION ALL
        SELECT
          cep.id AS objectID,

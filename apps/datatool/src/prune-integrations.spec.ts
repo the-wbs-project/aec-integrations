@@ -223,6 +223,18 @@ describe('prunePlan', () => {
     );
   });
 
+  it('runs on a tier whose migrations lag, without retired_at (AECI-1010)', async () => {
+    // The datatool is deployed by hand, so it can reach a database without 0044's
+    // column. Naming it would fail the plan outright; the probe degrades instead.
+    h.raw.exec('ALTER TABLE integrations DROP COLUMN retired_at');
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    expect(plan.guards).toEqual({
+      claimsUniqueToOrphans: 0,
+      orphansWithoutATwin: 0,
+      orphansRicherThanTwin: 0,
+    });
+  });
+
   it('lists vendor-held ids: claimed, or created by a vendor (AECI-1005)', async () => {
     expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([]);
     h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);

@@ -1553,6 +1553,12 @@ mid-flight will make a local decision about a cross-cutting contract.
   searchable. The retire route also re-indexes the integration, both products and the owner vendor
   by id after commit, because the vendor record's count has no other refresh path.
 
+  **Tools that query a deployed database probe the column first.** The datatool prune and
+  reindex, the retraction consumer and both reconcile CLIs read the `integrations` DDL and use
+  `liveIntegrationSqlIf` (`@aeci/shared/live-integration`), which degrades to `1 = 1` on a tier
+  without migration `0044`. `reconcile-product-counts.ts` runs daily against production, so an
+  unprobed filter would fail it every morning between the merge and the next prod promote.
+
   **The asserted list** (`LOCKSTEP_SITES`). `executed` = run against the test D1 with a live and a
   retired row between the same promoted endpoints; `scan` = cannot run in the api suite, so a source
   scan requires the predicate within 40 lines of the named marker; `excluded` = deliberately

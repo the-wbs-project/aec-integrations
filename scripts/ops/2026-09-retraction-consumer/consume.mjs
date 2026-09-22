@@ -153,6 +153,7 @@ import { fileURLToPath } from 'node:url';
 
 import { listAll, openMcpSession } from './mcp-client.mjs';
 import {
+  ddlHasColumn,
   notVendorHeldSql,
   tableDdlOrThrow,
   vendorHeldColumnsSql,
@@ -1373,13 +1374,17 @@ async function main() {
   // correct count. `powered_by_product_id` is NOT in the expression, matching
   // `computeExpected` in `apps/api/src/lib/recompute-counts.ts`. Live `integrations` rows
   // only (AECI-1010): the literal `retired_at IS NULL`, because this `.mjs` cannot import
-  // `@aeci/shared/live-integration`. `count-lockstep.spec.ts` scans for it.
+  // `@aeci/shared/live-integration`. `count-lockstep.spec.ts` scans for it. Probed from
+  // the DDL read in step 2, like the vendor-held columns: migration 0044 reaches each
+  // tier at its next deploy, and naming a missing column here would fail the repair
+  // AFTER the deletes above had committed. Without the column no row is retired.
   //
   // `updated_at` is bumped so the 08:00 incremental Algolia sync's watermark window picks
   // these products up and the corrected count reaches their index records —
   // `reconcile-product-counts.ts` does not bump it, which is the residue the Roofr lane
   // recorded. The bump also moves each page's sitemap `<lastmod>`, which is correct: the
   // content genuinely changed.
+  const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   const now = new Date().toISOString();
   const productIds = [...affected];
   console.log(
@@ -1391,7 +1396,7 @@ async function main() {
         (pid) =>
           `UPDATE products SET integration_count =
              ((SELECT COUNT(*) FROM integrations
-                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') AND retired_at IS NULL)
+                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter})
               + (SELECT COUNT(*) FROM connector_evidenced_pairs
                    WHERE product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}')),
              updated_at = '${now}'

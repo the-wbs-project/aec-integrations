@@ -65,7 +65,12 @@
  * (dry-run included) carries a complete `rollbackSql`. Save it before executing.
  */
 
-import { liveIntegrationSql } from '@aeci/shared/live-integration';
+import {
+  ddlHasRetiredColumn,
+  INTEGRATIONS_DDL_QUERY,
+  integrationsDdlOrThrow,
+  liveIntegrationSqlIf,
+} from '@aeci/shared/live-integration';
 
 /** Upper bound on a single prune, so a malformed paste can't become a mass delete. */
 export const MAX_PRUNE_IDS = 500;
@@ -317,6 +322,18 @@ export async function notVendorHeldClause(db: D1Database): Promise<string> {
     : '';
 }
 
+/**
+ * Whether this tier's `integrations` table has migration 0044's `retired_at` yet.
+ * Probed from the live table definition, like {@link notVendorHeldClause}: the
+ * datatool is deployed by hand and can run against a tier whose migration lags, and a
+ * query naming a missing column fails outright. Without the column no row is retired,
+ * so every `liveIntegrationSqlIf` below degrades to always-true (AECI-1010).
+ */
+export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
+  const [row] = await selectAll(db, INTEGRATIONS_DDL_QUERY, []);
+  return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
+}
+
 /** The requested ids whose rows are vendor-held, in id order. */
 async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
   const rows = await selectAll(
@@ -335,6 +352,7 @@ async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
 export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePlan> {
   const ph = placeholders(ids.length);
   const binds = ids;
+  const retiredColumn = await hasRetiredColumn(db);
 
   const rows = (await selectAll(
     db,
@@ -368,7 +386,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s JOIN claims sc ON sc.integration_id = s.id
               WHERE s.id NOT IN (${ph})
-                AND ${liveIntegrationSql('s')}
+                AND ${liveIntegrationSqlIf('s', retiredColumn)}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
@@ -380,14 +398,14 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s
               WHERE s.id NOT IN (${ph})
-                AND ${liveIntegrationSql('s')}
+                AND ${liveIntegrationSqlIf('s', retiredColumn)}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
            )) AS orphansWithoutATwin,
        (SELECT COUNT(*) FROM integrations o
           JOIN integrations s ON s.id NOT IN (${ph})
-            AND ${liveIntegrationSql('s')}
+            AND ${liveIntegrationSqlIf('s', retiredColumn)}
             AND s.source_product_id = o.source_product_id
             AND s.target_product_id = o.target_product_id
             AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
@@ -465,6 +483,7 @@ export async function pruneExecute(
   affectedProductIds: string[],
 ): Promise<PruneResult> {
   const ph = placeholders(ids.length);
+  const retiredColumn = await hasRetiredColumn(db);
 
   // The route refuses vendor-held ids before it gets here. This is the second gate, so
   // a future caller that skips the plan still cannot delete a vendor's row (AECI-1005).
@@ -521,7 +540,7 @@ export async function pruneExecute(
             `UPDATE products SET integration_count =
                ((SELECT COUNT(*) FROM integrations
                    WHERE (source_product_id = ? OR target_product_id = ?)
-                     AND ${liveIntegrationSql('integrations')})
+                     AND ${liveIntegrationSqlIf('integrations', retiredColumn)})
                 + (SELECT COUNT(*) FROM connector_evidenced_pairs
                      WHERE product_a_id = ? OR product_b_id = ? OR connector_product_id = ?))
              WHERE id = ?`,
