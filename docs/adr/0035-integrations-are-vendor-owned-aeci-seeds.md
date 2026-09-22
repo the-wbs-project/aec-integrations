@@ -69,7 +69,7 @@ Three tools treat "no upstream record points at this row" as "this row is an orp
 
 ## The non-endpoint owner (AECI-1017)
 
-This section is AECI-1017's text. Its contract lives in `docs/STAGE_2_SPEC.md` §8.10, `docs/STAGE_2_PAID_TIERS_SPEC.md` §3.1 and `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2, on AECI-1017's branch; this record cites them and does not restate them. Rule 7 and "Open" below were resolved on 2026-09-22 (option A).
+This section is AECI-1017's text. Its contract lives in `docs/STAGE_2_SPEC.md` §8.10, `docs/STAGE_2_PAID_TIERS_SPEC.md` §3.1 and `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2; this record cites them and does not restate them. Rule 7 and "Open" below were resolved on 2026-09-22 (option A).
 
 A **non-endpoint owner** (a "third-party owner") is a vendor recorded in `built_by_vendor_id` that owns neither endpoint product of the integration. Availent, Cyberco and SyncEzy are the named cases (AECI-1016, AECI-1024). Under the 2026-09-18 owner definition such a vendor sells a connector product, so its rows carry that product as the connector. The rules below are how ownership works for it.
 
