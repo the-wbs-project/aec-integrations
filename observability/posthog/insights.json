@@ -28,7 +28,14 @@
     "                is absent, it looks these up in order and RENAMES the match in place.",
     "                Without it a rename creates a duplicate and orphans the original,",
     "                because PostHog objects are matched by exact name. Append, never edit:",
-    "                the chain has to reach back to whatever is live on the oldest project."
+    "                the chain has to reach back to whatever is live on the oldest project.",
+    "  filters       OPTIONAL. Pushed as query.source.filters (HogQLFilters). Only an insight",
+    "                that reads PERSON-LINKED events carries it (AECI-858): today the two",
+    "                search_performed tiles. It MUST set filterTestAccounts: true and a",
+    "                dateRange matching the query's own WHERE window, and the query MUST",
+    "                contain {filters}; apply.sh refuses the file otherwise, because a flag",
+    "                without the placeholder is silently inert. posthog.metrics insights",
+    "                never carry it: server metrics have no person to filter."
   ],
   "managedBy": "AECI-647",
   "dashboards": [
@@ -199,11 +206,12 @@
       "previousNames": ["AECi — Search — browser query latency by result bucket (consented slice)"],
       "dashboard": "AECi — Search",
       "dashboardKey": "search",
-      "description": "Search speed measured in the visitor's own browser, grouped by how many results came back — searches that find nothing behave differently from searches that find hundreds. Covers only visitors who accepted analytics cookies.",
+      "description": "Search speed measured in the visitor's own browser, grouped by how many results came back — searches that find nothing behave differently from searches that find hundreds. Covers only visitors who accepted analytics cookies, and leaves out our own team.",
       "notes": "RE-HOMED (spec §3.9). Datadog source: 'Search query latency — p50/p95/p99 (browser RUM, AECI-174)'. Two accepted narrowings: the RUM action saw every search, this sees only the consented slice; and the action carried `index` while search_performed does not, so the per-index split is lost. Grouped by results_bucket instead. Full note in observability/posthog/README.md.",
       "tags": ["aeci", "managed-by:aeci-647", "aeci-key:search-browser-latency"],
       "display": "ActionsTable",
-      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 6.\n-- Reads the PRODUCT-ANALYTICS event, not a metric — hence `events`, not posthog.metrics.\n-- `status` / `duration_ms` / `results_bucket` are already on the searchPerformed()\n-- signature (apps/web/src/app/analytics/analytics.ts); `index` is NOT, so the RUM\n-- action's per-index split does not survive the re-home. Until prod carries these\n-- properties the columns read null and this is empty rather than wrong — PostHog's\n-- taxonomy warning on `duration_ms` is the expected pre-AW2 state.\nSELECT\n    properties.results_bucket                                                 AS results_bucket,\n    count()                                                                   AS queries,\n    round(avg(toFloatOrNull(toString(properties.duration_ms))), 1)            AS mean_ms,\n    round(quantile(0.95)(toFloatOrNull(toString(properties.duration_ms))), 1) AS p95_ms\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY\n  AND event = 'search_performed'\nGROUP BY results_bucket\nORDER BY queries DESC"
+      "filters": { "filterTestAccounts": true, "dateRange": { "date_from": "-7d" } },
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 6.\n-- Reads the PRODUCT-ANALYTICS event, not a metric — hence `events`, not posthog.metrics.\n-- `status` / `duration_ms` / `results_bucket` are already on the searchPerformed()\n-- signature (apps/web/src/app/analytics/analytics.ts); `index` is NOT, so the RUM\n-- action's per-index split does not survive the re-home. Until prod carries these\n-- properties the columns read null and this is empty rather than wrong — PostHog's\n-- taxonomy warning on `duration_ms` is the expected pre-AW2 state.\nSELECT\n    properties.results_bucket                                                 AS results_bucket,\n    count()                                                                   AS queries,\n    round(avg(toFloatOrNull(toString(properties.duration_ms))), 1)            AS mean_ms,\n    round(quantile(0.95)(toFloatOrNull(toString(properties.duration_ms))), 1) AS p95_ms\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY\n  AND event = 'search_performed'\n  -- AECI-858: {filters} applies the project's internal-user filter (and the dateRange\n  -- committed beside this query, which matches the WHERE window above).\n  AND {filters}\nGROUP BY results_bucket\nORDER BY queries DESC"
     },
     {
       "key": "search-browser-error-rate",
@@ -211,11 +219,12 @@
       "previousNames": ["AECi — Search — browser query error rate (consented slice)"],
       "dashboard": "AECi — Search",
       "dashboardKey": "search",
-      "description": "The share of searches that errored in the visitor's browser rather than returning results, day by day. Same consented-visitors-only caveat as the tile above.",
+      "description": "The share of searches that errored in the visitor's browser rather than returning results, day by day. Same consented-visitors-only caveat as the tile above, and our own team is left out.",
       "notes": "RE-HOMED (spec §3.9). Datadog source: 'Search query error rate (%) (browser RUM, AECI-174)'. The Datadog widget had to restrict the denominator to @context.index:(products OR federated) because one successful /search query emitted TWO ok actions while a failure emitted ONE — the event carries one row per query, so that correction is no longer needed.",
       "tags": ["aeci", "managed-by:aeci-647", "aeci-key:search-browser-error-rate"],
       "display": "ActionsTable",
-      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 7.\n-- The Datadog widget had to restrict its denominator to @context.index:(products OR\n-- federated) because ONE successful /search query emitted TWO ok RUM actions (one per\n-- index) while a failure emitted ONE federated error — counting all actions halved the\n-- apparent error rate. search_performed is one row per query, so that correction is\n-- gone along with the `index` dimension that made it necessary.\nSELECT\n    toStartOfDay(timestamp) AS day,\n    count()                 AS queries,\n    round(100.0 * countIf(toString(properties.status) = 'error') / greatest(count(), 1), 2) AS error_rate_pct\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY\n  AND event = 'search_performed'\nGROUP BY day\nORDER BY day DESC\nLIMIT 60"
+      "filters": { "filterTestAccounts": true, "dateRange": { "date_from": "-30d" } },
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 7.\n-- The Datadog widget had to restrict its denominator to @context.index:(products OR\n-- federated) because ONE successful /search query emitted TWO ok RUM actions (one per\n-- index) while a failure emitted ONE federated error — counting all actions halved the\n-- apparent error rate. search_performed is one row per query, so that correction is\n-- gone along with the `index` dimension that made it necessary.\nSELECT\n    toStartOfDay(timestamp) AS day,\n    count()                 AS queries,\n    round(100.0 * countIf(toString(properties.status) = 'error') / greatest(count(), 1), 2) AS error_rate_pct\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY\n  AND event = 'search_performed'\n  -- AECI-858: {filters} applies the project's internal-user filter (and the dateRange\n  -- committed beside this query, which matches the WHERE window above).\n  AND {filters}\nGROUP BY day\nORDER BY day DESC\nLIMIT 60"
     },
     {
       "key": "home-stats-runs",

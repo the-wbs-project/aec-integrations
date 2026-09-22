@@ -1138,6 +1138,14 @@ browser search widgets, over `events`) rather than a Metrics-UI chart — see go
 return exactly one row and a healthy-but-empty window evaluates to `0` rather than
 to "no rows", which is the shape that makes a threshold alert safe.
 
+**Only the two `events` insights filter internal users** (AECI-858):
+`search-browser-latency` and `search-browser-error-rate` carry
+`filters.filterTestAccounts: true` and a `{filters}` placeholder. The 43
+`posthog.metrics` insights, including every health, cron and alert-source tile, are
+unfiltered by design, because server metrics have no person to exclude. `apply.sh`
+refuses a half-configured filter and `--verify` reports a flag switched off in the UI.
+The list and the reasoning live in `docs/ANALYTICS.md` §9.
+
 **Live dashboards (non-production, project 525793):**
 <https://us.posthog.com/project/525793/dashboard> — Traffic `2025785`, Search
 `2025786`, Home/Stats `2025787`, Auth/Reviews/Moderation `2025788`,

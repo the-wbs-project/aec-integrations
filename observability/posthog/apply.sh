@@ -114,6 +114,22 @@ if [ -n "$too_long" ]; then
   exit 2
 fi
 
+# AECI-858: the internal-user filter only reaches a SQL insight through the `{filters}`
+# placeholder, and only when query.source.filters.filterTestAccounts is true. Either half
+# alone is silently inert: the tile renders, the number still counts the operator. So an
+# insight that carries `filters` must have both halves, and no insight may carry the
+# placeholder without them. Checked here so a dry-run fails, not the live board.
+bad_filters="$(jq -r '
+  (.insights // [])[]
+  | select(.filters != null or (.query | test("\\{filters\\}")))
+  | select((.filters.filterTestAccounts != true) or ((.query | test("\\{filters\\}")) | not))
+  | .key' "$INSIGHTS")"
+if [ -n "$bad_filters" ]; then
+  echo "apply.sh: these insights set only half of the internal-user filter. Each needs filters.filterTestAccounts: true AND {filters} in its query:" >&2
+  printf '  %s\n' $bad_filters >&2
+  exit 2
+fi
+
 API_KEY="${POSTHOG_PERSONAL_API_KEY:-${POSTHOG_CLI_API_KEY:-}}"
 APP_HOST="$(jq -r '.hosts.management' "$CONFIG")"
 
@@ -445,6 +461,7 @@ apply_project() {
       # description, so editing either in this file produced a run of clean `skip` lines
       # and changed nothing live. Anything reconciled here has to be compared here.
       local live_query committed_query live_name live_desc committed_desc live_tags get_status
+      local live_filters committed_filters live_fta committed_fta
       get_status="$(api GET "/api/projects/${project_id}/insights/${i_id}/")"
       if [ "$get_status" != "200" ]; then
         record_failure "$project_key" "insight" "$i_name" "read-back for the drift check returned ${get_status}"
@@ -456,14 +473,26 @@ apply_project() {
       live_tags="$(jq -c '(.tags // []) | sort' "$TMPDIR_APPLY/body")"
       committed_query="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .query' "$INSIGHTS")"
       committed_desc="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .description' "$INSIGHTS")"
+      # AECI-858: `filters` is compared whole (null when absent on both sides), so a
+      # dateRange edit counts as drift too. The filterTestAccounts flag gets its own
+      # --verify message below, because it is the one that fails silently.
+      live_filters="$(jq -cS '.query.source.filters // null' "$TMPDIR_APPLY/body")"
+      committed_filters="$(jq -cS --arg k "$i_key" '.insights[] | select(.key == $k) | .filters // null' "$INSIGHTS")"
+      live_fta="$(jq -r '.query.source.filters.filterTestAccounts // false' "$TMPDIR_APPLY/body")"
+      committed_fta="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .filters.filterTestAccounts // false' "$INSIGHTS")"
       if [ "$live_query" != "$committed_query" ] || [ "$live_name" != "$i_name" ] \
          || [ "$live_desc" != "$committed_desc" ] \
+         || [ "$live_filters" != "$committed_filters" ] \
          || [ "$live_tags" != "$(printf '%s' "$i_tags" | jq -c 'sort')" ]; then
         if [ "$MODE" = "verify" ]; then
-          if [ "$live_name" != "$i_name" ]; then
+          if [ "$committed_fta" = "true" ] && [ "$live_fta" != "true" ]; then
+            record_failure "$project_key" "insight" "$i_name" "DRIFT: filterTestAccounts is OFF on the live insight, so it counts internal users. Re-run without --verify to restore it."
+          elif [ "$live_name" != "$i_name" ]; then
             record_failure "$project_key" "insight" "$i_name" "DRIFT: the live insight is still named '${live_name}'. Re-run without --verify to rename it in place."
           elif [ "$live_query" != "$committed_query" ]; then
             record_failure "$project_key" "insight" "$i_name" "DRIFT: the live query differs from the committed one (someone edited it in the UI, or this file changed). Re-run without --verify to overwrite."
+          elif [ "$live_filters" != "$committed_filters" ]; then
+            record_failure "$project_key" "insight" "$i_name" "DRIFT: the live query filters differ from the committed ones. Re-run without --verify to overwrite."
           else
             record_failure "$project_key" "insight" "$i_name" "DRIFT: the live description differs from the committed one. Re-run without --verify to overwrite."
           fi
@@ -498,12 +527,14 @@ apply_project() {
       --arg disp "$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .display' "$INSIGHTS")" \
       --argjson t "$i_tags" \
       --argjson dash "$i_dash_id" \
+      --argjson f "$(jq -c --arg k "$i_key" '.insights[] | select(.key == $k) | .filters // null' "$INSIGHTS")" \
       '{
          name: $n,
          description: $d,
          tags: $t,
          dashboards: [$dash],
-         query: { kind: "DataVisualizationNode", display: $disp, source: { kind: "HogQLQuery", query: $q } }
+         query: { kind: "DataVisualizationNode", display: $disp,
+                  source: ({ kind: "HogQLQuery", query: $q } + (if $f == null then {} else { filters: $f } end)) }
        }' > "$body"
 
     local status
