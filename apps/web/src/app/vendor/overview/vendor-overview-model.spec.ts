@@ -112,6 +112,15 @@ describe('conflictsByProduct / waitingByProduct — the claim-id dedupe (AECI-99
     expect(waitingByProduct(powered).total).toBe(0);
   });
 
+  it('counts nothing on a retired integration (AECI-1010)', () => {
+    const conflicted = ownsBoth('conflict', false);
+    const retired = conflicted.map((i) => ({ ...i, retired_at: '2026-09-18T00:00:00.000Z' }));
+    expect(claimsOnRecord(conflicted).total).toBeGreaterThan(0);
+    expect(claimsOnRecord(retired)).toEqual({ total: 0, byProduct: [] });
+    expect(conflictsByProduct(retired).total).toBe(0);
+    expect(waitingByProduct(retired).total).toBe(0);
+  });
+
   it('counts only conflict claims as conflicts', () => {
     const expected = new Set(
       INTEGRATIONS.flatMap((i) => i.claims)

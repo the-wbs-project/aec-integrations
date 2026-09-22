@@ -204,6 +204,32 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
 export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 /**
+ * `GET /api/integrations/:id` for a RETIRED row (AECI-1010, ruled 2026-09-22).
+ *
+ * The route stays unfiltered so the legacy `/integrations/:id` 301 keeps working,
+ * but a retired row is off the public record. So it answers only what the redirect
+ * needs: the two endpoint slugs. No name, description, notes or any other content.
+ * `retired: true` is the discriminant.
+ */
+export const RetiredIntegrationDetailSchema = z.object({
+  id: z.string().uuid(),
+  retired: z.literal(true),
+  source: z.object({ slug: z.string() }),
+  target: z.object({ slug: z.string() }),
+});
+
+export type RetiredIntegrationDetail = z.infer<typeof RetiredIntegrationDetailSchema>;
+
+/** The whole `GET /api/integrations/:id` response: a live row's detail, or a
+ *  retired row's redirect-only shape. */
+export const IntegrationDetailResponseSchema = z.union([
+  RetiredIntegrationDetailSchema,
+  IntegrationDetailSchema,
+]);
+
+export type IntegrationDetailResponse = z.infer<typeof IntegrationDetailResponseSchema>;
+
+/**
  * Query for `GET /api/integrations`. Filter fields use the camelCase names
  * called out in the AECI-50 acceptance criteria (`sourceProductId`,
  * `targetProductId`); enum-valued filters keep the snake_case form that

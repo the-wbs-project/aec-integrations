@@ -21,6 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  RetireIntegrationResponse,
   CreateVendorClaimInput,
   DecideContestInput,
   ListVendorContestsResponse,
@@ -281,6 +282,29 @@ export class VendorApi {
       this.http.post<VendorContestResponse>(
         `/api/vendor/integrations/${encodeURIComponent(integrationId)}/contests`,
         body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/integrations/:id/retire` (AECI-1010) — the owner withdraws a
+   *  claimed integration from the public site. A retired row is
+   *  `409 INTEGRATION_RETIRED`. Open contests on it close as withdrawn. */
+  retireIntegration(integrationId: string): Promise<RetireIntegrationResponse> {
+    return firstValueFrom(
+      this.http.post<RetireIntegrationResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/retire`,
+        null,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/integrations/:id/restore` (AECI-1010) — the owner brings a
+   *  retired integration back. A live row is `409 INTEGRATION_NOT_RETIRED`. */
+  restoreIntegration(integrationId: string): Promise<RetireIntegrationResponse> {
+    return firstValueFrom(
+      this.http.post<RetireIntegrationResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/restore`,
+        null,
       ),
     );
   }

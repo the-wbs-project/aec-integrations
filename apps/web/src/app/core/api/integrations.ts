@@ -14,7 +14,7 @@
  * Integrations are keyed by record ID, not slug (Phase 2 Spec §6.5), so this
  * is the ID-based parallel to `fetchProductBySlug` / `fetchVendorBySlug`.
  */
-import type { IntegrationDetail } from '@aeci/shared';
+import type { IntegrationDetailResponse } from '@aeci/shared';
 
 import type { ServerApiClient } from '../../../server-api-client';
 import { fetchOrNull } from './fetch-or-null';
@@ -32,6 +32,10 @@ import { fetchOrNull } from './fetch-or-null';
 export async function fetchIntegrationById(
   client: ServerApiClient,
   id: string,
-): Promise<IntegrationDetail | null> {
-  return fetchOrNull<IntegrationDetail>(client, `/api/integrations/${encodeURIComponent(id)}`);
+): Promise<IntegrationDetailResponse | null> {
+  // A retired row answers only its two slugs (AECI-1010, `RetiredIntegrationDetailSchema`).
+  return fetchOrNull<IntegrationDetailResponse>(
+    client,
+    `/api/integrations/${encodeURIComponent(id)}`,
+  );
 }

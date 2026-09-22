@@ -32,6 +32,7 @@ import {
   type DriftCount,
 } from './algolia-drift';
 import type { PromotedIdProvider } from './algolia-orphans';
+import { liveIntegrationWhere } from './live-integration';
 
 /**
  * The `promotion_status` value that marks a row live on the public site. Same
@@ -93,6 +94,8 @@ export function drizzleDriftCounter(db: Db): DriftCount {
             and(
               inArray(integrations.sourceProductId, promoted),
               inArray(integrations.targetProductId, promoted),
+              // AECI-1010: live rows only, exactly as the sync's upsert arm.
+              liveIntegrationWhere,
             ),
           );
         const [evidenced] = await db
@@ -169,6 +172,11 @@ export function drizzlePromotedIds(db: Db): PromotedIdProvider {
           and(
             inArray(integrations.sourceProductId, promoted),
             inArray(integrations.targetProductId, promoted),
+            // AECI-1010: a retired row is NOT a member, so the sweep removes its
+            // record if the sync's delete arm has not already. Live rows only, and
+            // never a predicate on `claimed_at` or `origin`: that would drop a small
+            // live subset under the 50-delete cap and delete it for good.
+            liveIntegrationWhere,
           ),
         );
       const evidenced = await db

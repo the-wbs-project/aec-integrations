@@ -48,7 +48,19 @@ import {
   type AdminTaxonomyTermUsage,
   type LinkRef,
 } from '@aeci/shared';
-import { asc, count, countDistinct, eq, getTableName, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  eq,
+  getTableName,
+  inArray,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { alias, type AnySQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
@@ -73,6 +85,7 @@ import {
 import { textAsc } from './collation';
 import { displayOrderAsc } from './display-order';
 import { liveAttestationsWhere } from './drizzle-helpers';
+import { liveIntegrationWhere } from './live-integration';
 
 // ─── Correlated-subquery identifiers ─────────────────────────────────────────
 
@@ -463,7 +476,9 @@ export async function taxonomyUsage(db: Db): Promise<AdminTaxonomyFacetUsage[]> 
  *
  * `integrations_without_claims` is derived by subtraction rather than a second
  * `NOT EXISTS` count: `claims.integration_id` is a cascading FK, so every claim
- * has a live integration and the two agree by construction.
+ * has an integration row and the two agree by construction. Both sides count
+ * LIVE integrations only (AECI-1010): a retired row keeps its claims, so the
+ * numerator is restricted to live anchors too.
  */
 export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminClaimCoverage> {
   const sourceProduct = alias(products, 'source_product');
@@ -488,12 +503,28 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
     [evidencedRow],
     sampleRows,
   ] = await Promise.all([
-    db.select({ value: count() }).from(integrations),
+    db.select({ value: count() }).from(integrations).where(liveIntegrationWhere),
     // The generated anchor, not `integration_id` (AECI-721). After the migration 85
     // production claims are anchored on `connector_evidenced_pairs`, and counting
     // only the `integrations` side would report them as claimless — a coverage
     // REGRESSION of 19 mechanisms that never happened.
-    db.select({ value: countDistinct(claims.anchorId) }).from(claims),
+    //
+    // Live anchors only (AECI-1010). A retired row keeps its claims, so without
+    // this the numerator would count anchors the denominator above has dropped,
+    // and `integrations_without_claims` would under-report or go negative. Claims
+    // on the other two anchor arms have no `retired_at` and always count.
+    db
+      .select({ value: countDistinct(claims.anchorId) })
+      .from(claims)
+      .where(
+        or(
+          isNull(claims.integrationId),
+          inArray(
+            claims.integrationId,
+            db.select({ id: integrations.id }).from(integrations).where(liveIntegrationWhere),
+          ),
+        ),
+      ),
     db.select({ value: count() }).from(claims),
     db
       .select({ value: countDistinct(attestations.claimId) })
@@ -516,7 +547,7 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
           .from(integrations)
           .innerJoin(sourceProduct, eq(integrations.sourceProductId, sourceProduct.id))
           .innerJoin(targetProduct, eq(integrations.targetProductId, targetProduct.id))
-          .where(noClaims)
+          .where(and(noClaims, liveIntegrationWhere))
           .orderBy(textAsc(sourceProduct.name), textAsc(targetProduct.name), asc(integrations.id))
           .limit(sampleLimit)
       : Promise.resolve([]),
@@ -571,7 +602,8 @@ export async function catalogTotals(db: Db): Promise<{
 }> {
   const [[p], [i], [v], [c], [a], [ep]] = await Promise.all([
     db.select({ value: count() }).from(products),
-    db.select({ value: count() }).from(integrations),
+    // Live rows only (AECI-1010); the evidenced arm below has no `retired_at`.
+    db.select({ value: count() }).from(integrations).where(liveIntegrationWhere),
     db.select({ value: count() }).from(vendors),
     db.select({ value: count() }).from(claims),
     db.select({ value: count() }).from(attestations),

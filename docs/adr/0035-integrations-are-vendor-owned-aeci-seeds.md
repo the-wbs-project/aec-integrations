@@ -13,7 +13,7 @@ Three columns carry this, added by migration `0044` as plain `ADD COLUMN`s with 
 
 - `integrations.claimed_at` records that the owner took the row by an act. NULL means unclaimed.
 - `integrations.origin` records who created the row: `'aeci'` (promote, the default) or `'vendor'`.
-- `integrations.retired_at` is reserved for AECI-1010. Nothing reads or writes it yet.
+- `integrations.retired_at` is set while the owner has the row retired. Only the AECI-1010 retire and restore routes write it; every count and public read filters on it (`STAGE_1_5_SPEC.md` §13.5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 
 The owner claims with `POST /api/vendor/integrations/:id/claim`. From the moment `claimed_at` is set, the product promote arm writes nothing to that row. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 and `REVIEW_APP_PROMOTE_API.md` §4b.
 
@@ -103,6 +103,7 @@ AECI-1017 raised that rule 7's original "can claim" did not hold as AECI-1005 wa
 - Every owner write refuses a connector-powered row, the claim included (decision 9, v1). AECI-1040 lifts that for claim, edit and retire together.
 - The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves (the AECI-992 row read); a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
 - `built_by_vendor_id` on a claimed row can change only through AECi's own admin path (an `owner` contest accept), never through promote. Reassigning it clears `claimed_at`.
+- **Promotion order (AECI-1010 review, 2026-09-22).** The fence keys on the row, so it cannot see a promote that arrives with a new upstream id for the same pair. Against a retired row that promote inserts a live twin and undoes the retire in public. AECI-1010 therefore must not reach production before AECI-1011's `VENDOR_OWNED_TWIN` promote guard, which skips inserting a strong-match twin of a claimed row. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 records the gate.
 
 ## Revisit
 

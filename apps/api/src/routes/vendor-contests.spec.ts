@@ -247,9 +247,10 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
       context_product: { id: P_SOURCE },
     });
 
-    // One write batch, four statements, and no notification (nobody but AECi decides).
+    // One write batch, five statements, and no notification (nobody but AECi decides).
+    // Instance, contest, the AECI-1010 live sentinel, transition, audit.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(4);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(5);
     batchSpy.mockRestore();
 
     const [row] = await contestRows();
@@ -431,8 +432,8 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
     const { status, body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
     expect(status).toBe(201);
     expect(body.contest.routed_to).toBe('owner');
-    // instance + contest + transition + audit + notification
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(5);
+    // instance + contest + live sentinel (AECI-1010) + transition + audit + notification
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(6);
     batchSpy.mockRestore();
 
     const [notice] = await notificationRows();

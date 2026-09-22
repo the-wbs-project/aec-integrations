@@ -131,7 +131,8 @@ export function contestRouteLabel(route: ContestRoute): string {
 /**
  * The notification archive's title for a contest event. The recipient is always
  * the OTHER side (§11b.8): `submitted` and `withdrawn` reach the owner, the two
- * decisions reach the submitter, so each sentence is written from that seat.
+ * decisions and a retire's close (AECI-1010) reach the submitter, so each
+ * sentence is written from that seat.
  */
 export function contestNotificationTitle(event: ContestNotificationEvent): string {
   switch (event) {
@@ -143,6 +144,9 @@ export function contestNotificationTitle(event: ContestNotificationEvent): strin
       return $localize`:@@vendor.contest.notify.accepted:Your contest was accepted`;
     case 'declined':
       return $localize`:@@vendor.contest.notify.declined:Your contest was declined`;
+    // AECI-1010. Placeholder copy; AECI-1023 owns the final wording.
+    case 'closed_by_retire':
+      return $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
   }
 }
 

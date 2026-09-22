@@ -310,6 +310,24 @@ export const VendorIntegrationSchema = z.object({
   /** The owner, when one is recorded. `null` means nobody is on file. */
   owner: ContestVendorRefSchema.nullable().default(null),
   /**
+   * When the owner claimed this row (AECI-1005), or `null` while it is unclaimed.
+   * A claimed row is the owner's: promote writes nothing to it. The portal offers
+   * the owner Retire only once it is claimed. Defaulted for deploy skew.
+   */
+  claimed_at: z.string().nullable().default(null),
+  /**
+   * When the owner retired this row (AECI-1010), or `null` while it is live.
+   *
+   * A retired row is STILL LISTED, for both the owner and the other endpoint vendor:
+   * the owner needs it to restore, and the other side needs it so the retire
+   * notification lands on something. It is gone from every public surface and every
+   * count. The portal renders it read-only and marked retired; the owner's only
+   * action is Restore (`POST /api/vendor/integrations/:id/restore`). Listing it is
+   * also what keeps this list's scope identical to the `integrations` freshness
+   * cursor, which must move on a retire (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   */
+  retired_at: z.string().nullable().default(null),
+  /**
    * The current value of every contestable field (AECI-1008 /
    * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), so the portal can prefill a contest.
    * `direction` is framed against `context_product`, like every direction on

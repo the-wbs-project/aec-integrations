@@ -60,6 +60,8 @@ const INTEGRATION = {
   claims: [CLAIM],
   is_owner: false,
   owner: { id: uuid(40), name: 'Bentley' },
+  claimed_at: null,
+  retired_at: null,
   contestable_fields: {
     ...EMPTY_CONTESTABLE_FIELDS,
     name: 'Revit ↔ MicroStation',
@@ -135,6 +137,13 @@ describe('VendorClaimSchema', () => {
 describe('VendorIntegrationSchema', () => {
   it('parses an integration with the caller in the vendor_a slot', () => {
     expect(VendorIntegrationSchema.parse(INTEGRATION)).toEqual(INTEGRATION);
+  });
+
+  it('defaults claimed_at and retired_at to null for a pre-AECI-1010 API (deploy skew)', () => {
+    const { claimed_at: _c, retired_at: _r, ...older } = INTEGRATION;
+    const parsed = VendorIntegrationSchema.parse(older);
+    expect(parsed.claimed_at).toBeNull();
+    expect(parsed.retired_at).toBeNull();
   });
 
   it('carries both slots when the caller owns both endpoints', () => {

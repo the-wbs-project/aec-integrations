@@ -50,6 +50,12 @@
 import { spawnSync } from 'node:child_process';
 
 import { DEFAULT_LOCALE, type AlgoliaEnv } from '@aeci/shared/algolia';
+import {
+  ddlHasRetiredColumn,
+  INTEGRATIONS_DDL_QUERY,
+  integrationsDdlOrThrow,
+  liveIntegrationSqlIf,
+} from '@aeci/shared/live-integration';
 
 import {
   createAlgoliaDeleteClient,
@@ -83,14 +89,23 @@ export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion
  *
  * Exported for that spec. The connector's own promotion is deliberately not a
  * condition — see `algolia-sync.ts` for why.
+ *
+ * The `integrations` arm is LIVE rows only (AECI-1010): a retired row is not a
+ * member, so `--apply` removes its record. The evidenced arm has no `retired_at`.
+ * The filter is DDL-probed (`liveIntegrationSqlIf`): the CLI reaches deployed tiers
+ * whose migrations can lag, and without the column no row is retired.
  */
-export const INTEGRATION_IDS_SQL = `SELECT i."id" AS id FROM "integrations" i
+export function integrationIdsSql(retiredColumn = true): string {
+  return `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+    AND ${liveIntegrationSqlIf('i', retiredColumn)}
 UNION ALL
 SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
   WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted');`;
+}
+export const INTEGRATION_IDS_SQL = integrationIdsSql();
 
 // ─── Arg + target resolution ─────────────────────────────────────────────────
 
@@ -162,6 +177,10 @@ const WRANGLER_HINT =
   'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api db:reconcile-algolia-drift';
 
 function queryIds(target: Target, sql: string): Set<string> {
+  return new Set(queryRows<{ id: string }>(target, sql).map((r) => r.id));
+}
+
+function queryRows<T>(target: Target, sql: string): T[] {
   const res = spawnSync(
     'wrangler',
     ['d1', 'execute', target.db, ...target.flags, '--json', '--command', sql],
@@ -179,8 +198,7 @@ function queryIds(target: Target, sql: string): Set<string> {
       `Could not read promoted ids from D1 "${target.db}" (wrangler exit ${res.status}).\n${hint}\n\n${res.stderr}`,
     );
   }
-  const rows = parseWranglerJson<{ id: string }>(res.stdout)[0]?.results ?? [];
-  return new Set(rows.map((r) => r.id));
+  return parseWranglerJson<T>(res.stdout)[0]?.results ?? [];
 }
 
 /** A `PromotedIdProvider` backed by `wrangler d1 execute` (the deployed-D1 reach a
@@ -189,7 +207,12 @@ function wranglerPromotedIds(target: Target): PromotedIdProvider {
   return {
     productIds: async () => queryIds(target, PRODUCT_IDS_SQL),
     vendorIds: async () => queryIds(target, VENDOR_IDS_SQL),
-    integrationIds: async () => queryIds(target, INTEGRATION_IDS_SQL),
+    integrationIds: async () => {
+      // AECI-1010: probe `retired_at` first. An empty read throws ("could not check").
+      const ddl = queryRows<{ sql: string }>(target, INTEGRATIONS_DDL_QUERY);
+      const retiredColumn = ddlHasRetiredColumn(integrationsDdlOrThrow(ddl[0]?.sql));
+      return queryIds(target, integrationIdsSql(retiredColumn));
+    },
   };
 }
 

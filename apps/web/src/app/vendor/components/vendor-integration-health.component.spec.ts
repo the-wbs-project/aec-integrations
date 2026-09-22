@@ -18,6 +18,7 @@ import {
   groupByCounterpart,
   healthTallies,
   isFilterActive,
+  isRetiredIntegration,
   matchesFilter,
   openSlugsFromParam,
   openSlugsToParam,
@@ -202,6 +203,49 @@ describe('groupByCounterpart totals', () => {
     const group = groupByCounterpart(visible, all).find((g) => g.key === procoreKey)!;
     expect(group.integrations.length).toBe(1);
     expect(group.totalIntegrations).toBe(2);
+  });
+});
+
+describe('retired integrations are listed, never counted (AECI-1010)', () => {
+  const RETIRED_AT = '2026-09-18T00:00:00.000Z';
+  const live = integration({ claims: [claim({ agreement: 'conflict', mine: MINE })] });
+  const retired = integration({
+    retired_at: RETIRED_AT,
+    claims: [claim({ agreement: 'confirmed', mine: MINE }), claim({})],
+  });
+
+  it('reads retired_at', () => {
+    expect(isRetiredIntegration(retired)).toBe(true);
+    expect(isRetiredIntegration(live)).toBe(false);
+  });
+
+  it('stays in the unfiltered list but matches no status chip', () => {
+    expect(matchesFilter(retired, EMPTY_FILTER)).toBe(true);
+    for (const health of ['confirmed', 'needs_you', 'responded', 'empty'] as const) {
+      expect(matchesFilter(retired, { ...EMPTY_FILTER, health })).toBe(false);
+    }
+  });
+
+  it('adds nothing to any chip tally', () => {
+    const tallies = healthTallies([live, retired], EMPTY_FILTER);
+    expect(tallies.get('conflict')).toBe(1);
+    expect(tallies.get('confirmed')).toBe(0);
+    expect(tallies.get('needs_you')).toBe(0);
+    expect(tallies.get('empty')).toBe(0);
+  });
+
+  it('adds nothing to its group health or counts, though the group still lists it', () => {
+    const [group] = groupByCounterpart([live, retired]);
+    expect(group!.integrations).toHaveLength(2);
+    expect(group!.health).toBe('conflict');
+    expect(group!.counts).toEqual({ total: 1, confirmed: 0, waiting: 0, conflict: 1 });
+  });
+
+  it('gives a group of only retired rows empty health and zero counts', () => {
+    const [group] = groupByCounterpart([retired]);
+    expect(group!.integrations).toHaveLength(1);
+    expect(group!.health).toBe('empty');
+    expect(group!.counts).toEqual({ total: 0, confirmed: 0, waiting: 0, conflict: 0 });
   });
 });
 

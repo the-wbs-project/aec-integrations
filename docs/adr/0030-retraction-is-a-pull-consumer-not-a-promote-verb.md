@@ -239,3 +239,11 @@ README rather than left for a reader to discover.
   taken before the 2026-09-13 run.
 - **`docs/CICD_PLAN.md` §7.1 can no longer describe `AECI_MCP_TOKEN` as read-only on our
   side.** It is read-only in the audit lane and read-plus-one-write in the consumer lane.
+- **An owner's retire is not a retraction (cross-reference added 2026-09-22, AECI-1010).** The
+  owner of a claimed integration can retire it from the vendor portal
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6). That deletes nothing: it sets
+  `integrations.retired_at`, every count and public read filters on it
+  (`STAGE_1_5_SPEC.md` §13.5), and a restore puts the row back as it was, claims and
+  attestations included. It is a vendor write, not an upstream deletion, so it never enters
+  the retraction journal and this consumer never sees it. A retired row is claimed, so the
+  consumer's vendor-held refusal (AECI-1005) already keeps it from deleting one.

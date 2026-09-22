@@ -56,6 +56,7 @@ import {
   integrations,
   products,
 } from '../db/schema';
+import { liveIntegrationWhere } from './live-integration';
 
 /** The pair URL to 301 to, already oriented for the requesting URL. */
 export interface MovedPairTarget {
@@ -123,7 +124,9 @@ export async function resolveMovedPair(
   const [liveIntegrations, livePairs] = await Promise.all([
     db.query.integrations.findMany({
       columns: { id: true, sourceProductId: true, targetProductId: true },
-      where: inArray(integrations.id, edgeIds),
+      // Live rows only (AECI-1010): never 301 a reader onto a page whose only
+      // edge is retired.
+      where: and(inArray(integrations.id, edgeIds), liveIntegrationWhere),
     }),
     db.query.connectorEvidencedPairs.findMany({
       columns: { id: true, productAId: true, productBId: true },

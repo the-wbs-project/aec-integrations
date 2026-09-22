@@ -19,7 +19,19 @@ import { mechanismKindLabel } from '../../search/mechanism-labels';
  * `vendor-integrations-section.ts` explains why the retract path re-reads rather
  * than guessing). Health is a *summary* of the server's states, not a second
  * opinion about them.
+ *
+ * ── RETIRED ROWS ARE LISTED, NEVER COUNTED (AECI-1010) ──────────────────────
+ * The owner still sees a retired integration in the list, with Restore on its
+ * card, and the other endpoint vendor sees it read-only. But a retired row is off
+ * the public record, so it contributes nothing to a group's health or counts, to
+ * any chip's tally, or to a health chip's matches. Only the unfiltered ("All")
+ * list shows it.
  */
+
+/** Whether the owner has retired this integration (`retired_at` set). */
+export function isRetiredIntegration(integration: Pick<VendorIntegration, 'retired_at'>): boolean {
+  return Boolean(integration.retired_at);
+}
 
 /**
  * One claim-level or integration-level health state, most urgent first.
@@ -171,7 +183,8 @@ export function groupByCounterpart(
   }
 
   const groups = [...byKey.entries()].map(([key, members]): CounterpartGroup => {
-    const summaries = members.map(summarizeIntegration);
+    // Retired members stay listed but do not count (AECI-1010).
+    const summaries = members.filter((i) => !isRetiredIntegration(i)).map(summarizeIntegration);
     return {
       key,
       contextProduct: members[0]!.context_product,
@@ -244,7 +257,11 @@ function haystack(integration: VendorIntegration): string {
 export function matchesFilter(integration: VendorIntegration, filter: IntegrationFilter): boolean {
   if (filter.side === 'own' && integration.slots.length !== 2) return false;
   if (filter.side === 'other' && integration.slots.length === 2) return false;
-  if (filter.health !== 'all' && !matchesHealth(integration, filter.health)) return false;
+  if (filter.health !== 'all') {
+    // A retired row has no health: no status chip ever matches it (AECI-1010).
+    if (isRetiredIntegration(integration)) return false;
+    if (!matchesHealth(integration, filter.health)) return false;
+  }
   const terms = normalize(filter.query).split(/\s+/).filter(Boolean);
   if (terms.length === 0) return true;
   const text = haystack(integration);
@@ -265,8 +282,9 @@ export function matchesHealth(integration: VendorIntegration, health: Integratio
   return health === 'needs_you' ? summary.counts.waiting > 0 : summary.health === health;
 }
 
-/** Integrations per health state, before the health chip is applied, so each
- *  chip can say how many results choosing it would give. */
+/** Live integrations per health state, before the health chip is applied, so each
+ *  chip can say how many results choosing it would give. Retired rows are skipped
+ *  (AECI-1010). */
 export function healthTallies(
   integrations: readonly VendorIntegration[],
   filter: IntegrationFilter,
@@ -274,6 +292,7 @@ export function healthTallies(
   const tallies = new Map<IntegrationHealth, number>(HEALTH_ORDER.map((h) => [h, 0]));
   const withoutHealth: IntegrationFilter = { ...filter, health: 'all' };
   for (const integration of integrations) {
+    if (isRetiredIntegration(integration)) continue;
     if (!matchesFilter(integration, withoutHealth)) continue;
     for (const health of HEALTH_ORDER) {
       if (matchesHealth(integration, health)) tallies.set(health, (tallies.get(health) ?? 0) + 1);

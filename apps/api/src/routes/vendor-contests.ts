@@ -108,6 +108,12 @@ import {
   isContestRaceError,
 } from '../lib/integration-contests';
 import { isClaimed } from '../lib/integration-claims';
+import {
+  assertIntegrationLive,
+  integrationLiveSentinel,
+  integrationRetiredError,
+  isIntegrationRetiredRaceError,
+} from '../lib/live-integration';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -249,7 +255,7 @@ export async function endpointSlugs(
  * it); a `null` `workflow_id` would be a corrupt row, so one is minted rather than
  * losing the transition.
  */
-function closeWorkflow(
+export function closeWorkflow(
   db: Db,
   row: ContestRow,
   toState: TerminalStatus,
@@ -367,6 +373,9 @@ export function createSubmitContestHandler(
         'Your company owns this integration, so you can edit it rather than contest it.',
       );
     }
+    // 2b. A retired row takes no new contest (AECI-1010). Its owner withdrew it, and
+    //     the retire closed every open contest on it as withdrawn.
+    assertIntegrationLive(integration);
 
     // 3. Shape.
     const payload = await parseJsonBody(c, SubmitIntegrationContestSchema);
@@ -524,6 +533,9 @@ export function createSubmitContestHandler(
         initiatedAt: now,
       }),
       db.insert(integrationFieldChallenges).values(row),
+      // AECI-1010: a retire that committed after the read above would otherwise leave
+      // an open contest on a retired row, which the retire's own close missed.
+      integrationLiveSentinel(db, integrationId),
       workflowTransitionInsert(db, transition),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
@@ -532,6 +544,8 @@ export function createSubmitContestHandler(
     } catch (error) {
       // Two submits raced past the read above; the index caught the second.
       if (isOpenContestConflict(error)) throw duplicateContest(null);
+      // The only `json()` in this batch is the live sentinel.
+      if (isIntegrationRetiredRaceError(error)) throw integrationRetiredError();
       throw error;
     }
 

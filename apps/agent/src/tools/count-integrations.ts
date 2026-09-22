@@ -37,6 +37,8 @@
 import { defineTool } from '@flue/runtime';
 import * as v from 'valibot';
 
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
+
 /** Ceiling on returned groups. The mechanism vocabulary is seven plus one bucket. */
 export const MAX_GROUPS = 20;
 
@@ -80,6 +82,9 @@ export type IntegrationCounts = {
  * forbids `source = target` and `connector_evidenced_pairs_canonical_order`
  * forces `product_a_id < product_b_id`, so a product sits on at most ONE side
  * of any edge and matches exactly one branch per edge.
+ *
+ * The `integrations` branches count LIVE rows only (AECI-1010). The evidenced
+ * table has no `retired_at`.
  */
 const COUNT_SQL = `
 SELECT mechanism AS mechanism, COUNT(*) AS edge_count
@@ -88,7 +93,7 @@ FROM (
   FROM integrations i
   JOIN products src ON src.id = i.source_product_id AND src.promotion_status = ?
   JOIN products tgt ON tgt.id = i.target_product_id AND tgt.promotion_status = ?
-  WHERE i.source_product_id = ?
+  WHERE i.source_product_id = ? AND ${liveIntegrationSql('i')}
 
   UNION ALL
 
@@ -96,7 +101,7 @@ FROM (
   FROM integrations i
   JOIN products src ON src.id = i.source_product_id AND src.promotion_status = ?
   JOIN products tgt ON tgt.id = i.target_product_id AND tgt.promotion_status = ?
-  WHERE i.target_product_id = ?
+  WHERE i.target_product_id = ? AND ${liveIntegrationSql('i')}
 
   UNION ALL
 

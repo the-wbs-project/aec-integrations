@@ -122,6 +122,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import { assertIntegrationLive } from '../lib/live-integration';
 import { storedFieldValue, toWireValue } from '../lib/integration-contests';
 
 import { getDb, type Db } from '../db/client';
@@ -794,6 +795,11 @@ const vendorIntegrationConfig = {
     pricingModel: true,
     maturity: true,
     builtByVendorId: true,
+    // AECI-1010: the owner's claim and retire state. NOT a filter: a retired row is
+    // listed for both endpoint vendors, which is what keeps this list and the
+    // `integrations` freshness cursor on the same scope.
+    claimedAt: true,
+    retiredAt: true,
   },
   with: {
     builtByVendor: { columns: { id: true, companyName: true } },
@@ -893,6 +899,8 @@ export function createListVendorIntegrationsHandler(
           owner: row.builtByVendor
             ? { id: row.builtByVendor.id, name: row.builtByVendor.companyName }
             : null,
+          claimed_at: row.claimedAt,
+          retired_at: row.retiredAt,
           contestable_fields: contestableFieldsFor(row, contextIsSource),
           endpoint_vendors: endpointVendorsFor(row),
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
@@ -997,6 +1005,7 @@ export function createVendorClaimHandler(
       resolveAttestationSlots(db, vendorId, payload.integration_id),
     );
     assertAttestableEdge(authority);
+    assertIntegrationLive(authority);
     assertVerifiedVendor(vendor);
 
     // Step 3 — everything that can fail, resolved before the batch opens.
@@ -1172,6 +1181,7 @@ export function createUpsertVendorAttestationHandler(
     );
     const { claim, authority } = resolved;
     assertAttestableEdge(authority);
+    assertIntegrationLive(authority);
     assertVerifiedVendor(vendor);
 
     const payload = await parseJsonBody(c, UpsertVendorAttestationSchema);

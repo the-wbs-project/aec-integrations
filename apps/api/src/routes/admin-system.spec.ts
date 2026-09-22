@@ -288,6 +288,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // the SSR arrival write (`page_views`) and the lead-capture write
       // (`mailing_list`).
       'arrival_cf_coverage',
+      'retired_integration_unclaimed',
       'landing_cf_coverage',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');

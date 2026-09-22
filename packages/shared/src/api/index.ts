@@ -14,6 +14,7 @@ export * from './common';
 export * from './integrations';
 export * from './integration-contests';
 export * from './integration-claims';
+export * from './integration-retire';
 export * from './landing';
 export * from './page-views';
 export * from './product-facets';

@@ -17,6 +17,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
 import { VendorContestForm } from './vendor-contest-form';
 import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
+import { VendorIntegrationRetire } from './vendor-integration-retire';
 
 /**
  * One integration touching a product this vendor owns (AECI-606 / §6), rendered
@@ -48,7 +49,13 @@ import { summarizeIntegration } from './vendor-integration-health';
  */
 @Component({
   selector: 'aec-vendor-integration-card',
-  imports: [VendorAddClaimForm, VendorClaimLane, VendorContestForm, VendorHealthPill],
+  imports: [
+    VendorAddClaimForm,
+    VendorClaimLane,
+    VendorContestForm,
+    VendorHealthPill,
+    VendorIntegrationRetire,
+  ],
   styles: [':host { display: block; }'],
   template: `
     <article [attr.aria-labelledby]="fieldId('heading')">
@@ -85,6 +92,9 @@ import { summarizeIntegration } from './vendor-integration-health';
                 <span class="mt-0.5 block text-xs text-(--text-secondary)">{{ countsLine() }}</span>
               </span>
             </span>
+            @if (retired()) {
+              <span [class]="retiredBadgeClass" i18n="@@vendor.retire.badge">Retired</span>
+            }
             <span class="ps-7 sm:ps-0"><aec-vendor-health-pill [health]="summary().health" /></span>
           </button>
         </h3>
@@ -96,6 +106,12 @@ import { summarizeIntegration } from './vendor-integration-health';
             <span>{{ mechanismLabel() }}</span>
             <span aria-hidden="true"> · </span>
             <span>{{ sourceLine() }}</span>
+            @if (retired()) {
+              <span aria-hidden="true"> · </span>
+              <span class="font-semibold text-(--text-primary)" i18n="@@vendor.retire.badge"
+                >Retired</span
+              >
+            }
           </p>
         </header>
       }
@@ -164,13 +180,21 @@ import { summarizeIntegration } from './vendor-integration-health';
           access, or on a connector-powered edge, can still ask for a wrong
           public fact to be fixed.
         -->
-        @if (!integration().is_owner) {
+        @if (!integration().is_owner && !retired()) {
           <aec-vendor-contest-form
             [integration]="integration()"
             [vendorId]="vendorId()"
             [vendorName]="vendorName()"
           />
         }
+
+        <!--
+          AECI-1010: retire and restore, in their own section at the foot of the
+          card. The owner sees Retire (with a confirm step) or Restore. The other
+          endpoint vendor sees a retired row read-only, marked retired. The
+          component renders nothing in every other case.
+        -->
+        <aec-vendor-integration-retire [integration]="integration()" />
       </div>
     </article>
   `,
@@ -252,7 +276,19 @@ export class VendorIntegrationCard {
    * (`apps/api/src/lib/connector-powered.ts`), so a browser-side copy would drift
    * and would show controls that collect a 403.
    */
-  protected readonly canAttest = computed(() => this.canWrite() && this.integration().attestable);
+  protected readonly canAttest = computed(
+    () => this.canWrite() && this.integration().attestable && !this.retired(),
+  );
+
+  /**
+   * Whether the owner has retired this integration (AECI-1010). A retired row is
+   * read-only for everyone: no new data flow, no attestation, no contest. The only
+   * write it takes is the owner's Restore, in the retire section.
+   */
+  protected readonly retired = computed(() => this.integration().retired_at !== null);
+
+  protected readonly retiredBadgeClass =
+    'inline-flex items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-raised) px-2 py-0.5 text-xs font-semibold text-(--text-primary)';
 
   /**
    * Why this card is read-only when the vendor is otherwise able to write.

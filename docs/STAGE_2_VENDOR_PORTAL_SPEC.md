@@ -314,7 +314,7 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 - **The owner is `integrations.built_by_vendor_id`**, the vendor that offers the integration (AECI-1021's definition: the vendor the customer pays for it or gets it from). There is no `owner_vendor_id` (decision 12).
 - **`claimed_at IS NOT NULL` means the owner verified that by an act**: its own claim, or an AECi admin approval of an owner-unknown claim.
 - **`maintained_by` is not ownership** (decision 13). It is the display marker, and it flips to `'vendor'` when either endpoint vendor attests. A claim sets it too, so the public chip reads right.
-- **`origin`** is who created the row (`'aeci'`, or `'vendor'` from AECI-1011). **`retired_at`** is reserved for AECI-1010. Both were added by migration `0044` with `claimed_at`, as plain `ADD COLUMN`s (`DATABASE_SCHEMA.md` §4.3).
+- **`origin`** is who created the row (`'aeci'`, or `'vendor'` from AECI-1011). **`retired_at`** is set while the owner has the row retired (AECI-1010, §4.6). Both were added by migration `0044` with `claimed_at`, as plain `ADD COLUMN`s (`DATABASE_SCHEMA.md` §4.3).
 
 #### 4.5.2 The claim — `POST /api/vendor/integrations/:id/claim`
 
@@ -364,7 +364,42 @@ A row is **vendor-held** when it is claimed or `origin = 'vendor'`. "No upstream
 | Retraction consumer (`scripts/ops/2026-09-retraction-consumer/consume.mjs`) | Refuses the whole run, loudly, when any resolved row is vendor-held and not on `HOLD`. A held entry is never deleted and never confirmed. |
 | `ops:retract-product` (`apps/api/src/lib/retract-product.ts`) | Refuses to retract a product whose deletion would cascade (or detach `powered_by` on) a vendor-held integration. A refusal, so `--force` does not override it. |
 
-All of them probe the live DDL for the columns (`vendor-held.mjs`, and `ddlHasVendorHeldColumns` in `retract-product.ts`), because migration `0044` reaches production only at the next prod promote and a query naming a missing column would fail every run until then.
+All of them probe the live DDL for the columns (`vendor-held.mjs`, and `ddlHasVendorHeldColumns` in `retract-product.ts`), because migration `0044` reaches production only at the next prod promote and a query naming a missing column would fail every run until then. Since AECI-1010 the same holds for `retired_at`: the datatool prune and reindex, the retraction consumer's count repair and both reconcile CLIs (`reconcile-product-counts.ts`, which runs daily against production, and `reconcile-algolia-drift.ts`) read the `integrations` DDL first and use `liveIntegrationSqlIf`, which degrades to always-true without the column. An empty DDL read is "could not check" and throws.
+
+A retired row is always claimed (§4.6), so every lane above already treats it as vendor-held. One lane needed a change anyway: the datatool prune's three twin guards now count only a LIVE twin as a surviving copy (AECI-1010), because a retired twin is off the public record.
+
+### 4.6 The owner retires and restores an integration (AECI-1010 — 2026-09-22)
+
+**Retire withdraws a claimed integration from the public site without deleting anything.** It is not a retraction (ADR 0030 governs deletes, and this is not one). The row, its claims and its attestations stay, so restore is lossless. Rulings of 2026-09-22 are marked.
+
+#### 4.6.1 The routes
+
+| Rule | As built |
+|---|---|
+| Routes | `POST /api/vendor/integrations/:id/retire` and `/restore`. No body. |
+| Gate | `requireVendor()` → `rateLimit('write')` → in the handler: ownership (the claim route's `404` / `403 INTEGRATION_NOT_OWNER` / `409 INTEGRATION_OWNER_UNKNOWN`), then `403 INTEGRATION_CONNECTOR_POWERED` (decision 9), then `409 INTEGRATION_NOT_CLAIMED`. A seat is the whole gate (decision 15). |
+| Idempotency | Retiring a retired row is `409 INTEGRATION_RETIRED`. Restoring a live row is `409 INTEGRATION_NOT_RETIRED`. Neither writes. |
+| One batch | The guarded `UPDATE` of `retired_at` and `updated_at`, a race sentinel, the contest closes (below), the `integration.retired` / `integration.restored` audit row, a `notification.sent` row (`metadata.kind: 'integration_retire'`) per other endpoint vendor, and both endpoints' `integration_count` recomputed in the batch, so the count is committed before any purge. A lost race with no other refusal to give answers `409 INTEGRATION_CHANGED_WHILE_SAVING`. |
+| Open contests | **Closed as `withdrawn` on retire, in the same batch** (ruled). Each gets its workflow closure, an `integration.contest.withdrawn` audit row with reason `integration retired`, and a contest notification to the submitter vendor with the event `closed_by_retire`, all in the same batch. The notification copy is a placeholder until AECI-1023. A last sentinel refuses the batch if a contest is still open, and the contest submit carries the mirror sentinel, so neither interleaving leaves an open contest on a retired row. **Restore reopens none** (ruled). |
+| `maintained_by`, `last_reviewed_at` | Untouched. Retire changes whether the row is shown, not what it says (§13.9 is about content writes), and a claimed row is already vendor-maintained. |
+| After commit | Re-index by id (behind the `dispatchHook` watchdog, logging each failed entity) the integration, both products and the owner vendor; purge `pair:`, both `product:`, `vendor:{owner}`, `index:products`, `taxonomy` and `sitemap`; queue the pair and both product URLs for re-crawl. `CACHE_STRATEGY.md` §3 records the tag set. |
+
+Wire shape: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/vendor-integration-retire.ts`.
+
+#### 4.6.2 What a retired row is
+
+> **Promotion gate (AECI-1010 review, 2026-09-22).** Do not promote AECI-1010 to production before AECI-1011's `VENDOR_OWNED_TWIN` promote guard. A retired row is claimed, so the §4.5.3 fence keeps promote off it. But a promote that arrives with a **new** upstream id for the same pair does not match the retired row, so it inserts a fresh, live twin. The retire would then be undone in public by a row the owner never saw. The guard in AECI-1011 skips inserting a strong-match twin of a claimed row and reports it.
+
+- **Public:** gone from every count, id set and read (`STAGE_1_5_SPEC.md` §13.5 holds the full, asserted list). The pair page renders without it, and with no live mechanism left falls to its existing `noindex` branch. **`/integrations/:id` keeps its 301 to the pair page** (ruled), because `GET /api/integrations/:id` is deliberately unfiltered. For a retired row that route answers only `{ id, retired: true, source: { slug }, target: { slug } }` (ruled): the redirect's needs, and no name or content.
+- **Search:** the Algolia sync's delete arm removes the record. The 09:00 orphan sweep is the backstop only.
+- **Portal:** still listed by `GET /api/vendor/integrations` for both endpoint vendors, with `retired_at` set. **The owner sees it with a Restore action. The other endpoint vendor sees it read-only, marked retired** (ruled), which is what the retire notification lands on. Nobody can add a data flow, attest, or contest on it: those writes answer `409 INTEGRATION_RETIRED`. Withdrawing an existing attestation stays allowed. **A retired row is listed but never counted:** the Integrations tab's status chips (the "All" count included), each counterpart group's health and counts, and the overview's claim tallies all skip it, and no status chip matches it. Only the unfiltered list shows it (`isRetiredIntegration` in `vendor-integration-health.ts`).
+- **Freshness cursor:** the `integrations` scope already reads `MAX(integrations.updated_at)` under `ownedEndpointJoin`, unfiltered (AECI-1005), so a retire and a restore move it for both sides with no new statement (`STAGE_2_REALTIME_SPEC.md` §2.2).
+- **Promote:** never writes `retired_at`, and a retired row is claimed, so the §4.5.3 fence keeps promote off it entirely. Nothing un-retires a row except the owner's restore.
+- **Invariant:** retired ⇒ claimed. It cannot be a CHECK constraint (a CHECK change recreates `integrations`, which cascades away its claims), so the 04:00 data-quality suite checks it (`retired_integration_unclaimed`, severity `error`).
+
+#### 4.6.3 The portal UI
+
+A separate section at the foot of the integration card (`vendor-integration-retire.ts`), kept apart from the card's other owner writes. Retire needs a second, explicit step: the button opens an inline confirmation that says what will happen, and only its own button sends the request. No browser `confirm()`. Writes are pessimistic, outcomes go through the portal's one live region, and focus follows the change (to the confirm button, back to the trigger on cancel, to the status line after a retire).
 
 ---
 
@@ -2096,7 +2131,7 @@ Every transition writes, in one `db.batch`:
 
 ### 11b.8 Notifications and freshness
 
-**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. There is no email. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
+**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. Since AECI-1010 a retire that closes an open contest also sends the submitter a `closed_by_retire` event (§4.6). There is no email. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
 
 **`contests` is the seventh cursor scope** on `GET /api/vendor/updates`. It reports `MAX(updated_at)` under `vendorContestsWhere`, which is the same predicate `GET /api/vendor/contests` imports (`STAGE_2_REALTIME_SPEC.md` §2.2). The list is capped at 100 rows per side; the cursor covers the whole scope, so an edit past the cap costs one wasted refetch and nothing else.
 
@@ -2130,7 +2165,7 @@ Three surfaces, one store resource, one wire addition.
 
 **Store and live sync.** `contests` is a fifth `VendorPortalResource` (and a `VendorPortalSection`) with its own status, version and retry. PR A's stopgap mapping of the `contests` scope onto the notifications refetch is gone from both `vendor-portal-store.ts` and `vendor-live-sync.ts`.
 
-**Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined". The secondary line names the field and the integration. The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
+**Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined", and since AECI-1010 "Your contest was closed because the owner retired the integration" (`closed_by_retire`, placeholder copy owned by AECI-1023). The secondary line names the field and the integration. The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
 
 **Overview.** "What needs you" gains one Needs-you-now row for open received contests, linked to Messages (§6.10).
 

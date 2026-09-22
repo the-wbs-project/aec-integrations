@@ -29,6 +29,7 @@ import {
   flattenTradeAliases,
 } from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
 import { sql } from 'drizzle-orm';
 
 import { presentedDirection } from '@aeci/shared';
@@ -145,8 +146,9 @@ export const algoliaVendorConfig = {
       // own unless the evidenced table is summed here too. The ~20-row accountable
       // residue §13.2 records is exactly this population: Agave built 11 of the 19
       // edges that move, so without the second subquery Agave's vendor record
-      // reports 0 integrations the day the migration lands.
-      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")
+      // reports 0 integrations the day the migration lands. AECI-1010: live
+      // `integrations` rows only; the evidenced table has no `retired_at`.
+      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveIntegrationSql('bi'))})
         + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
         'integration_count',
       ),

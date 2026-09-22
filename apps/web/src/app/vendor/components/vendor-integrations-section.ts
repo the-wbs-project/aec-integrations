@@ -43,6 +43,7 @@ import {
   groupByCounterpart,
   healthTallies,
   isFilterActive,
+  isRetiredIntegration,
   matchesFilter,
   openSlugsFromParam,
   openSlugsToParam,
@@ -414,7 +415,10 @@ export class VendorIntegrationsSection implements OnInit {
     const tallies = healthTallies(this.integrations(), filter);
     // Not the sum of the tallies: "Needs your input" overlaps "Conflict".
     const withoutHealth: IntegrationFilter = { ...filter, health: 'all' };
-    const all = this.integrations().filter((i) => matchesFilter(i, withoutHealth)).length;
+    // Live rows only: a retired row is listed under "All" but never counted (AECI-1010).
+    const all = this.integrations().filter(
+      (i) => !isRetiredIntegration(i) && matchesFilter(i, withoutHealth),
+    ).length;
     const chips: { value: HealthFilter; label: string; count: number }[] = [
       { value: 'all', label: $localize`:@@vendor.attest.filter.status.all:All`, count: all },
     ];

@@ -202,6 +202,39 @@ describe('prunePlan', () => {
     expect(plan.blocked).toContain('orphansRicherThanTwin');
   });
 
+  it('does not count a RETIRED twin as a surviving copy (AECI-1010)', async () => {
+    // A retired row is off the public record, so pruning the orphan would leave the
+    // pair with no live copy, and its claims with no live twin to fall back on.
+    h.raw
+      .prepare('UPDATE integrations SET claimed_at = ?, retired_at = ? WHERE id = ?')
+      .run(TS, TS, SURVIVOR);
+    h.raw
+      .prepare('UPDATE integrations SET description = ? WHERE id = ?')
+      .run('a much longer, hand-written description', ORPHAN);
+
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    expect(plan.guards).toEqual({
+      claimsUniqueToOrphans: 1,
+      orphansWithoutATwin: 1,
+      orphansRicherThanTwin: 0,
+    });
+    expect(plan.blocked).toEqual(
+      expect.arrayContaining(['orphansWithoutATwin', 'claimsUniqueToOrphans']),
+    );
+  });
+
+  it('runs on a tier whose migrations lag, without retired_at (AECI-1010)', async () => {
+    // The datatool is deployed by hand, so it can reach a database without 0044's
+    // column. Naming it would fail the plan outright; the probe degrades instead.
+    h.raw.exec('ALTER TABLE integrations DROP COLUMN retired_at');
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    expect(plan.guards).toEqual({
+      claimsUniqueToOrphans: 0,
+      orphansWithoutATwin: 0,
+      orphansRicherThanTwin: 0,
+    });
+  });
+
   it('lists vendor-held ids: claimed, or created by a vendor (AECI-1005)', async () => {
     expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([]);
     h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);

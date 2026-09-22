@@ -73,6 +73,10 @@
       "types": "./src/concurrency.ts",
       "default": "./src/concurrency.ts"
     },
+    "./live-integration": {
+      "types": "./src/live-integration.ts",
+      "default": "./src/live-integration.ts"
+    },
     "./response-drain": {
       "types": "./src/response-drain.ts",
       "default": "./src/response-drain.ts"

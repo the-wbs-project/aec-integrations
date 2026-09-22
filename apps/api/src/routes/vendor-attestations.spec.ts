@@ -249,6 +249,48 @@ const liveAttestations = (claimId: string) =>
 
 // ─── The AECI-705 connector gate ─────────────────────────────────────────────
 
+describe('a retired integration takes no new position (AECI-1010)', () => {
+  const retireMain = () =>
+    t.db
+      .update(integrations)
+      .set({
+        claimedAt: '2026-09-01T00:00:00.000Z',
+        builtByVendorId: VENDOR_B,
+        retiredAt: '2026-09-20T00:00:00.000Z',
+      })
+      .where(eq(integrations.id, I_MAIN));
+
+  it('refuses POST /api/vendor/claims with 409 INTEGRATION_RETIRED and writes nothing', async () => {
+    await retireMain();
+    const { status, body } = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await claimRows()).toHaveLength(2);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses PUT …/attestation with 409 INTEGRATION_RETIRED and keeps the seed only', async () => {
+    await retireMain();
+    const { status, body } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await liveAttestations(C_MAIN)).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('still allows DELETE …/attestation on a row retired after the vendor attested', async () => {
+    expect((await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true })).status).toBe(200);
+    await retireMain();
+    const { status } = await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await liveAttestations(C_MAIN)).toHaveLength(1);
+  });
+});
+
 describe('connector-powered edges are not attestable (AECI-705)', () => {
   const CONNECTOR_403 = /delivered through a connector/i;
 

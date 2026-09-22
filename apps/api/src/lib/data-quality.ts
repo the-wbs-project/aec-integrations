@@ -61,6 +61,7 @@ import {
 
 import type { Db } from '../db/client';
 import {
+  integrations,
   mailingList,
   products,
   productVendors,
@@ -475,6 +476,31 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
 }
 
 /**
+ * #14 — a retired integration its owner never claimed (AECI-1010).
+ *
+ * Only the owner can retire, and only after a claim, so `retired_at IS NOT NULL`
+ * implies `claimed_at IS NOT NULL`. That cannot be a CHECK constraint: adding one to
+ * `integrations` makes drizzle-kit recreate the table, and a recreate cascades away
+ * its claims and attestations (`docs/migrations.md` §3.3a). So it is checked here.
+ *
+ * A finding means some writer other than the retire route set `retired_at`. Promote
+ * never writes the column. The row is hidden from every public read, and no owner can
+ * restore it, because nobody holds the claim. `error` severity: it is a row that has
+ * fallen out of the catalogue with nobody able to bring it back. No seed writes
+ * `retired_at`, so a clean environment reports zero.
+ */
+export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFinding> {
+  const rows = await db
+    .select({ id: integrations.id, name: integrations.name, retiredAt: integrations.retiredAt })
+    .from(integrations)
+    .where(and(isNotNull(integrations.retiredAt), isNull(integrations.claimedAt)))
+    .orderBy(asc(integrations.id));
+  return {
+    lines: rows.map((r) => `${r.name ?? '(unnamed)'} (${r.id}) retired ${r.retiredAt}, unclaimed`),
+  };
+}
+
+/**
  * #12 — arrival network-metadata coverage over the last 24 h (AECI-868).
  *
  * The one check in this suite that watches the telemetry pipeline rather than the
@@ -711,6 +737,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Full-document arrivals missing their network metadata (`cf_asn`)',
     severity: 'error',
     run: ({ db, now }) => checkArrivalCfCoverage(db, now),
+  },
+  {
+    id: 'retired_integration_unclaimed',
+    label: 'Retired integrations with no owner claim',
+    severity: 'error',
+    run: ({ db }) => checkRetiredIntegrationsUnclaimed(db),
   },
   {
     id: 'landing_cf_coverage',

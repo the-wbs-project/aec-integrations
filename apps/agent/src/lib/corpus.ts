@@ -41,6 +41,8 @@
  * membership is "both endpoints promoted", copied from
  * `apps/api/src/lib/algolia-drift-deps.ts`.
  */
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
+
 import { CONNECTOR_EVIDENCED_BUCKET, UNKNOWN_MECHANISM_BUCKET } from '../tools/count-integrations';
 import { orderByTextThenId, textThenIdTerms } from './collation';
 
@@ -237,6 +239,10 @@ ORDER BY product_id ASC, facet ASC, ${textThenIdTerms('term_name', 'term_slug')}
  * still counts), but naming an unpromoted product in a published document would
  * surface a record the site does not show. An unpromoted connector therefore
  * yields a NULL name and the document says "via a connector".
+ *
+ * The `integrations` branches read LIVE rows only (AECI-1010). A retired edge stays
+ * in AI Search until the next `POST /admin/reindex`, because this corpus is rebuilt
+ * only on demand.
  */
 const EDGES_SQL = `
 SELECT src.id AS product_id,
@@ -248,6 +254,7 @@ SELECT src.id AS product_id,
 FROM integrations i
 JOIN products src ON src.id = i.source_product_id AND src.promotion_status = ?
 JOIN products tgt ON tgt.id = i.target_product_id AND tgt.promotion_status = ?
+WHERE ${liveIntegrationSql('i')}
 
 UNION ALL
 
@@ -255,6 +262,7 @@ SELECT tgt.id, src.slug, src.name, COALESCE(i.mechanism_kind, ?), NULL, i.id
 FROM integrations i
 JOIN products src ON src.id = i.source_product_id AND src.promotion_status = ?
 JOIN products tgt ON tgt.id = i.target_product_id AND tgt.promotion_status = ?
+WHERE ${liveIntegrationSql('i')}
 
 UNION ALL
 

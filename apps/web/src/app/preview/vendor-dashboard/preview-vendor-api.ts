@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  RetireIntegrationResponse,
   DecideContestInput,
   ListVendorContestsResponse,
   SubmitIntegrationContestInput,
@@ -36,6 +37,7 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
@@ -130,6 +132,16 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  * optimistic-save UX (and the form settling to a clean state) is fully
  * reviewable. No network is ever touched.
  */
+/**
+ * The default list plus a row the other endpoint's owner has retired (AECI-1010), so
+ * the preview shows all three retire states: Retire on the owned, claimed card,
+ * Restore once retired, and the read-only retired card. Kept out of the shared
+ * fixture because the drill-down specs count its groups.
+ */
+const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
+  integrations: [...VENDOR_INTEGRATIONS_FIXTURE.integrations, INTEGRATION_RETIRED_BY_OTHER],
+};
+
 // Intentionally component-scoped, not `providedIn: 'root'`: this fake is provided
 // only in the vendor-dashboard preview's `providers` (shadowing the real
 // `VendorApi`), so it must never leak into the app-wide injector.
@@ -138,7 +150,7 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
 export class PreviewVendorApi extends VendorApi {
   private me: VendorMeResponse | null = null;
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
-  private integrations: ListVendorIntegrationsResponse = clone(VENDOR_INTEGRATIONS_FIXTURE);
+  private integrations: ListVendorIntegrationsResponse = clone(PREVIEW_INTEGRATIONS);
   private nextClaimSeq = 0;
   private contests: ListVendorContestsResponse = clone(VENDOR_CONTESTS_FIXTURE);
   private nextContestSeq = 0;
@@ -149,7 +161,7 @@ export class PreviewVendorApi extends VendorApi {
   setFixture(
     me: VendorMeResponse,
     seats: readonly VendorSeat[],
-    integrations: ListVendorIntegrationsResponse = VENDOR_INTEGRATIONS_FIXTURE,
+    integrations: ListVendorIntegrationsResponse = PREVIEW_INTEGRATIONS,
   ): void {
     this.me = clone(me);
     this.seats = clone([...seats]);
@@ -450,6 +462,51 @@ export class PreviewVendorApi extends VendorApi {
     contest.status = 'withdrawn';
     contest.updated_at = '2026-09-18T12:00:00.000Z';
     return { contest: clone(contest) };
+  }
+
+  /** AECI-1010. Mirrors the server's owner / claimed / state checks, and closes the
+   *  row's open contests on retire, so the preview shows the real outcomes. */
+  override async retireIntegration(integrationId: string): Promise<RetireIntegrationResponse> {
+    return this.setRetired(integrationId, 'retire');
+  }
+
+  override async restoreIntegration(integrationId: string): Promise<RetireIntegrationResponse> {
+    return this.setRetired(integrationId, 'restore');
+  }
+
+  private setRetired(integrationId: string, mode: 'retire' | 'restore'): RetireIntegrationResponse {
+    const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
+    const first = entries[0];
+    if (!first) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (!first.is_owner) throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Not the owner');
+    if (!first.attestable) {
+      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
+    }
+    if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
+    if (mode === 'retire' && first.retired_at !== null) {
+      throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
+    }
+    if (mode === 'restore' && first.retired_at === null) {
+      throw apiError(409, 'INTEGRATION_NOT_RETIRED', 'Not retired');
+    }
+    const now = '2026-09-22T12:00:00.000Z';
+    const retiredAt = mode === 'retire' ? now : null;
+    // Both entries when the caller owns both endpoints: one row, two views.
+    for (const entry of entries) entry.retired_at = retiredAt;
+    const withdrawn: string[] = [];
+    if (mode === 'retire') {
+      for (const contest of [...this.contests.submitted, ...this.contests.received]) {
+        if (contest.integration_id === integrationId && contest.status === 'open') {
+          contest.status = 'withdrawn';
+          contest.updated_at = now;
+          withdrawn.push(contest.id);
+        }
+      }
+    }
+    return {
+      integration: { id: integrationId, retired_at: retiredAt, updated_at: now },
+      withdrawn_contest_ids: [...new Set(withdrawn)],
+    };
   }
 
   override async decideContest(

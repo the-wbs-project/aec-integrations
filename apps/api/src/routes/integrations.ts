@@ -15,11 +15,13 @@
 
 import {
   IntegrationDetailSchema,
+  RetiredIntegrationDetailSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
   PairTimelineResponseSchema,
   ProductPairResponseSchema,
   type IntegrationDetail,
+  type RetiredIntegrationDetail,
   type IntegrationListItem,
   type IntegrationsListResponse,
   type PairTimelineResponse,
@@ -57,6 +59,7 @@ import {
   VERSION_ORDER,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { liveIntegrationWhere } from '../lib/live-integration';
 import {
   CONTEXT_VERSION_PARAM,
   OTHER_VERSION_PARAM,
@@ -306,7 +309,10 @@ export function createIntegrationsListHandler(
     );
 
     const { db } = dbFor(c.env);
-    const conds: SQL[] = [];
+    // Live rows only (AECI-1010). This list is also the sitemap's only pair source,
+    // so a retired edge leaves the sitemap here. The evidenced arm has its own
+    // predicate and no `retired_at`.
+    const conds: SQL[] = [liveIntegrationWhere];
     if (query.search) {
       const term = `%${query.search}%`;
       const matchByProductName = () =>
@@ -334,7 +340,7 @@ export function createIntegrationsListHandler(
     } else if (query.direction === 'bidirectional') {
       conds.push(eq(integrations.direction, 'both'));
     }
-    const where = conds.length ? and(...conds) : undefined;
+    const where = and(...conds);
 
     // ── The AECI-721 second source ────────────────────────────────────────────
     // The delivered tier spans two tables (§13.1), so this list spans two tables.
@@ -406,12 +412,31 @@ export function createIntegrationDetailHandler(
     }
 
     const { db } = dbFor(c.env);
+    // NOT filtered on `retired_at`, deliberately (AECI-1010 ruling, 2026-09-22). The
+    // only caller is the SSR Worker's legacy `/integrations/:id` 301, which needs a
+    // retired row's two slugs to keep redirecting to the pair page. The pair page
+    // then renders with no live mechanism and falls to its `noindex` branch. A
+    // retired row answers ONLY those slugs (`RetiredIntegrationDetailSchema`): it is
+    // off the public record, so its name and content are not served.
     const row = await db.query.integrations.findFirst({
       ...integrationDetailConfig,
       where: eq(integrations.id, id),
     });
 
     if (!row) throw notFoundError('integration', { id });
+
+    if (row.retiredAt) {
+      const retired: RetiredIntegrationDetail = {
+        id: row.id,
+        retired: true,
+        source: { slug: row.sourceProduct.slug },
+        target: { slug: row.targetProduct.slug },
+      };
+      validateResponseInDev(c.env, () => {
+        RetiredIntegrationDetailSchema.parse(retired);
+      });
+      return json(retired);
+    }
 
     const body: IntegrationDetail = toIntegrationDetail(row);
 
@@ -486,15 +511,20 @@ export function createProductPairHandler(
     const [rows, evidencedRows, versionRows] = await Promise.all([
       db.query.integrations.findMany({
         ...integrationPairConfig,
-        where: or(
-          and(
-            eq(integrations.sourceProductId, contextProduct.id),
-            eq(integrations.targetProductId, otherProduct.id),
+        // Live rows only (AECI-1010). With no live mechanism left the pair page
+        // falls to its existing `noindex` branch.
+        where: and(
+          or(
+            and(
+              eq(integrations.sourceProductId, contextProduct.id),
+              eq(integrations.targetProductId, otherProduct.id),
+            ),
+            and(
+              eq(integrations.sourceProductId, otherProduct.id),
+              eq(integrations.targetProductId, contextProduct.id),
+            ),
           ),
-          and(
-            eq(integrations.sourceProductId, otherProduct.id),
-            eq(integrations.targetProductId, contextProduct.id),
-          ),
+          liveIntegrationWhere,
         ),
         orderBy: resolveIntegrationOrderBy('name'),
       }),
@@ -652,15 +682,20 @@ export function createPairTimelineHandler(
     const [rows, evidencedRows, versionRows] = await Promise.all([
       db.query.integrations.findMany({
         ...integrationTimelineConfig,
-        where: or(
-          and(
-            eq(integrations.sourceProductId, contextProduct.id),
-            eq(integrations.targetProductId, otherProduct.id),
+        // Live rows only (AECI-1010). With no live mechanism left the pair page
+        // falls to its existing `noindex` branch.
+        where: and(
+          or(
+            and(
+              eq(integrations.sourceProductId, contextProduct.id),
+              eq(integrations.targetProductId, otherProduct.id),
+            ),
+            and(
+              eq(integrations.sourceProductId, otherProduct.id),
+              eq(integrations.targetProductId, contextProduct.id),
+            ),
           ),
-          and(
-            eq(integrations.sourceProductId, otherProduct.id),
-            eq(integrations.targetProductId, contextProduct.id),
-          ),
+          liveIntegrationWhere,
         ),
       }),
       db.query.connectorEvidencedPairs.findMany({

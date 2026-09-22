@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { VendorIntegrationClaimNotificationSchema } from './integration-claims';
+import { VendorIntegrationRetireNotificationSchema } from './integration-retire';
 
 /**
  * Vendor notification list (`GET /api/vendor/notifications`, AECI-302 /
@@ -95,12 +96,15 @@ export type VendorAttestationNotification = z.infer<typeof VendorAttestationNoti
  * What happened to a contest that this row tells the vendor about (AECI-1008 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). The recipient is always "the other side":
  * `submitted` and `withdrawn` go to the owner, the decisions go to the submitter.
+ * `closed_by_retire` (AECI-1010) also goes to the submitter: the owner retired the
+ * integration, and the retire closed the open contest as withdrawn.
  */
 export const CONTEST_NOTIFICATION_EVENTS = [
   'submitted',
   'withdrawn',
   'accepted',
   'declined',
+  'closed_by_retire',
 ] as const;
 export type ContestNotificationEvent = (typeof CONTEST_NOTIFICATION_EVENTS)[number];
 
@@ -127,10 +131,12 @@ export type VendorContestNotification = z.infer<typeof VendorContestNotification
 
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
- *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`). */
+ *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
+ *  `integration_retire` in AECI-1010 (`./integration-retire`). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
+  VendorIntegrationRetireNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -141,7 +147,11 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
-  return notification.kind !== 'contest' && notification.kind !== 'integration_claim';
+  return (
+    notification.kind !== 'contest' &&
+    notification.kind !== 'integration_claim' &&
+    notification.kind !== 'integration_retire'
+  );
 }
 
 export const ListVendorNotificationsResponseSchema = z.object({
