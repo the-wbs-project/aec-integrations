@@ -79,7 +79,7 @@ import { findStrongMatches, type StrongMatchRow } from '../lib/integration-twins
 import { publicSiteBase } from '../lib/public-urls';
 import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
 import { pairCacheTag } from './promote-pair';
-import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './vendor-integration-retire';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,

@@ -403,15 +403,22 @@ create table integrations (
   -- `POST /api/vendor/integrations`, which is born claimed). Its CHECK is a
   -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
   -- drizzle-kit renders a CHECK change there as a table recreate.
-  -- `retired_at` set = the owner retired the row (AECI-1010). Written ONLY by the
-  -- retire/restore routes, never by promote. A retired row keeps its claims and
+  -- `retired_at` set = the owner (AECI-1010) or an AECi admin (AECI-1046) retired the
+  -- row. Written ONLY by the retire/restore routes, never by promote. A retired row keeps its claims and
   -- attestations but counts nowhere and is on no public read: every lockstep site
-  -- filters `retired_at IS NULL` (`STAGE_1_5_SPEC.md` §13.5). Retired implies claimed;
-  -- the 04:00 data-quality check `retired_integration_unclaimed` holds that, because a
-  -- CHECK here would make drizzle-kit recreate the table.
+  -- filters `retired_at IS NULL` (`STAGE_1_5_SPEC.md` §13.5). Retired implies vendor-held
+  -- (claimed, or origin = 'vendor'; "claimed" until AECI-1046); the 04:00 data-quality
+  -- check `retired_integration_unclaimed` holds that, because a CHECK here would make
+  -- drizzle-kit recreate the table.
+  -- `retired_by` (AECI-1046, migration 0046) = who retired it: 'owner' (the owner route)
+  -- or 'aeci' (the admin route, `POST /api/admin/integrations/:id/retire`). Set with
+  -- `retired_at`, cleared by restore. The owner restores only 'owner'; an admin restores
+  -- only 'aeci'. NOT backfilled: a retired row with NULL predates 0046 and reads as
+  -- 'owner'. Its CHECK is a hand-written COLUMN constraint in 0046, like `origin`'s.
   claimed_at text,
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at text,
+  retired_by text check (retired_by in ('owner', 'aeci')),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

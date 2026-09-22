@@ -615,6 +615,31 @@
     />
   </section>
 
+  } @else if (tab() === 'integrations') {
+
+  <!-- ── Integrations (AECI-1046) ──────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-integrations">
+    <h3
+      id="admin-vendor-integrations"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.integrations.heading"
+    >
+      Integrations
+    </h3>
+
+    <p
+      class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.integrations.intro"
+    >
+      Integrations this vendor holds: ones it claimed, and ones it added. Our catalogue updates no
+      longer change them, so retiring one here is how AEC Integrations takes a false or abusive
+      listing off the public site. A retire is audited and deletes nothing, and only AEC
+      Integrations can restore it.
+    </p>
+
+    <aec-vendor-integrations-panel [vendorId]="v.id" (announce)="liveMessage.set($event)" />
+  </section>
+
   } @else {
 
   <!-- ── Audit trail ──────────────────────────────────────────────────────── -->

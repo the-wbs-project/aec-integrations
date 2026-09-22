@@ -134,7 +134,10 @@ export function contestRouteLabel(route: ContestRoute): string {
  * decisions and a retire's close (AECI-1010) reach the submitter, so each
  * sentence is written from that seat.
  */
-export function contestNotificationTitle(event: ContestNotificationEvent): string {
+export function contestNotificationTitle(
+  event: ContestNotificationEvent,
+  retiredBy?: 'owner' | 'aeci',
+): string {
   switch (event) {
     case 'submitted':
       return $localize`:@@vendor.contest.notify.submitted:Another vendor contested a field on your integration`;
@@ -145,7 +148,10 @@ export function contestNotificationTitle(event: ContestNotificationEvent): strin
     case 'declined':
       return $localize`:@@vendor.contest.notify.declined:Your contest was declined`;
     case 'closed_by_retire':
-      return $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
+      // AECI-1046: an admin retire names AEC Integrations, not the owner.
+      return retiredBy === 'aeci'
+        ? $localize`:@@vendor.contest.notify.closedByAeciRetire:Your contest was closed because AEC Integrations retired the integration`
+        : $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
   }
 }
 
@@ -160,13 +166,19 @@ export function contestNotificationTitle(event: ContestNotificationEvent): strin
  * nothing more: a protest to AECi (AECI-1009) is designed, not built, so the
  * note must not offer one.
  */
-export function contestNotificationNote(event: ContestNotificationEvent): string | null {
+export function contestNotificationNote(
+  event: ContestNotificationEvent,
+  retiredBy?: 'owner' | 'aeci',
+): string | null {
   switch (event) {
     case 'submitted':
       return $localize`:@@vendor.contest.notify.note.submitted:Accept or decline it under Field contests in Messages. Until you decide, the public page keeps the value on record.`;
     case 'declined':
       return $localize`:@@vendor.contest.notify.note.declined:The value on record stays as it is.`;
     case 'closed_by_retire':
+      if (retiredBy === 'aeci') {
+        return $localize`:@@vendor.contest.notify.note.closedByAeciRetire:Only AEC Integrations can restore the integration, and restoring it does not reopen your contest. If it comes back and you still want the change, send a new one.`;
+      }
       return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your contest. If it comes back and you still want the change, send a new one.`;
     case 'withdrawn':
     case 'accepted':

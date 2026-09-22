@@ -323,7 +323,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   pair and both product URLs are queued for re-crawl.
 
 - **Integration retire and restore** (`POST /api/vendor/integrations/:id/retire` /
-  `/restore`, AECI-1010) → **seven tags**: `pair:{min}__{max}`, `product:{a}`,
+  `/restore`, AECI-1010, and the admin pair `POST /api/admin/integrations/:id/retire` /
+  `/restore`, AECI-1046, which shares the tail and sends with `source: 'moderation'`; the
+  `vendor:` tag is dropped only when the row has no owner on file) → **seven tags**: `pair:{min}__{max}`, `product:{a}`,
   `product:{b}`, `vendor:{ownerSlug}`, `index:products`, `taxonomy`, `sitemap`. It is
   the widest vendor tag set because retire, restore and create (AECI-1011) are the
   only vendor writes that change COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,

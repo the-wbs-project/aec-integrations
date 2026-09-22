@@ -1,0 +1,16 @@
+-- AECI-1046: who retired an integration, the owner (AECI-1010) or an AECi admin.
+--
+-- ADDITIVE ONLY. One `ALTER TABLE ... ADD COLUMN` and nothing else. `integrations`
+-- is NEVER recreated here: a recreate's DROP fires ON DELETE CASCADE into
+-- `claims` -> `attestations` and into `integration_field_challenges`
+-- (docs/migrations.md §3.3a). `src/test/migration-0046.spec.ts` is the tripwire.
+--
+-- `retired_by` carries a COLUMN-level CHECK written by hand, on the 0044 `origin`
+-- precedent. drizzle-kit generated the bare column; declaring the CHECK in
+-- `schema.ts` would make every later generate render a table recreate. NULL passes
+-- the CHECK (SQLite treats an unknown CHECK result as a pass), so live rows keep NULL.
+--
+-- No backfill. A row retired before this migration keeps NULL and every reader
+-- treats NULL on a retired row as 'owner', because AECI-1010's owner retire was the
+-- only retire path before 0046 (`effectiveRetiredBy` in `lib/integration-retire.ts`).
+ALTER TABLE `integrations` ADD `retired_by` text CONSTRAINT "integrations_retired_by_check" CHECK ("retired_by" IN ('owner', 'aeci'));

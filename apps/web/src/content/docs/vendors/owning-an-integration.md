@@ -19,6 +19,7 @@ Open the vendor portal, choose one of your products, and open its Integrations t
 | Your company is recorded as the owner of this integration. Claim it to edit its details. | You own it, and AEC Integrations still maintains it. |
 | Your company owns this integration and keeps its details up to date. | You own it and have claimed it. |
 | Your company owns this integration and has retired it. | You retired it. It is off the public site. |
+| Your company owns this integration. AEC Integrations retired it, so it cannot be edited or restored here. | AEC Integrations retired it. It is off the public site. |
 | Offered by (another company) | Another company owns it. You can contest a detail, but not edit it. |
 | No owner is on file for this integration. | Nobody is recorded as the owner. |
 | Integrations delivered through a connector cannot be claimed or edited yet. | A connector product carries the data. See the last section. |
@@ -72,7 +73,7 @@ When you retire an integration:
 
 Choose **Restore integration** to put it back. It returns as it was. Contests closed by the retire stay closed.
 
-Today, only the owner can retire or restore an integration.
+AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the vendor of the other product are told. The card then says "Retired by AEC Integrations", and it has no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
 
 ## Add an integration
 

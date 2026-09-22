@@ -125,9 +125,11 @@ describe('MethodologyPage', () => {
       expect(text).toContain('Nothing is deleted.');
       expect(text).toContain('restoring it does not reopen them');
       expect(text).toContain('our catalogue tools refuse to delete an integration a vendor holds');
-      // Scoped to today on purpose: an admin retire path is filed as its own
-      // issue, so the page must not promise AECi never retires one.
-      expect(text).toContain('Today, only the owner retires or restores an integration.');
+      // AECI-1046: AECi can retire a vendor-held listing, audited, and only AECi
+      // restores that retire. The page must say so and must not say only the owner acts.
+      expect(text).toContain('AEC Integrations can also retire an integration a vendor holds');
+      expect(text).toContain('only we can restore it');
+      expect(text).not.toContain('only the owner retires or restores');
       expect(text).not.toContain('We never retire');
     });
 

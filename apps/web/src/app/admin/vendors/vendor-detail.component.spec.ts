@@ -273,7 +273,7 @@ describe('VendorDetail', () => {
   });
 
   describe('tabs', () => {
-    it('offers the three sections as links, with the open one marked current', async () => {
+    it('offers the four sections as links, with the open one marked current', async () => {
       // Links, not buttons: the tab is `?tab=` state, so it has to be
       // bookmarkable and reachable with Back.
       const { el } = await setup(makeApiMock(makeVendor()));
@@ -281,6 +281,7 @@ describe('VendorDetail', () => {
       expect(links.map((a) => a.textContent?.trim())).toEqual([
         'Vendor',
         'Products',
+        'Integrations',
         'Audit Trail',
       ]);
       const current = links.filter((a) => a.getAttribute('aria-current') === 'page');

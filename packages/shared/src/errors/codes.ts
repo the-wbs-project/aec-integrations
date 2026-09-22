@@ -51,6 +51,15 @@ export const ApiErrorCode = {
   // AECI-1010: a retire or restore lost a race (a contest filed, the row changed)
   // and the re-read finds no refusal to give. Nothing was written; reload and retry.
   INTEGRATION_CHANGED_WHILE_SAVING: 'INTEGRATION_CHANGED_WHILE_SAVING',
+  // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
+  // owner's restore of a row AECi retired: only an admin restores an admin retire.
+  // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner
+  // retired: the owner controls its own retire. `INTEGRATION_NOT_VENDOR_HELD` (409)
+  // answers an admin retire or restore of an AECi-held row, which promote, the review
+  // app and the retraction tools own.
+  INTEGRATION_RETIRED_BY_AECI: 'INTEGRATION_RETIRED_BY_AECI',
+  INTEGRATION_RETIRED_BY_OWNER: 'INTEGRATION_RETIRED_BY_OWNER',
+  INTEGRATION_NOT_VENDOR_HELD: 'INTEGRATION_NOT_VENDOR_HELD',
   // AECI-1006 owner edits (`API_CONTRACTS.md` §4): a value that is wrong for its field.
   INTEGRATION_INVALID_VALUE: 'INTEGRATION_INVALID_VALUE',
   // AECI-1011: a vendor created (or took) a row that strongly matches an integration

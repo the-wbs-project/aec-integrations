@@ -24,6 +24,7 @@ import type { VendorIntegration } from '@aeci/shared';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
+  INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
@@ -228,6 +229,31 @@ describe('restore', () => {
   });
 });
 
+describe('retired by AEC Integrations (AECI-1046)', () => {
+  it('shows the owner "Retired by AEC Integrations" and no Restore', async () => {
+    const fixture = await create(INTEGRATION_RETIRED_BY_AECI);
+    const text = el(fixture).textContent ?? '';
+    expect(text).toContain('Retired by AEC Integrations on September 21, 2026');
+    expect(text).toContain('Only AEC Integrations can restore it.');
+    expect(button(fixture, 'Restore integration')).toBeUndefined();
+    expect(el(fixture).querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('shows the other endpoint vendor the same actor, read-only', async () => {
+    const fixture = await create({ ...INTEGRATION_RETIRED_BY_AECI, is_owner: false });
+    const text = el(fixture).textContent ?? '';
+    expect(text).toContain('Retired by AEC Integrations on September 21, 2026');
+    expect(text).toContain('You can read it here, but not change it.');
+    expect(el(fixture).querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('explains the owner-restore refusal', () => {
+    expect(retireErrorMessage(apiError(403, 'INTEGRATION_RETIRED_BY_AECI'))).toContain(
+      'only AEC Integrations can restore it',
+    );
+  });
+});
+
 describe('on the card', () => {
   async function card(integration: VendorIntegration) {
     const fixture = TestBed.createComponent(VendorIntegrationCard);
@@ -247,6 +273,13 @@ describe('on the card', () => {
     expect(text).toContain('Retired');
     expect(el(fixture).querySelector('aec-vendor-add-claim-form')).toBeNull();
     expect(el(fixture).querySelector('aec-vendor-contest-form')).toBeNull();
+  });
+
+  it('badges an AECi retire "Retired by AEC Integrations" and offers no Restore', async () => {
+    const fixture = await card(INTEGRATION_RETIRED_BY_AECI);
+    const text = el(fixture).textContent ?? '';
+    expect(text).toContain('Retired by AEC Integrations');
+    expect(button(fixture, 'Restore integration')).toBeUndefined();
   });
 
   it('keeps the contest action on a live row the caller does not own', async () => {

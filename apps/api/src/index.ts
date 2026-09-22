@@ -137,6 +137,11 @@ import {
   createPutIntegrationLinkHandler,
 } from './routes/vendor-integration-links';
 import {
+  createAdminRestoreIntegrationHandler,
+  createAdminRetireIntegrationHandler,
+  createAdminVendorIntegrationsHandler,
+} from './routes/admin-integration-retire';
+import {
   createAdminContestsListHandler,
   createModerateContestHandler,
 } from './routes/admin-contests';
@@ -675,6 +680,27 @@ authAdmin.get(
   createAdminVendorProductsHandler(),
 );
 authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
+// AECI-1046: the vendor-held integrations a vendor owns (the Integrations tab), and the
+// admin retire and restore of one. The ninth named write exception in
+// `ADMIN_PANEL_SPEC.md`: a MODERATION write on a vendor's listing, on the owner
+// retire's batch (`integration-retire-write.ts`). Reads write nothing.
+authAdmin.get(
+  '/api/admin/vendors/:id/integrations',
+  requireAdmin(),
+  createAdminVendorIntegrationsHandler(),
+);
+authAdmin.post(
+  '/api/admin/integrations/:id/retire',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminRetireIntegrationHandler(),
+);
+authAdmin.post(
+  '/api/admin/integrations/:id/restore',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminRestoreIntegrationHandler(),
+);
 authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',

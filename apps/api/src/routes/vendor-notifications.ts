@@ -216,6 +216,10 @@ function toContestNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     field: meta.field,
+    // AECI-1046: a retire close says who retired it; an older one was the owner's.
+    ...(meta.event === 'closed_by_retire'
+      ? { retired_by: meta.retiredBy === 'aeci' ? ('aeci' as const) : ('owner' as const) }
+      : {}),
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };
@@ -274,6 +278,8 @@ function toRetireNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
+    // AECI-1046. A row written before it carries no value: the owner retired it.
+    retired_by: meta.retiredBy === 'aeci' ? 'aeci' : 'owner',
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

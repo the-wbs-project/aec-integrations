@@ -124,7 +124,9 @@ export async function ownerWriteRefusal(
       'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it from AECi.',
     );
   }
-  // AECI-1010: last, because a retired row is always claimed.
+  // AECI-1010: last. An owner retire requires a claim, so for this route's callers
+  // (claimed owners) the claim answer comes first. An AECi retire (AECI-1046) can
+  // also reach an unclaimed vendor-created row; that owner already stopped above.
   try {
     assertIntegrationLive(row);
   } catch (error) {

@@ -116,6 +116,7 @@ import {
   type VendorClaimResponse,
   type VendorIntegration,
   type VendorOwnAttestation,
+  effectiveRetiredBy,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
@@ -801,6 +802,8 @@ const vendorIntegrationConfig = {
     // `integrations` freshness cursor on the same scope.
     claimedAt: true,
     retiredAt: true,
+    // AECI-1046: who retired it, so the owner is offered Restore only on its own retire.
+    retiredBy: true,
   },
   with: {
     builtByVendor: { columns: { id: true, companyName: true } },
@@ -904,6 +907,10 @@ export function createListVendorIntegrationsHandler(
             : null,
           claimed_at: row.claimedAt,
           retired_at: row.retiredAt,
+          retired_by: effectiveRetiredBy({
+            retired_at: row.retiredAt,
+            retired_by: row.retiredBy,
+          }),
           contestable_fields: contestableFieldsFor(row, contextIsSource),
           endpoint_vendors: endpointVendorsFor(row),
           // AECI-1007: the caller's own links, on this entry's context side only.

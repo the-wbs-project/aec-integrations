@@ -476,27 +476,42 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
 }
 
 /**
- * #14 — a retired integration its owner never claimed (AECI-1010).
+ * #14 — a retired integration that is not vendor-held (AECI-1010, widened by
+ * AECI-1046).
  *
- * Only the owner can retire, and only after a claim, so `retired_at IS NOT NULL`
- * implies `claimed_at IS NOT NULL`. That cannot be a CHECK constraint: adding one to
- * `integrations` makes drizzle-kit recreate the table, and a recreate cascades away
- * its claims and attestations (`docs/migrations.md` §3.3a). So it is checked here.
+ * The owner retires only a claimed row, and an AECi admin retires only a vendor-held
+ * row (claimed, or `origin = 'vendor'`), so `retired_at IS NOT NULL` implies
+ * vendor-held. That cannot be a CHECK constraint: adding one to `integrations` makes
+ * drizzle-kit recreate the table, and a recreate cascades away its claims and
+ * attestations (`docs/migrations.md` §3.3a). So it is checked here. Until AECI-1046
+ * the rule was "retired implies claimed"; the admin retire can reach a vendor-created
+ * row whose claim an `owner` contest accept cleared, which is still behind the promote
+ * fence.
  *
- * A finding means some writer other than the retire route set `retired_at`. Promote
- * never writes the column. The row is hidden from every public read, and no owner can
+ * A finding means some writer other than the two retire routes set `retired_at`, or a
+ * retired promote-seeded row lost its claim to an `owner` reassignment. Promote never
+ * writes the column. The row is hidden from every public read, and no owner can
  * restore it, because nobody holds the claim. `error` severity: it is a row that has
  * fallen out of the catalogue with nobody able to bring it back. No seed writes
- * `retired_at`, so a clean environment reports zero.
+ * `retired_at`, so a clean environment reports zero. The id stays
+ * `retired_integration_unclaimed` so the metric series continues.
  */
 export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFinding> {
   const rows = await db
     .select({ id: integrations.id, name: integrations.name, retiredAt: integrations.retiredAt })
     .from(integrations)
-    .where(and(isNotNull(integrations.retiredAt), isNull(integrations.claimedAt)))
+    .where(
+      and(
+        isNotNull(integrations.retiredAt),
+        isNull(integrations.claimedAt),
+        ne(integrations.origin, 'vendor'),
+      ),
+    )
     .orderBy(asc(integrations.id));
   return {
-    lines: rows.map((r) => `${r.name ?? '(unnamed)'} (${r.id}) retired ${r.retiredAt}, unclaimed`),
+    lines: rows.map(
+      (r) => `${r.name ?? '(unnamed)'} (${r.id}) retired ${r.retiredAt}, not vendor-held`,
+    ),
   };
 }
 
@@ -509,7 +524,7 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
  * row that is fine: promote writes it again. A vendor-created row stays behind the
  * promote fence with or without a claim (the fence keys on `origin = 'vendor'` too,
  * AECI-1011), and it has no upstream record anyway, so promote never writes it. Until
- * the new owner claims it, nobody can edit or retire it. `warn`, not `error`: the row is still public and correct as it stands,
+ * the new owner claims it, nobody can edit it, and only an AECi admin can retire it (AECI-1046). `warn`, not `error`: the row is still public and correct as it stands,
  * and the fix is a claim by the new owner, or a `REVIEW - ` issue when the accept said
  * "neither". No seed writes `origin = 'vendor'`, so a clean environment reports zero.
  */
@@ -771,7 +786,7 @@ export const CHECKS: CheckSpec[] = [
   },
   {
     id: 'retired_integration_unclaimed',
-    label: 'Retired integrations with no owner claim',
+    label: 'Retired integrations that are not vendor-held',
     severity: 'error',
     run: ({ db }) => checkRetiredIntegrationsUnclaimed(db),
   },
