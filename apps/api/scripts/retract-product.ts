@@ -18,9 +18,14 @@
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the writes.
- *   - Refuses a product that has integrations, connector-evidenced pairs, reviews,
- *     or product versions unless `--force` (those should be merged onto the
- *     canonical product, not cascaded away).
+ *   - Refuses a product that has integrations, reviews, or product versions unless
+ *     `--force` (those should be merged onto the canonical product, not cascaded away).
+ *   - Refuses a product that is the connector or an endpoint of any connector-evidenced
+ *     pair unless `--delete-evidenced-pairs`, which `--force` does NOT imply (AECI-904).
+ *     The footprint prints the pair count per role. With the flag, the pairs, their
+ *     claims and their attestations are deleted explicitly, child to parent, and
+ *     tombstoned in the same batch; their `pair:` and endpoint `product:` Cache-Tags
+ *     join the purge.
  *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
@@ -56,6 +61,8 @@ import {
   buildFootprintSql,
   buildProductLookupSql,
   classifyRetraction,
+  DELETE_EVIDENCED_PAIRS_FLAG,
+  describeEvidencedPairs,
   formatFootprintReport,
   parseFootprint,
   type ProductRow,
@@ -225,6 +232,7 @@ function reportCachePurge(tags: string[]): void {
 export async function main(argv: string[]): Promise<number> {
   const apply = argv.includes('--apply');
   const force = argv.includes('--force');
+  const deleteEvidencedPairs = argv.includes(DELETE_EVIDENCED_PAIRS_FLAG);
   const target = resolveTarget(argv);
   const productTarget = resolveProductTarget(argv);
 
@@ -263,7 +271,7 @@ export async function main(argv: string[]): Promise<number> {
   console.log('');
 
   // 3. Safety gate.
-  const classification = classifyRetraction(footprint);
+  const classification = classifyRetraction(footprint, { deleteEvidencedPairs });
   if (classification.refusals.length > 0) {
     console.error('✗ This product cannot be retracted by this tool, --force or not:');
     for (const r of classification.refusals) console.error(`     • ${r}`);
@@ -273,7 +281,22 @@ export async function main(argv: string[]): Promise<number> {
     );
     return 1;
   }
-  if (!classification.safe) {
+  if (classification.evidencedPairRefusal) {
+    console.error(`✗ This product carries connector-evidenced pairs:`);
+    console.error(`     • ${classification.evidencedPairRefusal}`);
+    console.error(
+      `\nRetracting it would delete every one of those delivered edges, with their claims and\n` +
+        `attestations. --force does not cover them. Re-run with ${DELETE_EVIDENCED_PAIRS_FLAG} only if\n` +
+        'you intend to delete them along with the product.',
+    );
+    return 1;
+  }
+  if (deleteEvidencedPairs && footprint.evidencedPairs > 0) {
+    console.warn(
+      `⚠  ${DELETE_EVIDENCED_PAIRS_FLAG} set: ${describeEvidencedPairs(footprint)} WILL be deleted.\n`,
+    );
+  }
+  if (classification.blockers.length > 0) {
     console.warn(`⚠  Not a clean stub — this product carries content a delete would DESTROY:`);
     for (const b of classification.blockers) console.warn(`     • ${b}`);
     if (!force) {
@@ -309,6 +332,7 @@ export async function main(argv: string[]): Promise<number> {
     now: new Date().toISOString(),
     operator: readValueFlag(argv, '--operator'),
     force,
+    deleteEvidencedPairs,
   }).join('\n');
   const results = runD1<unknown>(target, statements);
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);

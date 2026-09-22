@@ -25,9 +25,9 @@
  *   integrations               source_product_id      cascade     --force; deleted + tombstoned
  *   integrations               target_product_id      cascade     --force; deleted + tombstoned
  *   integrations               powered_by_product_id  —           --force; NULLed + tombstoned
- *   connector_evidenced_pairs  connector_product_id   cascade     --force; deleted + tombstoned
- *   connector_evidenced_pairs  product_a_id           cascade     --force; deleted + tombstoned
- *   connector_evidenced_pairs  product_b_id           cascade     --force; deleted + tombstoned
+ *   connector_evidenced_pairs  connector_product_id   cascade     --delete-evidenced-pairs; deleted + tombstoned
+ *   connector_evidenced_pairs  product_a_id           cascade     --delete-evidenced-pairs; deleted + tombstoned
+ *   connector_evidenced_pairs  product_b_id           cascade     --delete-evidenced-pairs; deleted + tombstoned
  *   reviews                    product_id             cascade     --force; deleted + tombstoned
  *   product_versions           product_id             cascade     --force; deleted + tombstoned
  *   product_vendors / _categories / _audiences / _phases / _trades,
@@ -47,6 +47,18 @@
  * pairs — and NULLing a mapping's product would silently change the reach line on
  * every endpoint it served. Neither is a product-level decision. Unmap or retire the
  * catalogue upstream and let the sync carry it, then retract.
+ *
+ * Why evidenced pairs have a flag of their own (AECI-904). A connector-evidenced pair is
+ * a delivered edge between two OTHER products when the retracted product is the
+ * connector, so retracting one connector silently removes every pair it powers, with
+ * their claims and attestations two cascade levels down (ADR 0018). Agave ERP Sync,
+ * Aquifer and Trimble AppXchange each carry 16 to 22. `--force` is the flag an
+ * operator reaches for to clear a duplicate stub's integrations, and it must not also
+ * be the flag that takes a connector's whole delivered tier. So pairs refuse unless
+ * `--delete-evidenced-pairs` is passed, `--force` or not, and the footprint reports
+ * them per role (connector / endpoint A / endpoint B). Without the flag the product
+ * DELETE is also guarded on no pair existing, so a pair that appears between the
+ * check and the apply blocks the delete instead of cascading away uncounted.
  *
  * D1 ENFORCES FOREIGN KEYS, and `PRAGMA foreign_keys` cannot be turned off there
  * (see `retract-vendor.ts`). `buildDeleteStatements` therefore deletes children
@@ -70,6 +82,8 @@
  * `retract-vendor.ts`; the operator is named in `metadata.operator`.
  */
 
+import { pairCacheTag } from '../routes/promote-pair';
+
 /** SQLite string-literal escape: double any single quote. Ids/slugs are the only
  *  interpolated values and are matched against `products` rows, but escape anyway
  *  so a slug with an apostrophe can't break (or inject) the statement. */
@@ -84,6 +98,8 @@ export function escapeSqlLiteral(value: string): string {
  *  - `refuse`          counted; the retraction is refused, `--force` or not.
  *  - `force-tombstone` counted; refused without `--force`; with it, every row is
  *                      deleted and gets its own tombstone.
+ *  - `flag-tombstone`  counted; refused without `--delete-evidenced-pairs` (`--force`
+ *                      does not cover it); with it, deleted and tombstoned (AECI-904).
  *  - `force-detach`    counted; refused without `--force`; with it, the column is
  *                      NULLed and every row gets an `*.updated` tombstone.
  *  - `facet`           counted; always deleted; recorded on the product's tombstone.
@@ -94,6 +110,7 @@ export function escapeSqlLiteral(value: string): string {
 export type FkOutcome =
   | 'refuse'
   | 'force-tombstone'
+  | 'flag-tombstone'
   | 'force-detach'
   | 'facet'
   | 'detach'
@@ -107,9 +124,9 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'integrations.source_product_id': 'force-tombstone',
   'integrations.target_product_id': 'force-tombstone',
   'integrations.powered_by_product_id': 'force-detach',
-  'connector_evidenced_pairs.connector_product_id': 'force-tombstone',
-  'connector_evidenced_pairs.product_a_id': 'force-tombstone',
-  'connector_evidenced_pairs.product_b_id': 'force-tombstone',
+  'connector_evidenced_pairs.connector_product_id': 'flag-tombstone',
+  'connector_evidenced_pairs.product_a_id': 'flag-tombstone',
+  'connector_evidenced_pairs.product_b_id': 'flag-tombstone',
   'reviews.product_id': 'force-tombstone',
   'product_versions.product_id': 'force-tombstone',
   'product_vendors.product_id': 'facet',
@@ -160,11 +177,15 @@ export function buildProductLookupSql(target: RetractTarget): string {
 }
 
 /** Subqueries shared by the footprint read and the delete plan, so the two can never
- *  disagree about which rows "belong to" the product. */
-function scopes(p: string) {
+ *  disagree about which rows "belong to" the product. `includePairs: false` is the
+ *  delete plan without `--delete-evidenced-pairs`: the claims on a pair are then out of
+ *  scope, so a pair that appeared after the check keeps its curation data. */
+function scopes(p: string, opts: { includePairs: boolean } = { includePairs: true }) {
   const integrations = `SELECT "id" FROM "integrations" WHERE "source_product_id" = ${p} OR "target_product_id" = ${p}`;
   const pairs = `SELECT "id" FROM "connector_evidenced_pairs" WHERE "connector_product_id" = ${p} OR "product_a_id" = ${p} OR "product_b_id" = ${p}`;
-  const claims = `SELECT "id" FROM "claims" WHERE "integration_id" IN (${integrations}) OR "connector_evidenced_pair_id" IN (${pairs})`;
+  const claims = opts.includePairs
+    ? `SELECT "id" FROM "claims" WHERE "integration_id" IN (${integrations}) OR "connector_evidenced_pair_id" IN (${pairs})`
+    : `SELECT "id" FROM "claims" WHERE "integration_id" IN (${integrations})`;
   const versions = `SELECT "id" FROM "product_versions" WHERE "product_id" = ${p}`;
   // A `powered_by` row that is ALSO an endpoint integration is deleted, not detached,
   // so it gets the `integration.deleted` tombstone and not a second one.
@@ -187,6 +208,9 @@ export function buildFootprintSql(id: string): string {
     (SELECT count(*) FROM (${s.integrations})) AS integrations,
     (SELECT count(*) FROM "integrations" WHERE ${s.poweredOnly}) AS powered_by,
     (SELECT count(*) FROM (${s.pairs})) AS evidenced_pairs,
+    (SELECT count(*) FROM "connector_evidenced_pairs" WHERE "connector_product_id" = ${p}) AS evidenced_pairs_as_connector,
+    (SELECT count(*) FROM "connector_evidenced_pairs" WHERE "product_a_id" = ${p}) AS evidenced_pairs_as_a,
+    (SELECT count(*) FROM "connector_evidenced_pairs" WHERE "product_b_id" = ${p}) AS evidenced_pairs_as_b,
     (SELECT count(*) FROM (${s.claims})) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "claim_id" IN (${s.claims})) AS attestations,
     (SELECT count(*) FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations})) AS field_challenges,
@@ -202,7 +226,8 @@ export function buildFootprintSql(id: string): string {
     (SELECT group_concat(tc."slug") FROM "product_categories" pc JOIN "taxonomy_categories" tc ON tc."id" = pc."category_id" WHERE pc."product_id" = ${p}) AS category_slugs,
     (SELECT group_concat(ta."slug") FROM "product_audiences" pa JOIN "taxonomy_audiences" ta ON ta."id" = pa."audience_id" WHERE pa."product_id" = ${p}) AS audience_slugs,
     (SELECT group_concat(tp."slug") FROM "product_phases" pp JOIN "taxonomy_phases" tp ON tp."id" = pp."phase_id" WHERE pp."product_id" = ${p}) AS phase_slugs,
-    (SELECT group_concat(tt."slug") FROM "product_trades" pt JOIN "taxonomy_trades" tt ON tt."id" = pt."trade_id" WHERE pt."product_id" = ${p}) AS trade_slugs;`;
+    (SELECT group_concat(tt."slug") FROM "product_trades" pt JOIN "taxonomy_trades" tt ON tt."id" = pt."trade_id" WHERE pt."product_id" = ${p}) AS trade_slugs,
+    (SELECT group_concat(pa."slug" || ' ' || pb."slug" || ' ' || pc."slug") FROM "connector_evidenced_pairs" e JOIN "products" pa ON pa."id" = e."product_a_id" JOIN "products" pb ON pb."id" = e."product_b_id" JOIN "products" pc ON pc."id" = e."connector_product_id" WHERE e."id" IN (${s.pairs})) AS evidenced_pair_slugs;`;
 }
 
 /** Raw footprint row as D1 returns it (`group_concat` → comma string or null). */
@@ -212,6 +237,9 @@ export interface RawFootprintRow {
   integrations: number;
   powered_by: number;
   evidenced_pairs: number;
+  evidenced_pairs_as_connector: number;
+  evidenced_pairs_as_a: number;
+  evidenced_pairs_as_b: number;
   claims: number;
   attestations: number;
   field_challenges: number;
@@ -228,6 +256,8 @@ export interface RawFootprintRow {
   audience_slugs: string | null;
   phase_slugs: string | null;
   trade_slugs: string | null;
+  /** One `"<a-slug> <b-slug> <connector-slug>"` triple per pair, comma-joined. */
+  evidenced_pair_slugs: string | null;
 }
 
 export interface RetractFootprint {
@@ -236,6 +266,11 @@ export interface RetractFootprint {
   integrations: number;
   poweredBy: number;
   evidencedPairs: number;
+  /** The same pairs split by the role the product plays in each. A pair's connector
+   *  must differ from both endpoints (CHECK), so the three sum to `evidencedPairs`. */
+  evidencedPairsAsConnector: number;
+  evidencedPairsAsA: number;
+  evidencedPairsAsB: number;
   claims: number;
   attestations: number;
   fieldChallenges: number;
@@ -252,6 +287,8 @@ export interface RetractFootprint {
   audienceSlugs: string[];
   phaseSlugs: string[];
   tradeSlugs: string[];
+  /** Endpoint + connector slugs of every pair, for the `pair:` / `product:` purge. */
+  evidencedPairSlugs: Array<{ a: string; b: string; connector: string }>;
 }
 
 function splitConcat(value: string | null): string[] {
@@ -265,6 +302,9 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     integrations: row.integrations,
     poweredBy: row.powered_by,
     evidencedPairs: row.evidenced_pairs,
+    evidencedPairsAsConnector: row.evidenced_pairs_as_connector,
+    evidencedPairsAsA: row.evidenced_pairs_as_a,
+    evidencedPairsAsB: row.evidenced_pairs_as_b,
     claims: row.claims,
     attestations: row.attestations,
     fieldChallenges: row.field_challenges,
@@ -281,6 +321,10 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     audienceSlugs: splitConcat(row.audience_slugs),
     phaseSlugs: splitConcat(row.phase_slugs),
     tradeSlugs: splitConcat(row.trade_slugs),
+    evidencedPairSlugs: splitConcat(row.evidenced_pair_slugs).map((triple) => {
+      const [a = '', b = '', connector = ''] = triple.split(' ');
+      return { a, b, connector };
+    }),
   };
 }
 
@@ -298,9 +342,31 @@ export interface RetractionClassification {
   safe: boolean;
   blockers: string[];
   refusals: string[];
+  /** Evidenced pairs the product carries. A refusal unless the operator passed
+   *  `--delete-evidenced-pairs`; `--force` does not clear it (AECI-904). */
+  evidencedPairRefusal: string | null;
 }
 
-export function classifyRetraction(footprint: RetractFootprint): RetractionClassification {
+export interface ClassifyOptions {
+  /** `--delete-evidenced-pairs` was passed. */
+  deleteEvidencedPairs?: boolean;
+}
+
+/** The flag that authorises deleting connector-evidenced pairs. */
+export const DELETE_EVIDENCED_PAIRS_FLAG = '--delete-evidenced-pairs';
+
+export function describeEvidencedPairs(footprint: RetractFootprint): string {
+  return (
+    `${footprint.evidencedPairs} connector-evidenced pair(s): ` +
+    `${footprint.evidencedPairsAsConnector} as connector, ` +
+    `${footprint.evidencedPairsAsA} as endpoint A, ${footprint.evidencedPairsAsB} as endpoint B`
+  );
+}
+
+export function classifyRetraction(
+  footprint: RetractFootprint,
+  opts: ClassifyOptions = {},
+): RetractionClassification {
   const refusals: string[] = [];
   if (footprint.connectorCatalogs > 0)
     refusals.push(
@@ -315,14 +381,19 @@ export function classifyRetraction(footprint: RetractFootprint): RetractionClass
     blockers.push(`${footprint.integrations} integration(s) (as source/target)`);
   if (footprint.poweredBy > 0)
     blockers.push(`${footprint.poweredBy} integration(s) list it as \`powered_by\``);
-  if (footprint.evidencedPairs > 0)
-    blockers.push(
-      `${footprint.evidencedPairs} connector-evidenced pair(s) (as connector or endpoint)`,
-    );
   if (footprint.reviews > 0) blockers.push(`${footprint.reviews} review(s)`);
   if (footprint.productVersions > 0)
     blockers.push(`${footprint.productVersions} product version(s)`);
-  return { safe: refusals.length === 0 && blockers.length === 0, blockers, refusals };
+  const evidencedPairRefusal =
+    footprint.evidencedPairs > 0 && !opts.deleteEvidencedPairs
+      ? describeEvidencedPairs(footprint)
+      : null;
+  return {
+    safe: refusals.length === 0 && blockers.length === 0 && evidencedPairRefusal === null,
+    blockers,
+    refusals,
+    evidencedPairRefusal,
+  };
 }
 
 // ─── Tombstones ──────────────────────────────────────────────────────────────
@@ -341,6 +412,9 @@ export interface ProductDeleteArgs {
   now: string;
   operator?: string;
   force?: boolean;
+  /** `--delete-evidenced-pairs`. Without it the plan carries no pair delete, and the
+   *  product DELETE is guarded on no pair existing (AECI-904). */
+  deleteEvidencedPairs?: boolean;
 }
 
 function sqlLiteral(v: string | number | boolean | null | undefined): string {
@@ -369,6 +443,7 @@ function metadataJson(args: ProductDeleteArgs, table: string, reason: string): s
     retracted_product_id: args.product.id,
     retracted_product_slug: args.product.slug,
     force: args.force ?? false,
+    delete_evidenced_pairs: args.deleteEvidencedPairs ?? false,
   });
 }
 
@@ -408,6 +483,11 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
       product_extensions: f.productExtensions,
       integrations: f.integrations,
       evidenced_pairs: f.evidencedPairs,
+      evidenced_pairs_by_role: {
+        connector: f.evidencedPairsAsConnector,
+        product_a: f.evidencedPairsAsA,
+        product_b: f.evidencedPairsAsB,
+      },
       reviews: f.reviews,
       product_versions: f.productVersions,
     },
@@ -444,13 +524,28 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
  */
 export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const p = sqlLiteral(args.product.id);
-  const s = scopes(p);
+  const withPairs = args.deleteEvidencedPairs ?? false;
+  const s = scopes(p, { includePairs: withPairs });
   const claimCount = (col: string) => `(SELECT count(*) FROM "claims" c WHERE c."${col}" = t."id")`;
   const attestationCount = (col: string) =>
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const refusalGuard =
     `NOT EXISTS (SELECT 1 FROM "connector_catalogs" WHERE "connector_product_id" = ${p})` +
-    ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})`;
+    ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})` +
+    // Without the flag a pair must block the product DELETE, never cascade off it.
+    (withPairs ? '' : ` AND NOT EXISTS (${s.pairs})`);
+
+  const pairTombstone = tombstoneSelect({
+    args,
+    action: 'integration.deleted',
+    entityType: 'integration',
+    table: 'connector_evidenced_pairs',
+    reason: 'connector or endpoint product retracted',
+    beforeState:
+      `json_object('table', 'connector_evidenced_pairs', 'row', ${rowJson(['id', 'name', 'connector_product_id', 'product_a_id', 'product_b_id', 'mechanism_name', 'direction', 'created_at'])}, ` +
+      `'cascade', json_object('claims', ${claimCount('connector_evidenced_pair_id')}, 'attestations', ${attestationCount('connector_evidenced_pair_id')}))`,
+    from: `FROM "connector_evidenced_pairs" t WHERE t."id" IN (${s.pairs})`,
+  });
 
   return [
     // 1. Per-row tombstones, before anything they describe is gone.
@@ -466,17 +561,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
         `'field_challenges', (SELECT count(*) FROM "integration_field_challenges" f WHERE f."integration_id" = t."id")))`,
       from: `FROM "integrations" t WHERE t."id" IN (${s.integrations})`,
     }),
-    tombstoneSelect({
-      args,
-      action: 'integration.deleted',
-      entityType: 'integration',
-      table: 'connector_evidenced_pairs',
-      reason: 'connector or endpoint product retracted',
-      beforeState:
-        `json_object('table', 'connector_evidenced_pairs', 'row', ${rowJson(['id', 'name', 'connector_product_id', 'product_a_id', 'product_b_id', 'mechanism_name', 'direction', 'created_at'])}, ` +
-        `'cascade', json_object('claims', ${claimCount('connector_evidenced_pair_id')}, 'attestations', ${attestationCount('connector_evidenced_pair_id')}))`,
-      from: `FROM "connector_evidenced_pairs" t WHERE t."id" IN (${s.pairs})`,
-    }),
+    ...(withPairs ? [pairTombstone] : []),
     tombstoneSelect({
       args,
       action: 'integration.updated',
@@ -507,14 +592,15 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       from: `FROM "product_versions" WHERE "product_id" = ${p}`,
     }),
 
-    // 2. Children before parents. attestations → claims → edges.
+    // 2. Children before parents, explicitly: attestations → claims → edges. Never
+    //    left to the FK cascade, which is two levels deep here (ADR 0018).
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
     `DELETE FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations});`,
     // NULL the no-action `powered_by` ref before deleting the product it points at.
     `UPDATE "integrations" SET "powered_by_product_id" = NULL WHERE "powered_by_product_id" = ${p};`,
     `DELETE FROM "integrations" WHERE "id" IN (${s.integrations});`,
-    `DELETE FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs});`,
+    ...(withPairs ? [`DELETE FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs});`] : []),
     // Version refs on surviving attestations are detached, never deleted with them.
     `UPDATE "attestations" SET "introduced_version_id" = NULL WHERE "introduced_version_id" IN (${s.versions});`,
     `UPDATE "attestations" SET "deprecated_version_id" = NULL WHERE "deprecated_version_id" IN (${s.versions});`,
@@ -542,6 +628,11 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
 
 /**
  * Cache-Tags to purge so no edge-cached page keeps rendering the deleted product.
+ * Each deleted connector-evidenced pair also purges its pair page
+ * (`pair:{min}__{max}`, via `pairCacheTag` so the order matches the SSR tag) and
+ * `product:` for its two endpoints and its connector, whose pages list the pair
+ * (AECI-904). Those are pages of OTHER products when the retracted one is the
+ * connector, which is why the footprint carries their slugs.
  * Matches the tags the SSR responses actually set (`apps/web/src/server/cache-tags.ts`):
  * the product detail page (`product:<slug>`), the products index (`index:products`),
  * and each browse page the product appeared on (`category|audience|phase|trade:<slug>`,
@@ -554,6 +645,10 @@ export function buildCacheTagsForProduct(slug: string, footprint: RetractFootpri
   for (const s of footprint.phaseSlugs) tags.push(`phase:${s}`);
   for (const s of footprint.tradeSlugs) tags.push(`trade:${s}`);
   if (footprint.tradeSlugs.length > 0) tags.push('index:trades');
+  for (const pair of footprint.evidencedPairSlugs) {
+    tags.push(pairCacheTag(pair.a, pair.b));
+    tags.push(`product:${pair.a}`, `product:${pair.b}`, `product:${pair.connector}`);
+  }
   return [...new Set(tags)];
 }
 
@@ -564,7 +659,10 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['connector stub mappings (REFUSE)', footprint.stubMappings],
     ['integrations (source/target)', footprint.integrations],
     ['integrations powered_by (NULLed)', footprint.poweredBy],
-    ['connector-evidenced pairs', footprint.evidencedPairs],
+    ['connector-evidenced pairs (FLAG)', footprint.evidencedPairs],
+    ['  as connector', footprint.evidencedPairsAsConnector],
+    ['  as endpoint A', footprint.evidencedPairsAsA],
+    ['  as endpoint B', footprint.evidencedPairsAsB],
     ['claims', footprint.claims],
     ['attestations', footprint.attestations],
     ['field contests', footprint.fieldChallenges],

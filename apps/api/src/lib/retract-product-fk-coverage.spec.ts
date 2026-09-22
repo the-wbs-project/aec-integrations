@@ -72,6 +72,8 @@ function deletedTables(): Set<string> {
     footprint: parseFootprint({} as RawFootprintRow),
     auditId: 'a',
     now: '2026-01-01T00:00:00.000Z',
+    // The widest plan: with the flag, the pair table is a delete target too.
+    deleteEvidencedPairs: true,
   });
   const out = new Set<string>();
   for (const s of stmts) {
@@ -118,6 +120,11 @@ describe('retract-product FK coverage (AECI-687)', () => {
     expect(PRODUCT_FK_HANDLING['connector_stub_mappings.product_id']).toBe('refuse');
   });
 
+  it('puts every connector-evidenced pair FK behind its own flag, not --force (AECI-904)', () => {
+    for (const col of ['connector_product_id', 'product_a_id', 'product_b_id'])
+      expect(PRODUCT_FK_HANDLING[`connector_evidenced_pairs.${col}`]).toBe('flag-tombstone');
+  });
+
   it('never deletes page_views (log-class, detached)', () => {
     expect(PRODUCT_FK_HANDLING['page_views.product_id']).toBe('detach');
     expect(deletedTables().has('page_views')).toBe(false);
@@ -129,7 +136,12 @@ describe('retract-product FK coverage (AECI-687)', () => {
       ...PRODUCT_FK_HANDLING,
       ...CASCADE_CHILD_HANDLING,
     })) {
-      if (outcome === 'force-tombstone' || outcome === 'facet' || outcome === 'cascade-child') {
+      if (
+        outcome === 'force-tombstone' ||
+        outcome === 'flag-tombstone' ||
+        outcome === 'facet' ||
+        outcome === 'cascade-child'
+      ) {
         expect(tables.has(key.split('.')[0]!), key).toBe(true);
       }
     }

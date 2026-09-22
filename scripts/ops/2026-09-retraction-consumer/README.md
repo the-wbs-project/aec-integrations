@@ -1453,7 +1453,8 @@ This is also the **first code path in the repo that deletes from
 the count repair) nor `apps/api/src/lib/retract-product.ts` can touch it; the only precedent
 was one row by hand in `scripts/ops/2026-09-roofr-qbo-connector-orphan/`. *(Since AECI-687,
 2026-09-21, `retract-product.ts` does delete — and tombstone, in this consumer's
-`integration.deleted` shape — the evidenced pairs of a product it retracts under `--force`.
+`integration.deleted` shape — the evidenced pairs of a product it retracts. Since AECI-904 that
+takes `--delete-evidenced-pairs`; `--force` alone refuses them.
 Per-pair retraction is still this consumer's job.)*
 
 ## Two things the 2026-09-13 run got wrong, both recorded rather than smoothed over

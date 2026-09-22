@@ -225,8 +225,10 @@ README rather than left for a reader to discover.
   touch that table; the latter also cannot *see* it, which is a separate latent defect
   (its `products` delete cascades evidenced pairs away silently). *(Fixed 2026-09-21 by
   AECI-687: `ops:retract-product` now counts evidenced pairs in its footprint, refuses them
-  without `--force`, and deletes them explicitly with an `integration.deleted` tombstone. It
-  is still a product-level tool, not a per-pair one — this consumer remains the per-pair path.)*
+  without `--force`, and deletes them explicitly with an `integration.deleted` tombstone.
+  AECI-904 then split the gate: the footprint counts pairs per role, and they refuse unless
+  `--delete-evidenced-pairs`, which `--force` does not imply. It is still a product-level
+  tool, not a per-pair one — this consumer remains the per-pair path.)*
 - **A crashed run is recoverable by construction.** The consumer recognises its own
   `audit_log` rows by `metadata.tool` and confirms entries it can prove it deleted. The
   first production run exercised this for real: the confirm step died on an expired MCP

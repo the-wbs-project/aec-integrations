@@ -1399,6 +1399,17 @@ gone. Those entries are **parked**: reported, never deleted, never confirmed. Th
 `ops:retract-product`, and leaving them pending is the harmless direction. An entry with a
 missing `entity` is parked for the same reason.
 
+That lane has one trap of its own. A product can be the **connector** of a
+`connector_evidenced_pairs` row, not only an endpoint, and all three of that table's product
+FKs cascade, with `claims` → `attestations` two levels below. So retracting one connector
+product removes every pair it powers: 16 to 22 each for Agave ERP Sync, Aquifer and Trimble
+AppXchange. Since AECI-904 `ops:retract-product` prints those pairs per role (as connector, as
+endpoint A, as endpoint B) and **refuses** them unless `--delete-evidenced-pairs` is passed.
+`--force` does not cover them. With the flag it deletes attestations → claims → pairs → the
+product explicitly, in the same batch as the tombstones, and adds each pair's
+`pair:{min}__{max}` tag and `product:` for both endpoints and the connector to the purge. It
+never relies on the cascade.
+
 Run state as of **2026-09-14: 254 of 254 deleted and confirmed, 0 held, feed empty.** It got
 there in four runs — 214, then the 2 that first run held back, then 17, then 21 — and the gap
 between the first two is the part worth reading. A **fifth** run followed the same day on the
