@@ -92,15 +92,18 @@ on every response rather than left to the reader:
 AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened `page_views` ingest. Each field below
 is **null on every earlier row and is not backfillable** — the information was never
 captured, so no query can reconstruct it. The trustworthy-from date is the date the
-change reached **production**, which per §13 D1 is the `admin-panel → main` merge and
-not the PR that built it; fill it in at that merge (AECI-587 owns the closeout).
+change reached **production**, not the date the PR merged. The `admin-panel → main` squash
+merge landed on 2026-08-14 (PR #523), but production first carried it on **2026-08-18**:
+`promote-to-prod` run `32096784408` deployed `1f73e12d` and applied `0013_glossy_ultron.sql`
+(the five `ADD COLUMN`s) at 03:49 UTC. Every earlier successful prod promote ran a SHA that
+does not contain the migration. Recorded under AECI-596.
 
 | Field | What it records | Trustworthy from |
 |---|---|---|
-| `taxonomy_kind` + `taxonomy_id` | Which term a `/categories`, `/audiences`, `/phases` or `/trades` page showed. Before it, ~600 rows could say a facet page was viewed but not which one | _AECI-585 production deploy_ |
-| `concrete_path` | The real URL path beside the route pattern in `path`, so a row without an FK can still name itself | _AECI-585 production deploy_ |
-| `navigation` | `'arrival'` (full-document load) vs `'spa'` (in-app hop) — the split that makes `Direct` a measurement | _AECI-585 production deploy_ |
-| `cf_as_organization` | The AS holder *name* beside the number, so the internal-traffic filter and the weekly bot audit can label themselves instead of showing bare AS numbers | _AECI-585 production deploy_ |
+| `taxonomy_kind` + `taxonomy_id` | Which term a `/categories`, `/audiences`, `/phases` or `/trades` page showed. Before it, ~600 rows could say a facet page was viewed but not which one | 2026-08-18 (03:49 UTC) |
+| `concrete_path` | The real URL path beside the route pattern in `path`, so a row without an FK can still name itself | 2026-08-18 (03:49 UTC) |
+| `navigation` | `'arrival'` (full-document load) vs `'spa'` (in-app hop) — the split that makes `Direct` a measurement | 2026-08-18 (03:49 UTC) |
+| `cf_as_organization` | The AS holder *name* beside the number, so the internal-traffic filter and the weekly bot audit can label themselves instead of showing bare AS numbers | 2026-08-18 (03:49 UTC) |
 
 Two consequences worth stating rather than discovering. Any chart that splits on one
 of these must show the pre-capture population as **unknown**, never fold it into the

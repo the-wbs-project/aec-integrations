@@ -74,7 +74,8 @@ _This checkpoint changes **only docs + monitor JSON** — no application logic �
 **Scope:** a read-only operator console over data AECi already collects — the consent-independent
 read surface for `page_views`, plus a screen for the two cron digests. §13 **D1** placed it in Phase
 8.3 on the **`main` line** (not Stage 2 — no vendor auth), integrated on the **`admin-panel`** epic
-branch as a second time-boxed exception under ADR 0019 (`CICD_PLAN.md` §10).
+branch as a second time-boxed exception under ADR 0019 (`CICD_PLAN.md` §10). That branch squash-merged
+into `main` on 2026-08-14 (PR #523) and is retired.
 
 **Status at this checkpoint: all 15 units Done; the epic has not yet merged to `main`.** Prod is at
 `c461a883` (2026-08-13T07:53Z), a `main` commit. Nothing below is deployed — staging auto-tracks
@@ -164,9 +165,9 @@ The 00:15 UTC `metrics_daily` snapshot is the **only cron with no dedicated Data
 
 Build it on `aeci.metrics_snapshot.run{outcome:ok,trigger:cron,env:production}` with `notify_no_data` over ~30h, modeled on `monitor-algolia-sync-no-data.json`. A second, non-paging monitor on `aeci.metrics_snapshot.metric{outcome:failed}` would catch the `partial` case (one broken producer out of 19) that the run-level tag hides. Runbook already written: `RUNBOOKS.md` → "Metrics snapshot missing or incomplete".
 
-### F6 — At-merge obligations for `admin-panel → main` (Phase 8.3)
+### F6 — At-merge obligations for `admin-panel → main` (Phase 8.3) — CLOSED 2026-09-22
 
-Four things AECI-587 could not discharge, because the docs closeout lands *before* the squash merge. The canonical list is `ADMIN_PANEL_SPEC.md` **§12a**; it is also filed as **[AECI-596](https://linear.app/aec-integrations/issue/AECI-596)** so it survives outside the spec. In short: replace `ANALYTICS_BASELINE.md`'s placeholder "the AECI-585 production deploy" dates with the real date; retire §7.3's migration-not-yet-deployed note and confirm `main`'s `account.ts` no longer nulls `page_views.user_id`; apply migrations `0010`–`0014` per tier after reconciling the Drizzle journal (§13 D1 obligation (a)); retire the `admin-panel` branch (`CICD_PLAN.md` §10 — time-boxed, not a standing third line).
+Four things AECI-587 could not discharge, because the docs closeout landed *before* the squash merge. The canonical list is `ADMIN_PANEL_SPEC.md` **§12a**, filed as **[AECI-596](https://linear.app/aec-integrations/issue/AECI-596)**. All four are done. `ANALYTICS_BASELINE.md`'s placeholder dates now read 2026-08-18, the first production deploy carrying migration `0013_glossy_ultron.sql`. §7.3's deploy gate is recorded in the past tense, and `main`'s `account.ts` no longer touches `page_views`. Migrations `0011`–`0015` (renumbered by one at the merge) reached production on 2026-08-18. The `admin-panel` branch merged on 2026-08-14 and is retired, so `main` is the only line (`CICD_PLAN.md` §10).
 
 ### Not a defect — flagged, not fixed here
 
@@ -225,7 +226,7 @@ Not work done *in AECI-279* — appended per Note D so this file keeps describin
 - **F3** — retune the launch-placeholder thresholds once a real-traffic baseline exists.
 - **F4** — the later Phase-8 slices (stats-card iteration, moderation-workflow refinement, Stage 2 planning).
 - **F5** *(Phase 8.3)* — add a `metrics-snapshot` no-data monitor; it is the only cron without one, and the only one where a missed run is permanently lossy.
-- **F6** *(Phase 8.3)* — the `admin-panel → main` at-merge obligations (`ADMIN_PANEL_SPEC.md` §12a), filed as **AECI-596**.
+- **F6** *(Phase 8.3)* — the `admin-panel → main` at-merge obligations (`ADMIN_PANEL_SPEC.md` §12a), filed as **AECI-596**. **Closed 2026-09-22.**
 
 **Linear housekeeping:** AECI-279 moved to **In Progress** and assigned to Chris at start.
 

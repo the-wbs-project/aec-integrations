@@ -116,7 +116,7 @@ forward-only D1 migrations.
   the base branch by the nature of the work.
 - **Staging no longer shows integrated Stage 2.** Staging is the prod candidate; Stage 2
   integration lives in PR previews (or the eventual `stage-2 → main` promote). Accepted.
-- **`admin-panel` is still both unprotected and untested.** Branch protection now covers `main`
+- **`admin-panel` was both unprotected and untested** *(resolved: the branch merged into `main` on 2026-08-14 and is retired)*. Branch protection now covers `main`
   and `stage-2` identically, but not `admin-panel`; and since the trigger fix landed on `stage-2`
   only, `admin-panel` PRs continue to run no tests (a `push`-triggered run uses the pushed
   branch's own workflow copy, and `admin-panel` is not descended from current `main`). Resolve by
@@ -162,10 +162,10 @@ resume if no further parallel-stage work is outstanding.
 > only source for a prod promote. `main` requires linear history, so squash or rebase — the merge
 > commit was a one-off. Release tags still cut from `main`.
 >
-> **`admin-panel` is the one surviving long-lived branch**, and the Consequences bullet about it is
-> still live and still unresolved: it is unprotected, and its PRs run **no tests at all**, because a
-> `push`-triggered run uses the pushed branch's own workflow copy and `admin-panel` is not descended
-> from current `main`. That is the only branch-model hazard left in this repo.
+> **`admin-panel` is retired too.** It squash-merged into `main` on 2026-08-14 (PR #523) and was
+> deleted from origin, which resolves the Consequences bullet about it. `main` is the only line.
+> *(Corrected 2026-09-22, AECI-596. This paragraph previously called `admin-panel` the one
+> surviving long-lived branch.)*
 >
 > **Do not resurrect `stage-2`.** All of its history is in `main`. Merged PRs dated 2026-07-05 →
 > 2026-09-03 carry a non-`main` base for this reason; that is expected when reading old issues.
