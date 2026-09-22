@@ -235,6 +235,22 @@ compare only `.query.source.query`, which meant an edited description printed `s
 changed nothing live — the exact silent divergence the drift check exists to prevent, in
 the fields an operator actually reads.
 
+It also reconciles **`filters`** (AECI-858), the optional `query.source.filters` object.
+Only the two `search_performed` tiles carry it (`search-browser-latency`,
+`search-browser-error-rate`), with `filterTestAccounts: true` and a `dateRange` matching the
+query's own `WHERE` window. That is what applies the project's "Filter out internal and
+test users" setting to a SQL insight, and it works only when the query also contains
+`{filters}`. Three guards keep it from failing silently:
+
+- **Preflight.** An insight that has one half without the other (flag without
+  placeholder, or placeholder without flag) stops the run with exit 2, dry-run included.
+- **`--verify`.** A committed `filterTestAccounts: true` that is off on the live insight
+  gets its own `DRIFT: filterTestAccounts is OFF` line, ahead of any other drift reason.
+- **Apply.** The whole `filters` object is compared, so a UI edit to it is overwritten.
+
+The 43 `posthog.metrics` insights carry no `filters` and are sent without one. Server
+metrics have no person, so the filter would mean nothing there.
+
 ---
 
 ## Migration hazards — read before editing a query

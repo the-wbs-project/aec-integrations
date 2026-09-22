@@ -249,6 +249,20 @@ retrofitted (§3.10).
   production product analytics carry operator traffic and `page_views` does not
   — so the two surfaces disagree for a reason that looks like a bug. Configure
   PostHog's "filter internal and test users" on project 354071.
+- **Which committed insights apply that filter (AECI-858).** The project setting
+  reaches a PostHog UI insight through its "Filter out internal and test users"
+  toggle. It reaches a committed SQL insight only through a `{filters}` placeholder
+  plus `filters.filterTestAccounts: true`, and `observability/posthog/apply.sh`
+  refuses either half without the other.
+
+  | Filters internal users | Does not |
+  |---|---|
+  | `search-browser-latency`, `search-browser-error-rate` (both read `search_performed`) | all 43 `posthog.metrics` insights: traffic, search sync, home stats, auth, moderation, Linear, cron, retention, and the 14 alert sources |
+
+  The rule is **person-linked events filter, server metrics do not**. A metric has
+  no person, so there is nothing to exclude. A health tile should count every
+  request, including ours. The activation funnel is not committed yet. It lives only
+  in the live project, unfiltered (AECI-1054).
 - **Demo does not report to production.** Since AECI-640, preview / staging /
   demo all report to `aec-integrations-dev` (525793) and production is
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**
