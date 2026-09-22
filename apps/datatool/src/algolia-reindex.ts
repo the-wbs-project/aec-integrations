@@ -11,7 +11,10 @@
  * Records are built from raw SQL that mirrors
  * `apps/api/src/lib/algolia-transforms.ts` field-for-field — any non-trivial
  * derivation is imported from `@aeci/shared` rather than reimplemented here
- * (`flattenTradeAliases`, AECI-545), so the two builders cannot drift. The
+ * (`flattenTradeAliases`, AECI-545). Sharing derivations does not stop a builder
+ * forgetting a whole FIELD, which is how the vendor builder shipped without
+ * `verified` (AECI-1038), so `apps/api/src/lib/algolia-builder-parity.spec.ts`
+ * builds the same D1 rows through both paths and asserts the records equal. The
  * membership rule matches the sync pipeline: products/vendors index iff
  * `promotion_status = 'promoted'`; an integration iff BOTH endpoint products are.
  *
@@ -150,7 +153,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     .prepare(
       `SELECT
          v.id AS objectID, v.company_name, v.slug, v.description, v.headquarters,
-         v.founded_year, v.logo_url, v.website,
+         v.founded_year, v.logo_url, v.website, v.verified,
          (SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = v.id) AS product_count,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
@@ -169,6 +172,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
       founded_year: number | null;
       logo_url: string | null;
       website: string | null;
+      verified: number;
       product_count: number;
       integration_count: number;
     }>();
@@ -178,6 +182,12 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
     company_name_sort: algoliaSortKey(r.company_name),
     slug: r.slug,
+    // AECI-1038 — the search-card account-status label (AECI-529 / AECI-965).
+    // D1 stores it as 0/1; the record schema wants a boolean and defaults a
+    // missing key to `false`, so omitting it here silently un-verified every
+    // vendor on each full reindex. Parity with `toAlgoliaVendor` is asserted by
+    // `apps/api/src/lib/algolia-builder-parity.spec.ts`.
+    verified: Boolean(r.verified),
     description: r.description,
     headquarters: r.headquarters,
     founded_year: r.founded_year,

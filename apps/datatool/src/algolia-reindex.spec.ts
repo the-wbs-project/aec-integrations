@@ -103,7 +103,17 @@ describe('algolia reindex — record builders', () => {
       product_count: 1,
       // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
       company_name_sort: 'autodesk',
+      verified: false,
     });
+  });
+
+  // AECI-1038 — the builder once never selected `verified`, and `toMatchObject`
+  // above could not notice a missing key. Assert the flag is present and follows
+  // the column, because the schema's `.default(false)` hides an omission.
+  it('emits verified from vendors.verified, as a boolean', async () => {
+    h.raw.prepare("UPDATE vendors SET verified = 1 WHERE id = 'ven-1'").run();
+    const [record] = await buildVendorRecords(h.db);
+    expect(record).toHaveProperty('verified', true);
   });
 
   /**

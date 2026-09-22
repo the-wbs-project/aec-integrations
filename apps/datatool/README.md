@@ -54,6 +54,14 @@ that tier's own SSR Worker consumes.
   overwrites, and `scripts/algolia-bulk-sync.ts` doesn't exist yet), so datatool
   rebuilds `{env}_products|vendors|integrations` from the fresh D1. `clear` keeps
   index settings/replicas; there's a brief empty-index window (acceptable here).
+- **Records must match the API Worker's field for field.** `algolia-reindex.ts` builds
+  them from raw SQL, a second copy of `toAlgoliaProduct` / `toAlgoliaVendor` in
+  `apps/api/src/lib/algolia-transforms.ts`. Nothing in the type system links the two,
+  and the Zod schemas default some fields (vendor `verified` defaults to `false`), so a
+  forgotten field still parses. That is how a full reindex used to un-verify every
+  vendor (AECI-1038). `apps/api/src/lib/algolia-builder-parity.spec.ts` builds the same
+  D1 rows through both paths and asserts the product and vendor records are strictly
+  equal. **Add a new record field to both builders in the same PR**, or that spec fails.
 - **Edge-cache purge = queue enqueue, `purgeEverything` (WC-7 / AECI-321).** A
   clone/seed invalidates the whole cache, so after the reindex the tool enqueues a
   single `{ purgeEverything: true, source: 'datatool' }` message onto the
@@ -261,7 +269,7 @@ writes `seed/reviews.sql`).
 ## Tests
 
 ```bash
-pnpm --filter @aeci/datatool test       # 49 specs: introspect/copy/seed/reindex/prune/routes
+pnpm --filter @aeci/datatool test       # introspect/copy/seed/reindex/prune/routes
 pnpm --filter @aeci/datatool typecheck
 ```
 
