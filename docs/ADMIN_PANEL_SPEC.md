@@ -113,7 +113,7 @@ The four questions that motivated this document, answered against §3.
 
 > **Sharpened (AECI-686, 2026-08-27).** "Net totals are not chartable" remains true of a **past total** — how many integrations existed on 2026-07-01 is unrecoverable and always will be, because nothing records when a row was removed. It is **not** true of the question §5.5 actually asks. "How many of the rows in the catalog today were added in month M" has an exact answer in `created_at`, it sums to the live total by construction, and `basis=net` serves it. What that trades away is a fixed past: the answer restates as rows are removed. See §5.5 (5) for the full derivation, the production figures, and why per-row deletion tombstones are the durable fix.
 
-> **Closed going forward (AECI-687, 2026-09-21).** Every live catalog delete path now writes a `*.deleted` tombstone in the same batch as the delete. The vocabulary is in `STAGE_1_SPEC.md` §26.1 and the rationale is ADR 0022's 2026-09-21 amendment. From each writer's start date, a removal can be dated to the day it happened. **Backwards the gap stays open**: the 2026-07-25 reset, the 2026-08 orphan cleanup and the Polycam lane left no per-row record, so a past total from before the tombstones is still unrecoverable. Whether `basis=net` gains a true-delta sibling is AECI-1037.
+> **Closed going forward (AECI-687, 2026-09-21).** Every live catalog delete path now writes a `*.deleted` tombstone in the same batch as the delete. The vocabulary is in `STAGE_1_SPEC.md` §26.1 and the rationale is ADR 0022's 2026-09-21 amendment. From each writer's start date, a removal can be dated to the day it happened. **Backwards the gap stays open**: the 2026-07-25 reset, the 2026-08 orphan cleanup and the Polycam lane left no per-row record, so a past total from before the tombstones is still unrecoverable. AECI-1037 decided on 2026-09-22 that `basis=net` gains no true-delta sibling yet (§5.5 (7)).
 
 > **Correction (AECI-573).** An earlier draft of this section claimed that "a row sits at `promotion_status='ready'` before going live, so `created_at` is not a go-live date." **That describes the review app's lifecycle, not AECi's D1.** In D1: `POST /api/promote` is the only INSERT path into `products` and it sets `promotion_status='promoted'` on both its insert and update branches; nothing in the repo ever writes `'ready'`, `'pending'`, `'retracted'`, or `'rejected'` to D1 (`'ready'` is a review-app-side status that never crosses the promote boundary — and is now dead upstream too, folding onto `unreviewed`); and retraction is a **hard delete** (`lib/retract-product.ts`), not a status transition. So **`products.created_at` is already the first-promote timestamp, exactly** — Drizzle stamps it at insert and a re-promote never touches it. The census agrees: all 171 products read `promoted`.
 >
@@ -483,7 +483,7 @@ Two smaller notes. **Email sorts under `COLLATE NOCASE`** (AECI-825, `textDir`),
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
 
-**Five things this section says that the build had to correct or sharpen (AECI-579, then (4) and (5) after it):**
+**Seven things this section says that the build had to correct or sharpen (AECI-579, then (4) to (7) after it):**
 
 **(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your curation record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
 
@@ -518,7 +518,7 @@ The gaps run in **both** directions and have two distinct causes, which is why n
 
 **A true created-minus-removed delta was not computable when this shipped, and that was a data-model gap rather than a UI one.** There was no `*.deleted` action in the vocabulary — `select count(*) from audit_log where action like '%delete%'` returned 0 across all of production on 2026-08-27 — and every path that removed catalog rows was raw SQL running outside the Worker.
 
-> **Status (AECI-687, 2026-09-21): closed going forward, open backwards.** Every live delete path now writes a tombstone (`STAGE_1_SPEC.md` §26.1): `claim.deleted` from promote since AECI-604, `integration.deleted` from the retraction consumer, `vendor.deleted` from `ops:retract-vendor`, and `product.deleted` plus its edge, review and version tombstones from `ops:retract-product`. A created-minus-removed series is therefore computable from those start dates, and not before them. `basis=net` below is unchanged. AECI-1037 decides whether it gains a true-delta sibling or is replaced by one.
+> **Status (AECI-687, 2026-09-21): closed going forward, open backwards.** Every live delete path now writes a tombstone (`STAGE_1_SPEC.md` §26.1): `claim.deleted` from promote since AECI-604, `integration.deleted` from the retraction consumer, `vendor.deleted` from `ops:retract-vendor`, and `product.deleted` plus its edge, review and version tombstones from `ops:retract-product`. A created-minus-removed series is therefore computable from those start dates, and not before them. `basis=net` below is unchanged. AECI-1037 decided on 2026-09-22 to build no true-delta basis yet, and named the trigger that reopens it. See (7).
 
 What **is** exactly computable is the surviving cohort: rows present now, bucketed by their own `created_at`. `AdminMetricBasisSchema` adds `basis=net` for it, and §5.5 requests it explicitly on all four series. It sums to the live catalog by construction:
 
@@ -570,13 +570,80 @@ screen currently reads either path — (5) moved the panel to `basis=net` in
 AECI-686, which is why the wrong notes survived four weeks unnoticed. The UI
 strings were corrected alongside the API ones so the two cannot drift back apart.
 
-**Open: `catalog.vendors_created` stays on the audit log.** 32 vendors predate the
-first audit row and `vendors.created_at` could recover them the same way. It is
-deliberately *not* done here, because every series moved to a measured backfill
-acquires the same two-definition split as products, and one such series is a
-documented exception where two would be a pattern. Revisit it with AECI-687
-(deletion tombstones), which removes the reason the split exists at all. *(AECI-687
-shipped 2026-09-21; the revisit is folded into AECI-1037.)*
+**Closed (AECI-1037, 2026-09-22): `catalog.vendors_created` stays on the audit log.**
+32 vendors predate the first audit row and `vendors.created_at` could recover them
+the same way. That is still not done, for three reasons. The screen that
+would show them reads `basis=net`, which already buckets vendors by
+`vendors.created_at`, so all 191 live vendors are visible there today. Moving
+`basis=additions` would give it the same two-definition split as products, for a
+basis no screen reads. And AECI-687 did not remove the reason for the split: its
+tombstones run forward only, so `vendors.created_at` still cannot see a vendor
+created and removed before 2026-09-18. See (7).
+
+**(7) Decision: `basis=net` stays as it is, and `basis=delta` is not built yet (AECI-1037, 2026-09-22).**
+
+AECI-1037 offered three options: add a `basis=delta` sibling, replace `net` with a
+hybrid, or do nothing yet. **The decision is to do nothing yet.** The tombstone
+history is too short to chart. Production on 2026-09-22:
+
+| tombstone | rows | first | last | days with rows |
+|---|---|---|---|---|
+| `product.deleted` | 0 | none | none | 0 |
+| `product_version.deleted` | 0 | none | none | 0 |
+| `review.deleted` | 0 | none | none | 0 |
+| `integration.deleted` | 276 | 2026-09-07 | 2026-09-21 | 8 |
+| `claim.deleted` | 35 | 2026-09-07 | 2026-09-22 | 4 |
+| `vendor.deleted` | 9 | 2026-09-18 | 2026-09-18 | 1 |
+| `vendor.retracted` | 1 | 2026-09-07 | 2026-09-07 | 1 |
+| `connector_evidenced_pair.updated` with `movedFrom` | 21 | 2026-09-15 | 2026-09-21 | 4 |
+
+`integration.deleted` split by `metadata.table`: 255 `connector_evidenced_pairs`,
+17 `integrations`, and 4 with no `table` key. The 4 predate the key and came from
+the 2026-09-07 and 2026-09-08 consumer runs. 256 of the 276 landed on 2026-09-13
+and 2026-09-14, in one retraction batch.
+
+Fifteen days of history, one batch carrying 93% of it, and no product tombstone at
+all. The trailing-30-day tab would be half pre-tombstone. The 12-month tab would be
+one month out of twelve. A hybrid (option 2) would splice a surviving-rows segment
+onto a true-delta segment inside one column, so the join would sit mid-window on
+both tabs. A sibling (option 1) would chart one spike and flat zeros.
+
+**Reopen AECI-1037's option 1 when both of these hold:**
+
+- 90 days of tombstones exist, so on or after **2026-12-06** (90 days after the
+  first tombstone on 2026-09-07). The trailing-30-day tab is then wholly
+  post-tombstone.
+- At least one `product.deleted` row exists. Products are the headline column, and
+  a delta with no product removals is a count of creations.
+
+The first vendor-portal removal path reopens it early. The AECI-1010 owner retire and
+the AECI-1046 admin retire write `integration.retired` and `integration.restored`,
+not `*.deleted`. Once vendors can remove rows themselves, removals stop being rare
+operator batches, and `net` restatements start to move numbers vendors can see.
+Option 2 stays rejected in either case.
+
+The three sub-questions, settled for whoever builds `basis=delta`:
+
+1. **A cross-table move is not a removal from integrations.** The Catalog totals
+   card counts `integrations` plus `connector_evidenced_pairs`
+   (`catalogTotals` in `apps/api/src/lib/admin-catalog.ts`), which is the AECI-721
+   lockstep rule. A move changes the table and not the count, so a delta ignores
+   `movedFrom` rows. **Today `basis=net` gets this wrong.** `CATALOG_NET_SOURCE`
+   reads `integrations` alone, so the net column sums to 941 against a card
+   reading 992 (51 evidenced pairs). That is a live reconciliation defect, filed as
+   **AECI-1074** (Stage 2.5). It is separate from this decision and does not wait
+   for it.
+2. **`integration.deleted` with `metadata.table = 'connector_evidenced_pairs'`
+   subtracts from the integrations series,** for the same reason: those rows are in
+   the card. A tombstone with no `table` key (the 4 above) counts too, because the
+   series no longer distinguishes the tables.
+3. **`catalog.vendors_created` does not move onto `vendors.created_at`.** See the
+   closed item above.
+
+Two further rules for the future builder. A delta subtracts `integration.retired`
+and adds back `integration.restored`, because a retired row leaves the card
+(AECI-1010). And it carries a `catalog_series_starts_at`-style note at each
+series' first tombstone, since those dates differ per series.
 
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
