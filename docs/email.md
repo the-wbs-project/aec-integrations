@@ -197,7 +197,7 @@ carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.m
 | `entitlement-expiring-admin` | same sweep, one email **per term** | `ADMIN_ALERT_EMAIL` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
 
 **Integration ownership and contest events send no email (AECI-1023, checked 2026-09-22).** The
-claim (`integration_claim`), owner edit (`integration_update`), retire and restore
+claim (`integration_claim`), owner edit (`integration_update`), vendor create (`integration_create`, AECI-1011), retire and restore
 (`integration_retire`) and every field-contest event (`contest`: `submitted`, `withdrawn`,
 `accepted`, `declined`, `closed_by_retire`) are delivered only as `notification.sent` audit rows,
 written in the same batch as the change and read by the vendor portal's notification archive

@@ -221,6 +221,26 @@ describe('VendorNotificationsList', () => {
     expect(text(await create())).toContain(note);
   });
 
+  it('titles and explains an integration another vendor added (AECI-1011 / AECI-1023)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'integration_create',
+          id: '00000000-0000-4000-8000-00000000c3a1',
+          integration_id: '00000000-0000-4000-8000-00000000c3a2',
+          integration_name: 'Summit ↔ Procore',
+          owner_name: 'Summit Software',
+          pair_path: null,
+          created_at: '2026-09-22T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('Another company added an integration with your product');
+    expect(body).toContain('the company that added it owns it');
+    expect(body).toContain('Summit Software');
+  });
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and

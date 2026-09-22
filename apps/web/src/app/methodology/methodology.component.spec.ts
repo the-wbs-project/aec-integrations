@@ -133,8 +133,13 @@ describe('MethodologyPage', () => {
 
     it('says vendor-created integrations exist and are not researched by us', () => {
       const text = setup().host.textContent ?? '';
-      expect(text).toContain('An owner can also add an integration we have not recorded.');
+      expect(text).toContain('A vendor can also add an integration it offers');
       expect(text).toContain('We did not research it');
+      // The pair card's label (`@@pair.mechanism.vendorAdded`, AECI-1011).
+      expect(text).toContain('"Added by the vendor"');
+      // Decision 10 and the VENDOR_OWNED_TWIN promote guard (§4.7.2, §4.7.3).
+      expect(text).toContain('the vendor is told, but it is not stopped');
+      expect(text).toContain('will not add a second copy of an integration a vendor holds');
     });
 
     it('keeps connector-delivered integrations out of every vendor write (decision 9)', () => {

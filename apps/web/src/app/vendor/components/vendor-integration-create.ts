@@ -74,7 +74,7 @@ function emptyDraft(): Draft {
  * list the tab already holds, and the server's strong matches are listed after.
  *
  * The type picker leaves out the connector-delivered kinds, which the server
- * refuses (decision 9). Copy is plain; AECI-1023 owns the final wording.
+ * refuses (decision 9). The wording is AECI-1023's, and matches `/methodology`.
  */
 @Component({
   selector: 'aec-vendor-integration-create',
@@ -117,8 +117,8 @@ function emptyDraft(): Draft {
           @if (created.duplicates.length > 0) {
             <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.done.dupes">
               These integrations were already on record for the same two products. If one of them is
-              the same integration, tell AEC Integrations through a contest on it, or retire the one
-              you just added.
+              the same integration, retire the one you just added. Then claim the existing one if
+              your company owns it, or contest it if a detail is wrong.
             </p>
             <ul class="space-y-1 text-sm text-(--text-primary)" data-testid="create-duplicates">
               @for (dup of created.duplicates; track dup.id) {

@@ -253,7 +253,7 @@ export const ProductPairMechanismSchema = z.object({
   /**
    * Who created the row (AECI-1011): `'aeci'` for a promote-seeded row, `'vendor'`
    * when the vendor in `built_by_vendor` created it in its portal. The card renders a
-   * small provenance note for `'vendor'`; AECI-1023 owns the wording. Always `'aeci'`
+   * small provenance note for `'vendor'` ("Added by the vendor", AECI-1023). Always `'aeci'`
    * on a connector-evidenced pair. `.default` for SSR/API deploy skew.
    */
   origin: z.enum(['aeci', 'vendor']).default('aeci'),

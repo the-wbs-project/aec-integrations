@@ -76,9 +76,11 @@ Today, only the owner can retire or restore an integration.
 
 ## Add an integration
 
-If your company offers an integration that is not listed, you can add it. It is owned by your company and claimed from the moment you add it, and it goes live without review. You cannot add one that is delivered through a connector.
+If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. Pick the other product by name, then fill in the same details as the edit form. The form lists any integrations already on record for the two products, so you can check first.
 
-If a similar integration is already listed for the same two products, you are told. You are not stopped. Check whether the listed one is yours to claim before you add a second.
+The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the vendor of the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
+
+If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or contest it if a detail is wrong. AEC Integrations' catalogue updates will not add a second copy of an integration you hold.
 
 ## Contests you receive
 

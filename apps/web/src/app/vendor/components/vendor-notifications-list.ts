@@ -307,7 +307,6 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_update') {
     return $localize`:@@vendor.integrationEdit.notify.updated:The owner edited an integration on your product`;
   }
-  // AECI-1011. Plain copy, like the rows above; AECI-1023 owns the final wording.
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
@@ -330,6 +329,8 @@ function noteOf(notification: VendorNotification): string | null {
       return notification.event === 'retired'
         ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`
         : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
+    case 'integration_create':
+      return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, contest that field on the integration.`;
     case 'integration_update':
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
     case 'contest':
