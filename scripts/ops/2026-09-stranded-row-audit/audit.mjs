@@ -125,6 +125,10 @@ import {
   integrationEndpoints,
   integrationEntry,
 } from './classify.mjs';
+import {
+  tableDdlOrThrow,
+  vendorHeldColumnsSql,
+} from '../2026-09-retraction-consumer/vendor-held.mjs';
 import { listAll, mapWithConcurrency, openMcpSession } from './mcp-client.mjs';
 
 // A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
@@ -585,9 +589,21 @@ const vendorProductCounts = new Map(
 );
 for (const v of d1Vendors) v.product_count = vendorProductCounts.get(v.id) ?? 0;
 
+// AECI-1005: the vendor-held columns, probed from the live DDL. Migration 0044 reaches
+// production only at the next prod promote, and naming a missing column would turn every
+// daily run into exit 2 until then. A table without them projects NULL, which is also
+// the right answer for it (`../2026-09-retraction-consumer/vendor-held.mjs`).
+// An empty read THROWS, which the handler above routes to exit 2 ("could not check"),
+// never falls back to '' and quietly switches the vendor-held exemption off.
+const ddlOf = (table) =>
+  tableDdlOrThrow(
+    readD1(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`),
+    table,
+  );
 const d1Integrations = readD1(
   `SELECT id, name, mechanism_kind, source_product_id, target_product_id,
-          built_by_vendor_id, powered_by_product_id
+          built_by_vendor_id, powered_by_product_id,
+          ${vendorHeldColumnsSql('integrations', ddlOf('integrations'))}
    FROM integrations`,
 );
 const claimCounts = new Map(
@@ -611,7 +627,8 @@ for (const i of d1Integrations) {
 // `mechanism_kind` column exists here), and the connector is a third product.
 const d1EvidencedPairs = readD1(
   `SELECT id, name, mechanism_name, product_a_id, product_b_id,
-          connector_product_id, built_by_vendor_id
+          connector_product_id, built_by_vendor_id,
+          ${vendorHeldColumnsSql('connector_evidenced_pairs', ddlOf('connector_evidenced_pairs'))}
    FROM connector_evidenced_pairs`,
 );
 const evidencedPairCount = d1EvidencedPairs.length;
@@ -821,6 +838,8 @@ const intgClass = classifyRows({
   deps: entryDeps,
 });
 buckets.integrationSourceGone.push(...intgClass.sourceGone);
+// AECI-1005: vendor-held rows are counted, never bucketed — see `classifyRows`.
+const vendorHeldCount = { integrations: intgClass.vendorHeld.length };
 buckets.integrationEndpointStranded.push(...intgClass.endpointStranded);
 
 const pairClass = classifyRows({
@@ -833,6 +852,11 @@ const pairClass = classifyRows({
   deps: entryDeps,
 });
 buckets.evidencedPairSourceGone.push(...pairClass.sourceGone);
+vendorHeldCount.pairs = pairClass.vendorHeld.length;
+console.log(
+  `vendor-held (not orphans, ADR 0035): integrations ${vendorHeldCount.integrations}, ` +
+    `connector_evidenced_pairs ${vendorHeldCount.pairs}`,
+);
 // A pair whose endpoints or connector are stranded is the same defect as an integration
 // whose are, so it rides the existing bucket. `table` on every entry is what keeps the
 // two distinguishable once they are mixed.

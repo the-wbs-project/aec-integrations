@@ -337,6 +337,12 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   render, and it transfers `maintained_by`, which the marker rule above says must
   purge. Submit, withdraw and decline purge **nothing** (no public page reads a
   contest), and neither does an AECi accept, which writes no catalog data.
+- **An owner's claim of its integration** (`POST
+  /api/vendor/integrations/:id/claim`, AECI-1005) → the **same three tags**. It
+  writes no content, but it transfers `maintained_by` and stamps
+  `last_reviewed_at`, which the marker rule above says must purge. From then on
+  promote writes nothing to that row, so a promote of the same edge no longer
+  purges it either: the pair page changes only through the owner's own writes.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with

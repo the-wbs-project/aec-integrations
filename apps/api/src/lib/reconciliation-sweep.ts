@@ -31,7 +31,7 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
-import { and, asc, count as countRows, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, count as countRows, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { pairPathFor } from './integration-contests';
 
 import { crossedBand } from './alert-bands';
@@ -45,12 +45,14 @@ import { sendClaimSubmittedNotification } from './email';
 import {
   createLinearIssueForContest,
   createLinearIssueForRequest,
+  type ContestAppliedMode,
   drizzleContestLinearStore,
   drizzleLinearStore,
 } from './linear';
 import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
 import {
+  auditLog,
   integrationFieldChallenges,
   integrations,
   products,
@@ -494,7 +496,14 @@ export async function runContestIssueReconciliation(
     .innerJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
     .where(
       and(
-        eq(integrationFieldChallenges.routedTo, 'aeci'),
+        // AECi-decided: AECi-routed, or a stranded owner-routed row (AECI-1005).
+        or(
+          eq(integrationFieldChallenges.routedTo, 'aeci'),
+          and(
+            eq(integrationFieldChallenges.routedTo, 'owner'),
+            isNull(integrationFieldChallenges.ownerVendorId),
+          ),
+        ),
         eq(integrationFieldChallenges.status, 'accepted'),
         isNull(integrationFieldChallenges.upstreamLinearIssueId),
         lt(integrationFieldChallenges.decidedAt, cutoffIso),
@@ -528,6 +537,31 @@ export async function runContestIssueReconciliation(
   ]);
   const productById = new Map(productRows.map((p) => [p.id, p]));
   const vendorName = new Map(vendorRows.map((v) => [v.id, v.name]));
+  // AECI-1005: what the accept wrote here decides the issue's title and closing lines,
+  // and only the decision's own audit row records it (`metadata.appliedMode`). A row
+  // decided before AECI-1005 has none and files the original wording.
+  const appliedModeById = new Map<string, ContestAppliedMode>();
+  const decisionAudits = await db
+    .select({ entityId: auditLog.entityId, metadata: auditLog.metadata })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.action, 'integration.contest.accepted'),
+        inArray(
+          auditLog.entityId,
+          rows.map((r) => r.id),
+        ),
+      ),
+    );
+  for (const entry of decisionAudits) {
+    const mode = (entry.metadata as { appliedMode?: unknown } | null)?.appliedMode;
+    if (
+      entry.entityId &&
+      (mode === 'upstream-only' || mode === 'applied-here' || mode === 'owner-recorded')
+    ) {
+      appliedModeById.set(entry.entityId, mode);
+    }
+  }
 
   let retried = 0;
   let cleared = 0;
@@ -554,6 +588,7 @@ export async function runContestIssueReconciliation(
         submitterVendorName: vendorName.get(row.submitterVendorId) ?? row.submitterVendorId,
         reason: row.reason,
         adminNote: row.decisionNote,
+        appliedMode: appliedModeById.get(row.id) ?? 'upstream-only',
       });
       if (outcome.status !== 'failed') cleared++;
     } catch (error) {

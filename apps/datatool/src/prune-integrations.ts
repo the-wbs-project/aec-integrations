@@ -19,6 +19,15 @@
  * That split also makes the tool reusable for any future stranded-row set rather
  * than hard-coding the 2026-08 batch.
  *
+ * **Vendor-held rows are refused outright (AECI-1005 / ADR 0035).** A row its owner
+ * has CLAIMED (`claimed_at` set) or a vendor CREATED (`origin = 'vendor'`) is the
+ * vendor's. "No upstream record points at it" is expected for such a row, not a sign
+ * that it is residue: promote stopped writing it at the claim, and a vendor-created row
+ * never had a record. Such ids land in `PrunePlan.vendorHeld`, the route refuses the
+ * run with `VENDOR_HELD`, and there is NO acknowledgment that overrides it. The rule
+ * is read off `SELECT *`, so it degrades to "none held" on a database that has not yet
+ * applied migration 0044, which is also the right answer there.
+ *
  * **The three guards** are the whole safety story, and a non-zero value on ANY of
  * them blocks the run. Each means "this row is not actually a redundant copy":
  *
@@ -99,6 +108,11 @@ export interface PruneRow {
 
 export interface PrunePlan {
   requested: number;
+  /**
+   * Requested ids whose row is vendor-held (claimed, or `origin = 'vendor'`). Non-empty
+   * ⇒ the execute path refuses, and nothing overrides it (AECI-1005).
+   */
+  vendorHeld: string[];
   /** Ids that resolved to a live `integrations` row. */
   found: number;
   /** Requested ids with no matching row (already deleted, or a bad paste). */
@@ -266,6 +280,52 @@ async function buildRollbackSql(db: D1Database, ids: string[]): Promise<string> 
 }
 
 /**
+ * The vendor-held rule, over a `SELECT *` row. Mirrors `isVendorHeld` in
+ * `apps/api/src/lib/integration-claims.ts` and in
+ * `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`; the datatool is its own
+ * Worker package and imports neither. On a database without the 0044 columns both keys
+ * are absent and the row is not held.
+ */
+export function isVendorHeldRow(row: Record<string, unknown>): boolean {
+  const claimedAt = row.claimed_at;
+  return (claimedAt !== null && claimedAt !== undefined) || row.origin === 'vendor';
+}
+
+/**
+ * The `integrations` WHERE suffix that keeps a DELETE off vendor-held rows, or `''`
+ * on a tier without migration 0044's columns (where no row can be held). Read from
+ * the live table definition, like the ops scripts' probe (AECI-1005 review).
+ */
+export async function notVendorHeldClause(db: D1Database): Promise<string> {
+  const [row] = await selectAll(
+    db,
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'integrations'`,
+    [],
+  );
+  const ddl = typeof row?.sql === 'string' ? row.sql : '';
+  if (ddl.trim() === '') {
+    throw new Error(
+      'Could not read the integrations table definition, so vendor-held rows cannot be protected. Refusing to prune.',
+    );
+  }
+  const has = (column: string) =>
+    new RegExp(`[(,]\\s*[\`"\\[]?${column}[\`"\\]]?\\s+(text|integer)\\b`, 'i').test(ddl);
+  return has('claimed_at') && has('origin')
+    ? ` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`
+    : '';
+}
+
+/** The requested ids whose rows are vendor-held, in id order. */
+async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
+  const rows = await selectAll(
+    db,
+    `SELECT * FROM integrations WHERE id IN (${placeholders(ids.length)}) ORDER BY id`,
+    ids,
+  );
+  return rows.filter(isVendorHeldRow).map((r) => String(r.id).toLowerCase());
+}
+
+/**
  * Everything the operator needs to decide, computed without writing: which ids
  * resolve, how many child rows hang off them, whether any guard trips, which
  * products/slugs are touched, and the rollback SQL.
@@ -353,6 +413,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
 
   return {
     requested: ids.length,
+    vendorHeld: await vendorHeldIds(db, ids),
     found: rows.length,
     missing,
     footprint: {
@@ -398,6 +459,15 @@ export async function pruneExecute(
 ): Promise<PruneResult> {
   const ph = placeholders(ids.length);
 
+  // The route refuses vendor-held ids before it gets here. This is the second gate, so
+  // a future caller that skips the plan still cannot delete a vendor's row (AECI-1005).
+  const held = await vendorHeldIds(db, ids);
+  if (held.length > 0) {
+    throw new Error(
+      `Refusing to prune ${held.length} vendor-held integration(s): ${held.slice(0, 3).join(', ')}${held.length > 3 ? ' …' : ''}.`,
+    );
+  }
+
   const before = await selectAll(
     db,
     `SELECT
@@ -417,14 +487,19 @@ export async function pruneExecute(
     : [];
 
   // Explicit child → parent. `db.batch` is atomic on D1 (no interactive txns).
+  // AECI-1005 review: each DELETE re-asserts "not vendor-held" at write time, so a row
+  // claimed after the check above survives with its claims and attestations, and
+  // `remaining` / the operator's re-read shows it.
+  const keep = await notVendorHeldClause(db);
+  const deletable = `SELECT id FROM integrations WHERE id IN (${ph})${keep}`;
   await db.batch([
     db
       .prepare(
-        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${ph}))`,
+        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${deletable}))`,
       )
       .bind(...ids),
-    db.prepare(`DELETE FROM claims WHERE integration_id IN (${ph})`).bind(...ids),
-    db.prepare(`DELETE FROM integrations WHERE id IN (${ph})`).bind(...ids),
+    db.prepare(`DELETE FROM claims WHERE integration_id IN (${deletable})`).bind(...ids),
+    db.prepare(`DELETE FROM integrations WHERE id IN (${ph})${keep}`).bind(...ids),
   ]);
 
   const recounted: PruneResult['recounted'] = [];

@@ -111,10 +111,11 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
 
 > **AECI-1008 amendment — the sweep also retries contest issues.** An AECi accept of an
-> integration field contest files a `REVIEW - Apply contested field: …` issue once, in
+> integration field contest files a `REVIEW - Apply contested field: …` issue (or, since AECI-1005,
+> `REVIEW - Record integration owner: …` when the accept wrote an owner) once, in
 > `ctx.waitUntil` (`createLinearIssueForContest`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). The same
 > 15-minute tick now runs a second pass, `runContestIssueReconciliation`, over contests that are
-> `routed_to = 'aeci'`, `accepted`, older than `RECONCILE_STUCK_MINUTES` since `decided_at`, and
+> `routed_to = 'aeci'` (or stranded owner-routed, AECI-1005), `accepted`, older than `RECONCILE_STUCK_MINUTES` since `decided_at`, and
 > still have no `upstream_linear_issue_id`. It shares the retry threshold and the 50-row cap. It is
 > deliberately smaller than the request pass: no operator email, because the deciding admin is
 > looking at the row, and the signal is `aeci.linear.issue{kind:contest,outcome:failed}` plus

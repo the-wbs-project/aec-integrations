@@ -309,6 +309,13 @@
       "when": 1789702903360,
       "tag": "0043_needy_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1789986335814,
+      "tag": "0044_slippery_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }

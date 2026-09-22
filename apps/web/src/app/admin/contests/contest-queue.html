@@ -241,7 +241,7 @@
         }
 
         <!-- Accepted AECi rows: the review issue that carries the value upstream -->
-        @if (c.status === 'accepted' && c.routed_to === 'aeci') {
+        @if (c.status === 'accepted' && (c.routed_to === 'aeci' || isStranded(c))) {
         <div class="mt-4">
           @if (c.upstream_linear_issue_url) {
           <a
@@ -263,7 +263,11 @@
         }
 
         <!-- Owner-routed open rows are read-only here -->
-        @if (c.status === 'open' && c.routed_to === 'owner') {
+        @if (c.status === 'open' && isStranded(c)) {
+        <p class="mt-5 text-sm text-(--text-secondary)" i18n="@@admin.contests.stranded">
+          The owner's vendor account no longer exists, so AEC Integrations decides this contest.
+        </p>
+        } @else if (c.status === 'open' && c.routed_to === 'owner') {
         <p class="mt-5 text-sm text-(--text-secondary)" i18n="@@admin.contests.ownerReadOnly">
           The integration's owner decides this contest. It is shown here so you can see the dispute,
           but you cannot decide it.
@@ -296,10 +300,11 @@
         <p
           [id]="'contest-' + c.id + '-accept-help'"
           class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
-          i18n="@@admin.contests.accept.help"
+          i18n="@@admin.contests.accept.help2"
         >
-          Accepting does not change the live listing. It files a REVIEW issue in Linear so the
-          review app applies the value (playbook AECI-1025). The page changes at the next promote.
+          Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration nobody
+          has claimed, the live listing changes only at the next promote. On one its owner has
+          claimed, or when you approve a vendor as the owner, the change goes live now.
         </p>
 
         @if (formOpenId() === c.id && formMode() === 'accept') {

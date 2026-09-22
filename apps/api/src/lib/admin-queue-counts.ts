@@ -52,7 +52,7 @@
  * the tile and the 05:00 email lead with one number.
  */
 
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, isNull, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { gscRecrawlQueue, integrationFieldChallenges, reviews, vendorRequests } from '../db/schema';
@@ -91,7 +91,15 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .from(integrationFieldChallenges)
       .where(
         and(
-          eq(integrationFieldChallenges.routedTo, 'aeci'),
+          // AECi-routed, plus STRANDED owner-routed rows (owner vendor deleted, so
+          // `owner_vendor_id` is NULL), which AECi decides since AECI-1005.
+          or(
+            eq(integrationFieldChallenges.routedTo, 'aeci'),
+            and(
+              eq(integrationFieldChallenges.routedTo, 'owner'),
+              isNull(integrationFieldChallenges.ownerVendorId),
+            ),
+          ),
           eq(integrationFieldChallenges.status, 'open'),
         ),
       ),

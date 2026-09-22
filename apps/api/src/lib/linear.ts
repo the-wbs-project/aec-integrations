@@ -607,7 +607,21 @@ export interface LinearContestIssueInput {
   submitterVendorName: string;
   reason: string;
   adminNote: string | null;
+  /**
+   * What AECi did with the accepted value on its own side (AECI-1005). Absent means
+   * `'upstream-only'`, the AECI-1008 behaviour.
+   *
+   *   - `'upstream-only'` — nothing written here; the review lane applies it and
+   *     re-promotes (the integration is unclaimed, so promote still writes it).
+   *   - `'applied-here'` — the integration is claimed, so promote no longer writes
+   *     it and AECi wrote the value here itself. The review lane only records it.
+   *   - `'owner-recorded'` — an `owner` accept that wrote `built_by_vendor_id` here
+   *     (with `claimed_at` set or cleared). Titled "Record integration owner".
+   */
+  appliedMode?: ContestAppliedMode;
 }
+
+export type ContestAppliedMode = 'upstream-only' | 'applied-here' | 'owner-recorded';
 
 /** The playbook the review lane follows to apply an accepted contest upstream. */
 export const CONTEST_PLAYBOOK_ISSUE = 'AECI-1025';
@@ -616,10 +630,13 @@ export const CONTEST_PLAYBOOK_ISSUE = 'AECI-1025';
  * File the `REVIEW - Apply contested field: …` issue for an AECi-accepted contest
  * (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), and link it back onto the row.
  *
- * An AECi accept records a decision and writes NO catalog data here. The catalog
- * is curated upstream in the review app and pushed through promote, so a value
- * written here would be undone by the next promote of that edge. The issue is how
- * the decision reaches the curation lane.
+ * On an UNCLAIMED integration an AECi accept writes no catalog data here: the
+ * catalog is curated upstream and pushed through promote, so a value written here
+ * would be undone by the next promote. On a CLAIMED one promote no longer writes
+ * the row (ADR 0035), so the accept applies the value here and this issue only
+ * records it upstream; `appliedMode` picks the wording, and "Record integration
+ * owner" the title when the accept wrote an owner. Either way the issue is how the
+ * decision reaches the curation lane.
  *
  * Same contract as {@link createLinearIssueForRequest}: never throws, an absent
  * key is a metric-silent `{ status:'failed', reason:'no_api_key' }`, the read-guard
@@ -699,6 +716,9 @@ function contestSubject(input: LinearContestIssueInput): string {
 
 /** Exported for the spec: the title is the routing signal, so it is asserted. */
 export function buildContestTitle(input: LinearContestIssueInput): string {
+  if (input.appliedMode === 'owner-recorded') {
+    return `REVIEW - Record integration owner: ${contestSubject(input)}`;
+  }
   return `REVIEW - Apply contested field: ${input.field} on ${contestSubject(input)}`;
 }
 
@@ -736,10 +756,23 @@ function buildContestDescription(env: Env, input: LinearContestIssueInput): stri
   if (input.adminNote) {
     lines.push('', '**Admin note:**', '', `> ${input.adminNote.replace(/\n/g, '\n> ')}`);
   }
+  const mode = input.appliedMode ?? 'upstream-only';
   lines.push(
     '',
-    `Apply the accepted value in the review app and re-promote the edge. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
-    'AECi wrote nothing to the catalog on accept; the next promote carries the change.',
+    ...(mode === 'upstream-only'
+      ? [
+          `Apply the accepted value in the review app and re-promote the edge. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
+          'AECi wrote nothing to the catalog on accept; the next promote carries the change.',
+        ]
+      : mode === 'applied-here'
+        ? [
+            `Record the accepted value in the review app. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
+            'AECi already applied it: the integration is claimed by its owner, so promote no longer writes it (ADR 0035). A re-promote will not change it.',
+          ]
+        : [
+            `Record the accepted owner (\`builtByVendor\`) in the review app. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
+            'AECi already wrote the owner on its side (ADR 0035). A claimed integration is not written by promote, so this record keeps the review app in step.',
+          ]),
     '',
     '---',
     `Contest: ${input.contestId}`,

@@ -237,12 +237,25 @@ describe('ContestQueue', () => {
     expect(labels).not.toContain('Decline');
   });
 
-  it('explains on Accept that the live listing does not change', async () => {
+  it('lets AECi decide a stranded owner-routed row (owner vendor gone, AECI-1005)', async () => {
+    const { el } = await setup(
+      makeApiMock([makeContest({ id: 'k1', routed_to: 'owner', owner_vendor: null })]),
+    );
+    const card = el.querySelector('article') as HTMLElement;
+    expect(card.textContent).toContain('no longer exists');
+    expect(card.textContent).not.toContain('cannot decide it');
+    const labels = [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    expect(labels).toContain('Accept');
+    expect(labels).toContain('Decline');
+  });
+
+  it('explains on Accept when the live listing changes (AECI-1005)', async () => {
     const { el } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
     const accept = buttonByText(el, 'Accept');
     const helpId = accept.getAttribute('aria-describedby');
     const help = el.querySelector(`#${helpId}`);
-    expect(help?.textContent).toContain('does not change the live listing');
+    expect(help?.textContent).toContain('changes only at the next promote');
+    expect(help?.textContent).toContain('the change goes live now');
     expect(help?.textContent).toContain('AECI-1025');
   });
 
@@ -262,7 +275,8 @@ describe('ContestQueue', () => {
     expect(el.querySelector('article')).toBeNull();
     expect(store.pendingContests()).toBe(2);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Contest accepted');
-    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+    // No longer claims the listing is unchanged: on a claimed row it is (AECI-1005).
+    expect(el.querySelector('[role="status"]')?.textContent).not.toContain(
       'The live listing has not changed',
     );
   });

@@ -85,7 +85,7 @@ import {
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { eq, inArray, sql, type Table } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -121,6 +121,7 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import { isPromoteClaimFenceError, promoteClaimFenceSentinel } from '../lib/integration-claims';
 import {
   loadDataObjectResolver,
   safeSlugify,
@@ -176,12 +177,40 @@ function fencedLastReviewedAt(
 
 /** Whether {@link fencedLastReviewedAt} will refuse this write, i.e. whether the
  *  caller earns a `kind: 'review-signal'` entry in `skipped[]`. Kept beside the
- *  fence so the SQL and the receipt cannot drift. */
+ *  fence so the SQL and the receipt cannot drift.
+ *
+ *  Its row-grain sibling is {@link claimFenceRefuses} below (AECI-1005): the same
+ *  two halves, a receipt decided from the plan read and an in-SQL guard that
+ *  holds if the row changes between plan and commit. */
 function reviewSignalRefused(
   value: string | null | undefined,
   storedMaintainedBy: string | undefined,
 ): boolean {
   return value !== undefined && storedMaintainedBy === 'vendor';
+}
+
+/**
+ * The ownership fence (AECI-1005 / ADR 0035 / `REVIEW_APP_PROMOTE_API.md` §4b).
+ *
+ * Once an integration's owner has claimed it (`claimed_at IS NOT NULL`), promote
+ * writes NOTHING to it: no content column, no `built_by_vendor_id`, no endpoint
+ * re-point, no cross-table move (which would DELETE the row and cascade away its
+ * claims, attestations and contests), and no write to its claims or attestations.
+ * The whole edge is refused into `skipped[]` with {@link REFUSED_CLAIMED_INTEGRATION},
+ * the same way AECI-520 refuses an edge touching a blocked product.
+ *
+ * It keys on `claimed_at` and never on `maintained_by` (AECI-1003 decision 13):
+ * `maintained_by` flips to `'vendor'` when either endpoint vendor merely attests,
+ * which is the {@link fencedLastReviewedAt} fence's business and not ownership.
+ *
+ * This is the plan-time half. It is decided from {@link locateEdge}'s read, so it
+ * covers every row claimed before the promote started. The commit-time half is
+ * `promoteClaimFenceSentinel` (`lib/integration-claims.ts`): one guard statement per
+ * written `integrations` row that aborts the whole batch if the row was claimed
+ * after this read. Only the `integrations` arm can be claimed.
+ */
+function claimFenceRefuses(located: LocatedEdge | null): boolean {
+  return located?.table === 'integrations' && located.row.claimedAt !== null;
 }
 
 /**
@@ -491,8 +520,11 @@ function planEvidencedPairWrite(args: {
           .where(eq(connectorEvidencedPairs.id, existing.id)),
         // Belt-and-braces on the single-table invariant: an id must never live in
         // both tables. A clean evidenced row is not in `integrations`, so this is a
-        // no-op then; it only bites if a prior partial state left a stale twin.
-        db.delete(integrations).where(eq(integrations.id, existing.id)),
+        // no-op then; it only bites if a prior partial state left a stale twin. A
+        // CLAIMED twin is never deleted (AECI-1005): it is the vendor's row now.
+        db
+          .delete(integrations)
+          .where(and(eq(integrations.id, existing.id), isNull(integrations.claimedAt))),
       ],
     };
   }
@@ -579,6 +611,8 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   sourceProductId: string;
   targetProductId: string;
   poweredByProductId: string | null;
+  /** The AECI-1005 ownership fence's input — see {@link claimFenceRefuses}. */
+  claimedAt: string | null;
 };
 
 type LocatedEvidencedRow = LocatedMaintenance & {
@@ -602,6 +636,7 @@ async function locateEdge(
       poweredByProductId: true,
       maintainedBy: true,
       lastReviewedAt: true,
+      claimedAt: true,
     },
     where: eq(integrations.id, supabaseId),
   });
@@ -904,6 +939,12 @@ const REFUSED_REVIEW_SIGNAL_PRODUCT =
   'product is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain';
 const REFUSED_REVIEW_SIGNAL_INTEGRATION =
   'integration is vendor-maintained; lastReviewedAt is not written to a record AECi does not maintain';
+
+// ─── Ownership-fence reason (AECI-1005) ──────────────────────────────────────
+// Same constant discipline. `kind: 'integration'`, like the AECI-520 edge block,
+// because the whole edge is refused, not one field of it.
+export const REFUSED_CLAIMED_INTEGRATION =
+  'integration is claimed by its owner; promote writes nothing to a vendor-owned integration';
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
 
@@ -2627,12 +2668,17 @@ export async function runPromoteIngest(
   //
   // SCOPE, precisely: this cascades off THIS payload's blocked product only. A
   // payload promoting some other product may still write an integration whose far
-  // endpoint is a claimed vendor's product. That is intentional — integrations are
-  // AECi-curated and are NOT vendor-editable (nothing in `/api/vendor/*` writes
-  // them), so no vendor-owned content is overwritten; only the far product's
-  // denormalized `integration_count` moves, which is AECi-owned aggregate state.
-  // Checking ownership of every endpoint would block legitimate curation for no
-  // ownership reason.
+  // endpoint is a claimed vendor's product, and that is intentional: owning a
+  // PRODUCT does not make a vendor the owner of every integration touching it.
+  //
+  // Integrations are vendor-owned, and AECi seeds them (ADR 0035). The owner of an
+  // integration is its `built_by_vendor_id`, and ownership is enforced per ROW by
+  // the AECI-1005 fence below, keyed on `claimed_at`: once the owner has claimed an
+  // edge, promote writes nothing to it, whichever product the payload is about.
+  // Until then the edge is still AECi's seed and promote keeps curating it. So
+  // checking ownership of every endpoint here would block legitimate seeding for
+  // no ownership reason, and it would still miss a third-party owner, which owns
+  // neither endpoint.
   const touchesBlockedProduct = (ref: EntityRef): boolean =>
     productBlocked &&
     ((ref.ref !== undefined && ref.ref === p?.ref) ||
@@ -2715,6 +2761,30 @@ export async function runPromoteIngest(
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
+    // ── AECI-1005: the ownership fence. A claimed row is the vendor's. ────────
+    // Checked before EVERY write branch below, including both cross-table moves,
+    // and before the claim ingest is queued, so nothing about this edge is planned:
+    // not its columns, not its endpoints, not its table, not its claims. The
+    // `promote.blocked` row is the same audit trail AECI-520 leaves for a blocked
+    // vendor or product, and `catalogWrites` excludes it, so an all-fenced promote
+    // still reports `wrote: false`.
+    if (claimFenceRefuses(located)) {
+      skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: 'integration',
+        entityId: located!.id,
+      });
+      continue;
+    }
+    // The commit-time half: the row was unclaimed when we read it, so abort the whole
+    // batch if it is claimed by the time the batch runs. Pushed AHEAD of this edge's
+    // writes, and only for a row that already exists in `integrations`, the one arm
+    // a claim can reach.
+    if (located?.table === 'integrations') {
+      stmts.push(promoteClaimFenceSentinel(db, located.id));
+    }
     // The AECI-981 fence receipt, pushed ONCE here rather than per branch. `located`
     // answers it for all four write branches at the same grain: a create cannot be
     // vendor-maintained, and both the same-table UPDATE and the cross-table move
@@ -3191,6 +3261,16 @@ export async function runPromoteIngest(
         // re-planning is the duplicate this whole change exists to prevent.
         if (!prior) throw err;
         return replayPromoteJob(rc, dbCtx, opts.jobId, prior.result, 'batch-conflict');
+      }
+      // AECI-1005: an edge planned as unclaimed was claimed before the batch ran. The
+      // whole batch rolled back, so nothing was written, including the ledger row, and
+      // a re-push plans against the claimed row and skips it.
+      if (isPromoteClaimFenceError(err)) {
+        throw new ApiError(
+          409,
+          'INTEGRATION_CLAIMED_DURING_PROMOTE',
+          'An integration in this bundle was claimed by its owner while the promote was running. Nothing was written; re-push the bundle.',
+        );
       }
       if (isSlugUniqueViolation(err)) {
         throw new ApiError(

@@ -103,9 +103,11 @@ import {
   type ContestHydration,
   type ContestRow,
   type IntegrationClaimedPredicate,
+  contestIntegrationStateSentinel,
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
+import { isClaimed } from '../lib/integration-claims';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -226,7 +228,7 @@ async function echo(
 
 /** Both endpoint slugs, for the pair-page purge, the notification snapshot and
  *  the recrawl. */
-async function endpointSlugs(
+export async function endpointSlugs(
   db: Db,
   sourceId: string,
   targetId: string,
@@ -297,6 +299,15 @@ export async function runGuardedContestBatch(
       columns: { status: true },
       where: eq(integrationFieldChallenges.id, id),
     });
+    // Still open means the contest sentinel passed and the integration-state one
+    // tripped (`contestIntegrationStateSentinel`, AECI-1005).
+    if (current?.status === 'open') {
+      throw new ApiError(
+        409,
+        ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+        'The integration was claimed or its owner changed while you were deciding. Reload and decide again.',
+      );
+    }
     throw contestNotOpen(current?.status ?? 'closed');
   }
   const row = await db.query.integrationFieldChallenges.findFirst({
@@ -320,9 +331,9 @@ function isOpenContestConflict(error: unknown): boolean {
 // ─── POST /api/vendor/integrations/:id/contests ──────────────────────────────
 
 /**
- * `claimed` is the routing predicate. It defaults to the AECI-1005 stub
- * ({@link isIntegrationClaimed}, always `false`), and is a parameter so the owner
- * path can be exercised end to end before AECI-1005 ships.
+ * `claimed` is the routing predicate. It defaults to {@link isIntegrationClaimed},
+ * the real `claimed_at` test since AECI-1005 replaced the stub, and stays a
+ * parameter so a spec can pin either route without seeding a claim.
  */
 export function createSubmitContestHandler(
   dbFor: DbFactory = getDb,
@@ -719,6 +730,23 @@ export function createDecideContestHandler(
     if (!row) throw notFoundError('contest', { id });
     if (row.status !== 'open') throw contestNotOpen(row.status);
 
+    // AECI-1005 review: the decider was frozen at SUBMIT, so re-check that the caller
+    // still owns the row now. An AECi owner accept can reassign a claimed row (and
+    // re-routes its open contests to AECi in the same batch); a caller that lost the
+    // row, or a row that is no longer claimed, must not decide. The same condition
+    // is re-asserted inside the batch by `contestIntegrationStateSentinel` below.
+    const owned = await db.query.integrations.findFirst({
+      columns: { id: true, claimedAt: true, builtByVendorId: true },
+      where: eq(integrations.id, row.integrationId),
+    });
+    if (!owned || !isClaimed(owned) || owned.builtByVendorId !== vendorId) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+        'Your company is no longer the owner of this integration, so AEC Integrations decides this contest.',
+      );
+    }
+
     const payload = await parseJsonBody(c, DecideContestSchema);
     const status = payload.decision === 'accept' ? 'accepted' : 'declined';
     const note = payload.note ?? null;
@@ -760,6 +788,12 @@ export function createDecideContestHandler(
       // Immediately after the guarded UPDATE: a lost race aborts the batch here,
       // before the catalog write, the audit rows and the notification.
       contestStillOpenSentinel(db, id),
+      // AECI-1005 review: and the caller must still hold the claimed row when the
+      // batch runs, or a reassignment landing mid-decision is decided by the old owner.
+      contestIntegrationStateSentinel(db, row.integrationId, {
+        claimed: true,
+        ownerVendorId: vendorId,
+      }),
     ];
 
     let tags: string[] = [];

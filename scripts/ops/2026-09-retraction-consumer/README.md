@@ -29,6 +29,16 @@ committed operator ruling instead of the journal, for stranded rows no journal e
 ever name. Every guard stays; `confirm_retractions` is never called. See
 [Operator-ruling mode](#operator-ruling-mode---ruling-aeci-916).
 
+**Since AECI-1005 it refuses to delete a vendor-held row.** A row its owner has claimed
+(`integrations.claimed_at` set) or a vendor created (`origin = 'vendor'`) belongs to the
+vendor, and an upstream delete of its curation record is not a ruling on it (ADR 0035). If
+any resolved row in the cohort is vendor-held and not on `HOLD`, the run prints the rows,
+writes nothing to either side, and exits `1`, in dry-run and apply alike. To proceed, put
+each such id on `HOLD` with the reason; a held entry is never deleted and never confirmed,
+so it stays pending on the journal until someone rules on it. The columns are probed from
+the live DDL (`vendor-held.mjs`), so the run still works on a database that has not yet
+applied migration `0044`, where no row can be vendor-held. An EMPTY table-definition read is not that case: it throws and the run exits `2` (could not check), because falling back to an empty definition would switch the protection off silently. The `integrations` DELETEs also carry `AND claimed_at IS NULL AND origin <> 'vendor'` when the columns exist, so a row claimed between the plan and the write survives, and the verify step reports it as a leftover rather than confirming its entry.
+
 Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
 It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI
 because `docs/CICD_PLAN.md` §7.1 says `AECI_MCP_TOKEN` never reaches a Worker and no runtime

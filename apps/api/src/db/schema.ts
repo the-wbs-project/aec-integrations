@@ -301,6 +301,44 @@ export const integrations = sqliteTable(
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
 
+    // ── Vendor ownership (AECI-1005 / ADR 0035) ─────────────────────────────
+    // All three were added by `0044_…` as plain `ALTER TABLE … ADD COLUMN`, and
+    // none of them may ever gain a table-level `check()` here: drizzle-kit
+    // renders any CHECK change on this table as a DROP + recreate, and a
+    // recreate's DROP fires `ON DELETE CASCADE` into `claims`, their
+    // attestations and `integration_field_challenges` (`docs/migrations.md`
+    // §3.3a). `origin`'s CHECK is a COLUMN constraint written by hand into
+    // 0044 instead, which drizzle-kit cannot see; `migration-0044.spec.ts`
+    // fails if a later recreate drops it.
+
+    /**
+     * When the owner took the row, by a claim (`POST /api/vendor/integrations/:id/claim`)
+     * or an admin approval of an owner-unknown claim. NULL = not claimed.
+     *
+     * **The promote fence keys on this column, never on `maintained_by`**
+     * (AECI-1003 decision 13). `maintained_by` flips to `'vendor'` whenever
+     * either endpoint vendor attests, so it means "a vendor touched this", not
+     * "a vendor owns this". Once set, promote writes nothing to the row
+     * (`REVIEW_APP_PROMOTE_API.md` §4b). One path clears it: an AECi admin
+     * accept of an `owner` contest that reassigns the row to a different vendor (or
+     * to "neither"), because the new owner has not acted (`planAcceptWrites` in
+     * `routes/admin-contests.ts`). Nothing else un-sets it, promote included.
+     */
+    claimedAt: text('claimed_at'),
+    /**
+     * Who created the row: `'aeci'` (promote, the default) or `'vendor'` (a
+     * vendor create, AECI-1011). Nothing writes `'vendor'` yet. The ops tools
+     * already treat a `'vendor'` row as vendor-held, because such a row has no
+     * upstream record and every orphan detector would otherwise call it
+     * stranded. Enforced by the hand-written column CHECK in 0044.
+     */
+    origin: text('origin').notNull().default('aeci'),
+    /**
+     * When the owner retired the row (AECI-1010). Added now so 1010 needs no
+     * migration. Nothing reads or writes it yet, and promote never writes it.
+     */
+    retiredAt: text('retired_at'),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1479,8 +1517,9 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * A seated endpoint vendor that does NOT own an integration says "this field is
  * wrong, here is the right value, here is why". One row per challenge. The row is
  * a REQUEST, never the value: nothing here is read by a public page, and the
- * catalog only changes when the owner accepts (routed to `owner`) — an AECi accept
- * files a `REVIEW - ` Linear issue and writes nothing.
+ * catalog changes when the owner accepts (routed to `owner`). An AECi accept files a
+ * `REVIEW - ` Linear issue, and since AECI-1005 writes here only when the row is
+ * claimed or it approves an owner (`routes/admin-contests.ts` header).
  *
  * ── ROUTING IS FROZEN AT SUBMIT ─────────────────────────────────────────────
  * `routed_to` and `owner_vendor_id` are snapshots taken at insert, so a later

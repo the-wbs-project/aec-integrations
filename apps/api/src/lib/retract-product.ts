@@ -40,6 +40,15 @@
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
  * two attestation version refs).
  *
+ * A THIRD REFUSAL, also under --force: a vendor-held integration (AECI-1005 / ADR 0035).
+ * An endpoint integration its owner has CLAIMED (`claimed_at` set) or a vendor CREATED
+ * (`origin = 'vendor'`) belongs to the vendor, and retracting one of its endpoint
+ * products would cascade it away with its claims, attestations and contests. That is
+ * the same rule the retraction consumer enforces, and like there it is not something
+ * `--force` can waive: the vendor has to retire the row (AECI-1010) or AECi has to rule
+ * on it first. The count degrades to 0 on a database without migration 0044's
+ * columns, where no row can be vendor-held (`buildFootprintSql`'s option).
+ *
  * Why the two refusals hold even under --force. A connector catalogue and its stub
  * mappings are a mirror the connector-catalogue sync owns (`POST
  * /api/promote/connector-catalog`, `docs/REVIEW_APP_PROMOTE_API.md` §3a). Deleting the
@@ -199,10 +208,35 @@ function scopes(p: string, opts: { includePairs: boolean } = { includePairs: tru
  * SELECT (not a compound UNION — D1 caps compound-SELECT terms low). The escaped
  * product id is interpolated as a quoted literal into every subquery.
  */
-export function buildFootprintSql(id: string): string {
+/**
+ * Does this `CREATE TABLE` text (from `sqlite_master.sql`) declare both vendor-held
+ * columns? The TypeScript twin of `ddlHasColumn` in
+ * `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`, which this package cannot
+ * import. A declared type must follow the name, so a CHECK expression does not count.
+ */
+export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean {
+  if (typeof ddl !== 'string') return false;
+  const has = (column: string) =>
+    new RegExp(
+      `[(,]\\s*[\`"\\[]?${column}[\`"\\]]?\\s+(text|integer|int|real|blob|numeric)\\b`,
+      'i',
+    ).test(ddl);
+  return has('claimed_at') && has('origin');
+}
+
+/** The DDL probe the CLI runs before {@link buildFootprintSql}. */
+export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
+
+export function buildFootprintSql(id: string, opts: { vendorHeldColumns?: boolean } = {}): string {
   const p = `'${escapeSqlLiteral(id)}'`;
   const s = scopes(p);
+  // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
+  // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
+  const vendorHeld = opts.vendorHeldColumns
+    ? `(SELECT count(*) FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
+    : '0';
   return `SELECT
+    ${vendorHeld} AS vendor_held_integrations,
     (SELECT count(*) FROM "connector_catalogs" WHERE "connector_product_id" = ${p}) AS connector_catalogs,
     (SELECT count(*) FROM "connector_stub_mappings" WHERE "product_id" = ${p}) AS stub_mappings,
     (SELECT count(*) FROM (${s.integrations})) AS integrations,
@@ -232,6 +266,8 @@ export function buildFootprintSql(id: string): string {
 
 /** Raw footprint row as D1 returns it (`group_concat` → comma string or null). */
 export interface RawFootprintRow {
+  /** AECI-1005. Optional so a row built before it still parses. */
+  vendor_held_integrations?: number;
   connector_catalogs: number;
   stub_mappings: number;
   integrations: number;
@@ -261,6 +297,8 @@ export interface RawFootprintRow {
 }
 
 export interface RetractFootprint {
+  /** Claimed or vendor-created integrations the retraction would delete or detach. */
+  vendorHeldIntegrations: number;
   connectorCatalogs: number;
   stubMappings: number;
   integrations: number;
@@ -297,6 +335,7 @@ function splitConcat(value: string | null): string[] {
 
 export function parseFootprint(row: RawFootprintRow): RetractFootprint {
   return {
+    vendorHeldIntegrations: row.vendor_held_integrations ?? 0,
     connectorCatalogs: row.connector_catalogs,
     stubMappings: row.stub_mappings,
     integrations: row.integrations,
@@ -368,6 +407,10 @@ export function classifyRetraction(
   opts: ClassifyOptions = {},
 ): RetractionClassification {
   const refusals: string[] = [];
+  if (footprint.vendorHeldIntegrations > 0)
+    refusals.push(
+      `${footprint.vendorHeldIntegrations} vendor-held integration(s) — claimed by the owner or created by a vendor (ADR 0035); the vendor retires them, this tool does not delete them`,
+    );
   if (footprint.connectorCatalogs > 0)
     refusals.push(
       `${footprint.connectorCatalogs} connector catalogue(s) — deleting the product would cascade the whole catalogue`,

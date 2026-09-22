@@ -6,9 +6,9 @@
  * transaction, so the partial unique index, the FK from the contest to its
  * workflow instance, and the audit-in-batch rule are exercised, not mocked.
  *
- * The owner path is dormant in production until AECI-1005 replaces the
- * `isIntegrationClaimed` stub. It is driven here by injecting a predicate into the
- * submit handler, which is the seam that exists for exactly this.
+ * The owner path is live since AECI-1005 replaced the `isIntegrationClaimed` stub
+ * with the real `claimed_at` test. Most cases still drive it by injecting a
+ * predicate into the submit handler; `routeContest` below also pins the real one.
  */
 
 import {
@@ -111,6 +111,9 @@ beforeEach(async () => {
       direction: 'a_to_b',
       listingUrl: 'https://example.test/listing',
       builtByVendorId: VENDOR_B,
+      // Claimed by B, so the owner decide path's ownership re-check (AECI-1005
+      // review) passes. Routing is still driven by the injected predicate.
+      claimedAt: '2026-09-01T00:00:00.000Z',
     },
     { id: I_REVERSE, sourceProductId: P_FOREIGN, targetProductId: P_SOURCE, direction: 'both' },
   ]);
@@ -185,10 +188,21 @@ const NAME_CONTEST = {
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
 describe('routeContest', () => {
-  const row = { id: I_MAIN, builtByVendorId: VENDOR_B };
+  const row = { id: I_MAIN, builtByVendorId: VENDOR_B, claimedAt: null };
 
-  it('routes to AECi while the AECI-1005 stub says unclaimed', () => {
+  it('routes to AECi while the integration is unclaimed', () => {
     expect(routeContest(row, 'name')).toEqual({ routedTo: 'aeci', ownerVendorId: VENDOR_B });
+  });
+
+  it('routes to the owner once claimed_at is set, with the real predicate (AECI-1005)', () => {
+    const claimedRow = { ...row, claimedAt: '2026-09-21T00:00:00.000Z' };
+    expect(routeContest(claimedRow, 'name')).toEqual({
+      routedTo: 'owner',
+      ownerVendorId: VENDOR_B,
+    });
+    // The owner field still goes to AECi on a claimed row: the owner cannot judge
+    // whether it is the owner.
+    expect(routeContest(claimedRow, 'owner').routedTo).toBe('aeci');
   });
 
   it('routes to the owner once the integration is claimed', () => {
@@ -203,7 +217,9 @@ describe('routeContest', () => {
   });
 
   it('routes to AECi when no builder is on file', () => {
-    expect(routeContest({ id: I_MAIN, builtByVendorId: null }, 'name', () => true)).toEqual({
+    expect(
+      routeContest({ id: I_MAIN, builtByVendorId: null, claimedAt: null }, 'name', () => true),
+    ).toEqual({
       routedTo: 'aeci',
       ownerVendorId: null,
     });
@@ -508,13 +524,68 @@ describe('POST /api/vendor/contests/:id/withdraw', () => {
 
 // ─── POST /api/vendor/contests/:id/decision ──────────────────────────────────
 
-describe('POST /api/vendor/contests/:id/decision (owner path, AECI-1005 stubbed on)', () => {
+describe('POST /api/vendor/contests/:id/decision (owner path, predicate injected on)', () => {
   async function ownerContest(body: object = NAME_CONTEST): Promise<string> {
     claimed = true;
     const res = await submit(AUTH_A, I_MAIN, body);
     expect(res.body.contest.routed_to).toBe('owner');
     return res.body.contest.id as string;
   }
+
+  it('refuses the old owner once the row is no longer claimed by it (AECI-1005 review)', async () => {
+    const id = await ownerContest();
+    // AECi reassigned the row away from B (or it was never claimed): B must not decide.
+    await t.db
+      .update(integrations)
+      .set({ builtByVendorId: VENDOR_C, claimedAt: null })
+      .where(eq(integrations.id, I_MAIN));
+    const res = await call(AUTH_B, `/api/vendor/contests/${id}/decision`, { decision: 'accept' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    const [contest] = await contestRows();
+    expect(contest!.status).toBe('open');
+    expect((await auditRows()).some((r) => r.action === 'integration.contest.accepted')).toBe(
+      false,
+    );
+  });
+
+  it('aborts when the row is reassigned between the re-check and the batch', async () => {
+    const id = await ownerContest();
+    const racing = createDecideContestHandler((env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        t.raw
+          .prepare('UPDATE integrations SET built_by_vendor_id = ?, claimed_at = NULL WHERE id = ?')
+          .run(VENDOR_C, I_MAIN);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', AUTH_B);
+      await next();
+    });
+    a.post('/api/vendor/contests/:id/decision', racing);
+    const res = await a.request(
+      `/api/vendor/contests/${id}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision: 'accept' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    const [integration] = await t.db.select().from(integrations).where(eq(integrations.id, I_MAIN));
+    expect(integration!.name).toBe('Revit for MicroStation');
+    const [contest] = await contestRows();
+    expect(contest!.status).toBe('open');
+  });
 
   it('accept writes the column, transfers maintenance, notifies, and purges', async () => {
     const id = await ownerContest();

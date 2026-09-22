@@ -1004,13 +1004,18 @@ Four IA notes, in §5.10's voice:
 - **Operations, beside Vendor claims.** Both are a vendor asking AECi to decide
   something, with a counterparty waiting. It sits after `/admin/claims` and before
   `/admin/reindex`, which keeps the group's badged-queues-first shape.
-- **A nav badge, and the fifth one.** `pending_contests` counts open AECi-routed rows only.
+- **A nav badge, and the fifth one.** `pending_contests` counts open AECi-routed rows, plus
+  open **stranded** owner-routed rows (AECI-1005), which AECi decides.
   §5.0c covers why the sum stays honest: a different table, so disjointness is trivial.
 - **Owner-routed rows are visible but read-only.** They render "With the owner" and no
   decision buttons. An operator can see a dispute it does not own, but two deciders on one
   row is how a contest gets accepted twice with two values. The API refuses the PATCH with
-  `409 CONTEST_ROUTED_TO_OWNER` anyway. Until AECI-1005 replaces the `isIntegrationClaimed()`
-  stub, every contest routes to AECi, so this view is empty in production.
+  `409 CONTEST_ROUTED_TO_OWNER` anyway. Since AECI-1005 replaced the `isIntegrationClaimed()`
+  stub, a content contest on a CLAIMED integration routes to its owner and shows here
+  read-only. An `owner` contest always routes to AECi. **One exception: a stranded row.**
+  When the owner's vendor record is deleted, `owner_vendor_id` goes NULL and no vendor can
+  decide the contest any more, so the row says "The owner's vendor account no longer
+  exists, so AEC Integrations decides this contest" and carries Accept and Decline.
 - **No detail route.** The API has no single-contest read, and a row already carries every
   field a decision needs. A parameterised route would cost a breadcrumb rule (§5.0b) for no
   content.
@@ -1019,10 +1024,18 @@ Four IA notes, in §5.10's voice:
 `PATCH /api/admin/contests/:id`, and three things about it are decisions rather than
 defaults:
 
-- **Accept writes no catalog data.** It records the decision and files a `REVIEW - ` issue
-  after commit, so the review app applies the value upstream and the next promote carries
-  it. The Accept control says so under the button (`aria-describedby`), and names the
-  playbook, AECI-1025. Without that sentence "accepted" reads as "the page is fixed".
+- **Accept writes catalog data only where promote cannot (AECI-1005, ADR 0035).** Every
+  accept files a `REVIEW - ` issue after commit. On an unclaimed integration it writes
+  nothing else: the review app applies the value and the next promote carries it. On a
+  CLAIMED integration promote writes nothing, so the accept applies the value itself; and
+  an `owner` accept that approves the submitting vendor as owner writes the owner and
+  `claimed_at` (the owner-unknown claim, AECI-1003 decision 11), except on a
+  connector-powered row, where decision 9 keeps the claim off in v1. A reassignment of a
+  claimed row to another owner clears `claimed_at`. The full table is
+  `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6 and `API_CONTRACTS.md`. The screen does not know
+  the row's claim state, so the Accept help text (`aria-describedby`) states both outcomes:
+  the listing changes at the next promote on an unclaimed row, and now on a claimed row or
+  an owner approval. It still names the playbook, AECI-1025.
 - **The note is optional and encouraged on decline.** The API does not require one, so the
   form does not either. Both forms say the note is shown to the filing vendor; the accept
   form says it is also copied into the Linear issue.
@@ -1030,6 +1043,8 @@ defaults:
   the badge. `409 CONTEST_NOT_OPEN` (another admin decided it, or the vendor withdrew)
   announces "Already decided" and reloads, without decrementing, as `/admin/claims` does on
   its race. `CONTEST_ROUTED_TO_OWNER` keeps the row with an inline alert.
+  `CONTEST_INTEGRATION_CHANGED` (the integration was claimed or re-owned while the admin
+  decided, AECI-1005) wrote nothing, and takes the generic retry path.
 
 **What this screen deliberately cannot do:**
 

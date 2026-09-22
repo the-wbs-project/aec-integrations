@@ -395,6 +395,17 @@ create table integrations (
   maintained_by text not null default 'aeci'
     check (maintained_by in ('aeci', 'vendor')),
 
+  -- Vendor ownership (AECI-1005 / ADR 0035, migration 0044, three plain ADD COLUMNs).
+  -- `claimed_at` set = the owner took the row by an act (its claim, or an admin
+  -- approval of an owner-unknown claim); promote then writes NOTHING to the row.
+  -- `origin` is who created it; nothing writes 'vendor' until AECI-1011. Its CHECK is a
+  -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
+  -- drizzle-kit renders a CHECK change there as a table recreate.
+  -- `retired_at` is reserved for AECI-1010; nothing reads or writes it yet.
+  claimed_at text,
+  origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
+  retired_at text,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -426,6 +437,24 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > list integrations with no context product — the home tile, the Algolia `direction` facet, and the
 > `?direction=` filter — via `presentedDirection()` in `packages/shared/src/integration-context.ts`.
 > `apps/api/src/test/d1.spec.ts` holds the three storage columns in lockstep.
+
+> **Integrations are vendor-owned; AECi seeds them (AECI-1005 / ADR 0035).** The owner is
+> `built_by_vendor_id`, and there is deliberately no `owner_vendor_id` (AECI-1003 decision 12).
+> `claimed_at IS NOT NULL` means the owner verified that by an act. Three rules hang off it:
+>
+> - **Promote's fence keys on `claimed_at`, never on `maintained_by`** (decision 13). A claim
+>   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
+>   flips when an endpoint vendor merely attests, so it cannot mean ownership.
+>   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.
+> - **One path un-claims a row:** an AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). That accept also re-routes the old owner's open contests to AECi. Nothing else, promote included, clears it.
+> - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune, the
+>   retraction consumer and `ops:retract-product` never treat a vendor-held row as an orphan
+>   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).
+>
+> The three columns were added by `0044` as `ADD COLUMN`s so that `integrations` was **not**
+> recreated. Its cascade children (`claims` → `attestations`, `integration_field_challenges`)
+> are exactly what a recreate's DROP would have destroyed; `src/test/migration-0044.spec.ts`
+> is the tripwire.
 
 **Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
 Drizzle relations file declares
@@ -2998,7 +3027,7 @@ After the initial load, the ongoing review app → D1 push is curator-triggered:
 - New rows inserted in D1
 - Algolia indexed automatically via the write-event pipeline
 
-Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state.
+Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state. **Three exceptions stop the mirror:** a claimed vendor and its products (AECI-520, `REVIEW_APP_PROMOTE_API.md` §4a), and a claimed integration (AECI-1005, §4b). Once a vendor has taken a row, D1 is its source of truth and promote writes nothing to it.
 
 ### 13.4 Curator-preserve fields
 

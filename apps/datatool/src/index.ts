@@ -325,15 +325,33 @@ app.post('/api/prune-integrations', requireAccess(), async (c) => {
 
   if (dryRun) {
     return c.json({
-      ok: plan.blocked.length === 0,
+      ok: plan.blocked.length === 0 && plan.vendorHeld.length === 0,
       dryRun: true,
       target,
       ...plan,
       note:
-        plan.blocked.length > 0
-          ? `BLOCKED by ${plan.blocked.join(', ')} — these rows are not redundant copies. Stop here unless an editorial ruling says the content is retracted; to proceed anyway, pass acknowledgeGuards: ${JSON.stringify(plan.blocked)} with an acknowledgeReason.`
-          : 'Save rollbackSql before executing: D1 has no undo and this Worker cannot write files.',
+        plan.vendorHeld.length > 0
+          ? `REFUSED: ${plan.vendorHeld.length} id(s) are vendor-held (claimed by the owner, or created by a vendor). They belong to the vendor, not to AECi, and cannot be pruned (ADR 0035). Remove them from the list.`
+          : plan.blocked.length > 0
+            ? `BLOCKED by ${plan.blocked.join(', ')} — these rows are not redundant copies. Stop here unless an editorial ruling says the content is retracted; to proceed anyway, pass acknowledgeGuards: ${JSON.stringify(plan.blocked)} with an acknowledgeReason.`
+            : 'Save rollbackSql before executing: D1 has no undo and this Worker cannot write files.',
     });
+  }
+
+  // AECI-1005 / ADR 0035: a vendor-held row is never pruned, and unlike the guards
+  // below nothing acknowledges this away. "No upstream record" is expected for a row
+  // the owner has claimed or a vendor created, so it is not evidence of residue.
+  if (plan.vendorHeld.length > 0) {
+    return c.json(
+      {
+        error: {
+          code: 'VENDOR_HELD',
+          message: `Refusing to delete: ${plan.vendorHeld.length} id(s) are vendor-held (claimed by the owner, or created by a vendor) and belong to the vendor. Remove them from the list.`,
+          vendorHeld: plan.vendorHeld,
+        },
+      },
+      409,
+    );
   }
 
   // A tripped guard means at least one row is NOT a redundant copy. Refuse on the

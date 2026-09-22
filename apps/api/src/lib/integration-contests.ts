@@ -5,7 +5,7 @@
  * Four things live here so no handler re-derives them:
  *
  *   1. **Routing** — who decides a contest. {@link routeContest} is the one
- *      implementation, and {@link isIntegrationClaimed} is its stub.
+ *      implementation, and {@link isIntegrationClaimed} (AECI-1005) its claim test.
  *   2. **The field ↔ column map**, and the two translations between the storage
  *      form of a value and the caller-relative wire form (`direction` only).
  *   3. **The vendor scoping predicate** ({@link vendorContestsWhere}), which
@@ -33,6 +33,7 @@ import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { integrationFieldChallenges, integrations, vendors } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import { isClaimed, ONE_ROW } from './integration-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -41,23 +42,23 @@ type IntegrationRow = typeof integrations.$inferSelect;
 export const CONTEST_ENTITY_TYPE = 'integration_field_challenge';
 
 /**
- * Is this integration CLAIMED, i.e. does its owner hold an accountable seat that
- * may decide contests on it?
+ * Is this integration CLAIMED, i.e. has its owner taken the row, so that it decides
+ * contests on it?
  *
- * ⚠️ **STUB. Always `false` until AECI-1005 replaces it.** AECI-1005 defines what
- * "claimed" means for an integration (a seated owner that has taken
- * responsibility for the row) and fences promote moves on claimed rows. Until it
- * ships, every contest routes to AECi, which is the safe direction: an AECi accept
- * writes nothing and files a `REVIEW - ` issue for the curation lane.
+ * AECI-1005 replaced the stub that stood here (always `false`) with the real test:
+ * `claimed_at IS NOT NULL`, via {@link isClaimed} in `lib/integration-claims.ts`,
+ * which is the single definition. A claim is an act (the owner's own claim, or an
+ * admin approval of an owner-unknown claim), and it is the same column that fences
+ * promote, so an owner accept can no longer be reverted by the next promote of the
+ * edge.
  *
- * It takes the row rather than an id so the replacement can decide from columns
- * it already has, and so the owner path can be exercised in tests by injecting a
- * different predicate into the handler factory.
+ * It still takes the row rather than an id, and the submit handler still takes it
+ * as an injectable predicate, so a spec can pin either route without seeding a claim.
  */
 export function isIntegrationClaimed(
-  _integration: Pick<IntegrationRow, 'id' | 'builtByVendorId'>,
+  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
 ): boolean {
-  return false;
+  return isClaimed(integration);
 }
 
 export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
@@ -73,7 +74,7 @@ export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
  * AECi-routed row it is informational (the admin screen shows who is on file).
  */
 export function routeContest(
-  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId'>,
+  integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
   field: IntegrationContestField,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
 ): { routedTo: ContestRoute; ownerVendorId: string | null } {
@@ -324,11 +325,43 @@ export function contestValueLabel(
  * {@link isContestRaceError} recognises the resulting error; nothing else in a
  * contest batch calls `json()`, so the match is unambiguous.
  */
-export function contestStillOpenSentinel(db: Db, contestId: string) {
+export function contestStillOpenSentinel(db: Db, _contestId: string) {
+  // FROM a one-row constant, NOT from the contest's own row (AECI-1005 review). If
+  // the row is gone (its integration was deleted and the FK cascaded), a
+  // `FROM integration_field_challenges WHERE id = ?` returns zero rows, the CASE is
+  // never evaluated, and the batch sails on writing audit rows about a contest that
+  // no longer exists. A constant row always evaluates the guard exactly once.
   return db
     .select({ guard: sql`CASE WHEN changes() = 0 THEN json('contest-not-open') END` })
-    .from(integrationFieldChallenges)
-    .where(eq(integrationFieldChallenges.id, contestId));
+    .from(ONE_ROW);
+}
+
+/**
+ * A batch statement that ABORTS an admin accept when the integration's ownership
+ * state moved after the handler read it (AECI-1005). What an AECi accept writes
+ * depends on that state (`claimed_at` decides whether the value is applied here,
+ * `built_by_vendor_id` whether an owner accept is a reassignment), so a claim or an
+ * owner change landing between the read and the batch must not be decided on stale
+ * facts. Same `json()` abort as {@link contestStillOpenSentinel}; the handler tells
+ * the two apart by re-reading the contest, which is still `open` only in this case.
+ */
+export function contestIntegrationStateSentinel(
+  db: Db,
+  integrationId: string,
+  expected: { claimed: boolean; ownerVendorId: string | null },
+) {
+  // Raises when the row is GONE as well as when it moved (AECI-1005 review): a
+  // promote cross-table move deletes an unclaimed row, and a guard that reads
+  // `FROM integrations WHERE id = ?` would return zero rows and pass silently.
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId})
+        OR EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId}
+          AND (("claimed_at" IS NOT NULL) <> ${expected.claimed ? 1 : 0}
+            OR ifnull("built_by_vendor_id", '') <> ${expected.ownerVendorId ?? ''}))
+        THEN json('contest-integration-changed') END`,
+    })
+    .from(ONE_ROW);
 }
 
 /** True for the error {@link contestStillOpenSentinel} raises, in D1 or SQLite. */

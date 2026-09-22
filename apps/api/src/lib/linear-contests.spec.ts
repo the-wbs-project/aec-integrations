@@ -17,6 +17,7 @@ vi.mock('../posthog', () => ({
 import { eq } from 'drizzle-orm';
 
 import {
+  auditLog,
   integrationFieldChallenges,
   integrations,
   products,
@@ -148,6 +149,31 @@ describe('createLinearIssueForContest', () => {
     );
   });
 
+  it('titles an owner written here "Record integration owner" (AECI-1005)', () => {
+    expect(buildContestTitle({ ...INPUT, field: 'owner', appliedMode: 'owner-recorded' })).toBe(
+      'REVIEW - Record integration owner: Revit for MicroStation',
+    );
+    // A value applied on a claimed row keeps the contest title.
+    expect(buildContestTitle({ ...INPUT, appliedMode: 'applied-here' })).toBe(
+      'REVIEW - Apply contested field: docs_url on Revit for MicroStation',
+    );
+  });
+
+  it('tells the review lane when AECi already applied the value (AECI-1005)', async () => {
+    const fetchImpl = fetchWith(issueOk);
+    await createLinearIssueForContest(
+      ctx(),
+      memoryStore().store,
+      { ...INPUT, appliedMode: 'applied-here' },
+      fetchImpl,
+    );
+    const body = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: { description: string } };
+    };
+    expect(body.variables.input.description).toContain('AECi already applied it');
+    expect(body.variables.input.description).not.toContain('AECi wrote nothing to the catalog');
+  });
+
   it('is a metric-silent no-op without LINEAR_API_KEY', async () => {
     const fetchImpl = fetchWith(issueOk);
     const outcome = await createLinearIssueForContest(
@@ -246,6 +272,23 @@ describe('runContestIssueReconciliation', () => {
   const NOW = new Date('2026-09-18T12:00:00.000Z');
   const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString();
 
+  it('re-files with the applied mode the decision recorded (AECI-1005)', async () => {
+    await seedAccepted({ decidedAt: minutesAgo(30) });
+    await t.db.insert(auditLog).values({
+      id: uuid(70),
+      actorType: 'system',
+      action: 'integration.contest.accepted',
+      entityType: 'integration_field_challenge',
+      entityId: CONTEST,
+      metadata: { appliedMode: 'applied-here' },
+    });
+    const createIssue = vi
+      .fn()
+      .mockResolvedValue({ status: 'created', issueId: 'i', issueUrl: 'u' });
+    await runContestIssueReconciliation(ctx(), t.db, { createIssue, now: NOW });
+    expect(createIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'applied-here' });
+  });
+
   it('retries an accepted AECi contest with no issue once it is past the threshold', async () => {
     await seedAccepted({ decidedAt: minutesAgo(30) });
     const createIssue = vi
@@ -283,12 +326,26 @@ describe('runContestIssueReconciliation', () => {
     await seedAccepted({ decidedAt: minutesAgo(30) });
     await t.db
       .update(integrationFieldChallenges)
-      .set({ routedTo: 'owner' })
+      .set({ routedTo: 'owner', ownerVendorId: uuid(1) })
       .where(eq(integrationFieldChallenges.id, CONTEST));
     const createIssue = vi.fn();
     expect(
       (await runContestIssueReconciliation(ctx(), t.db, { createIssue, now: NOW })).stuck,
     ).toBe(0);
+  });
+
+  it('retries a STRANDED owner-routed contest, which AECi decided (AECI-1005)', async () => {
+    await seedAccepted({ decidedAt: minutesAgo(30) });
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ routedTo: 'owner', ownerVendorId: null })
+      .where(eq(integrationFieldChallenges.id, CONTEST));
+    const createIssue = vi
+      .fn()
+      .mockResolvedValue({ status: 'created', issueId: 'i', issueUrl: 'u' });
+    expect(
+      (await runContestIssueReconciliation(ctx(), t.db, { createIssue, now: NOW })).stuck,
+    ).toBe(1);
   });
 
   it('counts a still-failing retry', async () => {

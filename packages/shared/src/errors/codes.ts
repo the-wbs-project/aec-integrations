@@ -24,6 +24,18 @@ export const ApiErrorCode = {
   CONTEST_ROUTED_TO_OWNER: 'CONTEST_ROUTED_TO_OWNER',
   CONTEST_NO_CHANGE: 'CONTEST_NO_CHANGE',
   CONTEST_INVALID_VALUE: 'CONTEST_INVALID_VALUE',
+  // AECI-1005: the integration was claimed, or its owner changed, while an admin
+  // decided a contest on it. The whole decision batch rolled back.
+  CONTEST_INTEGRATION_CHANGED: 'CONTEST_INTEGRATION_CHANGED',
+  // AECI-1005 integration ownership claims (`API_CONTRACTS.md` §4).
+  INTEGRATION_NOT_OWNER: 'INTEGRATION_NOT_OWNER',
+  INTEGRATION_OWNER_UNKNOWN: 'INTEGRATION_OWNER_UNKNOWN',
+  INTEGRATION_ALREADY_CLAIMED: 'INTEGRATION_ALREADY_CLAIMED',
+  // AECI-1005 Q1 ruling (2026-09-22): decision 9 blocks the claim too in v1.
+  INTEGRATION_CONNECTOR_POWERED: 'INTEGRATION_CONNECTOR_POWERED',
+  // AECI-1005: a promote planned against an unclaimed integration that was claimed
+  // before its batch committed. The batch rolls back; re-push and the fence skips it.
+  INTEGRATION_CLAIMED_DURING_PROMOTE: 'INTEGRATION_CLAIMED_DURING_PROMOTE',
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',

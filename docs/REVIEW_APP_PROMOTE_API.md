@@ -1008,6 +1008,8 @@ The `result` object in full:
 }
 ```
 
+- An integration is **absent** from `integrations[]` when it was skipped, which
+  includes an integration its owner has **claimed** (§4b, `kind: "integration"`).
 - `product` is `null` when you didn't send one (a vendor-only / integration-only
   push) **or when the product was blocked** because a claimed vendor owns it
   (§4a); otherwise it carries the product's `id`, `slug`, and `operation`. Tell
@@ -1115,8 +1117,10 @@ The taxonomy facets on a blocked product are not resolved at all, so
   it with AECi if a claimed vendor's product needs a curation change.
 - The integration cascade covers **the product in this payload**. An integration
   whose *far* endpoint happens to be a claimed vendor's product still writes,
-  because integrations are AECi-curated and are not vendor-editable — no
-  vendor-owned content is at stake there.
+  because owning a *product* does not make a vendor the owner of every
+  integration touching it. Integration ownership is decided per row, by the
+  integration's own claim, and that fence is §4b below (ADR 0035). Until the
+  integration's owner claims it, AECi's seed keeps being curated through promote.
 
 A vendor is **claimed** only while it has at least one **active** portal seat. If
 AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
@@ -1135,6 +1139,64 @@ rather than freezing the record.
   be in the directory — promote it, then re-push the edge. Optional and always
   emitted as `[]` when clean; a job whose result was stored by a pre-AECI-730 build
   omits the key entirely, so tolerate its absence.
+
+---
+
+## 4b. Claimed integrations are not writable from the review app (AECI-1005)
+
+Integrations are vendor-owned, and AECi seeds them (ADR 0035). The owner of an
+integration is the vendor in its `builtByVendor` (AECI-1003's definition: the
+vendor the customer pays for it or gets it from). When that vendor **claims** the
+integration in the AECi portal, AECi stamps `claimed_at` on the row. From then
+on **promote writes nothing to that integration**, whichever product the payload
+is about:
+
+| What your push asked for | What happens |
+|---|---|
+| Any content field (`name`, `description`, `listingUrl`, `mechanismKind`, …) | Not written. |
+| `builtByVendor` | Not written. A claimed row's owner changes only through AECi's admin path. |
+| A different `sourceProduct` / `targetProduct` (an endpoint re-point) | Not written, and no endpoint-move record is made. |
+| A `poweredByProduct` change that would move the row between `integrations` and `connector_evidenced_pairs` (§3.4a) | Not performed. That move deletes the source row, and the delete would cascade away the vendor's claims, attestations and contests. |
+| `claims[]`, including AECi-seeded claims and the `aeci` attestation slot | Not written. An empty `claims[]` does not retire AECi's prior claims either. |
+| `lastReviewedAt` | Not written. There is no separate `review-signal` entry for it; the integration entry below covers it. |
+
+The edge is reported once in `skipped[]`:
+
+```json
+{ "ref": "i1", "kind": "integration", "reason": "integration is claimed by its owner; promote writes nothing to a vendor-owned integration" }
+```
+
+The reason string is a constant; match on it or on `kind` plus your `ref`. The
+integration is **absent** from `integrations[]` in the response, so no id comes
+back for it. You already hold its id, and it does not change.
+
+This is **not an error**. The response is `200`, and re-pushing will not help. A
+wrong value on a claimed integration is the owner's to fix in its portal, or the
+other endpoint vendor's to contest. An AECi admin can decide an `owner` contest.
+
+**When AECi changes a claimed row itself, you get a `REVIEW - ` issue, not a promote.**
+An admin accept of a contest on a claimed integration writes the value on AECi's side,
+because a re-promote would be fenced. It files `REVIEW - Apply contested field: …`
+worded "AECi already applied it", or `REVIEW - Record integration owner: …` when it
+wrote the owner (an owner-unknown claim approved, or a claimed row reassigned).
+Record the value in the review app so it stays in step; do not expect a promote to
+carry it, and do not re-promote to "apply" it. A reassignment away from the claiming
+vendor clears `claimed_at`, so promote writes that row again from then on.
+
+**One race is an error, deliberately.** If the owner claims the integration while
+your promote is running, after AECi planned the write and before it committed,
+the whole promote rolls back and the job ends `errored` with
+`INTEGRATION_CLAIMED_DURING_PROMOTE` (409). Nothing was written, including the
+job's ledger row, so re-push the bundle under a new job id. The re-push fences
+the claimed edge and commits everything else. This is expected to be rare.
+
+**Promote never writes three columns at all:** `claimed_at`, `origin` and
+`retired_at`. A row promote creates is `origin = 'aeci'` and unclaimed. Promote
+never un-retires a row.
+
+The fence reads `claimed_at` only, never `maintained_by`. A row can be
+vendor-maintained because an endpoint vendor attested to it, and promote still
+writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
 ---
 
@@ -1574,6 +1636,7 @@ Synchronous rejections use the standard AECi envelope:
 | `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Retry with a **new `jobId`**; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
+| `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is
@@ -1965,6 +2028,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, **always**, even on a `poweredByProduct` edge, which AECi re-anchors itself (§3.4a), `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
+- [ ] Handle `skipped[]` `kind: "integration"` with the claimed-integration reason (§4b): the integration's **owner has claimed it**, so it is vendor-owned and nothing about it is writable from here, including its claims. Show the curator that, and don't retry. An `errored` job with `INTEGRATION_CLAIMED_DURING_PROMOTE` is the one case to re-push, with a new `jobId`.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.
