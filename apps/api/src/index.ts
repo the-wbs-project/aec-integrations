@@ -127,6 +127,10 @@ import {
 } from './routes/vendor-contests';
 import { createClaimIntegrationHandler } from './routes/vendor-integration-claims';
 import {
+  createRestoreIntegrationHandler,
+  createRetireIntegrationHandler,
+} from './routes/vendor-integration-retire';
+import {
   createAdminContestsListHandler,
   createModerateContestHandler,
 } from './routes/admin-contests';
@@ -941,6 +945,22 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createClaimIntegrationHandler(),
+);
+// AECI-1010: the owner retires and restores its CLAIMED integration. Same gates as the
+// claim above: a seat is the whole gate, `requireVendor()` → `rateLimit('write')` →
+// ownership, connector-powered and state inside the handler. Retire hides the row from
+// every count, id set and public read (`lib/live-integration.ts`); nothing is deleted.
+authVendor.post(
+  '/api/vendor/integrations/:id/retire',
+  requireVendor(),
+  rateLimit('write'),
+  createRetireIntegrationHandler(),
+);
+authVendor.post(
+  '/api/vendor/integrations/:id/restore',
+  requireVendor(),
+  rateLimit('write'),
+  createRestoreIntegrationHandler(),
 );
 //
 // Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on
