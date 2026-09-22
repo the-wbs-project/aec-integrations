@@ -62,6 +62,7 @@ const INTEGRATION = {
   owner: { id: uuid(40), name: 'Bentley' },
   claimed_at: null,
   retired_at: null,
+  retired_by: null,
   contestable_fields: {
     ...EMPTY_CONTESTABLE_FIELDS,
     name: 'Revit ↔ MicroStation',
@@ -141,10 +142,12 @@ describe('VendorIntegrationSchema', () => {
   });
 
   it('defaults claimed_at and retired_at to null for a pre-AECI-1010 API (deploy skew)', () => {
-    const { claimed_at: _c, retired_at: _r, ...older } = INTEGRATION;
+    const { claimed_at: _c, retired_at: _r, retired_by: _b, ...older } = INTEGRATION;
     const parsed = VendorIntegrationSchema.parse(older);
     expect(parsed.claimed_at).toBeNull();
     expect(parsed.retired_at).toBeNull();
+    // AECI-1046: absent on a pre-1046 API, too.
+    expect(parsed.retired_by).toBeNull();
   });
 
   it('carries both slots when the caller owns both endpoints', () => {
