@@ -113,6 +113,13 @@ the AECi team with no project, through `createLinearIssueForContest` in `apps/ap
 It follows this table rather than the "Vendor Requests" project the request pipeline uses, because
 the work it asks for is a change in the review app.
 
+**Since AECI-1005 there is a second contest title.** An AECi accept that writes the owner
+on AECi's side (an owner-unknown claim approved, or a claimed row reassigned) files
+`REVIEW - Record integration owner: <integration>` instead, on the same team, with no
+project. An accept on a claimed row that applied a content value keeps the `Apply
+contested field` title and says in its body that AECi already applied it. Both follow the
+AECI-1025 playbook.
+
 This was AECI-601's open question 4 — *should review-app issues live on the AECi team at all?* —
 and the answer is yes. One team, prefixed titles. Twenty-plus issues already follow it.
 

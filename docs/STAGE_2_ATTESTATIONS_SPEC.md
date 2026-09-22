@@ -2349,7 +2349,11 @@ transfer in one statement, and marks `metadata.maintenanceTransfer: true` only w
 the row changes hands, like the other five. It went live with AECI-1005, which made an
 integration claimable, because only a claimed integration routes a contest to an
 owner. An **AECi** accept of a contest (`PATCH /api/admin/contests/:id`) is not on this
-list: it is an AECi write, not a vendor-authorized one.
+list: it is an AECi write, not a vendor-authorized one. Since AECI-1005 it does write the
+catalog on a claimed row, and it transfers nothing for a content value. The one AECi write
+that DOES transfer maintenance is the owner approval (an `owner` contest accepted for the
+submitting vendor), because it is the claim itself made by an admin act: it writes the
+same `claimColumns` the owner's own claim does (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6).
 
 The seventh is the owner's claim itself (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, ADR 0035).
 It is the act that makes a row vendor-owned, so it is the clearest case of "who is on

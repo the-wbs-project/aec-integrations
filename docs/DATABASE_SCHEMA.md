@@ -447,8 +447,8 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.
 > - **Nothing un-claims a row.** There is no path back to AECi today.
-> - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune and
->   the retraction consumer never treat a vendor-held row as an orphan
+> - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune, the
+>   retraction consumer and `ops:retract-product` never treat a vendor-held row as an orphan
 >   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).
 >
 > The three columns were added by `0044` as `ADD COLUMN`s so that `integrations` was **not**

@@ -1174,6 +1174,15 @@ This is **not an error**. The response is `200`, and re-pushing will not help. A
 wrong value on a claimed integration is the owner's to fix in its portal, or the
 other endpoint vendor's to contest. An AECi admin can decide an `owner` contest.
 
+**When AECi changes a claimed row itself, you get a `REVIEW - ` issue, not a promote.**
+An admin accept of a contest on a claimed integration writes the value on AECi's side,
+because a re-promote would be fenced. It files `REVIEW - Apply contested field: …`
+worded "AECi already applied it", or `REVIEW - Record integration owner: …` when it
+wrote the owner (an owner-unknown claim approved, or a claimed row reassigned).
+Record the value in the review app so it stays in step; do not expect a promote to
+carry it, and do not re-promote to "apply" it. A reassignment away from the claiming
+vendor clears `claimed_at`, so promote writes that row again from then on.
+
 **One race is an error, deliberately.** If the owner claims the integration while
 your promote is running, after AECi planned the write and before it committed,
 the whole promote rolls back and the job ends `errored` with

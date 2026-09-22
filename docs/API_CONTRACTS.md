@@ -251,11 +251,13 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
-| `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi |
+| `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
+| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed or its owner changed after the handler read it. The whole batch rolled back; reload and decide again (AECI-1005) |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
+| `INTEGRATION_CONNECTOR_POWERED` | 403 | `POST /api/vendor/integrations/:id/claim` by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`). Decision 9 keeps the claim off those rows in v1; AECI-1040 opens it |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
@@ -2856,13 +2858,24 @@ Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue
 
 #### `PATCH /api/admin/contests/:id` (AECI-1008)
 
-Accept or decline an **AECi-routed** contest. Body: `DecideContestSchema` (`{ decision: 'accept' | 'decline', note? }`). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
+Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `DecideContestSchema` (`{ decision: 'accept' | 'decline', note? }`). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
 
-**An accept writes no catalog data.** It records the decision and, after commit, files a `REVIEW - Apply contested field: <field> on <integration>` Linear issue in `ctx.waitUntil` (`createLinearIssueForContest`; AECi team, no project; playbook AECI-1025). The catalog changes when the review app applies the value and re-promotes. The §6.7 sweep retries the issue if the first attempt fails. A decline files nothing.
+**What an accept writes depends on the integration (AECI-1005, ADR 0035).** Every accept files a Linear issue after commit in `ctx.waitUntil` (`createLinearIssueForContest`; AECi team, no project; playbook AECI-1025), and the §6.7 sweep retries it. A decline files nothing and writes nothing. On an **unclaimed** row the accept writes no catalog data: the review app applies the value and re-promotes. A **claimed** row is not written by promote, so there the accept writes it:
 
-One batch: the guarded contest UPDATE (`WHERE status = 'open'`), its `audit_log` row (`integration.contest.accepted | declined`, `actor_type: 'admin'`), the workflow transition and instance close, and a `notification.sent` row that tells the submitting vendor. This is the eighth named write exception in `ADMIN_PANEL_SPEC.md`: a **decision** write, not a catalog write. Emits `aeci.contest.moderation.action`.
+| Contest | Integration | Writes here | Issue title |
+|---|---|---|---|
+| content field | unclaimed | nothing | `REVIEW - Apply contested field: <field> on <integration>` |
+| content field | claimed | the column + `integration.updated`, purge | the same title, body "AECi already applied it" |
+| `owner`, proposed = submitter | not connector-powered | `built_by_vendor_id`, `claimed_at`, maintenance transfer + `integration.claimed` + claim notification, purge | `REVIEW - Record integration owner: <integration>` |
+| `owner`, proposed = submitter | connector-powered | nothing (decision 9, v1) | `Apply contested field` |
+| `owner`, proposed = other / neither | claimed | `built_by_vendor_id` = proposed, `claimed_at = NULL` + `integration.updated`, purge | `Record integration owner` |
+| `owner`, proposed = other / neither | unclaimed | nothing | `Apply contested field` |
 
-Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `400 VALIDATION_FAILED` for a bad body.
+The third row is the **owner-unknown claim** of AECI-1003 decision 11: an endpoint vendor contests the `owner` field of a row with no owner and proposes itself. The decision audit row carries `metadata.appliedMode` (`upstream-only | applied-here | owner-recorded`) and, for a stranded row, `stranded: true`.
+
+One batch: the guarded contest UPDATE (`WHERE status = 'open'`), the contest sentinel, an integration-state sentinel (claim state and owner as read), any catalog write above with its audit rows, the contest's `audit_log` row (`integration.contest.accepted | declined`, `actor_type: 'admin'`), the workflow transition and instance close, and a `notification.sent` row that tells the submitting vendor. This is the eighth named write exception in `ADMIN_PANEL_SPEC.md`: a **decision** write, which writes catalog data only on the claimed-row and owner-approval paths. Emits `aeci.contest.moderation.action`.
+
+Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `400 VALIDATION_FAILED` for a bad body.
 
 #### `GET /api/admin/reindex` (AECI-946)
 
@@ -5630,7 +5643,7 @@ export const ClaimIntegrationResponseSchema = z.object({
 });
 ```
 
-**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`. A connector-powered row may be claimed (decision 9's one exception); the audit row carries `metadata.connectorPowered: true`.
+**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row gets `403 INTEGRATION_CONNECTOR_POWERED` (decision 9 covers the claim in v1, ruled 2026-09-22; AECI-1040 opens it). An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
 
 **One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it, an `integration.claimed` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers `409`. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl.
 
