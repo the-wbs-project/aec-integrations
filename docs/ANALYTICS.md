@@ -253,7 +253,10 @@ retrofitted (§3.10).
   reaches a PostHog UI insight through its "Filter out internal and test users"
   toggle. It reaches a committed SQL insight only through a `{filters}` placeholder
   plus `filters.filterTestAccounts: true`, and `observability/posthog/apply.sh`
-  refuses either half without the other.
+  refuses either half without the other. The flag excludes only what the
+  project's test-account filter defines. If that filter is empty on a project,
+  both tiles stay unfiltered there, and `apply.sh --verify` cannot see it,
+  because it checks the flag and not the project setting.
 
   | Filters internal users | Does not |
   |---|---|
