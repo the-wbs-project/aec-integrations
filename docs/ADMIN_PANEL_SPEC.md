@@ -629,11 +629,10 @@ The three sub-questions, settled for whoever builds `basis=delta`:
    card counts `integrations` plus `connector_evidenced_pairs`
    (`catalogTotals` in `apps/api/src/lib/admin-catalog.ts`), which is the AECI-721
    lockstep rule. A move changes the table and not the count, so a delta ignores
-   `movedFrom` rows. **Today `basis=net` gets this wrong.** `CATALOG_NET_SOURCE`
-   reads `integrations` alone, so the net column sums to 941 against a card
-   reading 992 (51 evidenced pairs). That is a live reconciliation defect, filed as
-   **AECI-1074** (Stage 2.5). It is separate from this decision and does not wait
-   for it.
+   `movedFrom` rows. **`basis=net` got this wrong until AECI-1074 fixed it.**
+   `CATALOG_NET_SOURCE` read `integrations` alone, so the net column summed to 941
+   against a card reading 992 (51 evidenced pairs). The series now reads both
+   tables, and the column matches the totals card. See (5).
 2. **`integration.deleted` with `metadata.table = 'connector_evidenced_pairs'`
    subtracts from the integrations series,** for the same reason: those rows are in
    the card. A tombstone with no `table` key (the 4 above) counts too, because the
