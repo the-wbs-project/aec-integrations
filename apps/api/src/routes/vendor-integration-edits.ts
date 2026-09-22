@@ -42,7 +42,7 @@
  * for, the owner accepts or declines it in Messages as usual. See §4.5.6.
  *
  * After commit: a by-id Algolia sync of the integration record, behind promote's
- * `dispatchHook` watchdog, the same `syncOwnerWriteSearch` tail retire
+ * `dispatchHook` watchdog, the same `syncOwnerWriteSearch` tail retire and create
  * use. That is how a changed mechanism, direction or description reaches search
  * without waiting for the nightly `updated_at` watermark sweep. Only the
  * integration record is synced, because an edit changes no count on either product

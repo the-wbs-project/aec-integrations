@@ -210,6 +210,14 @@ function reviewSignalRefused(
  * `maintained_by` flips to `'vendor'` when either endpoint vendor merely attests,
  * which is the {@link fencedLastReviewedAt} fence's business and not ownership.
  *
+ * **Since AECI-1011 it also keys on `origin = 'vendor'`.** A vendor-created row is
+ * born claimed, but an AECi `owner` contest accept reassigns the owner and CLEARS
+ * `claimed_at` (§11b.6), and a `claimed_at`-only fence would then hand a row no
+ * curator ever wrote to promote. A vendor-created row is never promote's to write,
+ * whoever owns it. The predicate is `vendorHeldIntegrationWhere`'s, in JS
+ * (`lib/integration-twins.ts`), and so is the commit-time sentinel's. The 1005
+ * function is widened here rather than on the 1005 branch (ADR 0035).
+ *
  * This is the plan-time half. It is decided from {@link locateEdge}'s read, so it
  * covers every row claimed before the promote started. The commit-time half is
  * `promoteClaimFenceSentinel` (`lib/integration-claims.ts`): one guard statement per
@@ -217,7 +225,10 @@ function reviewSignalRefused(
  * after this read. Only the `integrations` arm can be claimed.
  */
 function claimFenceRefuses(located: LocatedEdge | null): boolean {
-  return located?.table === 'integrations' && located.row.claimedAt !== null;
+  return (
+    located?.table === 'integrations' &&
+    (located.row.claimedAt !== null || located.row.origin === 'vendor')
+  );
 }
 
 /**
@@ -620,6 +631,11 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   poweredByProductId: string | null;
   /** The AECI-1005 ownership fence's input — see {@link claimFenceRefuses}. */
   claimedAt: string | null;
+  /** AECI-1011: `'vendor'` fences the row too — see {@link claimFenceRefuses}. */
+  origin: string;
+  /** AECI-1011: the stored owner and kind, for the re-point twin guard. */
+  builtByVendorId: string | null;
+  mechanismKind: string | null;
 };
 
 type LocatedEvidencedRow = LocatedMaintenance & {
@@ -644,6 +660,9 @@ async function locateEdge(
       maintainedBy: true,
       lastReviewedAt: true,
       claimedAt: true,
+      origin: true,
+      builtByVendorId: true,
+      mechanismKind: true,
     },
     where: eq(integrations.id, supabaseId),
   });
@@ -761,6 +780,13 @@ function planIntegrationWrite(args: {
     operation: 'created',
     statements: [db.insert(integrations).values({ id, ...editable, ...linkData })],
   };
+}
+
+/** The same two products, in either order. The twin guard's re-point test: a
+ *  direction swap (AECI-920) is not a re-point, and strong matching is
+ *  orientation-blind anyway. */
+function samePair(a: readonly [string, string], b: readonly [string, string]): boolean {
+  return (a[0] === b[0] && a[1] === b[1]) || (a[0] === b[1] && a[1] === b[0]);
 }
 
 /**
@@ -2965,25 +2991,68 @@ export async function runPromoteIngest(
       continue;
     }
     // ── AECI-1011 / AECI-1012: the VENDOR_OWNED_TWIN guard. ──────────────────
-    // This edge is about to be INSERTED (brand new, or the AECI-568 fallback for a
-    // dead id). If a vendor already holds a strong match for it (the same two
-    // products in either order, no connector, an owner that agrees or is unknown),
-    // the insert would put a second row beside the vendor's. The review app cannot
-    // see vendor-created rows, and a curator re-adding the pair under a new upstream
-    // id is exactly this case. So skip it, name the vendor's row, and write nothing
-    // else about this edge: no row, no claims. Live OR retired: a retired row is the
-    // owner's withdrawal, and a live twin would undo it in public (the AECI-1010
+    // This edge is about to land in `integrations` as an unclaimed, AECi-curated row.
+    // If a vendor already holds a strong match for what the row will BE after this
+    // write (the same two products in either order, the same connector, the same
+    // `mechanism_kind`, an owner that agrees or is unknown), the write would put a
+    // second row beside the vendor's. The review app cannot see vendor-created rows,
+    // and a curator re-adding the pair under a new upstream id is exactly this case.
+    // So skip it, name the vendor's row, and write nothing else about this edge: no
+    // row, no claims, no move, no partial update. Live OR retired: a retired row is
+    // the owner's withdrawal, and a live twin would undo it in public (the AECI-1010
     // gap, ADR 0035). It never deletes anything, and an edge whose only match is
-    // AECi-curated is inserted as before. Only this arm can be vendor-held, so the
-    // evidenced branch above needs no guard (`lib/integration-twins.ts`).
-    if (!located) {
+    // AECi-curated is written as before.
+    //
+    // Three writes here can create a new match, and all three are guarded:
+    //   1. an INSERT (brand new, or the AECI-568 fallback for a dead id);
+    //   2. a DE-ROUTE, the move INSERT out of `connector_evidenced_pairs`
+    //      (`planIntegrationWrite`'s `evidenced` branch). On a match the evidenced
+    //      row is left exactly as it is: never deleted, never updated;
+    //   3. an UPDATE of an unclaimed row whose endpoints (as a pair) or connector
+    //      change. An UPDATE that re-points nothing cannot create a match that did not
+    //      already exist, so it is not asked, and a direction swap is not a re-point.
+    // The evidenced branch above needs no guard: every row it writes carries a
+    // third-party connector, and no vendor-held row has one (a vendor create cannot
+    // set `powered_by`, and a claim is refused on a connector-powered row).
+    const storedIntegration = located?.table === 'integrations' ? located.row : null;
+    const finalConnectorId =
+      poweredBy.value === undefined
+        ? located?.table === 'evidenced'
+          ? // A de-route with an unstated key carries the inherited connector below.
+            located.row.connectorProductId
+          : (storedIntegration?.poweredByProductId ?? null)
+        : poweredBy.value;
+    const repointed =
+      storedIntegration !== null &&
+      (!samePair(
+        [storedIntegration.sourceProductId, storedIntegration.targetProductId],
+        [sourceId, targetId],
+      ) ||
+        finalConnectorId !== storedIntegration.poweredByProductId);
+    if (!located || located.table === 'evidenced' || repointed) {
       const twinCandidate: TwinCandidate = {
         productIds: [sourceId, targetId],
-        poweredByProductId: typeof poweredBy.value === 'string' ? poweredBy.value : null,
-        ownerVendorId: typeof builtBy.value === 'string' ? builtBy.value : null,
+        poweredByProductId: finalConnectorId,
+        ownerVendorId:
+          builtBy.value === undefined
+            ? (storedIntegration?.builtByVendorId ?? null)
+            : builtBy.value,
+        mechanismKind:
+          intg.mechanismKind === undefined
+            ? (storedIntegration?.mechanismKind ?? null)
+            : intg.mechanismKind,
       };
       const [twin] = await findStrongMatches(db, twinCandidate, { vendorHeldOnly: true });
       if (twin) {
+        // A dead pointer is still a dead pointer when its insert is skipped: report
+        // it, or the strand audit never learns the upstream id is stale (AECI-568).
+        if (intg.supabaseId && !located) {
+          staleSupabaseIds.push({
+            kind: 'integration',
+            ref: intg.ref,
+            supabaseId: intg.supabaseId,
+          });
+        }
         skipped.push({
           ref: intg.ref,
           kind: 'integration',
@@ -2999,6 +3068,7 @@ export async function runPromoteIngest(
             reason: VENDOR_OWNED_TWIN,
             ref: intg.ref,
             ...(intg.supabaseId ? { supabaseId: intg.supabaseId } : {}),
+            ...(located ? { write: located.table === 'evidenced' ? 'de-route' : 're-point' } : {}),
           },
         });
         continue;

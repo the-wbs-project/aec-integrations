@@ -115,7 +115,10 @@ export function claimRaceSentinel(db: Db, _integrationId: string) {
 export function promoteClaimFenceSentinel(db: Db, integrationId: string) {
   return db
     .select({
-      guard: sql`CASE WHEN ${integrations.claimedAt} IS NOT NULL THEN json('integration-claimed-during-promote') END`,
+      // AECI-1011: `origin = 'vendor'` too, the same predicate as the plan-time
+      // `claimFenceRefuses`. `origin` never changes after insert, so this half only
+      // ever fires on the claim; it is here so the two halves read identically.
+      guard: sql`CASE WHEN ${integrations.claimedAt} IS NOT NULL OR ${integrations.origin} = 'vendor' THEN json('integration-claimed-during-promote') END`,
     })
     .from(integrations)
     .where(eq(integrations.id, integrationId));

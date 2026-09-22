@@ -1181,7 +1181,9 @@ worded "AECi already applied it", or `REVIEW - Record integration owner: …` wh
 wrote the owner (an owner-unknown claim approved, or a claimed row reassigned).
 Record the value in the review app so it stays in step; do not expect a promote to
 carry it, and do not re-promote to "apply" it. A reassignment away from the claiming
-vendor clears `claimed_at`, so promote writes that row again from then on.
+vendor clears `claimed_at`, so promote writes that row again from then on, **unless the
+row is vendor-created** (`origin = 'vendor'`, §4c). A vendor-created row stays fenced
+with or without a claim.
 
 **One race is an error, deliberately.** If the owner claims the integration while
 your promote is running, after AECi planned the write and before it committed,
@@ -1194,7 +1196,9 @@ the claimed edge and commits everything else. This is expected to be rare.
 `retired_at`. A row promote creates is `origin = 'aeci'` and unclaimed. Promote
 never un-retires a row.
 
-The fence reads `claimed_at` only, never `maintained_by`. A row can be
+The fence reads `claimed_at IS NOT NULL OR origin = 'vendor'`, never `maintained_by`.
+The `origin` half was added by AECI-1011: an AECi `owner` accept clears `claimed_at`, and
+a vendor-created row has no upstream record for promote to write from. A row can be
 vendor-maintained because an endpoint vendor attested to it, and promote still
 writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
@@ -1208,16 +1212,22 @@ upstream record holds its id. AECI-1047 is the review-side follow-up.
 
 The risk that creates is a duplicate from your side. A curator who adds the same pair
 upstream pushes it with no `supabaseId`, and promote would insert a second row beside
-the vendor's. So **promote refuses to insert a strong-match twin of a vendor-held row**
-(ruled on AECI-1012, 2026-09-22):
+the vendor's. So **promote refuses any write that would leave a curated row a
+strong-match twin of a vendor-held row** (ruled on AECI-1012, 2026-09-22, and narrowed
+the same day to include `mechanismKind`):
 
 | Term | Meaning |
 |---|---|
 | Vendor-held | Claimed (`claimed_at` set), or vendor-created (`origin = 'vendor'`). Live **or retired**: a retired row is the owner's withdrawal, and a live twin would undo it in public. |
-| Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), and an owner that is the same **or unknown on either side**. `mechanismKind` and `name` are not compared. |
-| Where it applies | Only where promote would INSERT into `integrations`: an edge with no `supabaseId`, and the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. An UPDATE of a row you already hold is unaffected, and so is every connector-delivered edge (§3.4a), whose table can never be vendor-held. |
+| Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), the same `mechanismKind` (none equal to none, and none does not match a stated kind), and an owner that is the same **or unknown on either side**. `name` is not compared. Every value is the one the row **would hold after the write**: an absent field keeps the stored value. |
+| Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that re-points** an unclaimed row: its two products change as a pair, or its connector changes. Every connector-delivered edge that stays connector-delivered is unaffected, because its table can never be vendor-held. |
+| Where it does not | An UPDATE of a row you already hold that re-points nothing. It cannot create a match that did not already exist, so it is written as before, including a direction swap of the same two products. A vendor-held row itself is §4b's, and never reaches this check. |
 
-The edge is written **not at all**: no row, no claims. It is reported once in `skipped[]`:
+The edge is written **not at all**: no row, no claims, no partial UPDATE of the row you
+addressed, and on a de-route the `connector_evidenced_pairs` row is left exactly as it was,
+never deleted. A skipped stale-id fallback still reports its dead `supabaseId` (§5),
+because the pointer is dead whether or not the insert ran. It is reported once in
+`skipped[]`:
 
 ```json
 { "ref": "i1", "kind": "integration", "reason": "VENDOR_OWNED_TWIN", "existingId": "<app-DB id of the vendor-held row>" }
@@ -1226,7 +1236,8 @@ The edge is written **not at all**: no row, no claims. It is reported once in `s
 `reason` is the constant `VENDOR_OWNED_TWIN`, not a sentence, so match on it.
 `existingId` is the AECi id of the matching vendor-held row; it is set on this skip and
 on no other. The integration is absent from `integrations[]` in the response. A
-`promote.blocked` audit row names the vendor's row. Promote never deletes anything
+`promote.blocked` audit row names the vendor's row, with `metadata.write` set to
+`de-route` or `re-point` when the skipped write was one of those. Promote never deletes anything
 for this, and an edge whose only twin is AECi-curated and unclaimed is inserted as
 before.
 
@@ -1241,9 +1252,13 @@ twin after AECi planned the insert and before it committed, the whole promote ro
 back and the job ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409).
 Nothing was written. Re-push under a new job id; the re-push reports the skip.
 
-**This closes the AECI-1010 promotion gate.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md`
-§4.6.2 held AECI-1010 (retire) back from production until this guard existed, because a
-promote carrying a new upstream id for a retired pair would have inserted a live twin.
+**The AECI-1010 promotion gate is closed by the 1011 twin guard, which covers the insert,
+de-route and re-point paths.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 hold
+AECI-1010 (retire) back from production until this guard exists there, because a promote
+carrying a new upstream id for a retired pair, moving an evidenced pair back, or
+re-pointing a curated row onto a retired pair would put a live twin beside it. Neither is
+merged yet, so **AECI-1010 and AECI-1011 must reach production in the same promote, or
+AECI-1011 first.**
 
 ---
 
@@ -1684,7 +1699,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
-| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest. |
+| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or re-point, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest. |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is

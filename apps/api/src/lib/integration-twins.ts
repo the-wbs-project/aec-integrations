@@ -15,17 +15,25 @@
  *      owner is part of the identity; an unknown owner matches anything, so the
  *      420-row owner backfill gap cannot hide a real duplicate.
  *
- * Mechanism kind and name are NOT in the key: an owner fixing a wrong kind on its
- * own row must not stop matching its curated twin.
+ * Mechanism name is never in the key. **Mechanism kind is in promote's key only**
+ * (ruled 2026-09-22 on AECI-1012): promote skips a twin only when it is also the
+ * same `mechanism_kind` (NULL equal to NULL), so a curated `marketplace-app` row
+ * beside a vendor's `native` row for the same pair is two integrations, not one. The
+ * vendor create's warning leaves the kind out ({@link TwinCandidate.mechanismKind}
+ * undefined), because a vendor fixing a wrong kind on its own row must still be
+ * told about its curated twin.
  *
  * Two callers, one rule, so they cannot drift:
  *
  *   - the vendor create (`routes/vendor-integration-create.ts`) WARNS with every
- *     strong match, curated or vendor-held, live or retired. It never refuses
- *     (AECI-1003 decision 10);
- *   - promote (`routes/promote.ts`) SKIPS an insert that strongly matches a
- *     **vendor-held** row, live or retired, and reports it as `VENDOR_OWNED_TWIN`.
- *     It never deletes anything, and curated-versus-curated behaviour is unchanged.
+ *     strong match, curated or vendor-held, live or retired, with no kind in the
+ *     key. It never refuses (AECI-1003 decision 10);
+ *   - promote (`routes/promote.ts`) SKIPS a write that would leave a curated row
+ *     strongly matching a **vendor-held** row, live or retired, with the kind in the
+ *     key, and reports it as `VENDOR_OWNED_TWIN`. Three writes can do that: an
+ *     insert, a de-route out of `connector_evidenced_pairs`, and an UPDATE that
+ *     re-points an unclaimed row's endpoints or connector. It never deletes
+ *     anything, and curated-versus-curated behaviour is unchanged.
  *
  * `connector_evidenced_pairs` is not searched. Every row there is connector-powered
  * by construction, so it can never be vendor-held and never shares "no connector"
@@ -49,6 +57,12 @@ export interface TwinCandidate {
   readonly poweredByProductId: string | null;
   /** The candidate's owner, or `null` when unknown (matches any owner). */
   readonly ownerVendorId: string | null;
+  /**
+   * The candidate's `mechanism_kind`, NULL equal to NULL. Promote sets it (ruled
+   * 2026-09-22). `undefined` leaves the kind out of the key, which is the vendor
+   * create's broader warning.
+   */
+  readonly mechanismKind?: string | null;
 }
 
 /** Vendor-held: claimed, or created by a vendor. `isVendorHeld` in SQL. */
@@ -69,6 +83,13 @@ export function strongMatchWhere(candidate: TwinCandidate): SQL {
       ? isNull(integrations.poweredByProductId)
       : eq(integrations.poweredByProductId, candidate.poweredByProductId),
   ];
+  if (candidate.mechanismKind !== undefined) {
+    clauses.push(
+      candidate.mechanismKind === null
+        ? isNull(integrations.mechanismKind)
+        : eq(integrations.mechanismKind, candidate.mechanismKind),
+    );
+  }
   if (candidate.ownerVendorId !== null) {
     clauses.push(
       or(
@@ -128,7 +149,8 @@ export async function findStrongMatches(
 
 /**
  * The commit-time half of promote's `VENDOR_OWNED_TWIN` guard. Pushed immediately
- * ahead of each `integrations` INSERT a promote plans; ABORTS the whole batch when a
+ * ahead of each `integrations` write the guard checked (an INSERT, a de-route move, or
+ * a re-pointing UPDATE); ABORTS the whole batch when a
  * vendor-held strong match exists by the time the batch runs, i.e. a vendor created
  * (or claimed) the twin after the plan read. Same shape as the AECI-1005
  * `promoteClaimFenceSentinel`: the job errors with

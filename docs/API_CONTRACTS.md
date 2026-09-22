@@ -266,7 +266,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
-| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, after the promote planned the insert and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }` (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
+| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or re-point, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }` (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -4705,18 +4705,21 @@ routine push would silently revert their work. Therefore:
   vendor-owned integration' }` plus a `promote.blocked` audit row, and omitted from
   `integrations[]`. An in-batch sentinel covers a claim that lands between plan and
   commit: the whole batch rolls back and the job errors with
-  `INTEGRATION_CLAIMED_DURING_PROMOTE`. The fence keys on `claimed_at`, never on
-  `maintained_by`. Promote never writes `claimed_at`, `origin` or `retired_at`.
+  `INTEGRATION_CLAIMED_DURING_PROMOTE`. The fence keys on `claimed_at IS NOT NULL OR
+  origin = 'vendor'` (the `origin` half since AECI-1011), never on `maintained_by`. Promote never writes `claimed_at`, `origin` or `retired_at`.
   Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4b.
 - **Creating a new vendor or product is never blocked** — nothing vendor-owned exists yet.
-- **An integration create is refused in exactly one case: a twin of a vendor-held
-  integration (AECI-1011).** Where promote would INSERT an `integrations` row (no `supabaseId`,
-  or the AECI-568 fallback) and a strong match is vendor-held (claimed, or
-  `origin = 'vendor'`, live or retired), the edge is written not at all and reported
-  as `skipped[] { kind: 'integration', reason: 'VENDOR_OWNED_TWIN', existingId }`
-  with a `promote.blocked` audit row. A strong match is the same two products in
-  either order, the same connector (none equal to none), and an owner that agrees or
-  is unknown (`lib/integration-twins.ts`). An in-batch sentinel covers a vendor
+- **An integration write is refused when it would twin a vendor-held integration
+  (AECI-1011).** Three writes are guarded: an INSERT of an `integrations` row (no
+  `supabaseId`, or the AECI-568 fallback), a de-route out of `connector_evidenced_pairs`,
+  and an UPDATE that re-points an unclaimed row's endpoints or connector. When the row
+  as it would be after the write has a vendor-held strong match (claimed, or
+  `origin = 'vendor'`, live or retired), the edge is written not at all (no partial
+  UPDATE, and a de-routed evidenced row is left untouched) and reported as
+  `skipped[] { kind: 'integration', reason: 'VENDOR_OWNED_TWIN', existingId }` with a
+  `promote.blocked` audit row. A strong match is the same two products in either order,
+  the same connector (none equal to none), the same `mechanism_kind` (ruled 2026-09-22,
+  promote only), and an owner that agrees or is unknown (`lib/integration-twins.ts`). An in-batch sentinel covers a vendor
   create that lands between plan and commit (`VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE`).
   Nothing is deleted. Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4c. Every
   other create is unaffected.
@@ -5770,7 +5773,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **Order: shape → endpoints → values.** A shape error, a missing required field, or equal ids is `400`. A `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`. A value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming it, including a connector-delivered kind (`iPaaS`, `integrator`): a vendor-created row is never connector-powered (decision 9).
 
-**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`.
+**Duplicates warn, never refuse** (decision 10, AECI-1012 ruling). One query finds every strong match: the same two products in either orientation, no connector, and an owner that is the caller or unknown. The kind is **not** in this key: promote's twin skip adds `mechanism_kind` (ruled 2026-09-22), and this warning keeps the broader match, so a vendor still hears about a curated row it would duplicate under a different kind. Curated or vendor-held, live or retired, they come back in `possible_duplicates` and their ids go into the audit row's `metadata.possibleDuplicateIds`.
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
@@ -5848,7 +5851,7 @@ export const UpdateVendorIntegrationResponseSchema = z.object({
 
 **One batch.** The guarded `UPDATE … SET <changed columns>, maintained_by = 'vendor', last_reviewed_at, updated_at WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT NULL AND retired_at IS NULL`, a race sentinel right after it, an `integration.updated` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-edit'`, `fields`, before and after of the changed fields plus the maintenance columns, `maintenanceTransfer: true` only on the hand-changing write), and one `notification.sent` row (`metadata.kind: 'integration_update'`) per vendor of either endpoint other than the owner. A lost race (an AECi `owner` accept reassigned the row, the claim was cleared, or the owner retired it) writes nothing and answers what the pre-check now would, or `409 INTEGRATION_CHANGED_WHILE_SAVING` when nothing explains it. A body whose every value equals the one on record answers `200` with `changed: []` and writes nothing, not even an audit row.
 
-**After commit** it runs a by-id Algolia sync of the integration record alone (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.edit_algolia_sync_failed`. That is the same tail retire uses, and it is why a changed mechanism, direction or description reaches search without waiting a night. Then it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl. The bumped `updated_at` still puts the row in the nightly watermark sweep as a backstop, and moves the `integrations` freshness cursor for both endpoint vendors. **Open contests are not touched**: see `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6.
+**After commit** it runs a by-id Algolia sync of the integration record alone (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.edit_algolia_sync_failed`. That is the same tail retire and create use, and it is why a changed mechanism, direction or description reaches search without waiting a night. Then it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl. The bumped `updated_at` still puts the row in the nightly watermark sweep as a backstop, and moves the `integrations` freshness cursor for both endpoint vendors. **Open contests are not touched**: see `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6.
 
 
 #### Per-side integration links — `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind`
