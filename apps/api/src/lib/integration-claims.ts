@@ -30,6 +30,14 @@ import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
+/**
+ * A one-row FROM source for the batch sentinels here and in
+ * `lib/integration-contests.ts`. A sentinel must evaluate its CASE exactly once
+ * whatever state the guarded row is in, including when that row is gone, which a
+ * `FROM <table> WHERE id = ?` source cannot promise (AECI-1005 review).
+ */
+export const ONE_ROW = sql`(SELECT 1)`;
+
 /** `audit_log.action` for a claim, and for the owner-unknown approval that has
  *  the same effect. */
 export const INTEGRATION_CLAIMED_ACTION = 'integration.claimed';
@@ -77,11 +85,14 @@ export function claimColumns(now: string): {
  * did not. `json('integration-already-claimed')` is malformed JSON, so it raises and
  * rolls the whole batch back. {@link isClaimRaceError} recognises it.
  */
-export function claimRaceSentinel(db: Db, integrationId: string) {
+export function claimRaceSentinel(db: Db, _integrationId: string) {
+  // FROM a one-row constant, not from the integration (AECI-1005 review): if the row
+  // was deleted between the read and the batch, `FROM integrations WHERE id = ?`
+  // returns nothing, the guard never runs, and the audit and notification rows
+  // commit for a claim that wrote nothing.
   return db
     .select({ guard: sql`CASE WHEN changes() = 0 THEN json('integration-already-claimed') END` })
-    .from(integrations)
-    .where(eq(integrations.id, integrationId));
+    .from(ONE_ROW);
 }
 
 /**

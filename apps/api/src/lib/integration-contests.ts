@@ -33,7 +33,7 @@ import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { integrationFieldChallenges, integrations, vendors } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
-import { isClaimed } from './integration-claims';
+import { isClaimed, ONE_ROW } from './integration-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -325,11 +325,15 @@ export function contestValueLabel(
  * {@link isContestRaceError} recognises the resulting error; nothing else in a
  * contest batch calls `json()`, so the match is unambiguous.
  */
-export function contestStillOpenSentinel(db: Db, contestId: string) {
+export function contestStillOpenSentinel(db: Db, _contestId: string) {
+  // FROM a one-row constant, NOT from the contest's own row (AECI-1005 review). If
+  // the row is gone (its integration was deleted and the FK cascaded), a
+  // `FROM integration_field_challenges WHERE id = ?` returns zero rows, the CASE is
+  // never evaluated, and the batch sails on writing audit rows about a contest that
+  // no longer exists. A constant row always evaluates the guard exactly once.
   return db
     .select({ guard: sql`CASE WHEN changes() = 0 THEN json('contest-not-open') END` })
-    .from(integrationFieldChallenges)
-    .where(eq(integrationFieldChallenges.id, contestId));
+    .from(ONE_ROW);
 }
 
 /**
@@ -346,14 +350,18 @@ export function contestIntegrationStateSentinel(
   integrationId: string,
   expected: { claimed: boolean; ownerVendorId: string | null },
 ) {
+  // Raises when the row is GONE as well as when it moved (AECI-1005 review): a
+  // promote cross-table move deletes an unclaimed row, and a guard that reads
+  // `FROM integrations WHERE id = ?` would return zero rows and pass silently.
   return db
     .select({
-      guard: sql`CASE WHEN (${integrations.claimedAt} IS NOT NULL) <> ${expected.claimed ? 1 : 0}
-        OR ifnull(${integrations.builtByVendorId}, '') <> ${expected.ownerVendorId ?? ''}
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId})
+        OR EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId}
+          AND (("claimed_at" IS NOT NULL) <> ${expected.claimed ? 1 : 0}
+            OR ifnull("built_by_vendor_id", '') <> ${expected.ownerVendorId ?? ''}))
         THEN json('contest-integration-changed') END`,
     })
-    .from(integrations)
-    .where(eq(integrations.id, integrationId));
+    .from(ONE_ROW);
 }
 
 /** True for the error {@link contestStillOpenSentinel} raises, in D1 or SQLite. */
