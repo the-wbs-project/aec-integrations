@@ -36,6 +36,14 @@ export const ApiErrorCode = {
   // AECI-1005: a promote planned against an unclaimed integration that was claimed
   // before its batch committed. The batch rolls back; re-push and the fence skips it.
   INTEGRATION_CLAIMED_DURING_PROMOTE: 'INTEGRATION_CLAIMED_DURING_PROMOTE',
+  // AECI-1010 retire/restore (`API_CONTRACTS.md` §4), all 409. `INTEGRATION_RETIRED`
+  // answers a retire of a row already retired AND any other vendor write on a retired
+  // row (an attestation, a contest). `INTEGRATION_NOT_RETIRED` answers a restore of a
+  // live row. `INTEGRATION_NOT_CLAIMED` answers the owner of an unclaimed row: retire
+  // and restore are owner writes, and ownership is taken by the claim.
+  INTEGRATION_RETIRED: 'INTEGRATION_RETIRED',
+  INTEGRATION_NOT_RETIRED: 'INTEGRATION_NOT_RETIRED',
+  INTEGRATION_NOT_CLAIMED: 'INTEGRATION_NOT_CLAIMED',
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',

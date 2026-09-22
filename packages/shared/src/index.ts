@@ -7,6 +7,7 @@ export * from './concurrency';
 export * from './deploy-env';
 export * from './errors';
 export * from './integration-context';
+export * from './live-integration';
 export * from './response-drain';
 // NOTE: `./posthog` is deliberately NOT re-exported from this barrel (AECI-642).
 // Unlike every module here it has a real npm dependency (`posthog-node/edge`),
