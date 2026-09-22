@@ -1028,6 +1028,7 @@ export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
   endpoint_vendors: [PROCORE_VENDOR, SUMMIT_VENDOR],
   claimed_at: '2026-09-02T00:00:00.000Z',
   retired_at: '2026-09-18T00:00:00.000Z',
+  own_links: EMPTY_SIDE_LINKS,
   powered_by: null,
   context_product: CONTEXT_SECONDARY,
   other_product: OTHER_PROCORE,
