@@ -321,7 +321,7 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 | Rule | As built |
 |---|---|
 | Gate | `requireVendor()` → `rateLimit('write')` → ownership in the handler. **A seat is the whole gate** (decision 15): no `requireCapability`, no Verified check. The same named exception to `API_CONTRACTS.md` §6.14 that §11b.2 made for contests. |
-| Who may claim | Only the vendor in `built_by_vendor_id`, with **no approval** (decision 1). In principle that includes a third-party owner that owns neither endpoint; in v1 its rows are connector-powered, so it claims nothing (next row). |
+| Who may claim | Only the vendor in `built_by_vendor_id`, with **no approval** (decision 1). **Decision 9's predicate is the gate, not the owner's relationship to the endpoints** (ruled 2026-09-22): a third-party owner of a row that is not connector-powered may claim it, because that row has an editor. Such rows should not exist under the two-question test, so the route does not special-case them. In practice a third-party owner's rows are connector-powered, so it claims nothing in v1 (next row). |
 | Refusals, in order | An unknown id, or a row the caller neither owns nor has an endpoint on, is the same `404`. An endpoint vendor that is not the owner gets `403 INTEGRATION_NOT_OWNER`. An endpoint vendor on a row with no owner gets `409 INTEGRATION_OWNER_UNKNOWN`. The owner of a connector-powered row gets `403 INTEGRATION_CONNECTOR_POWERED`. A claimed row is `409 INTEGRATION_ALREADY_CLAIMED`. |
 | Connector-powered rows | **Not claimable in v1** (decision 9, ruled 2026-09-22, AECI-1005 Q1 option A). "Connector-powered" is `isConnectorPoweredEdge`: `powered_by_product_id` set, or a connector `mechanism_kind` such as `iPaaS`, which includes Convention-A self-references. `connector_evidenced_pairs` has no claim column at all. A claim there would freeze the row to promote (decision 5) while decision 9 freezes it to the owner, leaving nobody able to correct it. AECI-1040 delivers claim, edit and retire on these rows together. |
 | One batch | The guarded `UPDATE` (`claimed_at`, plus §13.9's maintenance transfer), a race sentinel, the `integration.claimed` audit row, and a `notification.sent` row (`metadata.kind: 'integration_claim'`) for every vendor of either endpoint other than the owner. A lost race writes nothing and answers `409`. |
@@ -337,7 +337,7 @@ Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/ro
 - **Content contests route to the owner** (§11b.4). `isIntegrationClaimed` is now the real `claimed_at` test.
 - **The `integrations` freshness cursor moves** (`STAGE_2_REALTIME_SPEC.md` §2.2): it now covers the rows themselves, not only their claims and attestations.
 - **The ops lanes treat the row as vendor-held** (§4.5.5).
-- **Nothing un-claims a row.** There is no path back to AECi today.
+- **One path un-claims a row:** an AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). That accept also re-routes the old owner's open contests to AECi. Nothing else, promote included, clears it.
 
 #### 4.5.4 Owner-unknown claims (decision 11)
 
@@ -2056,7 +2056,7 @@ The original list:
 | `open → accepted \| declined` on an `aeci` row | an AECi admin | `PATCH /api/admin/contests/:id` |
 | `open → accepted \| declined` on a **stranded** `owner` row (owner vendor deleted, `owner_vendor_id` NULL, AECI-1005) | an AECi admin | `PATCH /api/admin/contests/:id` |
 
-Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. The admin PATCH refuses a non-stranded owner-routed row with `409 CONTEST_ROUTED_TO_OWNER`, and answers `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while the admin decided (the whole batch rolls back).
+Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. **The owner's decide route re-checks ownership now, not at submit** (AECI-1005 review): unless the integration is still claimed by the caller it answers `409 CONTEST_INTEGRATION_CHANGED`, and the same condition is re-asserted in the batch. An AECi accept that reassigns a claimed row re-routes every open owner-routed contest on it to AECi in the same batch (`integration.contest.rerouted`, an `open → open` transition), so none is left in the old owner's inbox. The admin PATCH refuses a non-stranded owner-routed row with `409 CONTEST_ROUTED_TO_OWNER`, and answers `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while the admin decided (the whole batch rolls back).
 
 ### 11b.6 What an accept does
 

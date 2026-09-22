@@ -18,7 +18,8 @@ import { z } from 'zod';
  * 2. **A seat is the whole gate** (AECI-1003 decision 15). No capability and no
  *    entitlement check, like contests.
  * 3. **One claim per row, ever.** A second claim answers
- *    `409 INTEGRATION_ALREADY_CLAIMED`. Nothing un-claims a row.
+ *    `409 INTEGRATION_ALREADY_CLAIMED`. Only an AECi admin reassignment (an
+ *    accepted `owner` contest naming someone else) clears a claim.
  *
  * i18n note: framework-agnostic package (no `$localize`).
  */

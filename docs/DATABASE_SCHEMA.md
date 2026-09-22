@@ -446,7 +446,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.
-> - **Nothing un-claims a row.** There is no path back to AECi today.
+> - **One path un-claims a row:** an AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). That accept also re-routes the old owner's open contests to AECi. Nothing else, promote included, clears it.
 > - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune, the
 >   retraction consumer and `ops:retract-product` never treat a vendor-held row as an orphan
 >   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).

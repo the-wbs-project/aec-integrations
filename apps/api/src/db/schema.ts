@@ -319,7 +319,10 @@ export const integrations = sqliteTable(
      * (AECI-1003 decision 13). `maintained_by` flips to `'vendor'` whenever
      * either endpoint vendor attests, so it means "a vendor touched this", not
      * "a vendor owns this". Once set, promote writes nothing to the row
-     * (`REVIEW_APP_PROMOTE_API.md` §4b). Nothing un-sets it.
+     * (`REVIEW_APP_PROMOTE_API.md` §4b). One path clears it: an AECi admin
+     * accept of an `owner` contest that reassigns the row to a different vendor (or
+     * to "neither"), because the new owner has not acted (`planAcceptWrites` in
+     * `routes/admin-contests.ts`). Nothing else un-sets it, promote included.
      */
     claimedAt: text('claimed_at'),
     /**
