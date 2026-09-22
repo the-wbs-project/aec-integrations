@@ -292,6 +292,35 @@ describe('POST /api/vendor/integrations/:id/retire — the owner retires', () =>
     });
     expect(await auditsFor('integration.contest.withdrawn')).toHaveLength(1);
 
+    // The submitter is told why, in the same batch: a contest row, `closed_by_retire`.
+    const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
+    const toSubmitter = notices.filter((n) => (n.metadata as { kind: string }).kind === 'contest');
+    expect(toSubmitter).toHaveLength(1);
+    expect(toSubmitter[0]).toMatchObject({ entityId: CONTEST, actorId: AUTH_B.userId });
+    expect(toSubmitter[0]!.metadata).toMatchObject({
+      vendorId: VENDOR_A,
+      contestId: CONTEST,
+      event: 'closed_by_retire',
+      field: 'name',
+    });
+    const feed = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+    expect(() => ListVendorNotificationsResponseSchema.parse(feed.body)).not.toThrow();
+    expect(feed.body.notifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'contest',
+          event: 'closed_by_retire',
+          contest_id: CONTEST,
+          integration_id: I_MAIN,
+          pair_path: '/products/microstation/integrations/revit',
+        }),
+        expect.objectContaining({ kind: 'integration_retire', event: 'retired' }),
+      ]),
+    );
+    // The owner, who retired it, is not told about its own act.
+    const ownerFeed = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+    expect(ownerFeed.body.notifications).toEqual([]);
+
     await restore(AUTH_B, I_MAIN);
     const after = await t.db.query.integrationFieldChallenges.findFirst({
       where: eq(integrationFieldChallenges.id, CONTEST),

@@ -96,12 +96,15 @@ export type VendorAttestationNotification = z.infer<typeof VendorAttestationNoti
  * What happened to a contest that this row tells the vendor about (AECI-1008 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). The recipient is always "the other side":
  * `submitted` and `withdrawn` go to the owner, the decisions go to the submitter.
+ * `closed_by_retire` (AECI-1010) also goes to the submitter: the owner retired the
+ * integration, and the retire closed the open contest as withdrawn.
  */
 export const CONTEST_NOTIFICATION_EVENTS = [
   'submitted',
   'withdrawn',
   'accepted',
   'declined',
+  'closed_by_retire',
 ] as const;
 export type ContestNotificationEvent = (typeof CONTEST_NOTIFICATION_EVENTS)[number];
 

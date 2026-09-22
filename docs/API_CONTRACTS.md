@@ -5165,7 +5165,7 @@ export const VendorAttestationNotificationSchema = z.object({
 export const VendorContestNotificationSchema = z.object({   // AECI-1008
   kind: z.literal('contest'),
   id: z.string().uuid(),
-  event: z.enum(['submitted', 'withdrawn', 'accepted', 'declined']),
+  event: z.enum(['submitted', 'withdrawn', 'accepted', 'declined', 'closed_by_retire']), // closed_by_retire: AECI-1010, to the submitter
   contest_id: z.string().uuid(),
   integration_id: z.string().uuid(),
   integration_name: z.string().nullable(),
@@ -5690,7 +5690,7 @@ export const RetireIntegrationResponseSchema = z.object({
 
 **Order: row → ownership → connector-powered → claimed → state.** The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`). Then `403 INTEGRATION_CONNECTOR_POWERED` (decision 9), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). A refusal writes nothing.
 
-**One batch.** The guarded `UPDATE integrations SET retired_at, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner. Restore reopens no contest. A lost race writes nothing and re-derives the refusal.
+**One batch.** The guarded `UPDATE integrations SET retired_at, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner. Restore reopens no contest. A lost race writes nothing and re-derives the refusal.
 
 **After commit:** `recomputeProductCounts` for both endpoints, then a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`); then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue, and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
 

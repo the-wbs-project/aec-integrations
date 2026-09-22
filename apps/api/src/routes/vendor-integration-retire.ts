@@ -29,8 +29,8 @@
  * ── 4. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded UPDATE (retired state, claimed, owner), `retireRaceSentinel`
  * immediately after it, then on a retire every open contest closed as `withdrawn`
- * (each with its own guarded UPDATE and sentinel, its workflow closure and its audit
- * row), then `noOpenContestsSentinel`, then the `integration.retired` /
+ * (each with its own guarded UPDATE and sentinel, its workflow closure, its audit
+ * row and a `closed_by_retire` contest notification to the submitter vendor), then `noOpenContestsSentinel`, then the `integration.retired` /
  * `integration.restored` audit row and one `notification.sent` per other endpoint
  * vendor. A lost race writes nothing and re-derives the refusal. Restore reopens no
  * contest (ruled 2026-09-22): a contest was about the row as it stood, and the
@@ -58,6 +58,7 @@
 import {
   ApiErrorCode,
   RetireIntegrationResponseSchema,
+  type IntegrationContestField,
   type IntegrationRetireEvent,
   type RetireIntegrationResponse,
 } from '@aeci/shared';
@@ -77,7 +78,11 @@ import { auditActorType } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isClaimed } from '../lib/integration-claims';
-import { CONTEST_ENTITY_TYPE, contestStillOpenSentinel } from '../lib/integration-contests';
+import {
+  CONTEST_ENTITY_TYPE,
+  contestNotificationAudit,
+  contestStillOpenSentinel,
+} from '../lib/integration-contests';
 import {
   INTEGRATION_RESTORED_ACTION,
   INTEGRATION_RETIRED_ACTION,
@@ -299,7 +304,21 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
         afterState: { status: 'withdrawn' },
         metadata,
       };
-      audits.push(contestAudit);
+      // The submitter learns why its contest closed. A `contest` row with the
+      // `closed_by_retire` event, addressed to the submitter vendor, in the same batch.
+      const submitterNotice =
+        contest.submitterVendorId !== vendorId
+          ? contestNotificationAudit(actor, {
+              vendorId: contest.submitterVendorId,
+              contestId: contest.id,
+              integrationId,
+              integrationName: row.name,
+              field: contest.field as IntegrationContestField,
+              event: 'closed_by_retire',
+              pairSlugs,
+            })
+          : null;
+      audits.push(contestAudit, ...(submitterNotice ? [submitterNotice] : []));
       const workflow = closeWorkflow(
         db,
         contest,
@@ -320,6 +339,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
         contestStillOpenSentinel(db, contest.id),
         ...workflow.stmts,
         auditInsert(db, contestAudit),
+        ...(submitterNotice ? [auditInsert(db, submitterNotice)] : []),
       );
     }
     if (mode === 'retire') stmts.push(noOpenContestsSentinel(db, integrationId));
