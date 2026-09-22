@@ -481,7 +481,7 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 ## 3b. Zone-level bot settings — dashboard-only, and **not** covered by anything above (AECI-800)
 
-> *External account state — re-verify on audit; last checked 2026-09-09.*
+> *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815).*
 > Nothing in this repo reads, writes, or tests these. No CI check catches them when
 > they drift. They are the reason §2 is **not** the whole bot story.
 
@@ -592,8 +592,11 @@ UA list and `/products` is in its path list. Do not "fix" it.
 
 **The evidence surface is AI Crawl Control, not user-agent spoofing.** Spoofed AI-crawler
 UAs prove nothing on their own: a `403` may be correct anti-spoofing, and a `200` does not
-prove the real crawler from its real IP range gets through. **AI Crawl Control → Crawlers**
-reports allowed and blocked counts per crawler over real traffic. Two limits on our plan:
+prove the real crawler from its real IP range gets through. **AI Crawl Control → Security**
+reports allowed and unsuccessful counts per crawler over real traffic. That screen was
+called **Crawlers** until September 2026; the old `/ai-crawl-control/crawlers` URL now 404s,
+and the zone path is `/ai/security`. **AI Crawl Control → Metrics** holds the status-code
+distribution, which is what separates a block from a 404. Two limits on our plan:
 the window maxes out at **7 days**, and detection is by **user-agent string only** (Bot
 Management detection IDs are a plan upgrade). Treat the counts as directional.
 
@@ -616,10 +619,74 @@ requests**. Every row Cloudflare labels `AI Crawler` was crushed and no row labe
 `Search Engine Crawler` was — the blocked setting's own category boundary, visible in real
 traffic. That is what settles it; the spoofed-UA table never could.
 
-**PerplexityBot is the one row the category does not explain** (labelled `AI Search`, yet
-3 allowed / 126 unsuccessful, while Applebot carries the same label at 100%). The likely
-cause is lost Cloudflare verified-bot status dropping it into the unverified bucket that
-`Block AI bots` also caught. Unconfirmed — re-check rather than assume.
+**PerplexityBot was the one row the category did not explain** (labelled `AI Search`, yet
+3 allowed / 126 unsuccessful, while Applebot carries the same label at 100%). The
+after-state below settles the practical question: it recovered with the same toggle. So
+`Block AI bots` was catching it too. *Why* it fell inside that toggle's reach is still
+unread, and no longer matters while the toggle is off.
+
+#### After-state — AECI-815 (7 days to 2026-09-17, read 2026-09-17)
+
+The window opens about 2026-09-10, two days after the fix, so it holds no pre-fix traffic.
+Counts are as the dashboard rounds them.
+
+| Category | Allowed | Unsuccessful | Success | Baseline |
+|---|---|---|---|---|
+| Search Engine Crawler | 6,878 | 407 | **94%** | 96% |
+| AI Crawler | 97,585 | 14,806 | **87%** | 18% |
+| AI Crawler, excluding GPTBot | 93,855 | 656 | **99%** | — |
+| AI Search | 27,972 | 703 | **98%** | — |
+| AI Assistant | 313 | 435 | **42%** | — |
+
+| Crawler | Category | Allowed | Unsuccessful | Baseline |
+|---|---|---|---|---|
+| Meta-ExternalAgent | AI Crawler | 79,600 | 69 | 0 bytes / 56 requests |
+| Applebot | AI Search | 23,850 | 85 | 2,830 / 0 |
+| PetalBot | AI Crawler | 5,780 | 9 | — |
+| ClaudeBot | AI Crawler | 4,380 | 124 | 13 / 44 |
+| Amazonbot | AI Crawler | 4,010 | 86 | — |
+| GPTBot | AI Crawler | 3,730 | **14,150** | 43 / 98 |
+| BingBot | Search Engine Crawler | 3,420 | 156 | — |
+| PerplexityBot | AI Search | 3,210 | 101 | 3 / 126 |
+| Googlebot | Search Engine Crawler | 3,080 | 187 | 2,260 / 68 |
+| OAI-SearchBot | AI Search | 898 | 424 | — |
+| ChatGPT-User | AI Assistant | 280 | 174 | — |
+| Baidu | Search Engine Crawler | 378 | 64 | — |
+| Claude-User | AI Crawler | 39 | 217 | 9 / 29 |
+| Perplexity-User | AI Assistant | 21 | 124 | — |
+| CCBot | AI Crawler | 16 | 36 | 2 / 47 |
+| Bytespider | AI Crawler | 16 | 62 | — |
+| Claude-SearchBot | AI Search | 14 | 93 | — |
+| Google-CloudVertexBot | AI Crawler | 14 | 53 | — |
+| DuckAssistBot | AI Assistant | 6 | 70 | — |
+| MistralAI-User | AI Assistant | 6 | 67 | — |
+
+Status codes across all AI-crawler traffic in the same window:
+
+| Class | Requests | Breakdown |
+|---|---|---|
+| 2xx | 130,460 | all `200` |
+| 3xx | 2,290 | `301` 664, `302` 100, `303` 1,520 |
+| 4xx | 16,350 | **`404` 15,140**, `403` 1,190, `499` 22, `401` 4 |
+| 5xx | 2 | `530` 2 |
+
+**The fix holds in real traffic.** Crawler volume rose about tenfold and the AI Crawler
+category went from 18% to 87%. Every row the baseline named as crushed now gets through.
+
+**GPTBot's unsuccessful count is 404s, not blocks.** It carries 14,150 of the 16,350
+failures. Only 1,190 requests in the whole window were `403`, so at least ~12,900 of
+GPTBot's are `404`. Which paths it is missing was not read. That is a site question,
+not a bot-settings question.
+
+**The low-volume fetchers still fail more than they succeed.** Claude-User, Perplexity-User,
+Claude-SearchBot, DuckAssistBot and MistralAI-User all sit under 20%. Together they have
+657 unsuccessful requests. Those could be `403`s or `404`s, and which it is was not read. Their traffic is on-demand user fetches, which often chase stale or guessed
+URLs.
+
+**The WAF blocks in the same period are not crawlers.** Security → Analytics → Events for
+the last 24 hours showed 1.24k custom-rule blocks. The top paths were `.env` and
+`web.config` probes, the top user agents were generic Chrome strings and `UnifiedPaths/1.0`,
+and 239 of the 1.27k events landed on `staging.`, which is behind Access anyway.
 
 **Pay Per Crawl is off.** The per-crawler control is a plain `Block Crawler` toggle; when
 Pay Per Crawl is enabled that column offers Charge / Allow / Block instead. Inferred from
