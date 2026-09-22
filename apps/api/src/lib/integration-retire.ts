@@ -6,7 +6,11 @@
  * applies, is `./live-integration`. This module is the write-side half.
  */
 
-import { orderedPairSlugs, type IntegrationRetireEvent } from '@aeci/shared';
+import {
+  orderedPairSlugs,
+  type IntegrationRetireEvent,
+  type IntegrationRetiredBy,
+} from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, sql } from 'drizzle-orm';
 
@@ -90,17 +94,22 @@ export function openContestsOn(db: Db, integrationId: string) {
 export interface RetireNotificationMetadata {
   kind: typeof RETIRE_NOTIFICATION_KIND;
   event: IntegrationRetireEvent;
+  /** Who retired or restored it (AECI-1046). Absent on rows written before it,
+   *  which the feed reads as `'owner'`. */
+  retiredBy: IntegrationRetiredBy;
   vendorId: string;
   integrationId: string;
   integrationName: string | null;
-  ownerVendorId: string;
+  /** `null` only on an admin write to a vendor-held row with no owner on file. */
+  ownerVendorId: string | null;
   ownerName: string | null;
   pairSlugs: readonly [string, string] | null;
 }
 
 /**
- * The `notification.sent` row telling one endpoint vendor that the owner retired or
- * restored an integration on its product. Pushed into the SAME batch as the write.
+ * The `notification.sent` row telling one vendor that the owner, or since AECI-1046
+ * AEC Integrations, retired or restored an integration on its product. An admin write
+ * also notifies the owner. Pushed into the SAME batch as the write.
  * `entity_type` is `integration`, like the claim notification.
  */
 export function retireNotificationAudit(

@@ -87,7 +87,7 @@ import {
 } from '../lib/integration-owner-writes';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
-import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './vendor-integration-retire';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,

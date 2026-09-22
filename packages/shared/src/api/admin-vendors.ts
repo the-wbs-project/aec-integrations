@@ -11,6 +11,7 @@ import {
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
+import { IntegrationRetiredBySchema } from './integration-retire';
 import { ProductRoleSchema } from './products';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
 
@@ -396,6 +397,48 @@ export const AdminVendorProductsResponseSchema = paginatedResponseSchema(
   AdminVendorProductRowSchema,
 );
 export type AdminVendorProductsResponse = z.infer<typeof AdminVendorProductsResponseSchema>;
+
+// ─── GET /api/admin/vendors/:id/integrations (AECI-1046) ─────────────────────
+
+/**
+ * The vendor-held integrations this vendor owns (the Integrations tab on
+ * `/admin/vendors/:id`), live and retired, for the admin retire and restore.
+ *
+ * Scope: `built_by_vendor_id = :id` AND vendor-held (`claimed_at IS NOT NULL OR
+ * origin = 'vendor'`). An AECi-held row is not listed, because the admin retire
+ * refuses it: promote and the review app own it. A vendor-held row with no owner on
+ * file is not reachable from any vendor page; the API still accepts its id.
+ */
+export const AdminVendorIntegrationsQuerySchema = PageQuerySchema;
+export type AdminVendorIntegrationsQuery = z.infer<typeof AdminVendorIntegrationsQuerySchema>;
+
+const AdminIntegrationEndpointSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+});
+
+export const AdminVendorIntegrationRowSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  source: AdminIntegrationEndpointSchema,
+  target: AdminIntegrationEndpointSchema,
+  /** `'aeci'` (seeded by promote, then claimed) or `'vendor'` (created by the vendor). */
+  origin: z.enum(['aeci', 'vendor']),
+  claimed_at: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  /** `null` while live; `'owner'` for a pre-0046 retire with no stored value. */
+  retired_by: IntegrationRetiredBySchema.nullable(),
+  /** The public pair page, which a retired row no longer appears on. */
+  pair_path: z.string().nullable(),
+  updated_at: z.string(),
+});
+export type AdminVendorIntegrationRow = z.infer<typeof AdminVendorIntegrationRowSchema>;
+
+export const AdminVendorIntegrationsResponseSchema = paginatedResponseSchema(
+  AdminVendorIntegrationRowSchema,
+);
+export type AdminVendorIntegrationsResponse = z.infer<typeof AdminVendorIntegrationsResponseSchema>;
 
 // ─── GET /api/admin/vendors/:id/audit ────────────────────────────────────────
 

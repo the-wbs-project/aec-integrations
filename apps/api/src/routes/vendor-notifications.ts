@@ -274,6 +274,8 @@ function toRetireNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
+    // AECI-1046. A row written before it carries no value: the owner retired it.
+    retired_by: meta.retiredBy === 'aeci' ? 'aeci' : 'owner',
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

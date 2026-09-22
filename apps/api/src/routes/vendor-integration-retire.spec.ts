@@ -231,7 +231,9 @@ describe('POST /api/vendor/integrations/:id/retire — the owner retires', () =>
     await retire(AUTH_B, I_MAIN);
     const [audit] = await auditsFor(INTEGRATION_RETIRED_ACTION);
     expect(audit).toMatchObject({ actorId: AUTH_B.userId, entityId: I_MAIN });
-    expect(audit!.beforeState).toEqual({ retired_at: null });
+    expect(audit!.beforeState).toEqual({ retired_at: null, retired_by: null });
+    expect(audit!.afterState).toMatchObject({ retired_by: 'owner' });
+    expect((await row(I_MAIN)).retiredBy).toBe('owner');
 
     const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
     expect(notices.map((n) => (n.metadata as { vendorId: string }).vendorId)).toEqual([VENDOR_A]);
@@ -394,7 +396,9 @@ describe('POST /api/vendor/integrations/:id/restore — the owner restores', () 
     expect(after.retiredAt).toBeNull();
     expect(after.updatedAt >= retired.body.integration.updated_at).toBe(true);
     const [audit] = await auditsFor(INTEGRATION_RESTORED_ACTION);
-    expect(audit!.afterState).toEqual({ retired_at: null });
+    expect(audit!.afterState).toEqual({ retired_at: null, retired_by: null });
+    expect(res.body.integration.retired_by).toBeNull();
+    expect(after.retiredBy).toBeNull();
     const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
     expect(notices.map((n) => (n.metadata as { event: string }).event).sort()).toEqual([
       'restored',
@@ -413,6 +417,38 @@ describe('POST /api/vendor/integrations/:id/restore — the owner restores', () 
     await retire(AUTH_B, I_MAIN);
     expect((await restore(AUTH_A, I_MAIN)).body.error.code).toBe('INTEGRATION_NOT_OWNER');
     expect((await row(I_MAIN)).retiredAt).not.toBeNull();
+  });
+
+  // AECI-1046: only an admin restores an admin retire.
+  it('refuses an AECi retire with 403 INTEGRATION_RETIRED_BY_AECI and writes nothing', async () => {
+    t.raw
+      .prepare(`UPDATE integrations SET retired_at = ?, retired_by = 'aeci' WHERE id = ?`)
+      .run('2026-09-22T00:00:00.000Z', I_MAIN);
+    const res = await restore(AUTH_B, I_MAIN);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED_BY_AECI');
+    expect((await row(I_MAIN)).retiredBy).toBe('aeci');
+    expect(await auditsFor(INTEGRATION_RESTORED_ACTION)).toHaveLength(0);
+  });
+
+  it('restores a pre-0046 retire (retired_by NULL), which was the owner', async () => {
+    t.raw
+      .prepare(`UPDATE integrations SET retired_at = ?, retired_by = NULL WHERE id = ?`)
+      .run('2026-09-22T00:00:00.000Z', I_MAIN);
+    const res = await restore(AUTH_B, I_MAIN);
+    expect(res.status).toBe(200);
+    expect((await row(I_MAIN)).retiredAt).toBeNull();
+  });
+
+  it('lists an AECi retire to the owner with retired_by = aeci', async () => {
+    t.raw
+      .prepare(`UPDATE integrations SET retired_at = ?, retired_by = 'aeci' WHERE id = ?`)
+      .run('2026-09-22T00:00:00.000Z', I_MAIN);
+    const list = await call(AUTH_B, '/api/vendor/integrations', 'GET');
+    const entry = (list.body.integrations as { id: string; retired_by: string | null }[]).find(
+      (i) => i.id === I_MAIN,
+    );
+    expect(entry?.retired_by).toBe('aeci');
   });
 });
 

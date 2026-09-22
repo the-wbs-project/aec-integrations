@@ -65,59 +65,28 @@
 import {
   ApiErrorCode,
   RetireIntegrationResponseSchema,
-  type IntegrationContestField,
-  type IntegrationRetireEvent,
   type RetireIntegrationResponse,
 } from '@aeci/shared';
-import type { AlgoliaEnv } from '@aeci/shared/algolia';
-import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
-import { integrationFieldChallenges, integrations, productVendors, vendors } from '../db/schema';
+import { integrations, productVendors, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
-import { emitAlgoliaSyncMetrics } from '../lib/algolia-sync-metrics';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isClaimed } from '../lib/integration-claims';
-import {
-  CONTEST_ENTITY_TYPE,
-  contestNotificationAudit,
-  contestStillOpenSentinel,
-} from '../lib/integration-contests';
-import {
-  INTEGRATION_RESTORED_ACTION,
-  INTEGRATION_RETIRED_ACTION,
-  isRetireRaceError,
-  noOpenContestsSentinel,
-  openContestsOn,
-  RETIRE_CLOSED_CONTEST_REASON,
-  retireNotificationAudit,
-  retireRaceSentinel,
-} from '../lib/integration-retire';
+import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
-import { publicSiteBase } from '../lib/public-urls';
-import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
-import { logToPosthog, submitCount, submitDistribution } from '../posthog';
-import { dispatchHook, type PromoteRunCtx } from './promote';
-import { pairCacheTag } from './promote-pair';
-import { closeWorkflow, endpointSlugs } from './vendor-contests';
-import { attestationEditRecrawl } from './vendor-recrawl';
-import {
-  afterVendorWrite,
-  AUDIT_SOURCE,
-  recrawlEnabled,
-  sessionVendorId,
-  type VendorContext,
-} from './vendor-shared';
+import { afterRetireCommit, buildRetireBatch, type RetireMode } from './integration-retire-write';
+import { endpointSlugs } from './vendor-contests';
+import { AUDIT_SOURCE, sessionVendorId, type VendorContext } from './vendor-shared';
 
 type IntegrationRow = typeof integrations.$inferSelect;
-type Mode = 'retire' | 'restore';
+type Mode = RetireMode;
 
 /** Does the caller's vendor own either endpoint product? The visibility half of the
  *  404 rule, as in the claim route. */
@@ -192,6 +161,14 @@ async function refusalFor(
       'This integration is not retired, so there is nothing to restore.',
     );
   }
+  // AECI-1046: only an AECi admin restores an AECi retire.
+  if (mode === 'restore' && row.retiredBy === 'aeci') {
+    return new ApiError(
+      403,
+      ApiErrorCode.INTEGRATION_RETIRED_BY_AECI,
+      'AEC Integrations retired this integration, so only AEC Integrations can restore it.',
+    );
+  }
   return null;
 }
 
@@ -245,124 +222,32 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       .sort();
 
     const now = new Date().toISOString();
-    const retiredAt = mode === 'retire' ? now : null;
-    const event: IntegrationRetireEvent = mode === 'retire' ? 'retired' : 'restored';
-    const actor = { actorId: session.userId, actorType: auditActorType(session) };
-    const withdrawnContestIds = contests.map((contest) => contest.id);
-
-    const audits: AuditLogEntry[] = [
-      {
-        ...actor,
-        action: mode === 'retire' ? INTEGRATION_RETIRED_ACTION : INTEGRATION_RESTORED_ACTION,
-        entityType: 'integration',
-        entityId: integrationId,
-        beforeState: { retired_at: row.retiredAt },
-        afterState: { retired_at: retiredAt },
-        metadata: {
-          source: AUDIT_SOURCE,
-          vendorId,
-          ...(mode === 'retire' ? { withdrawnContestIds } : {}),
-        },
-      },
-      ...recipients.map((recipient) =>
-        retireNotificationAudit(actor, {
-          event,
-          vendorId: recipient,
-          integrationId,
-          integrationName: row.name,
-          ownerVendorId: vendorId,
-          ownerName: owner.companyName,
-          pairSlugs,
-        }),
-      ),
-    ];
-
-    const stmts: BatchStmt[] = [
-      db
-        .update(integrations)
-        .set({ retiredAt, updatedAt: now })
-        .where(
-          and(
-            eq(integrations.id, integrationId),
-            mode === 'retire' ? isNull(integrations.retiredAt) : isNotNull(integrations.retiredAt),
-            isNotNull(integrations.claimedAt),
-            eq(integrations.builtByVendorId, vendorId),
-          ),
-        ),
-      // Immediately after the guarded UPDATE: a lost race aborts the batch here.
-      retireRaceSentinel(db),
-    ];
-
-    // Retire closes every open contest on the row as withdrawn (ruled 2026-09-22).
-    for (const contest of contests) {
-      const metadata = {
-        source: AUDIT_SOURCE,
-        vendorId,
-        contestId: contest.id,
-        integrationId,
-        field: contest.field,
-        reason: RETIRE_CLOSED_CONTEST_REASON,
-      };
-      const contestAudit: AuditLogEntry = {
-        ...actor,
-        action: 'integration.contest.withdrawn',
-        entityType: CONTEST_ENTITY_TYPE,
-        entityId: contest.id,
-        beforeState: { status: 'open' },
-        afterState: { status: 'withdrawn' },
-        metadata,
-      };
-      // The submitter learns why its contest closed. A `contest` row with the
-      // `closed_by_retire` event, addressed to the submitter vendor, in the same batch.
-      const submitterNotice =
-        contest.submitterVendorId !== vendorId
-          ? contestNotificationAudit(actor, {
-              vendorId: contest.submitterVendorId,
-              contestId: contest.id,
-              integrationId,
-              integrationName: row.name,
-              field: contest.field as IntegrationContestField,
-              event: 'closed_by_retire',
-              pairSlugs,
-            })
-          : null;
-      audits.push(contestAudit, ...(submitterNotice ? [submitterNotice] : []));
-      const workflow = closeWorkflow(
-        db,
-        contest,
-        'withdrawn',
-        { actorId: session.userId, reason: RETIRE_CLOSED_CONTEST_REASON, metadata },
-        now,
-      );
-      stmts.push(
-        db
-          .update(integrationFieldChallenges)
-          .set({ status: 'withdrawn', updatedAt: now })
-          .where(
-            and(
-              eq(integrationFieldChallenges.id, contest.id),
-              eq(integrationFieldChallenges.status, 'open'),
-            ),
-          ),
-        contestStillOpenSentinel(db, contest.id),
-        ...workflow.stmts,
-        auditInsert(db, contestAudit),
-        ...(submitterNotice ? [auditInsert(db, submitterNotice)] : []),
-      );
-    }
-    if (mode === 'retire') stmts.push(noOpenContestsSentinel(db, integrationId));
-    // The integration audit row and the notifications. The contest audits were
-    // pushed with their own statements above, so skip them here.
-    for (const entry of audits) {
-      if (entry.entityType !== CONTEST_ENTITY_TYPE) stmts.push(auditInsert(db, entry));
-    }
-    // Last: both endpoints' counts, recomputed over the row as this batch leaves it.
-    // Committed with the retire, so the purge below can never race a stale count.
-    const productIds = [...new Set([row.sourceProductId, row.targetProductId])];
-    for (const productId of productIds) stmts.push(integrationCountRecomputeStmt(db, productId));
+    const batch = buildRetireBatch(db, {
+      mode,
+      row,
+      now,
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      retiredBy: 'owner',
+      source: AUDIT_SOURCE,
+      metadata: { vendorId },
+      guard: and(
+        isNotNull(integrations.claimedAt),
+        eq(integrations.builtByVendorId, vendorId),
+        // AECI-1046: the owner restores only its own retire. NULL predates 0046 and
+        // is an owner retire.
+        mode === 'restore'
+          ? or(isNull(integrations.retiredBy), eq(integrations.retiredBy, 'owner'))
+          : undefined,
+      )!,
+      contests,
+      actingVendorId: vendorId,
+      recipients,
+      owner: { id: vendorId, name: owner.companyName },
+      pairSlugs,
+    });
 
     try {
-      await db.batch(stmts as BatchTuple);
+      await db.batch(batch.stmts as BatchTuple);
     } catch (error) {
       if (!isRetireRaceError(error)) throw error;
       const current = await db.query.integrations.findFirst({
@@ -379,118 +264,27 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       );
     }
 
-    dispatchOwnerWriteSearch(
-      c,
-      `vendor-${mode}-algolia`,
-      syncOwnerWriteSearch(
-        c,
-        db,
-        { integrations: [integrationId], products: productIds, vendors: [vendorId] },
-        'aeci.api.vendor.retire_algolia_sync_failed',
-      ),
-    );
-
-    const tags = [
-      ...(pairSlugs
-        ? [
-            pairCacheTag(pairSlugs[0], pairSlugs[1]),
-            `product:${pairSlugs[0]}`,
-            `product:${pairSlugs[1]}`,
-          ]
-        : []),
-      `vendor:${owner.slug}`,
-      'index:products',
-      'taxonomy',
-      'sitemap',
-    ];
-    const base = publicSiteBase(c.env);
-    // A retire is announced too: a re-crawl is how a crawler learns the pair page
-    // went `noindex`.
-    const recrawl =
-      pairSlugs && recrawlEnabled(c.env) && base
-        ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
-        : undefined;
-    afterVendorWrite(c, tags, audits, recrawl, db);
+    afterRetireCommit(c, db, {
+      mode,
+      integrationId,
+      productIds: batch.productIds,
+      owner: { id: vendorId, slug: owner.slug },
+      pairSlugs,
+      audits: batch.audits,
+      hookPrefix: 'vendor',
+      syncFailureMessage: 'aeci.api.vendor.retire_algolia_sync_failed',
+    });
 
     const body: RetireIntegrationResponse = {
-      integration: { id: integrationId, retired_at: retiredAt, updated_at: now },
-      withdrawn_contest_ids: withdrawnContestIds,
+      integration: {
+        id: integrationId,
+        retired_at: batch.retiredAt,
+        retired_by: batch.retiredBy,
+        updated_at: now,
+      },
+      withdrawn_contest_ids: batch.withdrawnContestIds,
     };
     validateResponseInDev(c.env, () => RetireIntegrationResponseSchema.parse(body));
     return json(body);
   };
-}
-
-/**
- * The post-commit search tail of an owner write: a by-id Algolia sync of the
- * records the write changed. Retire passes the integration, both endpoint products
- * and the owner vendor (the counts were committed in the batch, so the product and
- * vendor records read the new stored value). The AECI-1006 edit passes the
- * integration alone, because an edit changes no count. The AECI-1011 create passes
- * the same four records as retire. Never throws. Sequential by
- * construction (`syncIndexTargets`), so it holds at most one outbound connection at
- * a time. Each entity whose sync failed is logged under `failureMessage`, as the
- * promote tail does.
- */
-export async function syncOwnerWriteSearch(
-  c: VendorContext,
-  db: Db,
-  targets: IndexTargetIds,
-  failureMessage: string,
-): Promise<void> {
-  const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
-  if (!creds.appId || !creds.apiKey) return;
-  const env: AlgoliaEnv = c.env.ENV ?? 'development';
-  const started = Date.now();
-  try {
-    const results = await syncIndexTargets(db, fetch, creds, env, targets);
-    emitAlgoliaSyncMetrics(
-      {
-        count: (metric, value, tags) =>
-          submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
-        distribution: (metric, value, tags) =>
-          submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
-      },
-      'vendor',
-      results,
-      Date.now() - started,
-    );
-    for (const result of results) {
-      if (!result.ok) logSyncFailure(c, failureMessage, result.entity, result.error ?? 'unknown');
-    }
-  } catch (error) {
-    logSyncFailure(
-      c,
-      failureMessage,
-      'all',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-/**
- * Run {@link syncOwnerWriteSearch} behind promote's `dispatchHook` watchdog, so a
- * wedged Algolia connection becomes a warning rather than a hung invocation.
- */
-export function dispatchOwnerWriteSearch(
-  c: VendorContext,
-  hookName: string,
-  work: Promise<void>,
-): void {
-  const rc: PromoteRunCtx = {
-    env: c.env,
-    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
-    request: c.req.raw,
-    bookmark: () => null,
-  };
-  dispatchHook(rc, hookName, work);
-}
-
-function logSyncFailure(c: VendorContext, message: string, entity: string, reason: string): void {
-  logToPosthog(c.executionCtx, c.env, c.req.raw, {
-    level: 'warn',
-    message,
-    entity,
-    reason,
-  });
 }

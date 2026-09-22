@@ -8,6 +8,7 @@ import {
   EMPTY_CONTESTABLE_FIELDS,
 } from './integration-contests';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
+import { IntegrationRetiredBySchema } from './integration-retire';
 import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vendor-links';
 import type { AttestationSource } from './promote';
 
@@ -330,6 +331,12 @@ export const VendorIntegrationSchema = z.object({
    * cursor, which must move on a retire (`STAGE_2_REALTIME_SPEC.md` §2.2).
    */
   retired_at: z.string().nullable().default(null),
+  /**
+   * Who retired it (AECI-1046): `'owner'` or `'aeci'`, `null` while live. The owner
+   * restores only its own retire. On `'aeci'` the portal says "Retired by AEC
+   * Integrations" and offers no Restore, because only an admin restores it.
+   */
+  retired_by: IntegrationRetiredBySchema.nullable().default(null),
   /**
    * The current value of every contestable field (AECI-1008 /
    * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b), so the portal can prefill a contest.

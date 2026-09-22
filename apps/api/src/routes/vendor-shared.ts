@@ -12,6 +12,7 @@
  * is read or written; and a miss is a **404, not a 403**.
  */
 
+import type { CachePurgeSource } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -58,14 +59,17 @@ export function sessionVendorId(c: VendorContext): string {
  * rather than the old `AuditLogForwarder` closure so a write's whole entry set
  * can be posted in ONE request per vendor — see {@link afterVendorWrite}.
  */
-export function vendorAuditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
+export function vendorAuditLogEvent(
+  entry: Omit<AuditLogEntry, 'metadata'>,
+  source: string = AUDIT_SOURCE,
+): PosthogLogEvent {
   return {
     level: 'info',
     message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
     action: entry.action,
     entity_type: entry.entityType ?? undefined,
     entity_id: entry.entityId ?? undefined,
-    source: AUDIT_SOURCE,
+    source,
   };
 }
 
@@ -85,11 +89,15 @@ export async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Pr
  * without the queue binding (local / PR preview) and a `queue.send` rejection is
  * logged and swallowed — a cache miss must never fail a committed edit.
  */
-export async function purgeTags(c: VendorContext, tags: readonly string[]): Promise<void> {
+export async function purgeTags(
+  c: VendorContext,
+  tags: readonly string[],
+  source: CachePurgeSource = 'vendor',
+): Promise<void> {
   const queue = c.env.CACHE_PURGE_QUEUE;
   if (!queue || tags.length === 0) return;
   try {
-    await queue.send({ tags: [...tags], source: 'vendor' });
+    await queue.send({ tags: [...tags], source });
   } catch (error) {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
@@ -240,6 +248,12 @@ export function afterVendorWrite(
   entries: AuditLogEntry | readonly AuditLogEntry[],
   recrawl?: VendorRecrawl | Promise<VendorRecrawl>,
   db?: Db,
+  // AECI-1046: an AECi admin write that shares a vendor write's tail (the admin
+  // retire) labels its forward and its purge as AECi-initiated.
+  origin: { auditSource: string; purgeSource: CachePurgeSource } = {
+    auditSource: AUDIT_SOURCE,
+    purgeSource: 'vendor',
+  },
 ): void {
   const list = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
   // ONE request per vendor for the whole entry set, not one per entry
@@ -250,8 +264,13 @@ export function afterVendorWrite(
   // array. Past the per-invocation connection limit the runtime cancels the
   // stalled responses into `fetch` promises that never settle, so the forwards
   // are lost with no error at all. Each leg self-gates on its own key.
-  logBatchToPosthog(c.executionCtx, c.env, c.req.raw, list.map(vendorAuditLogEvent));
-  c.executionCtx.waitUntil(purgeTags(c, tags));
+  logBatchToPosthog(
+    c.executionCtx,
+    c.env,
+    c.req.raw,
+    list.map((entry) => vendorAuditLogEvent(entry, origin.auditSource)),
+  );
+  c.executionCtx.waitUntil(purgeTags(c, tags, origin.purgeSource));
   if (recrawl && db) c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl));
 }
 
