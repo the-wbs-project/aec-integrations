@@ -7,12 +7,10 @@
 **Tracker:** epic **AECI-572**, sub-issues **AECI-573 … AECI-587** (mapped to the §10 build order). AECI-573 was the decision gate: it settled §13's seven open questions as **D5–D11**, chose the phase and base branch (**D1**), and promoted this document from draft to contract.
 **Companion docs:** `API_CONTRACTS.md` (endpoint shapes), `DATABASE_SCHEMA.md` (tables/indexes), `OBSERVABILITY.md` (the `aeci.*` metric catalog), `POST_LAUNCH_MONITORING.md` (the runbook this panel operationalizes), `ANALYTICS.md` + `ANALYTICS_BASELINE.md` (what the consented product-analytics slice does and does not see), `POSTHOG_MIGRATION_SPEC.md` + `adr/0024-observability-migrates-to-posthog.md` (the in-flight Datadog → PostHog dual-run — **nothing in this panel changes**, only who detects cron *absence*; see §7.2), `email.md` (the two cron digests), `AUTH_AND_RLS.md` (`requireAdmin()`), `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` (the §26.1 carve-out this epic's crons rely on)
 
-> **Branch note (AECI-648).** This document's PostHog/dual-run corrections were made on
-> **`stage-2`**, where the AECI-639 observability migration lives. The **`admin-panel`** epic
-> branch carries its own copy and is not descended from current `main`, so it still has the
-> pre-migration wording — including the old "Datadog owns absence" line in §7.2. **Re-apply
-> this sweep to `admin-panel` when it merges;** a conflict-free merge will not flag prose that
-> is merely stale.
+> **Branch note (AECI-648, closed 2026-09-22).** This document's PostHog corrections were made on
+> `stage-2` while the `admin-panel` epic branch still carried the pre-migration wording. Both
+> branches have since merged into `main` and been retired, and the old "Datadog owns absence" line
+> is gone from §7.2. Nothing is left to re-apply.
 
 > **Data-layer note (ADR 0016).** The application database is **Cloudflare D1 + Drizzle**; Supabase is auth-only. Every read in this document goes through `getDb(env)`. The panel's HTTP surface is **read-only** — every endpoint is a `GET`, and none of them writes, emails, purges, or calls an external API (§6, §13 D8). The only writes in the epic are the two cron-written bookkeeping tables (§7.1, §7.2) and the retention prune (§7.4); §13 **D11** and **ADR 0022** govern their audit obligations — bookkeeping inserts are exempt from the §26.1 audit-in-batch invariant, scheduled deletes are not.
 
@@ -1463,7 +1461,7 @@ Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the
 
 **As built (AECI-585).** All three drop in **one** recreate — `session_id` and `profile_role` ride along in the `__new_page_views` copy for free rather than earning their own `ALTER`, so the destructive statement count is one, not three. Two things about `migrations/0014_careful_absorbing_man.sql` a reviewer should check rather than assume: the copy lists `id` explicitly, so the autoincrement PK survives (§5.2's feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows if ids were reassigned), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` / `=ON` pair was **hand-replaced** with a single `PRAGMA defer_foreign_keys = true`, which is the lever [D1's migration docs](https://developers.cloudflare.com/d1/reference/migrations/) specify. Regenerating the file reintroduces the wrong pragma. The five additive columns are a separate, safe migration (`0013`) generated ahead of it.
 
-**The migration cannot reach a deployed tier before the epic merges.** `main`'s `apps/api/src/routes/account.ts` still nulls `page_views.user_id` inside the GDPR-erasure batch, so applying the drop to a tier whose Worker runs that code makes account deletion throw. Local and PR-preview only until `admin-panel → main`, then apply per tier with the code.
+**The deploy gate that held this migration back (lifted 2026-08-14).** While the epic lived on `admin-panel`, the drop could not reach a deployed tier. `main`'s `apps/api/src/routes/account.ts` still nulled `page_views.user_id` inside the GDPR-erasure batch, so applying the drop to a tier running that code would have made account deletion throw. The migration therefore ran on local and PR-preview D1s only. The gate lifted when `admin-panel` squash-merged into `main` on 2026-08-14 (PR #523), carrying the code change and the migration together. Staging and demo took `0011`–`0015` that day. Production took them on 2026-08-18 (`promote-to-prod` run `32096784408`, SHA `1f73e12d`). Re-checked 2026-09-22 (AECI-596): `account.ts` no longer touches `page_views` at all, and a comment in the erasure batch records why the table is deliberately absent.
 
 The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(pageViews).set({ userId: null })` inside the erasure batch was a permanent no-op and is deleted with the column. That **strengthens** the GDPR story — `page_views` can no longer hold any user linkage at all — so `AUTH_AND_RLS.md` gets a line (§12).
 
@@ -1865,7 +1863,7 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
 | `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580**, `/api/admin/{audience,feedback}` **with AECI-586**; the erasure simplification **landed with AECI-585** — dropping `page_views.user_id` took §8's FK trap from seven to six at the time, and the note explains why removing one *strengthens* erasure. **That count has since moved again and this row is a log entry, not the register**: AECI-609 and AECI-664 each added one, so `AUTH_AND_RLS.md` §8 — which is the live register — lists **ten** since AECI-1008 added the two contest columns (five `NO ACTION`, five `SET NULL`). AECI-692 corrected the count there and deleted the drifting per-site ordinals |
 | `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1 and, when this row was written, its screen had not. **AECI-576 shipped 2026-08-13, so the caveat is now itself the stale part**: AECI-587 pointed that cell at `/admin/overview` with its `?day=` and `?recompute=1` semantics. **AECI-586** extended the same column to the two *transactional* operator alerts: `landing-feedback` and `landing-signup` now have `/admin/audience` behind them, which matters more than for a digest — those emails were the ONLY record of a submission, so a filtered alert was a lost one |
-| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575**. **AECI-585 added the trustworthy-from table** for the four new ingest fields — its dates are written as "the AECI-585 production deploy" and must be replaced with the real date at the `admin-panel → main` merge. **AECI-586** replaced the weekly "Signups" step's manual `wrangler d1 execute … count(*) from mailing_list` with the screen, and recorded that UTM attribution now has a **consent-independent** read path beside the consent-gated PostHog one |
+| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575**. **AECI-585 added the trustworthy-from table** for the four new ingest fields — its dates were written as "the AECI-585 production deploy" and were replaced with the real date, 2026-08-18, under AECI-596 (§12a item 1). **AECI-586** replaced the weekly "Signups" step's manual `wrangler d1 execute … count(*) from mailing_list` with the screen, and recorded that UTM attribution now has a **consent-independent** read path beside the consent-gated PostHog one |
 | `POST_LAUNCH_MONITORING.md` | The §1a cron table gained the 00:15 snapshot job (AECI-581), the 03:00 retention prune (AECI-584) and the 10:00 attestation detector sweep (AECI-302) — eleven crons. Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is now retired in the sense that matters, and the doc states the split**: since AECI-583 the panel owns the *record* (last run, outcome, duration per job) and **something outside the Worker owns *absence*** — a cron that never starts writes no `job_runs` row either, so only an external check can catch it. That external check is Datadog's `notify_no_data` **today**, and becomes the AECI-647 CI liveness sweep (PostHog has no `notify_no_data` equivalent — see §7.2). What AECI-580 retired outright: the DQ digest is readable on demand (row 5a) — and AECI-583 went further, making the last stored run the default view so the morning read needs no click and no email. D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3). **AECI-585** amended the 2026-08-13 entry's follow-up: `cf_as_organization` is captured, but only forward, so that snapshot's ASNs still need manual lookup. **DONE at closeout (AECI-587)** — a new **2026-08-14** entry, inserted above the 2026-08-13 one with no historical entry touched. Its rolling "as of the latest entry" header *was* edited, which is correct: that matrix is a live summary, not a record, and it carried the last surviving "`page_views` … write-only; query directly" claim in the tree (plus "7 scheduled crons" and both analytics rows still marked `❌ dark`) |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons. **AECI-583 added** `aeci.job_runs.write` plus a "second recording surface, not a replacement" section reconciling `job_runs` against the existing per-cron heartbeats (panel owns the record, the external absence check owns absence — Datadog's no-data monitors today, the AECI-647 liveness sweep after). **AECI-584 added** the four `aeci.retention.*` metrics, a tenth row to that reconciliation table, and four monitors (skipped / runaway / failed / no-data), taking the committed set to 27 |
@@ -1878,31 +1876,36 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `DESIGN.md` §5 (Operator console) | **AECI-777** added the breadcrumb bullet: console detail screens carry a trail rather than a back link, it follows the public site's breadcrumb treatment per §9 item 10's anchor rule, and the detail `h2` names the entity rather than its type |
 | `docs/README.md`, root `CLAUDE.md` | Index entries (added with this document; the draft-status qualifiers were replaced with the D1 answer by AECI-573). `CLAUDE.md`'s audit rule and `DATABASE_SCHEMA.md` §18 were also rescoped to domain state under ADR 0022 — **landed with AECI-573**. **Verified at closeout**: both read "v1.0 build contract" and neither contains "draft plan" |
 
-### 12a. At-merge obligations (`admin-panel → main`)
+### 12a. At-merge obligations (`admin-panel → main`) — ALL DISCHARGED
 
-Four things the §12 closeout **cannot** discharge, because AECI-587's PR lands *before* the squash
-merge. They are listed here because a checklist inside the spec is the thing most likely to be read
-at merge time; they are **also filed as [AECI-596](https://linear.app/aec-integrations/issue/AECI-596)**,
-so they survive if this document is not opened.
+Four things the §12 closeout **could not** discharge, because AECI-587's PR landed *before* the
+squash merge. They were also filed as [AECI-596](https://linear.app/aec-integrations/issue/AECI-596).
+`admin-panel` squash-merged into `main` on **2026-08-14** (PR #523). All four are now closed, and
+the list is kept as a record.
 
-1. **Replace the placeholder dates in `ANALYTICS_BASELINE.md`.** AECI-585's trustworthy-from table
-   dates its four new ingest fields as *"the AECI-585 production deploy"* — a deploy that has not
-   happened. Substitute the real date once prod carries the merge (§12 row 10).
-2. **Retire §7.3's deploy gate.** "The migration cannot reach a deployed tier before the epic
-   merges" stops being true at the merge. Confirm the paired fact while you are there: `main`'s
-   `apps/api/src/routes/account.ts` must no longer null `page_views.user_id` in the GDPR-erasure
-   batch — the column is gone, so the statement is a permanent no-op that would now fail.
-3. **Reconcile the Drizzle journal, then apply migrations `0010`–`0015` per tier** (§13 D1
-   obligation (a)). `0014` is the repo's first table recreate and carries a **hand edit** —
-   drizzle-kit's `PRAGMA foreign_keys=OFF/ON` was replaced with `PRAGMA defer_foreign_keys = true`,
-   and regenerating reintroduces the wrong pragma (`migrations.md` §3.3a).
-4. **Retire the `admin-panel` branch.** It is a time-boxed exception under `CICD_PLAN.md` §10, not a
-   standing third line.
+1. ~~**Replace the placeholder dates in `ANALYTICS_BASELINE.md`.**~~ **DONE 2026-09-22 (AECI-596).**
+   The four AECI-585 ingest fields now read *trustworthy from 2026-08-18 (03:49 UTC)*. That is the
+   first `promote-to-prod` run whose SHA contains `0013_glossy_ultron.sql`: run `32096784408`, SHA
+   `1f73e12d`. Found by checking every successful prod promote, oldest first, with
+   `git merge-base --is-ancestor` against the commit that added the migration (§12 row 10).
+2. ~~**Retire §7.3's deploy gate.**~~ **DONE 2026-09-22 (AECI-596).** §7.3 now records the gate in
+   the past tense and dates its lift to the 2026-08-14 merge. The paired fact holds: `main`'s
+   `apps/api/src/routes/account.ts` no longer touches `page_views` in the GDPR-erasure batch.
+3. ~~**Reconcile the Drizzle journal, then apply migrations per tier**~~ **DONE 2026-08-18** (§13 D1
+   obligation (a)). The lines renumbered by one at the merge, so the set is `0011`–`0015` with
+   `0010_lazy_junta.sql` in the freed slot. Staging and demo applied them 2026-08-14. Production
+   applied them 2026-08-18 in the run named in item 1. `0014` is the repo's first table recreate
+   and still carries its **hand edit**: drizzle-kit's `PRAGMA foreign_keys=OFF/ON` was replaced with
+   `PRAGMA defer_foreign_keys = true`, and regenerating reintroduces the wrong pragma
+   (`migrations.md` §3.3a).
+4. ~~**Retire the `admin-panel` branch.**~~ **DONE.** The branch merged 2026-08-14 and was deleted
+   from origin before the 2026-09-01 branch-protection re-check (`CICD_PLAN.md` §8). The docs that
+   still named it as a live line were corrected 2026-09-22 (AECI-596). `main` is the only line.
 
-Two things worth knowing at the same moment, neither of them blocking: **staging has never
-exercised the panel** (it auto-tracks `main`, so per-PR preview Workers were the only verification
-surface — §13 D1 obligation (b)); and the retention prune's **first production run** deletes nothing
-until ~2026-11-11, so the `RUNBOOKS.md` dry-run procedure is a November task, not a merge-day one.
+Two things that were worth knowing at the merge, kept for the record: **staging had never
+exercised the panel** before 2026-08-14 (it auto-tracks `main`, so per-PR preview Workers were the
+only verification surface, §13 D1 obligation (b)); and the retention prune's **first production
+run** deletes nothing until ~2026-11-11, so the `RUNBOOKS.md` dry-run procedure is a November task.
 
 ---
 
@@ -1935,7 +1938,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 - **D1 — Timing and base branch. Phase 8.3, on the `main` line, integrated via the `admin-panel` epic branch.** Phase 8 is explicitly *"an ongoing post-launch operate-and-tune period"* and *"intentionally re-openable"* (`PHASE_8_COMPLETION.md` §F4, Note D); 8.1 was AECI-279 and 8.2 is AECI-280, so this is **8.3**. It is **not** Stage 2 work by that spec's own test — *"anything that requires a vendor to authenticate and assert something about their own product is Stage 2"* (`STAGE_2_SPEC.md` §1) — and an operator console requires no vendor at all; `STAGE_2_SPEC.md` has no epic row for it and its §9 bars schema changes not reserved by its §3.
 
-  All 15 issues base on and merge into **`admin-panel`**; one squash merge `admin-panel → main` closes the epic. That is a **second** long-lived branch alongside `stage-2`, i.e. a second time-boxed exception to `CICD_PLAN.md` §10 — recorded there rather than left implicit. Two obligations follow. **(a) Merge `main → admin-panel` regularly**, mirroring ADR 0019's `main → stage-2` discipline, and reconcile the Drizzle migration journal before the final merge-up. **(b) Staging never exercises the panel until that final merge** (staging auto-tracks `main`), so **per-PR preview Workers are the verification surface** — matching `environments.md`. The compensating benefit is that ADR 0019's forward-only-migration hazard is concentrated into one reviewable moment instead of dripping into production D1 sub-issue by sub-issue.
+  *(Historical: the branch squash-merged into `main` on 2026-08-14, PR #523, and has been retired. §12a records the close-out.)* All 15 issues based on and merged into **`admin-panel`**; one squash merge `admin-panel → main` closes the epic. That is a **second** long-lived branch alongside `stage-2`, i.e. a second time-boxed exception to `CICD_PLAN.md` §10 — recorded there rather than left implicit. Two obligations follow. **(a) Merge `main → admin-panel` regularly**, mirroring ADR 0019's `main → stage-2` discipline, and reconcile the Drizzle migration journal before the final merge-up. **(b) Staging never exercises the panel until that final merge** (staging auto-tracks `main`), so **per-PR preview Workers are the verification surface** — matching `environments.md`. The compensating benefit is that ADR 0019's forward-only-migration hazard is concentrated into one reviewable moment instead of dripping into production D1 sub-issue by sub-issue.
 
   **Obligation (a) was discharged on 2026-08-14** — and the hazard it anticipated was real. `main` and `admin-panel` had each created a migration `0010` off `0009`: `0010_lazy_junta` (`promote_jobs`, AECI-571, **already applied to production D1**) and `0010_marvelous_cassandra_nova` (`metrics_daily`, AECI-581). This branch's five migrations were renumbered **0011–0015**, `promote_jobs` was injected into all five drizzle snapshots, and the `prevId` chain was relinked onto main's `0010`. Verified two ways: the full chain applies clean to a fresh local D1, and `drizzle-kit generate` reports *"No schema changes"* against the merged `schema.ts`. The same merge resolved a **duplicated AECI-563** — the async promote ingest had been built independently on both branches — in favour of `main`, while re-applying **D6's `products.promoted_at` set-once** on top of it, since that writer is this epic's and not part of the duplicate.
 

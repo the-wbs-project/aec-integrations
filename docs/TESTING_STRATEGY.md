@@ -74,10 +74,8 @@ reproduction, and it is why the defect survived for months.
 > (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
 > `CICD_PLAN.md` §3.1 has the full rationale. `main` is branch-protected on three required
 > contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker` blocks the merge (§8).
-> **`admin-panel` is the exception on every count** — the 2026-08-14 trigger fix landed on
-> `stage-2`, and although `stage-2` merged to `main` on 2026-09-03, `admin-panel` is still not
-> descended from `main`, so its PRs run none of this and it has no protection. Merging `main` into
-> `admin-panel` is what fixes it.
+> `main` is now the only branch. `stage-2` merged 2026-09-03 and `admin-panel` merged 2026-08-14,
+> and both are retired, so there is no longer an ungated long-lived base to worry about.
 
 ---
 
@@ -122,7 +120,7 @@ reproduction, and it is why the defect survived for months.
 - Branch coverage: 60%
 - Critical paths (auth, payments in Stage 4, audit logging) require 90%+ coverage explicitly
 
-Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to a long-lived branch (`main`, `admin-panel`) — `pnpm -r run test:coverage` runs as an **advisory, non-blocking** step in the `unit-tests` job (`continue-on-error`) and uploads the lcov/HTML as the `coverage` artifact — but a coverage drop **does not fail the build**. Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
+Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to `main` — `pnpm -r run test:coverage` runs as an **advisory, non-blocking** step in the `unit-tests` job (`continue-on-error`) and uploads the lcov/HTML as the `coverage` artifact — but a coverage drop **does not fail the build**. Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
 
 ### 3.4 Configuration
 
