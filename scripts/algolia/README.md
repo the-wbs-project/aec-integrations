@@ -79,7 +79,7 @@ node scripts/algolia/provision.mjs --env staging --rotate
 
 # Index settings (`apply-settings.mjs`)
 
-Applies the per-index settings as code (AECI-137 / Phase 3.2) — `searchableAttributes`, `attributesForFaceting`, and `customRanking` per `STAGE_1_SPEC.md` §7.2/§7.3 — to one environment's three indexes (plus their four sort replicas). The settings themselves live in `packages/shared/src/algolia.ts` (`indexSettingsFor()`), and the apply loop is the shared `applyIndexSettings()` — one definition, every caller. (The record sync pipeline pushes *objects*, not settings; this script is the only settings path.)
+Applies the per-index settings as code (AECI-137 / Phase 3.2) — `searchableAttributes`, `attributesForFaceting`, and `customRanking` per `STAGE_1_SPEC.md` §7.2/§7.3 — to one environment's three indexes (plus their two `name_asc` sort replicas; four before AECI-636 PR-B). The settings themselves live in `packages/shared/src/algolia.ts` (`indexSettingsFor()`), and the apply loop is the shared `applyIndexSettings()` — one definition, every caller. (The record sync pipeline pushes *objects*, not settings; this script is the only settings path.)
 
 This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on every staging/demo/prod deploy. It **prints no secrets** and is safe in CI.
 
@@ -124,7 +124,21 @@ ship to an environment until the backfill has run there, or every record ties on
 attribute. Prefer the watermark sweep in `docs/SEARCH_RANKING.md` §1.2 for it: it re-pushes every
 record without emptying the index (run it with `--entity products` and `--entity vendors`), and the
 same pass carries `name_sort` / `company_name_sort`. The datatool reindex empties the index while it
-runs.
+runs. *(AECI-636 PR-B, 2026-09-22: the backfill reached full coverage in every environment on
+2026-09-21 and 2026-09-22, and PR-B now ranks on `listing_tier`.)*
+
+## Retired replicas need a manual delete (AECI-636 PR-B)
+
+PR-B dropped the two "Most integrations" replicas from `REPLICA_SORTS`. When this script next runs
+for an environment, it removes them from each primary's `replicas` list. That only **detaches**
+them. Each becomes a standalone index with frozen records, and it still counts against the index
+quota. The management key has no `deleteIndex` ACL, so this script cannot delete them.
+
+Delete `<env>_products_integration_count_desc` and `<env>_vendors_integration_count_desc` by hand,
+in the Algolia dashboard or with the root admin key. Do staging and demo after verification, and
+production after a 7-day soak. Run the preview apply **last**, after all six deletions, because it
+creates `preview_products_name_asc` and `preview_vendors_name_asc` and lands the app at 20 of its 20
+index cap. Full runbook: `docs/SEARCH_RANKING.md` §5a.
 
 ## Verify (in the Algolia dashboard, after a run)
 

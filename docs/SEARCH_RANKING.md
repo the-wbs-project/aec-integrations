@@ -30,7 +30,7 @@ pnpm algolia:apply-settings --env <preview|staging|demo|production>
 # → scripts/algolia/apply-settings.mjs → applyIndexSettings(client, env)
 ```
 
-It is idempotent, prints no secrets, and per run issues **7 `setSettings` calls** — the three primaries plus the four sort replicas, which re-receive `searchableAttributes` / `attributesForFaceting` / `customRanking` verbatim and differ only in `ranking` (§5a). That is why a new facet needs no separate replica step: the `/search` facet rail keeps working under every sort automatically.
+It is idempotent, prints no secrets, and per run issues **5 `setSettings` calls** — the three primaries plus the two `name_asc` sort replicas, which re-receive `searchableAttributes` / `attributesForFaceting` / `customRanking` verbatim and differ only in `ranking` (§5a). That is why a new facet needs no separate replica step: the `/search` facet rail keeps working under every sort automatically.
 
 | Environment | How settings are applied |
 |---|---|
@@ -48,6 +48,8 @@ The preview gap matters in practice: `lighthouse.yml` measures `/search` against
 **Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
 
 **And it is asserted, not merely documented (AECI-610).** The entitlement vocabulary (`packages/shared/src/entitlements.ts`) and the ranking vocabulary defined here are both pure data in the same package, so `packages/shared/src/entitlements.spec.ts` proves they are **disjoint sets**: no capability id appears in the union of every entity's `searchableAttributes ∪ attributesForFaceting ∪ customRanking`, and none of `verified` / `tier` / `entitlement` / `status` / `paid` / `plan` appears in it either. That test plus the per-entity `customRanking` freezes in `algolia.spec.ts` are the two halves of the firewall. **A third half arrived with AECI-636**, because a computed ranking attribute can carry a plan through its inputs while its own name stays clean: the same spec asserts that `listing_tier`'s declared inputs contain no plan, entitlement or verified concept, and that the functions read no property outside those declared inputs. Both are **invariant tests** (`STAGE_2_PAID_TIERS_SPEC.md` §10) — a ranking change that trips one is not a test to update, it is a decision to reopen.
+
+> **Reopened on purpose (AECI-636 PR-B, 2026-09-22).** The `customRanking` freezes were reopened by AECI-636's decision of 2026-08-23, not by test churn. `products` now ranks on `desc(listing_tier)` then `desc(review_count)`, and `vendors` on `desc(listing_tier)` alone (§3.1, §3.2). The firewall also grew. `entitlements.spec.ts` now asserts that no entity's `customRanking` names a plan, entitlement or verified attribute. That covers capability ids, entitlement tier names and plan-shaped words. `listing_tier` is the one allowed name that contains "tier". It is admitted because the same spec proves its inputs are content only.
 
 ### 1.2 Forcing one full sweep without clearing the index (AECI-880)
 
@@ -133,13 +135,15 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   8. `unordered(description)` — `unordered` so word position within the long description doesn't affect relevance
 - **Faceting:** `searchable(categories)`, `searchable(audiences)`, `searchable(phases)`, `searchable(trades)`, `searchable(vendor_name)`, `has_api_docs`, `integration_count`
   (the §7.2 range buckets `0 / 1–10 / 11–50 / 51+` are an `ais-numeric-menu` over the bare numeric `integration_count`, not a stored field)
-- **Custom ranking:** `desc(integration_count)`, then `desc(review_count)`
-  - *Rationale:* a product wired into more integrations is more useful in a directory whose value proposition is integration coverage; reviews break the next tie once they exist (§6).
-  - **A seated vendor can raise this signal itself (AECI-1011, accepted risk, ruled 2026-09-22).** `POST /api/vendor/integrations` lets a seated vendor create integration rows that go live with no moderation, and each live row counts in both endpoints' `integration_count`. So until AECI-636 retires `integration_count` from the custom ranking, creating rows raises the creator's product in search. It is bounded, not closed: seats are admin-approved, every create writes an `integration.created` audit row naming the seat, and promote's twin guard stops a create from being doubled by a curated copy. It is not pay-for-placement, because the lever is a seat and not a paid tier. **AECI-636 is a hard dependency** of this acceptance (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.3a, ADR 0035).
+- **Custom ranking:** `desc(listing_tier)`, then `desc(review_count)` (AECI-636 PR-B, 2026-09-22)
+  - *Rationale:* a complete listing answers a buyer's question better than a thin one, so completeness breaks textual ties first. `listing_tier` is defined below. It is keyed on listing content only and has nothing to do with paid plans. Reviews break the next tie once they exist (§6).
+  - **`review_count` stays by ruling.** Keeping `desc(review_count)` is Chris's ruling of 2026-09-22, posted on AECI-636. It departs on purpose from the 2026-08-23 decision that reviews rank on a shrunk average and never on a raw count. It also departs from row O1 of the approved plan. It is inert in practice today (§6).
+  - **Previously `desc(integration_count)`, then `desc(review_count)`.** That rationale was integration coverage. AECI-636's 2026-08-23 decision retired it from ranking, because a count rewards shallow, oversold integrations, which are exactly what AECi exists to warn buyers about. A seated vendor could also raise it (next bullet). `integration_count` stays on the record and stays a facet, because a filter is user intent.
+  - **A seated vendor can raise this signal itself (AECI-1011, accepted risk, ruled 2026-09-22).** `POST /api/vendor/integrations` lets a seated vendor create integration rows that go live with no moderation, and each live row counts in both endpoints' `integration_count`. So until AECI-636 retires `integration_count` from the custom ranking, creating rows raises the creator's product in search. *(AECI-636 PR-B, 2026-09-22: that retirement is now in code. The lever closes in each environment once its settings apply.)* It is bounded, not closed: seats are admin-approved, every create writes an `integration.created` audit row naming the seat, and promote's twin guard stops a create from being doubled by a curated copy. It is not pay-for-placement, because the lever is a seat and not a paid tier. **AECI-636 is a hard dependency** of this acceptance (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.3a, ADR 0035).
   - **Trades add no custom-ranking signal.** The `trades` facet changes what is *findable* and *filterable*, never what ranks higher. Carrying a trade tag is a factual claim about a product's scope, not a quality or commercial signal, and boosting on it would be a placement lever — which AECi does not have (`STAGE_1_SPEC.md` §1, no pay-for-placement).
   - **Trades are sparse on purpose.** Most products carry `trades: []` (`TRADES_VOCABULARY.md` §1.1 — horizontal platforms get no tags), so an empty array is normal and must not be treated as missing data in relevance tuning.
 - **`name_sort` (AECI-825)** is the lowercased copy of `name` that the `products_name_asc` replica ranks on (§5a). Sort-only: never searchable, never faceted, never rendered.
-- **`listing_tier` (AECI-636) is on the record but not yet ranked.** It is the coarse listing-completeness tier that replaces `integration_count` in the custom ranking once AECI-636's settings change ships. Until then `INDEX_SETTINGS` does not name it, so it orders nothing. The rule, from `productListingTier` in `packages/shared/src/listing-tier.ts`:
+- **`listing_tier` (AECI-636) is the first custom-ranking signal.** It is a coarse listing-completeness tier: `2`, `1`, or the attribute omitted. It replaced `integration_count` in the custom ranking in AECI-636 PR-B (2026-09-22). Every environment's records were backfilled to full coverage on 2026-09-21 and 2026-09-22, before the settings change. The rule, from `productListingTier` in `packages/shared/src/listing-tier.ts`:
 
   | Description | Missing among name, at least one category, website, logo | `listing_tier` |
   |---|---|---|
@@ -164,10 +168,11 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   2. `unordered(description)`
   3. `headquarters`
 - **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
-- **Custom ranking:** `desc(integration_count)`, then `desc(product_count)`
-  - *Rationale:* a vendor whose catalog participates in more integrations ranks first; product count breaks the tie.
+- **Custom ranking:** `desc(listing_tier)` alone (AECI-636 PR-B, 2026-09-22)
+  - *Rationale:* a complete vendor profile breaks textual ties. `listing_tier` is content only and unrelated to plans (§3.1). There is no second signal.
+  - **Previously `desc(integration_count)`, then `desc(product_count)`.** Both counts stay on the record and stay facets. They only left `customRanking`.
 - **`company_name_sort` (AECI-825)** is the lowercased copy of `company_name` that the `vendors_name_asc` replica ranks on (§5a). Sort-only: never searchable, never faceted, never rendered.
-- **`listing_tier` (AECI-636)** is on the vendor record too, with the same meaning, the same omission rule and the same not-yet-ranked status as §3.1. Its inputs are company name, description, headquarters, website and logo, via `vendorListingTier`. `verified` is deliberately not one of them.
+- **`listing_tier` (AECI-636)** is on the vendor record too, with the same meaning and the same omission rule as §3.1. It ranks vendors since AECI-636 PR-B. Its inputs are company name, description, headquarters, website and logo, via `vendorListingTier`. `verified` is deliberately not one of them.
 - **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. Both record builders emit it: `toAlgoliaVendor` and the datatool full reindex's `buildVendorRecords`. The datatool builder omitted it until AECI-1038, and because the record schema defaults it to `false`, every full reindex silently un-verified every vendor. `apps/api/src/lib/algolia-builder-parity.spec.ts` now builds the same rows through both builders and asserts the product and vendor records are strictly equal. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior. The **record** may carry it; `INDEX_SETTINGS` may never name it, and `entitlements.spec.ts` asserts exactly that (§1).
 
 ### 3.3 `integrations`
@@ -303,13 +308,13 @@ After the textual-relevance criteria (typo…exact), ties resolve by each index'
 
 | Index | 1st tie-break | 2nd tie-break | Then |
 |---|---|---|---|
-| `products` | `integration_count` desc | `review_count` desc | index order (arbitrary) |
-| `vendors` | `integration_count` desc | `product_count` desc | index order (arbitrary) |
+| `products` | `listing_tier` desc | `review_count` desc | index order (arbitrary) |
+| `vendors` | `listing_tier` desc | *(none)* | index order (arbitrary) |
 | `integrations` | `mechanism_rank` desc | *(none)* | index order (arbitrary) |
 
 **`integration_count` changed meaning in AECI-721, on both indices.** It now counts delivered edges **regardless of which table holds them** — `integrations` plus `connector_evidenced_pairs` — and, per `STAGE_1_5_SPEC.md` §12.5 option B, a connector counts the edges it *powers*, not only the ones it terminates. Endpoint products' counts are unchanged by construction (a delivered-via-connector edge already counted for both endpoints); **connector products' counts rise** — in production Agave ERP Sync goes 0 → 12.
 
-That lifts connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
+That lifted connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). *(AECI-636 PR-B, 2026-09-22: the ranking and replica halves no longer hold. `integration_count` left both `customRanking` lists and both replicas were retired. Only the facet half still applies.)* The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
 
 When records tie on the full `customRanking` list, Algolia falls back to the records' internal order in the index — not stable or meaningful, so it must not be relied on for deterministic ordering.
 
@@ -321,18 +326,18 @@ When records tie on the full `customRanking` list, Algolia falls back to the rec
 
 §4.6 calls for a per-tab **sort dropdown**. The default order described above is *relevance* (textual ranking, then `customRanking`). Each additional sort option is realized as a **standard Algolia replica** of the entity's primary index — a replica returns the *same records* as its primary, re-ordered by its own `ranking`. The control lives at `apps/web/src/app/search/widgets/search-sort-by.ts`; the wiring (`connectSortBy` per index) is in `search-controller.ts`.
 
-**Options (product decision, 2026-06-23).** Products and Vendors each expose three sorts; the Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas.
+**Options (product decision, 2026-06-23; amended by AECI-636 PR-B, 2026-09-22).** Products and Vendors each expose two sorts: Relevance and Name A–Z. The third, "Most integrations", was retired by AECI-636 PR-B. The Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas.
 
 | Tab | Sort | Index | Replica `ranking` (sort attribute first, then the default criteria) |
 |---|---|---|---|
 | Products | Relevance *(default)* | `<prefix>_products` (primary) | — (the §3.1 default formula) |
-| Products | Most integrations | `<prefix>_products_integration_count_desc` | `desc(integration_count)`, typo…custom |
 | Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name_sort)`, typo…custom |
 | Vendors | Relevance *(default)* | `<prefix>_vendors` (primary) | — (the §3.2 default formula) |
-| Vendors | Most integrations | `<prefix>_vendors_integration_count_desc` | `desc(integration_count)`, typo…custom |
 | Vendors | Name (A–Z) | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
 
-The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `replicaNamesFor`) in `packages/shared/src/algolia.ts`, asserted in `algolia.spec.ts`. A replica leads its `ranking` with the sort attribute, then keeps Algolia's default criteria (`typo → geo → words → filters → proximity → attribute → exact → custom`) as the tie-break tail — so e.g. equal `integration_count` still falls back to textual relevance.
+The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `replicaNamesFor`) in `packages/shared/src/algolia.ts`, asserted in `algolia.spec.ts`. A replica leads its `ranking` with the sort attribute, then keeps Algolia's default criteria (`typo → geo → words → filters → proximity → attribute → exact → custom`) as the tie-break tail — so e.g. equal `name_sort` still falls back to textual relevance.
+
+**The "Most integrations" replicas are retired in code only (AECI-636 PR-B, 2026-09-22).** `REPLICA_SORTS` no longer lists `<prefix>_products_integration_count_desc` or `<prefix>_vendors_integration_count_desc`. `replicaNamesFor` now returns two names per environment, not four. Removing a replica from its primary's `replicas` list only **detaches** it. It becomes a standalone index with frozen records, and it still counts against the Algolia index quota. The CI management key has no `deleteIndex` ACL, so nothing in CI can delete it. PR-B deletes no index. The operator runbook is below.
 
 **A–Z ranks on a folded key, NOT on the display name (AECI-825).** Algolia documents an alphabetical sort as the lexicographical Unicode order of a string's **first 50 characters**, "with the exception of some normalized characters" — which ranks every capital ahead of every lowercase letter, so `asc(name)` put `ADP Workforce Now` before `Access Coins Evo` and `eSUB` / `openBIM` after `Zoho`. Algolia exposes no case-insensitive collation for a sort attribute, and the normalization caveat is not specified further, so the key is precomputed on the record instead rather than left dependent on undocumented behaviour: `name_sort` / `company_name_sort`, both `algoliaSortKey(displayName)` = `toLowerCase()`. Three things follow.
 
@@ -342,11 +347,31 @@ The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `re
 
 **Replicas inherit faceting.** `applyIndexSettingsTo` sets each replica's `searchableAttributes` / `attributesForFaceting` / `customRanking` to the **same** values as its primary (only `ranking` differs), so the §7.2 facet sidebar keeps working under any sort.
 
-**How they're created + synced.** `applyIndexSettingsTo` writes a `replicas: [...]` array on each primary (which is what creates/links the replicas) and then `setSettings` on each replica with its `ranking`. **Standard replicas auto-mirror their primary's records** — the daily/bulk sync (`apps/api/src/lib/algolia-sync.ts`) pushes objects only to the primary, and Algolia keeps the replicas in sync. So there is **no extra sync work**, but a standard replica **duplicates the primary's record count** for Algolia quota/billing (4 replicas ⇒ 4× the products+vendors record footprint). This cost was accepted for exact, predictable ordering (incl. strict A–Z); virtual replicas were the rejected lower-cost alternative.
+**How they're created + synced.** `applyIndexSettingsTo` writes a `replicas: [...]` array on each primary (which is what creates/links the replicas) and then `setSettings` on each replica with its `ranking`. **Standard replicas auto-mirror their primary's records** — the daily/bulk sync (`apps/api/src/lib/algolia-sync.ts`) pushes objects only to the primary, and Algolia keeps the replicas in sync. So there is **no extra sync work**, but a standard replica **duplicates the primary's record count** for Algolia quota/billing (2 replicas ⇒ 2× the products+vendors record footprint since AECI-636 PR-B. It was 4 replicas and 4× before). This cost was accepted for exact, predictable ordering (incl. strict A–Z); virtual replicas were the rejected lower-cost alternative.
 
-**Key scope + rotation.** Both provisioned keys are scoped to the replica index names (`searchKeyParams` / `managementKeyParams`): the browser **search-only** key queries a replica directly via `connectSortBy`, and the **management** key `setSettings` each replica's ranking. Because the scope widened, the keys must be **re-provisioned** (`pnpm algolia:provision`) before the first deploy that applies replica settings — see `docs/CICD_PLAN.md` §7.4/§7.5.
+**Key scope + rotation.** Both provisioned keys are scoped to the replica index names (`searchKeyParams` / `managementKeyParams`): the browser **search-only** key queries a replica directly via `connectSortBy`, and the **management** key `setSettings` each replica's ranking. Because the scope widened, the keys must be **re-provisioned** (`pnpm algolia:provision`) before the first deploy that applies replica settings — see `docs/CICD_PLAN.md` §7.4/§7.5. *(AECI-636 PR-B, 2026-09-22: the retirement needs no re-provision. A key scoped to an index name that no longer exists is harmless.)*
 
-**URL.** The active sort mirrors to `?sort=` as a short token (`integrations` | `name`; `relevance` clears the param), per the §9.2 minimal-params policy. It is per active tab.
+**URL.** The active sort mirrors to `?sort=` as a short token (`name`; `relevance` clears the param), per the §9.2 minimal-params policy. It is per active tab. The `integrations` token was retired by AECI-636 PR-B. An old `/search?sort=integrations` URL falls back to Relevance with no error.
+
+**Operator runbook: detach, then delete (AECI-636 PR-B).** Rollout is one environment at a time. Staging applies settings on merge through `deploy.yml`. Demo and production apply through `promote-to-demo` and `promote-to-prod`. Each apply detaches that environment's two old replicas. Deleting them is a manual step, in the Algolia dashboard or with the root key.
+
+| Environment | Indexes to delete | When |
+|---|---|---|
+| `staging` | `staging_products_integration_count_desc`, `staging_vendors_integration_count_desc` | after staging is verified |
+| `demo` | `demo_products_integration_count_desc`, `demo_vendors_integration_count_desc` | after demo is verified |
+| `production` | `production_products_integration_count_desc`, `production_vendors_integration_count_desc` | after a 7-day soak |
+
+Preview never had replicas. Its manual `pnpm algolia:apply-settings --env preview` must run **last**, after all six deletions, because it creates `preview_products_name_asc` and `preview_vendors_name_asc`. The quota arithmetic:
+
+| Step | Indexes |
+|---|---|
+| Recorded (last verified 2026-08-20) | 24 |
+| After deleting the six detached replicas | 18 |
+| After preview's apply creates its two `name_asc` replicas | 20 of a 20 cap |
+
+That lands exactly at the cap, with no headroom.
+
+**Rollback is a forward fix, never a plain revert.** Reverting PR-B would put the two replicas back in each primary's `replicas` list. That asks Algolia to create or relink them. At the index cap Algolia refuses, and the CI settings step fails. So a rollback PR restores only the old `customRanking` values and leaves `REPLICA_SORTS` retired. Records still carry `integration_count`, `review_count` and `product_count`, so no reindex is needed.
 
 ---
 
@@ -354,12 +379,12 @@ The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `re
 
 Three configured signals are **inert at launch** and should not be read as "tuned and working":
 
-- **`review_count` / ratings are no-ops until Phase 5.** `desc(review_count)` is wired into the `products` custom ranking, but every product carries `review_count: 0` until the reviews feature (Phase 5) lands, so the signal orders nothing pre-Phase-5. Separately, `rating_overall_avg` ships on the product record (for display) but is **not** a `customRanking` signal at all today — promoting it to a ranking signal once reviews exist is a §7 tuning decision, not current behavior.
+- **`review_count` / ratings are no-ops until Phase 5.** `desc(review_count)` is wired into the `products` custom ranking (kept there by ruling, 2026-09-22, §3.1), but every product carries `review_count: 0` until the reviews feature (Phase 5) lands, so the signal orders nothing pre-Phase-5. Separately, `rating_overall_avg` ships on the product record (for display) but is **not** a `customRanking` signal at all today — promoting it to a ranking signal once reviews exist is a §7 tuning decision, not current behavior.
 - **The `integrations` index is sparse until [AECI-86](https://linear.app/aec-integrations/issue/AECI-86).** Integration seeding in `POST /api/promote` is currently disabled, so few integration records exist. `desc(mechanism_rank)` is correct but has little to order until AECI-86 re-enables seeding; the §5 secondary-tie-break gap is also low-impact until then.
 
 - **`trades` / `trade_aliases` ship empty (AECI-545).** The record fields and the `searchable(trades)` facet are live, but `product_trades` is unpopulated in every environment until the promote-ingest key (AECI-542) and the cross-repo catalog backfill (REVIEW: AECI-547) land. Until then every product carries `trades: []` / `trade_aliases: []` and the `/search` **Trades facet renders nothing at all** — that is the expected state, not a regression. Because the backfill re-promotes (which bumps `products.updated_at`), the nightly watermark sync carries trades onto exactly the tagged products with no manual step; the one-time full reindex afterwards is only to normalize the untouched majority onto the new field set. **Second writer since AECI-665:** a claimed vendor can now assign its own product's trades in the portal (`PATCH /api/vendor/products/:id`), which reaches this index by the same route — that handler stamps `products.updated_at` even for a taxonomy-only edit, so the next nightly window picks the change up. No immediate by-id push, so trade edits are ≤24h to search (the vendor-facing copy says so; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3).
 
-- **`listing_tier` is on the records but ranks nothing yet (AECI-636, part A).** Adding it does not backfill it: the nightly sync is watermarked on `updated_at`, so a record only gains the attribute when its own row is next touched. Each environment needs one full sweep of `products` and `vendors` before the settings change that ranks on it can ship. Otherwise every product and vendor ties on an absent attribute and falls to arbitrary order. The §1.2 watermark sweep does that without emptying the index; its script takes `--entity products` and `--entity vendors`. The datatool reindex does it too, but it empties the index while it runs.
+- **`listing_tier` needed a backfill before it could rank (AECI-636, part A).** *(AECI-636 PR-B, 2026-09-22: done. Every environment reached full coverage on 2026-09-21 and 2026-09-22, and PR-B now ranks on it. The rest of this bullet is the recipe for any future record field.)* Adding it does not backfill it: the nightly sync is watermarked on `updated_at`, so a record only gains the attribute when its own row is next touched. Each environment needs one full sweep of `products` and `vendors` before the settings change that ranks on it can ship. Otherwise every product and vendor ties on an absent attribute and falls to arbitrary order. The §1.2 watermark sweep does that without emptying the index; its script takes `--entity products` and `--entity vendors`. The datatool reindex does it too, but it empties the index while it runs.
 
 None of these caveats requires a settings change — the signals are deliberately in place ahead of the data so no re-index is needed when the data arrives.
 
@@ -378,7 +403,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - popular queries (candidates for curation / Query Suggestions).
 
 **Decide.** A signal change should be motivated by one of the above, not intuition. Candidate levers, roughly in expected order of adoption:
-1. Promote `rating_overall_avg` (and tune `review_count`) into `products` custom ranking once Phase 5 reviews provide real values (§6).
+1. Rank `products` on a shrunk rating average, counted only once a product has 5 or more reviews (§6). *(AECI-636 PR-B, 2026-09-22: reworded. `desc(review_count)` stays in the ranking meanwhile by ruling, §3.1. The full §7 rewrite belongs to AECI-283.)*
 2. Add a secondary `integrations` custom signal to fix the §5 tie-break gap (after AECI-86).
 3. Synonyms / `Query Suggestions` for the popular- and no-results queries.
 4. Per-attribute relevance tuning (e.g. demote `description` further, or mark attributes for exact-only matching).
@@ -386,7 +411,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 
 **Roll out.** Every change is code: edit `INDEX_SETTINGS` / `MECHANISM_RANK` in `packages/shared/src/algolia.ts`, update the matching section of this doc in the same PR, and let `applyIndexSettings()` push it through the per-environment path in §1.1 (remembering that **preview is manual**). `algolia.spec.ts` must be updated to assert the new settings. Prefer Algolia A/B testing (two index configurations) to validate a ranking change against live metrics before making it the default, rather than flipping production ranking blind.
 
-**Evaluating a lever before there is enough data.** The full loop above runs on real query data — that is [AECI-283](https://linear.app/aec-integrations/issue/AECI-283), unblocked since go-live ([AECI-247](https://linear.app/aec-integrations/issue/AECI-247), 2026-07-03) but only actionable once launch traffic has accumulated meaningful Algolia analytics. Until then, the dev-only **`/preview/search-relevance`** harness ([AECI-286](https://linear.app/aec-integrations/issue/AECI-286)) ranks a curated AEC fixture set under the candidate levers above (Baseline, Ratings-forward, Coverage-weighted, and a tunable Balanced blend) so the trade-offs can be *seen and felt* before any `INDEX_SETTINGS` change. It is a **client-side model** of `customRanking`, not Algolia: a deterministic token-overlap text score stands in for Algolia's textual ranking, the lexicographic strategies mirror the real "signals only break textual ties" model, and the weighted strategies illustrate a best-match alternative where signals can override text. The pure logic lives in `apps/web/src/app/preview/search-relevance/ranking-strategies.ts` (unit-tested); the surface itself is covered by `apps/web/e2e/preview-search-relevance.spec.ts` (reorder behavior + axe). It touches no production setting and is production-blocked by `isPreviewPath`.
+**Evaluating a lever before there is enough data.** The full loop above runs on real query data — that is [AECI-283](https://linear.app/aec-integrations/issue/AECI-283), unblocked since go-live ([AECI-247](https://linear.app/aec-integrations/issue/AECI-247), 2026-07-03) but only actionable once launch traffic has accumulated meaningful Algolia analytics. Until then, the dev-only **`/preview/search-relevance`** harness ([AECI-286](https://linear.app/aec-integrations/issue/AECI-286)) ranks a curated AEC fixture set under the candidate levers above (Baseline, Ratings-forward, Coverage-weighted, and a tunable Balanced blend) so the trade-offs can be *seen and felt* before any `INDEX_SETTINGS` change. It is a **client-side model** of `customRanking`, not Algolia: a deterministic token-overlap text score stands in for Algolia's textual ranking, the lexicographic strategies mirror the real "signals only break textual ties" model, and the weighted strategies illustrate a best-match alternative where signals can override text. The pure logic lives in `apps/web/src/app/preview/search-relevance/ranking-strategies.ts` (unit-tested); the surface itself is covered by `apps/web/e2e/preview-search-relevance.spec.ts` (reorder behavior + axe). It touches no production setting and is production-blocked by `isPreviewPath`. *(AECI-636 PR-B, 2026-09-22: its Baseline strategy now models the new production `customRanking`.)*
 
 ---
 
@@ -397,7 +422,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - `packages/shared/src/algolia-records.ts` — Zod record schemas (fields available to rank/facet on).
 - `apps/api/src/lib/algolia-transforms.ts` — Drizzle/D1 → Algolia record transforms; sets the derived `mechanism_rank`.
 - `packages/shared/src/listing-tier.ts` — the `listing_tier` computation (§3.1), shared by both record builders.
-- [AECI-636](https://linear.app/aec-integrations/issue/AECI-636) — retires `integration_count` as an ordering signal. Part A put `listing_tier` on the records (§3.1, §3.2, §6). The settings change and the replica retirement are part B.
+- [AECI-636](https://linear.app/aec-integrations/issue/AECI-636) — retires `integration_count` as an ordering signal. Part A put `listing_tier` on the records (§3.1, §3.2, §6). Part B changed `customRanking` and retired the "Most integrations" replicas and D1 list sort (§3, §5, §5a).
 - `packages/shared/src/algolia.spec.ts` — settings assertions that co-verify this doc.
 - `DATABASE_SCHEMA.md` — origin of `integration_count`, `product_count`, `review_count`, `rating_overall_avg`.
 - `CACHE_STRATEGY.md` — the sibling lifted-from-spec doc this one mirrors in structure.

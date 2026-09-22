@@ -172,14 +172,16 @@ describe('vendorDetailResolver — title and description (AECI-802)', () => {
     expect(meta.description).not.toContain('Construction management vendor.');
   });
 
-  it('names the most-integrated products first', async () => {
+  // AECI-636 PR-B: the integration count no longer picks the order. Beta has
+  // the most integrations and still sits in its alphabetical place.
+  it('names products in name order, never most-integrated first', async () => {
     const vendor = buildVendor({
       company_name: 'Acme',
       product_count: 3,
       products: [named('a', 'Alpha'), named('b', 'Beta', 40), named('g', 'Gamma')],
     });
     const meta = await metaFor(vendor);
-    expect(meta.description).toContain('including Beta, Alpha and Gamma.');
+    expect(meta.description).toContain('including Alpha, Beta and Gamma.');
   });
 
   it('uses the singular message id at a count of one', async () => {

@@ -74,6 +74,10 @@ runtime regardless.
   (§7.5) so it gets no replicas. Standard replicas auto-mirror their primary (4 replicas = 4×
   the products+vendors record footprint, accepted for exact ordering). Full model:
   `SEARCH_RANKING.md` §5a.
+  - **Amended (AECI-636 PR-B, 2026-09-22).** The option list is now Relevance · Name A–Z. The two
+    "Most integrations" replicas were removed from `REPLICA_SORTS`, so there are 2 replicas and
+    a 2× footprint, not 4. The retired replicas are detached, not deleted, and an operator
+    deletes them by hand (`SEARCH_RANKING.md` §5a).
 - If a future Angular-native InstantSearch binding ships (or `@angular/aria`-based community
   widgets mature), revisit; the connector→signal seam localizes the blast radius of a swap to
   `search-controller.ts` + `search-controller.factory.ts`.

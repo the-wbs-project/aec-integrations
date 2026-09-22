@@ -195,7 +195,7 @@ export type IndexSettings = {
    *  env-agnostic §7.3 shape, so this is absent on `indexSettingsFor()`. */
   replicas?: string[];
   /** Full `ranking` override — only set on a **replica** index to force its sort
-   *  attribute (`asc(name_sort)` / `desc(integration_count)`) ahead of Algolia's
+   *  attribute (`asc(name_sort)` / `asc(company_name_sort)`) ahead of Algolia's
    *  default criteria. The primary never overrides `ranking` (SEARCH_RANKING §2). */
   ranking?: string[];
 };
@@ -237,11 +237,20 @@ export type ReplicaSort = {
 
 /**
  * Per-entity replica sorts (AECI-175). Products and Vendors each expose
- * "Most integrations" and "Name A–Z"; the Integrations tab is hidden on
- * `/search` (§7.5) so it has no sort UI and no replicas. Each extra option is a
- * full standard replica index — i.e. 4 replicas total — which Algolia keeps in
- * sync with its primary automatically (no extra sync work) at the cost of
- * duplicating the primary's records for quota/billing. See `SEARCH_RANKING.md`.
+ * "Name A–Z"; the Integrations tab is hidden on `/search` (§7.5) so it has no
+ * sort UI and no replicas. Each extra option is a full standard replica index —
+ * i.e. 2 replicas total — which Algolia keeps in sync with its primary
+ * automatically (no extra sync work) at the cost of duplicating the primary's
+ * records for quota/billing. See `SEARCH_RANKING.md` §5a.
+ *
+ * **The "Most integrations" replicas (`*_integration_count_desc`) are retired**
+ * (AECI-636 PR-B): a count of integrations rewards exactly the shallow,
+ * oversold connectors AECi exists to warn buyers about. Removing an entry here
+ * only DETACHES that replica from its primary on the next apply — it survives as
+ * a standalone index that still counts against the quota, and the CI key has no
+ * `deleteIndex` ACL, so an operator deletes it by hand (`SEARCH_RANKING.md` §5a).
+ * Do not re-add one to roll back: at the index cap Algolia refuses to create it
+ * and the whole settings step fails. Roll back `customRanking` alone instead.
  *
  * **The A–Z replicas rank on `name_sort` / `company_name_sort`, NOT on the display
  * name** (AECI-825). Algolia orders a string attribute by lexicographical Unicode
@@ -254,19 +263,9 @@ export type ReplicaSort = {
  */
 const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
   products: [
-    {
-      sort: 'integrations',
-      suffix: 'integration_count_desc',
-      ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
-    },
     { sort: 'name', suffix: 'name_asc', ranking: ['asc(name_sort)', ...DEFAULT_RANKING_TAIL] },
   ],
   vendors: [
-    {
-      sort: 'integrations',
-      suffix: 'integration_count_desc',
-      ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
-    },
     {
       sort: 'name',
       suffix: 'name_asc',
@@ -373,6 +372,17 @@ export function mechanismRank(kind: string | null | undefined): number {
  * touches `customRanking`: a trade tag is a factual claim about scope, never a
  * quality or commercial signal (no pay-for-placement). See `SEARCH_RANKING.md`
  * §3.1.
+ *
+ * Ranking (AECI-636 PR-B): products and vendors tie-break on `listing_tier`
+ * first — a content-only completeness tier (`./listing-tier`), 2 or 1, OMITTED
+ * on a thin listing so it sorts last. It reads no plan, entitlement or verified
+ * field, despite the word "tier" (`entitlements.spec.ts` block 4 proves it).
+ * `integration_count` and `product_count` left `customRanking`: a count of
+ * integrations rewards shallow connectors, and a count of products rewards
+ * SKU-splitting. Both stay on the records and as facets, because a filter is the
+ * buyer's intent rather than our verdict. Products keep `desc(review_count)` as
+ * the tail by Chris's ruling of 2026-09-22; it departs from the 2026-08-23
+ * decision ("a shrunk average, never a count") and is recorded on AECI-636.
  */
 const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
   products: {
@@ -395,7 +405,7 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'has_api_docs',
       'integration_count',
     ],
-    customRanking: ['desc(integration_count)', 'desc(review_count)'],
+    customRanking: ['desc(listing_tier)', 'desc(review_count)'],
   },
   vendors: {
     searchableAttributes: ['company_name', 'unordered(description)', 'headquarters'],
@@ -405,7 +415,7 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'product_count',
       'integration_count',
     ],
-    customRanking: ['desc(integration_count)', 'desc(product_count)'],
+    customRanking: ['desc(listing_tier)'],
   },
   integrations: {
     searchableAttributes: [

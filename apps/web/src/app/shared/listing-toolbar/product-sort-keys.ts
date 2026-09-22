@@ -13,20 +13,16 @@
  * The set is `ProductSortSchema`'s enum (`packages/shared/src/api/products.ts`)
  * — the API is the ceiling, and every key it accepts is exposed. `STAGE_1_SPEC.md`
  * §4.5 asks the taxonomy browse pages for "alphabetical, most integrations, most
- * reviewed"; all three are here, plus the two `/products` already had.
+ * reviewed". AECI-636 PR-B retired "most integrations" (`integrations`, added by
+ * AECI-657): a count of integrations rewards shallow connectors. A URL still
+ * carrying `?sort=integrations` is no longer in this set, so the paginated index
+ * falls back to `PRODUCT_DEFAULT_SORT` rather than erroring.
  *
  * Before AECI-657 the taxonomy pages restricted themselves to `created` / `name`
  * / `updated` and rendered no control at all, so `rating` and `reviews` were
  * silently unreachable there even by hand-typed URL.
  */
-export const PRODUCT_SORT_KEYS = [
-  'created',
-  'name',
-  'updated',
-  'rating',
-  'reviews',
-  'integrations',
-] as const;
+export const PRODUCT_SORT_KEYS = ['created', 'name', 'updated', 'rating', 'reviews'] as const;
 
 export const PRODUCT_VALID_SORTS: ReadonlySet<string> = new Set(PRODUCT_SORT_KEYS);
 

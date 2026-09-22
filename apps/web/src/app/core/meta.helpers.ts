@@ -253,14 +253,12 @@ export function integrationPartnerNames(product: ProductDetail): string[] {
 }
 
 /**
- * The distinct products a vendor publishes, by name, most-integrated first and
- * alphabetical within a tie.
+ * The distinct products a vendor publishes, in case-insensitive name order.
  *
- * Ordered by `integration_count` rather than alphabetically so a vendor snippet
- * names the products a reader is most likely to be searching for, and because
- * `ProductListItem` carries that column already. The `compareText` tie-break is
- * what keeps the output deterministic when several products share a count —
- * which is the common case, since most counts are 0.
+ * This used to put the most-integrated product first. AECI-636 PR-B retired
+ * `integration_count` as an ordering signal everywhere, and which products a
+ * vendor snippet names is a small placement in its own right, so the order is
+ * now plain alphabetical (`compareText`, never a bare `.sort()`, per AECI-825).
  */
 export function vendorProductNames(vendor: VendorDetail): string[] {
   const seen = new Set<string>();
@@ -269,9 +267,7 @@ export function vendorProductNames(vendor: VendorDetail): string[] {
     seen.add(p.slug);
     return true;
   });
-  return products
-    .sort((a, b) => b.integration_count - a.integration_count || compareText(a.name, b.name))
-    .map((p) => p.name);
+  return products.sort((a, b) => compareText(a.name, b.name)).map((p) => p.name);
 }
 
 /**

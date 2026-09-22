@@ -12,10 +12,10 @@
  *                      the §5.5 gate (`review_count < 5`) sort last (see
  *                      `resolveProductOrderBy`).
  *   - `reviews → DESC` ("Most reviewed")
- *   - `integrations → DESC` ("Most integrations") — on the denormalized
- *                      `products.integration_count`, so no join is needed. This
- *                      is the third sort `STAGE_1_SPEC.md` §4.5 asked for and
- *                      the last to be built (AECI-657).
+ *
+ * `integrations` ("Most integrations", AECI-657) was retired by AECI-636 PR-B:
+ * a count of integrations rewards shallow connectors. `ProductSortSchema` maps a
+ * retired `?sort=integrations` to the default before it reaches this helper.
  *
  * Each resolver returns an **array** whose last element is a unique `id` ASC
  * tiebreaker. The list handlers paginate with page-based `skip`/`take`, and a
@@ -97,13 +97,6 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
       ];
     case 'reviews':
       return [desc(products.reviewCount), asc(products.id)];
-    case 'integrations':
-      // Denormalized counter, recomputed by `lib/recompute-counts.ts` — sorting
-      // on it avoids a correlated count over `integrations`, which on D1 would
-      // run per row. No §5.5-style visibility gate applies: unlike `rating`, the
-      // count is displayed unconditionally (`IntegrationStat` renders "Not yet
-      // connected" at zero), so the order always matches what the card shows.
-      return [desc(products.integrationCount), asc(products.id)];
     default:
       return sort satisfies never;
   }
@@ -291,7 +284,6 @@ export function resolveProductSort(sort: ProductSort): Array<{
   name?: Direction;
   ratingOverallAvg?: Direction;
   reviewCount?: Direction;
-  integrationCount?: Direction;
   id?: Direction;
 }> {
   switch (sort) {
@@ -305,8 +297,6 @@ export function resolveProductSort(sort: ProductSort): Array<{
       return withTiebreaker({ ratingOverallAvg: 'desc' as Direction });
     case 'reviews':
       return withTiebreaker({ reviewCount: 'desc' as Direction });
-    case 'integrations':
-      return withTiebreaker({ integrationCount: 'desc' as Direction });
     default:
       return sort satisfies never;
   }

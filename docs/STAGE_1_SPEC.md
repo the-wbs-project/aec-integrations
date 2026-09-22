@@ -348,6 +348,8 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
 
 **As built (AECI-657).** The grid slot leads with `aec-listing-toolbar` — the same sort `<select>` + cards/table toggle `/products` carries — and defaults to the `ProductCardGrid` card view, with the table available at `?view=table`. Since **AECI-988** that default is only the *first-visit* default: the visitor's last explicit Cards/Table choice is remembered client-side (`profiles.listing_view_preference` when signed in, the `aeci_listing_view` cookie otherwise) and applied post-hydration when the URL carries no `?view=` — an explicit `?view=` always wins, and SSR never reads either store, so the edge cache stays visitor-neutral (`CACHE_STRATEGY.md` §6.1). All six product sort keys are offered, including the three named above; `integrations` ("Most integrations") was added by the same issue, having existed nowhere before it. AECI-190's redesign was scoped to `/products` and gave these pages only its upgraded table row, so between AECI-190 and AECI-657 they shipped a table with no sort control at all — `?sort=` worked by hand-typed URL the whole time, since `createPaginatedIndex` reads it off the URL, but nothing surfaced it.
 
+**Retired (AECI-636 PR-B, 2026-09-22).** The "Most integrations" sort (`sort=integrations`) is gone from `/products` and all four taxonomy pages. Five product sort keys remain: `created`, `name`, `updated`, `rating`, `reviews`. A URL carrying `?sort=integrations` renders the default sort (Newest). The API maps that retired value to `created`, never a 400 (`API_CONTRACTS.md`).
+
 ### 4.6 Search results (`/search`)
 
 - Algolia InstantSearch widgets:
@@ -675,7 +677,7 @@ Three indexes, each denormalized for zero-join search:
 
 Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact, custom) with custom signals layered on top.
 
-**Stage 1 starting point:**
+**Stage 1 starting point** *(superseded for `products` and `vendors` by AECI-636 PR-B, 2026-09-22. They now rank on `listing_tier`. The current values are in `SEARCH_RANKING.md` §3.)*:
 - `products`: `integration_count` desc, `review_count` desc
 - `vendors`: `integration_count` desc, `product_count` desc
 - `integrations`: `mechanism_kind` priority (native > marketplace-app > iPaaS > api > webhook > partner)

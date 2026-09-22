@@ -331,6 +331,8 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 
 **Catalog-driven product sort** (AECI-657): `integrations` ("Most integrations"), **DESC** on the denormalized `products.integration_count`. `STAGE_1_SPEC.md` §4.5 named it alongside alphabetical and most-reviewed for the browse pages, and it was the one of the three with no implementation anywhere. No visibility gate applies — unlike `rating`, the count is shown on every card (zero included, as "Not yet connected"), so the ranking always matches what the reader sees.
 
+**Retired (AECI-636 PR-B, 2026-09-22).** `integrations` is no longer a product sort. `ProductSortSchema` drops it, leaving five keys: `created`, `name`, `updated`, `rating`, `reviews`. The API maps the retired value to the default `created` before validation, so an old `?sort=integrations` returns the default order and never a 400. The listing toolbar no longer offers the option. `integration_count` stays on every card and stays a filter.
+
 **Collation — `name ASC` means case-insensitive (AECI-825).** §7.4 fixed the field and the direction and said nothing about collation, so the implementation inherited SQLite's `BINARY` default and let case decide: `ADP Workforce Now` ranked above `Access Coins Evo`, and `eSUB` / `iSqFt` / `openBIM` sorted after `Zoho`. Every text `ORDER BY` now carries `COLLATE NOCASE` (`textAsc` in `apps/api/src/lib/collation.ts`). Direction and default per-entity key are unchanged. One knock-on: `NOCASE` reports `ADP` and `adp` as EQUAL, so the AECI-99 `id ASC` tiebreaker is now what keeps a paginated list total rather than merely defensive. See `API_CONTRACTS.md` §3.2 for the full rule, including the Algolia and in-memory halves.
 
 **Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
@@ -473,7 +475,8 @@ Every page sets:
     property, a meta description is a SERP snippet. §13.6 is explicit on the point.
   - **The product number is `integration_count`**, the denormalized column, so the snippet agrees
     with the product card, the hero `IntegrationStat`, the Algolia numeric facet and both sort
-    replicas. Deriving a separate figure here would add a fifteenth site to the
+    replicas. *(AECI-636 PR-B, 2026-09-22: both "Most integrations" sort replicas were retired,
+    so only the facet remains on the Algolia side.)* Deriving a separate figure here would add a fifteenth site to the
     `docs/STAGE_1_5_SPEC.md` §13.5 count lockstep for no reader benefit.
   - **The vendor number is `product_count`, never `integration_count`.** A vendor's
     `integration_count` counts integrations that vendor *built* (`built_by_vendor_id`), not
@@ -489,6 +492,8 @@ Every page sets:
   `formatNameList`, `composeEntityDescription`), unit-tested under plain Node in
   `meta.helpers.spec.ts`. The `$localize` sentences live in the resolvers, and the shared trust line
   in `core/meta-copy.ts`, because `meta.helpers.ts` is deliberately Angular-free.
+  *(AECI-636 PR-B, 2026-09-22: `vendorProductNames` now picks product names in case-insensitive
+  name order, not by integration count.)*
 
   Both name lists order through `compareText` (`@aeci/shared/text-sort`, §20a of
   `ANGULAR_STYLE_GUIDE.md`). That is not a style preference here: the API returns the integration

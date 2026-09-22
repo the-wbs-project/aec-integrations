@@ -34,7 +34,8 @@ import { ProductCardGrid } from './product-card-grid';
  *   `createListingView` / `productSortOptions` pair, because the taxonomy browse
  *   pages needed the same control and had shipped without one (STAGE_1_SPEC.md
  *   §4.5). This page's behaviour is unchanged by the move; the sort list gained
- *   "Most integrations", the third option §4.5 named.
+ *   "Most integrations", the third option §4.5 named, and AECI-636 PR-B retired
+ *   it again (a count of integrations is not a ranking signal).
  *
  * The fetch/sort/pagination/error pipeline lives in the shared
  * `createPaginatedIndex` controller (AECI-107), here in **append mode**: the

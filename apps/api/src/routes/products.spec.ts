@@ -144,33 +144,28 @@ describe('GET /api/products', () => {
     expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
   });
 
-  // AECI-657 — STAGE_1_SPEC.md §4.5 asked for "most integrations" alongside
-  // alphabetical and most-reviewed; this was the one that had no implementation.
-  // Unlike `rating` there is no visibility gate: the count renders on every card
-  // (zero included), so the order always matches what the reader sees.
-  it('sorts by integration count desc (Most integrations), zero-count products last', async () => {
-    await seedProduct(u(1), 'few', 'Few', { integrationCount: 3 });
-    await seedProduct(u(2), 'many', 'Many', { integrationCount: 21 });
-    await seedProduct(u(3), 'none', 'None', { integrationCount: 0 });
+  // AECI-636 PR-B retired "Most integrations" (AECI-657's count sort). A
+  // bookmarked `/products?sort=integrations` or a category page carrying it must
+  // get the default order (created DESC), never a 400 and never a count order.
+  it('treats the retired `sort=integrations` as the default sort, never an error', async () => {
+    await seedProduct(u(1), 'older-many', 'Older many', {
+      createdAt: '2026-01-01T00:00:00.000Z',
+      integrationCount: 21,
+    });
+    await seedProduct(u(2), 'newer-none', 'Newer none', {
+      createdAt: '2026-02-01T00:00:00.000Z',
+      integrationCount: 0,
+    });
 
-    const parsed = ProductsListResponseSchema.parse(
-      await (await get(listApp(), '/api/products?sort=integrations')).json(),
-    );
-    expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
+    const res = await get(listApp(), '/api/products?sort=integrations');
+    expect(res.status).toBe(200);
+    const parsed = ProductsListResponseSchema.parse(await res.json());
+    expect(parsed.data.map((p) => p.slug)).toEqual(['newer-none', 'older-many']);
   });
 
-  it('breaks integration-count ties on id, so paging cannot drop or duplicate a row', async () => {
-    // Three-way tie: without the AECI-99 `id ASC` tiebreaker the two pages below
-    // could overlap or skip a row, since D1 gives no stable order for equal keys.
-    for (const i of [1, 2, 3]) {
-      await seedProduct(u(i), `tied-${i}`, `Tied ${i}`, { integrationCount: 7 });
-    }
-    const page = async (n: number) =>
-      ProductsListResponseSchema.parse(
-        await (await get(listApp(), `/api/products?sort=integrations&perPage=2&page=${n}`)).json(),
-      ).data.map((p) => p.slug);
-
-    expect([...(await page(1)), ...(await page(2))]).toEqual(['tied-1', 'tied-2', 'tied-3']);
+  it('still rejects a sort key that was never valid', async () => {
+    const res = await get(listApp(), '/api/products?sort=integration');
+    expect(res.status).toBe(400);
   });
 
   it('sorts by rating desc and ranks sub-5-review products last (Highest rated, §5.5 gate)', async () => {

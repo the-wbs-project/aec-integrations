@@ -31,15 +31,20 @@ export type ProductRole = z.infer<typeof ProductRoleSchema>;
  * matches what the card actually displays — the gate lives in
  * `resolveProductOrderBy` (`apps/api/src/lib/sort.ts`).
  *
- * `integrations` ("Most integrations") is `DESC` on the denormalized
- * `products.integration_count` (maintained by `lib/recompute-counts.ts`, so the
- * sort needs no join and no migration). It is the third sort STAGE_1_SPEC.md
- * §4.5 named for the taxonomy browse pages — "alphabetical, most integrations,
- * most reviewed" — and was the one that existed nowhere until AECI-657.
+ * `integrations` ("Most integrations") was retired by AECI-636 PR-B. It was
+ * `DESC` on `products.integration_count`, added by AECI-657, and a count of
+ * integrations rewards exactly the shallow, oversold connectors AECi exists to
+ * warn buyers about. A bookmarked `?sort=integrations` must never become a 400,
+ * so the retired value is mapped to the default before the enum sees it. Any
+ * OTHER unknown value still fails validation, as before.
  */
-export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated', 'rating', 'reviews', 'integrations'])
-  .default('created');
+export const RETIRED_PRODUCT_SORTS: readonly string[] = ['integrations'];
+
+export const ProductSortSchema = z.preprocess(
+  (value) =>
+    typeof value === 'string' && RETIRED_PRODUCT_SORTS.includes(value) ? undefined : value,
+  z.enum(['created', 'name', 'updated', 'rating', 'reviews']).default('created'),
+);
 
 export type ProductSort = z.infer<typeof ProductSortSchema>;
 

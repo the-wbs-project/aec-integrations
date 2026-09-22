@@ -35,9 +35,12 @@ import {
  *   The entitlement vocabulary and the Algolia ranking vocabulary are
  *   disjoint sets, and the disjointness is asserted, not documented.
  *
- * The other half of the firewall already exists and is **out of bounds for this
- * issue**: `algolia.spec.ts` freezes each entity's `customRanking` to its exact
- * Stage-1 value, so an attempt to add a ranking signal fails there first.
+ * The other half of the firewall is `algolia.spec.ts`, which freezes each
+ * entity's `customRanking` to its exact value, so an attempt to add a ranking
+ * signal fails there first. That freeze was out of bounds for the AECI-515 epic.
+ * AECI-636 reopened it as a decision (PR-B, 2026-09-22): products and vendors
+ * now rank on `listing_tier`, so block 3b below checks `customRanking` by
+ * substring and block 4 proves `listing_tier` reads content only.
  */
 
 // ---------------------------------------------------------------------------
@@ -150,6 +153,7 @@ describe('the entitlement and ranking vocabularies are disjoint (§3.2) [invaria
     expect(rankingVocabulary.has('categories')).toBe(true); // searchable() stripped
     expect(rankingVocabulary.has('integration_count')).toBe(true); // desc() stripped
     expect(rankingVocabulary.has('mechanism_rank')).toBe(true);
+    expect(rankingVocabulary.has('listing_tier')).toBe(true); // AECI-636 PR-B
     // No wrapper survived the strip.
     for (const attribute of rankingVocabulary) expect(attribute).not.toMatch(/[()]/);
   });
@@ -173,6 +177,90 @@ describe('the entitlement and ranking vocabularies are disjoint (§3.2) [invaria
         `"${banned}" is an entitlement concept and must not appear in INDEX_SETTINGS`,
       ).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. customRanking names no plan, entitlement or verified attribute (AECI-636).
+// ---------------------------------------------------------------------------
+
+/**
+ * Block 3 checks the whole ranking vocabulary by EXACT name, so it catches
+ * `verified` but not `is_verified`, `plan_rank` or `entitlement_tier`. That was
+ * enough while `customRanking` held only counts. AECI-636 PR-B made the first
+ * product and vendor `customRanking` signal a COMPUTED tier, so the order-deciding
+ * list gets its own, stricter check: a substring match over every entity's
+ * `customRanking`, against the plan-shaped words, every capability id, every
+ * entitlement tier and every entitlement status.
+ *
+ * `listing_tier` is the one name allowed to contain "tier". It is admitted by
+ * name, not by pattern, because block 4 below proves its inputs are content-only.
+ * A second tier-shaped ranking attribute must earn its own entry here, with its
+ * own content-only proof.
+ */
+const CONTENT_PROVEN_RANKING_ATTRIBUTES: ReadonlySet<string> = new Set(['listing_tier']);
+
+const customRankingAttributes = INDEX_ENTITIES.flatMap((entity) =>
+  indexSettingsFor(entity).customRanking.map((criterion) => ({
+    entity,
+    attribute: stripAlgoliaWrapper(criterion),
+  })),
+);
+
+describe('customRanking names no plan, entitlement or verified attribute (AECI-636) [invariant]', () => {
+  it('checks a real customRanking list — the proof is not vacuous', () => {
+    const names = customRankingAttributes.map((entry) => entry.attribute);
+    expect(names).toContain('listing_tier');
+    expect(names).toContain('mechanism_rank');
+    for (const name of names) expect(name).not.toMatch(/[()]/);
+  });
+
+  it('no customRanking attribute contains a plan-shaped word', () => {
+    const planShaped = [
+      'verified',
+      'tier',
+      'entitlement',
+      'status',
+      'paid',
+      'plan',
+      'priority',
+      'seat',
+    ];
+    for (const { entity, attribute } of customRankingAttributes) {
+      if (CONTENT_PROVEN_RANKING_ATTRIBUTES.has(attribute)) continue;
+      for (const banned of planShaped) {
+        expect(
+          attribute.toLowerCase(),
+          `${entity} customRanking "${attribute}" names "${banned}"`,
+        ).not.toContain(banned);
+      }
+    }
+  });
+
+  it('no customRanking attribute is or contains a capability, tier or status id', () => {
+    const entitlementIds: readonly string[] = [...CAPABILITIES, ...TIERS, ...ENTITLEMENT_STATUSES];
+    for (const { entity, attribute } of customRankingAttributes) {
+      for (const id of entitlementIds) {
+        // Capability ids are dotted (`analytics.view`); compare both spellings.
+        const spellings = [id, id.replace(/\./g, '_')];
+        for (const spelling of spellings) {
+          expect(
+            attribute.toLowerCase().includes(spelling.toLowerCase()),
+            `${entity} customRanking "${attribute}" contains entitlement id "${id}"`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('admits listing_tier only because block 4 proves its inputs', () => {
+    // If listing_tier ever leaves customRanking, this allowlist entry is dead and
+    // should go with it, so a later attribute cannot inherit the exemption.
+    for (const admitted of CONTENT_PROVEN_RANKING_ATTRIBUTES) {
+      expect(customRankingAttributes.map((entry) => entry.attribute)).toContain(admitted);
+    }
+    expect(PRODUCT_LISTING_TIER_INPUTS.length).toBeGreaterThan(0);
+    expect(VENDOR_LISTING_TIER_INPUTS.length).toBeGreaterThan(0);
   });
 });
 

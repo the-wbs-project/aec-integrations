@@ -41,18 +41,20 @@ describe('ListingToolbar (AECI-657)', () => {
     expect(options).toEqual([...PRODUCT_SORT_KEYS]);
   });
 
-  // The whole point of the extraction: §4.5's three sorts must all be offered.
-  it('offers the three sorts STAGE_1_SPEC.md §4.5 names', () => {
+  // §4.5 named alphabetical, most integrations and most reviewed. AECI-636 PR-B
+  // retired "Most integrations", so exactly the other two remain from that list.
+  it('offers alphabetical and most reviewed, and no longer "Most integrations"', () => {
     const labels = [...el(fixture).querySelectorAll('option')].map((o) => o.textContent?.trim());
-    expect(labels).toEqual(
-      expect.arrayContaining(['Name (A–Z)', 'Most integrations', 'Most reviewed']),
-    );
+    expect(labels).toEqual(expect.arrayContaining(['Name (A–Z)', 'Most reviewed']));
+    expect(labels).not.toContain('Most integrations');
+    const values = [...el(fixture).querySelectorAll('option')].map((o) => o.value);
+    expect(values).not.toContain('integrations');
   });
 
   it('marks the active sort selected rather than holding its own state', () => {
-    fixture.componentInstance.sort.set('integrations');
+    fixture.componentInstance.sort.set('reviews');
     fixture.detectChanges();
-    expect(el(fixture).querySelector('select')!.value).toBe('integrations');
+    expect(el(fixture).querySelector('select')!.value).toBe('reviews');
   });
 
   it('emits the chosen sort key and does NOT move on its own', () => {

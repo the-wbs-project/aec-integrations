@@ -152,12 +152,12 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
 
   it('sends ?sort= from the URL to the API, including the keys it used to reject', async () => {
     const fixture = TestBed.createComponent(OutletHost);
-    await router.navigateByUrl('/categories/project-management?sort=integrations');
+    await router.navigateByUrl('/categories/project-management?sort=reviews');
     fixture.detectChanges();
     await settle();
 
     const req = httpMock.expectOne(
-      (r) => r.url === '/api/products' && r.params.get('sort') === 'integrations',
+      (r) => r.url === '/api/products' && r.params.get('sort') === 'reviews',
     );
     // The page's own dimension rides baseParams, never the URL.
     expect(req.request.params.get('category_id')).toBe(TERM.id);
@@ -165,7 +165,29 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
     await settle();
 
     fixture.detectChanges();
-    expect(el(fixture).querySelector('select')!.value).toBe('integrations');
+    expect(el(fixture).querySelector('select')!.value).toBe('reviews');
+    drainFacets(httpMock);
+  });
+
+  // AECI-636 PR-B retired "Most integrations". An old link or crawled URL that
+  // still carries it must render the default sort, never an error state.
+  it('falls back to the default sort on the retired ?sort=integrations', async () => {
+    const fixture = TestBed.createComponent(OutletHost);
+    await router.navigateByUrl('/categories/project-management?sort=integrations');
+    fixture.detectChanges();
+    await settle();
+
+    httpMock
+      .expectOne((r) => r.url === '/api/products' && r.params.get('sort') === 'created')
+      .flush(fixtureResponse);
+    httpMock.expectNone(
+      (r) => r.url === '/api/products' && r.params.get('sort') === 'integrations',
+    );
+    await settle();
+
+    fixture.detectChanges();
+    expect(el(fixture).querySelector('select')!.value).toBe('created');
+    expect(el(fixture).querySelector('aec-product-card-grid')).not.toBeNull();
     drainFacets(httpMock);
   });
 

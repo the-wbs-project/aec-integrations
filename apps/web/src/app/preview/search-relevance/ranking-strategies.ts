@@ -42,7 +42,7 @@ export const STRATEGIES: readonly StrategyMeta[] = [
     label: 'Baseline (today)',
     kind: 'lexicographic',
     blurb:
-      'Production §3.1: text relevance, then desc(integration_count), then desc(review_count). Signals only break textual ties.',
+      'Production §3.1: text relevance, then desc(listing_tier), then desc(review_count). Signals only break textual ties; a listing with no tier sorts last.',
   },
   {
     id: 'ratings',
@@ -144,9 +144,12 @@ export function textScore(query: string, record: AlgoliaProductRecord): number {
 }
 
 const COMPARATORS: Record<StrategyId, (a: Scored, b: Scored) => number> = {
+  // Mirrors production `customRanking` since AECI-636 PR-B. An absent
+  // `listing_tier` sorts last in Algolia whatever the direction; modelling it as
+  // 0 under `desc` gives the same order, since real tiers are 1 or 2.
   baseline: (a, b) =>
     b.textScore - a.textScore ||
-    b.record.integration_count - a.record.integration_count ||
+    (b.record.listing_tier ?? 0) - (a.record.listing_tier ?? 0) ||
     b.record.review_count - a.record.review_count ||
     compareText(a.record.name, b.record.name),
   ratings: (a, b) =>

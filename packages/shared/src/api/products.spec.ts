@@ -4,6 +4,7 @@ import {
   ProductDetailSchema,
   ProductListItemSchema,
   ProductSortSchema,
+  RETIRED_PRODUCT_SORTS,
   ProductsListQuerySchema,
   ProductsListResponseSchema,
   ProductUsefulnessSchema,
@@ -276,11 +277,19 @@ describe('ProductSortSchema', () => {
     expect(ProductSortSchema.parse('updated')).toBe('updated');
     expect(ProductSortSchema.parse('rating')).toBe('rating');
     expect(ProductSortSchema.parse('reviews')).toBe('reviews');
-    expect(ProductSortSchema.parse('integrations')).toBe('integrations');
   });
 
   it('rejects an unknown key rather than silently defaulting', () => {
     expect(() => ProductSortSchema.parse('integration')).toThrow();
+  });
+
+  // AECI-636 PR-B retired "Most integrations". A bookmarked or crawled
+  // `?sort=integrations` must fall back to the default, never 400.
+  it('maps the retired `integrations` sort to the default instead of erroring', () => {
+    expect(RETIRED_PRODUCT_SORTS).toEqual(['integrations']);
+    expect(ProductSortSchema.parse('integrations')).toBe('created');
+    expect(ProductsListQuerySchema.parse({ sort: 'integrations' }).sort).toBe('created');
+    expect(ProductsListQuerySchema.parse({}).sort).toBe('created');
   });
 });
 
