@@ -1954,7 +1954,7 @@ These are observable through `job_runs` and the emitted metrics instead, not thr
 | action | `entity_type` | written by | granularity |
 |---|---|---|---|
 | `product.deleted` | `product` | `ops:retract-product` (`lib/retract-product.ts`) | one per product; `before_state.removed` counts the facet rows and edges that went with it |
-| `integration.deleted` | `integration` | `ops:retract-product`, the retraction consumer (`scripts/ops/2026-09-retraction-consumer/`), and the 2026-09 one-off retraction lanes | one per edge. **`metadata.table` says which table** — `integrations` or `connector_evidenced_pairs` — because both are integrations to a reader. Claim, attestation and field-contest counts ride in `before_state.cascade` |
+| `integration.deleted` | `integration` | `ops:retract-product`, the retraction consumer (`scripts/ops/2026-09-retraction-consumer/`), and the 2026-09 one-off retraction lanes | one per edge. **`metadata.table` says which table** — `integrations` or `connector_evidenced_pairs` — because both are integrations to a reader. Claim, attestation and field-contest counts ride in `before_state.cascade`. From `ops:retract-product`, a `connector_evidenced_pairs` tombstone is written only under `--delete-evidenced-pairs` (AECI-904) |
 | `integration.updated` | `integration` | `ops:retract-product` | one per edge whose `powered_by_product_id` was NULLed because its connector was retracted |
 | `review.deleted` | `review` | `ops:retract-product` (`--force` only) | one per review. `before_state` omits the body and the reviewer's firm, since this table is kept indefinitely (§26.6) |
 | `product_version.deleted` | `product_version` | `ops:retract-product` (`--force` only) | one per version |

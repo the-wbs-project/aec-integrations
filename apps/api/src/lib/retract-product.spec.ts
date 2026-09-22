@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -8,6 +11,7 @@ import {
   buildFootprintSql,
   buildProductLookupSql,
   classifyRetraction,
+  DELETE_EVIDENCED_PAIRS_FLAG,
   escapeSqlLiteral,
   type ProductDeleteArgs,
   formatFootprintReport,
@@ -23,6 +27,9 @@ const RAW_EMPTY: RawFootprintRow = {
   integrations: 0,
   powered_by: 0,
   evidenced_pairs: 0,
+  evidenced_pairs_as_connector: 0,
+  evidenced_pairs_as_a: 0,
+  evidenced_pairs_as_b: 0,
   claims: 0,
   attestations: 0,
   field_challenges: 0,
@@ -39,6 +46,7 @@ const RAW_EMPTY: RawFootprintRow = {
   audience_slugs: null,
   phase_slugs: null,
   trade_slugs: null,
+  evidenced_pair_slugs: null,
 };
 
 const PRODUCT: ProductRow = {
@@ -112,25 +120,56 @@ describe('classifyRetraction', () => {
     expect(c.blockers).toEqual([]);
   });
 
-  it('flags integrations, powered_by, evidenced pairs, reviews and versions as --force blockers', () => {
+  it('flags integrations, powered_by, reviews and versions as --force blockers', () => {
     const fp: RetractFootprint = {
       ...parseFootprint(RAW_EMPTY),
       integrations: 3,
       poweredBy: 1,
-      evidencedPairs: 4,
       reviews: 2,
       productVersions: 5,
     };
     const c = classifyRetraction(fp);
     expect(c.safe).toBe(false);
     expect(c.refusals).toEqual([]);
-    expect(c.blockers).toHaveLength(5);
+    expect(c.evidencedPairRefusal).toBeNull();
+    expect(c.blockers).toHaveLength(4);
     const text = c.blockers.join(' ');
     expect(text).toContain('3 integration(s)');
     expect(text).toContain('powered_by');
-    expect(text).toContain('4 connector-evidenced pair(s)');
     expect(text).toContain('2 review(s)');
     expect(text).toContain('5 product version(s)');
+  });
+
+  const WITH_PAIRS: RetractFootprint = {
+    ...parseFootprint(RAW_EMPTY),
+    evidencedPairs: 4,
+    evidencedPairsAsConnector: 3,
+    evidencedPairsAsA: 1,
+    evidencedPairsAsB: 0,
+  };
+
+  it('refuses any evidenced pair without --delete-evidenced-pairs, and names each role', () => {
+    const c = classifyRetraction(WITH_PAIRS);
+    expect(c.safe).toBe(false);
+    expect(c.blockers).toEqual([]);
+    expect(c.evidencedPairRefusal).toBe(
+      '4 connector-evidenced pair(s): 3 as connector, 1 as endpoint A, 0 as endpoint B',
+    );
+    expect(DELETE_EVIDENCED_PAIRS_FLAG).toBe('--delete-evidenced-pairs');
+  });
+
+  it('does not treat pairs as a --force blocker, so --force alone never clears them', () => {
+    // The CLI clears `blockers` with --force. Pairs must not be in that list.
+    expect(classifyRetraction(WITH_PAIRS).blockers).toEqual([]);
+    expect(
+      classifyRetraction({ ...WITH_PAIRS, integrations: 1 }).evidencedPairRefusal,
+    ).not.toBeNull();
+  });
+
+  it('clears the pair refusal only when the flag is passed', () => {
+    const c = classifyRetraction(WITH_PAIRS, { deleteEvidencedPairs: true });
+    expect(c.evidencedPairRefusal).toBeNull();
+    expect(c.safe).toBe(true);
   });
 
   it('refuses a connector catalogue or stub mapping as a refusal, not a blocker', () => {
@@ -160,7 +199,7 @@ function deleteArgs(overrides: Partial<ProductDeleteArgs> = {}): ProductDeleteAr
 }
 
 describe('buildDeleteStatements', () => {
-  const stmts = buildDeleteStatements(deleteArgs());
+  const stmts = buildDeleteStatements(deleteArgs({ deleteEvidencedPairs: true }));
   const idx = (needle: string) => stmts.findIndex((s) => s.includes(needle));
 
   it('orders children before parents and ends with the product row', () => {
@@ -230,6 +269,17 @@ describe('buildDeleteStatements', () => {
       expect(s).toContain('NOT EXISTS (SELECT 1 FROM "connector_catalogs"');
       expect(s).toContain('NOT EXISTS (SELECT 1 FROM "connector_stub_mappings"');
     }
+  });
+
+  it('without the flag, carries no pair delete and guards the product DELETE on pairs', () => {
+    const plain = buildDeleteStatements(deleteArgs());
+    expect(plain.some((s) => s.startsWith('DELETE FROM "connector_evidenced_pairs"'))).toBe(false);
+    expect(plain.some((s) => s.includes("'connector_evidenced_pairs', 'row'"))).toBe(false);
+    expect(plain.find((s) => s.startsWith('DELETE FROM "claims"'))).not.toContain(
+      'connector_evidenced_pair_id',
+    );
+    for (const s of [plain.at(-1)!, plain.at(-2)!])
+      expect(s).toContain('AND NOT EXISTS (SELECT "id" FROM "connector_evidenced_pairs"');
   });
 
   it('escapes the id in every statement', () => {
@@ -335,6 +385,9 @@ describe('buildDeleteStatements against the migrated schema', () => {
       integrations: 1,
       poweredBy: 1,
       evidencedPairs: 1,
+      evidencedPairsAsConnector: 0,
+      evidencedPairsAsA: 0,
+      evidencedPairsAsB: 1,
       claims: 2,
       attestations: 1,
       fieldChallenges: 1,
@@ -361,6 +414,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         now: NOW,
         operator: 'ops@example.com',
         force: true,
+        deleteEvidencedPairs: true,
       }),
     );
 
@@ -403,6 +457,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         issue: 'AECI-687',
         operator: 'ops@example.com',
         force: true,
+        delete_evidenced_pairs: true,
         retracted_product_id: P,
       });
     }
@@ -518,5 +573,235 @@ describe('formatFootprintReport', () => {
     expect(report).toContain('226817bb-25d1-4d10-90fa-f346638df821');
     expect(report).toContain('promoted');
     expect(report).toContain('page_views');
+  });
+});
+
+// ─── Connector-evidenced pairs, against the real connector fixture (AECI-904) ──
+
+const FX = {
+  mindcloud: '00000000-0000-4000-8000-000000000790',
+  agave: '00000000-0000-4000-8000-000000000791',
+  procore: '00000000-0000-4000-8000-000000000800',
+  sageIntacct: '00000000-0000-4000-8000-000000000803',
+  quickbooks: '00000000-0000-4000-8000-000000000804',
+} as const;
+
+/** The migrated schema plus `seed/connector-fixtures.sql`, with one claim and one
+ *  attestation on every evidenced pair so the two-level cascade has rows to take. */
+async function connectorFixtureDb(): Promise<TestDb> {
+  const t = await makeTestDb();
+  t.raw.exec(readFileSync(join(process.cwd(), 'seed', 'connector-fixtures.sql'), 'utf8'));
+  t.raw.exec(
+    `INSERT INTO taxonomy_data_objects (id, slug, name, created_at, updated_at) VALUES ('do1', 'rfis', 'RFIs', ${TS}, ${TS});`,
+  );
+  const pairIds = (
+    t.raw.prepare('SELECT id FROM connector_evidenced_pairs ORDER BY id').all() as Array<{
+      id: string;
+    }>
+  ).map((r) => r.id);
+  expect(pairIds).toHaveLength(4);
+  for (const [i, id] of pairIds.entries()) {
+    t.raw.exec(
+      `INSERT INTO claims (id, connector_evidenced_pair_id, data_object_id, direction, created_at, updated_at) VALUES ('fx-cl-${i}', '${id}', 'do1', 'both', ${TS}, ${TS});`,
+    );
+    t.raw.exec(
+      `INSERT INTO attestations (id, claim_id, source, created_at, updated_at) VALUES ('fx-at-${i}', 'fx-cl-${i}', 'aeci', ${TS}, ${TS});`,
+    );
+  }
+  return t;
+}
+
+/** The operator step the refusal asks for: unmap upstream (or retire the catalogue)
+ *  and let the sync carry it. Simulated here so the pair path is reachable. */
+function clearConnectorRefusals(t: TestDb, productId: string): void {
+  t.raw.exec(`DELETE FROM connector_catalogs WHERE connector_product_id = '${productId}';`);
+  t.raw.exec(`DELETE FROM connector_stub_mappings WHERE product_id = '${productId}';`);
+}
+
+function tableCounts(t: TestDb): Record<string, number> {
+  const tables = (
+    t.raw
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'd1_migrations'`,
+      )
+      .all() as Array<{ name: string }>
+  ).map((r) => r.name);
+  return Object.fromEntries(
+    tables.map((name) => [
+      name,
+      (t.raw.prepare(`SELECT count(*) AS n FROM "${name}"`).get() as { n: number }).n,
+    ]),
+  );
+}
+
+function productRow(t: TestDb, id: string): ProductRow {
+  return t.raw
+    .prepare('SELECT id, slug, name, promotion_status FROM products WHERE id = ?')
+    .get(id) as ProductRow;
+}
+
+describe('connector-evidenced pairs (AECI-904)', () => {
+  it('counts pairs in all three roles against the connector fixture', async () => {
+    const t = await connectorFixtureDb();
+    const roles = (id: string) => {
+      const fp = footprintOf(t, id);
+      return [
+        fp.evidencedPairs,
+        fp.evidencedPairsAsConnector,
+        fp.evidencedPairsAsA,
+        fp.evidencedPairsAsB,
+      ];
+    };
+    expect(roles(FX.mindcloud)).toEqual([2, 2, 0, 0]);
+    expect(roles(FX.agave)).toEqual([2, 2, 0, 0]);
+    expect(roles(FX.procore)).toEqual([4, 0, 4, 0]);
+    expect(roles(FX.sageIntacct)).toEqual([1, 0, 0, 1]);
+    // Every pair's claim and attestation is in the footprint too.
+    expect(footprintOf(t, FX.procore)).toMatchObject({ claims: 4, attestations: 4 });
+    const report = formatFootprintReport(productRow(t, FX.mindcloud), footprintOf(t, FX.mindcloud));
+    expect(report).toMatch(/as connector\s+2/);
+    expect(report).toMatch(/as endpoint A\s+0/);
+    expect(report).toMatch(/as endpoint B\s+0/);
+    t.dispose();
+  });
+
+  it('refuses a pair-carrying product without the flag, even under --force', async () => {
+    const t = await connectorFixtureDb();
+    clearConnectorRefusals(t, FX.sageIntacct);
+    const fp = footprintOf(t, FX.sageIntacct);
+    expect(classifyRetraction(fp).refusals).toEqual([]);
+    expect(classifyRetraction(fp).evidencedPairRefusal).toContain('1 as endpoint B');
+    expect(classifyRetraction(fp, { deleteEvidencedPairs: true }).evidencedPairRefusal).toBeNull();
+    t.dispose();
+  });
+
+  for (const [role, id, pairs] of [
+    ['connector', FX.mindcloud, 2],
+    ['endpoint A', FX.procore, 4],
+    ['endpoint B', FX.sageIntacct, 1],
+  ] as const) {
+    it(`with the flag, as ${role}: deletes exactly the counted rows and nothing else`, async () => {
+      const t = await connectorFixtureDb();
+      clearConnectorRefusals(t, id);
+      const fp = footprintOf(t, id);
+      expect(fp.evidencedPairs).toBe(pairs);
+      const before = tableCounts(t);
+      const survivingPairs = t.raw
+        .prepare(
+          `SELECT id FROM connector_evidenced_pairs WHERE ? NOT IN (connector_product_id, product_a_id, product_b_id) ORDER BY id`,
+        )
+        .all(id);
+
+      // FK enforcement OFF: the cascade cannot do the work, so every row gone below
+      // was removed by an explicit statement.
+      t.raw.pragma('foreign_keys = OFF');
+      apply(
+        t,
+        buildDeleteStatements({
+          product: productRow(t, id),
+          footprint: fp,
+          auditId: 'audit-904',
+          now: NOW,
+          force: true,
+          deleteEvidencedPairs: true,
+        }),
+      );
+      t.raw.pragma('foreign_keys = ON');
+
+      const after = tableCounts(t);
+      const delta = Object.fromEntries(
+        Object.keys(before)
+          .filter((k) => before[k] !== after[k])
+          .map((k) => [k, after[k]! - before[k]!]),
+      );
+      const expected: Record<string, number> = {
+        products: -1,
+        connector_evidenced_pairs: -fp.evidencedPairs,
+        claims: -fp.claims,
+        attestations: -fp.attestations,
+        integrations: -fp.integrations,
+        product_vendors: -fp.productVendors,
+        product_categories: -fp.productCategories,
+        // One tombstone per deleted edge, one per detached powered_by, one product.
+        audit_log: fp.integrations + fp.evidencedPairs + fp.poweredBy + 1,
+      };
+      for (const k of Object.keys(expected)) if (expected[k] === 0) delete expected[k];
+      expect(delta).toEqual(expected);
+
+      // No orphan survives the missing cascade.
+      expect(t.raw.pragma('foreign_key_check')).toEqual([]);
+      // Pairs the product is not part of keep their rows, claims and attestations.
+      expect(
+        t.raw
+          .prepare(
+            `SELECT id FROM connector_evidenced_pairs WHERE ? NOT IN (connector_product_id, product_a_id, product_b_id) ORDER BY id`,
+          )
+          .all(id),
+      ).toEqual(survivingPairs);
+      const pairTombstones = t.raw
+        .prepare(
+          `SELECT count(*) AS n FROM audit_log WHERE action = 'integration.deleted' AND json_extract(metadata, '$.table') = 'connector_evidenced_pairs'`,
+        )
+        .get() as { n: number };
+      expect(pairTombstones.n).toBe(pairs);
+      t.dispose();
+    });
+  }
+
+  it('without the flag, a pair that appeared after the check blocks the delete instead of cascading', async () => {
+    const t = await connectorFixtureDb();
+    clearConnectorRefusals(t, FX.sageIntacct);
+    const product = productRow(t, FX.sageIntacct);
+    // The CLI read a footprint with no pairs; one exists by the time the plan runs.
+    apply(
+      t,
+      buildDeleteStatements({
+        product,
+        footprint: parseFootprint(RAW_EMPTY),
+        auditId: 'audit-late',
+        now: NOW,
+        force: true,
+      }),
+    );
+    const n = (sql: string) => (t.raw.prepare(sql).get() as { n: number }).n;
+    expect(n(`SELECT count(*) AS n FROM products WHERE id = '${FX.sageIntacct}'`)).toBe(1);
+    expect(
+      n(
+        `SELECT count(*) AS n FROM connector_evidenced_pairs WHERE product_b_id = '${FX.sageIntacct}'`,
+      ),
+    ).toBe(1);
+    expect(
+      n(`SELECT count(*) AS n FROM claims WHERE connector_evidenced_pair_id IS NOT NULL`),
+    ).toBe(4);
+    expect(n(`SELECT count(*) AS n FROM attestations`)).toBe(4);
+    expect(n(`SELECT count(*) AS n FROM audit_log WHERE action = 'product.deleted'`)).toBe(0);
+    t.dispose();
+  });
+
+  it('purges the pair page, both endpoints and the connector of every pair', async () => {
+    const t = await connectorFixtureDb();
+    const tags = buildCacheTagsForProduct('fx-mindcloud', footprintOf(t, FX.mindcloud));
+    expect(tags).toEqual(
+      expect.arrayContaining([
+        'product:fx-mindcloud',
+        'pair:fx-procore__fx-sage-intacct',
+        'pair:fx-procore__fx-quickbooks-online',
+        'product:fx-procore',
+        'product:fx-sage-intacct',
+        'product:fx-quickbooks-online',
+      ]),
+    );
+    expect(tags.filter((tag) => tag.startsWith('pair:'))).toHaveLength(2);
+    expect(new Set(tags).size).toBe(tags.length);
+    t.dispose();
+  });
+
+  it('orders the pair tag by slug, not by the id order the table stores', () => {
+    const tags = buildCacheTagsForProduct('zeta', {
+      ...parseFootprint(RAW_EMPTY),
+      evidencedPairSlugs: [{ a: 'zeta', b: 'alpha', connector: 'hub' }],
+    });
+    expect(tags).toContain('pair:alpha__zeta');
+    expect(tags).toContain('product:hub');
   });
 });

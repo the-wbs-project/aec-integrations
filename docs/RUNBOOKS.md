@@ -1567,8 +1567,8 @@ shape, which is the AECI-888 signature.
 > **`evidencedPairSourceGone` has a repair tool since 2026-09-14 (AECI-916), and which route
 > you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
 > datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
-> tombstones) them only as a side effect of retracting an endpoint or connector product under
-> `--force` (AECI-687), so it is not a tool for one stranded pair. The retraction consumer is,
+> tombstones) them only as a side effect of retracting an endpoint or connector product, and
+> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), so it is not a tool for one stranded pair. The retraction consumer is,
 > and it takes two cohorts:
 >
 > - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the

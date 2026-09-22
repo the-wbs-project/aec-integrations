@@ -2711,6 +2711,11 @@ create table connector_evidenced_pairs (
   constraint connector_evidenced_pairs_distinct_connector
     check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
 );
+-- All three product FKs cascade, and claims → attestations cascade below that, so a
+-- product DELETE takes every pair it is part of two levels deep. The one product-delete
+-- path, `ops:retract-product`, never relies on that: it counts the pairs per role,
+-- refuses them unless `--delete-evidenced-pairs`, and deletes them child to parent
+-- (AECI-904, `apps/api/src/lib/retract-product.ts`).
 
 create unique index connector_evidenced_pairs_pair_idx
   on connector_evidenced_pairs(connector_product_id, product_a_id, product_b_id);
