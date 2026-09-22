@@ -169,7 +169,9 @@ export async function findStrongMatches(
  * (or claimed) the twin after the plan read. Same shape as the AECI-1005
  * `promoteClaimFenceSentinel`: the job errors with
  * `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE`, and a re-push plans against the new row
- * and skips the insert. Selects FROM `ONE_ROW`, so it evaluates exactly once.
+ * and skips the write. The exception is an UPDATE whose stored row already matched
+ * the new row: the already-twinned set is read at plan time, so the re-push counts it
+ * and writes the update. Selects FROM `ONE_ROW`, so it evaluates exactly once.
  */
 export function vendorOwnedTwinSentinel(db: Db, candidate: TwinCandidate) {
   return db

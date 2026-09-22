@@ -1252,7 +1252,11 @@ to leave it unpromoted.
 **One race is an error, deliberately, as in §4b.** If a vendor creates (or claims) the
 twin after AECi planned the insert, de-route or update and before it committed, the whole promote rolls
 back and the job ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409).
-Nothing was written. Re-push under a new job id; the re-push reports the skip.
+Nothing was written. Re-push under a new job id; the re-push usually reports the skip.
+The exception is an UPDATE. The already-twinned set is read at plan time, so a vendor
+row created or claimed mid-promote that the stored row already matched can abort the
+promote with this race error. The re-push then counts that row as already twinned and
+writes the update.
 
 **The AECI-1010 promotion gate is closed by the 1011 twin guard, which covers the insert,
 de-route and UPDATE paths.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 hold
@@ -1702,7 +1706,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
-| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest. |
+| `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is

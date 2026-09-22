@@ -559,6 +559,47 @@ describe('the UPDATE guard: a kind or owner change is a key change too', () => {
     expect(await curatedRow()).toMatchObject({ builtByVendorId: OTHER });
   });
 
+  it('aborts when a vendor creates a NEW twin of an already-twinned row mid-promote', async () => {
+    // R already twins V1 (unknown owner). The update fills the owner in. A vendor
+    // creates V2 with R's post-write key between the plan read and the batch; V2 is
+    // not in the plan-time already-twinned set, so the sentinel fires.
+    const V2 = uuid(25);
+    await seedCurated({ builtByVendorId: null });
+    let raced = false;
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (raced) return batch(stmts);
+        raced = true;
+        t.raw
+          .prepare(
+            `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
+             VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
+          )
+          .run(V2, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    await expect(
+      ingest(curatorUpdate(CURATED_ROW, { description: 'after' }), {
+        jobId: 'job-new-twin-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE' });
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: null, description: 'before' });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
+
+    // The stored row (unknown owner) already matched V2 too, so the re-push reads
+    // V2 as already twinned and writes the row.
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }), {
+      jobId: 'job-new-twin-race-2',
+    });
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OWNER, description: 'after' });
+  });
+
   it('lets a kind-only change through when the new kind twins nothing', async () => {
     await seedCurated({ mechanismKind: 'api' });
     const { response } = await ingest(
