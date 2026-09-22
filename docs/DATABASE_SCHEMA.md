@@ -449,7 +449,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > `built_by_vendor_id`, and there is deliberately no `owner_vendor_id` (AECI-1003 decision 12).
 > `claimed_at IS NOT NULL` means the owner verified that by an act. Three rules hang off it:
 >
-> - **Promote's fence keys on `claimed_at`, never on `maintained_by`** (decision 13). A claim
+> - **Promote's fence keys on `claimed_at IS NOT NULL OR origin = 'vendor'`, never on `maintained_by`** (decision 13; the `origin` arm since AECI-1011). A claim
 >   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.

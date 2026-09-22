@@ -2360,8 +2360,8 @@ same `claimColumns` the owner's own claim does (`STAGE_2_VENDOR_PORTAL_SPEC.md` 
 The seventh is the owner's claim itself (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, ADR 0035).
 It is the act that makes a row vendor-owned, so it is the clearest case of "who is on
 the hook for this page" changing hands. What it does NOT change: `maintained_by` is
-still only the display marker. The promote fence keys on `claimed_at`, never on
-`maintained_by` (AECI-1003 decision 13), because an attestation also flips
+still only the display marker. The promote fence keys on `claimed_at IS NOT NULL OR origin = 'vendor'`
+(the `origin` arm since AECI-1011), never on `maintained_by` (AECI-1003 decision 13), because an attestation also flips
 `maintained_by` and an attestation is not ownership.
 
 Two shapes, because each is the right one for its batch. The two `PATCH`es already
