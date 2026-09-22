@@ -910,6 +910,9 @@ full list:
 | `vendor_seat_invites.invited_by_id` | SET NULL | nulled (explicit too; the **invite survives its sender's erasure** — a pending invite is the invitee's to redeem, so only the sender's link is severed) — AECI-664 |
 | `integration_field_challenges.submitted_by` | SET NULL | nulled (explicit too; the **contest survives** — it is the vendor's record, so only the filing person's link is severed) — AECI-1008 |
 | `integration_field_challenges.decided_by` | SET NULL | nulled (explicit too; the decision survives, only the deciding person's link is severed) — AECI-1008 |
+| `integration_field_challenges.protested_by` | SET NULL | nulled (explicit too; the **protest survives**, only the filing person's link is severed) — AECI-1009 |
+| `integration_field_challenges.protest_replied_by` | SET NULL | nulled (explicit too; the owner's reply survives, only the replying person's link is severed) — AECI-1009 |
+| `integration_field_challenges.protest_decided_by` | SET NULL | nulled (explicit too; AECi's view survives, only the deciding admin's link is severed) — AECI-1009 |
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never

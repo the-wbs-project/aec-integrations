@@ -1558,6 +1558,14 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   (`vendor-notifications-list.ts`) renders them with a title per event since AECI-1008 PR B, and
   its framing sentence no longer says every row was emailed (`STAGE_2_VENDOR_PORTAL_SPEC.md`
   §11b.10).
+- **Since AECI-1009 (2026-09-22) contest rows include five protest events**: `protested` (to the
+  owner, with `metadata.basis` and `metadata.replyDueAt`), `protest_replied` (to the submitter),
+  `protest_withdrawn` (to the owner), and `protest_upheld` / `protest_rejected`, which reach
+  **both** sides, told apart by `metadata.recipientRole`; a rejected one carries
+  `metadata.cooldownUntil` for the submitter. An owner `declined` row carries
+  `metadata.protestClosesAt`. The feed exposes these as `recipient_role`, `reply_due_at`,
+  `cooldown_until` and `protest_closes_at`, each `null` on older rows, and the portal renders an
+  unknown event with a fallback title (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.10).
 - **⚠️ Merge hazard for `stage-2` / `main`.** `main` carries
   `apps/api/src/lib/cron-schedules.ts` — a `CRON_SCHEDULES` / `ADMIN_CRON_JOB` registry with a
   spec that asserts **byte-equality against `wrangler.jsonc`**. That file does not exist on

@@ -41,7 +41,7 @@ While it is open, the public page keeps the value on record and does not show th
 How it ends:
 
 - **Accepted.** The proposed value replaces the one on record. When AEC Integrations accepts one on an integration nobody has claimed, the change usually arrives with the next catalogue update.
-- **Declined.** The value on record stays. You are told, with any note the decider added.
+- **Declined.** The value on record stays. You are told, with any note the decider added. If the owner declined it, you can ask AEC Integrations to review the decision within 30 days, from the contest in Messages. You can also ask once the owner has left the contest unanswered for 30 days, and then you have 30 days more. The owner can reply once. AEC Integrations says which side it agrees with. Its view is advice: the owner keeps the integration's details, so the value on record stays unless the owner changes it. If AEC Integrations agrees with the owner, you cannot contest that field again for 90 days unless its value changes. Nothing about a review is public.
 - **Withdrawn.** You can withdraw your own open contest at any time. A contest also closes as withdrawn if the owner or AEC Integrations retires the integration, and restoring it does not reopen the contest.
 
 You can have one open contest per field on each integration. To send a different value, withdraw the open one first.

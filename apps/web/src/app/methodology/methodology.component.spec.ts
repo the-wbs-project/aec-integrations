@@ -112,6 +112,15 @@ describe('MethodologyPage', () => {
       expect(text).toContain('A contest stays with whoever was deciding when it was sent.');
     });
 
+    it('describes the review of an owner decision as advice that is never public (AECI-1009)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('has 30 days to ask us to review it');
+      expect(text).toContain('left the contest unanswered for 30 days');
+      expect(text).toContain('Our answer is advice.');
+      expect(text).toContain('cannot contest the same detail again for 90 days');
+      expect(text).toContain('Nothing about a review is public.');
+    });
+
     it('says an open contest is invisible to readers (§11b.1: nothing public reads it)', () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain(

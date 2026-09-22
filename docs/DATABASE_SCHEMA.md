@@ -1621,6 +1621,42 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
   deletes the contests on the moved row; that is an accepted risk for unclaimed rows
   (§11b.9 of the vendor portal spec).
 
+**Protest columns (AECI-1009, migration `0047_quick_makkari.sql`, hand-authored `ADD COLUMN`s).**
+A declined contest can be protested to AECi (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12). The
+protest is a second state machine on the same row; `status` stays `declined` and its CHECK is
+untouched.
+
+```sql
+alter table integration_field_challenges add protest_status text
+  check (protest_status in ('open', 'upheld', 'rejected', 'withdrawn'));  -- column-level, by hand
+alter table integration_field_challenges add protest_basis text
+  check (protest_basis in ('declined', 'silence'));                       -- column-level, by hand
+alter table integration_field_challenges add protest_reason text;
+alter table integration_field_challenges add protest_evidence text;          -- JSON array, <= 3 URLs
+alter table integration_field_challenges add protested_by text references profiles(id) on delete set null;
+alter table integration_field_challenges add protested_at text;
+alter table integration_field_challenges add protest_reply_due_at text;      -- protested_at + 14 days, stored
+alter table integration_field_challenges add protest_reply text;
+alter table integration_field_challenges add protest_reply_evidence text;    -- JSON array, <= 3 URLs
+alter table integration_field_challenges add protest_replied_by text references profiles(id) on delete set null;
+alter table integration_field_challenges add protest_replied_at text;
+alter table integration_field_challenges add protest_decision_note text;
+alter table integration_field_challenges add protest_decided_by text references profiles(id) on delete set null;
+alter table integration_field_challenges add protest_decided_at text;        -- the cooldown runs from it
+alter table integration_field_challenges add protest_workflow_id text references workflow_instances(id) on delete set null;
+create index integration_field_challenges_protest_idx
+  on integration_field_challenges(protest_status, protested_at) where protest_status is not null;
+```
+
+- **Both CHECKs are column-level and hand-written**, and `schema.ts` declares no table-level
+  `check()` for them, because one would make every later `db:generate` render a recreate of
+  this cascade child. The four FKs carry `ON DELETE SET NULL` by hand for the same reason
+  (`migrations.md` §0). `src/test/migration-0047.spec.ts` pins the file.
+- **Three more inbound FKs to `profiles`** (`protested_by`, `protest_replied_by`,
+  `protest_decided_by`), nulled explicitly in the erasure batch too (`AUTH_AND_RLS.md` §8).
+- **`protest_workflow_id` is the contest's second `correction_request` instance**, with the
+  same `entity_id`. `workflow_instances_type_entity_idx` is not unique, so that is legal.
+
 ### 8.8 `integration_vendor_links` (Stage 2.1 — AECI-1007)
 
 Each endpoint vendor's OWN marketplace listing and docs link on an integration, shown on the

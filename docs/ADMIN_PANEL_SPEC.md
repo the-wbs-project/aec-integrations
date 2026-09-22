@@ -235,7 +235,7 @@ the **Operations trigger renders their SUM**.
 | Review queue | `pending_reviews` | `reviews.status = 'pending'` |
 | Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
-| Field contests | `pending_contests` | `integration_field_challenges.routed_to = 'aeci' AND status = 'open'` (AECI-1008) |
+| Field contests | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
 | Re-index queue | `pending_reindex` | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
 
 **The fifth count is field contests (AECI-1008).** `pending_contests` counts open
@@ -1072,7 +1072,8 @@ Four IA notes, in §5.10's voice:
   something, with a counterparty waiting. It sits after `/admin/claims` and before
   `/admin/reindex`, which keeps the group's badged-queues-first shape.
 - **A nav badge, and the fifth one.** `pending_contests` counts open AECi-routed rows, plus
-  open **stranded** owner-routed rows (AECI-1005), which AECi decides.
+  open **stranded** owner-routed rows (AECI-1005), which AECi decides, plus open **protests**
+  (AECI-1009). A protested row is `declined`, so the protest term never double-counts a row.
   §5.0c covers why the sum stays honest: a different table, so disjointness is trivial.
 - **Owner-routed rows are visible but read-only.** They render "With the owner" and no
   decision buttons. An operator can see a dispute it does not own, but two deciders on one
@@ -1129,6 +1130,21 @@ defaults:
   rows with no issue id. "Linear issue pending" that persists past a sweep is the signal to
   check `LINEAR_API_KEY` and the sweep's `job_runs` row.
 
+**Protests (AECI-1009, 2026-09-22).** A "Show" switch (Contests / Protests) sits before the
+filters. Protests has its own status tabs (Open, Agreed with the submitter, Agreed with the
+owner, Withdrawn) over `protest_status`. A protest card shows both sides in full: why it came
+here (the owner declined, or did not answer within 30 days), the submitter's case and links,
+the owner's one reply or its due date, the live value when it moved, and a line when the
+owner has changed since the decision. The decision is "Agree with the submitter" or "Agree
+with the owner" with a **required** note, through `PATCH /api/admin/contests/:id/protest`,
+a second decision write under the same exception. **It is advice:** it writes no catalog
+data and files no Linear issue, and the help text says so, says both vendors see the note,
+and says that agreeing with the owner blocks the submitter from re-contesting the field for
+90 days unless its value changes. Before the owner's reply is due it also says the owner can
+still reply. Pessimistic like the contest decision: a success drops the row and decrements
+the badge, and `409 PROTEST_NOT_OPEN` announces and reloads. The contract is
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.
+
 ---
 
 ---
@@ -1137,7 +1153,7 @@ defaults:
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
 
-**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), §5.10 added one `PATCH` (the operator note), §5.11 added one `DELETE` (clear a worklist row), and §5.12 added one `PATCH` (the contest decision, AECI-1008). AECI-1046 added two `POST`s to §5.7 (the admin integration retire and restore) and one `GET` (the vendor's held integrations). Their contracts live in `packages/shared/src/api/admin-vendors.ts`, `admin-users.ts` and `admin-reindex.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
+**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), §5.10 added one `PATCH` (the operator note), §5.11 added one `DELETE` (clear a worklist row), and §5.12 added one `PATCH` (the contest decision, AECI-1008) and a second (the protest decision, AECI-1009). AECI-1046 added two `POST`s to §5.7 (the admin integration retire and restore) and one `GET` (the vendor's held integrations). Their contracts live in `packages/shared/src/api/admin-vendors.ts`, `admin-users.ts` and `admin-reindex.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
 
 > **Why §5.11 takes the bare envelope, stated once because it is the rule's clearest case.** The console shape's `notes` array exists to *qualify a number that might be wrong* — a bot-classified count, a figure computed without a credential. A queue depth cannot be qualified. The rows are either there or they are not, and there is no upstream whose absence would make the count approximate. So the surface that would gain least from the envelope is the one that most obviously should not carry it.
 

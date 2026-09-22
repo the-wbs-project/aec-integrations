@@ -2179,7 +2179,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) is a build contract in §11b.12 and is not built.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
 
 ### 11b.1 What a contest is
 
@@ -2322,7 +2322,7 @@ Three surfaces, one store resource, one wire addition.
 
 **Store and live sync.** `contests` is a fifth `VendorPortalResource` (and a `VendorPortalSection`) with its own status, version and retry. PR A's stopgap mapping of the `contests` scope onto the notifications refetch is gone from both `vendor-portal-store.ts` and `vendor-live-sync.ts`.
 
-**Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined", since AECI-1010 "Your contest was closed because the owner retired the integration" (`closed_by_retire`), and since AECI-1046 "Your contest was closed because AEC Integrations retired the integration" when the row's `retired_by` is `'aeci'` (a `closed_by_retire` row written before AECI-1046 carries none and reads as the owner's). The secondary line names the field and the integration. **Since AECI-1023** some rows carry one more sentence under the title saying what the event means for the recipient (`contestNotificationNote` in `vendor-contest-labels.ts`, `noteOf` in `vendor-notifications-list.ts`): `submitted` points the owner at Field contests, `declined` says the value on record stays, and `closed_by_retire` says a restore does not reopen the contest (on an AECi retire it also says only AEC Integrations can restore it). The admin's retire reason is never on the row. `accepted` has no note on purpose, because what an accept changes, and when, depends on the decider and the row's claim state (§11b.6), and the event does not carry either. No note offers a protest: AECI-1009 is designed, not built. The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
+**Notification archive.** Contest rows render with a title per event, written from the recipient's seat: "Another vendor contested a field on your integration" (`submitted`), "A contest on your integration was withdrawn", "Your contest was accepted", "Your contest was declined", since AECI-1010 "Your contest was closed because the owner retired the integration" (`closed_by_retire`), and since AECI-1046 "Your contest was closed because AEC Integrations retired the integration" when the row's `retired_by` is `'aeci'` (a `closed_by_retire` row written before AECI-1046 carries none and reads as the owner's). The secondary line names the field and the integration. **Since AECI-1023** some rows carry one more sentence under the title saying what the event means for the recipient (`contestNotificationNote` in `vendor-contest-labels.ts`, `noteOf` in `vendor-notifications-list.ts`): `submitted` points the owner at Field contests, `declined` says the value on record stays, and `closed_by_retire` says a restore does not reopen the contest (on an AECi retire it also says only AEC Integrations can restore it). The admin's retire reason is never on the row. `accepted` has no note on purpose, because what an accept changes, and when, depends on the decider and the row's claim state (§11b.6), and the event does not carry either. Since AECI-1009 the `declined` note offers a review by AEC Integrations when the row carries a closing date, which the server sets on an owner decline only (§11b.12.10). The archive's framing sentence now says it holds contest updates as well as emailed reminders, because contest events are never emailed.
 
 **Overview.** "What needs you" gains one Needs-you-now row for open received contests, linked to Messages (§6.10).
 
@@ -2341,9 +2341,14 @@ Three surfaces, one store resource, one wire addition.
 - **Pessimistic, one decision at a time.** A success drops the row and decrements the `contests` badge. `409 CONTEST_NOT_OPEN` announces "Already decided" and reloads, so the row shows the state that won, and does not decrement. `409 CONTEST_ROUTED_TO_OWNER` keeps the row with an inline alert.
 - **No detail route.** The API has no single-contest read, and the row already carries every field a decision needs.
 
-### 11b.12 Protest to AECi (AECI-1009) — build contract, not built
+### 11b.12 Protest to AECi (AECI-1009 — built 2026-09-22)
 
-**Status: contract only, written 2026-09-22. Nothing in this subsection is built.** It is the build contract for AECI-1009. Until that build merges, §11b.1 to §11b.11 describe the shipped system, and the public pages correctly say nothing about protests. It encodes Chris's rulings of 2026-09-22 on AECI-1009 and the orchestrator's rulings of the same day. Anything marked **(default, unruled)** is this contract's own choice, and §11b.12.15 lists each one for a ruling.
+**Built 2026-09-22, as this contract.** It encodes Chris's rulings of 2026-09-22 on AECI-1009 and the orchestrator's rulings of the same day, which settled every question the first draft of this subsection left open (§11b.12.15). The code:
+
+- API: `apps/api/src/routes/vendor-contest-protests.ts` (file, reply, withdraw), `apps/api/src/routes/admin-contest-protests.ts` (decide) and `apps/api/src/lib/contest-protests.ts` (eligibility, the wire mapping, the two contest-submit refusals, the race runner).
+- Shared: the protest shapes, constants and window helper in `packages/shared/src/api/integration-contests.ts`, the five events in `packages/shared/src/api/vendor-notifications.ts`, six error codes in `packages/shared/src/errors/codes.ts`.
+- Web: `apps/web/src/app/vendor/components/vendor-contest-protest.ts`, mounted in each row of `vendor-contests-list.ts`, and the Protests view of `apps/web/src/app/admin/contests/contest-queue.*`.
+- Migration `0047_quick_makkari.sql`.
 
 #### 11b.12.1 What a protest is
 
@@ -2351,7 +2356,7 @@ The owner of a claimed integration declined a contest, or never answered it. The
 
 **AECi's ruling is advice. A protest never writes the catalog.** The owner decides the field (ADR 0035 decision 1). An upheld protest does not change the listing, lock the field, transfer maintenance, file a `REVIEW - ` issue or purge a page. It tells both vendors, in writing, that AECi agrees with the submitter. The owner may then change the field through its ordinary edit (`PATCH /api/vendor/integrations/:id`, §4.5.6), or not. There is no ADR amendment and no field lock (ruled).
 
-**Nothing about a protest is public** (ruled). No public read selects a protest column. The pair page, the product pages, search and `/methodology` never say that a protest exists or how it ended. `/methodology` and `/legal/listing-accuracy` describe the process, never an instance of it (§11b.12.13).
+**Nothing about a protest is public** (ruled). No public read selects a protest column, and `apps/api/src/lib/contest-protests.spec.ts` is a source scan that fails if a module outside an allowlist of non-public ones names one. The pair page, the product pages, search and `/methodology` never say that a protest exists or how it ended. `/methodology` and `/legal/listing-accuracy` describe the process, never an instance of it (§11b.12.13).
 
 #### 11b.12.2 Which contests can be protested
 
@@ -2361,19 +2366,19 @@ A contest is protestable when all of these hold:
 |---|---|
 | `routed_to = 'owner'` | Only an owner-routed contest (ruled). An AECi-routed contest was already decided by AECi. This excludes every `owner` contest, which always routes to AECi (§11b.4), and every contest re-routed to AECi by an owner reassignment (`integration.contest.rerouted`, §11b.5). |
 | `owner_vendor_id IS NOT NULL` | A stranded row (owner vendor deleted, AECI-1005) is decided by AECi, so there is no owner decision to protest. `SET NULL` is permanent, so this also excludes a stranded row AECi already decided. |
-| `protest_status IS NULL` | One protest per contest, by structure. A withdrawn protest cannot be refiled (default, unruled). |
+| `protest_status IS NULL` | One protest per contest, by structure. A withdrawn protest cannot be refiled (ruled). |
 | a **basis** exists, below | The owner declined, or stayed silent. |
 
 **Two bases**, stored on the row as `protest_basis`:
 
-- **`declined`.** `status = 'declined'` and `now < decided_at + 30 days`. The owner declined through `POST /api/vendor/contests/:id/decision`.
-- **`silence`.** `status = 'open'` and `now >= created_at + 30 days` (ruled: 30 days of silence counts as a decline). There is no closing edge. The silence continues for as long as the contest stays open, so the protest stays available until the owner decides, the submitter withdraws, or a retire closes the contest (default, unruled).
+- **`declined`.** `status = 'declined'`, and `decided_at <= now < decided_at + 30 days`. The owner declined through `POST /api/vendor/contests/:id/decision`.
+- **`silence`.** `status = 'open'`, and `created_at + 30 days <= now < created_at + 60 days`. Silence counts as a decline (ruled), so the **silence-decline date** is day 30 after the contest was filed. The ruled 30-day filing window runs from that date, so it closes on day 60 (ruled).
 
-The silence clock runs from `created_at`, which is when routing was frozen (§11b.4). A row that left the owner's inbox by re-routing is no longer owner-routed, so its clock no longer matters.
+The silence clock runs from `created_at`, which is when routing was frozen (§11b.4). A row that left the owner's inbox by re-routing is no longer owner-routed, so its clock no longer matters. `contestProtestWindow` in `@aeci/shared` is the one implementation of both windows. The API calls it, and the portal renders the timestamps the API derives from it rather than recomputing them.
 
 #### 11b.12.3 The silence rule is computed at submit time, with no cron
 
-**Decision: "30 days of silence" is never stored and never swept.** It is computed from `created_at` whenever something needs it. The protest route checks it, and the vendor list sends the timestamp so the portal can show it. The contest moves from `open` to `declined` only inside the protest batch, at the moment the submitter files.
+**Decision: "30 days of silence" is never stored and never swept.** It is computed from `created_at` whenever something needs it. The protest route checks it, and the vendor list sends the window as timestamps so the portal can show it. The contest moves from `open` to `declined` only inside the protest batch, at the moment the submitter files, and its `decided_at` is set to the silence-decline date, not to the filing time.
 
 Why:
 
@@ -2397,7 +2402,7 @@ What this costs, accepted:
 | `open` | With AECi. The owner may reply once. | the submitter files |
 | `upheld` | AECi agrees with the submitter. Advice only. | an admin |
 | `rejected` | AECi agrees with the owner. Starts the 90-day cooldown (§11b.12.8). | an admin |
-| `withdrawn` | The submitter withdrew it. No cooldown. | the submitter |
+| `withdrawn` | The submitter withdrew it. No cooldown, and no refile (ruled). | the submitter |
 
 The owner's reply is not a state. It is a set of columns on an `open` protest.
 
@@ -2410,11 +2415,13 @@ The owner's reply is not a state. It is a set of columns on an `open` protest.
 
 Anyone else gets the same `404` an unknown id gets (§11b.5's rule).
 
-**A retire does not close an open protest, and a retired integration can still be protested** (default, unruled). A protest writes nothing public and AECi's answer is advice, so closing it protects nothing. The opposite rule would let an owner retire the integration until the 30-day filing window lapses, then restore it. §4.6.1's retire batch is therefore **unchanged**. It still closes open contests, which ends a silence basis, and it touches no `declined` row.
+**A retire does not close an open protest, and a retired integration can still be protested** (ruled). A protest writes nothing public and AECi's answer is advice, so closing it protects nothing. The opposite rule would let an owner retire the integration until the 30-day filing window lapses, then restore it. §4.6.1's retire batch is **unchanged**.
+
+**Known v1 gap: a retire still ends an open contest before it can be protested.** §4.6.1's retire closes every open contest as `withdrawn`, and a restore reopens none. So an owner facing a contest it has not answered can retire and restore the integration, and the contest is gone before day 30 makes it protestable. That is shipped AECI-1010 behaviour, left unchanged here on the orchestrator's instruction. Chris is being asked separately whether to change it.
 
 #### 11b.12.5 Columns — migration `0047`
 
-**ADD COLUMN only, hand-authored.** Migration `0046` is AECI-1046's `integrations.retired_by`, so this is `0047`, and the build branch stacks on AECI-1046 for the migration journal. `integration_field_challenges` is a cascade child of `integrations` and is never recreated here. Four new columns carry a `REFERENCES` clause and two carry a CHECK. drizzle-kit renders either as a table recreate, or drops the `ON DELETE` clause from a bare `ADD … REFERENCES` (`docs/migrations.md` §0, "When drizzle-kit wants to recreate a table"). So the build declares the columns in `schema.ts` with **no** table-level `check()`, runs `pnpm db:generate` for the snapshot and journal, and replaces the SQL body with plain `ALTER TABLE … ADD` statements carrying column-level constraints, as `0044_slippery_edwin_jarvis.sql` did for `integrations.origin`.
+**ADD COLUMN only, hand-authored.** Migration `0046` is AECI-1046's `integrations.retired_by`, so this is `0047`, stacked on the AECI-1046 branch for the migration journal. `integration_field_challenges` is a cascade child of `integrations` and is never recreated. Four new columns carry a `REFERENCES` clause and two carry a CHECK. drizzle-kit rendered the columns as plain `ADD`s but dropped the `ON DELETE` clause from each `ADD … REFERENCES` (`docs/migrations.md` §0, "When drizzle-kit wants to recreate a table"). So `schema.ts` declares the columns with **no** table-level `check()`, the snapshot and journal are drizzle-kit's, and the SQL body is hand-authored with full FK clauses and column-level constraints, as `0044_slippery_edwin_jarvis.sql` did for `integrations.origin`. `pnpm db:generate` reports no change afterwards.
 
 | Column | Type | Rule |
 |---|---|---|
@@ -2434,81 +2441,34 @@ Anyone else gets the same `404` an unknown id gets (§11b.5's rule).
 | `protest_decided_at` | `text` | ISO timestamp. The cooldown runs from it. |
 | `protest_workflow_id` | `text` | `REFERENCES workflow_instances(id) ON DELETE SET NULL`. The protest's own workflow instance (§11b.12.7). |
 
-One index, also additive:
+One index, also additive: `integration_field_challenges_protest_idx` on `(protest_status, protested_at) WHERE "protest_status" IS NOT NULL`. It serves the admin Protests view and the badge. The two new checks at contest submit read by (integration, field, submitter vendor) and are served by the existing `integration_field_challenges_submitter_idx` at launch volume.
 
-```sql
-CREATE INDEX `integration_field_challenges_protest_idx`
-  ON `integration_field_challenges` (`protest_status`, `protested_at`)
-  WHERE "protest_status" IS NOT NULL;
-```
-
-It serves the admin Protests view and the badge. The two new checks at contest submit read by (integration, field, submitter vendor). The existing `integration_field_challenges_submitter_idx` serves them at launch volume.
-
-`src/test/migration-0047.spec.ts` is the tripwire. It applies the committed file to a database holding contests and asserts that every row survives unchanged, that each new CHECK rejects a bad value, and that deleting a profile nulls each of the three new profile columns. The cascade-child list in `d1.spec.ts` does not change, because no table is added.
+`src/test/migration-0047.spec.ts` is the tripwire. It asserts the file is fifteen `ADD`s and one `CREATE INDEX` with every FK carrying `ON DELETE SET NULL`, that a seeded contest survives the migration unchanged, that each new CHECK rejects a bad value, and that deleting a profile nulls each of the three new profile columns. The cascade-child list in `d1.spec.ts` does not change, because no table is added.
 
 #### 11b.12.6 Routes
 
 Every vendor route is `requireVendor()` → `rateLimit('write')` → the handler, with no `requireCapability`. **A seat is the whole gate.** It is the same named exception to `API_CONTRACTS.md` §6.14 that §11b.2 makes for contests, for the same reason. The admin route is `requireAdmin()` → `rateLimit('write')`. No read is rate-limited. Every write answers `200` with the row in its post-write state: `VendorContestResponseSchema` on the vendor routes, `AdminContestSchema` on the admin route.
 
-**Shared Zod shapes** in `packages/shared/src/api/integration-contests.ts`:
-
-```ts
-export const CONTEST_PROTEST_STATUSES = ['open', 'upheld', 'rejected', 'withdrawn'] as const;
-export const CONTEST_PROTEST_BASES = ['declined', 'silence'] as const;
-
-// Up to three absolute http(s) URLs. The server deduplicates them.
-export const ProtestEvidenceSchema = z
-  .array(z.string().trim().max(2048).refine(isHttpUrl, 'Must be an absolute http(s) URL'))
-  .max(3)
-  .default([]);
-
-export const FileContestProtestSchema = z.object({
-  reason: contestText, // trimmed, 1..2000
-  evidence_urls: ProtestEvidenceSchema,
-});
-
-export const ReplyContestProtestSchema = z.object({
-  reply: contestText,
-  evidence_urls: ProtestEvidenceSchema,
-});
-
-export const DecideContestProtestSchema = z.object({
-  decision: z.enum(['uphold', 'reject']),
-  note: contestText, // required: the reasons are the whole product of an advisory ruling
-});
-```
-
-No body carries the proposed value. It stays frozen at what the owner declined.
+**Shared Zod shapes** in `packages/shared/src/api/integration-contests.ts`: `FileContestProtestSchema` (`reason`, 1 to 2,000 characters after trimming, and `evidence_urls`), `ReplyContestProtestSchema` (`reply` and `evidence_urls`) and `DecideContestProtestSchema` (`decision: 'uphold' | 'reject'` and a **required** `note`, because the reasons are the whole of what an advisory ruling gives either vendor). `evidence_urls` is `ProtestEvidenceSchema`: at most three absolute `http(s)` URLs, each at most 2,048 characters, defaulting to `[]`. The server deduplicates them in order. No body carries the proposed value, which stays frozen at what the owner declined.
 
 **`POST /api/vendor/contests/:id/protest`**: the submitter files. The checks run in this order, so a body error never answers a request that should have been a `404`:
 
 1. The row, scoped to `submitter_vendor_id = caller`. Otherwise `404`.
 2. The caller still owns an endpoint of the integration (`resolveAttestationSlots`). Otherwise `404`.
-3. Eligibility (§11b.12.2). Otherwise `409 PROTEST_NOT_AVAILABLE`, with `details.reason` one of `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`) or `window_closed`.
+3. Eligibility (§11b.12.2). Otherwise `409 PROTEST_NOT_AVAILABLE`, with `details.reason` one of `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`) or `window_closed`. A lost race answers the same code with `contest_changed` (§11b.12.7).
 4. The body. Otherwise `400 VALIDATION_FAILED`.
 5. The integration is still claimed and `built_by_vendor_id = owner_vendor_id`. Otherwise `409 CONTEST_INTEGRATION_CHANGED`. The vendor that decided no longer owns the row, so the submitter contests again and reaches the current owner.
-6. The live column still holds `current_value`, compared with `IS` so `NULL` equals `NULL`. Otherwise `409 CONTEST_VALUE_STALE`. The owner changed the field since, so the submitter contests the new value instead.
+6. The live column still holds `current_value`, compared so that `NULL` equals `NULL`. Otherwise `409 CONTEST_VALUE_STALE`. The owner changed the field since, so the submitter contests the new value instead.
 
 A retired integration is **not** refused here (§11b.12.4).
 
-**`POST /api/vendor/contests/:id/protest/reply`**: the snapshot owner replies, once. The row is scoped by `receivedContestsWhere(caller)` and must carry a protest, otherwise `404`. Then `409 PROTEST_NOT_OPEN` when the protest is decided or withdrawn, `409 PROTEST_REPLY_EXISTS` when a reply is on file, and `409 PROTEST_REPLY_CLOSED` when `now >= protest_reply_due_at`. Then the body. **The reply does not re-check current ownership.** It writes nothing to the catalog, and the vendor that decided is the right one to explain the decision.
+**`POST /api/vendor/contests/:id/protest/reply`**: the snapshot owner replies, once. The row is scoped by `receivedContestsWhere(caller)` and must carry a protest, otherwise `404`. Then `409 PROTEST_NOT_OPEN` when the protest is decided or withdrawn, `409 PROTEST_REPLY_EXISTS` when a reply is on file, and `409 PROTEST_REPLY_CLOSED` when `now >= protest_reply_due_at` (ruled). Then the body. **The reply does not re-check current ownership.** It writes nothing to the catalog, and the vendor that decided is the right one to explain the decision.
 
-**`POST /api/vendor/contests/:id/protest/withdraw`**: the submitter withdraws an open protest. No body. `404` for anyone else, and `409 PROTEST_NOT_OPEN` when the protest is not open.
+**`POST /api/vendor/contests/:id/protest/withdraw`**: the submitter withdraws an open protest. No body. `404` for anyone else, and `409 PROTEST_NOT_OPEN` when the protest is absent or not open.
 
 **`PATCH /api/admin/contests/:id/protest`**: AECi decides. `404` for an unknown id. `409 PROTEST_NOT_OPEN` when the row has no protest or it is not open. Then the body. **The reply due date does not block AECi** (ruled). AECi may decide before the owner replies or before the reply falls due, and the admin screen says when it is doing so (§11b.12.11). A change of owner after filing does not block it either, because the ruling is advice about a decision already made.
 
-**New error codes** in `packages/shared/src/errors/codes.ts`, and rows in `API_CONTRACTS.md` §4 at build:
-
-| Code | Status | When |
-|---|---|---|
-| `PROTEST_NOT_AVAILABLE` | 409 | The contest cannot be protested now. `details.reason` says why. |
-| `PROTEST_NOT_OPEN` | 409 | A reply, withdraw or decision on a protest that is absent or closed, or that lost a race. |
-| `PROTEST_REPLY_EXISTS` | 409 | A second reply. |
-| `PROTEST_REPLY_CLOSED` | 409 | A reply at or after `protest_reply_due_at`. |
-| `CONTEST_COOLDOWN` | 409 | A new contest inside a lost protest's cooldown (§11b.12.8). `details.until` is the end. |
-| `CONTEST_PROTEST_OPEN` | 409 | A new contest on a field the caller already has an open protest on. `details.contest_id` names it. |
-
-Reused unchanged: `CONTEST_INTEGRATION_CHANGED`, `CONTEST_VALUE_STALE`, `NOT_FOUND`, `VALIDATION_FAILED` and `RATE_LIMITED`.
+**New error codes**, all `409`, in `packages/shared/src/errors/codes.ts` and `API_CONTRACTS.md` §4: `PROTEST_NOT_AVAILABLE`, `PROTEST_NOT_OPEN`, `PROTEST_REPLY_EXISTS`, `PROTEST_REPLY_CLOSED`, and, on the contest submit, `CONTEST_PROTEST_OPEN` (`details.contest_id`) and `CONTEST_COOLDOWN` (`details.until`). Reused unchanged: `CONTEST_INTEGRATION_CHANGED`, `CONTEST_VALUE_STALE`, `NOT_FOUND`, `VALIDATION_FAILED` and `RATE_LIMITED`.
 
 #### 11b.12.7 One batch per step
 
@@ -2518,39 +2478,32 @@ The protest has its own workflow instance of type `correction_request`, reused f
 
 | Step | Statements, in order |
 |---|---|
-| **File** | The protest instance insert, first because the new FK points at it (the contest submit orders its insert the same way). The guarded `UPDATE`: `WHERE id = ? AND protest_status IS NULL AND status = 'declined'`, or `status = 'open'` for a silence basis, which also sets `status = 'declined'` and `decided_at = now` and leaves `decided_by` and `decision_note` NULL. The `changes()` sentinel. `contestIntegrationStateSentinel(claimed: true, ownerVendorId: owner_vendor_id)`. `contestValueUnchangedSentinel(field, current_value)`. **Silence only:** the contest's instance closed as `declined` / `rejected` with transition reason `owner silent 30 days`, and an `integration.contest.lapsed` audit row (`before { status: 'open' }`, `after { status: 'declined' }`, `metadata.basis: 'silence'`). The protest transition `null → open`. The `integration.contest.protested` audit row. A `notification.sent` row to the owner, event `protested`. |
+| **File** | The protest instance insert, first because the new FK points at it. The guarded `UPDATE`: `WHERE id = ? AND protest_status IS NULL AND status = 'declined'`, or `status = 'open'` for a silence basis, which also sets `status = 'declined'` and `decided_at` = the silence-decline date and leaves `decided_by` and `decision_note` NULL. The `changes()` sentinel. `contestIntegrationStateSentinel(claimed: true, ownerVendorId: owner_vendor_id)`. `contestValueUnchangedSentinel(field, current_value)`. **Silence only:** the contest's own instance closed as `declined` / `rejected` with transition reason `owner silent 30 days`, and an `integration.contest.lapsed` audit row. The protest transition `null → open`. The `integration.contest.protested` audit row. A `notification.sent` row to the owner, event `protested`. |
 | **Reply** | The guarded `UPDATE`: `WHERE protest_status = 'open' AND protest_reply IS NULL AND protest_reply_due_at > now`. The sentinel. A transition `open → open` with reason `owner replied`. The `integration.contest.protest_replied` audit row. A `notification.sent` row to the submitter, event `protest_replied`. |
 | **Withdraw** | The guarded `UPDATE`: `WHERE protest_status = 'open'`. The sentinel. The instance closed as `withdrawn` / `cancelled` with its transition. The `integration.contest.protest_withdrawn` audit row. A `notification.sent` row to the owner, event `protest_withdrawn`, when `owner_vendor_id` is set. |
 | **Decide** | The guarded `UPDATE`: `WHERE protest_status = 'open'`. The sentinel. The instance closed as `upheld` / `approved` or `rejected` / `rejected` with its transition. The `integration.contest.protest_upheld` or `integration.contest.protest_rejected` audit row, whose `afterState` carries the note. A `notification.sent` row to the submitter, and one to the owner when `owner_vendor_id` is set. |
 
-Every step sets `updated_at = now` on the contest row. Every audit row uses `entity_type = 'integration_field_challenge'` and `entity_id` = the contest id, like §11b.7. `lapsed` is its own action, not `declined`, so the log never shows the submitter's seat as the one that declined.
+Every step sets `updated_at = now` on the contest row. Every audit row uses `entity_type = 'integration_field_challenge'` and `entity_id` = the contest id, like §11b.7. `lapsed` is its own action, not `declined`, so the log never shows the submitter's seat as the one that declined. The admin audit trail labels all six actions (`audit-action-labels.ts`).
 
-**Telling the aborts apart.** `isContestRaceError` matches any `json()` abort. `runGuardedContestBatch` decides which sentinel fired by re-reading `status === 'open'`, and that test is wrong for a protest, whose row is `declined`. The protest handlers therefore use their own runner. After an abort it re-reads the contest and the integration and answers in this order: `PROTEST_NOT_AVAILABLE` on file, or `PROTEST_NOT_OPEN` otherwise, when the protest state moved. Then `CONTEST_INTEGRATION_CHANGED` when the claim or owner moved, and `CONTEST_VALUE_STALE` when the column moved. On a reply, `PROTEST_REPLY_EXISTS` or `PROTEST_REPLY_CLOSED`. Anything else rethrows.
+**Telling the aborts apart.** `isContestRaceError` matches any `json()` abort. `runGuardedContestBatch` decides which sentinel fired by re-reading `status === 'open'`, and that test is wrong for a protest, whose row is `declined`. So the protest handlers use `runGuardedProtestBatch`, which takes a classifier. After an abort the file route re-reads the contest and the integration and answers, in this order: `PROTEST_NOT_AVAILABLE` (`already_protested`) when a protest landed first, `PROTEST_NOT_AVAILABLE` (`contest_changed`) when the contest's `status` moved (the owner decided first), `CONTEST_INTEGRATION_CHANGED` when the claim or owner moved, and `CONTEST_VALUE_STALE` when the column moved. The reply route answers `PROTEST_NOT_OPEN`, `PROTEST_REPLY_EXISTS` or `PROTEST_REPLY_CLOSED`. Withdraw and decide answer `PROTEST_NOT_OPEN`. Anything that is not an abort rethrows.
 
-**After commit:** the §26.5 forward of every audit row through `afterVendorWrite(c, [], audits)`, or the admin route's equivalent. **No cache purge, no re-crawl, no Algolia write and no Linear issue.** Nothing public changed, and an advisory ruling gives the review app nothing to apply.
+**After commit:** the §26.5 forward of every audit row through `afterVendorWrite(c, [], audits)`, or the admin route's forwarders. **No cache purge, no re-crawl, no Algolia write and no Linear issue** (ruled). Nothing public changed, and an advisory ruling gives the review app nothing to apply.
 
 #### 11b.12.8 Time rules, exactly
 
-Every duration is a whole number of 24-hour periods (`86_400_000` ms) added to a stored UTC ISO timestamp. There are no calendar days, time zones or business days. The constants and one window helper live in `@aeci/shared`, so the API and the portal compute the same instants:
-
-```ts
-export const CONTEST_OWNER_SILENCE_DAYS = 30;
-export const CONTEST_PROTEST_FILING_DAYS = 30;
-export const CONTEST_PROTEST_REPLY_DAYS = 14;
-export const CONTEST_PROTEST_COOLDOWN_DAYS = 90;
-```
+Every duration is a whole number of 24-hour periods (`86_400_000` ms) added to a stored UTC ISO timestamp by `addContestDays`. There are no calendar days, time zones or business days. The constants live in `@aeci/shared`: `CONTEST_OWNER_SILENCE_DAYS = 30`, `CONTEST_PROTEST_FILING_DAYS = 30`, `CONTEST_PROTEST_REPLY_DAYS = 14`, `CONTEST_PROTEST_COOLDOWN_DAYS = 90`.
 
 | Rule | Open while | At the boundary instant |
 |---|---|---|
-| Silence basis | `status = 'open'` and `now >= created_at + 30d` | protestable |
-| Declined basis | `now < decided_at + 30d` | closed |
+| Declined basis | `decided_at <= now < decided_at + 30d` | closed at `decided_at + 30d` |
+| Silence basis | `created_at + 30d <= now < created_at + 60d`, with `status = 'open'` | protestable at day 30, closed at day 60 |
 | Owner reply | `now < protest_reply_due_at`, where the due date is `protested_at + 14d`, stored | closed; enforced in the guarded `UPDATE` too |
 | Cooldown | blocked while `now < protest_decided_at + 90d` | a new contest is allowed |
 
-**The cooldown check at contest submit** (`POST /api/vendor/integrations/:id/contests`). Two new refusals run after the duplicate check, in this order:
+**The cooldown check, at contest submit** (`POST /api/vendor/integrations/:id/contests`). Two new refusals run after the duplicate check, in this order:
 
-1. **`409 CONTEST_PROTEST_OPEN`** when a row on the same integration, field and submitter vendor has `protest_status = 'open'`. One live dispute per field per vendor (default, unruled).
-2. **`409 CONTEST_COOLDOWN`** when a row on the same integration, field and submitter vendor has `protest_status = 'rejected'`, `protest_decided_at > now - 90d`, **and** a `current_value` that `IS` the field's live value now, in storage form. `details.until` is the latest such `protest_decided_at + 90d`.
+1. **`409 CONTEST_PROTEST_OPEN`** when a row on the same integration, field and submitter vendor has `protest_status = 'open'`. One live dispute per field per vendor (ruled).
+2. **`409 CONTEST_COOLDOWN`** when a row on the same integration, field and submitter vendor has `protest_status = 'rejected'`, `protest_decided_at > now - 90d`, **and** a `current_value` equal to the field's live value now, in storage form. `details.until` is the latest such `protest_decided_at + 90d`.
 
 The third condition is the ruling's "unless the value on record changes". It compares the value the lost protest was about with the value now, so any owner edit to the field lifts the cooldown. A value that changes and then changes back reads as unchanged (accepted). The cooldown binds the **vendor**, not the seat. Only a `rejected` protest starts one. An upheld or withdrawn protest does not.
 
@@ -2558,162 +2511,115 @@ Both checks are handler reads with no in-batch sentinel. A protest and a new con
 
 #### 11b.12.9 Read shapes, the cursor and live sync
 
-**`GET /api/vendor/contests`.** `VendorContestSchema` gains four fields. Each defaults to `null` for deploy skew (§11b.10 explains why the web client still sees `undefined` on an API-only rollback):
+**`GET /api/vendor/contests`.** `VendorContestSchema` gains five fields. Each defaults to `null` for deploy skew (§11b.10 explains why the web client still sees `undefined` on an API-only rollback):
 
-```ts
-export const ContestProtestSchema = z.object({
-  status: z.enum(CONTEST_PROTEST_STATUSES),
-  basis: z.enum(CONTEST_PROTEST_BASES),
-  reason: z.string(),
-  evidence_urls: z.array(z.string()),
-  protested_at: z.string(),
-  reply_due_at: z.string(),
-  reply: z.string().nullable(),
-  reply_evidence_urls: z.array(z.string()),
-  replied_at: z.string().nullable(),
-  decision_note: z.string().nullable(),
-  decided_at: z.string().nullable(),
-});
+- `protest`: `ContestProtestSchema` or `null`, on both sides. It carries `status`, `basis`, `reason`, `evidence_urls`, `protested_at`, `reply_due_at`, `reply`, `reply_evidence_urls`, `replied_at`, `decision_note` and `decided_at`. No profile id is on the wire.
+- `protest_opens_at`, `protest_closes_at` and `protest_basis`: submitted side only. They are the window of §11b.12.8, sent while the row has no protest, passes the §11b.12.2 conditions, is not past its closing instant, **and** passes the two live checks of the file route (the same owner holds the claimed row, the value is unchanged). `protest_opens_at` may be in the future, which is how the portal says "from {date}". All three `null` means the row is not protestable and will not become so by waiting.
+- `cooldown_until`: submitted side only. Set on a rejected protest while it still blocks a new contest on the field.
 
-// Added to VendorContestSchema:
-//   protest:           ContestProtestSchema.nullable().default(null)   both sides
-//   protest_opens_at:  z.string().nullable().default(null)             submitted side only
-//   protest_closes_at: z.string().nullable().default(null)             submitted side only; null for silence
-//   cooldown_until:    z.string().nullable().default(null)             submitted side only
-```
+Both vendors see the whole record, including the other side's text, evidence and AECi's note (ruled).
 
-`protest_opens_at` and `protest_closes_at` are the boundaries of §11b.12.8. They are sent only while the row has no protest and meets the other §11b.12.2 conditions. `null` in both means the row is not protestable and will not become so by waiting. `cooldown_until` is set on a rejected protest while it still blocks a new contest. No profile id is on the wire. Both vendors see the whole record, including the other side's text, evidence and AECi's note (default, unruled).
+**The list order is `updated_at DESC, id ASC`** on both sides (ruled). It was `created_at DESC`, capped at 100 rows per side. A protest can land on a contest filed months ago, and under the old order that row could sit past the cap and never show while the cursor still moved for it.
 
-**The list order changes to `updated_at DESC, id ASC`** on both sides (default, unruled). Today it is `created_at DESC`, capped at 100 rows per side. A protest can land on a contest filed months ago. Under the current order that row can sit past the cap and never show, while the cursor still moves for it.
+**The `contests` cursor needed no change.** Every protest step moves the row's `updated_at`, and the row is already inside `vendorContestsWhere` for both parties: the submitter through `submitter_vendor_id`, the owner through `routed_to = 'owner' AND owner_vendor_id`. The predicate is untouched, so the invariant in `STAGE_2_REALTIME_SPEC.md` §2.2 holds with no new SELECT.
 
-**The `contests` cursor needs no change.** Every protest step moves the row's `updated_at`, and the row is already inside `vendorContestsWhere` for both parties: the submitter through `submitter_vendor_id`, the owner through `routed_to = 'owner' AND owner_vendor_id`. The predicate is untouched, so the invariant in `STAGE_2_REALTIME_SPEC.md` §2.2 holds with no new SELECT.
+**One client refetch was added** (ruled). `VendorPortalStore.revalidate` also refetches `contests` when an `integrations` refetch runs and the contests have already been loaded. Both `cooldown_until` and protest eligibility depend on the live field value, and an owner edit moves `integrations`, not `contests`. It never loads contests from cold.
 
-**One client refetch is added.** When the `integrations` scope moves, the store also revalidates `contests`. Both `cooldown_until` and protest eligibility depend on the live field value, and an owner edit moves `integrations`, not `contests`. The cost is one extra `GET /api/vendor/contests` per movement of `integrations`. `STAGE_2_REALTIME_SPEC.md` §2.3's refetch map gains that row at build.
+**`GET /api/admin/contests`.** The query gains `protest_status` (optional). When it is present, the list filters on `protest_status` alone and ignores `status` and `routed_to`, because every protested row is `declined` and owner-routed. It orders by `protested_at DESC, id ASC` on the new index. `AdminContestSchema` gains `protest` (default `null`) and `owner_changed` (default `false`), which is true when the integration is no longer claimed by `owner_vendor_id`.
 
-**`GET /api/admin/contests`.** The query gains `protest_status: z.enum(CONTEST_PROTEST_STATUSES).optional()`. When it is present, the list filters on `protest_status` alone and ignores `status` and `routed_to`, because every protested row is `declined` and owner-routed. It orders by `protested_at DESC, id ASC` on the new index. `AdminContestSchema` gains `protest: ContestProtestSchema.nullable().default(null)` and `owner_changed: z.boolean().default(false)`. `owner_changed` is true when the integration is no longer claimed by `owner_vendor_id`.
-
-**The badge.** `pending_contests` adds `OR protest_status = 'open'`. The new term is disjoint from the existing ones, because an open protest's `status` is `declined` and the existing terms all require `open`. It stays one badge for one screen (default, unruled). The alternative is a sixth count, `pending_protests`.
+**The badge.** `pending_contests` adds `OR protest_status = 'open'` (ruled). The new term is disjoint from the existing ones, because an open protest's `status` is `declined` and the existing terms all require `open`. It stays one badge for one screen.
 
 #### 11b.12.10 Notifications
 
-Five events join `CONTEST_NOTIFICATION_EVENTS`. Each is a `notification.sent` audit row in its step's batch (§11b.8's mechanism). There is no email.
+Five events joined `CONTEST_NOTIFICATION_EVENTS`. Each is a `notification.sent` audit row in its step's batch (§11b.8's mechanism). There is no email.
 
 | Event | Recipient | Title, written from the recipient's seat | Note line |
 |---|---|---|---|
-| `protested` | owner | "A vendor asked AEC Integrations to review a contest on your integration" | "You can reply once, by {reply_due_at}. Nothing about it is public." |
+| `protested` | owner | "A vendor asked AEC Integrations to review a contest on your integration" | "You can reply once, by {date}, under Field contests in Messages. Nothing about it is public." |
 | `protest_replied` | submitter | "The owner replied to your review request" | none |
 | `protest_withdrawn` | owner | "A review request on your integration was withdrawn" | none |
 | `protest_upheld` | submitter | "AEC Integrations agrees with your contest" | "The owner has not changed the field. Only the owner can change it, so the value on record stays until it does." |
 | `protest_upheld` | owner | "AEC Integrations agrees with a contest on your integration" | "This is advice. The value on record stays unless you change it." |
-| `protest_rejected` | submitter | "AEC Integrations agrees with the owner" | "You can't contest this field again until {cooldown end}, unless its value changes." |
+| `protest_rejected` | submitter | "AEC Integrations agrees with the owner" | "You can't contest this field again until {date}, unless its value changes." |
 | `protest_rejected` | owner | "AEC Integrations agrees with your decision" | none |
 
-The two decision events carry `metadata.recipientRole` (`submitter` or `owner`), because the same event reads differently from each seat. `protested` carries `metadata.basis` and `metadata.replyDueAt`. `protest_rejected` carries `metadata.cooldownUntil`. The feed schema exposes each as an optional field defaulting to `null`.
+The two decision events carry `metadata.recipientRole` (`submitter` or `owner`), because the same event reads differently from each seat. `protested` carries `metadata.basis` and `metadata.replyDueAt`. `protest_rejected` to the submitter carries `metadata.cooldownUntil`. The feed exposes `recipient_role`, `reply_due_at` and `cooldown_until`, each defaulting to `null` on older rows.
 
-**The existing `declined` event gains `metadata.protestClosesAt`.** It is set only when the owner declined through the owner decision route. The feed exposes it as `protest_closes_at`, defaulting to `null`. The `declined` note line adds "If you disagree, you can ask AEC Integrations to review it until {date}." only when the value is set, so an AECi decline never offers a protest.
+**The `declined` event carries `metadata.protestClosesAt`** when the owner declined through the owner decision route. The feed exposes it as `protest_closes_at`. The `declined` note line then reads "The value on record stays as it is. If you disagree, you can ask AEC Integrations to review it until {date}, from Field contests in Messages." An AECi decline, and every row written before this build, carries no date and says only that the value stays.
 
-**Deploy skew.** `contestNotificationTitle` in `vendor-contest-labels.ts` is a `switch` with no `default`, so a web build older than the API would render an empty title for a new event. The build adds a neutral fallback title, "An update on a field contest", in the same PR that adds the events.
+**Deploy skew.** `contestNotificationTitle` in `vendor-contest-labels.ts` now has a `default` branch, "An update on a field contest", so a web build older than the API still renders a title for an event it does not know.
 
 #### 11b.12.11 The admin queue (`/admin/contests`)
 
-- **A Contests / Protests switch** sits above the existing filters. Protests has its own status tabs: Open (the default), Agreed with the submitter, Agreed with the owner, and Withdrawn. They map onto `protest_status`.
-- **A protest card shows both sides in full.** The integration, the pair link and the field. The value on record and the proposal. The submitter's contest reason. The owner's decline note, or "No answer in 30 days" for a silence basis. The protest reason and evidence links. The owner's reply and evidence, or "Reply due {date}", or "No reply by {date}". "On the integration now" when the live value differs, and "The owner has changed since the decision" when `owner_changed` is true.
-- **The decision form** has two choices, "Agree with the submitter" (`uphold`) and "Agree with the owner" (`reject`), and a required note. Help text tied to the form by `aria-describedby` says four things. The decision is advice and changes nothing on the listing. It files no Linear issue. Both vendors see it in full. Agreeing with the owner stops the submitter contesting this field again for 90 days unless the value changes. Before the reply due date, with no reply on file, one more sentence says the owner can still reply and that deciding now means deciding without the reply.
-- **Pessimistic, one decision at a time**, as §11b.11. A success drops the row from Open and decrements the badge. `409 PROTEST_NOT_OPEN` announces "Already decided or withdrawn" and reloads.
-- `ADMIN_PANEL_SPEC.md` §5.12 records the IA at build. The PATCH is a decision write under the same eighth named exception, and it writes no catalog data.
+- **A "Show" switch** (Contests / Protests) sits before the existing filters. Protests replaces them with its own status tabs: Open (the default), Agreed with the submitter, Agreed with the owner, and Withdrawn. They map onto `protest_status`, and the intro sentence changes to say what a protest is and that the answer is advice.
+- **A protest card shows both sides in full.** The contest as before (pair, field, the value on record, the proposal, the contest reason, the owner's decline note). Then the protest: why it came here ("The owner declined the contest." or "The owner did not answer the contest within 30 days."), the submitter's case and links, the owner's reply and links or "Reply due {date}" or "No reply by {date}", and our note once decided. "On the integration now" appears when the live value differs, and "The owner has changed since the decision" when `owner_changed` is true.
+- **The decision form** has two choices, "Agree with the submitter" (`uphold`) and "Agree with the owner" (`reject`), and a required note that the form refuses to send empty. Help text tied to both buttons by `aria-describedby` says the answer is advice, changes nothing on the listing, files no Linear issue, is shown in full to both vendors, and that agreeing with the owner stops the submitter contesting the field for 90 days unless its value changes. Before the reply due date, with no reply on file, it also says the owner can still reply and that deciding now means deciding without that reply.
+- **Pessimistic, one decision at a time**, as §11b.11. A success drops the row, decrements the `contests` badge, and announces the outcome in the page's one live region. `409 PROTEST_NOT_OPEN` announces "Already decided or withdrawn" and reloads, without decrementing.
+- `ADMIN_PANEL_SPEC.md` §5.12 records the IA. The PATCH is a decision write under the same eighth named exception, and it writes no catalog data.
 
 #### 11b.12.12 The vendor portal
 
-**Submitter: Field contests → Submitted** (`vendor-contests-list.ts`).
+**Submitter: Field contests → Submitted** (`vendor-contest-protest.ts`, mounted in each row).
 
-- A row with `protest_opens_at <= now`, and `protest_closes_at` null or later than now, shows **Ask AEC Integrations to review**. It is a disclosure that opens an inline form. The form shows the proposal and the value on record read-only, and the owner's note, or "The owner did not answer within 30 days". It asks for a required reason and up to three evidence URLs, added one at a time. The help text says AEC Integrations reads both sides and says which it agrees with, that its view is advice, that only the owner can change the listing, and that nothing about a review is public. A line gives the deadline, "You can ask until {date}", when there is one.
-- An open owner-routed row before day 30 shows "You can ask AEC Integrations to review this from {date} if the owner has not answered."
-- An open protest shows a "With AEC Integrations" pill, the owner's reply when there is one, and **Withdraw review request** behind an inline confirmation, never `confirm()`.
-- A decided protest shows the §11b.12.10 title and note, and AECi's note. A rejected one shows the cooldown end.
-- Errors map to plain copy. `PROTEST_NOT_AVAILABLE` is worded by `details.reason`. `CONTEST_VALUE_STALE` reads "The owner changed this field since. Contest the new value instead." `CONTEST_INTEGRATION_CHANGED` reads "This integration has a new owner. Contest it again to reach them." `PROTEST_NOT_OPEN` and `RATE_LIMITED` get their own sentences. Each `409` reloads the list.
+- A row inside its window shows **Ask AEC Integrations to review**. It opens an inline form that names the basis ("The owner declined this contest." or "The owner did not answer within 30 days, so this counts as a decline."), says AEC Integrations reads both sides and says which it agrees with, that its view is advice, that only the owner can change the listing, that the owner can reply once and that nothing about a review is public, and gives the deadline. It asks for a required reason and up to three links, added one at a time. An empty reason or a link that is not a web address is refused before anything is sent.
+- A row before day 30 shows "You can ask AEC Integrations to review this from {date} if the owner has not answered."
+- A protested row shows the record, headed "Review by AEC Integrations", with a status pill ("With AEC Integrations", "AEC Integrations agreed with the contest", "AEC Integrations agreed with the owner", "Review request withdrawn"). An open one has **Withdraw review request** behind an inline confirmation, never `confirm()`, with focus moved to the confirm button and back.
+- A decided protest shows what it means from this seat and AECi's note. A lost one shows the cooldown end.
+- A contest declined by silence shows the pill "No answer in 30 days" rather than "Declined".
+- Errors map to plain copy (`protestErrorMessage`). A refusal that means the row moved reloads the list so it shows the state that won.
 
 **Owner: Field contests → Received.**
 
-- A row with an open protest shows the protest in full and a one-time **Reply** form, with a reply text and up to three URLs, and "Reply by {date}". After the due date, or once a reply exists, the form is gone and the reply shows.
-- A decided protest shows the §11b.12.10 title and note, and AECi's note. An upheld protest links to the integration card's edit form. That is the ordinary owner edit, not a new write.
-- **Overview.** "What needs you" gains one Needs-you-now row for open protests with no reply before the due date, linked to Messages (§6.10).
+- A row with an open protest shows the whole protest and a one-time reply form (a reply and up to three links) with the due date. Past the due date, or once a reply exists, the form is gone and the reply, or "No reply", shows.
+- A decided protest shows what it means from the owner's seat and AECi's note. An upheld one links "Edit the integration under {product}" to that product's Integrations tab, where the ordinary owner edit lives. It is not a new write.
+- **Overview.** "What needs you" gains one Needs-you-now row for open protests with no reply and the due date still ahead, linked to Messages.
 
-**The contest form.** A field with a live `cooldown_until` on one of the caller's submitted rows for this integration is a disabled option that states the end date. A field with an open protest is disabled the way a field with an open contest is. `CONTEST_COOLDOWN` and `CONTEST_PROTEST_OPEN` map to plain copy for a race the form could not see.
+**The contest form.** A field with an open protest is a disabled option reading "(with AEC Integrations for review)". A field inside a cooldown is disabled with its end date. `CONTEST_PROTEST_OPEN` and `CONTEST_COOLDOWN` map to plain copy for a race the form could not see.
 
-Every string is `$localize` or an `i18n` attribute. The theme is light only. Writes are pessimistic. Outcomes go through `VendorPortalAnnouncer`, and focus returns to the trigger (§11b.10's patterns).
+**The preview** (`/preview/vendor-dashboard`) carries a protestable submitted contest, a received contest with an open protest, and a submitted contest with a lost protest, with windows relative to the real clock, and fixture-side versions of the three vendor routes.
 
-#### 11b.12.13 GDPR erasure and copy obligations
+Every string is `$localize` or an `i18n` attribute. The theme is light only. Writes are pessimistic. Outcomes go through `VendorPortalAnnouncer` (§11b.10's patterns).
+
+#### 11b.12.13 GDPR erasure and copy
 
 **Erasure.** `protested_by`, `protest_replied_by` and `protest_decided_by` are three more inbound FKs to `profiles.id`. Each is `ON DELETE SET NULL` in the migration **and** nulled explicitly in the `DELETE /api/account` erasure batch (`apps/api/src/routes/account.ts`, beside `submitted_by` and `decided_by`), with a row each in `AUTH_AND_RLS.md` §8. The protest survives, because it is the vendor's record, as the contest is. The free-text columns stay, like `reason`.
 
-**Copy that changes in the build PR.** Today none of these pages mentions a protest. Each describes a decline as the end of the contest. That becomes false for an owner decline once this ships.
+**Copy changed in this build.** Before it, every page below described a decline as the end of the contest.
 
 | File | Change |
 |---|---|
-| `apps/web/src/content/methodology.md`, "Contests" | One paragraph. After an owner declines a contest, the vendor that sent it has 30 days to ask us to review it. It can also ask once the owner has left the contest unanswered for 30 days. The owner can reply once. We say which side we agree with. We do not change the integration, because the owner keeps its details. When we agree with the owner, that vendor cannot contest the field again for 90 days unless its value changes. Nothing about a review is public. |
-| `apps/web/src/content/legal/listing-accuracy-policy.md` | The "Declined" bullet gains the review route, and a short "Asking us to review a declined contest" subsection states the same rules in the policy's register. **Counsel reviews it before merge** (default, unruled), because it is a legal page. |
-| `apps/web/src/content/docs/reviewers/requests-and-corrections.md` | The "How it ends" list gains the review route. |
-| `apps/web/src/content/docs/vendors/owning-an-integration.md`, "Contests you receive" | A paragraph on replying to a review request, and that AECi's view is advice. |
-| `apps/web/src/app/vendor/components/vendor-contest-labels.ts` | The `declined` note (§11b.12.10), and the docblock that says no note may offer a protest. |
-| `methodology.component.spec.ts`, `legal-page.component.spec.ts` | Assert the new sentences. |
-| §11b.10 above | The sentence "No note offers a protest: AECI-1009 is designed, not built." is replaced. |
+| `apps/web/src/content/methodology.md`, "Contests" | A paragraph, "Asking us to review an owner's decision": the 30-day windows (from a decline, or from 30 days of silence), one owner reply within 14 days, advice that does not change the integration, the 90-day block unless the value changes, and nothing public. |
+| `apps/web/src/content/legal/listing-accuracy-policy.md` | The "Declined" bullet points to the review route, and a subsection "Asking us to review an owner's decision" states the same rules in the policy's register. The orchestrator ruled that counsel review does **not** block the merge: the legal documents are already under AECI-308's counsel review, and this wording joins that list. |
+| `apps/web/src/content/docs/reviewers/requests-and-corrections.md` | The "Declined" item gains the review route. |
+| `apps/web/src/content/docs/vendors/owning-an-integration.md`, "Contests you receive" | A paragraph on the one reply, and that AECi's view is advice. |
+| `vendor-contest-labels.ts` | The `declined` note offers the review when the row carries a date (§11b.12.10). |
+| `methodology.component.spec.ts`, `legal-page.component.spec.ts` | Assert the new sentences. The legal spec's old assertion that the policy never mentions a protest was replaced. |
 
 The marketing repo's vendor copy (AECI-1045) lives outside this repo. Its owner is told when this ships.
 
-#### 11b.12.14 Tests required
+#### 11b.12.14 Tests
 
-**API** (`apps/api`, the D1 harness over the real migrations):
+- **API.** `migration-0047.spec.ts` (§11b.12.5). `routes/vendor-contest-protests.spec.ts` covers: both bases at each window boundary; every `PROTEST_NOT_AVAILABLE` reason; the 404s; `CONTEST_INTEGRATION_CHANGED` and `CONTEST_VALUE_STALE` on the handler read and, through a racing factory, inside the batch; the race with an owner's late decision in both orders; a retired integration accepted; the reply's once-only rule and due instant; withdraw with no cooldown and no refile; the required note; both notifications with `recipientRole`, and none to a deleted owner; no `integrations` write and no purge; the Protests list view and the badge; `CONTEST_PROTEST_OPEN`; `CONTEST_COOLDOWN` at its boundary, lifted by an owner edit, not started by an upheld protest; the window on the submitter's list only; the feed metadata; the cursor for both parties and not a third; and the batch size. `lib/contest-protests.spec.ts` is the public-read source scan.
+- **Shared.** `integration-contests.spec.ts` covers both windows, the half-open phase at each boundary, the evidence rule, the required note and the day arithmetic.
+- **Web.** `vendor-contest-protest.component.spec.ts` (the request form, its refusals, the not-yet line, withdraw, the decided record and cooldown, the owner's reply, the reply past due, the upheld edit link), new cases in `contest-queue.component.spec.ts` (the Protests view, the required note, the badge, `PROTEST_NOT_OPEN`), `vendor-notifications-list.component.spec.ts` (every protest event from each seat, the dated decline note, the fallback), `vendor-contest-form.component.spec.ts` (the cooldown option), `vendor-overview-model.spec.ts` (the Needs-you-now row) and `audit-action-labels.component.spec.ts` (the six actions).
 
-- `migration-0047.spec.ts`: existing contests survive unchanged, both CHECKs reject bad values, and the three profile FKs null on delete.
-- File on a declined basis: the happy path, one test per `PROTEST_NOT_AVAILABLE` reason, and the window boundary. `decided_at + 30d - 1ms` is allowed. `decided_at + 30d` is refused.
-- File on a silence basis: refused at `created_at + 30d - 1ms`, allowed at `created_at + 30d`. The contest becomes `declined` with `decided_by` NULL, its instance closes, and `integration.contest.lapsed` is written.
-- The race between an owner's late decision and a silence protest, in both orders. Exactly one commits, and the loser writes no audit, transition or notification row.
-- File refused with `CONTEST_INTEGRATION_CHANGED` (reassigned, unclaimed) and with `CONTEST_VALUE_STALE` (owner edit), each on the handler read **and** inside the batch.
-- File allowed on a retired integration. The retire batch leaves an open protest untouched.
-- `404` for the owner, a third vendor and a caller that lost its endpoint, on file and withdraw. `404` for the submitter and a third vendor on reply.
-- Reply: once only (`PROTEST_REPLY_EXISTS`), refused at exactly `protest_reply_due_at` (`PROTEST_REPLY_CLOSED`), and refused after a decision (`PROTEST_NOT_OPEN`).
-- Decide: the note is required, both outcomes work, both sides are notified with the right `recipientRole`, a deleted owner gets no row, and there is **no `integrations` write, no purge and no Linear call**, asserted on the injected seams.
-- Withdraw: no cooldown results, and a second protest is refused.
-- Contest submit: `CONTEST_PROTEST_OPEN`. `CONTEST_COOLDOWN` refused at `protest_decided_at + 90d - 1ms` and allowed at `+ 90d`. Lifted by an owner edit. Not started by an upheld or withdrawn protest. Scoped to the vendor.
-- Every step's audit row is in the same batch as its write, by the batch-size assertion §11b's specs already use.
-- The `contests` cursor moves on each of the four steps for both parties, and does not move for a third vendor.
-- `pending_contests` counts an open protest once, and stops counting it on decide and on withdraw.
-- Erasure nulls the three new columns, and the protest row survives.
-- A public-read guard: the pair-page and product reads select no `protest_*` column.
+#### 11b.12.15 Rulings
 
-**Shared** (`packages/shared`): the Zod shapes, the evidence rule (http(s) only, at most three, deduplicated by the server) and the window helper at each boundary.
+Chris ruled on 2026-09-22 that the ruling is advice, that the windows are 30 days to file, 14 days to reply and a 90-day cooldown, that 30 days of silence counts as a decline, that only owner-routed contests are protestable, and that nothing is public. The orchestrator ruled the rest the same day, within Chris's rulings:
 
-**Web:** component specs for the Submitted protest form and its states, the Received reply form, the admin protest card and decision form, the contest form's disabled cooldown field, the titles and notes for all five events plus the fallback, and the Overview row. Then the rendered-surface checks (`impeccable detect` and axe) on the Submitted and Received lists with a protest open, and on `/admin/contests` Protests.
-
-#### 11b.12.15 Decisions this contract made that the rulings did not
-
-Each is marked **(default, unruled)** where it appears.
-
-1. **A silence protest has no closing window.** It stays available while the contest stays open. The alternative is a window of 30 days from day 30.
-2. **A protest carries a reason and up to three evidence URLs**, and so does the owner's reply. The alternative is text only.
-3. **AECi's note is required** on both outcomes. The contest decision leaves its note optional.
-4. **A reply after the due date is refused.** The alternative accepts a late reply while the protest is still open.
-5. **The submitter can withdraw an open protest**, with no cooldown and no refile.
-6. **A retire leaves an open protest open, and a retired integration can still be protested**, so a retire cannot run out the filing window. The retire batch is unchanged.
-7. **A protest needs the same owner and the same value** as the decision it protests (`CONTEST_INTEGRATION_CHANGED`, `CONTEST_VALUE_STALE`). Otherwise the submitter contests again.
-8. **One live dispute per field per vendor.** A new contest is refused while a protest on that field is open.
-9. **Both vendors see the whole record**, including each other's text and evidence.
-10. **No Linear issue on any protest step.** Nothing needs applying upstream.
-11. **The vendor list order moves to `updated_at DESC`**, and a movement of the `integrations` cursor also refetches `contests`.
+1. **The silence window closes.** The silence-decline date is day 30 after the contest was filed, and the 30-day filing window closes on day 60.
+2. **A protest carries a reason and up to three evidence URLs**, and so does the owner's reply.
+3. **AECi's note is required** on both outcomes.
+4. **A reply at or after the due date is refused.**
+5. **The submitter may withdraw an open protest**, with no cooldown and no refiling of that contest.
+6. **A retire leaves an open protest alone, and a retired integration can still be protested.** The shipped rule that a retire withdraws open contests and a restore does not reopen them stays unchanged, recorded as a known v1 gap (§11b.12.4). Chris is being asked about it separately.
+7. **A protest needs the same owner and the same value** as the decision it protests, or it is refused with `CONTEST_INTEGRATION_CHANGED` or `CONTEST_VALUE_STALE`.
+8. **One live dispute per field per vendor** (`CONTEST_PROTEST_OPEN`).
+9. **Both vendors see the whole record.**
+10. **No Linear issue on any protest step.**
+11. **The vendor lists sort by last update**, and an `integrations` refetch also refetches loaded contests.
 12. **One badge.** Open protests fold into `pending_contests`.
-13. **Counsel reviews** the listing-accuracy wording before merge.
-
-#### 11b.12.16 Doc updates owed by the build PR
-
-- `API_CONTRACTS.md` §4 (the six codes), and the contest shapes in §6.10 and §6.14.
-- `DATABASE_SCHEMA.md` §8.7 (the fifteen columns, the index, migration `0047`).
-- `AUTH_AND_RLS.md` §8 (three erasure rows).
-- `STAGE_2_REALTIME_SPEC.md` §2.2 (protest steps move the `contests` row's `updated_at`) and §2.3 (the added refetch).
-- `STAGE_2_ATTESTATIONS_SPEC.md` §7.5 (five contest events and the new metadata).
-- `ADMIN_PANEL_SPEC.md` §5.12, and the `pending_contests` rows in its badge table and in `API_CONTRACTS.md`.
-- ADR 0035 decision 4, whose "(AECI-1009, design only)" becomes a pointer here. That is a status update, not an amendment.
-- This subsection's status line, which becomes "As built", and the `CLAUDE.md` contests row.
-- Every file in §11b.12.13's copy table.
+13. **Counsel does not block the merge.** The listing-accuracy wording joins the AECI-308 counsel review.
 
 ## 12. Cross-references
 
@@ -2729,7 +2635,7 @@ Each is marked **(default, unruled)** where it appears.
 | Stage 2 scope, decisions, epic map | `STAGE_2_SPEC.md` (§2.1 scope, §8.3 decisions) |
 | Connector lane — who pays, and what a connector vendor gets instead | `STAGE_2_SPEC.md` §8.8 (payer) + §8.9 (return side) + §8.10 (a connector vendor that owns integrations it manages pays); the operator procedure is §5.2 here. Tracked catalogues/stubs and `docs/connector-vendors.md` live in the **`aec-integrations-review`** repo |
 | Paid tiers & entitlements — the successor epic (AECI-515) | `STAGE_2_PAID_TIERS_SPEC.md` (§3's un-verify owner, §6.1's paid-tier display, §9's billing notices, §11's deferrals) |
-| Integration field contests (§11b) | Wire shapes and error codes: `API_CONTRACTS.md` §4, §6.10, §6.14. Table: `DATABASE_SCHEMA.md` §8.7. Notifications: `STAGE_2_ATTESTATIONS_SPEC.md` §7.5. The owner-accept write: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9. The `contests` cursor: `STAGE_2_REALTIME_SPEC.md` §2. The Linear retry: `STAGE_1_PHASE_6_SPEC.md` §6.4 (the Phase 6.7 sweep). What "claimed" means: §4.5 (AECI-1005, ADR 0035). The protest to AECi, a contract not yet built: §11b.12 (AECI-1009) |
+| Integration field contests (§11b) | Wire shapes and error codes: `API_CONTRACTS.md` §4, §6.10, §6.14. Table: `DATABASE_SCHEMA.md` §8.7. Notifications: `STAGE_2_ATTESTATIONS_SPEC.md` §7.5. The owner-accept write: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9. The `contests` cursor: `STAGE_2_REALTIME_SPEC.md` §2. The Linear retry: `STAGE_1_PHASE_6_SPEC.md` §6.4 (the Phase 6.7 sweep). What "claimed" means: §4.5 (AECI-1005, ADR 0035). The protest to AECi: §11b.12 (AECI-1009) |
 
 ---
 
