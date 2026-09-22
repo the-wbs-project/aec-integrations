@@ -435,6 +435,77 @@ async function fileContestIssue(
 }
 
 /**
+ * Re-route every OPEN owner-routed contest on this integration to AECi, because the
+ * accept being planned takes the row away from the owner they were routed to
+ * (AECI-1005 review). Without it the old owner kept an inbox of contests on a row it
+ * no longer owns, and could still accept them. Each re-route gets its own audit row
+ * and a workflow transition (`open → open`, the state does not change, the decider
+ * does), all in the accept's batch. The vendor decide handler also refuses a caller
+ * that no longer owns the row, so a contest submitted in the gap is covered too.
+ */
+async function rerouteOwnerContests(
+  db: Db,
+  deciding: ContestRow,
+  integrationId: string,
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+  stmts: BatchStmt[],
+  audits: AuditLogEntry[],
+): Promise<void> {
+  const open = await db
+    .select()
+    .from(integrationFieldChallenges)
+    .where(
+      and(
+        eq(integrationFieldChallenges.integrationId, integrationId),
+        eq(integrationFieldChallenges.routedTo, 'owner'),
+        eq(integrationFieldChallenges.status, 'open'),
+      ),
+    );
+  for (const contest of open) {
+    if (contest.id === deciding.id) continue;
+    const metadata = {
+      source: 'admin-moderation',
+      contestId: contest.id,
+      integrationId,
+      reroutedBy: deciding.id,
+    };
+    stmts.push(
+      db
+        .update(integrationFieldChallenges)
+        .set({ routedTo: 'aeci', updatedAt: now })
+        .where(
+          and(
+            eq(integrationFieldChallenges.id, contest.id),
+            eq(integrationFieldChallenges.status, 'open'),
+          ),
+        ),
+    );
+    if (contest.workflowId) {
+      stmts.push(
+        workflowTransitionInsert(db, {
+          workflowId: contest.workflowId,
+          fromState: 'open',
+          toState: 'open',
+          actorId: actor.actorId,
+          reason: 'owner changed: re-routed to AECi',
+          metadata,
+        }),
+      );
+    }
+    audits.push({
+      ...actor,
+      action: 'integration.contest.rerouted',
+      entityType: CONTEST_ENTITY_TYPE,
+      entityId: contest.id,
+      beforeState: { routed_to: 'owner', owner_vendor_id: contest.ownerVendorId },
+      afterState: { routed_to: 'aeci', owner_vendor_id: contest.ownerVendorId },
+      metadata,
+    });
+  }
+}
+
+/**
  * The integration-side half of an AECi accept (AECI-1005): the state guard, the
  * catalog write the header's cases call for, its audit rows, and the purge tags.
  * Every statement runs after the contest's own sentinel, so a lost decision race
@@ -550,6 +621,9 @@ export async function planAcceptWrites(
         );
       }
       appliedMode = 'owner-recorded';
+      if (integration.builtByVendorId !== newOwner) {
+        await rerouteOwnerContests(db, row, integration.id, actor, now, stmts, audits);
+      }
     }
   } else if (claimed) {
     // Reassigned away from the vendor that claimed it, or to "neither": the new owner
@@ -573,6 +647,7 @@ export async function planAcceptWrites(
       metadata: { ...base, reason: 'owner-reassigned' },
     });
     appliedMode = 'owner-recorded';
+    await rerouteOwnerContests(db, row, integration.id, actor, now, stmts, audits);
   }
 
   let tags: string[] = [];

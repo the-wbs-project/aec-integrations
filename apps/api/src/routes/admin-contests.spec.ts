@@ -469,6 +469,33 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
     expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'owner-recorded' });
   });
 
+  it("re-routes the old owner's open contests to AECi when it reassigns the row (AECI-1005 review)", async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    claimed = true;
+    const ownerRouted = await fileContest('name', 'Revit Link');
+    const [first] = await t.db.select().from(integrationFieldChallenges);
+    expect(first!.routedTo).toBe('owner');
+    // The owner field always routes to AECi; accepting "neither" reassigns the row.
+    const reassign = await fileContest('owner', null);
+    expect((await accept(reassign)).status).toBe(200);
+
+    const rerouted = await t.db.query.integrationFieldChallenges.findFirst({
+      where: eq(integrationFieldChallenges.id, ownerRouted),
+    });
+    expect(rerouted).toMatchObject({ routedTo: 'aeci', status: 'open' });
+    const audits = await t.db.select().from(auditLog);
+    expect(
+      audits.find((r) => r.action === 'integration.contest.rerouted' && r.entityId === ownerRouted),
+    ).toBeDefined();
+    const transitions = await t.db
+      .select()
+      .from(workflowTransitions)
+      .where(eq(workflowTransitions.workflowId, rerouted!.workflowId!));
+    expect(transitions.map((r) => r.toState)).toEqual(['open', 'open']);
+    // And it now sits in the AECi queue.
+    expect((await readAdminQueueCounts(t.db)).pending_contests).toBe(1);
+  });
+
   it('writes nothing for an owner reassignment on an unclaimed row (promote carries it)', async () => {
     const id = await fileContest('owner', null);
     await accept(id);

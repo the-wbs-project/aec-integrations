@@ -103,9 +103,11 @@ import {
   type ContestHydration,
   type ContestRow,
   type IntegrationClaimedPredicate,
+  contestIntegrationStateSentinel,
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
+import { isClaimed } from '../lib/integration-claims';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -728,6 +730,23 @@ export function createDecideContestHandler(
     if (!row) throw notFoundError('contest', { id });
     if (row.status !== 'open') throw contestNotOpen(row.status);
 
+    // AECI-1005 review: the decider was frozen at SUBMIT, so re-check that the caller
+    // still owns the row now. An AECi owner accept can reassign a claimed row (and
+    // re-routes its open contests to AECi in the same batch); a caller that lost the
+    // row, or a row that is no longer claimed, must not decide. The same condition
+    // is re-asserted inside the batch by `contestIntegrationStateSentinel` below.
+    const owned = await db.query.integrations.findFirst({
+      columns: { id: true, claimedAt: true, builtByVendorId: true },
+      where: eq(integrations.id, row.integrationId),
+    });
+    if (!owned || !isClaimed(owned) || owned.builtByVendorId !== vendorId) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+        'Your company is no longer the owner of this integration, so AEC Integrations decides this contest.',
+      );
+    }
+
     const payload = await parseJsonBody(c, DecideContestSchema);
     const status = payload.decision === 'accept' ? 'accepted' : 'declined';
     const note = payload.note ?? null;
@@ -769,6 +788,12 @@ export function createDecideContestHandler(
       // Immediately after the guarded UPDATE: a lost race aborts the batch here,
       // before the catalog write, the audit rows and the notification.
       contestStillOpenSentinel(db, id),
+      // AECI-1005 review: and the caller must still hold the claimed row when the
+      // batch runs, or a reassignment landing mid-decision is decided by the old owner.
+      contestIntegrationStateSentinel(db, row.integrationId, {
+        claimed: true,
+        ownerVendorId: vendorId,
+      }),
     ];
 
     let tags: string[] = [];
