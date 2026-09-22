@@ -67,6 +67,7 @@ import type { Db } from '../db/client';
 import {
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrations,
   metricsDaily,
   pageViews,
@@ -440,10 +441,15 @@ async function auditEventsPerDay(
  * because nothing recorded deletions. Since AECI-687 every live delete path writes
  * a `*.deleted` tombstone (`STAGE_1_SPEC.md` §26.1 lists them), so a true
  * removed-on-day-D series is computable FORWARD from those rows. It is not
- * computable backwards: deletes before the tombstones landed left nothing. Whether
- * `basis=net` gains a true-delta sibling or is replaced by one is a separate
- * decision; until then this stays, and the response says so via
+ * computable backwards: deletes before the tombstones landed left nothing. AECI-1037
+ * decided on 2026-09-22 to build no true-delta basis yet (`ADMIN_PANEL_SPEC.md` §5.5
+ * (7) names the reopen trigger), so this stays, and the response says so via
  * `catalog_series_is_surviving_rows`.
+ *
+ * A series can read more than one table. Each arm is bucketed by its OWN
+ * `created_at` and the per-day counts are summed, which is a `UNION ALL` of the
+ * arms' rows. The integrations series is the one that needs it (AECI-1074): see
+ * {@link CATALOG_NET_SOURCE}.
  *
  * `created_at` is untouched by promote's upsert path (`routes/promote.ts` never
  * writes `createdAt`), so a re-promoted product keeps its original arrival date.
@@ -455,18 +461,23 @@ async function auditEventsPerDay(
 async function catalogRowsPerDay(
   db: Db,
   w: UtcWindow,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same shape as `countAll` above: one bucketer over four unrelated tables, each call site fixed by CATALOG_NET_SOURCE.
-  table: any,
-  createdAt: AnySQLiteColumn,
-  live?: SQL,
+  arms: readonly CatalogNetArm[],
 ): Promise<Map<string, number>> {
-  const day = sql<string>`substr(${createdAt}, 1, 10)`;
-  const rows = await db
-    .select({ day, value: count() })
-    .from(table)
-    .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso), live))
-    .groupBy(day);
-  return new Map(rows.map((r) => [r.day, r.value]));
+  const perArm = await Promise.all(
+    arms.map(({ table, createdAt, live }) => {
+      const day = sql<string>`substr(${createdAt}, 1, 10)`;
+      return db
+        .select({ day, value: count() })
+        .from(table)
+        .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso), live))
+        .groupBy(day);
+    }),
+  );
+  const out = new Map<string, number>();
+  for (const rows of perArm) {
+    for (const r of rows) out.set(r.day, (out.get(r.day) ?? 0) + r.value);
+  }
+  return out;
 }
 
 async function profilesPerDay(db: Db, w: UtcWindow): Promise<Map<string, number>> {
@@ -548,28 +559,42 @@ const CATALOG_ACTION: Partial<Record<AdminMetricKey, string>> = {
   'catalog.claims_created': 'claim.created',
 };
 
+/** One table a `basis=net` series reads: the rows, the timestamp a surviving row
+ *  is bucketed by, and the predicate that makes a row "live" when there is one. */
+interface CatalogNetArm {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same shape as `countAll` above: one bucketer over unrelated tables, each arm fixed by CATALOG_NET_SOURCE.
+  table: any;
+  createdAt: AnySQLiteColumn;
+  live?: SQL;
+}
+
 /**
- * The `basis=net` counterpart of {@link CATALOG_ACTION} (AECI-686): the live table
- * behind each `catalog.*` series, and the timestamp a surviving row is bucketed by.
+ * The `basis=net` counterpart of {@link CATALOG_ACTION} (AECI-686): the live
+ * table(s) behind each `catalog.*` series, and the timestamp a surviving row is
+ * bucketed by.
  *
  * Deliberately a mirror of the map above rather than a field on it — the two are
  * different readings of the same key, and a reader comparing them side by side is
  * exactly how the additions/net distinction stays legible.
+ *
+ * Each series must read the SAME population as its Catalog totals card
+ * (`catalogTotals` in `admin-catalog.ts`), or the column stops summing to the
+ * card above it, which is the only reason `net` exists (§5.5 (5)).
  */
-const CATALOG_NET_SOURCE: Partial<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the table half is passed to `catalogRowsPerDay`, which is `any`-typed for the same reason `countAll` is.
-  Record<AdminMetricKey, { table: any; createdAt: AnySQLiteColumn; live?: SQL }>
-> = {
-  'catalog.products_created': { table: products, createdAt: products.createdAt },
+const CATALOG_NET_SOURCE: Partial<Record<AdminMetricKey, readonly CatalogNetArm[]>> = {
+  'catalog.products_created': [{ table: products, createdAt: products.createdAt }],
+  // Both delivered-tier tables, as the totals card counts them (AECI-721 lockstep,
+  // AECI-1074). Reading `integrations` alone left the column 51 rows short in
+  // production and made every cross-table move (AECI-888) read as a removal.
   // `live` (AECI-1010): a retired integration is still a row but is not in the
-  // catalogue, so it does not survive into the net series.
-  'catalog.integrations_created': {
-    table: integrations,
-    createdAt: integrations.createdAt,
-    live: liveIntegrationWhere,
-  },
-  'catalog.vendors_created': { table: vendors, createdAt: vendors.createdAt },
-  'catalog.claims_created': { table: claims, createdAt: claims.createdAt },
+  // catalogue. `connector_evidenced_pairs` has no `retired_at`, so every row in it
+  // is live, exactly as the card treats it.
+  'catalog.integrations_created': [
+    { table: integrations, createdAt: integrations.createdAt, live: liveIntegrationWhere },
+    { table: connectorEvidencedPairs, createdAt: connectorEvidencedPairs.createdAt },
+  ],
+  'catalog.vendors_created': [{ table: vendors, createdAt: vendors.createdAt }],
+  'catalog.claims_created': [{ table: claims, createdAt: claims.createdAt }],
 };
 
 /**
@@ -624,7 +649,7 @@ export async function metricSeries(
       });
     }
     return {
-      perDay: await catalogRowsPerDay(db, w, source.table, source.createdAt, source.live),
+      perDay: await catalogRowsPerDay(db, w, source),
       perDayFiltered: null,
     };
   }
@@ -1256,7 +1281,9 @@ export async function earliestAuditDay(db: Db): Promise<string | null> {
  * Named here so {@link earliestCatalogRowDay} and the route's notes can say which
  * series that applies to instead of asserting "the audit log" for all four. It
  * has exactly one member, and adding a second is a decision rather than a
- * refactor — see AECI-684's open question on `catalog.vendors_created`.
+ * refactor. AECI-1037 made that decision for `catalog.vendors_created` on
+ * 2026-09-22: it stays on the audit log, because the screen reads `basis=net`,
+ * which already buckets every live vendor by `vendors.created_at`.
  */
 const CATALOG_MEASURED_BACKFILL: Partial<Record<AdminMetricKey, string>> = {
   'catalog.products_created': 'products.created_at',
@@ -1295,11 +1322,19 @@ export async function earliestCatalogRowDay(
   const source = CATALOG_NET_SOURCE[metric];
   /* c8 ignore next -- callers gate on catalogSeriesProvenance().reconstructedFrom, whose keys are a subset. */
   if (!source) return null;
-  const [row] = await db
-    .select({ day: sql<string | null>`min(substr(${source.createdAt}, 1, 10))` })
-    .from(source.table)
-    .where(source.live);
-  return row?.day ?? null;
+  const days = await Promise.all(
+    source.map(async ({ table, createdAt, live }) => {
+      const [row] = await db
+        .select({ day: sql<string | null>`min(substr(${createdAt}, 1, 10))` })
+        .from(table)
+        .where(live);
+      return row?.day ?? null;
+    }),
+  );
+  return days.reduce<string | null>(
+    (min, d) => (d !== null && (min === null || d < min) ? d : min),
+    null,
+  );
 }
 
 /**

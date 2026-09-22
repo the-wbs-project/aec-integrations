@@ -3398,6 +3398,7 @@ export const AdminMetricKeySchema = z.enum([
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
   // basis=additions (default): audit_log action='<entity>.created'
   // basis=net:                  live rows, bucketed by their own created_at
+  //                             (integrations: live integrations + connector_evidenced_pairs, AECI-1074)
   'catalog.products_created',
   'catalog.integrations_created',
   'catalog.vendors_created',
@@ -3494,7 +3495,7 @@ against.
 
 | | `additions` (default) | `net` |
 |---|---|---|
-| source | `audit_log` `*.created` events — **except `catalog.products_created`'s reconstructed days, which are measured from `products.created_at`** (§4's exception; AECI-684) | live rows, bucketed by `created_at` |
+| source | `audit_log` `*.created` events — **except `catalog.products_created`'s reconstructed days, which are measured from `products.created_at`** (§4's exception; AECI-684) | live rows, bucketed by `created_at`. Integrations reads live `integrations` **plus** `connector_evidenced_pairs`, the same population as the Catalog totals card (AECI-1074) |
 | answers | how much work happened | how many records are still here |
 | reconciles with `COUNT(*)` | no | yes, by construction |
 | shows churn | yes | no (300 created + 300 destroyed reads 0) |
