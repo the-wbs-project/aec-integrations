@@ -164,7 +164,7 @@ export interface PairView {
   /** `['Home', context.name, other.name]`. */
   readonly breadcrumb: readonly string[];
   readonly mechanisms: readonly MechanismView[];
-  /** Distinct claims across all mechanisms (all directions). */
+  /** Distinct data objects across all mechanisms (all directions) — AECI-1042. */
   readonly total: number;
   /** Vendor-confirmed claims — 0 in Stage 1.5. */
   readonly confirmed: number;
@@ -213,7 +213,8 @@ export function buildPairView(
     };
   });
 
-  const total = mechanisms.reduce((n, m) => n + m.claims.length, 0);
+  // Distinct data objects, not claim rows — the live headline rule (AECI-1042).
+  const total = new Set(mechanisms.flatMap((m) => m.claims.map((c) => c.dataObjectSlug))).size;
 
   return {
     context,
@@ -342,8 +343,9 @@ const PROCORE: ProductRef = {
 /**
  * Revit ⇄ Procore, connected by two mechanisms. RFIs deliberately appears on
  * BOTH mechanisms in opposite directions — the §3.1 "two claims, one per row"
- * case: it must render as two distinct rows, never de-duplicated. total = 8
- * distinct claims → the headline reads "8 data objects sync"; confirmed = 0.
+ * case: it must render as two distinct rows, never de-duplicated. 8 claims but
+ * 7 distinct data objects → the headline reads "7 data objects sync" (AECI-1042);
+ * confirmed = 0.
  */
 export const PAIR_FIXTURE: PairFixture = {
   productA: REVIT,

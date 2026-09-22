@@ -128,7 +128,7 @@ A **claim** asserts that a particular `data_object` flows in a particular `direc
 
 The **integration row is the anchor** (ADR 0018). Consequences:
 
-- A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows.
+- A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows. *(The §3.5 headline counts that data_object once — AECI-1042.)*
 - Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
 - The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). *(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)*
 
@@ -254,9 +254,11 @@ Rules:
 
 The pair page leads its data-flow section with a headline of the form **"N data objects sync"** plus a verification ratio **`confirmed / total`**:
 
-- **`total`** — the number of distinct claims on the pair (all directions, all mechanisms).
-- **`confirmed`** — claims whose computed agreement is vendor-confirmed.
-- **`single_source`** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)* — claims exactly one vendor affirms with the counterparty silent.
+- **`total`** — the number of distinct **data objects** on the pair: distinct `data_object` slugs across every live claim, all directions, all mechanisms, both delivered anchors (`integrations` and `connector_evidenced_pairs`).
+- **`confirmed`** — data objects with at least one claim whose computed agreement is vendor-confirmed.
+- **`single_source`** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)* — data objects with at least one claim exactly one vendor affirms with the counterparty silent, and **no** confirmed claim. An object is in at most one of the two counts, so `confirmed + single_source ≤ total`.
+
+> **Amendment (AECI-1042, 2026-09-22) — the headline counts objects, not claim rows.** Until this change `total` was the distinct **claim** count, so a data_object moving through two mechanisms counted twice (the §3.1 consequence carried straight into the headline). The header reads "N data objects sync", so a pair with a native connector and a Zapier app that both move RFIs over-stated its coverage, and a duplicate integration row doubled it. The count is now taken over distinct `data_object` slugs, in `computeSyncHeadline` (`packages/shared/src/agreement.ts`). §3.1 is unchanged: those remain **two claims**, and both still render under their own mechanism. Only the headline de-duplicates. `removed` claims stay excluded before the count (AECI-303).
 
 `single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 vendor-confirmed · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
 

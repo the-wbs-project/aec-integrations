@@ -260,9 +260,10 @@ export type ProductPairMechanism = z.infer<typeof ProductPairMechanismSchema>;
 
 /**
  * The sync headline (§3.5, widened by `STAGE_2_ATTESTATIONS_SPEC.md` §4.3).
- * `total` = distinct claims on the pair (all directions, all mechanisms);
- * `confirmed` = claims two distinct vendors affirm; `single_source` = claims
- * exactly one vendor affirms with the counterparty silent. The two counts stay
+ * `total` = distinct `data_object` slugs on the pair (all directions, all
+ * mechanisms, both delivered anchors — AECI-1042); `confirmed` = objects with a
+ * claim two distinct vendors affirm; `single_source` = objects with a claim
+ * exactly one vendor affirms with the counterparty silent, and no confirmed claim. The two counts stay
  * separate because the headline may never fold a one-sided assertion into the
  * bilateral figure. Filled from the ingested claims by `computeSyncHeadline`;
  * both are `0` until the Stage 2 portal, and `total` is `0` for an

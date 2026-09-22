@@ -134,17 +134,28 @@ export function isClaimRefuted(attestations: readonly AgreementAttestation[]): b
   return true;
 }
 
-/** The minimal claim shape `computeSyncHeadline` needs — its computed agreement. */
+/**
+ * The minimal claim shape `computeSyncHeadline` needs — its computed agreement,
+ * and the `data_object` it moves (the headline counts objects, not rows).
+ */
 export interface SyncHeadlineClaim {
   readonly agreement: AgreementState;
+  readonly data_object_slug: string;
 }
 
 /**
- * The sync headline (§3.5, widened by Stage 2 §4.3). `total` is the number of
- * distinct claims on the pair (all directions, all mechanisms — a data_object
- * moving through two mechanisms counts twice, §3.1); `confirmed` counts claims
- * two distinct vendors affirm; `single_source` counts claims exactly one vendor
- * affirms with the counterparty silent.
+ * The sync headline (§3.5, widened by Stage 2 §4.3; re-based on data objects by
+ * AECI-1042). `total` is the number of **distinct `data_object` slugs** across the
+ * pair's claims — all directions, all mechanisms, both delivered anchors. A
+ * data_object moving through two mechanisms, or in both directions, counts once:
+ * the header reads "N data objects sync", and before AECI-1042 a second integration
+ * (or a duplicate row) that moved the same object inflated N.
+ *
+ * `confirmed` counts data objects with at least one claim two distinct vendors
+ * affirm. `single_source` counts data objects with at least one claim exactly one
+ * vendor affirms (counterparty silent) and **no** confirmed claim. An object is
+ * therefore in at most one of the two, so `confirmed + single_source <= total`
+ * holds and the ratio "C of N vendor-confirmed" can never exceed its own base.
  *
  * The two are reported separately because they must read differently: the
  * headline may never fold a one-sided assertion into the bilateral count. Both
@@ -156,9 +167,14 @@ export function computeSyncHeadline(claims: readonly SyncHeadlineClaim[]): {
   confirmed: number;
   single_source: number;
 } {
-  return {
-    total: claims.length,
-    confirmed: claims.filter((c) => c.agreement === 'confirmed').length,
-    single_source: claims.filter((c) => c.agreement === 'single_source').length,
-  };
+  const objects = new Set<string>();
+  const confirmed = new Set<string>();
+  const singleSource = new Set<string>();
+  for (const claim of claims) {
+    objects.add(claim.data_object_slug);
+    if (claim.agreement === 'confirmed') confirmed.add(claim.data_object_slug);
+    else if (claim.agreement === 'single_source') singleSource.add(claim.data_object_slug);
+  }
+  for (const slug of confirmed) singleSource.delete(slug);
+  return { total: objects.size, confirmed: confirmed.size, single_source: singleSource.size };
 }
