@@ -31,7 +31,7 @@ import {
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
-import { VendorIntegrationRetire } from './vendor-integration-retire';
+import { VendorIntegrationRetire, retireErrorMessage } from './vendor-integration-retire';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -194,6 +194,12 @@ describe('retire', () => {
     const alert = el(fixture).querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('This integration is already retired.');
     expect(el(fixture).textContent).toContain('Retire this integration?');
+  });
+
+  it('tells a lost race to reload, never that the row is already retired', () => {
+    const message = retireErrorMessage(apiError(409, 'INTEGRATION_CHANGED_WHILE_SAVING'));
+    expect(message).toContain('changed while you were saving');
+    expect(message).not.toContain('already retired');
   });
 });
 

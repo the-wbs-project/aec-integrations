@@ -291,6 +291,8 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.retired:This integration is already retired. Reload to see its current state.`;
     case 'INTEGRATION_NOT_RETIRED':
       return $localize`:@@vendor.retire.error.notRetired:This integration is already live. Reload to see its current state.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.retire.error.changed:This integration changed while you were saving. Reload and try again.`;
     case 'INTEGRATION_NOT_CLAIMED':
       return $localize`:@@vendor.retire.error.notClaimed:Claim this integration before retiring it.`;
     case 'INTEGRATION_NOT_OWNER':

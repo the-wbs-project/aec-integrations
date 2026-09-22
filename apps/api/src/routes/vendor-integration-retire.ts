@@ -32,7 +32,11 @@
  * (each with its own guarded UPDATE and sentinel, its workflow closure, its audit
  * row and a `closed_by_retire` contest notification to the submitter vendor), then `noOpenContestsSentinel`, then the `integration.retired` /
  * `integration.restored` audit row and one `notification.sent` per other endpoint
- * vendor. A lost race writes nothing and re-derives the refusal. Restore reopens no
+ * vendor, then the two endpoints' `integration_count` recomputes
+ * (`integrationCountRecomputeStmt`, derived writes with no audit row). A lost race
+ * writes nothing and re-derives the refusal. When the re-read finds nothing to
+ * refuse (a contest was filed in between, say), the answer is
+ * `409 INTEGRATION_CHANGED_WHILE_SAVING`: reload and try again. Restore reopens no
  * contest (ruled 2026-09-22): a contest was about the row as it stood, and the
  * submitter can file again.
  *
@@ -42,13 +46,16 @@
  * raw-SQL write without the bump would break restore permanently: the orphan sweep
  * only deletes, so an un-bumped restore is never re-indexed.
  *
- * ── 6. POST-COMMIT: COUNTS, THEN SEARCH, THEN THE EDGE ──────────────────────
- * `recomputeProductCounts` for both endpoints first, because the product search
- * record reads the stored `integration_count`. Then a by-id Algolia sync of the
- * integration (a retire deletes its record, a restore re-adds it), both products and
- * the owner vendor, whose count has no other refresh path. Then the purge queue and
- * the recrawl through `afterVendorWrite`. All best-effort, all after commit. The home
- * stats (`index:home`) are left to their daily cron, as for every vendor write.
+ * ── 6. COUNTS IN THE BATCH; SEARCH AND THE EDGE AFTER COMMIT ────────────────
+ * The two endpoints' stored `integration_count` is recomputed INSIDE the batch, so
+ * it is committed before any purge is enqueued and no re-render can cache the old
+ * count. After commit: a by-id Algolia sync of the integration (a retire deletes its
+ * record, a restore re-adds it), both products (whose record reads the stored count)
+ * and the owner vendor, whose count has no other refresh path. It runs behind
+ * promote's `dispatchHook` watchdog because it holds outbound Algolia connections,
+ * and each entity that fails is logged. Then the purge queue and the recrawl through
+ * `afterVendorWrite`. All best-effort. The home stats (`index:home`) are left to
+ * their daily cron, as for every vendor write.
  *
  * Retire does not touch `maintained_by` or `last_reviewed_at` (§13.9): it changes
  * whether the row is shown, not what it says, and a claimed row is already
@@ -95,8 +102,9 @@ import {
 } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
 import { publicSiteBase } from '../lib/public-urls';
-import { recomputeProductCounts } from '../lib/recompute-counts';
+import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
+import { dispatchHook, type PromoteRunCtx } from './promote';
 import { pairCacheTag } from './promote-pair';
 import { closeWorkflow, endpointSlugs } from './vendor-contests';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -348,6 +356,10 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
     for (const entry of audits) {
       if (entry.entityType !== CONTEST_ENTITY_TYPE) stmts.push(auditInsert(db, entry));
     }
+    // Last: both endpoints' counts, recomputed over the row as this batch leaves it.
+    // Committed with the retire, so the purge below can never race a stale count.
+    const productIds = [...new Set([row.sourceProductId, row.targetProductId])];
+    for (const productId of productIds) stmts.push(integrationCountRecomputeStmt(db, productId));
 
     try {
       await db.batch(stmts as BatchTuple);
@@ -361,14 +373,23 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
         (await refusalFor(db, vendorId, current, mode)) ??
         new ApiError(
           409,
-          ApiErrorCode.INTEGRATION_RETIRED,
+          ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
           'This integration changed while you were saving. Reload and try again.',
         )
       );
     }
 
-    const productIds = [row.sourceProductId, row.targetProductId];
-    c.executionCtx.waitUntil(refreshCountsAndSearch(c, db, productIds, integrationId, vendorId));
+    const rc: PromoteRunCtx = {
+      env: c.env,
+      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+      request: c.req.raw,
+      bookmark: () => null,
+    };
+    dispatchHook(
+      rc,
+      `vendor-${mode}-algolia`,
+      syncRetireSearch(c, db, productIds, integrationId, vendorId),
+    );
 
     const tags = [
       ...(pairSlugs
@@ -402,29 +423,19 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
 }
 
 /**
- * The post-commit tail: recompute both endpoints' stored counts, THEN re-index by id.
- * Order matters, because the product search record reads `products.integration_count`.
- * Never throws. Sequential by construction, so it holds at most one outbound
- * connection at a time.
+ * The post-commit search tail: a by-id Algolia sync of the integration, both
+ * endpoint products and the owner vendor. The counts were committed in the batch, so
+ * the product records read the new stored value. Never throws. Sequential by
+ * construction (`syncIndexTargets`), so it holds at most one outbound connection at
+ * a time. Each entity whose sync failed is logged, as the promote tail does.
  */
-async function refreshCountsAndSearch(
+async function syncRetireSearch(
   c: VendorContext,
   db: Db,
   productIds: readonly string[],
   integrationId: string,
   ownerVendorId: string,
 ): Promise<void> {
-  try {
-    await recomputeProductCounts(db, productIds);
-  } catch (error) {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'warn',
-      message: 'aeci.api.vendor.retire_recompute_failed',
-      outcome: error instanceof Error ? error.message : String(error),
-    });
-    // The counts are the reconcile cron's to repair. Still re-index the integration.
-  }
-
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   if (!creds.appId || !creds.apiKey) return;
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
@@ -446,11 +457,19 @@ async function refreshCountsAndSearch(
       results,
       Date.now() - started,
     );
+    for (const result of results) {
+      if (!result.ok) logRetireSyncFailure(c, result.entity, result.error ?? 'unknown');
+    }
   } catch (error) {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'warn',
-      message: 'aeci.api.vendor.retire_algolia_sync_failed',
-      outcome: error instanceof Error ? error.message : String(error),
-    });
+    logRetireSyncFailure(c, 'all', error instanceof Error ? error.message : String(error));
   }
+}
+
+function logRetireSyncFailure(c: VendorContext, entity: string, reason: string): void {
+  logToPosthog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.vendor.retire_algolia_sync_failed',
+    entity,
+    reason,
+  });
 }

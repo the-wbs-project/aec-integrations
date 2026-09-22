@@ -25,7 +25,11 @@ import {
   computeRecentIntegrations,
   computeTotalIntegrations,
 } from './home-stats';
-import { findProductCountDrift, recomputeProductCounts } from './recompute-counts';
+import {
+  findProductCountDrift,
+  integrationCountRecomputeStmt,
+  recomputeProductCounts,
+} from './recompute-counts';
 
 /**
  * `integration_count` counts DELIVERED edges regardless of which table holds them
@@ -351,12 +355,13 @@ describe('reachable never counts — the §13.5 complement (AECI-892)', () => {
  *
  * `proof`:
  *   - `executed` — a case below runs the expression against the test D1 and shows a
- *     retired row is excluded. The last case fails if one was never proved.
+ *     retired row is excluded. The last case fails if an executed site has no proof.
  *   - `scan` — the expression cannot run here (another Worker package, plain `.mjs`, or
  *     a module-private function). The scan requires the live predicate within
  *     {@link SCAN_WINDOW} lines of the marker.
- *   - `excluded` — deliberately NOT filtered, with the reason. A scan asserts the
- *     predicate is ABSENT there, so nobody adds it "for consistency".
+ *   - `excluded` — deliberately NOT filtered, with the reason. Only X8 is also scanned
+ *     for the predicate's ABSENCE, because it is the one where adding the filter would
+ *     break something. The others are held by their recorded reason.
  *
  * `deletes` marks the sites whose omission deletes Algolia records. Paths are relative
  * to `apps/api`, the directory this suite runs in.
@@ -374,7 +379,9 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
   {
     id: '1',
     file: 'src/lib/recompute-counts.ts',
-    marker: 'async function computeExpected',
+    // One expression, two callers: `computeExpected` and the in-batch
+    // `integrationCountRecomputeStmt` (the retire batch).
+    marker: 'function integrationCountSql',
     proof: 'executed',
   },
   {
@@ -563,8 +570,6 @@ const SCAN_WINDOW = 40;
 const LIVE_PREDICATE =
   /liveIntegrationWhere|liveIntegrationSql\(|retired_at IS NULL|liveIntegrationOn\(/;
 
-const proved = new Set<string>();
-
 const RETIRED_AT = '2026-09-20T00:00:00.000Z';
 
 /** The catalogue plus a LIVE `i1` and a RETIRED `r1` between the same two promoted
@@ -609,103 +614,120 @@ function windowAfter(source: string, marker: string): string | null {
 }
 
 describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
-  it('sites 1-3: the canonical count, the drift sweep and both raw-SQL twins drop it', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
-    await recomputeProductCounts(t.db, new Set([ENDPOINT_A, ENDPOINT_B]));
-    const byId = new Map(
-      (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
-    );
-    expect(byId.get(ENDPOINT_A)).toBe(1);
-    expect(byId.get(ENDPOINT_B)).toBe(1);
-    expect(await findProductCountDrift(t.db)).toEqual([]);
-    proved.add('1');
+  /**
+   * Every executed proof registers here at COLLECTION time, before any test runs, so
+   * the completeness check below holds whatever order the tests run in, and under a
+   * `-t` filter that runs it alone. Each case gets a fresh D1 seeded with a live and a
+   * retired row.
+   */
+  const PROOF_CASES: { name: string; sites: readonly string[] }[] = [];
+  function proves(name: string, sites: readonly string[], run: (t: TestDb) => Promise<void>): void {
+    PROOF_CASES.push({ name, sites });
+    it(name, async () => {
+      const t = await makeTestDb();
+      try {
+        await seedLiveAndRetired(t);
+        await run(t);
+      } finally {
+        t.dispose();
+      }
+    });
+  }
 
-    const drift = t.raw.prepare(DRIFT_QUERY).all() as {
-      product_id: string;
-      expected_integration_count: number;
-    }[];
-    expect(drift.find((r) => r.product_id === ENDPOINT_A)?.expected_integration_count).toBe(1);
-    proved.add('2');
+  proves(
+    'sites 1-3: the canonical count, the drift sweep and both raw-SQL twins drop it',
+    ['1', '2', '3'],
+    async (t) => {
+      await recomputeProductCounts(t.db, new Set([ENDPOINT_A, ENDPOINT_B]));
+      const byId = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(byId.get(ENDPOINT_A)).toBe(1);
+      expect(byId.get(ENDPOINT_B)).toBe(1);
+      expect(await findProductCountDrift(t.db)).toEqual([]);
 
-    // `--fix`: overwrite with a wrong value, then let the raw recompute repair it.
-    t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
-    t.raw.prepare(RECOMPUTE_SQL.replace('__IDS__', `'${ENDPOINT_A}','${ENDPOINT_B}'`)).run();
-    const after = new Map(
-      (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
-    );
-    expect(after.get(ENDPOINT_A)).toBe(1);
-    expect(after.get(ENDPOINT_B)).toBe(1);
-    proved.add('3');
-    t.dispose();
-  });
+      const drift = t.raw.prepare(DRIFT_QUERY).all() as {
+        product_id: string;
+        expected_integration_count: number;
+      }[];
+      expect(drift.find((r) => r.product_id === ENDPOINT_A)?.expected_integration_count).toBe(1);
 
-  it('sites 6a and 14a: the vendor rule counts only the live row', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
+      // `--fix`: overwrite with a wrong value, then let the raw recompute repair it.
+      t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
+      t.raw.prepare(RECOMPUTE_SQL.replace('__IDS__', `'${ENDPOINT_A}','${ENDPOINT_B}'`)).run();
+      const after = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(after.get(ENDPOINT_A)).toBe(1);
+      expect(after.get(ENDPOINT_B)).toBe(1);
+
+      // Site 1's second caller: the in-batch statement the retire writes.
+      t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
+      await t.db.batch([
+        integrationCountRecomputeStmt(t.db, ENDPOINT_A),
+        integrationCountRecomputeStmt(t.db, ENDPOINT_B),
+      ]);
+      const inBatch = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(inBatch.get(ENDPOINT_A)).toBe(1);
+      expect(inBatch.get(ENDPOINT_B)).toBe(1);
+    },
+  );
+
+  proves('sites 6a and 14a: the vendor rule counts only the live row', ['6a', '14a'], async (t) => {
     const [algoliaRow] = (await t.db.query.vendors.findMany({
       ...algoliaVendorConfig,
     })) as RawAlgoliaVendorRow[];
     expect(algoliaRow?.integrationCount).toBe(1);
-    proved.add('6a');
     const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
     expect(listRow?.integrationCount).toBe(1);
-    proved.add('14a');
-    t.dispose();
   });
 
-  it('sites 8a-8d: the home totals, window, category tally and recent rail drop it', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
-    await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
-    await t.db.insert(productCategories).values([
-      { productId: ENDPOINT_A, categoryId: 'c1' },
-      { productId: ENDPOINT_B, categoryId: 'c1' },
-    ]);
+  proves(
+    'sites 8a-8d: the home totals, window, category tally and recent rail drop it',
+    ['8a', '8b', '8c', '8d'],
+    async (t) => {
+      await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
+      await t.db.insert(productCategories).values([
+        { productId: ENDPOINT_A, categoryId: 'c1' },
+        { productId: ENDPOINT_B, categoryId: 'c1' },
+      ]);
 
-    expect(await computeTotalIntegrations(t.db)).toBe(1);
-    proved.add('8a');
-    expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(1);
-    proved.add('8b');
-    const category = await computeMostActiveCategory(t.db);
-    expect(category?.integration_count).toBe(1);
-    proved.add('8c');
-    const recent = await computeRecentIntegrations(t.db);
-    expect(recent.map((r) => r.id)).toEqual(['i1']);
-    proved.add('8d');
-    t.dispose();
-  });
+      expect(await computeTotalIntegrations(t.db)).toBe(1);
+      expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(1);
+      const category = await computeMostActiveCategory(t.db);
+      expect(category?.integration_count).toBe(1);
+      const recent = await computeRecentIntegrations(t.db);
+      expect(recent.map((r) => r.id)).toEqual(['i1']);
+    },
+  );
 
-  it('sites 9 and 12: operator totals drop it, and claim coverage cannot go negative', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
-    await t.db.insert(taxonomyDataObjects).values({ id: 'd1', slug: 'invoice', name: 'Invoice' });
-    // A claim on the RETIRED row only. It survives the retire by design, so the
-    // numerator must not count its anchor while the denominator drops the row.
-    await t.db
-      .insert(claims)
-      .values({ id: 'cl1', integrationId: 'r1', dataObjectId: 'd1', direction: 'a_to_b' });
+  proves(
+    'sites 9 and 12: operator totals drop it, and claim coverage cannot go negative',
+    ['9', '12'],
+    async (t) => {
+      await t.db.insert(taxonomyDataObjects).values({ id: 'd1', slug: 'invoice', name: 'Invoice' });
+      // A claim on the RETIRED row only. It survives the retire by design, so the
+      // numerator must not count its anchor while the denominator drops the row.
+      await t.db
+        .insert(claims)
+        .values({ id: 'cl1', integrationId: 'r1', dataObjectId: 'd1', direction: 'a_to_b' });
 
-    const coverage = await claimCoverage(t.db, 10);
-    expect(coverage.integrations_total).toBe(1);
-    expect(coverage.integrations_with_claims).toBe(0);
-    expect(coverage.integrations_without_claims).toBe(1);
-    expect(coverage.integrations_without_claims_sample.map((r) => r.id)).toEqual(['i1']);
-    proved.add('9');
-    expect((await catalogTotals(t.db)).integrations).toBe(1);
-    proved.add('12');
-    t.dispose();
-  });
+      const coverage = await claimCoverage(t.db, 10);
+      expect(coverage.integrations_total).toBe(1);
+      expect(coverage.integrations_with_claims).toBe(0);
+      expect(coverage.integrations_without_claims).toBe(1);
+      expect(coverage.integrations_without_claims_sample.map((r) => r.id)).toEqual(['i1']);
+      expect((await catalogTotals(t.db)).integrations).toBe(1);
+    },
+  );
 
-  it('site X3: a taxonomy term counts only the live row', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
+  proves('site X3: a taxonomy term counts only the live row', ['X3'], async (t) => {
     await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
     await t.db.insert(productCategories).values({ productId: ENDPOINT_A, categoryId: 'c1' });
     const [term] = await t.db.query.taxonomyCategories.findMany({ ...categoryTermConfig });
     expect(term?.integrationCount).toBe(1);
-    proved.add('X3');
-    t.dispose();
   });
 
   /**
@@ -714,42 +736,38 @@ describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
    * arm must be the EXACT complement of its upsert arm. A mismatch here is either a
    * permanent deletion of live records or a sweep that refuses every pass.
    */
-  it('sites 13, 15, 16 and X1: the drift count, both id sets and the sync agree', async () => {
-    const t = await makeTestDb();
-    await seedLiveAndRetired(t);
+  proves(
+    'sites 13, 15, 16 and X1: the drift count, both id sets and the sync agree',
+    ['13', '15', '16', 'X1'],
+    async (t) => {
+      const counted = await drizzleDriftCounter(t.db).integration.count({
+        where: {
+          sourceProduct: { promotionStatus: 'promoted' },
+          targetProduct: { promotionStatus: 'promoted' },
+        },
+      });
+      expect(counted).toBe(1);
 
-    const counted = await drizzleDriftCounter(t.db).integration.count({
-      where: {
-        sourceProduct: { promotionStatus: 'promoted' },
-        targetProduct: { promotionStatus: 'promoted' },
-      },
-    });
-    expect(counted).toBe(1);
-    proved.add('13');
+      const swept = await drizzlePromotedIds(t.db).integrationIds();
+      // Exactly the live row: not empty (the `= NULL` failure) and not both.
+      expect([...swept]).toEqual(['i1']);
 
-    const swept = await drizzlePromotedIds(t.db).integrationIds();
-    // Exactly the live row: not empty (the `= NULL` failure) and not both.
-    expect([...swept]).toEqual(['i1']);
-    proved.add('15');
+      const cli = (t.raw.prepare(INTEGRATION_IDS_SQL).all() as { id: string }[]).map((r) => r.id);
+      expect(cli).toEqual(['i1']);
 
-    const cli = (t.raw.prepare(INTEGRATION_IDS_SQL).all() as { id: string }[]).map((r) => r.id);
-    expect(cli).toEqual(['i1']);
-    proved.add('16');
-
-    const { requests } = await buildIntegrationRequests(t.db, { type: 'ids', ids: ['i1', 'r1'] });
-    const upserts = requests
-      .filter((r) => r.action === 'updateObject')
-      .map((r) => (r.body as { objectID: string }).objectID);
-    const deletes = requests
-      .filter((r) => r.action === 'deleteObject')
-      .map((r) => (r.body as { objectID: string }).objectID);
-    expect(upserts).toEqual(['i1']);
-    expect(deletes).toEqual(['r1']);
-    // The complement: every id lands in exactly one arm.
-    expect(new Set([...upserts, ...deletes]).size).toBe(upserts.length + deletes.length);
-    proved.add('X1');
-    t.dispose();
-  });
+      const { requests } = await buildIntegrationRequests(t.db, { type: 'ids', ids: ['i1', 'r1'] });
+      const upserts = requests
+        .filter((r) => r.action === 'updateObject')
+        .map((r) => (r.body as { objectID: string }).objectID);
+      const deletes = requests
+        .filter((r) => r.action === 'deleteObject')
+        .map((r) => (r.body as { objectID: string }).objectID);
+      expect(upserts).toEqual(['i1']);
+      expect(deletes).toEqual(['r1']);
+      // The complement: every id lands in exactly one arm.
+      expect(new Set([...upserts, ...deletes]).size).toBe(upserts.length + deletes.length);
+    },
+  );
 
   it('a restore puts the row back in every executed set', async () => {
     const t = await makeTestDb();
@@ -784,9 +802,12 @@ describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
     expect(blocker).not.toMatch(LIVE_PREDICATE);
   });
 
-  it('the list is complete: every executed site was proved, and the delete sites are the four', () => {
+  it('the list is complete: every executed site has a proof, and the delete sites are the four', () => {
     const executed = LOCKSTEP_SITES.filter((s) => s.proof === 'executed').map((s) => s.id);
+    const proved = new Set(PROOF_CASES.flatMap((c) => c.sites));
     expect(executed.filter((id) => !proved.has(id))).toEqual([]);
+    // And no proof names a site the list does not have, or one it does not execute.
+    expect([...proved].filter((id) => !executed.includes(id))).toEqual([]);
     expect(
       LOCKSTEP_SITES.filter((s) => s.deletes)
         .map((s) => s.id)

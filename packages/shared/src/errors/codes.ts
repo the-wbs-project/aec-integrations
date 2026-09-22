@@ -44,6 +44,9 @@ export const ApiErrorCode = {
   INTEGRATION_RETIRED: 'INTEGRATION_RETIRED',
   INTEGRATION_NOT_RETIRED: 'INTEGRATION_NOT_RETIRED',
   INTEGRATION_NOT_CLAIMED: 'INTEGRATION_NOT_CLAIMED',
+  // AECI-1010: a retire or restore lost a race (a contest filed, the row changed)
+  // and the re-read finds no refusal to give. Nothing was written; reload and retry.
+  INTEGRATION_CHANGED_WHILE_SAVING: 'INTEGRATION_CHANGED_WHILE_SAVING',
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',

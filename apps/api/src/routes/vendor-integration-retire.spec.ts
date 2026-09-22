@@ -415,3 +415,108 @@ describe('POST /api/vendor/integrations/:id/restore — the owner restores', () 
     expect((await row(I_MAIN)).retiredAt).not.toBeNull();
   });
 });
+
+// ─── Races: every sentinel in the batch, exercised ───────────────────────────
+
+/**
+ * A handler whose FIRST `db.batch` runs `interleave` just before the real batch, so
+ * the pre-check saw one state and the batch meets another.
+ */
+function racingApp(
+  auth: AuthzVariables['auth'],
+  interleave: () => void | Promise<void>,
+): Hono<{ Bindings: Env; Variables: AuthzVariables }> {
+  let fired = false;
+  const factory: typeof t.factory = (env, opts) => {
+    const ctx = t.factory(env, opts);
+    if (!fired) {
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        fired = true;
+        await interleave();
+        return batch(stmts);
+      }) as typeof batch;
+    }
+    return ctx;
+  };
+  const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  a.onError(errorHandler());
+  a.use('*', async (c, next) => {
+    c.set('auth', auth);
+    await next();
+  });
+  a.post('/api/vendor/integrations/:id/retire', createRetireIntegrationHandler(factory));
+  a.post('/api/vendor/integrations/:id/contests', createSubmitContestHandler(factory));
+  return a;
+}
+
+async function send(
+  a: Hono<{ Bindings: Env; Variables: AuthzVariables }>,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: JsonBody }> {
+  const init: RequestInit = body
+    ? {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      }
+    : { method: 'POST' };
+  const res = await a.request(path, init, TEST_ENV, fakeExecutionContext());
+  return { status: res.status, body: (await res.json()) as JsonBody };
+}
+
+describe('retire and contest races (AECI-1010)', () => {
+  const countOf = async (id: string) =>
+    (await t.db.query.products.findFirst({ where: eq(products.id, id) }))!.integrationCount;
+
+  it('retireRaceSentinel: a concurrent retire aborts the batch and writes nothing', async () => {
+    await t.db.update(products).set({ integrationCount: 5 });
+    const a = racingApp(AUTH_B, () => {
+      t.raw
+        .prepare(`UPDATE integrations SET retired_at = ? WHERE id = ?`)
+        .run('2026-09-21T00:00:00.000Z', I_MAIN);
+    });
+    const res = await send(a, `/api/vendor/integrations/${I_MAIN}/retire`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(0);
+    expect(await auditsFor(NOTIFICATION_SENT_ACTION)).toHaveLength(0);
+    // The in-batch count recompute rolled back with everything else.
+    expect(await countOf(P_SOURCE)).toBe(5);
+  });
+
+  it('noOpenContestsSentinel: a contest filed mid-retire aborts it as changed-while-saving', async () => {
+    await t.db.update(products).set({ integrationCount: 5 });
+    const a = racingApp(AUTH_B, seedOpenContest);
+    const res = await send(a, `/api/vendor/integrations/${I_MAIN}/retire`);
+    // The row is still live and still claimed, so no refusal applies: the answer is
+    // "reload and try again", never "already retired".
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_CHANGED_WHILE_SAVING');
+    expect((await row(I_MAIN)).retiredAt).toBeNull();
+    const contest = await t.db.query.integrationFieldChallenges.findFirst({
+      where: eq(integrationFieldChallenges.id, CONTEST),
+    });
+    expect(contest!.status).toBe('open');
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(0);
+    expect(await countOf(P_SOURCE)).toBe(5);
+  });
+
+  it('integrationLiveSentinel: a retire landing mid-submit refuses the contest', async () => {
+    const a = racingApp(AUTH_A, () => {
+      t.raw
+        .prepare(`UPDATE integrations SET retired_at = ? WHERE id = ?`)
+        .run('2026-09-21T00:00:00.000Z', I_MAIN);
+    });
+    const res = await send(a, `/api/vendor/integrations/${I_MAIN}/contests`, {
+      field: 'name',
+      proposed_value: 'Revit Link',
+      reason: 'The name on record is out of date.',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(0);
+    expect(await auditsFor('integration.contest.submitted')).toHaveLength(0);
+  });
+});

@@ -39,7 +39,7 @@
  * briefly; `findProductCountDrift` is the reconciliation backstop).
  */
 
-import { and, avg, count, eq, or } from 'drizzle-orm';
+import { and, avg, count, eq, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
@@ -77,34 +77,37 @@ function toNum(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function computeExpected(db: Db, productId: string): Promise<ExpectedProductCounts> {
-  const [intRow] = await db
-    .select({ value: count() })
-    .from(integrations)
-    .where(
-      and(
-        or(
-          eq(integrations.sourceProductId, productId),
-          eq(integrations.targetProductId, productId),
-        ),
-        // AECI-1010: a retired row counts nowhere. The evidenced arm below takes no
-        // such filter: that table has no `retired_at` (see `lib/live-integration.ts`).
-        liveIntegrationWhere,
-      ),
-    );
+/**
+ * The `integration_count` rule as ONE SQL expression over a bound product id. Site 1
+ * of the lockstep list, used twice: {@link computeExpected} selects it, and
+ * {@link integrationCountRecomputeStmt} writes it inside a caller's batch. One
+ * expression, so the two can never drift apart.
+ *
+ * Two arms. LIVE `integrations` rows where the product is source or target
+ * (AECI-1010: a retired row counts nowhere), plus `connector_evidenced_pairs` where
+ * it is an endpoint in either canonical slot or the connector itself (§12.5 option
+ * B). The evidenced arm takes no retired filter: that table has no `retired_at`
+ * (see `lib/live-integration.ts`).
+ */
+function integrationCountSql(productId: string): SQL<number> {
+  return sql<number>`(
+    (SELECT COUNT(*) FROM ${integrations}
+      WHERE (${integrations.sourceProductId} = ${productId}
+          OR ${integrations.targetProductId} = ${productId})
+        AND ${liveIntegrationWhere})
+    + (SELECT COUNT(*) FROM ${connectorEvidencedPairs}
+        WHERE ${connectorEvidencedPairs.productAId} = ${productId}
+           OR ${connectorEvidencedPairs.productBId} = ${productId}
+           OR ${connectorEvidencedPairs.connectorProductId} = ${productId}))`;
+}
 
-  // The evidenced arm — see the header. Three disjuncts, not two: an endpoint in
-  // either canonical slot, and the connector itself (§12.5 option B).
-  const [evidencedRow] = await db
-    .select({ value: count() })
-    .from(connectorEvidencedPairs)
-    .where(
-      or(
-        eq(connectorEvidencedPairs.productAId, productId),
-        eq(connectorEvidencedPairs.productBId, productId),
-        eq(connectorEvidencedPairs.connectorProductId, productId),
-      ),
-    );
+async function computeExpected(db: Db, productId: string): Promise<ExpectedProductCounts> {
+  // The canonical count (site 1). Selected off the product's own row, so an unknown
+  // id reads as zero rather than failing.
+  const [intRow] = await db
+    .select({ value: integrationCountSql(productId) })
+    .from(products)
+    .where(eq(products.id, productId));
 
   const approved = and(eq(reviews.productId, productId), eq(reviews.status, COUNTED_REVIEW_STATUS));
   const [revRow] = await db
@@ -119,7 +122,7 @@ async function computeExpected(db: Db, productId: string): Promise<ExpectedProdu
   const overall = toNum(revRow?.overall ?? null);
   const onboarding = toNum(revRow?.onboarding ?? null);
   return {
-    integrationCount: (intRow?.value ?? 0) + (evidencedRow?.value ?? 0),
+    integrationCount: Number(intRow?.value ?? 0),
     reviewCount: revRow?.value ?? 0,
     ratingOverallAvg: overall === null ? null : round2(overall),
     ratingOnboardingAvg: onboarding === null ? null : round2(onboarding),
@@ -133,6 +136,27 @@ export async function recomputeProductCounts(db: Db, productIds: Iterable<string
     const expected = await computeExpected(db, id);
     await db.update(products).set(expected).where(eq(products.id, id));
   }
+}
+
+/**
+ * The in-batch form of the `integration_count` rule (lockstep site 1), for a write
+ * that must commit the count WITH its mutation rather than after it.
+ *
+ * The integration retire and restore (AECI-1010) push one of these per endpoint
+ * into their own `db.batch`. The post-commit {@link recomputeProductCounts} ran in
+ * one `waitUntil` while the cache purge ran in another, so a page re-rendered
+ * between the purge and the recompute cached the old count until its TTL. Inside
+ * the batch the count is committed before any purge is even enqueued.
+ *
+ * The same expression {@link computeExpected} selects ({@link integrationCountSql}),
+ * so this is site 1 again, not a new lockstep site. A derived write (ADR 0022), so no audit row. Only
+ * `integration_count` moves: the review aggregates cannot change on these writes.
+ */
+export function integrationCountRecomputeStmt(db: Db, productId: string) {
+  return db
+    .update(products)
+    .set({ integrationCount: integrationCountSql(productId) })
+    .where(eq(products.id, productId));
 }
 
 /**
