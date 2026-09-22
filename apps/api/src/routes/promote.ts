@@ -633,7 +633,7 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   claimedAt: string | null;
   /** AECI-1011: `'vendor'` fences the row too — see {@link claimFenceRefuses}. */
   origin: string;
-  /** AECI-1011: the stored owner and kind, for the re-point twin guard. */
+  /** AECI-1011: the stored owner and kind, for the UPDATE twin guard. */
   builtByVendorId: string | null;
   mechanismKind: string | null;
 };
@@ -782,8 +782,8 @@ function planIntegrationWrite(args: {
   };
 }
 
-/** The same two products, in either order. The twin guard's re-point test: a
- *  direction swap (AECI-920) is not a re-point, and strong matching is
+/** The same two products, in either order. The twin guard's pair test: a
+ *  direction swap (AECI-920) is not a key change, and strong matching is
  *  orientation-blind anyway. */
 function samePair(a: readonly [string, string], b: readonly [string, string]): boolean {
   return (a[0] === b[0] && a[1] === b[1]) || (a[0] === b[1] && a[1] === b[0]);
@@ -3008,9 +3008,15 @@ export async function runPromoteIngest(
     //   2. a DE-ROUTE, the move INSERT out of `connector_evidenced_pairs`
     //      (`planIntegrationWrite`'s `evidenced` branch). On a match the evidenced
     //      row is left exactly as it is: never deleted, never updated;
-    //   3. an UPDATE of an unclaimed row whose endpoints (as a pair) or connector
-    //      change. An UPDATE that re-points nothing cannot create a match that did not
-    //      already exist, so it is not asked, and a direction swap is not a re-point.
+    //   3. an UPDATE of an unclaimed row that changes any field in the key: its
+    //      endpoints (as a pair), its connector, its `mechanism_kind` or its owner.
+    //      A kind change (`api` to `native` beside a vendor's `native` row) or an owner
+    //      change (to NULL, or to the vendor's own id) makes a match as surely as a
+    //      re-point does. An UPDATE that changes none of the four leaves the key as it
+    //      was, so it cannot create a match that did not already exist and is not
+    //      asked. A direction swap of the same two products changes no key field.
+    //      An UPDATE is skipped only for a NEW twin: a vendor-held row the stored row
+    //      already twinned does not count, so the write goes through.
     // The evidenced branch above needs no guard: every row it writes carries a
     // third-party connector, and no vendor-held row has one (a vendor create cannot
     // set `powered_by`, and a claim is refused on a connector-powered row).
@@ -3022,6 +3028,14 @@ export async function runPromoteIngest(
             located.row.connectorProductId
           : (storedIntegration?.poweredByProductId ?? null)
         : poweredBy.value;
+    // Every key field as the row will hold it after this write. An absent (or
+    // unresolvable) field keeps the stored value, exactly as the UPDATE does.
+    const finalOwnerId =
+      builtBy.value === undefined ? (storedIntegration?.builtByVendorId ?? null) : builtBy.value;
+    const finalMechanismKind =
+      intg.mechanismKind === undefined
+        ? (storedIntegration?.mechanismKind ?? null)
+        : intg.mechanismKind;
     const repointed =
       storedIntegration !== null &&
       (!samePair(
@@ -3029,18 +3043,40 @@ export async function runPromoteIngest(
         [sourceId, targetId],
       ) ||
         finalConnectorId !== storedIntegration.poweredByProductId);
-    if (!located || located.table === 'evidenced' || repointed) {
+    const keyChanged =
+      repointed ||
+      (storedIntegration !== null &&
+        (finalMechanismKind !== storedIntegration.mechanismKind ||
+          finalOwnerId !== storedIntegration.builtByVendorId));
+    if (!located || located.table === 'evidenced' || keyChanged) {
+      // On an UPDATE, the guard asks only about a NEW twin (ruled on AECI-1012). A
+      // vendor-held row the stored row already twinned is excluded, so an
+      // already-twinned curated row keeps receiving curator updates (the owner
+      // backfill is exactly that push). The row itself is excluded too: if it is
+      // claimed mid-promote, the sentinel must not read it as its own twin, so the
+      // abort is reported as the AECI-1005 claim race it is.
+      const excludeIds: string[] = [];
+      if (storedIntegration !== null && located) {
+        excludeIds.push(located.id);
+        const alreadyTwinned = await findStrongMatches(
+          db,
+          {
+            productIds: [storedIntegration.sourceProductId, storedIntegration.targetProductId],
+            poweredByProductId: storedIntegration.poweredByProductId,
+            ownerVendorId: storedIntegration.builtByVendorId,
+            mechanismKind: storedIntegration.mechanismKind,
+            excludeIds: [located.id],
+          },
+          { vendorHeldOnly: true },
+        );
+        excludeIds.push(...alreadyTwinned.map((row) => row.id));
+      }
       const twinCandidate: TwinCandidate = {
         productIds: [sourceId, targetId],
         poweredByProductId: finalConnectorId,
-        ownerVendorId:
-          builtBy.value === undefined
-            ? (storedIntegration?.builtByVendorId ?? null)
-            : builtBy.value,
-        mechanismKind:
-          intg.mechanismKind === undefined
-            ? (storedIntegration?.mechanismKind ?? null)
-            : intg.mechanismKind,
+        ownerVendorId: finalOwnerId,
+        mechanismKind: finalMechanismKind,
+        ...(excludeIds.length ? { excludeIds } : {}),
       };
       const [twin] = await findStrongMatches(db, twinCandidate, { vendorHeldOnly: true });
       if (twin) {
@@ -3068,7 +3104,14 @@ export async function runPromoteIngest(
             reason: VENDOR_OWNED_TWIN,
             ref: intg.ref,
             ...(intg.supabaseId ? { supabaseId: intg.supabaseId } : {}),
-            ...(located ? { write: located.table === 'evidenced' ? 'de-route' : 're-point' } : {}),
+            // `re-point` when the pair or connector moves, `update` when only the
+            // kind or the owner changes.
+            ...(located
+              ? {
+                  write:
+                    located.table === 'evidenced' ? 'de-route' : repointed ? 're-point' : 'update',
+                }
+              : {}),
           },
         });
         continue;

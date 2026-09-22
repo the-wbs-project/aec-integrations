@@ -32,7 +32,10 @@
  *     strongly matching a **vendor-held** row, live or retired, with the kind in the
  *     key, and reports it as `VENDOR_OWNED_TWIN`. Three writes can do that: an
  *     insert, a de-route out of `connector_evidenced_pairs`, and an UPDATE that
- *     re-points an unclaimed row's endpoints or connector. It never deletes
+ *     changes any key field of an unclaimed row (its endpoints, connector,
+ *     `mechanism_kind` or owner). An UPDATE is skipped only for a NEW twin: a
+ *     vendor-held row the stored row already twinned does not count
+ *     ({@link TwinCandidate.excludeIds}). It never deletes
  *     anything, and curated-versus-curated behaviour is unchanged.
  *
  * `connector_evidenced_pairs` is not searched. Every row there is connector-powered
@@ -40,7 +43,7 @@
  * with a vendor row (rule 2).
  */
 
-import { and, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { integrations, vendors } from '../db/schema';
@@ -63,6 +66,14 @@ export interface TwinCandidate {
    * create's broader warning.
    */
   readonly mechanismKind?: string | null;
+  /**
+   * Rows that never count as a match. Promote's UPDATE path sets it to the row being
+   * updated, so a claim on that row mid-promote reads as the AECI-1005 claim race and
+   * not as a new twin, plus every vendor-held row the stored row ALREADY twinned, so
+   * an already-twinned curated row keeps receiving updates (ruled on AECI-1012). The
+   * plan read, the batch sentinel and the post-failure re-read all honour it.
+   */
+  readonly excludeIds?: readonly string[];
 }
 
 /** Vendor-held: claimed, or created by a vendor. `isVendorHeld` in SQL. */
@@ -97,6 +108,9 @@ export function strongMatchWhere(candidate: TwinCandidate): SQL {
         eq(integrations.builtByVendorId, candidate.ownerVendorId),
       )!,
     );
+  }
+  if (candidate.excludeIds?.length) {
+    clauses.push(notInArray(integrations.id, [...candidate.excludeIds]));
   }
   return and(...clauses)!;
 }
@@ -150,12 +164,14 @@ export async function findStrongMatches(
 /**
  * The commit-time half of promote's `VENDOR_OWNED_TWIN` guard. Pushed immediately
  * ahead of each `integrations` write the guard checked (an INSERT, a de-route move, or
- * a re-pointing UPDATE); ABORTS the whole batch when a
+ * an UPDATE that changes a key field); ABORTS the whole batch when a
  * vendor-held strong match exists by the time the batch runs, i.e. a vendor created
  * (or claimed) the twin after the plan read. Same shape as the AECI-1005
  * `promoteClaimFenceSentinel`: the job errors with
  * `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE`, and a re-push plans against the new row
- * and skips the insert. Selects FROM `ONE_ROW`, so it evaluates exactly once.
+ * and skips the write. The exception is an UPDATE whose stored row already matched
+ * the new row: the already-twinned set is read at plan time, so the re-push counts it
+ * and writes the update. Selects FROM `ONE_ROW`, so it evaluates exactly once.
  */
 export function vendorOwnedTwinSentinel(db: Db, candidate: TwinCandidate) {
   return db

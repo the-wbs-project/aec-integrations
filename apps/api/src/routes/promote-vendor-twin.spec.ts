@@ -6,8 +6,10 @@
  * two products in either order, the same connector, the same `mechanism_kind`, an
  * owner that agrees or is unknown), promote skips the write and names the vendor's
  * row. Three writes are guarded: an INSERT (brand new, or the AECI-568 fallback for a
- * dead id), a DE-ROUTE out of `connector_evidenced_pairs`, and an UPDATE that
- * re-points an unclaimed row's endpoints or connector. Live OR retired: this is what
+ * dead id), a DE-ROUTE out of `connector_evidenced_pairs`, and an UPDATE that changes
+ * any key field of an unclaimed row (endpoints, connector, kind or owner). An UPDATE
+ * that changes none of them is not asked, and an UPDATE is skipped only for a twin the
+ * stored row did not already have. Live OR retired: this is what
  * keeps a curator's re-add from undoing an owner's retire in public (the AECI-1010
  * gap, ADR 0035).
  *
@@ -398,6 +400,217 @@ describe('the UPDATE guard', () => {
     expect(response.integrations).toEqual([
       expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
     ]);
+  });
+});
+
+describe('the UPDATE guard: a kind or owner change is a key change too', () => {
+  // The row sits on the vendor row's pair and connector already. Before this change
+  // only a re-point was asked, so each of these wrote a live curated twin.
+  async function seedCurated(values: Partial<typeof integrations.$inferInsert>) {
+    await t.db.insert(integrations).values({
+      id: CURATED_ROW,
+      name: 'Curated',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+      mechanismKind: 'native',
+      builtByVendorId: OWNER,
+      description: 'before',
+      ...values,
+    });
+  }
+  const curatedRow = () =>
+    t.db.query.integrations.findFirst({ where: eq(integrations.id, CURATED_ROW) });
+
+  async function expectUpdateSkip(response: PromoteResponse, before: unknown) {
+    expectTwinSkip(response);
+    expect(await curatedRow()).toEqual(before);
+    const [blocked] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'promote.blocked'));
+    expect(blocked!.metadata).toMatchObject({ reason: VENDOR_OWNED_TWIN, write: 'update' });
+  }
+
+  it('skips a kind-only change onto a vendor twin (api to native)', async () => {
+    await seedCurated({ mechanismKind: 'api' });
+    const before = await curatedRow();
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }));
+    await expectUpdateSkip(response, before);
+  });
+
+  it('skips an owner-only change to unknown, which matches any owner', async () => {
+    await seedCurated({ builtByVendorId: OTHER });
+    const before = await curatedRow();
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { builtByVendor: null, description: 'after' }),
+    );
+    await expectUpdateSkip(response, before);
+  });
+
+  it("skips an owner-only change to the vendor's own id", async () => {
+    await seedCurated({ builtByVendorId: OTHER });
+    const before = await curatedRow();
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }));
+    await expectUpdateSkip(response, before);
+  });
+
+  it('skips a kind-only change onto a RETIRED vendor row', async () => {
+    await t.db.update(integrations).set({ retiredAt: NOW }).where(eq(integrations.id, VENDOR_ROW));
+    await seedCurated({ mechanismKind: 'api' });
+    const before = await curatedRow();
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }));
+    await expectUpdateSkip(response, before);
+    const vendorRow = await t.db.query.integrations.findFirst({
+      where: eq(integrations.id, VENDOR_ROW),
+    });
+    expect(vendorRow!.retiredAt).toBe(NOW);
+  });
+
+  it('treats an explicit mechanismKind: null as a key change (none twins none)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ mechanismKind: null })
+      .where(eq(integrations.id, VENDOR_ROW));
+    await seedCurated({ mechanismKind: 'api' });
+    const before = await curatedRow();
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { mechanismKind: null, description: 'after' }),
+    );
+    await expectUpdateSkip(response, before);
+  });
+
+  it('does not treat an unresolvable builtByVendor as a key change', async () => {
+    // Unresolvable means unstated: the stored owner stays, so the key is unchanged.
+    await seedCurated({ builtByVendorId: OTHER });
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, {
+        builtByVendor: { supabaseId: uuid(99) },
+        description: 'after',
+      }),
+    );
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OTHER, description: 'after' });
+  });
+
+  it('writes an owner backfill onto a row that ALREADY twinned the vendor row', async () => {
+    // Unknown owner already matches the vendor row. Filling it in creates no NEW twin,
+    // so the curator's update must land (ruled on AECI-1012).
+    await seedCurated({ builtByVendorId: null });
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }));
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
+    ]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OWNER, description: 'after' });
+  });
+
+  it('still skips an already-twinned row whose update makes a twin of ANOTHER vendor row', async () => {
+    const SECOND_VENDOR_ROW = uuid(24);
+    await t.db.insert(integrations).values({
+      id: SECOND_VENDOR_ROW,
+      name: 'Vendor-listed API',
+      sourceProductId: NAVIS,
+      targetProductId: REVIT,
+      mechanismKind: 'api',
+      builtByVendorId: OWNER,
+      origin: 'vendor',
+      claimedAt: NOW,
+      maintainedBy: 'vendor',
+      lastReviewedAt: NOW,
+    });
+    // Twins VENDOR_ROW (native) today; the update moves it onto the api row.
+    await seedCurated({});
+    const before = await curatedRow();
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { mechanismKind: 'api', description: 'after' }),
+    );
+    expect(response.skipped).toContainEqual({
+      ref: 'i1',
+      kind: 'integration',
+      reason: VENDOR_OWNED_TWIN,
+      existingId: SECOND_VENDOR_ROW,
+    });
+    expect(await curatedRow()).toEqual(before);
+  });
+
+  it('reports a mid-promote claim on the UPDATED row as the claim race, not a twin', async () => {
+    // No vendor twin at all: the update clears the owner, which would match the row
+    // itself once it is claimed. The row must never count as its own twin.
+    await t.db.delete(integrations).where(eq(integrations.id, VENDOR_ROW));
+    await seedCurated({ builtByVendorId: OTHER });
+    let raced = false;
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (raced) return batch(stmts);
+        raced = true;
+        t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(NOW, CURATED_ROW);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    await expect(
+      ingest(curatorUpdate(CURATED_ROW, { builtByVendor: null }), {
+        jobId: 'job-claim-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'INTEGRATION_CLAIMED_DURING_PROMOTE' });
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OTHER });
+  });
+
+  it('aborts when a vendor creates a NEW twin of an already-twinned row mid-promote', async () => {
+    // R already twins V1 (unknown owner). The update fills the owner in. A vendor
+    // creates V2 with R's post-write key between the plan read and the batch; V2 is
+    // not in the plan-time already-twinned set, so the sentinel fires.
+    const V2 = uuid(25);
+    await seedCurated({ builtByVendorId: null });
+    let raced = false;
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (raced) return batch(stmts);
+        raced = true;
+        t.raw
+          .prepare(
+            `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
+             VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
+          )
+          .run(V2, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    await expect(
+      ingest(curatorUpdate(CURATED_ROW, { description: 'after' }), {
+        jobId: 'job-new-twin-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE' });
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: null, description: 'before' });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
+
+    // The stored row (unknown owner) already matched V2 too, so the re-push reads
+    // V2 as already twinned and writes the row.
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { description: 'after' }), {
+      jobId: 'job-new-twin-race-2',
+    });
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(await curatedRow()).toMatchObject({ builtByVendorId: OWNER, description: 'after' });
+  });
+
+  it('lets a kind-only change through when the new kind twins nothing', async () => {
+    await seedCurated({ mechanismKind: 'api' });
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, { mechanismKind: 'marketplace-app', description: 'after' }),
+    );
+    expect(response.skipped.filter((s) => s.reason === VENDOR_OWNED_TWIN)).toEqual([]);
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
+    ]);
+    const row = await curatedRow();
+    expect(row).toMatchObject({ mechanismKind: 'marketplace-app', description: 'after' });
   });
 });
 
