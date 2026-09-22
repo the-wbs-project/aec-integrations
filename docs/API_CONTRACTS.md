@@ -1775,6 +1775,7 @@ means "park". Read it with `owned_integrations.total`:
 | `true` | `total === 0` | §8.9 connector vendor: park, do not Grant or Reject |
 | `true` | `null` | Count unavailable: check step 1a before parking |
 | `false` | any | The connector carve-out does not apply |
+| `null` | any | Role signal unavailable: no connector banner |
 
 `owned_integrations` counts **both** delivered-tier tables by `built_by_vendor_id`:
 `integrations` live rows only (`retired_at IS NULL`, AECI-1010), and every

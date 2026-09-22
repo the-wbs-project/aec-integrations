@@ -960,7 +960,20 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     expect(el.textContent).toContain('This vendor owns integrations');
     expect(el.textContent).toContain('3 (1 direct, 2 via a connector)');
     expect(el.textContent).toContain('a paying owner');
+    // The catalogue-only alternative and the v1 caveat (AECI-1040).
+    expect(el.textContent).toContain('connector catalogue maintained');
+    expect(el.textContent).toContain('cannot yet claim, edit or retire');
     expect(buttonByText(el, 'Add the seat')!.disabled).toBe(false);
+  });
+
+  it('gives an ENDPOINT vendor that owns integrations no connector-catalogue advice', async () => {
+    // Default fixture: 3 application + 1 connector, owns 2 integrations.
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    await openForm(el, fixture);
+
+    expect(el.textContent).toContain('This vendor owns integrations');
+    expect(el.textContent).not.toContain('connector catalogue maintained');
+    expect(el.textContent).not.toContain('cannot yet claim, edit or retire');
   });
 
   it('treats a vendor with NO products as unknown, not exempt', async () => {
