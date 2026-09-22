@@ -125,6 +125,10 @@ describe('MethodologyPage', () => {
       expect(text).toContain('Nothing is deleted.');
       expect(text).toContain('restoring it does not reopen them');
       expect(text).toContain('our catalogue tools refuse to delete an integration a vendor holds');
+      // Scoped to today on purpose: an admin retire path is filed as its own
+      // issue, so the page must not promise AECi never retires one.
+      expect(text).toContain('Today, only the owner retires or restores an integration.');
+      expect(text).not.toContain('We never retire');
     });
 
     it('says vendor-created integrations exist and are not researched by us', () => {

@@ -72,7 +72,7 @@ When you retire an integration:
 
 Choose **Restore integration** to put it back. It returns as it was. Contests closed by the retire stay closed.
 
-AEC Integrations never retires or restores an integration for you.
+Today, only the owner can retire or restore an integration.
 
 ## Add an integration
 
