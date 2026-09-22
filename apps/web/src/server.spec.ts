@@ -2596,3 +2596,88 @@ describe('createApp authenticated-SSR cookie neutrality (AECI-203)', () => {
     expect(probeCookie(calls)).toBeNull();
   });
 });
+
+describe('createApp server-side session refresh on authenticated surfaces', () => {
+  const SUPABASE = { SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_ANON_KEY: 'anon' };
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+  function expiredSessionCookie(): string {
+    const session = {
+      access_token: 'access-old',
+      refresh_token: 'refresh-old',
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: nowSeconds() - 60,
+      user: { id: 'u1', aud: 'authenticated', app_metadata: {}, user_metadata: {} },
+    };
+    return `sb-proj-auth-token=base64-${Buffer.from(JSON.stringify(session)).toString('base64url')}`;
+  }
+
+  function stubGoTrue() {
+    const goTrue = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({
+        access_token: 'access-new',
+        refresh_token: 'refresh-new',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: nowSeconds() + 3600,
+        user: { id: 'u1', aud: 'authenticated', app_metadata: {}, user_metadata: {} },
+      }),
+    );
+    vi.stubGlobal('fetch', goTrue);
+    return goTrue;
+  }
+
+  function probeRenderer(): SsrRenderer {
+    return async (_req, ctx) => {
+      await ctx.api.request('/api/probe').catch(() => undefined);
+      return new Response('SSR-OK', { status: 200 });
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('refreshes an expired /admin session before SSR and hands the new cookie back', async () => {
+    const goTrue = stubGoTrue();
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: probeRenderer() });
+
+    const req = new Request('https://www.aecintegrations.com/admin/claims', {
+      headers: { cookie: expiredSessionCookie() },
+    });
+    const res = await app.fetch(
+      req,
+      { ...binding, ...SUPABASE } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(goTrue).toHaveBeenCalledOnce();
+    const probe = calls.find((r) => new URL(r.url).pathname === '/api/probe');
+    const forwarded = decodeURIComponent(probe?.headers.get('cookie') ?? '');
+    const payload = forwarded.replace(/^sb-proj-auth-token=base64-/, '');
+    expect(Buffer.from(payload, 'base64url').toString('utf8')).toContain('access-new');
+    expect(res.headers.getSetCookie().some((c) => c.startsWith('sb-proj-auth-token='))).toBe(true);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('never refreshes on a cacheable route', async () => {
+    const goTrue = stubGoTrue();
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: probeRenderer() });
+
+    const req = new Request('https://www.aecintegrations.com/', {
+      headers: { cookie: expiredSessionCookie() },
+    });
+    const res = await app.fetch(
+      req,
+      { ...binding, ...SUPABASE } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(goTrue).not.toHaveBeenCalled();
+    expect(res.headers.getSetCookie()).toEqual([]);
+  });
+});

@@ -1009,12 +1009,21 @@ uses.
 #### The refresh, and why the two platforms differ
 
 A Supabase access token lives about an hour; the refresh token beside it in the same
-cookie lives weeks. So the ordinary "my login timed out" state is **recoverable** — and
-only the browser can recover it, because `@supabase/ssr` does the trade inside
-`getSession()` and rewrites the cookie. The SSR Worker forwards the inbound `Cookie`
-untouched and has no way to mint a token (AECI-689 closed with a grace window scoped to
-the `page_views` operator flag, not to `/api/*` authorization).
+cookie lives weeks. So the ordinary "my login timed out" state is **recoverable**.
 
+- **SSR gate (2026-09-22).** Before the render, the SSR Worker trades an expired access
+  token for a fresh one on `/admin*`, `/vendor*` and `/account`
+  (`apps/web/src/server/auth/session-refresh.ts`, called from the `server-runtime.ts`
+  gate). `@supabase/ssr`'s server client refreshes against GoTrue only when the token is
+  expired or inside the SDK's expiry margin, so a fresh token costs no network. The new
+  cookie is forwarded to the resolver's API call **and** returned as `Set-Cookie`, and
+  the response is forced to `private, no-store`. So the common case now renders on the
+  first request, with no login-page hop. This does not reopen `ADMIN_PANEL_SPEC.md`
+  §13 D22: both of D22's blockers were about the cacheable branch, and every path here is
+  non-cacheable and always hands the rotated refresh token back. The refresh is bounded
+  at 3 s (`REFRESH_DEADLINE_MS`), because the SDK otherwise retries a GoTrue 5xx or
+  network failure for up to 30 s. Everything below is now the fallback for a refresh
+  that fails or times out, such as a GoTrue outage.
 - **Server branch.** Redirect straight to login. `@angular/ssr` emits a real 302
   whenever the router's final URL differs from the requested one — the same mechanism
   §6.2's bare-`/vendor` redirect already relies on.

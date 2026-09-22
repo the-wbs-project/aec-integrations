@@ -2111,6 +2111,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   **What it does not close, stated rather than worked around.** An expiry older than the window still writes an unflagged row, and D15(a)'s read-side retro-join remains the repair for those. The window is deliberately generous: widening it can only move a row from "counted as a visitor" to "excluded as the operator", and the only party who could exploit that already holds a validly-signed admin token. It is a report-quality knob, not a security parameter.
 
+  **Scope note (2026-09-22): a server-side refresh now exists, on the NON-cacheable surfaces only.** The SSR gate refreshes an expired access token on `/admin*`, `/vendor*` and `/account` before rendering (`apps/web/src/server/auth/session-refresh.ts`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6). That does not overturn this decision. Blocker *(i)* cannot occur there, because those paths are non-cacheable under the fail-closed classifier and the response is forced to `private, no-store` whenever it carries a cookie. Blocker *(ii)* is met directly, because the rotated refresh token always goes back as `Set-Cookie`. The public pages, where this leak happens, still get no refresh, so the grace window above remains the fix for `is_operator`.
+
 **Proposed — not yet agreed**
 
 > **PROPOSED (AECI-872), not yet agreed.** Everything under D19 is a draft decision for review.
