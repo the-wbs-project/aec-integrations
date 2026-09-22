@@ -1646,8 +1646,8 @@ export { toProductPairMechanismFromEvidencedPair };
  * `ProductListItem` (vendor + review recap) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every claim on the pair via
- * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct claim count
- * across all mechanisms; `confirmed` and `single_source` are both `0` until the
+ * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct `data_object`
+ * count across all mechanisms and both anchors (AECI-1042), not the claim count; `confirmed` and `single_source` are both `0` until the
  * Stage 2 portal writes vendor attestations, and stay separate counts so a
  * one-sided assertion is never folded into the bilateral figure.
  */

@@ -201,7 +201,13 @@ describe('isClaimRefuted', () => {
 });
 
 describe('computeSyncHeadline', () => {
-  const claim = (agreement: SyncHeadlineClaim['agreement']): SyncHeadlineClaim => ({ agreement });
+  // Each claim gets its own data_object unless the test says otherwise, so the
+  // agreement cases below read exactly as they did before AECI-1042.
+  let seq = 0;
+  const claim = (
+    agreement: SyncHeadlineClaim['agreement'],
+    slug = `object-${seq++}`,
+  ): SyncHeadlineClaim => ({ agreement, data_object_slug: slug });
 
   it('is all zeroes for no claims', () => {
     expect(computeSyncHeadline([])).toEqual({ total: 0, confirmed: 0, single_source: 0 });
@@ -225,5 +231,30 @@ describe('computeSyncHeadline', () => {
         claim('single_source'),
       ]),
     ).toEqual({ total: 5, confirmed: 2, single_source: 1 });
+  });
+
+  // AECI-1042: "N data objects sync" counts objects, not claim rows. Two
+  // integrations that both move RFIs, plus RFIs flowing the other way, are one.
+  it('counts a data_object shared by two mechanisms (and both directions) once', () => {
+    expect(
+      computeSyncHeadline([
+        claim('unverified', 'rfis'),
+        claim('unverified', 'rfis'),
+        claim('unverified', 'rfis'),
+        claim('unverified', 'submittals'),
+      ]),
+    ).toEqual({ total: 2, confirmed: 0, single_source: 0 });
+  });
+
+  it('counts an object confirmed on either mechanism as confirmed, never also single_source', () => {
+    expect(
+      computeSyncHeadline([
+        claim('single_source', 'rfis'),
+        claim('confirmed', 'rfis'),
+        claim('single_source', 'submittals'),
+        claim('single_source', 'submittals'),
+        claim('conflict', 'models'),
+      ]),
+    ).toEqual({ total: 3, confirmed: 1, single_source: 1 });
   });
 });

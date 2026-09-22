@@ -437,7 +437,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     expect(body.sync_headline).toEqual({ total: 3, confirmed: 0, single_source: 0 });
   });
 
-  it('counts a data_object moving through two mechanisms as two distinct claims (§3.1)', async () => {
+  it('keeps a data_object moving through two mechanisms as two claims, but counts it ONCE in the headline (AECI-1042)', async () => {
     await seedProducts();
     await integration(u(10), u(1), u(2), { name: 'Marketplace', mechanismKind: 'marketplace-app' });
     await integration(u(11), u(1), u(2), { name: 'Partner', mechanismKind: 'partner' });
@@ -451,8 +451,9 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     const byMech = new Map(body.mechanisms.map((m) => [m.id, m.claims]));
     expect(byMech.get(u(10))!.map((c) => c.direction)).toEqual(['inbound']);
     expect(byMech.get(u(11))!.map((c) => c.direction)).toEqual(['outbound']);
-    // Two rows, never de-duplicated → total counts both.
-    expect(body.sync_headline).toEqual({ total: 2, confirmed: 0, single_source: 0 });
+    // Two claim rows, never de-duplicated (§3.1) — but "N data objects sync"
+    // counts objects, and both rows move RFIs.
+    expect(body.sync_headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
   });
 
   it('orders claims by the data_object display_order', async () => {
@@ -1367,6 +1368,25 @@ describe('GET /api/products/:slug/integrations/:otherSlug — claims on a connec
     expect(m?.claims.map((c) => c.id)).toEqual([u(61)]);
     expect(m?.claims[0]?.data_object_slug).toBe('employees');
     expect(parsed.sync_headline.total).toBe(1);
+  });
+
+  // AECI-1042: the headline counts distinct data objects ACROSS both delivered
+  // anchors. An `integrations` row and an evidenced pair that both move Employees
+  // are two mechanisms and two claims, but one data object.
+  it('counts a data_object shared by an integration and an evidenced pair once', async () => {
+    await seedEvidencedPairWithClaim();
+    await integration(u(10), u(1), u(2), { name: 'Native', mechanismKind: 'native' });
+    await dataObject(u(21), 'rfis', 'RFIs');
+    await claim(u(70), u(10), u(20), 'a_to_b');
+    await claim(u(71), u(10), u(21), 'both');
+
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms.flatMap((m) => m.claims)).toHaveLength(3);
+    // Employees stays single_source: the evidenced claim carries Acme's lone
+    // affirmation, and the AECi-only claim on the integration does not dilute it.
+    expect(parsed.sync_headline).toEqual({ total: 2, confirmed: 0, single_source: 1 });
   });
 
   it('reads a one-way claim the same physical way from both sides of the pair URL', async () => {
