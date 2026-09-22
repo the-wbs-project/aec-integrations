@@ -120,6 +120,11 @@ export function buildVendorLookupSqlForIds(ids: readonly string[]): string {
  * `products` is counted through `product_vendors`, which is the ownership edge; there is
  * no `products.vendor_id`. `integrations` and `connector_evidenced_pairs` are counted
  * SEPARATELY and both are blockers — a single-table edge check is the AECI-721 trap.
+ *
+ * The `integrations` count deliberately includes RETIRED rows (AECI-1010). This is a
+ * foreign-key blocker, not a catalogue count: a retired row still references the
+ * vendor, so filtering it here would let a delete proceed into a constraint failure,
+ * or cascade away a row its owner can restore.
  */
 export function buildVendorFootprintSql(id: string): string {
   const v = `'${escapeSqlLiteral(id)}'`;

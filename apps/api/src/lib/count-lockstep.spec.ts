@@ -2,20 +2,38 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { INTEGRATION_IDS_SQL } from '../../scripts/reconcile-algolia-drift';
-import { connectorEvidencedPairs, integrations, products, vendors } from '../db/schema';
+import { DRIFT_QUERY, RECOMPUTE_SQL } from '../../scripts/reconcile-product-counts';
+import {
+  claims,
+  connectorEvidencedPairs,
+  integrations,
+  productCategories,
+  products,
+  taxonomyCategories,
+  taxonomyDataObjects,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { catalogTotals, claimCoverage } from './admin-catalog';
 import { drizzleDriftCounter, drizzlePromotedIds } from './algolia-drift-deps';
+import { buildIntegrationRequests } from './algolia-sync';
 import { algoliaVendorConfig, type RawAlgoliaVendorRow } from './algolia-transforms';
-import { vendorListConfig } from './drizzle-helpers';
-import { computeIntegrationsAdded30d, computeTotalIntegrations } from './home-stats';
+import { categoryTermConfig, vendorListConfig } from './drizzle-helpers';
+import {
+  computeIntegrationsAdded30d,
+  computeMostActiveCategory,
+  computeRecentIntegrations,
+  computeTotalIntegrations,
+} from './home-stats';
 import { findProductCountDrift, recomputeProductCounts } from './recompute-counts';
 
 /**
  * `integration_count` counts DELIVERED edges regardless of which table holds them
  * (`STAGE_1_5_SPEC.md` §13.5). AECI-721 splits that tier across `integrations` and
- * `connector_evidenced_pairs`, and §13.5 enumerates the sites that express the rule
- * — ten by name, sixteen in fact (AECI-789 added the last two).
+ * `connector_evidenced_pairs`, and §13.5 enumerates the sites that express the rule.
+ * The enumeration is no longer a comment: {@link LOCKSTEP_SITES} at the bottom of this
+ * file is the list, and it is asserted (AECI-1010 found 27 to 28 expressions where
+ * the comment said sixteen).
  *
  * ── WHY THIS FILE IS SHAPED THIS WAY ────────────────────────────────────────
  * Every case below seeds `connector_evidenced_pairs` and leaves `integrations`
@@ -71,7 +89,7 @@ async function seedEvidencedPair(t: TestDb, id = 'e1'): Promise<void> {
   });
 }
 
-describe('integration_count lockstep — the sixteen sites (AECI-721, AECI-789 / §13.5)', () => {
+describe('integration_count lockstep — both tables (AECI-721, AECI-789 / §13.5)', () => {
   it('site 1 — computeExpected counts endpoints AND the connector (§12.5 option B)', async () => {
     const t = await makeTestDb();
     await seedCatalog(t);
@@ -273,7 +291,7 @@ describe('integration_count lockstep — the sixteen sites (AECI-721, AECI-789 /
 /**
  * The mirror of the rule above (AECI-892 / §13.5): **reachable NEVER counts.**
  *
- * The sixteen sites exist because a delivered edge must count from whichever table
+ * The lockstep sites exist because a delivered edge must count from whichever table
  * holds it. This block exists because the reachable tier must count from neither.
  * §13.5 is categorical — "not in the heading, not in `integration_count`, not in a
  * facet, not in the home stats" — and the reason is scale rather than taste: the
@@ -319,5 +337,460 @@ describe('reachable never counts — the §13.5 complement (AECI-892)', () => {
     // And the scalar really does exist somewhere, so the assertion above is a
     // statement about placement rather than about a name nothing uses.
     expect(read('src/lib/drizzle-helpers.ts')).toContain('reachable_pair_count');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AECI-1010: a RETIRED integration counts nowhere and is in no id set.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Every expression of the delivered-edge count or membership rule, as an asserted list
+ * (`STAGE_1_5_SPEC.md` §13.5). Each entry names the file and a marker string that
+ * locates the expression in it.
+ *
+ * `proof`:
+ *   - `executed` — a case below runs the expression against the test D1 and shows a
+ *     retired row is excluded. The last case fails if one was never proved.
+ *   - `scan` — the expression cannot run here (another Worker package, plain `.mjs`, or
+ *     a module-private function). The scan requires the live predicate within
+ *     {@link SCAN_WINDOW} lines of the marker.
+ *   - `excluded` — deliberately NOT filtered, with the reason. A scan asserts the
+ *     predicate is ABSENT there, so nobody adds it "for consistency".
+ *
+ * `deletes` marks the sites whose omission deletes Algolia records. Paths are relative
+ * to `apps/api`, the directory this suite runs in.
+ */
+interface LockstepSite {
+  id: string;
+  file: string;
+  marker: string;
+  proof: 'executed' | 'scan' | 'excluded';
+  deletes?: boolean;
+  reason?: string;
+}
+
+export const LOCKSTEP_SITES: readonly LockstepSite[] = [
+  {
+    id: '1',
+    file: 'src/lib/recompute-counts.ts',
+    marker: 'async function computeExpected',
+    proof: 'executed',
+  },
+  {
+    id: '2',
+    file: 'scripts/reconcile-product-counts.ts',
+    marker: 'export const DRIFT_QUERY',
+    proof: 'executed',
+  },
+  {
+    id: '3',
+    file: 'scripts/reconcile-product-counts.ts',
+    marker: 'export const RECOMPUTE_SQL',
+    proof: 'executed',
+  },
+  {
+    id: '4',
+    file: '../datatool/src/prune-integrations.ts',
+    marker: 'UPDATE products SET integration_count',
+    proof: 'scan',
+  },
+  {
+    id: '5',
+    file: 'src/lib/algolia-transforms.ts',
+    marker: 'export const algoliaProductConfig',
+    proof: 'excluded',
+    reason: 'reads the stored products.integration_count, downstream of site 1',
+  },
+  {
+    id: '6a',
+    file: 'src/lib/algolia-transforms.ts',
+    marker: 'export const algoliaVendorConfig',
+    proof: 'executed',
+  },
+  {
+    id: '6b',
+    file: '../datatool/src/algolia-reindex.ts',
+    marker: 'export async function buildVendorRecords',
+    proof: 'scan',
+  },
+  {
+    id: '7',
+    file: '../datatool/src/algolia-reindex.ts',
+    marker: 'export async function buildProductRecords',
+    proof: 'excluded',
+    reason: 'reads the stored products.integration_count, downstream of site 1',
+  },
+  {
+    id: '8a',
+    file: 'src/lib/home-stats.ts',
+    marker: 'export async function computeTotalIntegrations',
+    proof: 'executed',
+  },
+  {
+    id: '8b',
+    file: 'src/lib/home-stats.ts',
+    marker: 'export async function computeIntegrationsAdded30d',
+    proof: 'executed',
+  },
+  {
+    id: '8c',
+    file: 'src/lib/home-stats.ts',
+    marker: 'export async function computeMostActiveCategory',
+    proof: 'executed',
+  },
+  {
+    id: '8d',
+    file: 'src/lib/home-stats.ts',
+    marker: 'export async function computeRecentIntegrations',
+    proof: 'executed',
+  },
+  {
+    id: '9',
+    file: 'src/lib/admin-catalog.ts',
+    marker: 'export async function claimCoverage',
+    proof: 'executed',
+  },
+  {
+    id: '10',
+    file: 'src/lib/metrics-snapshot.ts',
+    marker: "'catalog.integrations_total': async",
+    proof: 'scan',
+  },
+  {
+    id: '11',
+    file: 'src/routes/admin-overview.ts',
+    marker: 'async function catalogTotals',
+    proof: 'scan',
+  },
+  {
+    id: '12',
+    file: 'src/lib/admin-catalog.ts',
+    marker: 'export async function catalogTotals',
+    proof: 'executed',
+  },
+  {
+    id: '13',
+    file: 'src/lib/algolia-drift-deps.ts',
+    marker: 'export function drizzleDriftCounter',
+    proof: 'executed',
+  },
+  {
+    id: '14a',
+    file: 'src/lib/drizzle-helpers.ts',
+    marker: 'export const vendorListConfig',
+    proof: 'executed',
+  },
+  {
+    id: '14b',
+    file: 'src/routes/admin-vendors.ts',
+    marker: 'eq(integrations.builtByVendorId, vendorId)',
+    proof: 'scan',
+  },
+  {
+    id: '15',
+    file: 'src/lib/algolia-drift-deps.ts',
+    marker: 'export function drizzlePromotedIds',
+    proof: 'executed',
+    deletes: true,
+  },
+  {
+    id: '16',
+    file: 'scripts/reconcile-algolia-drift.ts',
+    marker: 'export const INTEGRATION_IDS_SQL',
+    proof: 'executed',
+    deletes: true,
+  },
+  {
+    id: 'X1',
+    file: 'src/lib/algolia-sync.ts',
+    marker: 'export async function buildIntegrationRequests',
+    proof: 'executed',
+    deletes: true,
+  },
+  {
+    id: 'X2',
+    file: '../datatool/src/algolia-reindex.ts',
+    marker: 'export async function buildIntegrationRecords',
+    proof: 'scan',
+    deletes: true,
+  },
+  {
+    id: 'X3',
+    file: 'src/lib/drizzle-helpers.ts',
+    marker: 'const integrationCountFor',
+    proof: 'executed',
+  },
+  {
+    id: 'X4',
+    file: 'src/lib/admin-analytics.ts',
+    marker: "'catalog.integrations_created': {",
+    proof: 'scan',
+  },
+  {
+    id: 'X5',
+    file: '../../scripts/ops/2026-09-retraction-consumer/consume.mjs',
+    marker: 'UPDATE products SET integration_count',
+    proof: 'scan',
+  },
+  {
+    id: 'X6',
+    file: '../agent/src/tools/count-integrations.ts',
+    marker: 'const COUNT_SQL',
+    proof: 'scan',
+  },
+  { id: 'X7', file: '../agent/src/lib/corpus.ts', marker: 'const EDGES_SQL', proof: 'scan' },
+  {
+    id: 'X8',
+    file: 'src/lib/retract-vendor.ts',
+    marker: 'export function buildVendorFootprintSql',
+    proof: 'excluded',
+    reason: 'a foreign-key blocker: a retired row still references the vendor and must block',
+  },
+  {
+    id: 'X9',
+    file: '../../scripts/ops/2026-09-polycam-retraction/retract.mjs',
+    marker: 'FROM integrations i',
+    proof: 'excluded',
+    reason: 'spent one-off scripts (also procore-followup, dynamics-monday), never re-run',
+  },
+];
+
+/** Lines after a marker the scan searches for the live predicate. */
+const SCAN_WINDOW = 40;
+
+/** Any of the three spellings of the live predicate. */
+const LIVE_PREDICATE =
+  /liveIntegrationWhere|liveIntegrationSql\(|retired_at IS NULL|liveIntegrationOn\(/;
+
+const proved = new Set<string>();
+
+const RETIRED_AT = '2026-09-20T00:00:00.000Z';
+
+/** The catalogue plus a LIVE `i1` and a RETIRED `r1` between the same two promoted
+ *  endpoints, both built by the same vendor. `r1` is claimed, as retire requires.
+ *  Having a live row beside it is what catches an `eq(retired_at, null)` bug: that
+ *  empties every set rather than dropping one member. */
+async function seedLiveAndRetired(t: TestDb): Promise<void> {
+  await seedCatalog(t);
+  await t.db.insert(integrations).values([
+    {
+      id: 'i1',
+      sourceProductId: ENDPOINT_A,
+      targetProductId: ENDPOINT_B,
+      mechanismKind: 'native',
+      direction: 'a_to_b',
+      builtByVendorId: BUILDER,
+    },
+    {
+      id: 'r1',
+      sourceProductId: ENDPOINT_B,
+      targetProductId: ENDPOINT_A,
+      mechanismKind: 'api',
+      direction: 'a_to_b',
+      builtByVendorId: BUILDER,
+      claimedAt: RETIRED_AT,
+      maintainedBy: 'vendor',
+      retiredAt: RETIRED_AT,
+    },
+  ]);
+}
+
+async function readRaw(rel: string): Promise<string> {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  return readFileSync(join(process.cwd(), rel), 'utf8');
+}
+
+function windowAfter(source: string, marker: string): string | null {
+  const at = source.indexOf(marker);
+  if (at === -1) return null;
+  return source.slice(at).split('\n').slice(0, SCAN_WINDOW).join('\n');
+}
+
+describe('a retired integration counts nowhere (AECI-1010 / §13.5)', () => {
+  it('sites 1-3: the canonical count, the drift sweep and both raw-SQL twins drop it', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    await recomputeProductCounts(t.db, new Set([ENDPOINT_A, ENDPOINT_B]));
+    const byId = new Map(
+      (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+    );
+    expect(byId.get(ENDPOINT_A)).toBe(1);
+    expect(byId.get(ENDPOINT_B)).toBe(1);
+    expect(await findProductCountDrift(t.db)).toEqual([]);
+    proved.add('1');
+
+    const drift = t.raw.prepare(DRIFT_QUERY).all() as {
+      product_id: string;
+      expected_integration_count: number;
+    }[];
+    expect(drift.find((r) => r.product_id === ENDPOINT_A)?.expected_integration_count).toBe(1);
+    proved.add('2');
+
+    // `--fix`: overwrite with a wrong value, then let the raw recompute repair it.
+    t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
+    t.raw.prepare(RECOMPUTE_SQL.replace('__IDS__', `'${ENDPOINT_A}','${ENDPOINT_B}'`)).run();
+    const after = new Map(
+      (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+    );
+    expect(after.get(ENDPOINT_A)).toBe(1);
+    expect(after.get(ENDPOINT_B)).toBe(1);
+    proved.add('3');
+    t.dispose();
+  });
+
+  it('sites 6a and 14a: the vendor rule counts only the live row', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    const [algoliaRow] = (await t.db.query.vendors.findMany({
+      ...algoliaVendorConfig,
+    })) as RawAlgoliaVendorRow[];
+    expect(algoliaRow?.integrationCount).toBe(1);
+    proved.add('6a');
+    const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
+    expect(listRow?.integrationCount).toBe(1);
+    proved.add('14a');
+    t.dispose();
+  });
+
+  it('sites 8a-8d: the home totals, window, category tally and recent rail drop it', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
+    await t.db.insert(productCategories).values([
+      { productId: ENDPOINT_A, categoryId: 'c1' },
+      { productId: ENDPOINT_B, categoryId: 'c1' },
+    ]);
+
+    expect(await computeTotalIntegrations(t.db)).toBe(1);
+    proved.add('8a');
+    expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(1);
+    proved.add('8b');
+    const category = await computeMostActiveCategory(t.db);
+    expect(category?.integration_count).toBe(1);
+    proved.add('8c');
+    const recent = await computeRecentIntegrations(t.db);
+    expect(recent.map((r) => r.id)).toEqual(['i1']);
+    proved.add('8d');
+    t.dispose();
+  });
+
+  it('sites 9 and 12: operator totals drop it, and claim coverage cannot go negative', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    await t.db.insert(taxonomyDataObjects).values({ id: 'd1', slug: 'invoice', name: 'Invoice' });
+    // A claim on the RETIRED row only. It survives the retire by design, so the
+    // numerator must not count its anchor while the denominator drops the row.
+    await t.db
+      .insert(claims)
+      .values({ id: 'cl1', integrationId: 'r1', dataObjectId: 'd1', direction: 'a_to_b' });
+
+    const coverage = await claimCoverage(t.db, 10);
+    expect(coverage.integrations_total).toBe(1);
+    expect(coverage.integrations_with_claims).toBe(0);
+    expect(coverage.integrations_without_claims).toBe(1);
+    expect(coverage.integrations_without_claims_sample.map((r) => r.id)).toEqual(['i1']);
+    proved.add('9');
+    expect((await catalogTotals(t.db)).integrations).toBe(1);
+    proved.add('12');
+    t.dispose();
+  });
+
+  it('site X3: a taxonomy term counts only the live row', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
+    await t.db.insert(productCategories).values({ productId: ENDPOINT_A, categoryId: 'c1' });
+    const [term] = await t.db.query.taxonomyCategories.findMany({ ...categoryTermConfig });
+    expect(term?.integrationCount).toBe(1);
+    proved.add('X3');
+    t.dispose();
+  });
+
+  /**
+   * The Algolia membership rule, in all four places it lives, against the same seed.
+   * The counter and the two id sets must agree with each other, and the sync's delete
+   * arm must be the EXACT complement of its upsert arm. A mismatch here is either a
+   * permanent deletion of live records or a sweep that refuses every pass.
+   */
+  it('sites 13, 15, 16 and X1: the drift count, both id sets and the sync agree', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+
+    const counted = await drizzleDriftCounter(t.db).integration.count({
+      where: {
+        sourceProduct: { promotionStatus: 'promoted' },
+        targetProduct: { promotionStatus: 'promoted' },
+      },
+    });
+    expect(counted).toBe(1);
+    proved.add('13');
+
+    const swept = await drizzlePromotedIds(t.db).integrationIds();
+    // Exactly the live row: not empty (the `= NULL` failure) and not both.
+    expect([...swept]).toEqual(['i1']);
+    proved.add('15');
+
+    const cli = (t.raw.prepare(INTEGRATION_IDS_SQL).all() as { id: string }[]).map((r) => r.id);
+    expect(cli).toEqual(['i1']);
+    proved.add('16');
+
+    const { requests } = await buildIntegrationRequests(t.db, { type: 'ids', ids: ['i1', 'r1'] });
+    const upserts = requests
+      .filter((r) => r.action === 'updateObject')
+      .map((r) => (r.body as { objectID: string }).objectID);
+    const deletes = requests
+      .filter((r) => r.action === 'deleteObject')
+      .map((r) => (r.body as { objectID: string }).objectID);
+    expect(upserts).toEqual(['i1']);
+    expect(deletes).toEqual(['r1']);
+    // The complement: every id lands in exactly one arm.
+    expect(new Set([...upserts, ...deletes]).size).toBe(upserts.length + deletes.length);
+    proved.add('X1');
+    t.dispose();
+  });
+
+  it('a restore puts the row back in every executed set', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndRetired(t);
+    await t.db.update(integrations).set({ retiredAt: null }).where(eq(integrations.id, 'r1'));
+
+    expect([...(await drizzlePromotedIds(t.db).integrationIds())].sort()).toEqual(['i1', 'r1']);
+    const { requests } = await buildIntegrationRequests(t.db, { type: 'ids', ids: ['r1'] });
+    expect(requests.map((r) => r.action)).toEqual(['updateObject']);
+    expect(await computeTotalIntegrations(t.db)).toBe(2);
+    t.dispose();
+  });
+
+  it('every listed site exists, and every scan site carries the live predicate', async () => {
+    for (const site of LOCKSTEP_SITES) {
+      const source = await readRaw(site.file);
+      const window = windowAfter(source, site.marker);
+      expect(window, `${site.id}: marker not found in ${site.file}`).not.toBeNull();
+      if (site.proof === 'scan') {
+        expect(window, `${site.id}: no live predicate near ${site.marker}`).toMatch(LIVE_PREDICATE);
+      }
+      if (site.proof === 'excluded') {
+        expect(site.reason, `${site.id}: an excluded site must say why`).toBeTruthy();
+      }
+    }
+    // X8 must keep counting retired rows. It is a blocker, and a filter there would let
+    // a vendor delete proceed into a foreign-key failure.
+    const blocker = windowAfter(
+      await readRaw('src/lib/retract-vendor.ts'),
+      'export function buildVendorFootprintSql',
+    );
+    expect(blocker).not.toMatch(LIVE_PREDICATE);
+  });
+
+  it('the list is complete: every executed site was proved, and the delete sites are the four', () => {
+    const executed = LOCKSTEP_SITES.filter((s) => s.proof === 'executed').map((s) => s.id);
+    expect(executed.filter((id) => !proved.has(id))).toEqual([]);
+    expect(
+      LOCKSTEP_SITES.filter((s) => s.deletes)
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(['15', '16', 'X1', 'X2']);
   });
 });

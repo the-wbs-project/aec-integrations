@@ -37,6 +37,7 @@ import {
 } from '@aeci/shared/algolia-batch';
 import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
@@ -158,7 +159,9 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
          -- product column. Both tables, or connector vendors' counts collapse.
-         ((SELECT count(*) FROM integrations i WHERE i.built_by_vendor_id = v.id)
+         -- AECI-1010: live integrations only; the evidenced table has no retired_at.
+         ((SELECT count(*) FROM integrations i
+             WHERE i.built_by_vendor_id = v.id AND ${liveIntegrationSql('i')})
           + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = v.id))
            AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'`,
@@ -242,7 +245,10 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        FROM integrations i
        JOIN products sp ON sp.id = i.source_product_id
        JOIN products tp ON tp.id = i.target_product_id
+       -- AECI-1010: a retired row is not a member, so a full rebuild must not
+       -- re-add it. Same predicate as the Worker sync's upsert arm.
        WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'
+         AND ${liveIntegrationSql('i')}
        UNION ALL
        SELECT
          cep.id AS objectID,

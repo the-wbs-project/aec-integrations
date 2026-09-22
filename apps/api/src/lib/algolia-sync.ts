@@ -55,6 +55,7 @@ import {
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
 } from './algolia-transforms';
+import { liveIntegrationWhere, retiredIntegrationWhere } from './live-integration';
 
 /** The `promotion_status` value that marks a product/vendor as live. */
 const PROMOTED = 'promoted';
@@ -163,30 +164,42 @@ async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<R
  * arrive once it resolved), and adding a third condition would put the sync and
  * the guard out of step with the `integrations` arm for no reachable case.
  */
-async function buildIntegrationRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
+export async function buildIntegrationRequests(
+  db: Db,
+  filter: AlgoliaSyncFilter,
+): Promise<RequestBuild> {
   const window = whereFor(filter, integrations.id, integrations.updatedAt);
   const promotedProductIds = db
     .select({ id: products.id })
     .from(products)
     .where(eq(products.promotionStatus, PROMOTED));
 
-  const bothPromoted = and(
+  // AECI-1010: membership is "both endpoints promoted AND live". The delete arm is
+  // its EXACT complement: either endpoint unpromoted OR retired. A row matched by
+  // neither arm would never be touched, and one matched by both would get an
+  // upsert and a delete in the same batch. This arm is the PRIMARY remover of a
+  // retired record: the 09:00 orphan sweep is only the backstop, and it refuses a
+  // pass above 50 deletes, so a bulk retire left to the sweep would stay
+  // searchable. `connector_evidenced_pairs` below has no `retired_at`.
+  const member = and(
     inArray(integrations.sourceProductId, promotedProductIds),
     inArray(integrations.targetProductId, promotedProductIds),
+    liveIntegrationWhere,
   );
-  const eitherNotPromoted = or(
+  const notMember = or(
     notInArray(integrations.sourceProductId, promotedProductIds),
     notInArray(integrations.targetProductId, promotedProductIds),
+    retiredIntegrationWhere,
   );
 
   const eligible = (await db.query.integrations.findMany({
     ...algoliaIntegrationConfig,
-    where: and(window, bothPromoted),
+    where: and(window, member),
   })) as RawAlgoliaIntegrationRow[];
   const ineligible = await db
     .select({ id: integrations.id })
     .from(integrations)
-    .where(and(window, eitherNotPromoted));
+    .where(and(window, notMember));
 
   const requests: AlgoliaBatchRequest[] = [];
   let transformErrors = 0;
@@ -404,6 +417,52 @@ export async function syncPromoteTargets(
     ['integrations', targets.integrations.map((i) => i.id)],
   ];
 
+  const results: IndexEntityResult[] = [];
+  for (const [entity, ids] of byEntity) {
+    if (ids.length === 0) continue;
+    results.push(await indexEntity(db, fetchImpl, creds, env, entity, { type: 'ids', ids }));
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Vendor hook: index a set of ids per entity (best-effort)
+// ---------------------------------------------------------------------------
+
+/** Ids to re-index per entity. Duplicates and empty lists are fine. */
+export type IndexTargetIds = {
+  products: readonly string[];
+  vendors: readonly string[];
+  integrations: readonly string[];
+};
+
+/**
+ * Index the records a vendor write just changed, by id (AECI-1010). The general form
+ * of {@link syncPromoteTargets}: that one takes at most one product, and a retire
+ * touches two plus the owner vendor.
+ *
+ * Membership-aware like every other path through {@link indexEntity}: an id that is no
+ * longer a member (a retired integration) becomes a `deleteObject`, and one that is
+ * again a member (a restored one) an `updateObject`. Entities run one after another,
+ * one Algolia request each, so this holds at most one connection at a time (the
+ * AECI-666 budget). Never throws.
+ *
+ * The vendor is the piece with no other refresh path. Its `integration_count` is a
+ * correlated subquery over `built_by_vendor_id`, and a retire does not touch
+ * `vendors.updated_at`, so the 08:00 watermark window would never pick it up.
+ */
+export async function syncIndexTargets(
+  db: Db,
+  fetchImpl: typeof fetch,
+  creds: AlgoliaBatchCredentials,
+  env: AlgoliaEnv,
+  targets: IndexTargetIds,
+): Promise<IndexEntityResult[]> {
+  const byEntity: Array<[IndexEntity, string[]]> = [
+    ['integrations', [...new Set(targets.integrations)]],
+    ['products', [...new Set(targets.products)]],
+    ['vendors', [...new Set(targets.vendors)]],
+  ];
   const results: IndexEntityResult[] = [];
   for (const [entity, ids] of byEntity) {
     if (ids.length === 0) continue;

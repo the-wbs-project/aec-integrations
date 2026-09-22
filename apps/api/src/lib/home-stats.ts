@@ -73,6 +73,7 @@ import {
 } from '../db/schema';
 // AECI-745 lifted these predicates out of `analytics-digest` into their own module.
 import { textAsc } from './collation';
+import { liveIntegrationWhere } from './live-integration';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
@@ -137,7 +138,9 @@ const TRENDING_MIN_VIEWS = 3;
  * explain. Both tables, always.
  */
 export async function computeTotalIntegrations(db: Db): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(integrations);
+  // Live `integrations` rows only (AECI-1010). The evidenced table has no
+  // `retired_at`, so its arm is unfiltered.
+  const [row] = await db.select({ value: count() }).from(integrations).where(liveIntegrationWhere);
   const [evidenced] = await db.select({ value: count() }).from(connectorEvidencedPairs);
   return (row?.value ?? 0) + (evidenced?.value ?? 0);
 }
@@ -147,7 +150,7 @@ export async function computeIntegrationsAdded30d(db: Db, now: Date): Promise<nu
   const [row] = await db
     .select({ value: count() })
     .from(integrations)
-    .where(gte(integrations.createdAt, since));
+    .where(and(gte(integrations.createdAt, since), liveIntegrationWhere));
   // `created_at` on a migrated row is the ORIGINAL edge's timestamp, carried over
   // by the migration rather than stamped at move time — so this window keeps
   // measuring when the integration was catalogued, never when we reorganised our
@@ -238,6 +241,7 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   const [directEdges, evidencedEdges] = await Promise.all([
     db.query.integrations.findMany({
       columns: { id: true },
+      where: liveIntegrationWhere,
       with: {
         sourceProduct: {
           columns: {},
@@ -321,6 +325,7 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
   const [rows, evidencedRows] = await Promise.all([
     db.query.integrations.findMany({
       ...integrationListConfig,
+      where: liveIntegrationWhere,
       orderBy: [desc(integrations.createdAt)],
       limit: 10,
     }),

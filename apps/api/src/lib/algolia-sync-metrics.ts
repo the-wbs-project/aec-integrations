@@ -29,7 +29,7 @@
 import type { IndexEntityResult } from './algolia-sync';
 
 /** Which writer produced the run — the `trigger` tag value. */
-export type AlgoliaSyncTrigger = 'cron' | 'promote';
+export type AlgoliaSyncTrigger = 'cron' | 'promote' | 'vendor';
 
 /** Telemetry transport, narrowed to the two submitters this module needs. The
  *  caller binds `(ctx, env, request)` and forwards to the shared client's

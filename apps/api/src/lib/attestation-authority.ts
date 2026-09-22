@@ -114,6 +114,15 @@ export interface AttestationAuthority {
    */
   poweredByProductId: string | null;
   mechanismKind: string | null;
+  /**
+   * `integrations.retired_at` (AECI-1010). Carried for the same one-hop reason: the
+   * §5 write paths refuse a new position on a retired row, and the owner's restore
+   * is the only write that row accepts. NOT part of the authority rule, and never a
+   * filter in `ownedEndpointJoin`: both endpoint vendors still SEE a retired row, and
+   * the freshness cursor has to move when it retires. Optional so a hand-built
+   * authority in a spec reads as live.
+   */
+  retiredAt?: string | null;
   /** Never empty: an entry only exists when the vendor owns at least one endpoint. */
   slots: readonly AttestationSlot[];
 }
@@ -184,6 +193,7 @@ async function loadAuthorities(
       maintainedBy: integrations.maintainedBy,
       poweredByProductId: integrations.poweredByProductId,
       mechanismKind: integrations.mechanismKind,
+      retiredAt: integrations.retiredAt,
       ownedProductId: productVendors.productId,
     })
     .from(integrations)
@@ -210,6 +220,7 @@ async function loadAuthorities(
       maintainedBy: row.maintainedBy,
       poweredByProductId: row.poweredByProductId,
       mechanismKind: row.mechanismKind,
+      retiredAt: row.retiredAt,
       slots: slotsForOwnership(
         productIds.has(row.sourceProductId),
         productIds.has(row.targetProductId),
@@ -382,6 +393,7 @@ export async function resolveClaimAuthority(
       maintainedBy: integrations.maintainedBy,
       poweredByProductId: integrations.poweredByProductId,
       mechanismKind: integrations.mechanismKind,
+      retiredAt: integrations.retiredAt,
       ownedProductId: productVendors.productId,
     })
     .from(claims)
@@ -422,6 +434,7 @@ export async function resolveClaimAuthority(
       maintainedBy: first.maintainedBy,
       poweredByProductId: first.poweredByProductId,
       mechanismKind: first.mechanismKind,
+      retiredAt: first.retiredAt,
       slots: slotsForOwnership(
         ownedProductIds.has(first.sourceProductId),
         ownedProductIds.has(first.targetProductId),

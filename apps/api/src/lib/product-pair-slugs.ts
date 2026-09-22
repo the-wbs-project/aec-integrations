@@ -41,11 +41,12 @@
  * and a free IndexNow URL.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { unionAll } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products } from '../db/schema';
+import { liveIntegrationWhere } from './live-integration';
 
 /**
  * The slugs of every product that `productId` shares a pair page with, deduped.
@@ -59,12 +60,12 @@ export async function readPairCounterpartSlugs(db: Db, productId: string): Promi
       .select({ slug: products.slug })
       .from(integrations)
       .innerJoin(products, eq(products.id, integrations.targetProductId))
-      .where(eq(integrations.sourceProductId, productId)),
+      .where(and(eq(integrations.sourceProductId, productId), liveIntegrationWhere)),
     db
       .select({ slug: products.slug })
       .from(integrations)
       .innerJoin(products, eq(products.id, integrations.sourceProductId))
-      .where(eq(integrations.targetProductId, productId)),
+      .where(and(eq(integrations.targetProductId, productId), liveIntegrationWhere)),
     db
       .select({ slug: products.slug })
       .from(connectorEvidencedPairs)

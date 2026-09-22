@@ -58,8 +58,9 @@ import {
 } from './attestation-authority';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { liveAttestationsWhere } from './drizzle-helpers';
+import { liveIntegrationWhere } from './live-integration';
 import type { Db } from '../db/client';
-import { attestations, claims } from '../db/schema';
+import { attestations, claims, integrations } from '../db/schema';
 
 const DAY_MS = 86_400_000;
 
@@ -161,7 +162,18 @@ export async function loadDetectorClaims(db: Db) {
     // Written explicitly rather than left to the inner join it would otherwise
     // become, so the exclusion is a stated decision a reader can check, and so the
     // narrowing below is honest rather than a cast.
-    where: and(inArray(claims.id, vendorAttestedClaimIds), isNotNull(claims.integrationId)),
+    //
+    // Live integrations only (AECI-1010). A retired row keeps its claims and
+    // attestations so a restore is lossless, but nobody is asked to attest to, or
+    // told about a conflict on, an integration its owner has withdrawn.
+    where: and(
+      inArray(claims.id, vendorAttestedClaimIds),
+      isNotNull(claims.integrationId),
+      inArray(
+        claims.integrationId,
+        db.select({ id: integrations.id }).from(integrations).where(liveIntegrationWhere),
+      ),
+    ),
     with: {
       dataObject: { columns: { slug: true, name: true } },
       integration: {

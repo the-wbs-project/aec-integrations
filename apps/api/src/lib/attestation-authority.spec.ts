@@ -126,6 +126,7 @@ describe('resolveAttestationSlots', () => {
       // the EDGE is attestable immediately after resolving authority.
       poweredByProductId: null,
       mechanismKind: null,
+      retiredAt: null,
       slots: ['vendor_a'],
     });
   });
@@ -245,6 +246,7 @@ describe('resolveClaimAuthority', () => {
       maintainedBy: 'aeci',
       poweredByProductId: null,
       mechanismKind: null,
+      retiredAt: null,
       slots: ['vendor_a'],
     });
   });

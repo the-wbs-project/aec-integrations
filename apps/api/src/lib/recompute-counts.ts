@@ -2,15 +2,15 @@
  * Denormalized product-count recompute — Drizzle/D1 successor to the Prisma
  * `lib/product-counts.ts` (ADR 0016 / AECI-253). Aggregation rule:
  *   - `integration_count` = **delivered edges, regardless of which table holds
- *     them** (`STAGE_1_5_SPEC.md` §13.5). That is: rows of `integrations` where
- *     the product is source OR target, PLUS rows of `connector_evidenced_pairs`
+ *     them** (`STAGE_1_5_SPEC.md` §13.5). That is: LIVE rows of `integrations`
+ *     (`retired_at IS NULL`, AECI-1010) where the product is source OR target, PLUS rows of `connector_evidenced_pairs`
  *     where it is an endpoint OR **the connector**.
  *   - `review_count` + both averages count ONLY `status = 'approved'` reviews;
  *     zero approved reviews → NULL averages.
  *
  * ── THE CANONICAL DEFINITION (AECI-721) ─────────────────────────────────────
- * This function is site 1 of **fourteen** that express the same rule, and the one
- * the other thirteen are written to mirror. Two properties of the rule are load
+ * This function is site 1 of the lockstep list (`LOCKSTEP_SITES` in
+ * `count-lockstep.spec.ts`), and the one the others are written to mirror. Two properties of the rule are load
  * bearing and easy to break separately:
  *
  *   **Endpoint totals must not move.** A delivered-via-connector edge already
@@ -43,6 +43,7 @@ import { and, avg, count, eq, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
+import { liveIntegrationWhere } from './live-integration';
 
 export const COUNTED_REVIEW_STATUS = 'approved';
 
@@ -81,7 +82,15 @@ async function computeExpected(db: Db, productId: string): Promise<ExpectedProdu
     .select({ value: count() })
     .from(integrations)
     .where(
-      or(eq(integrations.sourceProductId, productId), eq(integrations.targetProductId, productId)),
+      and(
+        or(
+          eq(integrations.sourceProductId, productId),
+          eq(integrations.targetProductId, productId),
+        ),
+        // AECI-1010: a retired row counts nowhere. The evidenced arm below takes no
+        // such filter: that table has no `retired_at` (see `lib/live-integration.ts`).
+        liveIntegrationWhere,
+      ),
     );
 
   // The evidenced arm — see the header. Three disjuncts, not two: an endpoint in

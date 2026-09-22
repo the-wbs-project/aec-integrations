@@ -87,6 +87,7 @@ import {
   type UtcWindow,
 } from './admin-analytics';
 import { collectAnalyticsMetrics, unresolvedRequests, windowsForDay } from './analytics-digest';
+import { liveIntegrationWhere } from './live-integration';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
@@ -236,8 +237,12 @@ const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   // the series is continuous across it — there is no step to annotate and no
   // history to rewrite, which is the honest way to satisfy §13.5's "backfill or
   // annotate the series deliberately".
+  //
+  // Live `integrations` rows only (AECI-1010). A retire is a real step down in the
+  // catalogue, so recording it is correct. The evidenced table has no `retired_at`.
   'catalog.integrations_total': async (db) =>
-    (await countAll(db, integrations)) + (await countAll(db, connectorEvidencedPairs)),
+    (await countAll(db, integrations, liveIntegrationWhere)) +
+    (await countAll(db, connectorEvidencedPairs)),
   'catalog.claims_total': (db) => countAll(db, claims),
   'catalog.reviews_approved': (db) => countAll(db, reviews, APPROVED_REVIEWS),
   'accounts.profiles_total': (db) => countAll(db, profiles),

@@ -334,8 +334,12 @@ export const integrations = sqliteTable(
      */
     origin: text('origin').notNull().default('aeci'),
     /**
-     * When the owner retired the row (AECI-1010). Added now so 1010 needs no
-     * migration. Nothing reads or writes it yet, and promote never writes it.
+     * When the owner retired the row (AECI-1010), or NULL while it is live. Written
+     * only by `routes/vendor-integration-retire.ts`; promote never writes it. Every
+     * count, Algolia id set and public read filters on it through
+     * `lib/live-integration.ts` (`STAGE_1_5_SPEC.md` §13.5). Retired implies claimed,
+     * checked by the `retired_integration_unclaimed` data-quality check rather than a
+     * CHECK constraint, which would recreate this table.
      */
     retiredAt: text('retired_at'),
 

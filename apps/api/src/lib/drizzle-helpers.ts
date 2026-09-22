@@ -30,6 +30,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
 } from '@aeci/shared';
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
   AccountReview,
@@ -88,6 +89,7 @@ import {
 } from '../db/schema';
 
 import { reachOnlyPartnerCount } from './connector-reach';
+import { liveIntegrationWhere } from './live-integration';
 
 // ---------------------------------------------------------------------------
 // Shared read orderings
@@ -708,8 +710,12 @@ export const productDetailConfig = {
     // relation `orderBy` only reaches columns of `integrations`, and the partner
     // name is on the joined product. Sorting each bucket wouldn't interleave
     // them either. Adding an `orderBy` here buys nothing the client reads.
-    sourceIntegrations: productDetailIntegrationConfig,
-    targetIntegrations: productDetailIntegrationConfig,
+    //
+    // Live rows only (AECI-1010). A retired edge leaves the page, the JSON-LD
+    // partner list and the reach arithmetic together. The evidenced relations
+    // below take no filter: that table has no `retired_at`.
+    sourceIntegrations: { ...productDetailIntegrationConfig, where: liveIntegrationWhere },
+    targetIntegrations: { ...productDetailIntegrationConfig, where: liveIntegrationWhere },
     // The endpoint buckets' SECOND source (AECI-713 / §13.1's delivered tier).
     // A canonical pair puts this product on one side or the other, so both
     // relations load and `toProductDetail` files each row into the source or
@@ -723,7 +729,7 @@ export const productDetailConfig = {
     // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
     // the page product is neither endpoint, so there is no context_direction
     // and no claims join to pay for.
-    poweredIntegrations: integrationListConfig,
+    poweredIntegrations: { ...integrationListConfig, where: liveIntegrationWhere },
     // The same bucket's SECOND source after AECI-721: edges this product powers
     // that have moved out of `integrations` into the connector lane's delivered
     // tier. `toProductDetail` unions the two into `integrations_as_connector`.
@@ -824,8 +830,9 @@ export const vendorListConfig = {
       // own unless the evidenced table is summed here too. The ~20-row accountable
       // residue §13.2 records is exactly this population: Agave built 11 of the 19
       // edges that move, so without the second subquery Agave's vendor record
-      // reports 0 integrations the day the migration lands.
-      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")
+      // reports 0 integrations the day the migration lands. AECI-1010: live
+      // `integrations` rows only; the evidenced table has no `retired_at`.
+      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveIntegrationSql('bi'))})
         + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
         'integration_count',
       ),
@@ -880,6 +887,10 @@ export const vendorDetailConfig = {
 //      audience" and an integration into such a product is as much part of that
 //      story as one out of it.
 //
+// Live rows only (AECI-1010): a retired integration counts toward no term. This
+// site reads `integrations` alone, so connector-evidenced pairs have never counted
+// toward a term. That is a pre-existing gap, recorded in §13.5, not changed here.
+//
 // Cost is one correlated subquery per term over a small vocabulary (~30 terms
 // per facet, `docs/STAGE_1_SPEC.md` §5.5) on responses that are edge-cached with
 // the `taxonomy` tag, not a per-request hot path.
@@ -888,7 +899,7 @@ const integrationCountFor = (joinTable: string, fkColumn: string, termTable: str
     SELECT 1 FROM ${sql.raw(joinTable)} j
     WHERE j.${sql.raw(fkColumn)} = ${sql.raw(`"${termTable}"."id"`)}
       AND (j.product_id = i.source_product_id OR j.product_id = i.target_product_id)
-  ))`.as('integration_count');
+  ) AND ${sql.raw(liveIntegrationSql('i'))})`.as('integration_count');
 
 export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },

@@ -435,6 +435,18 @@ describe('GET /api/vendor/updates — each scope moves independently', () => {
     expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
   });
 
+  it('`integrations` moves on a RETIRE and a RESTORE — never filtered to live rows (AECI-1010)', async () => {
+    // Same trap as the retract above, one grain up. The list shows a retired row to
+    // both endpoint vendors, so the cursor must too: a live-only cursor could not
+    // move on the very write that retires the row.
+    const before = await revisions();
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: MOVED, updatedAt: MOVED })
+      .where(eq(integrations.id, INTEGRATION_AB));
+    expectOnlyMoved(before, await revisions(), 'integrations', MOVED);
+  });
+
   it('`integrations` moves when the COUNTERPARTY attests on the shared claim', async () => {
     // Not an isolation leak — the inverse. The pair page renders both sides, so
     // the far endpoint's vendor attesting is a change to the caller's own surface

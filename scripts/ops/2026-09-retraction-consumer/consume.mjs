@@ -1371,7 +1371,9 @@ async function main() {
   // The AECI-721 rule: DELIVERED edges regardless of which table holds them. Omitting the
   // `connector_evidenced_pairs` term would write the pre-AECI-721 answer back over a
   // correct count. `powered_by_product_id` is NOT in the expression, matching
-  // `computeExpected` in `apps/api/src/lib/recompute-counts.ts`.
+  // `computeExpected` in `apps/api/src/lib/recompute-counts.ts`. Live `integrations` rows
+  // only (AECI-1010): the literal `retired_at IS NULL`, because this `.mjs` cannot import
+  // `@aeci/shared/live-integration`. `count-lockstep.spec.ts` scans for it.
   //
   // `updated_at` is bumped so the 08:00 incremental Algolia sync's watermark window picks
   // these products up and the corrected count reaches their index records —
@@ -1388,7 +1390,8 @@ async function main() {
       .map(
         (pid) =>
           `UPDATE products SET integration_count =
-             ((SELECT COUNT(*) FROM integrations WHERE source_product_id = '${pid}' OR target_product_id = '${pid}')
+             ((SELECT COUNT(*) FROM integrations
+                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') AND retired_at IS NULL)
               + (SELECT COUNT(*) FROM connector_evidenced_pairs
                    WHERE product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}')),
              updated_at = '${now}'

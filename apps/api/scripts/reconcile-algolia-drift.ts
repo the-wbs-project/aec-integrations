@@ -50,6 +50,7 @@
 import { spawnSync } from 'node:child_process';
 
 import { DEFAULT_LOCALE, type AlgoliaEnv } from '@aeci/shared/algolia';
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
 
 import {
   createAlgoliaDeleteClient,
@@ -83,10 +84,14 @@ export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion
  *
  * Exported for that spec. The connector's own promotion is deliberately not a
  * condition — see `algolia-sync.ts` for why.
+ *
+ * The `integrations` arm is LIVE rows only (AECI-1010): a retired row is not a
+ * member, so `--apply` removes its record. The evidenced arm has no `retired_at`.
  */
 export const INTEGRATION_IDS_SQL = `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+    AND ${liveIntegrationSql('i')}
 UNION ALL
 SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
   WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')

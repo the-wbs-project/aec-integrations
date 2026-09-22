@@ -100,6 +100,7 @@ import { loadAsnAnnotations } from './asn-registry';
 import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
+import { liveIntegrationWhere } from './live-integration';
 import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
@@ -457,12 +458,13 @@ async function catalogRowsPerDay(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same shape as `countAll` above: one bucketer over four unrelated tables, each call site fixed by CATALOG_NET_SOURCE.
   table: any,
   createdAt: AnySQLiteColumn,
+  live?: SQL,
 ): Promise<Map<string, number>> {
   const day = sql<string>`substr(${createdAt}, 1, 10)`;
   const rows = await db
     .select({ day, value: count() })
     .from(table)
-    .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso)))
+    .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso), live))
     .groupBy(day);
   return new Map(rows.map((r) => [r.day, r.value]));
 }
@@ -556,10 +558,16 @@ const CATALOG_ACTION: Partial<Record<AdminMetricKey, string>> = {
  */
 const CATALOG_NET_SOURCE: Partial<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the table half is passed to `catalogRowsPerDay`, which is `any`-typed for the same reason `countAll` is.
-  Record<AdminMetricKey, { table: any; createdAt: AnySQLiteColumn }>
+  Record<AdminMetricKey, { table: any; createdAt: AnySQLiteColumn; live?: SQL }>
 > = {
   'catalog.products_created': { table: products, createdAt: products.createdAt },
-  'catalog.integrations_created': { table: integrations, createdAt: integrations.createdAt },
+  // `live` (AECI-1010): a retired integration is still a row but is not in the
+  // catalogue, so it does not survive into the net series.
+  'catalog.integrations_created': {
+    table: integrations,
+    createdAt: integrations.createdAt,
+    live: liveIntegrationWhere,
+  },
   'catalog.vendors_created': { table: vendors, createdAt: vendors.createdAt },
   'catalog.claims_created': { table: claims, createdAt: claims.createdAt },
 };
@@ -616,7 +624,7 @@ export async function metricSeries(
       });
     }
     return {
-      perDay: await catalogRowsPerDay(db, w, source.table, source.createdAt),
+      perDay: await catalogRowsPerDay(db, w, source.table, source.createdAt, source.live),
       perDayFiltered: null,
     };
   }
@@ -1289,7 +1297,8 @@ export async function earliestCatalogRowDay(
   if (!source) return null;
   const [row] = await db
     .select({ day: sql<string | null>`min(substr(${source.createdAt}, 1, 10))` })
-    .from(source.table);
+    .from(source.table)
+    .where(source.live);
   return row?.day ?? null;
 }
 

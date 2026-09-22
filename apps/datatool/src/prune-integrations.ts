@@ -65,6 +65,8 @@
  * (dry-run included) carries a complete `rollbackSql`. Save it before executing.
  */
 
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
+
 /** Upper bound on a single prune, so a malformed paste can't become a mass delete. */
 export const MAX_PRUNE_IDS = 500;
 
@@ -512,7 +514,9 @@ export async function pruneExecute(
         db
           .prepare(
             `UPDATE products SET integration_count =
-               ((SELECT COUNT(*) FROM integrations WHERE source_product_id = ? OR target_product_id = ?)
+               ((SELECT COUNT(*) FROM integrations
+                   WHERE (source_product_id = ? OR target_product_id = ?)
+                     AND ${liveIntegrationSql('integrations')})
                 + (SELECT COUNT(*) FROM connector_evidenced_pairs
                      WHERE product_a_id = ? OR product_b_id = ? OR connector_product_id = ?))
              WHERE id = ?`,

@@ -35,6 +35,8 @@
 
 import { spawnSync } from 'node:child_process';
 
+import { liveIntegrationSql } from '@aeci/shared/live-integration';
+
 import {
   diffProductCounts,
   type ExpectedProductCounts,
@@ -48,7 +50,11 @@ import {
 // `integrations` where the product is an endpoint, plus `connector_evidenced_pairs`
 // where it is an endpoint in either canonical slot OR the connector (§12.5 option B).
 //
-// These two are sites 2 and 3 of the fourteen-site lockstep, and they are the pair
+// The `integrations` arm counts LIVE rows only (`retired_at IS NULL`, AECI-1010);
+// the evidenced arm takes no such filter because that table has no `retired_at`.
+//
+// These two are sites 2 and 3 of the lockstep list (`LOCKSTEP_SITES` in
+// `src/lib/count-lockstep.spec.ts`, which executes both), and they are the pair
 // with the sharpest failure mode. `reconcile-counts.yml` runs this script daily: miss
 // them and it reports 100% drift every morning, and `--fix` SILENTLY REVERTS the new
 // rule across the whole catalogue — the recompute writing the old answer back over
@@ -67,11 +73,12 @@ const EVIDENCED_COUNT_SQL = (productIdExpr: string) => `(SELECT COUNT(*)
 // from source rows. The comparison (counts exact; averages 2dp/0.005 tolerance,
 // null-aware) is done in TS by `diffProductCounts`, NOT in SQL, so the rule stays
 // single-sourced and unit-tested. Mirrors `computeExpected` in recompute-counts.ts.
-const DRIFT_QUERY = `SELECT
+export const DRIFT_QUERY = `SELECT
   p."id" AS product_id,
   p."integration_count" AS stored_integration_count,
   ((SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = p."id" OR i."target_product_id" = p."id")
+     WHERE (i."source_product_id" = p."id" OR i."target_product_id" = p."id")
+       AND ${liveIntegrationSql('i')})
    + ${EVIDENCED_COUNT_SQL('p."id"')}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
@@ -87,9 +94,10 @@ FROM "products" p;`;
 // `--fix` repair: recompute ALL four aggregates in place for the drifted ids.
 // Same aggregation as DRIFT_QUERY's expected columns + the seed-reviews
 // RECOMPUTE_PRODUCTS block. `__IDS__` is replaced with a quoted id list.
-const RECOMPUTE_SQL = `UPDATE "products" SET
+export const RECOMPUTE_SQL = `UPDATE "products" SET
   "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
+     WHERE (i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
+       AND ${liveIntegrationSql('i')})
    + ${EVIDENCED_COUNT_SQL('"products"."id"')}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),

@@ -88,6 +88,7 @@ import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { textAsc } from '../lib/collation';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { liveIntegrationWhere } from '../lib/live-integration';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
@@ -363,7 +364,8 @@ export function createAdminVendorDetailHandler(
       db
         .select({ value: count() })
         .from(integrations)
-        .where(eq(integrations.builtByVendorId, vendorId)),
+        // Live rows only (AECI-1010); the evidenced arm has no `retired_at`.
+        .where(and(eq(integrations.builtByVendorId, vendorId), liveIntegrationWhere)),
       db
         .select({ value: count() })
         .from(connectorEvidencedPairs)
