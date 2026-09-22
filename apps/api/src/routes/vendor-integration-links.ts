@@ -27,11 +27,19 @@
  * side of a row the caller can see: it is not the caller's side to write, and a
  * distinct code would tell a stranger which products sit on which rows.
  *
- * ── 4. CONNECTOR-POWERED ROWS TAKE NO LINKS ─────────────────────────────────
+ * ── 4. CONNECTOR-POWERED ROWS TAKE NO NEW LINKS ─────────────────────────────
  * Decision 9 (ruled 2026-09-18 for links). Decided by `isConnectorPoweredEdge`, so
- * `powered_by_product_id`, `iPaaS` and Convention-A self-references are all refused
- * with `403 INTEGRATION_CONNECTOR_POWERED`. Asked AFTER the side check, so a caller
- * with no side still gets the 404.
+ * a PUT on a row with `powered_by_product_id`, `iPaaS` or a Convention-A
+ * self-reference is refused with `403 INTEGRATION_CONNECTOR_POWERED`. Asked AFTER
+ * the side check, so a caller with no side still gets the 404.
+ *
+ * A DELETE passes the fence. Promote can make an unclaimed row connector-powered
+ * IN PLACE (a connector `mechanism_kind`, or a Convention-A self-reference), and
+ * the links stored before that stay in the table. The pair page stops showing them,
+ * and removing your own link is not an edit of the row, so the vendor can still
+ * clear it. On such a row the DELETE writes no §13.9 maintenance transfer: the row
+ * is connector-delivered and stays AECi's to curate. It still bumps `updated_at`,
+ * so the freshness cursor sees the removal.
  *
  * ── 4b. RETIRED ROWS TAKE NO LINK WRITES (AECI-1010) ────────────────────────
  * A retired row answers `409 INTEGRATION_RETIRED` to both PUT and DELETE, after the
@@ -141,8 +149,14 @@ interface Target {
   kind: IntegrationLinkKind;
 }
 
-/** Params, row, side ownership, then the connector fence: rules 2 to 4, in order. */
-async function resolveTarget(c: VendorContext, db: Db, vendorId: string): Promise<Target> {
+/** Params, row, side ownership, then the connector fence: rules 2 to 4, in order.
+ *  `mode` is the write: a `remove` passes the connector fence (rule 4). */
+async function resolveTarget(
+  c: VendorContext,
+  db: Db,
+  vendorId: string,
+  mode: 'set' | 'remove',
+): Promise<Target> {
   const integrationId = c.req.param('id');
   const productId = c.req.param('productId');
   const kindParam = IntegrationLinkKindSchema.safeParse(c.req.param('kind'));
@@ -179,7 +193,7 @@ async function resolveTarget(c: VendorContext, db: Db, vendorId: string): Promis
     : [];
   if (owned.length === 0) throw notFoundError('integration', { id: integrationId });
 
-  if (isConnectorPoweredEdge(row)) {
+  if (mode === 'set' && isConnectorPoweredEdge(row)) {
     throw new ApiError(
       403,
       ApiErrorCode.INTEGRATION_CONNECTOR_POWERED,
@@ -282,6 +296,7 @@ function auditFor(
   action: string,
   before: string | null,
   after: string | null,
+  stranded = false,
 ): AuditLogEntry {
   const session = c.get('auth');
   return {
@@ -297,8 +312,10 @@ function auditFor(
       vendorId,
       productId: target.productId,
       kind: target.kind,
-      // Present only on the hand-changing write, never as `false` (§13.9).
-      ...(isMaintenanceTransfer(target.row) ? { maintenanceTransfer: true } : {}),
+      // Present only on the hand-changing write, never as `false` (§13.9). A
+      // stranded removal on a connector-powered row changes no hands (rule 4).
+      ...(!stranded && isMaintenanceTransfer(target.row) ? { maintenanceTransfer: true } : {}),
+      ...(stranded ? { connectorPowered: true } : {}),
     },
   };
 }
@@ -309,7 +326,7 @@ export function createPutIntegrationLinkHandler(
   return async (c) => {
     const vendorId = sessionVendorId(c);
     const { db } = writeDb(c, dbFor);
-    const target = await resolveTarget(c, db, vendorId);
+    const target = await resolveTarget(c, db, vendorId, 'set');
     const payload = await parseJsonBody(c, PutIntegrationLinkSchema);
 
     const current = await sideLinks(db, target.row.id, target.productId);
@@ -362,7 +379,9 @@ export function createDeleteIntegrationLinkHandler(
   return async (c) => {
     const vendorId = sessionVendorId(c);
     const { db } = writeDb(c, dbFor);
-    const target = await resolveTarget(c, db, vendorId);
+    const target = await resolveTarget(c, db, vendorId, 'remove');
+    // A stranded link on a connector-powered row: removal, but no hand change (rule 4).
+    const stranded = isConnectorPoweredEdge(target.row);
 
     const current = await sideLinks(db, target.row.id, target.productId);
     const existing = current.find((l) => l.kind === target.kind);
@@ -379,6 +398,7 @@ export function createDeleteIntegrationLinkHandler(
       INTEGRATION_LINK_REMOVED_ACTION,
       existing.url,
       null,
+      stranded,
     );
     try {
       await commit(
@@ -390,7 +410,7 @@ export function createDeleteIntegrationLinkHandler(
           linkRemovedSentinel(db),
           db
             .update(integrations)
-            .set(maintenanceTransferColumns(now))
+            .set(stranded ? { updatedAt: now } : maintenanceTransferColumns(now))
             .where(eq(integrations.id, target.row.id)),
           auditInsert(db, audit),
         ],

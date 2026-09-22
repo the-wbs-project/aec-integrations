@@ -317,6 +317,35 @@ describe('GET /api/products/:slug/integrations/:otherSlug — per-side vendor li
   });
 });
 
+describe('GET /api/products/:slug/integrations/:otherSlug — links stranded on a connector-powered row (AECI-1007)', () => {
+  // Promote can turn an unclaimed row connector-powered IN PLACE. The links stored
+  // before that stay in the table, and the pair read must not show them.
+  async function seedWith(overrides: Partial<typeof integrations.$inferInsert>) {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), overrides);
+    await t.db.insert(integrationVendorLinks).values([
+      { integrationId: u(10), productId: u(1), kind: 'listing', url: 'https://procore.example/l' },
+      { integrationId: u(10), productId: u(2), kind: 'docs', url: 'https://revit.example/d' },
+    ]);
+  }
+
+  it('hides both sides when promote retyped the row to a connector kind', async () => {
+    await seedWith({ mechanismKind: 'iPaaS' });
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.vendor_links).toEqual({ context: null, other: null });
+  });
+
+  it('hides both sides on a Convention-A self-reference', async () => {
+    await seedWith({ poweredByProductId: u(2) });
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.vendor_links).toEqual({ context: null, other: null });
+  });
+});
+
 describe('GET /api/products/:slug/integrations/:otherSlug — connector-evidenced pairs (AECI-721)', () => {
   it('renders a pair that exists ONLY in connector_evidenced_pairs', async () => {
     await seedProducts();

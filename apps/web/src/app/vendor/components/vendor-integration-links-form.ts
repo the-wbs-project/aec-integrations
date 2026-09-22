@@ -58,11 +58,19 @@ export function linkSaveErrorMessage(err: unknown): string {
  * integration's owner has no say over them.
  *
  * ── WHO SEES IT ─────────────────────────────────────────────────────────────
- * The card renders this only when `integration.attestable` is true. `false` is
- * the server's connector-powered verdict, and decision 9 keeps per-side links off
- * those rows. There is no entitlement or Verified check: a seat is the whole gate
- * (decision 15), so a vendor that cannot yet author data flows can still say where
- * its own listing lives.
+ * The card renders the full form when `integration.attestable` is true. `false` is
+ * the server's connector-powered verdict, and decision 9 keeps new per-side links
+ * off those rows. There is no entitlement or Verified check: a seat is the whole
+ * gate (decision 15), so a vendor that cannot yet author data flows can still say
+ * where its own listing lives.
+ *
+ * ── STRANDED LINKS ──────────────────────────────────────────────────────────
+ * Promote can make an unclaimed row connector-powered in place, after a vendor set
+ * its links. Those links stay stored, and the pair page stops showing them. The
+ * card then renders this block read-only: the stored links, a sentence saying why
+ * they are hidden, and a Remove action per link. The API lets a DELETE through the
+ * connector fence for exactly this (`vendor-integration-links.ts` rule 4). With no
+ * stored link the card renders nothing on a connector-powered row, as before.
  *
  * ── PESSIMISTIC ─────────────────────────────────────────────────────────────
  * Two fields, one Save. Each changed field is one `PUT` (a value) or `DELETE`
@@ -88,7 +96,33 @@ export function linkSaveErrorMessage(err: unknown): string {
             Your links
           </p>
           <p class="text-xs text-(--text-secondary)">{{ intro() }}</p>
-          @if (!open()) {
+          @if (stranded()) {
+            <dl class="mt-2 space-y-2 text-xs" data-testid="stranded-links">
+              @for (row of strandedRows(); track row.kind) {
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <dt class="shrink-0 text-(--text-secondary)">{{ row.label }}</dt>
+                  <dd class="min-w-0 break-all text-(--text-primary)">{{ row.value }}</dd>
+                  <dd>
+                    <button
+                      type="button"
+                      [class]="secondaryButtonClass"
+                      [disabled]="saving()"
+                      [attr.aria-label]="removeLabel(row.kind)"
+                      (click)="remove(row.kind)"
+                      i18n="@@vendor.links.stranded.remove"
+                    >
+                      Remove
+                    </button>
+                  </dd>
+                </div>
+              }
+            </dl>
+            @if (notice(); as message) {
+              <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">
+                {{ message }}
+              </p>
+            }
+          } @else if (!open()) {
             <dl class="mt-2 space-y-1 text-xs" data-testid="own-links-summary">
               @for (row of summary(); track row.kind) {
                 <div class="flex min-w-0 gap-2">
@@ -101,20 +135,22 @@ export function linkSaveErrorMessage(err: unknown): string {
             </dl>
           }
         </div>
-        <button
-          #trigger
-          type="button"
-          [attr.aria-expanded]="open()"
-          [attr.aria-controls]="fieldId('panel')"
-          (click)="toggle()"
-          [class]="triggerClass"
-          i18n="@@vendor.links.trigger"
-        >
-          Edit your links
-        </button>
+        @if (!stranded()) {
+          <button
+            #trigger
+            type="button"
+            [attr.aria-expanded]="open()"
+            [attr.aria-controls]="fieldId('panel')"
+            (click)="toggle()"
+            [class]="triggerClass"
+            i18n="@@vendor.links.trigger"
+          >
+            Edit your links
+          </button>
+        }
       </div>
 
-      @if (open()) {
+      @if (open() && !stranded()) {
         <form
           [id]="fieldId('panel')"
           class="mt-4 space-y-5"
@@ -204,9 +240,21 @@ export class VendorIntegrationLinksForm {
 
   private readonly saved = computed(() => this.integration().own_links);
 
-  protected readonly intro = computed(
-    () =>
-      $localize`:@@vendor.links.intro:Where readers find ${this.integration().context_product.name}:product:’s side of this integration. They appear on the public integration page under ${this.vendorName()}:vendor:’s name, beside ${this.integration().other_product.name}:other:’s own links.`,
+  /** A connector-powered row still holding this vendor's links (see the header). */
+  protected readonly stranded = computed(() => !this.integration().attestable);
+
+  /** The stored links on a stranded row, set ones only. */
+  protected readonly strandedRows = computed(() =>
+    KINDS.flatMap((kind) => {
+      const value = this.saved()[COLUMN[kind]];
+      return value ? [{ kind, label: this.kindLabel(kind), value }] : [];
+    }),
+  );
+
+  protected readonly intro = computed(() =>
+    this.stranded()
+      ? $localize`:@@vendor.links.stranded.intro:This integration is now delivered through a connector product, so it no longer takes your own links and readers no longer see them. You can remove them.`
+      : $localize`:@@vendor.links.intro:Where readers find ${this.integration().context_product.name}:product:’s side of this integration. They appear on the public integration page under ${this.vendorName()}:vendor:’s name, beside ${this.integration().other_product.name}:other:’s own links.`,
   );
 
   protected readonly summary = computed(() =>
@@ -221,6 +269,35 @@ export class VendorIntegrationLinksForm {
     return kind === 'listing'
       ? $localize`:@@vendor.links.listing:Listing page`
       : $localize`:@@vendor.links.docs:Documentation`;
+  }
+
+  protected removeLabel(kind: IntegrationLinkKind): string {
+    return kind === 'listing'
+      ? $localize`:@@vendor.links.stranded.removeListing:Remove your listing page link`
+      : $localize`:@@vendor.links.stranded.removeDocs:Remove your documentation link`;
+  }
+
+  /** Remove one stranded link. Pessimistic, like the form: wait, splice, announce. */
+  protected async remove(kind: IntegrationLinkKind): Promise<void> {
+    if (this.saving()) return;
+    const integration = this.integration();
+    this.notice.set(null);
+    this.saving.set(true);
+    try {
+      const res = await this.api.deleteIntegrationLink(
+        integration.id,
+        integration.context_product.id,
+        kind,
+      );
+      this.spliceEcho(res.integration_id, res.product_id, res.links);
+      this.announcer.announce(
+        $localize`:@@vendor.links.live.removed:Your link for ${integration.context_product.name}:product: is removed.`,
+      );
+    } catch (err) {
+      this.notice.set(linkSaveErrorMessage(err));
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   protected kindHint(kind: IntegrationLinkKind): string {

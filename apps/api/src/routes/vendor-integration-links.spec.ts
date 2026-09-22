@@ -357,6 +357,63 @@ describe('DELETE …/links', () => {
   });
 });
 
+describe('DELETE …/links — a link stranded on a row promote made connector-powered', () => {
+  // Promote retypes an unclaimed row in place. The link set before stays stored.
+  async function strand(retype: Partial<typeof integrations.$inferInsert>) {
+    await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/l');
+    await t.db
+      .update(integrations)
+      .set({ ...retype, maintainedBy: 'aeci', lastReviewedAt: null, updatedAt: OLD })
+      .where(eq(integrations.id, I_MAIN));
+  }
+
+  it.each([
+    ['a connector mechanism kind', { mechanismKind: 'iPaaS' }],
+    ['a Convention-A self-reference', { poweredByProductId: P_TARGET }],
+  ])('lets the vendor remove its own link on %s', async (_label, retype) => {
+    await strand(retype);
+    const res = await del(AUTH_A, I_MAIN, P_SOURCE, 'listing');
+    expect(res.status).toBe(200);
+    expect(res.body.links).toEqual({ listing_url: null, docs_url: null });
+    expect(await storedLinks()).toEqual([]);
+    const removed = (await auditRows()).filter((a) => a.action === INTEGRATION_LINK_REMOVED_ACTION);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!.metadata).toMatchObject({ connectorPowered: true });
+    expect(removed[0]!.metadata).not.toHaveProperty('maintenanceTransfer');
+  });
+
+  it('writes no maintenance transfer, but moves updated_at for the cursor', async () => {
+    await strand({ mechanismKind: 'iPaaS' });
+    await del(AUTH_A, I_MAIN, P_SOURCE, 'listing');
+    const after = await row(I_MAIN);
+    expect(after.maintainedBy).toBe('aeci');
+    expect(after.lastReviewedAt).toBeNull();
+    expect(after.updatedAt > OLD).toBe(true);
+  });
+
+  it('still refuses a PUT there with 403', async () => {
+    await strand({ mechanismKind: 'iPaaS' });
+    const res = await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/new');
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+    expect((await storedLinks()).map((l) => l.url)).toEqual(['https://autodesk.example/l']);
+  });
+
+  it('still answers the other side 404', async () => {
+    await strand({ mechanismKind: 'iPaaS' });
+    const res = await del(AUTH_B, I_MAIN, P_SOURCE, 'listing');
+    expect(res.status).toBe(404);
+  });
+
+  it('lists the stranded link in own_links so the portal can offer Remove', async () => {
+    await strand({ mechanismKind: 'iPaaS' });
+    const res = await call(AUTH_A, 'GET', '/api/vendor/integrations');
+    const entry = (res.body.integrations as JsonBody[]).find((e) => e.id === I_MAIN);
+    expect(entry?.attestable).toBe(false);
+    expect(entry?.own_links).toEqual({ listing_url: 'https://autodesk.example/l', docs_url: null });
+  });
+});
+
 describe('GET /api/vendor/integrations — own_links', () => {
   it('returns each entry’s own side only', async () => {
     await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/l');

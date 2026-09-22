@@ -1643,8 +1643,10 @@ create unique index integration_vendor_links_side_kind_key
 - **An endpoint re-point leaves the old link stored and unread.** Every reader keeps only the
   rows whose `product_id` is one of the integration's current endpoints.
 - **`product_id` has no FK on purpose.** Deleting an endpoint product cascades the integration,
-  which cascades the link. A second path into `products` would need its own decision in
-  `retract-product.ts` and buy nothing.
+  which cascades the link. A link left on a row the product no longer sits on (an endpoint
+  re-point) has no cascade to reach it, so `retract-product.ts` deletes every link WHERE
+  `product_id` = the retracted product as well, behind the same table probe, and counts both
+  kinds on the product tombstone (`removed.vendor_links`).
 - **No profile id is stored**, so GDPR erasure has nothing to null here. The acting seat is
   on the `audit_log` row. `vendor_id` is `SET NULL` so a vendor retraction detaches the link
   rather than deleting it; the link describes the product, not the company that typed it.
@@ -1652,11 +1654,15 @@ create unique index integration_vendor_links_side_kind_key
   must carry it (`migrations.md` §3.3a); `apps/api/src/test/d1.spec.ts` pins the list and
   `migration-0045.spec.ts` guards the file. Its own `kind` CHECK is table-level, because a
   recreate of THIS table fires nothing.
-- **Lost with its row, and only then.** A retraction of an unclaimed row, a datatool prune, an
-  `ops:retract-product` of an endpoint, or a promote cross-table move into
-  `connector_evidenced_pairs` deletes the row and the links go with it. A move means the row
-  became connector-powered, which takes no links (decision 9). A claimed or vendor-created row
-  is never deleted by any of those lanes (§4.5.5 of the vendor portal spec).
+- **Lost with its row or its product, and only then.** A retraction of an unclaimed row, a
+  datatool prune, an `ops:retract-product` of an endpoint, or a promote cross-table move into
+  `connector_evidenced_pairs` deletes the row and the links go with it. `ops:retract-product`
+  also deletes the product's links on rows it no longer sits on (above). A claimed or
+  vendor-created row is never deleted by any of those lanes (§4.5.5 of the vendor portal spec).
+- **Stranded when promote makes an unclaimed row connector-powered in place.** A connector
+  `mechanism_kind` or a Convention-A self-reference keeps the row in `integrations`, so its
+  links stay. The pair read hides them (`isConnectorPoweredEdge`), and the vendor can still
+  `DELETE` its own, which passes the connector fence. A `PUT` stays refused (decision 9).
 
 ---
 

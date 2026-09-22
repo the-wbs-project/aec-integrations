@@ -155,6 +155,71 @@ describe('VendorIntegrationLinksForm — visibility', () => {
   });
 });
 
+describe('VendorIntegrationLinksForm — links stranded on a connector-powered row', () => {
+  // Promote made the row connector-powered after the vendor set its links.
+  const STRANDED: VendorIntegration = {
+    ...POWERED,
+    own_links: { listing_url: 'https://summitbim.example.com/l', docs_url: null },
+  };
+
+  it('renders on the card read-only, with no edit trigger', async () => {
+    const fixture = await createCard(STRANDED, true);
+    expect(trigger(fixture)).toBeUndefined();
+    const block = el(fixture).querySelector('[data-testid="stranded-links"]');
+    expect(block?.textContent).toContain('https://summitbim.example.com/l');
+    expect(block?.textContent).not.toContain('Documentation');
+    expect(el(fixture).textContent).toContain('no longer takes your own links');
+  });
+
+  it('is still absent on a connector-powered card with no stored link', async () => {
+    const fixture = await createCard(
+      { ...POWERED, own_links: { listing_url: null, docs_url: null } },
+      true,
+    );
+    expect(el(fixture).querySelector('[data-testid="stranded-links"]')).toBeNull();
+  });
+
+  it('removes a link with a DELETE, splices the echo and announces', async () => {
+    api.deleteIntegrationLink.mockResolvedValue({
+      integration_id: STRANDED.id,
+      product_id: STRANDED.context_product.id,
+      links: { listing_url: null, docs_url: null },
+    });
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await createForm(STRANDED);
+    const remove = el(fixture).querySelector<HTMLButtonElement>(
+      '[data-testid="stranded-links"] button',
+    )!;
+    expect(remove.getAttribute('aria-label')).toBe('Remove your listing page link');
+    remove.click();
+    await settle(fixture);
+    expect(api.deleteIntegrationLink).toHaveBeenCalledWith(
+      STRANDED.id,
+      STRANDED.context_product.id,
+      'listing',
+    );
+    expect(api.putIntegrationLink).not.toHaveBeenCalled();
+    const entry = TestBed.inject(VendorPortalStore)
+      .integrations()
+      .find((i) => i.id === STRANDED.id && i.context_product.id === STRANDED.context_product.id);
+    expect(entry?.own_links).toEqual({ listing_url: null, docs_url: null });
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a refusal as a sentence', async () => {
+    api.deleteIntegrationLink.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'INTEGRATION_RETIRED', message: 'x' } },
+      }),
+    );
+    const fixture = await createForm(STRANDED);
+    el(fixture).querySelector<HTMLButtonElement>('[data-testid="stranded-links"] button')!.click();
+    await settle(fixture);
+    expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain('retired');
+  });
+});
+
 describe('VendorIntegrationLinksForm — saving', () => {
   it('prefills, then sends a PUT for a new value and a DELETE for a cleared one', async () => {
     api.putIntegrationLink.mockResolvedValue(
