@@ -85,11 +85,12 @@ survive, `observability/datadog/` having been deleted.
 **Totals: 13 PostHog alerts covering 16 monitors · 8 → the liveness sweep · 2 → the
 digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
 
-**Seven crons gain failure coverage they never had** (metrics-snapshot,
-analytics-digest, attestation-notify, entitlement-expiry, indexnow-drain, waf-poll,
-and the per-key half of home-stats — several shipped after the Datadog monitors were
-written, and `indexnow-drain` did not exist until AECI-826), and the liveness sweep
-watches **fourteen** crons where Datadog watched six.
+**Nine crons gain failure coverage they never had** (metrics-snapshot, asn-registry,
+analytics-digest, attestation-notify, entitlement-expiry, indexnow-drain,
+claim-stale-check, waf-poll, and the per-key half of home-stats — several shipped after
+the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826 and only
+joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
+AECI-862), and the liveness sweep watches **fifteen** crons where Datadog watched six.
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -1827,7 +1828,10 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    different: `aeci.indexnow.drain` is emitted on **every** tick, including empty ones. If it
    is missing, this is a cron-liveness problem — see
    [Cron runs missing or stuck](#cron-runs-missing-or-stuck-in-flight-on-adminsystem), and
-   the CI liveness sweep should already be red.
+   the CI liveness sweep should already be red. If it is present but carries
+   `outcome:failed`, the tick threw, and the combined "Cron job failed" alert has fired
+   as well (AECI-864). A tick that crashes before it submits emits no
+   `aeci.indexnow.submit`, so this alert alone would read clean.
 
 ### The key is unverified, and a 429 cannot tell you otherwise
 
