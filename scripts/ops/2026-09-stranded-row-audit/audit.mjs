@@ -125,7 +125,10 @@ import {
   integrationEndpoints,
   integrationEntry,
 } from './classify.mjs';
-import { vendorHeldColumnsSql } from '../2026-09-retraction-consumer/vendor-held.mjs';
+import {
+  tableDdlOrThrow,
+  vendorHeldColumnsSql,
+} from '../2026-09-retraction-consumer/vendor-held.mjs';
 import { listAll, mapWithConcurrency, openMcpSession } from './mcp-client.mjs';
 
 // A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
@@ -590,8 +593,13 @@ for (const v of d1Vendors) v.product_count = vendorProductCounts.get(v.id) ?? 0;
 // production only at the next prod promote, and naming a missing column would turn every
 // daily run into exit 2 until then. A table without them projects NULL, which is also
 // the right answer for it (`../2026-09-retraction-consumer/vendor-held.mjs`).
+// An empty read THROWS, which the handler above routes to exit 2 ("could not check"),
+// never falls back to '' and quietly switches the vendor-held exemption off.
 const ddlOf = (table) =>
-  readD1(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`)[0]?.sql ?? '';
+  tableDdlOrThrow(
+    readD1(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`),
+    table,
+  );
 const d1Integrations = readD1(
   `SELECT id, name, mechanism_kind, source_product_id, target_product_id,
           built_by_vendor_id, powered_by_product_id,

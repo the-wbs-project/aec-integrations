@@ -37,7 +37,7 @@ writes nothing to either side, and exits `1`, in dry-run and apply alike. To pro
 each such id on `HOLD` with the reason; a held entry is never deleted and never confirmed,
 so it stays pending on the journal until someone rules on it. The columns are probed from
 the live DDL (`vendor-held.mjs`), so the run still works on a database that has not yet
-applied migration `0044`, where no row can be vendor-held.
+applied migration `0044`, where no row can be vendor-held. An EMPTY table-definition read is not that case: it throws and the run exits `2` (could not check), because falling back to an empty definition would switch the protection off silently. The `integrations` DELETEs also carry `AND claimed_at IS NULL AND origin <> 'vendor'` when the columns exist, so a row claimed between the plan and the write survives, and the verify step reports it as a leftover rather than confirming its entry.
 
 Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
 It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI

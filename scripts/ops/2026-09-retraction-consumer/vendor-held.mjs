@@ -65,6 +65,36 @@ export function vendorHeldColumnsSql(alias, ddl) {
   return `${col('claimed_at', 'claimedAt')}, ${col('origin', 'origin')}`;
 }
 
+/**
+ * The DDL text out of a `SELECT sql FROM sqlite_master …` read, or a THROW.
+ *
+ * An empty read is "could not check", never "no columns" (AECI-1005 review): falling
+ * back to `''` would project NULL for both columns and silently switch the vendor-held
+ * protection off for the whole run. Both scripts route a throw to exit 2.
+ */
+export function tableDdlOrThrow(rows, table) {
+  const ddl = Array.isArray(rows) ? rows[0]?.sql : undefined;
+  if (typeof ddl !== 'string' || ddl.trim() === '') {
+    throw new Error(
+      `could not read the table definition of \`${table}\` from sqlite_master, so the ` +
+        'vendor-held protection cannot be checked. Refusing to continue.',
+    );
+  }
+  return ddl;
+}
+
+/**
+ * A WHERE-clause suffix that keeps a DELETE off vendor-held rows, or `''` when the
+ * table predates migration 0044 (where no row can be vendor-held). The consumer puts
+ * it in the DELETE itself, so a row claimed between the plan and the write survives,
+ * and the verify step reports it as a leftover instead of confirming it.
+ */
+export function notVendorHeldSql(ddl) {
+  return ddlHasColumn(ddl, 'claimed_at') && ddlHasColumn(ddl, 'origin')
+    ? ` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`
+    : '';
+}
+
 /** The rule. Accepts either spelling of the columns, so a raw `SELECT *` row and an
  *  aliased one both work. */
 export function isVendorHeld(row) {

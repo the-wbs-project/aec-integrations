@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   MAX_PRUNE_IDS,
+  notVendorHeldClause,
   parseAcknowledgedGuards,
   parseIds,
   PRUNE_GUARD_NAMES,
@@ -262,6 +263,15 @@ describe('pruneExecute', () => {
     await expect(pruneExecute(h.db, [ORPHAN], plan.affectedProductIds)).rejects.toThrow(
       /vendor-held/,
     );
+    expect(h.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
+  });
+
+  it('re-asserts "not vendor-held" inside the DELETE itself (AECI-1005 review)', async () => {
+    const clause = await notVendorHeldClause(h.db);
+    expect(clause).toBe(` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`);
+    // A row claimed after the plan-time check survives a DELETE carrying the clause.
+    h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);
+    h.raw.prepare(`DELETE FROM integrations WHERE id = ?${clause}`).run(ORPHAN);
     expect(h.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
   });
 

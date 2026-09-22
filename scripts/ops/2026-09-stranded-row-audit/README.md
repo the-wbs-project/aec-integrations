@@ -233,7 +233,8 @@ logs as a count and never adds to `integrationSourceGone`, the exit code or the
 `integrationEndpointStranded` finding, because the stranded thing is the product, and
 the entry carries `vendorHeld: true` so nobody deletes the edge to fix it. The columns
 are probed from the live DDL, because production applies migration `0044` only at its
-next promote. The rule lives in `../2026-09-retraction-consumer/vendor-held.mjs`, shared
+next promote. An empty table-definition read exits `2` (could not check); it never falls
+back to "no columns", which would quietly turn the exemption off. The rule lives in `../2026-09-retraction-consumer/vendor-held.mjs`, shared
 with the consumer, and `apps/api/src/test/vendor-held.spec.ts` pins it.
 
 ### What is deliberately out of scope

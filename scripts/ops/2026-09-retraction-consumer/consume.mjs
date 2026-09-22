@@ -152,7 +152,12 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { listAll, openMcpSession } from './mcp-client.mjs';
-import { vendorHeldColumnsSql, vendorHeldRefusals } from './vendor-held.mjs';
+import {
+  notVendorHeldSql,
+  tableDdlOrThrow,
+  vendorHeldColumnsSql,
+  vendorHeldRefusals,
+} from './vendor-held.mjs';
 
 // A THROW IS "COULD NOT CHECK", NOT "FOUND NOTHING" — and not "found something" either.
 // Node exits 1 on an uncaught throw, which is this script's refusal code. Route every
@@ -942,11 +947,18 @@ async function main() {
   // AECI-1005: the vendor-held columns, probed from the live DDL rather than assumed,
   // because migration 0044 reaches production only at the next prod promote. A table
   // without them projects NULL, which is also the right answer for it (vendor-held.mjs).
+  // An empty read THROWS (exit 2), never falls back to '' (AECI-1005 review).
   const ddlOf = (table) =>
-    d1Read(target, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`)[0]
-      ?.sql ?? '';
-  const integrationsHeldSql = vendorHeldColumnsSql('i', ddlOf('integrations'));
+    tableDdlOrThrow(
+      d1Read(target, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${table}'`),
+      table,
+    );
+  const integrationsDdl = ddlOf('integrations');
+  const integrationsHeldSql = vendorHeldColumnsSql('i', integrationsDdl);
   const pairsHeldSql = vendorHeldColumnsSql('e', ddlOf('connector_evidenced_pairs'));
+  // Re-asserted in the DELETE itself, so a row claimed after this read survives the
+  // write and `verifyDeleted` reports it instead of it being confirmed.
+  const integrationsDeletable = notVendorHeldSql(integrationsDdl);
   for (const part of chunk(allIds, ID_CHUNK)) {
     const ph = sqlIdList(part);
     integrationRows.push(
@@ -1332,9 +1344,12 @@ async function main() {
     if (intIds.length) {
       const ph = sqlIdList(intIds);
       sql.push(
-        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${ph}));`,
-        `DELETE FROM claims WHERE integration_id IN (${ph});`,
-        `DELETE FROM integrations WHERE id IN (${ph});`,
+        // AECI-1005 review: every statement is scoped to the rows that are still not
+        // vendor-held AT WRITE TIME, so a claim landing after the plan keeps the row,
+        // its claims and its attestations. `verifyDeleted` then reports the survivor.
+        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN (${ph})${integrationsDeletable}));`,
+        `DELETE FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN (${ph})${integrationsDeletable});`,
+        `DELETE FROM integrations WHERE id IN (${ph})${integrationsDeletable};`,
       );
     }
     if (pairIds.length) {

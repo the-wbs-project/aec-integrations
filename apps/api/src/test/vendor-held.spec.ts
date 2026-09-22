@@ -19,6 +19,8 @@ import { isVendorHeld as apiIsVendorHeld } from '../lib/integration-claims';
 import {
   ddlHasColumn,
   isVendorHeld,
+  notVendorHeldSql,
+  tableDdlOrThrow,
   vendorHeldColumnsSql,
   vendorHeldRefusals,
   // @ts-expect-error — plain-ESM ops module, deliberately untyped.
@@ -172,5 +174,55 @@ describe('the strand audit never reports a vendor-held row as source-gone', () =
     expect(out.endpointStranded).toEqual([
       expect.objectContaining({ id: 'claimed', vendorHeld: true }),
     ]);
+  });
+});
+
+describe('an empty table-definition read is could-not-check (AECI-1005 review)', () => {
+  it('throws rather than falling back to an empty definition', () => {
+    expect(() => tableDdlOrThrow([], 'integrations')).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow([{ sql: '' }], 'integrations')).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow(undefined, 'integrations')).toThrow(/could not read/);
+    expect(tableDdlOrThrow([{ sql: 'CREATE TABLE x (a text)' }], 'x')).toBe(
+      'CREATE TABLE x (a text)',
+    );
+  });
+});
+
+describe('the consumer DELETE re-checks vendor-held at write time (AECI-1005 review)', () => {
+  it('keeps a row claimed after the plan, and is a no-op clause before 0044', async () => {
+    const t = await makeTestDb();
+    try {
+      const ddl = (t.raw.prepare(DDL_SQL).get('integrations') as { sql: string }).sql;
+      const clause = notVendorHeldSql(ddl);
+      expect(clause).toBe(` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`);
+      const now = '2026-09-22T00:00:00.000Z';
+      for (const [id, slug] of [
+        ['p1', 'a'],
+        ['p2', 'b'],
+      ]) {
+        t.raw
+          .prepare(
+            `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(id, slug, slug, now, now);
+      }
+      t.raw
+        .prepare(
+          `INSERT INTO integrations (id, source_product_id, target_product_id, claimed_at, created_at, updated_at)
+             VALUES ('i1', 'p1', 'p2', ?, ?, ?)`,
+        )
+        .run(now, now, now);
+      t.raw.prepare(`DELETE FROM integrations WHERE id IN ('i1')${clause}`).run();
+      expect(t.raw.prepare('SELECT count(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+    } finally {
+      t.dispose();
+    }
+    const pre = await makeTestDb({ upToExclusive: '0044_slippery_edwin_jarvis.sql' });
+    try {
+      const ddl = (pre.raw.prepare(DDL_SQL).get('integrations') as { sql: string }).sql;
+      expect(notVendorHeldSql(ddl)).toBe('');
+    } finally {
+      pre.dispose();
+    }
   });
 });

@@ -291,6 +291,30 @@ export function isVendorHeldRow(row: Record<string, unknown>): boolean {
   return (claimedAt !== null && claimedAt !== undefined) || row.origin === 'vendor';
 }
 
+/**
+ * The `integrations` WHERE suffix that keeps a DELETE off vendor-held rows, or `''`
+ * on a tier without migration 0044's columns (where no row can be held). Read from
+ * the live table definition, like the ops scripts' probe (AECI-1005 review).
+ */
+export async function notVendorHeldClause(db: D1Database): Promise<string> {
+  const [row] = await selectAll(
+    db,
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'integrations'`,
+    [],
+  );
+  const ddl = typeof row?.sql === 'string' ? row.sql : '';
+  if (ddl.trim() === '') {
+    throw new Error(
+      'Could not read the integrations table definition, so vendor-held rows cannot be protected. Refusing to prune.',
+    );
+  }
+  const has = (column: string) =>
+    new RegExp(`[(,]\\s*[\`"\\[]?${column}[\`"\\]]?\\s+(text|integer)\\b`, 'i').test(ddl);
+  return has('claimed_at') && has('origin')
+    ? ` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`
+    : '';
+}
+
 /** The requested ids whose rows are vendor-held, in id order. */
 async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
   const rows = await selectAll(
@@ -463,14 +487,19 @@ export async function pruneExecute(
     : [];
 
   // Explicit child → parent. `db.batch` is atomic on D1 (no interactive txns).
+  // AECI-1005 review: each DELETE re-asserts "not vendor-held" at write time, so a row
+  // claimed after the check above survives with its claims and attestations, and
+  // `remaining` / the operator's re-read shows it.
+  const keep = await notVendorHeldClause(db);
+  const deletable = `SELECT id FROM integrations WHERE id IN (${ph})${keep}`;
   await db.batch([
     db
       .prepare(
-        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${ph}))`,
+        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${deletable}))`,
       )
       .bind(...ids),
-    db.prepare(`DELETE FROM claims WHERE integration_id IN (${ph})`).bind(...ids),
-    db.prepare(`DELETE FROM integrations WHERE id IN (${ph})`).bind(...ids),
+    db.prepare(`DELETE FROM claims WHERE integration_id IN (${deletable})`).bind(...ids),
+    db.prepare(`DELETE FROM integrations WHERE id IN (${ph})${keep}`).bind(...ids),
   ]);
 
   const recounted: PruneResult['recounted'] = [];
