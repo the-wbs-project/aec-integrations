@@ -2415,9 +2415,9 @@ The owner's reply is not a state. It is a set of columns on an `open` protest.
 
 Anyone else gets the same `404` an unknown id gets (§11b.5's rule).
 
-**A retire does not close an open protest, and a retired integration can still be protested** (ruled). A protest writes nothing public and AECi's answer is advice, so closing it protects nothing. The opposite rule would let an owner retire the integration until the 30-day filing window lapses, then restore it. §4.6.1's retire batch is **unchanged**.
+**A retire does not close an open protest, and a retired integration can still be protested** (ruled). A protest writes nothing public and AECi's answer is advice, so closing it protects nothing. The opposite rule would let an owner retire the integration until the 30-day filing window lapses, then restore it. The retire batch shared by the owner retire (§4.6.1) and the AECi retire (§4.6.4) is **unchanged**, and neither touches a protest.
 
-**Known v1 gap: a retire still ends an open contest before it can be protested.** §4.6.1's retire closes every open contest as `withdrawn`, and a restore reopens none. So an owner facing a contest it has not answered can retire and restore the integration, and the contest is gone before day 30 makes it protestable. That is shipped AECI-1010 behaviour, left unchanged here on the orchestrator's instruction. Chris is being asked separately whether to change it.
+**Known v1 gap: a retire still ends an open contest before it can be protested.** Both retires (§4.6.1, §4.6.4) close every open contest as `withdrawn`, and a restore reopens none. So an owner facing a contest it has not answered can retire and restore the integration, and the contest is gone before day 30 makes it protestable. That is shipped AECI-1010 behaviour, left unchanged here on the orchestrator's instruction. Chris is being asked separately whether to change it.
 
 #### 11b.12.5 Columns — migration `0047`
 

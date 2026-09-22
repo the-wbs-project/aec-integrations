@@ -133,7 +133,7 @@ describe('contestProtestWindow', () => {
     ['an accepted contest', { status: 'accepted', decided_at: 'x' }],
     ['a withdrawn contest', { status: 'withdrawn' }],
   ])('is null for %s', (_label, overrides) => {
-    expect(contestProtestWindow({ ...base, status: 'open', ...overrides })).toBeNull();
+    expect(contestProtestWindow({ ...base, ...overrides })).toBeNull();
   });
 });
 
