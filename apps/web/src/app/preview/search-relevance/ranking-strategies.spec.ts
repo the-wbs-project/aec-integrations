@@ -189,4 +189,11 @@ describe('rankProducts — over the curated fixtures', () => {
     expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'baseline')[0].record.slug).toBe('stack');
     expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'ratings')[0].record.slug).toBe('stack');
   });
+
+  // e2e/preview-search-relevance.spec.ts relies on this divergence: switching
+  // from Baseline to Coverage-weighted must change the top row.
+  it('"estimating" diverges: Baseline leads with STACK, Coverage-weighted with ProEst', () => {
+    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'baseline')[0].record.slug).toBe('stack');
+    expect(rankProducts('estimating', FIXTURE_PRODUCTS, 'coverage')[0].record.slug).toBe('proest');
+  });
 });
