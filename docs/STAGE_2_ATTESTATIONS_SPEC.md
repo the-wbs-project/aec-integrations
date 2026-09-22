@@ -2123,7 +2123,7 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
 | Cron → queue → consumer | ADR 0013; `apps/api/src/scheduled.ts` |
 | Migration workflow (drizzle-kit + `wrangler d1`) | `migrations.md` |
 | Branch model (post-launch `main` / `stage-2`) | ADR 0019; `CICD_PLAN.md` §10 |
-| Connector lane, `product_role`, the powered hub, who pays | `STAGE_1_5_SPEC.md` §12 Addendum B; `STAGE_2_SPEC.md` §8.8 |
+| Connector lane, `product_role`, the powered hub, who pays | `STAGE_1_5_SPEC.md` §12 Addendum B; `STAGE_2_SPEC.md` §8.8, §8.10 |
 
 ---
 
