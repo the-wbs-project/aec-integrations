@@ -93,8 +93,9 @@ export function integrationEditValueProblem(
 }
 
 /** One field on the PATCH: trimmed, capped, `null` to clear, omitted to leave. An
- *  empty string after trimming means "clear", like `null`. */
-function editField(field: IntegrationEditField) {
+ *  empty string after trimming means "clear", like `null`. Exported for the
+ *  AECI-1011 create body, which takes the same eleven fields with the same caps. */
+export function integrationEditFieldSchema(field: IntegrationEditField) {
   return z
     .string()
     .trim()
@@ -114,17 +115,17 @@ function editField(field: IntegrationEditField) {
  */
 export const UpdateVendorIntegrationSchema = z
   .object({
-    name: editField('name'),
-    mechanism_kind: editField('mechanism_kind'),
-    mechanism_name: editField('mechanism_name'),
-    direction: editField('direction'),
-    description: editField('description'),
-    listing_url: editField('listing_url'),
-    docs_url: editField('docs_url'),
-    website: editField('website'),
-    mechanism_url: editField('mechanism_url'),
-    pricing_model: editField('pricing_model'),
-    maturity: editField('maturity'),
+    name: integrationEditFieldSchema('name'),
+    mechanism_kind: integrationEditFieldSchema('mechanism_kind'),
+    mechanism_name: integrationEditFieldSchema('mechanism_name'),
+    direction: integrationEditFieldSchema('direction'),
+    description: integrationEditFieldSchema('description'),
+    listing_url: integrationEditFieldSchema('listing_url'),
+    docs_url: integrationEditFieldSchema('docs_url'),
+    website: integrationEditFieldSchema('website'),
+    mechanism_url: integrationEditFieldSchema('mechanism_url'),
+    pricing_model: integrationEditFieldSchema('pricing_model'),
+    maturity: integrationEditFieldSchema('maturity'),
     context_product_id: z.string().uuid().nullable().optional(),
   })
   .strict()

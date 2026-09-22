@@ -104,6 +104,7 @@ import {
   createVendorClaimHandler,
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
+import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import { createVendorUpdatesHandler } from './vendor-updates';
 
@@ -176,8 +177,21 @@ beforeEach(async () => {
     { id: uuid(71), vendorId: VENDOR_B, tier: 'verified', status: 'active' },
   ]);
   await t.db.insert(products).values([
-    { id: PRODUCT_A, slug: 'revit', name: 'Revit', description: 'A product' },
-    { id: PRODUCT_B, slug: 'microstation', name: 'MicroStation', description: 'B product' },
+    // Promoted, because the AECI-1011 create accepts only promoted endpoints.
+    {
+      id: PRODUCT_A,
+      slug: 'revit',
+      name: 'Revit',
+      description: 'A product',
+      promotionStatus: 'promoted',
+    },
+    {
+      id: PRODUCT_B,
+      slug: 'microstation',
+      name: 'MicroStation',
+      description: 'B product',
+      promotionStatus: 'promoted',
+    },
     { id: PRODUCT_UNVERIFIED, slug: 'tekla', name: 'Tekla', description: 'U product' },
   ]);
   await t.db.insert(productVendors).values([
@@ -316,6 +330,12 @@ function makeApp() {
     requireVendor(guard),
     createListVendorIntegrationsHandler(t.factory),
   );
+  // AECI-1011 — seat only; the endpoint checks are inside the handler.
+  app.post(
+    '/api/vendor/integrations',
+    requireVendor(guard),
+    createCreateVendorIntegrationHandler(t.factory),
+  );
   app.post('/api/vendor/claims', requireVendor(guard), createVendorClaimHandler(t.factory));
   app.put(
     '/api/vendor/claims/:claimId/attestation',
@@ -399,6 +419,18 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     ok: 204,
   },
   { path: '/api/vendor/integrations', method: 'GET' },
+  {
+    path: '/api/vendor/integrations',
+    method: 'POST',
+    body: {
+      product_id: PRODUCT_A,
+      counterpart_product_id: PRODUCT_B,
+      name: 'Revit to MicroStation',
+      mechanism_kind: 'native',
+      direction: 'outbound',
+    },
+    ok: 201,
+  },
   {
     path: '/api/vendor/claims',
     method: 'POST',

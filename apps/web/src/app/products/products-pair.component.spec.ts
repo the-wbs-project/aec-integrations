@@ -102,6 +102,7 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         built_by_vendor: null,
         powered_by_product: null,
         via: null,
+        origin: 'aeci',
         vendor_links: { context: null, other: null },
         claims: [],
       },
@@ -602,6 +603,22 @@ describe('ProductsPairPage', () => {
 
       expect(el.textContent).not.toContain('Offered by');
       expect(el.textContent).not.toContain('Powered by');
+    });
+
+    it('says a vendor-created row was added by the vendor, naming nobody (AECI-1011)', () => {
+      const base = buildPairWithProvenance(agaveVendor, null);
+      const pair = { ...base, mechanisms: [{ ...base.mechanisms[0]!, origin: 'vendor' as const }] };
+      const { el } = setup(pair);
+
+      expect(el.querySelector('[data-testid="pair-vendor-added"]')?.textContent).toContain(
+        'Added by the vendor',
+      );
+    });
+
+    it('adds no provenance note to an AECi-seeded row', () => {
+      const { el } = setup(buildPairWithProvenance(agaveVendor, null));
+
+      expect(el.querySelector('[data-testid="pair-vendor-added"]')).toBeNull();
     });
 
     it('keeps the byline visible in Basic view (identity, not detail)', () => {

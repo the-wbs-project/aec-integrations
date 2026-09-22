@@ -399,7 +399,8 @@ create table integrations (
   -- Vendor ownership (AECI-1005 / ADR 0035, migration 0044, three plain ADD COLUMNs).
   -- `claimed_at` set = the owner took the row by an act (its claim, or an admin
   -- approval of an owner-unknown claim); promote then writes NOTHING to the row.
-  -- `origin` is who created it; nothing writes 'vendor' until AECI-1011. Its CHECK is a
+  -- `origin` is who created it: 'aeci' (promote) or 'vendor' (the AECI-1011 create,
+  -- `POST /api/vendor/integrations`, which is born claimed). Its CHECK is a
   -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
   -- drizzle-kit renders a CHECK change there as a table recreate.
   -- `retired_at` set = the owner retired the row (AECI-1010). Written ONLY by the
@@ -448,7 +449,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > `built_by_vendor_id`, and there is deliberately no `owner_vendor_id` (AECI-1003 decision 12).
 > `claimed_at IS NOT NULL` means the owner verified that by an act. Three rules hang off it:
 >
-> - **Promote's fence keys on `claimed_at`, never on `maintained_by`** (decision 13). A claim
+> - **Promote's fence keys on `claimed_at IS NOT NULL OR origin = 'vendor'`, never on `maintained_by`** (decision 13; the `origin` arm since AECI-1011). A claim
 >   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.

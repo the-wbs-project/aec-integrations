@@ -12,7 +12,8 @@
  * Since AECI-1005 so does the integration claim (`metadata.kind =
  * 'integration_claim'`), addressed to every other endpoint vendor, and since
  * AECI-1010 the retire and restore (`metadata.kind = 'integration_retire'`), and since
- * AECI-1006 the owner's edit (`metadata.kind = 'integration_update'`), to the same
+ * AECI-1006 the owner's edit (`metadata.kind = 'integration_update'`), and since
+ * AECI-1011 a vendor's create (`metadata.kind = 'integration_create'`), to the same
  * recipients.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
@@ -56,6 +57,7 @@ import {
   type NotificationProductRef,
   type VendorContestNotification,
   type VendorIntegrationClaimNotification,
+  type VendorIntegrationCreateNotification,
   type VendorIntegrationRetireNotification,
   type VendorIntegrationUpdateNotification,
   type VendorNotification,
@@ -72,6 +74,10 @@ import {
 } from '../lib/attestation-notify';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { CLAIM_NOTIFICATION_KIND, type ClaimNotificationMetadata } from '../lib/integration-claims';
+import {
+  CREATE_NOTIFICATION_KIND,
+  type CreateNotificationMetadata,
+} from '../lib/integration-create';
 import {
   RETIRE_NOTIFICATION_KIND,
   type RetireNotificationMetadata,
@@ -153,6 +159,8 @@ function toVendorNotification(row: {
   if (kind === RETIRE_NOTIFICATION_KIND) return toRetireNotification(row);
   // AECI-1006: the owner edited an integration on one of this vendor's products.
   if (kind === UPDATE_NOTIFICATION_KIND) return toUpdateNotification(row);
+  // AECI-1011: another vendor created an integration on one of its products.
+  if (kind === CREATE_NOTIFICATION_KIND) return toCreateNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -298,6 +306,34 @@ function toUpdateNotification(row: {
     fields: Array.isArray(meta.fields)
       ? meta.fields.filter((field): field is string => typeof field === 'string')
       : [],
+    pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one create ledger row (AECI-1011), or `null` when it is not recognisable.
+ * Same tolerance as the other mappers.
+ */
+function toCreateNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorIntegrationCreateNotification | null {
+  const meta = row.metadata as Partial<CreateNotificationMetadata> | null;
+  if (!meta || typeof meta.integrationId !== 'string') return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'integration_create',
+    id: row.id,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

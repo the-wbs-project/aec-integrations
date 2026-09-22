@@ -307,14 +307,14 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 
 ### 4.5 Integrations are vendor-owned; AECi seeds (AECI-1005 — 2026-09-21)
 
-**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits, §4.5.6, shipped), AECI-1007 (per-side links, §4.5.7), AECI-1010 (retire), AECI-1011 (create).
+**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits, §4.5.6, shipped), AECI-1007 (per-side links, §4.5.7), AECI-1010 (retire, §4.6), AECI-1011 (create, §4.7).
 
 #### 4.5.1 Who owns an integration
 
 - **The owner is `integrations.built_by_vendor_id`**, the vendor that offers the integration (AECI-1021's definition: the vendor the customer pays for it or gets it from). There is no `owner_vendor_id` (decision 12).
 - **`claimed_at IS NOT NULL` means the owner verified that by an act**: its own claim, or an AECi admin approval of an owner-unknown claim.
 - **`maintained_by` is not ownership** (decision 13). It is the display marker, and it flips to `'vendor'` when either endpoint vendor attests. A claim sets it too, so the public chip reads right.
-- **`origin`** is who created the row (`'aeci'`, or `'vendor'` from AECI-1011). **`retired_at`** is set while the owner has the row retired (AECI-1010, §4.6). Both were added by migration `0044` with `claimed_at`, as plain `ADD COLUMN`s (`DATABASE_SCHEMA.md` §4.3).
+- **`origin`** is who created the row (`'aeci'` from promote, or `'vendor'` from a vendor create, §4.7). **`retired_at`** is set while the owner has the row retired (AECI-1010, §4.6). Both were added by migration `0044` with `claimed_at`, as plain `ADD COLUMN`s (`DATABASE_SCHEMA.md` §4.3).
 
 #### 4.5.2 The claim — `POST /api/vendor/integrations/:id/claim`
 
@@ -379,7 +379,7 @@ The claimed owner edits its integration's standard fields, and the edit goes liv
 | Fields | The eleven contestable content fields (§11b.3 minus `owner`): `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`. Two are **not** editable: `owner` (reassigning the owner is AECi's decision, through an `owner` contest) and `notes` (AECi's own curation column, which is not contestable either). The body is `.strict()`, so sending either is a `400`. |
 | Values | The contest rule (`contestValueProblem`), plus two of the edit's own in `integrationEditValueProblem`: `name`, `mechanism_kind` and `direction` cannot be cleared, and `mechanism_kind` cannot be `iPaaS` or `integrator`. That second rule is decision 9 from the other side: an owner must not type its own row into the connector-powered state, where no vendor write could reach it again. `direction` is caller-relative, framed against `context_product_id`. |
 | One batch | The guarded `UPDATE` (the changed columns, §13.9's maintenance transfer, `updated_at`) keyed on `built_by_vendor_id = <caller> AND claimed_at IS NOT NULL AND retired_at IS NULL`, the race sentinel, one `integration.updated` audit row (`reason: 'owner-edit'`, before and after of each changed field) and one `notification.sent` row (`kind: 'integration_update'`) per other endpoint vendor. A lost race writes nothing. A body that changes nothing writes nothing, not even an audit row. |
-| After commit | A by-id Algolia sync of the integration record, behind promote's `dispatchHook` watchdog (`syncOwnerWriteSearch`, the tail retire uses), so a changed mechanism, direction or description reaches search the same minute. Only the integration record: an edit changes no count, so neither product nor the vendor is re-synced. Then purges `pair:{a}__{b}` and both `product:` tags, and queues the pair re-crawl. The `updated_at` bump still puts the row in the nightly sweep as a backstop, and moves the `integrations` freshness cursor (`STAGE_2_REALTIME_SPEC.md` §2.2). |
+| After commit | A by-id Algolia sync of the integration record, behind promote's `dispatchHook` watchdog (`syncOwnerWriteSearch`, the tail retire and create share), so a changed mechanism, direction or description reaches search the same minute. Only the integration record: an edit changes no count, so neither product nor the vendor is re-synced. Then purges `pair:{a}__{b}` and both `product:` tags, and queues the pair re-crawl. The `updated_at` bump still puts the row in the nightly sweep as a backstop, and moves the `integrations` freshness cursor (`STAGE_2_REALTIME_SPEC.md` §2.2). |
 
 **An edit does not touch open contests.** A contest is a request to its decider, and only the decider closes it, with a decision the submitter is told about (§11b.5). So the edit leaves every contest on the row open, including one whose proposed value the owner has just typed in. The owner still accepts or declines it in Messages. Three reasons for the least-surprising choice:
 
@@ -433,18 +433,78 @@ Wire shape: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/vendor-inte
 
 #### 4.6.2 What a retired row is
 
-> **Promotion gate (AECI-1010 review, 2026-09-22).** Do not promote AECI-1010 to production before AECI-1011's `VENDOR_OWNED_TWIN` promote guard. A retired row is claimed, so the §4.5.3 fence keeps promote off it. But a promote that arrives with a **new** upstream id for the same pair does not match the retired row, so it inserts a fresh, live twin. The retire would then be undone in public by a row the owner never saw. The guard in AECI-1011 skips inserting a strong-match twin of a claimed row and reports it.
+> **Promotion gate (AECI-1010 review, 2026-09-22), closed by the 1011 twin guard, which covers the insert, de-route and re-point paths.** The gate: do not promote AECI-1010 to production before AECI-1011's `VENDOR_OWNED_TWIN` promote guard. A retired row is claimed, so the §4.5.3 fence keeps promote off it. But three promote writes never touch the retired row and can still put a fresh, live twin beside it, undoing the retire in public with a row the owner never saw: an insert under a **new** upstream id for the same pair, a **de-route** that moves a connector-evidenced pair back into `integrations`, and an UPDATE that **re-points** an unclaimed curated row onto the pair. The AECI-1011 guard (§4.7.3, `REVIEW_APP_PROMOTE_API.md` §4c) skips all three when the result would strongly match any vendor-held row, **retired rows included**, and reports it. Neither branch is merged yet, so **AECI-1010 and AECI-1011 must reach production in the same promote, or AECI-1011 first.**
 
 - **Public:** gone from every count, id set and read (`STAGE_1_5_SPEC.md` §13.5 holds the full, asserted list). The pair page renders without it, and with no live mechanism left falls to its existing `noindex` branch. **`/integrations/:id` keeps its 301 to the pair page** (ruled), because `GET /api/integrations/:id` is deliberately unfiltered. For a retired row that route answers only `{ id, retired: true, source: { slug }, target: { slug } }` (ruled): the redirect's needs, and no name or content.
 - **Search:** the Algolia sync's delete arm removes the record. The 09:00 orphan sweep is the backstop only.
 - **Portal:** still listed by `GET /api/vendor/integrations` for both endpoint vendors, with `retired_at` set. **The owner sees it with a Restore action. The other endpoint vendor sees it read-only, marked retired** (ruled), which is what the retire notification lands on. Nobody can add a data flow, attest, contest or (since AECI-1006) edit it: those writes answer `409 INTEGRATION_RETIRED`. Withdrawing an existing attestation stays allowed. **A retired row is listed but never counted:** the Integrations tab's status chips (the "All" count included), each counterpart group's health and counts, and the overview's claim tallies all skip it, and no status chip matches it. Only the unfiltered list shows it (`isRetiredIntegration` in `vendor-integration-health.ts`).
 - **Freshness cursor:** the `integrations` scope already reads `MAX(integrations.updated_at)` under `ownedEndpointJoin`, unfiltered (AECI-1005), so a retire and a restore move it for both sides with no new statement (`STAGE_2_REALTIME_SPEC.md` §2.2).
-- **Promote:** never writes `retired_at`, and a retired row is claimed, so the §4.5.3 fence keeps promote off it entirely. Nothing un-retires a row except the owner's restore.
+- **Promote:** never writes `retired_at`, and a retired row is claimed (or vendor-created), so the §4.5.3 fence keeps promote off it entirely. Nothing un-retires a row except the owner's restore.
 - **Invariant:** retired ⇒ claimed. It cannot be a CHECK constraint (a CHECK change recreates `integrations`, which cascades away its claims), so the 04:00 data-quality suite checks it (`retired_integration_unclaimed`, severity `error`).
 
 #### 4.6.3 The portal UI
 
 A separate section at the foot of the integration card (`vendor-integration-retire.ts`), kept apart from the card's other owner writes. Retire needs a second, explicit step: the button opens an inline confirmation that says what will happen, and only its own button sends the request. No browser `confirm()`. Writes are pessimistic, outcomes go through the portal's one live region, and focus follows the change (to the confirm button, back to the trigger on cancel, to the status line after a retire).
+
+### 4.7 A vendor creates an integration (AECI-1011 — 2026-09-22)
+
+**A vendor lists an integration it offers that AECi has no record of, and it goes live at once** (decisions 7 and 8). The new row is the vendor's from its first statement: owned, claimed, and so behind the promote fence. Duplicates are warned about and never refused (decision 10, AECI-1012 ruling 2026-09-22).
+
+#### 4.7.1 The route — `POST /api/vendor/integrations`
+
+| Rule | As built |
+|---|---|
+| Gate | `requireVendor()` → `rateLimit('write')` → the endpoint checks in the handler. **A seat is the whole gate** (decision 15): no `requireCapability`, no Verified check. |
+| Body | `product_id` (the caller's product), `counterpart_product_id`, and the eleven standard fields of the owner edit (§4.5.6) with the same caps and value rule (`integrationEditValueProblem`). `name`, `mechanism_kind` and `direction` are required. `.strict()`: `powered_by_product_id`, `built_by_vendor_id`, `origin` or any other key is a `400`. Wire shape: `API_CONTRACTS.md` §6.14. |
+| Endpoints | `product_id` must be a **promoted** product the caller's vendor holds through `product_vendors`. `counterpart_product_id` must be a **promoted** product. Either miss (not the caller's, not promoted, no such id) is the same `404`. Equal ids are a `400`. The caller's product becomes the row's **source**, the way upstream orients a row by its owner, and `direction` is framed against it. |
+| Never connector-powered | Decision 9 from the other side, as for the owner edit: there is no `powered_by` field, and `iPaaS` or `integrator` is `422 INTEGRATION_INVALID_VALUE`. A connector-powered row would be frozen against its own owner. |
+| What it writes | `origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, and §13.9's maintenance transfer (`maintained_by = 'vendor'`, `last_reviewed_at` = now). The id is minted app-side with `crypto.randomUUID()`, as promote mints its creates. |
+| One batch | The INSERT, the `integration.created` audit row (the action the catalog additions series counts; `metadata.source = 'vendor-portal'`, `reason = 'vendor-create'`, `possibleDuplicateIds`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per other endpoint vendor, and both endpoints' `integration_count` recomputed in the batch (`integrationCountRecomputeStmt`, the §4.6.1 pattern). A create has no prior state to race, so there is no sentinel. |
+| After commit | By-id Algolia sync of the integration, both products and the vendor, behind `dispatchHook` (the retire's `syncOwnerWriteSearch`). Purge `pair:{a}__{b}`, both `product:`, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap` (`CACHE_STRATEGY.md` §3). Queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue. `index:home` is left to its daily cron, as for every vendor write. |
+| Response | `201 { integration, possible_duplicates }`. |
+
+Handler: `apps/api/src/routes/vendor-integration-create.ts`. Shared rule: `apps/api/src/lib/integration-twins.ts`.
+
+#### 4.7.2 Duplicates warn, never refuse
+
+A **strong match** is an existing `integrations` row with the same two products **in either orientation**, the same connector (none, for a create), and an owner that is the caller or unknown. Kind and name are not in **this** key (AECI-1012 option 1C): the warning stays broad, so a vendor hears about a curated row it would duplicate under a different kind. Promote's key (§4.7.3) adds the kind, ruled 2026-09-22. The create runs that one query and returns every match, curated or vendor-held, live or retired, in `possible_duplicates` (id, name, kind, orientation, owner, `claimed`, `retired`), and records the ids in the audit row. It never refuses. Refusing a create when the caller already owns a strong match (`409 CLAIM_INSTEAD`) was deferred by the ruling.
+
+#### 4.7.3 Promote skips a twin of a vendor-held row
+
+The duplicate that matters comes from the other direction: a curator adds the same pair upstream, where the vendor's row is invisible, and promote writes it beside the vendor's. Promote's key is the §4.7.2 strong match **plus the same `mechanism_kind`** (NULL equal to NULL; ruled 2026-09-22 on AECI-1012), so a curated `marketplace-app` row beside a vendor's `native` row for one pair is two integrations. It is checked against the row as it would be after the write, on three writes:
+
+1. an INSERT (no `supabaseId`, or the stale-id fallback, which still reports its dead id in `staleSupabaseIds`);
+2. a **de-route**, the move INSERT out of `connector_evidenced_pairs`. On a match the evidenced row is left untouched, never deleted;
+3. an UPDATE of an unclaimed curated row whose endpoints (as a pair) or connector change. An UPDATE that re-points nothing, a direction swap included, cannot create a new match and is not asked.
+
+When the result has a strong match that is **vendor-held** (claimed, or `origin = 'vendor'`), **live or retired**, promote writes nothing for that edge (no partial update) and reports `{ kind: 'integration', reason: 'VENDOR_OWNED_TWIN', existingId }` in `skipped[]`, with a `promote.blocked` audit row. An in-batch sentinel covers a vendor create that lands between the plan read and the commit: the promote aborts with `409 VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` and a re-push gets the skip. It never deletes. `REVIEW_APP_PROMOTE_API.md` §4c is the review-app contract, and AECI-1047 is the review-side follow-up. This guard, covering all three writes, is what closes the §4.6.2 promotion gate.
+
+**The promote fence holds a vendor-created row without a claim.** An AECi `owner` accept can reassign a vendor-created row and clear `claimed_at` (§11b.6). The AECI-1005 fence (§4.5.3) keyed on `claimed_at` alone would then hand promote a row no curator ever wrote. Since AECI-1011 it keys on `claimed_at IS NOT NULL OR origin = 'vendor'`, at plan time (`claimFenceRefuses`) and in the batch sentinel.
+
+#### 4.7.3a Ranking: a vendor-created row counts (accepted risk, ruled 2026-09-22)
+
+A vendor-created row is a live integration, so it counts in both endpoints' `integration_count`. That column is still the **first custom ranking signal** (`SEARCH_RANKING.md` §"Custom ranking"), so a seated vendor can raise its own product's search rank by creating rows. Chris ruled the risk accepted for Stage 2.1. What bounds it: a seat is admin-approved, every create writes an `integration.created` audit row naming the seat, and the duplicate warning shows the vendor what already exists. **Hard dependency: AECI-636 retires `integration_count` from ranking** (`STAGE_2_5_SPEC.md`), which is what removes the lever. Until then the audit log is the control. This does not breach "no pay-for-placement": the lever is a seat, not a tier, and it is the same count every other integration adds.
+
+#### 4.7.4 Where a vendor-created row is not an orphan
+
+A vendor-created row has no upstream record, by construction. §4.5.5's lanes already read `origin = 'vendor'` as vendor-held. The rest, checked for AECI-1011:
+
+| Site | Behaviour for an `origin = 'vendor'` row |
+|---|---|
+| Algolia drift counters, the 09:00 sweep's id set, `INTEGRATION_IDS_SQL`, the sync, the datatool rebuild | Counted and indexed like any live row. Membership is D1-only and keys on promotion and `retired_at`, **never on `origin` or `claimed_at`**: a small keyed subset is exactly the population the sweep would delete for good. |
+| Promote id maps | Upstream never sends the row's id, so promote never touches it. The twin guard (§4.7.3) stops a second row. |
+| Count reconcile CLIs, `metrics_daily`, the admin catalog totals | Counted normally. A create writes `integration.created`, so it is a catalog addition. |
+| Data quality | New check `vendor_integration_unclaimed` (`warn`): a vendor-created row with no claim. The only path to it is an AECi `owner` accept that reassigns the row. Until the new owner claims it nobody can edit or retire it, and promote never will, because the fence keys on `origin = 'vendor'` too (§4.7.3) (`ADMIN_PANEL_SPEC.md` §23.1). |
+| Admin screens | No change. `/admin/contests` and the catalog screens read the row as any other. |
+| Catalog agent | Its two queries already read live rows only (AECI-1010), and count vendor-created rows like any other. |
+
+#### 4.7.5 The portal UI
+
+"Add an integration" at the top of the Integrations tab (`components/vendor-integration-create.ts`, mounted by `vendor-integrations-section.ts`). Not gated on `canWrite`: a seat is the whole gate. A disclosure opens a pessimistic form with four `<fieldset>`s. The first is the two products: your product, preselected from the tab, and the other product, found by name through the public `GET /api/products?search=` and chosen from radio results that leave out your own product. The other three are the owner edit's groups (`EDIT_GROUPS`, the same labels and value rule). The type picker offers `OWNER_EDITABLE_MECHANISM_KINDS` only. Before submit it lists the rows already on record for the chosen pair, from the list the tab holds, as context. After a `201` it announces through the one live region, revalidates `integrations`, moves focus to the result, and lists `possible_duplicates` as a warning with the way out (contest the existing row, or retire the new one). Each refusal code has its own sentence in a `role="alert"`. The public pair card says "Added by the vendor" beside "Offered by" for an `origin = 'vendor'` row. It names nobody, because an AECi owner reassignment can change "Offered by" later. AECI-1023 owns the final copy for both.
+
+**Preview.** `/preview/vendor-dashboard/products/summit-model-coordination/integrations?create=open` renders the Integrations tab with the form open on first paint (server-rendered), for the design detector. `?concept=b` on any preview child route selects the single-page concept. The fixture answers the counterpart search from a small catalogue.
+
+**Tests.** `vendor-integration-create.spec.ts` (every gate branch, the batch, the counts, the tags, the duplicate warning in both orientations, retired matches), `promote-vendor-twin.spec.ts` (both orientations, retired, claimed curated, the stale-id fallback and its stale-id report, unknown owner, the mechanism kind, the replay, the race, the evidenced de-route, the curated re-point, the Convention-A connector clear, the non-re-pointing UPDATE, and the fence on a vendor-created row with no claim), `vendor-integration-create.component.spec.ts`.
 
 ---
 
@@ -1742,6 +1802,8 @@ AECI-1005 shipped the claim with no UI. The card now says who offers each integr
 - **Pessimistic.** The form waits for the `200`, announces through `VendorPortalAnnouncer`, closes, returns focus to the trigger and revalidates `integrations`. A claim does the same and then moves focus to the Edit trigger that replaced the button. Only changed fields are sent. An unchanged save and a bad value are caught client-side with the shared rule. Each refusal code maps to its own sentence in a `role="alert"`.
 - **One wire field.** `GET /api/vendor/integrations` gains `claimed_at` (`.nullable().default(null)`), the same definition AECI-1010 reads. The notification archive renders the new `integration_update` row as "The owner edited an integration on your product", naming the owner, the integration and the changed fields.
 - **Preview.** `/preview/vendor-dashboard` claims and edits against the fixture (`preview-vendor-api.ts`). The Autodesk Build card under Summit Field Issues is the owned, unclaimed row.
+
+**Create (AECI-1011).** The "Add an integration" form sits above the cards and reuses this form's groups, labels and value rule. See §4.7.5.
 
 **Tests.** `vendor-integration-edits.spec.ts` (every gate branch, the batch, the race guard, the enum refusals, the connector-kind lockstep), `vendor.authz-matrix.spec.ts` (every guard cell, the endpoint 403 and the neither-endpoint 404), `batch-sentinels.spec.ts`, and `vendor-integration-ownership.component.spec.ts` (every state, the claim, the form, each refusal, focus).
 

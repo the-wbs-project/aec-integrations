@@ -31,6 +31,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { healthLabel } from './vendor-attestation-labels';
 import { claimOutcomeLine } from './vendor-claim-outcome';
 import { VendorCounterpartGroup } from './vendor-counterpart-group';
+import { VendorIntegrationCreate } from './vendor-integration-create';
 import {
   type CounterpartGroup,
   type CounterpartSide,
@@ -132,7 +133,7 @@ import {
  */
 @Component({
   selector: 'aec-vendor-integrations-section',
-  imports: [VendorCounterpartGroup],
+  imports: [VendorCounterpartGroup, VendorIntegrationCreate],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
@@ -144,6 +145,12 @@ import {
       @if (canWrite() && loaded()) {
         <p class="text-sm text-(--text-secondary)">{{ summaryLine() }}</p>
       }
+
+      <!--
+        AECI-1011. Not behind canWrite(): a seat is the whole gate for integration
+        actions (AECI-1003 decision 15), unlike the data-flow controls below.
+      -->
+      <aec-vendor-integration-create [contextProductId]="contextProductId()" />
 
       @if (!canWrite()) {
         <!--
@@ -187,7 +194,8 @@ import {
       } @else if (integrations().length === 0) {
         <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.empty">
           No integrations are on record for your products yet. AEC Integrations adds integrations
-          from public sources; when one appears you can confirm what data it moves.
+          from public sources, and you can add one your company offers above. When one appears you
+          can confirm what data it moves.
         </p>
       } @else {
         @if (dataObjectsFailed() && canWrite()) {

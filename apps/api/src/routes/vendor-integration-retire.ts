@@ -426,7 +426,8 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
  * records the write changed. Retire passes the integration, both endpoint products
  * and the owner vendor (the counts were committed in the batch, so the product and
  * vendor records read the new stored value). The AECI-1006 edit passes the
- * integration alone, because an edit changes no count. Never throws. Sequential by
+ * integration alone, because an edit changes no count. The AECI-1011 create passes
+ * the same four records as retire. Never throws. Sequential by
  * construction (`syncIndexTargets`), so it holds at most one outbound connection at
  * a time. Each entity whose sync failed is logged under `failureMessage`, as the
  * promote tail does.

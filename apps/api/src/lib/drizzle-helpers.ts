@@ -558,6 +558,8 @@ export const integrationPairConfig = {
     // AECI-1007: the connector fence on per-side links reads the raw FK, not the
     // hydrated relation, so the verdict is `isConnectorPoweredEdge`'s own.
     poweredByProductId: true,
+    // AECI-1011: who created the row, for the pair card's provenance note.
+    origin: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -1125,6 +1127,8 @@ export interface RawIntegrationPairRow {
   /** AECI-1007. The raw FK behind `poweredByProduct`. Optional for hand-built
    *  fixtures, which fall back to the hydrated relation's id. */
   poweredByProductId?: string | null;
+  /** AECI-1011. Optional for the same reason: a fixture without it reads as `'aeci'`. */
+  origin?: string;
   // Folded into the page header by `computePairMaintenance`, not surfaced per
   // mechanism (AECI-616).
   maintainedBy: string;
@@ -1619,6 +1623,8 @@ function toProductPairMechanism(
         ),
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    // AECI-1011: `'vendor'` when a vendor created this row in its portal.
+    origin: raw.origin === 'vendor' ? 'vendor' : 'aeci',
     // Always null on an `integrations` row — the evidenced-pair arm of the pair
     // read sets it (`toProductPairMechanismFromEvidencedPair`).
     via: null,
@@ -1673,6 +1679,8 @@ function toProductPairMechanismFromEvidencedPair(
     // structural, and the byline reads it from `via`. Setting both would let a
     // renderer print the connector twice.
     powered_by_product: null,
+    // Promote is the only writer of this table (decision 9 keeps vendors off it).
+    origin: 'aeci',
     via: toProductLink(raw.connectorProduct),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
     claims: [...raw.claims]

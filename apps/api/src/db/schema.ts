@@ -327,10 +327,12 @@ export const integrations = sqliteTable(
     claimedAt: text('claimed_at'),
     /**
      * Who created the row: `'aeci'` (promote, the default) or `'vendor'` (a
-     * vendor create, AECI-1011). Nothing writes `'vendor'` yet. The ops tools
-     * already treat a `'vendor'` row as vendor-held, because such a row has no
-     * upstream record and every orphan detector would otherwise call it
-     * stranded. Enforced by the hand-written column CHECK in 0044.
+     * vendor create, AECI-1011, `routes/vendor-integration-create.ts`, which also
+     * sets `claimed_at`). The ops tools treat a `'vendor'` row as vendor-held,
+     * because such a row has no upstream record and every orphan detector would
+     * otherwise call it stranded, and promote's `VENDOR_OWNED_TWIN` guard will not
+     * insert a twin of one (`lib/integration-twins.ts`). Enforced by the
+     * hand-written column CHECK in 0044.
      */
     origin: text('origin').notNull().default('aeci'),
     /**

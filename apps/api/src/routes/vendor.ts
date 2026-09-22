@@ -43,7 +43,7 @@ import { assertStoredLogo } from './logos';
  * on the nightly watermark sync (≤24h) while SSR refreshes immediately via the
  * purge (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.2 / `STAGE_2_SPEC.md` §8.3(5)). The
  * dashboard copy must not promise "live in search". The integration owner writes
- * are the exception (AECI-1006 edit, AECI-1010 retire): they sync
+ * are the exception (AECI-1006 edit, AECI-1010 retire, AECI-1011 create): they sync
  * the records they change by id after commit (`syncOwnerWriteSearch`), because an
  * integration that stays in, or missing from, search for a day misstates a pair.
  *

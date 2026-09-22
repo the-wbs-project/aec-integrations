@@ -278,6 +278,9 @@ interface MechanismView {
    *  lives in is a storage question the reader has no stake in. */
   readonly builtByVendor: VendorLink | null;
   readonly poweredByProduct: ProductLink | null;
+  /** AECI-1011: a vendor created this row in its portal (`origin: 'vendor'`), so the
+   *  byline carries a small provenance note. AECI-1023 owns the final wording. */
+  readonly vendorAdded: boolean;
 }
 
 interface PairView {
@@ -756,6 +759,15 @@ function writePairViewCookie(mode: PairViewMode): void {
                         >
                       </span>
                     }
+                    <!-- AECI-1011: a vendor-created row says so. Name-free on purpose:
+                         an AECi owner reassignment can change "Offered by" after the
+                         create, so naming the current owner here could be false. -->
+                    @if (m.builtByVendor && m.vendorAdded) {
+                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+                      <span data-testid="pair-vendor-added" i18n="@@pair.mechanism.vendorAdded"
+                        >Added by the vendor</span
+                      >
+                    }
                     @if (m.builtByVendor && m.poweredByProduct) {
                       <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
                     }
@@ -1040,6 +1052,7 @@ export class ProductsPairPage {
       ),
       hasClaims: m.claims.length > 0,
       builtByVendor: m.built_by_vendor,
+      vendorAdded: m.origin === 'vendor',
       // `via` first (AECI-721). The two fields are the same fact about rows in
       // different tables — `powered_by_product` for an `integrations` row that
       // still carries the FK, `via` for a connector-evidenced pair — and they are

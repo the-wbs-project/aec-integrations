@@ -69,7 +69,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §13.2 / §13.3 | AECI-713 *(done)* | Endpoint Integrations split — direct lane + "Via {connector}" groups |
 | §13.4(1) / §13.4(3) | AECI-713 *(done)* | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
 | §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
-| §13.5 | AECI-721, AECI-789 | Count invariants — §12.5 resolved as B; the sixteen-site lockstep |
+| §13.5 | AECI-721, AECI-789, AECI-1010 | Count invariants — §12.5 resolved as B; the lockstep (26 expressions plus four exclusions since AECI-1010, asserted as `LOCKSTEP_SITES`) |
 | §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
 | §13.7 | AECI-715 / AECI-716 (first bullet: **AECI-892** *(done)*) | Connector coverage surface + reachable-lane publication boundary; AECI-892 shipped the endpoint reach line only |
 
