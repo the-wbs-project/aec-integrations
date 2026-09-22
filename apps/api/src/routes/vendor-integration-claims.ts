@@ -51,10 +51,10 @@ import {
   type ClaimIntegrationResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
-import { integrations, productVendors, products, vendors } from '../db/schema';
+import { integrations, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
@@ -70,6 +70,7 @@ import {
   isClaimed,
   isClaimRaceError,
 } from '../lib/integration-claims';
+import { endpointSlugs, ownedEndpointIds } from '../lib/integration-owner-writes';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -84,45 +85,6 @@ import {
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
-/** Does the caller's vendor own either endpoint product? The visibility half of
- *  rule 3: an endpoint vendor already sees the row in its portal. */
-async function ownsAnEndpoint(
-  db: Db,
-  vendorId: string,
-  row: Pick<IntegrationRow, 'sourceProductId' | 'targetProductId'>,
-): Promise<boolean> {
-  const hit = await db
-    .select({ productId: productVendors.productId })
-    .from(productVendors)
-    .where(
-      and(
-        eq(productVendors.vendorId, vendorId),
-        or(
-          eq(productVendors.productId, row.sourceProductId),
-          eq(productVendors.productId, row.targetProductId),
-        ),
-      ),
-    )
-    .limit(1);
-  return hit.length > 0;
-}
-
-/** Both endpoint slugs, for the purge, the notification snapshot and the recrawl. */
-async function endpointSlugs(
-  db: Db,
-  sourceId: string,
-  targetId: string,
-): Promise<readonly [string, string] | null> {
-  const rows = await db
-    .select({ id: products.id, slug: products.slug })
-    .from(products)
-    .where(inArray(products.id, [sourceId, targetId]));
-  const slug = new Map(rows.map((r) => [r.id, r.slug]));
-  const a = slug.get(sourceId);
-  const b = slug.get(targetId);
-  return a && b ? [a, b] : null;
-}
-
 /**
  * Why this caller cannot claim this row, or `null` when it can. Shared by the
  * pre-check and the lost-race re-read, so a race answers exactly what the pre-check
@@ -130,7 +92,7 @@ async function endpointSlugs(
  */
 async function refusalFor(db: Db, vendorId: string, row: IntegrationRow): Promise<ApiError | null> {
   if (row.builtByVendorId !== vendorId) {
-    if (!(await ownsAnEndpoint(db, vendorId, row))) {
+    if ((await ownedEndpointIds(db, vendorId, row)).length === 0) {
       return notFoundError('integration', { id: row.id });
     }
     if (row.builtByVendorId === null) {

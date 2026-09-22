@@ -15,6 +15,7 @@ import { integrationFieldChallenges, integrations, products } from '../db/schema
 import { makeTestDb, type TestDb } from '../test/d1';
 import type { BatchTuple } from './audit';
 import { claimRaceSentinel, isClaimRaceError } from './integration-claims';
+import { isOwnerWriteRaceError, ownerWriteSentinel } from './integration-owner-writes';
 import {
   contestIntegrationStateSentinel,
   contestStillOpenSentinel,
@@ -84,5 +85,24 @@ describe('contestIntegrationStateSentinel', () => {
       contestIntegrationStateSentinel(t.db, 'i1', { claimed: true, ownerVendorId: null }),
     ]).catch((e: unknown) => e);
     expect(isContestRaceError(error)).toBe(true);
+  });
+});
+
+describe('ownerWriteSentinel (AECI-1006)', () => {
+  it('raises when the guarded UPDATE matched nothing because the row is gone', async () => {
+    const error = await run([
+      t.db.update(integrations).set({ name: 'x' }).where(eq(integrations.id, 'gone')),
+      ownerWriteSentinel(t.db),
+    ]).catch((e: unknown) => e);
+    expect(isOwnerWriteRaceError(error)).toBe(true);
+  });
+
+  it('passes when the guarded UPDATE changed the row', async () => {
+    await expect(
+      run([
+        t.db.update(integrations).set({ name: 'x' }).where(eq(integrations.id, 'i1')),
+        ownerWriteSentinel(t.db),
+      ]),
+    ).resolves.toBeDefined();
   });
 });

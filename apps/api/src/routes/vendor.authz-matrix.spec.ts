@@ -51,6 +51,12 @@
  * assertion is that two vendors see DIFFERENT data, and here it is that they see
  * the SAME data, deliberately. That inversion is why the cell is written out
  * rather than left to the generic sweep.
+ *
+ * AECI-1006 adds `PATCH /api/vendor/integrations/:id`, the owner's edit. It takes
+ * every guard cell, and INTEGRATION_AB is seeded as vendor A's, claimed, so the
+ * granted-seat cell reaches a real write. Its isolation cells are the owner rule
+ * one grain up from the endpoint rule: the other endpoint vendor gets a 403, and a
+ * vendor on neither endpoint gets the unknown-id 404.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -98,6 +104,7 @@ import {
   createVendorClaimHandler,
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
+import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import { createVendorUpdatesHandler } from './vendor-updates';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
@@ -183,7 +190,16 @@ beforeEach(async () => {
     { id: VERSION_B, productId: PRODUCT_B, label: 'v1', sortKey: 100_000_000_000 },
   ]);
   await t.db.insert(integrations).values([
-    { id: INTEGRATION_AB, sourceProductId: PRODUCT_A, targetProductId: PRODUCT_B },
+    // AECI-1006: vendor A owns and has claimed this one, so its owner edit is live.
+    {
+      id: INTEGRATION_AB,
+      sourceProductId: PRODUCT_A,
+      targetProductId: PRODUCT_B,
+      name: 'Revit for MicroStation',
+      mechanismKind: 'native',
+      builtByVendorId: VENDOR_A,
+      claimedAt: '2026-09-01T00:00:00.000Z',
+    },
     { id: INTEGRATION_BU, sourceProductId: PRODUCT_B, targetProductId: PRODUCT_UNVERIFIED },
   ]);
   await t.db.insert(taxonomyDataObjects).values([
@@ -319,6 +335,12 @@ function makeApp() {
   );
   // AECI-627 — guard only; no authority resolution, no verified gate.
   app.get('/api/vendor/updates', requireVendor(guard), createVendorUpdatesHandler(t.factory));
+  // AECI-1006 — seat only; the owner rule is inside the handler.
+  app.patch(
+    '/api/vendor/integrations/:id',
+    requireVendor(guard),
+    createUpdateVendorIntegrationHandler(t.factory),
+  );
   return app;
 }
 
@@ -397,6 +419,11 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   },
   { path: '/api/vendor/data-objects', method: 'GET' },
   { path: '/api/vendor/updates', method: 'GET' },
+  {
+    path: `/api/vendor/integrations/${INTEGRATION_AB}`,
+    method: 'PATCH',
+    body: { description: 'edited by the owner' },
+  },
 ];
 
 /** The version routes that WRITE, and are therefore Verified-gated. */
@@ -693,6 +720,41 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
 
     const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT_B));
     expect(row?.description).toBe('B product');
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('PATCH /integrations/:id by the other endpoint vendor → 403, unmutated, unaudited (AECI-1006)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/integrations/${INTEGRATION_AB}`,
+      'PATCH',
+      SEAT_B,
+      {
+        name: 'hijacked',
+      },
+    );
+    // 403, not 404: B owns an endpoint and already sees the row in its portal.
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.INTEGRATION_NOT_OWNER);
+    const [row] = await t.db.select().from(integrations).where(eq(integrations.id, INTEGRATION_AB));
+    expect(row?.name).toBe('Revit for MicroStation');
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('PATCH /integrations/:id by a vendor on neither endpoint → the unknown-id 404 (AECI-1006)', async () => {
+    const hidden = await call(
+      `/api/vendor/integrations/${INTEGRATION_AB}`,
+      'PATCH',
+      SEAT_UNVERIFIED,
+      {
+        name: 'hijacked',
+      },
+    );
+    const unknown = await call(`/api/vendor/integrations/${uuid(999)}`, 'PATCH', SEAT_UNVERIFIED, {
+      name: 'hijacked',
+    });
+    expect(hidden.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    expect(hidden.body.error.code).toBe(unknown.body.error.code);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 

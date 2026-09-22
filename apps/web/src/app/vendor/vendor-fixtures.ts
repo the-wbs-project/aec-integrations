@@ -725,6 +725,9 @@ const INTEGRATION_PROCORE: VendorIntegration = {
     owner: PROCORE_VENDOR.id,
   },
   endpoint_vendors: [PROCORE_VENDOR, SUMMIT_VENDOR],
+  // AECI-1006: Procore claimed it, so the card reads "Offered by Procore" and a
+  // contest from the caller goes to Procore.
+  claimed_at: '2026-09-10T09:00:00.000Z',
   powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: OTHER_PROCORE,
@@ -863,8 +866,24 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   is_owner: true,
   owner: SUMMIT_VENDOR,
   endpoint_vendors: [AUTODESK_VENDOR, SUMMIT_VENDOR],
-  // AECI-1010: claimed, so the card offers the owner Retire.
-  claimed_at: '2026-09-01T00:00:00.000Z',
+  // AECI-1006: the owner has not claimed it yet, so the card offers Claim, and
+  // the preview's claim then opens the edit form. Real values so the form's
+  // controls start at something (direction framed from endpoint B).
+  claimed_at: null,
+  contestable_fields: {
+    name: 'Autodesk Build ↔ Summit Field Issues',
+    mechanism_kind: 'marketplace-app',
+    mechanism_name: 'Autodesk App Store listing',
+    direction: 'inbound',
+    description: 'Pulls field issues from Autodesk Build into Summit Field Issues.',
+    listing_url: 'https://apps.autodesk.com/summit-field-issues',
+    docs_url: null,
+    website: null,
+    mechanism_url: null,
+    pricing_model: null,
+    maturity: 'Beta',
+    owner: SUMMIT_VENDOR.id,
+  },
   powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach

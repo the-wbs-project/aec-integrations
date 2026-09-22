@@ -1,0 +1,212 @@
+/**
+ * The gate every OWNER write on an integration shares (AECI-1006 / ADR 0035 /
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6): who may write, in what order the
+ * refusals are asked, and the in-batch race guard.
+ *
+ * AECI-1005's claim is the owner's first write and asks "may I take this row?".
+ * Every later owner write (1006 edit, 1010 retire) asks the same question plus one
+ * more: "have I taken it?". The refusal order is the claim's, with that one step
+ * added last:
+ *
+ *   1. an unknown id, or a row the caller neither owns nor has an endpoint on → 404
+ *      (a non-owner must not learn the row exists);
+ *   2. an endpoint vendor that is not the owner → 403 `INTEGRATION_NOT_OWNER`,
+ *      or 409 `INTEGRATION_OWNER_UNKNOWN` when nobody is on file;
+ *   3. the owner of a connector-powered row → 403 `INTEGRATION_CONNECTOR_POWERED`
+ *      (decision 9: no vendor write on those rows in v1; AECI-1040 opens them);
+ *   4. the owner of an unclaimed row → 409 `INTEGRATION_NOT_CLAIMED`. Claiming is
+ *      the act that fences promote, so an unclaimed row is still AECi's to write
+ *      and an edit here would be overwritten by the next promote.
+ *
+ * There is no capability or entitlement step. A seat is the whole gate
+ * (AECI-1003 decision 15).
+ */
+
+import { ApiErrorCode, orderedPairSlugs } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+
+import type { Db } from '../db/client';
+import { integrations, productVendors, products } from '../db/schema';
+import { ApiError, notFoundError } from '../errors';
+
+import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import { isConnectorPoweredEdge } from './connector-powered';
+import { isClaimed, ONE_ROW } from './integration-claims';
+
+type IntegrationRow = typeof integrations.$inferSelect;
+
+/** Which of the row's two endpoint products the caller's vendor owns, through
+ *  `product_vendors`. Empty when it owns neither. */
+export async function ownedEndpointIds(
+  db: Db,
+  vendorId: string,
+  row: Pick<IntegrationRow, 'sourceProductId' | 'targetProductId'>,
+): Promise<readonly string[]> {
+  const hits = await db
+    .select({ productId: productVendors.productId })
+    .from(productVendors)
+    .where(
+      and(
+        eq(productVendors.vendorId, vendorId),
+        or(
+          eq(productVendors.productId, row.sourceProductId),
+          eq(productVendors.productId, row.targetProductId),
+        ),
+      ),
+    );
+  return [...new Set(hits.map((hit) => hit.productId))];
+}
+
+/** Both endpoint slugs, for the purge, the notification snapshot and the recrawl. */
+export async function endpointSlugs(
+  db: Db,
+  sourceId: string,
+  targetId: string,
+): Promise<readonly [string, string] | null> {
+  const rows = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(inArray(products.id, [sourceId, targetId]));
+  const slug = new Map(rows.map((r) => [r.id, r.slug]));
+  const a = slug.get(sourceId);
+  const b = slug.get(targetId);
+  return a && b ? [a, b] : null;
+}
+
+/**
+ * Why this caller may not make an owner write to this row, or `null` when it may.
+ * Shared by the pre-check and the lost-race re-read, so a race answers exactly
+ * what the pre-check would have answered a moment later.
+ */
+export async function ownerWriteRefusal(
+  db: Db,
+  vendorId: string,
+  row: IntegrationRow,
+): Promise<ApiError | null> {
+  if (row.builtByVendorId !== vendorId) {
+    if ((await ownedEndpointIds(db, vendorId, row)).length === 0) {
+      return notFoundError('integration', { id: row.id });
+    }
+    if (row.builtByVendorId === null) {
+      return new ApiError(
+        409,
+        ApiErrorCode.INTEGRATION_OWNER_UNKNOWN,
+        'No owner is on file for this integration. Contest the owner field to ask AECi to record you as the owner.',
+      );
+    }
+    return new ApiError(
+      403,
+      ApiErrorCode.INTEGRATION_NOT_OWNER,
+      'Another company is recorded as the owner of this integration. Contest a field if something on it is wrong.',
+    );
+  }
+  // Decision 9, v1: asked after ownership, so a non-owner still gets the
+  // ownership answer.
+  if (isConnectorPoweredEdge(row)) {
+    return new ApiError(
+      403,
+      ApiErrorCode.INTEGRATION_CONNECTOR_POWERED,
+      'This integration is delivered through a connector product, and connector-delivered integrations cannot be edited yet.',
+    );
+  }
+  if (!isClaimed(row)) {
+    return new ApiError(
+      409,
+      ApiErrorCode.INTEGRATION_NOT_CLAIMED,
+      'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it from AECi.',
+    );
+  }
+  return null;
+}
+
+/**
+ * The `WHERE` of an owner write's guarded `UPDATE`: this row, still owned by the
+ * caller, still claimed. An `owner` contest accepted by AECi between the handler's
+ * read and its batch reassigns `built_by_vendor_id` and clears `claimed_at`
+ * (ADR 0035), and this is what stops the old owner's write landing after it.
+ */
+export function ownerWriteWhere(integrationId: string, vendorId: string) {
+  return and(
+    eq(integrations.id, integrationId),
+    eq(integrations.builtByVendorId, vendorId),
+    isNotNull(integrations.claimedAt),
+  );
+}
+
+/**
+ * A batch statement that ABORTS the batch when the guarded `UPDATE` before it
+ * changed zero rows. Push it immediately after that UPDATE.
+ *
+ * Same mechanism as `claimRaceSentinel` and `contestStillOpenSentinel`: D1 has no
+ * interactive transactions, so a batch cannot branch on whether its guard matched.
+ * Without this the loser would still commit its audit row and notifications for a
+ * write that did not happen. `json('integration-owner-write-lost')` is malformed
+ * JSON, so it raises and rolls the whole batch back.
+ */
+export function ownerWriteSentinel(db: Db) {
+  // FROM a one-row constant, not from the integration (the AECI-1005 review fix):
+  // if the row was deleted between the read and the batch, a
+  // `FROM integrations WHERE id = ?` source returns nothing, the guard never runs,
+  // and the audit and notification rows commit for a write that matched nothing.
+  return db
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('integration-owner-write-lost') END` })
+    .from(ONE_ROW);
+}
+
+/** True for the error {@link ownerWriteSentinel} raises, in D1 or SQLite. Nothing
+ *  else in an owner-write batch calls `json()`, so the match is unambiguous. */
+export function isOwnerWriteRaceError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/malformed JSON/i.test(text) || text.includes('integration-owner-write-lost')) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+// ─── The edit notification (AECI-1006) ───────────────────────────────────────
+
+/** `metadata.kind` on the `notification.sent` row an owner edit writes. */
+export const UPDATE_NOTIFICATION_KIND = 'integration_update';
+
+/** What an edit `notification.sent` row records. `vendorId` is the RECIPIENT,
+ *  which is what the feed's `json_extract(metadata, '$.vendorId')` filter matches. */
+export interface UpdateNotificationMetadata {
+  kind: typeof UPDATE_NOTIFICATION_KIND;
+  vendorId: string;
+  integrationId: string;
+  integrationName: string | null;
+  ownerVendorId: string;
+  ownerName: string | null;
+  fields: readonly string[];
+  pairSlugs: readonly [string, string] | null;
+}
+
+/**
+ * The `notification.sent` row telling one endpoint vendor that the owner edited an
+ * integration on its product. Pushed into the SAME batch as the edit, so a
+ * rolled-back edit cannot leave a notification behind. `entity_type` is
+ * `integration`, like the claim notification.
+ */
+export function updateNotificationAudit(
+  actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
+  metadata: Omit<UpdateNotificationMetadata, 'kind'>,
+): AuditLogEntry {
+  const full: UpdateNotificationMetadata = {
+    kind: UPDATE_NOTIFICATION_KIND,
+    ...metadata,
+    pairSlugs: metadata.pairSlugs ? orderedPairSlugs(...metadata.pairSlugs) : null,
+  };
+  return {
+    actorId: actor.actorId,
+    actorType: actor.actorType,
+    action: NOTIFICATION_SENT_ACTION,
+    entityType: 'integration',
+    entityId: metadata.integrationId,
+    metadata: full,
+  };
+}

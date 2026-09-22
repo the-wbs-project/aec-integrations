@@ -2331,7 +2331,7 @@ unconditionally. That is §13.4's own reasoning applied to the rest of the surfa
 the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
 "Updated" is the accurate verb for a save.
 
-The seven write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh):
+The eight write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth):
 
 | Endpoint | Row | Shape |
 |---|---|---|
@@ -2342,6 +2342,7 @@ The seven write sites are the complete list (five at AECI-981; AECI-1008 added t
 | `DELETE …/versions/:versionId` | `products` | own statement + own audit row |
 | `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations` | folded into the field write; one `integration.updated` row with before/after, `metadata.reason = 'contest-accepted'` |
 | `POST /api/vendor/integrations/:id/claim` (AECI-1005) | `integrations` | folded into the claim write (`claimed_at` + the transfer in one statement); one `integration.claimed` row with before/after, `metadata.reason = 'owner-claim'` |
+| `PATCH /api/vendor/integrations/:id` (AECI-1006) | `integrations` | folded into the field write (the changed columns + the transfer in one statement); one `integration.updated` row with before/after, `metadata.reason = 'owner-edit'` |
 
 The sixth is the owner of an integration accepting another vendor's contest
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). It writes the contested column and the

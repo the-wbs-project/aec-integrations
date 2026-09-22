@@ -201,7 +201,7 @@ All four endpoints shipped with pinned Zod, **no migration**. Contracts live in 
 
 - **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
 - **Usefulness amendment (AECI-963):** the "how teams use it" narrative is vendor-written — see §4.4.
-- **Integration ownership amendment (AECI-1005, ADR 0035):** integrations are vendor-owned and AECi seeds them. The owner claims its row and promote stops writing it — see §4.5. This reverses the launch-era rule that integrations are AECi-curated and not vendor-editable, which is why no route on this surface wrote integration content before 1005.
+- **Integration ownership amendment (AECI-1005, ADR 0035):** integrations are vendor-owned and AECi seeds them. The owner claims its row and promote stops writing it — see §4.5. This reverses the launch-era rule that integrations are AECi-curated and not vendor-editable, which is why no route on this surface wrote integration content before 1005. Since AECI-1006 the claimed owner edits the integration's standard fields through `PATCH /api/vendor/integrations/:id` (§4.5.6). The product/vendor allow-list below is unchanged by that: the integration field set is its own, and an integration `name` is editable because nothing routes on it.
 - **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, **`usefulness`** (added by AECI-963 — see §4.4), plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
 - **Cross-vendor access returns `404`, not `403`.** A non-owner must not learn that another vendor's product exists. Ownership is proven against `product_vendors` in its own read wave, before anything else runs.
 - **A site `admin` is rejected with `403`.** No impersonation at launch; admins act through `/api/admin/*` so the audit trail names the real actor. A `vendor_admin` with a null `vendor_id` is likewise rejected.
@@ -307,7 +307,7 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 
 ### 4.5 Integrations are vendor-owned; AECi seeds (AECI-1005 — 2026-09-21)
 
-**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits), AECI-1007 (per-side links), AECI-1010 (retire), AECI-1011 (create).
+**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits, §4.5.6, shipped), AECI-1007 (per-side links), AECI-1010 (retire), AECI-1011 (create).
 
 #### 4.5.1 Who owns an integration
 
@@ -367,6 +367,29 @@ A row is **vendor-held** when it is claimed or `origin = 'vendor'`. "No upstream
 All of them probe the live DDL for the columns (`vendor-held.mjs`, and `ddlHasVendorHeldColumns` in `retract-product.ts`), because migration `0044` reaches production only at the next prod promote and a query naming a missing column would fail every run until then. Since AECI-1010 the same holds for `retired_at`: the datatool prune and reindex, the retraction consumer's count repair and both reconcile CLIs (`reconcile-product-counts.ts`, which runs daily against production, and `reconcile-algolia-drift.ts`) read the `integrations` DDL first and use `liveIntegrationSqlIf`, which degrades to always-true without the column. An empty DDL read is "could not check" and throws.
 
 A retired row is always claimed (§4.6), so every lane above already treats it as vendor-held. One lane needed a change anyway: the datatool prune's three twin guards now count only a LIVE twin as a surviving copy (AECI-1010), because a retired twin is off the public record.
+
+#### 4.5.6 Owner edits — `PATCH /api/vendor/integrations/:id` (AECI-1006 — 2026-09-22)
+
+The claimed owner edits its integration's standard fields, and the edit goes live with no moderation (decision 8). Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/vendor-integration-edits.ts`. The gate the owner edit uses: `apps/api/src/lib/integration-owner-writes.ts`. AECI-1010's retire and restore keep their own copy of the same order (`refusalFor` in `vendor-integration-retire.ts`).
+
+| Rule | As built |
+|---|---|
+| Gate | `requireVendor()` → `rateLimit('write')` → ownership → connector-powered → claimed, the last three in the handler and all before the body is parsed. **A seat is the whole gate** (decision 15): no `requireCapability`, no Verified check. |
+| Refusals, in order | The claim's order (§4.5.2) with one step added. Unknown id, or a row the caller neither owns nor has an endpoint on: `404`. Endpoint vendor that is not the owner: `403 INTEGRATION_NOT_OWNER`, or `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. Owner of a connector-powered row: `403 INTEGRATION_CONNECTOR_POWERED`. **Owner that has not claimed: `409 INTEGRATION_NOT_CLAIMED`.** Claim first: until `claimed_at` is set promote still writes the row, and the next promote of the edge would overwrite the edit. |
+| Fields | The eleven contestable content fields (§11b.3 minus `owner`): `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`. Two are **not** editable: `owner` (reassigning the owner is AECi's decision, through an `owner` contest) and `notes` (AECi's own curation column, which is not contestable either). The body is `.strict()`, so sending either is a `400`. |
+| Values | The contest rule (`contestValueProblem`), plus two of the edit's own in `integrationEditValueProblem`: `name`, `mechanism_kind` and `direction` cannot be cleared, and `mechanism_kind` cannot be `iPaaS` or `integrator`. That second rule is decision 9 from the other side: an owner must not type its own row into the connector-powered state, where no vendor write could reach it again. `direction` is caller-relative, framed against `context_product_id`. |
+| One batch | The guarded `UPDATE` (the changed columns, §13.9's maintenance transfer, `updated_at`) keyed on `built_by_vendor_id = <caller> AND claimed_at IS NOT NULL`, the race sentinel, one `integration.updated` audit row (`reason: 'owner-edit'`, before and after of each changed field) and one `notification.sent` row (`kind: 'integration_update'`) per other endpoint vendor. A lost race writes nothing. A body that changes nothing writes nothing, not even an audit row. |
+| After commit | Purges `pair:{a}__{b}` and both `product:` tags, and queues the pair re-crawl. No Algolia call: the `updated_at` bump puts the row in the nightly sweep, like every vendor write. The same bump moves the `integrations` freshness cursor (`STAGE_2_REALTIME_SPEC.md` §2.2). |
+
+**An edit does not touch open contests.** A contest is a request to its decider, and only the decider closes it, with a decision the submitter is told about (§11b.5). So the edit leaves every contest on the row open, including one whose proposed value the owner has just typed in. The owner still accepts or declines it in Messages. Three reasons for the least-surprising choice:
+
+- **Auto-accepting would speak for the owner.** The submitter would get "your contest was accepted" for a decision nobody made, and an accept also writes the proposed value, which could overwrite a different value the owner chose.
+- **Auto-withdrawing would speak for the submitter.** Withdraw is the submitter's act alone (§11b.5).
+- **An AECi-routed contest is not the owner's to close.** A content contest filed before the claim routes to AECi and stays there (routing is frozen at submit, §11b.4), and an `owner` contest always routes to AECi.
+
+Two consequences, both accepted for v1. First, an owner accept after an edit writes the contest's proposed value over whatever the owner typed, because that is what accepting means. Second, an **AECi accept of a content contest on a claimed row** (§11b.6) writes its proposed value here too, and so can overwrite a later owner edit of that field. The admin queue shows the value on record at submit, not the live value. See the open question on AECI-1006.
+
+**The portal.** §6.14.
 
 ### 4.6 The owner retires and restores an integration (AECI-1010 — 2026-09-22)
 
@@ -1683,6 +1706,23 @@ the route to every guard cell, a cross-vendor 404 and an unverified-owner read.
 `vendor-product-connectors.component.spec.ts` covers hidden at zero, the tier labels and "as of",
 no links, product switch and retry.
 
+### 6.14 As built — ownership on the integration card: Claim, Edit, "Offered by" (AECI-1006 — 2026-09-22)
+
+AECI-1005 shipped the claim with no UI. The card now says who offers each integration and gives the owner the one action its state allows. Component: `components/vendor-integration-ownership.ts`, mounted by `vendor-integration-card.ts` in its own block above the contest form. Copy helpers: `components/vendor-integration-ownership-labels.ts`. Design anchor: the sibling contest form on the same card (§11b.10), whose disclosure trigger, control set and button classes this reuses, so it stays on the vendor portal's existing anchor and adds no new Mobbin reference.
+
+- **One line and at most one action, by state.**
+  - Owner, unclaimed: "recorded as the owner", a hint that claiming takes the row over from AEC Integrations and makes edits live, and **Claim this integration**. There is no edit form yet, because an edit before the claim would be overwritten by promote.
+  - Owner, claimed: "owns this integration", and **Edit details**, a disclosure over the edit form.
+  - Owner of a connector-delivered row (`attestable: false`): a sentence that it cannot be claimed or edited yet (decision 9). No button. `attestable` is read off the wire, never re-derived.
+  - Anyone else: **"Offered by {owner}"**, matching the pair page byline (AECI-1021), and who reviews a contest: the owner once it has claimed, AEC Integrations before. With no owner on file, it points at the Owner contest (the owner-unknown claim, §4.5.4).
+- **Seat-only.** Never gated on `canWrite` or the entitlement, like the contest form (§11b.10).
+- **The form.** Three `<fieldset>`s with legends: About the integration (name, description, type, mechanism name, direction), Links (website, listing, documentation, mechanism), Pricing and maturity. Field names are `contestFieldLabel`, shared with the contest form. Each control starts at the value on record from `contestable_fields`. The type picker offers `OWNER_EDITABLE_MECHANISM_KINDS` only. Direction is a native select of the pair page's caller-relative sentences. Name, type and direction are required; the rest say "(optional)". The intro says plainly that changes go live with no review and that the other product's vendor is told.
+- **Pessimistic.** The form waits for the `200`, announces through `VendorPortalAnnouncer`, closes, returns focus to the trigger and revalidates `integrations`. A claim does the same and then moves focus to the Edit trigger that replaced the button. Only changed fields are sent. An unchanged save and a bad value are caught client-side with the shared rule. Each refusal code maps to its own sentence in a `role="alert"`.
+- **One wire field.** `GET /api/vendor/integrations` gains `claimed_at` (`.nullable().default(null)`), the same definition AECI-1010 reads. The notification archive renders the new `integration_update` row as "The owner edited an integration on your product", naming the owner, the integration and the changed fields.
+- **Preview.** `/preview/vendor-dashboard` claims and edits against the fixture (`preview-vendor-api.ts`). The Autodesk Build card under Summit Field Issues is the owned, unclaimed row.
+
+**Tests.** `vendor-integration-edits.spec.ts` (every gate branch, the batch, the race guard, the enum refusals, the connector-kind lockstep), `vendor.authz-matrix.spec.ts` (every guard cell, the endpoint 403 and the neither-endpoint 404), `batch-sentinels.spec.ts`, and `vendor-integration-ownership.component.spec.ts` (every state, the claim, the form, each refusal, focus).
+
 ---
 
 ## 7. Moderation escalation — ban gate (AECI-524)
@@ -2033,7 +2073,7 @@ A seated vendor says one field of an integration is wrong. It names the field, p
 ### 11b.2 Who may contest
 
 - **An endpoint vendor.** The caller must own one of the integration's two products in `product_vendors`. Authority resolves through `resolveAttestationSlots`, the same rule attestations use. Anyone else gets a `404` that looks exactly like an unknown id.
-- **Not the owner.** The vendor named in `built_by_vendor_id` (the vendor that owns and offers the integration, per AECI-1003) gets `403 CONTEST_OWN_INTEGRATION`. It owns the row and edits it through the claim flow instead (AECI-1005).
+- **Not the owner.** The vendor named in `built_by_vendor_id` (the vendor that owns and offers the integration, per AECI-1003) gets `403 CONTEST_OWN_INTEGRATION`. It owns the row, claims it (AECI-1005) and then edits it directly through `PATCH /api/vendor/integrations/:id` (AECI-1006, §4.5.6).
 - **A seat is the whole gate.** The route carries `requireVendor()` and nothing else. There is no `requireCapability` and no Verified check.
 
 That last point is a **named exception to §6.14 of `API_CONTRACTS.md`**, which says vendor writes are entitlement-gated. A contest asks for a fact on a public page to be fixed. Gating it behind a paid tier would make accuracy something a vendor buys, which is the pay-for-placement line from the other side. A contest also writes nothing public by itself.

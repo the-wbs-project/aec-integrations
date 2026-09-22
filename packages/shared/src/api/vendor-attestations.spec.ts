@@ -71,6 +71,7 @@ const INTEGRATION = {
     { id: uuid(40), name: 'Bentley' },
     { id: uuid(41), name: 'Autodesk' },
   ],
+  claimed_at: null,
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -199,6 +200,15 @@ describe('VendorIntegrationSchema', () => {
       contestable_fields: EMPTY_CONTESTABLE_FIELDS,
       endpoint_vendors: [],
     });
+  });
+
+  it('defaults claimed_at to null for a pre-AECI-1005 API (AECI-1006)', () => {
+    const { claimed_at: _c, ...older } = INTEGRATION;
+    expect(VendorIntegrationSchema.parse(older).claimed_at).toBeNull();
+    expect(
+      VendorIntegrationSchema.parse({ ...INTEGRATION, claimed_at: '2026-09-01T00:00:00.000Z' })
+        .claimed_at,
+    ).toBe('2026-09-01T00:00:00.000Z');
   });
 
   it('requires every contestable field to be present when the map is sent', () => {

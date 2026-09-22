@@ -903,6 +903,7 @@ export function createListVendorIntegrationsHandler(
           retired_at: row.retiredAt,
           contestable_fields: contestableFieldsFor(row, contextIsSource),
           endpoint_vendors: endpointVendorsFor(row),
+          claimed_at: row.claimedAt ?? null,
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],
