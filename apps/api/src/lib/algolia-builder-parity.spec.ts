@@ -63,11 +63,16 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-/** The subset of `D1Database` the datatool builders call: `prepare(sql).all()`. */
+/**
+ * The subset of `D1Database` the datatool builders call: `prepare(sql).all()`, and
+ * `.first()` for the `retired_at` column probe the vendor and integration builders
+ * run before their count (AECI-1010).
+ */
 function asD1(raw: TestDb['raw']): D1Database {
   return {
     prepare: (sql: string) => ({
       all: async () => ({ results: raw.prepare(sql).all(), success: true, meta: {} }),
+      first: async () => raw.prepare(sql).get() ?? null,
     }),
   } as unknown as D1Database;
 }
@@ -196,6 +201,18 @@ async function seed() {
     direction: 'a_to_b',
     builtByVendorId: u(1),
   });
+  // A RETIRED built integration (AECI-1010). Both builders must leave it out of the
+  // vendor's integration_count, or a full reindex re-counts what the sync dropped.
+  await t.db.insert(integrations).values({
+    id: u(63),
+    name: 'AutoCAD to Procore (retired)',
+    sourceProductId: u(12),
+    targetProductId: u(11),
+    mechanismKind: 'native',
+    direction: 'a_to_b',
+    builtByVendorId: u(1),
+    retiredAt: '2026-09-20T00:00:00.000Z',
+  });
   await t.db.insert(connectorEvidencedPairs).values({
     id: u(62),
     productAId: u(11),
@@ -227,6 +244,8 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     // means an omitted key parses as unverified, so only an explicit value proves it.
     expect(byId.get(u(1))?.verified).toBe(true);
     expect(byId.get(u(2))?.verified).toBe(false);
+    // One live integration plus one evidenced pair. The retired row is not counted.
+    expect(byId.get(u(1))?.integration_count).toBe(2);
   });
 
   it('builds every product record identically on both paths', async () => {

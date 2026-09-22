@@ -456,6 +456,27 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     expect(body.sync_headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
   });
 
+  it('counts no data object that only a RETIRED integration moves (AECI-1042 × AECI-1010)', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { name: 'Marketplace', mechanismKind: 'marketplace-app' });
+    await integration(u(11), u(1), u(2), {
+      name: 'Partner',
+      mechanismKind: 'partner',
+      retiredAt: '2026-09-20T00:00:00.000Z',
+    });
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await dataObject(u(103), 'schedules', 'Schedules', 3);
+    await claim(u(201), u(10), u(102), 'a_to_b');
+    await claim(u(202), u(11), u(103), 'a_to_b'); // only the retired row moves Schedules
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    // The retired row is not a mechanism, so its claims never reach the headline.
+    expect(body.mechanisms.map((m) => m.id)).toEqual([u(10)]);
+    expect(body.sync_headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
+  });
+
   it('orders claims by the data_object display_order', async () => {
     await seedProducts();
     await integration(u(10), u(1), u(2), { mechanismKind: 'native' });
