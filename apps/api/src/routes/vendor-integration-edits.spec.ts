@@ -394,6 +394,28 @@ describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
     expect(await auditRows()).toHaveLength(0);
   });
 
+  it('answers 409 INTEGRATION_RETIRED to the owner of a retired row (AECI-1010)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: '2026-09-20T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    const res = await edit(AUTH_B, I_MAIN, { name: 'Edited while retired' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect((await row(I_MAIN)).name).toBe('Revit for MicroStation');
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('still answers a non-owner the ownership refusal on a retired row', async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: '2026-09-20T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    const res = await edit(AUTH_A, I_MAIN, { name: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+  });
+
   it('checks ownership before the body, so a non-owner cannot probe with a bad one', async () => {
     const res = await edit(AUTH_A, I_MAIN, { owner: VENDOR_A });
     expect(res.status).toBe(403);
@@ -481,6 +503,25 @@ describe('PATCH /api/vendor/integrations/:id — the race guard', () => {
     expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
     expect((await row(I_MAIN)).name).toBe('Revit for MicroStation');
     expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses when a retire landed before the batch ran, and writes nothing (AECI-1010)', async () => {
+    const handler = racing(
+      `UPDATE integrations SET retired_at = ? WHERE id = ?`,
+      '2026-09-20T00:00:00.000Z',
+      I_MAIN,
+    );
+    const res = await call(
+      AUTH_B,
+      `/api/vendor/integrations/${I_MAIN}`,
+      { method: 'PATCH', body: { name: 'Late' } },
+      handler,
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect((await row(I_MAIN)).name).toBe('Revit for MicroStation');
+    expect(await auditRows()).toHaveLength(0);
+    expect(await notificationRows()).toHaveLength(0);
   });
 
   it('refuses when the claim was cleared under the same owner, and writes nothing', async () => {

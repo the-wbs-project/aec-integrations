@@ -73,6 +73,7 @@ type Draft = Record<IntegrationEditField, string>;
 /** Where the caller stands on this integration. See {@link VendorIntegrationOwnership}. */
 export type OwnershipState =
   | 'owner-claimed'
+  | 'owner-retired'
   | 'owner-unclaimed'
   | 'owner-connector'
   | 'other-owned'
@@ -361,7 +362,10 @@ export class VendorIntegrationOwnership {
     if (integration.is_owner) {
       // `attestable` is the server's connector-powered verdict (AECI-705).
       if (!integration.attestable) return 'owner-connector';
-      return integration.claimed_at ? 'owner-claimed' : 'owner-unclaimed';
+      if (!integration.claimed_at) return 'owner-unclaimed';
+      // AECI-1010: a retired row takes no edit. The server answers 409
+      // INTEGRATION_RETIRED; the form is not offered. Restore is on the card's foot.
+      return integration.retired_at ? 'owner-retired' : 'owner-claimed';
     }
     if (!integration.owner) return 'no-owner';
     return integration.claimed_at ? 'other-owned' : 'other-unclaimed';
@@ -372,6 +376,8 @@ export class VendorIntegrationOwnership {
     switch (this.state()) {
       case 'owner-claimed':
         return $localize`:@@vendor.integrationOwnership.ownerClaimed:Your company owns this integration and keeps its details up to date.`;
+      case 'owner-retired':
+        return $localize`:@@vendor.integrationOwnership.ownerRetired:Your company owns this integration and has retired it. Restore it to edit its details.`;
       case 'owner-unclaimed':
         return $localize`:@@vendor.integrationOwnership.ownerUnclaimed:Your company is recorded as the owner of this integration. Claim it to edit its details.`;
       case 'owner-connector':

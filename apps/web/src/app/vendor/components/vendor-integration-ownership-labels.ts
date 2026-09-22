@@ -43,6 +43,10 @@ export function editSaveErrorMessage(err: unknown): string {
   switch (readVendorApiError(err)?.code) {
     case 'INTEGRATION_NOT_CLAIMED':
       return $localize`:@@vendor.integrationEdit.save.error.notClaimed:Claim this integration before you edit it. Reload the page to see its current state.`;
+    case 'INTEGRATION_RETIRED':
+      return $localize`:@@vendor.integrationEdit.save.error.retired:This integration was retired, so nothing was saved. Restore it to edit its details.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.integrationEdit.save.error.changed:This integration changed while you were saving. Reload and try again.`;
     case 'INTEGRATION_NOT_OWNER':
       return $localize`:@@vendor.integrationEdit.save.error.notOwner:Your company is no longer recorded as the owner of this integration, so nothing was saved.`;
     case 'INTEGRATION_CONNECTOR_POWERED':

@@ -15,7 +15,8 @@
  * ── 2. ONLY THE CLAIMED OWNER, IN THE CLAIM'S REFUSAL ORDER ─────────────────
  * `ownerWriteRefusal` (`lib/integration-owner-writes.ts`): unknown or invisible
  * row 404, endpoint non-owner 403 / 409, connector-powered 403, unclaimed 409
- * `INTEGRATION_NOT_CLAIMED`. An unclaimed row is still promote's to write, so an
+ * `INTEGRATION_NOT_CLAIMED`, retired 409 `INTEGRATION_RETIRED` (AECI-1010, through
+ * `assertIntegrationLive`). An unclaimed row is still promote's to write, so an
  * edit there would be overwritten by the next promote of the edge; claiming first
  * is what makes the edit stick.
  *
@@ -27,7 +28,7 @@
  *
  * ── 4. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded `UPDATE … WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT
- * NULL` (the changed columns, §13.9's maintenance transfer and `updated_at`), then
+ * NULL AND retired_at IS NULL` (the changed columns, §13.9's maintenance transfer and `updated_at`), then
  * `ownerWriteSentinel` immediately after it, then the `integration.updated` audit
  * row with before/after and one `notification.sent` row (`kind:
  * 'integration_update'`) per other endpoint vendor. A lost race writes nothing and
@@ -116,7 +117,7 @@ export function createUpdateVendorIntegrationHandler(
     });
     if (!row) throw notFoundError('integration', { id: integrationId });
 
-    // 2. Ownership, connector-powered, claimed. Before the body, so a non-owner
+    // 2. Ownership, connector-powered, claimed, live. Before the body, so a non-owner
     //    cannot probe the row's rules with crafted bodies.
     const refusal = await ownerWriteRefusal(db, vendorId, row);
     if (refusal) throw refusal;
@@ -273,7 +274,7 @@ export function createUpdateVendorIntegrationHandler(
         (await ownerWriteRefusal(db, vendorId, current)) ??
         new ApiError(
           409,
-          ApiErrorCode.INTEGRATION_NOT_CLAIMED,
+          ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
           'This integration changed while it was being saved. Reload and try again.',
         )
       );

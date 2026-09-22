@@ -16,7 +16,13 @@
  *      (decision 9: no vendor write on those rows in v1; AECI-1040 opens them);
  *   4. the owner of an unclaimed row → 409 `INTEGRATION_NOT_CLAIMED`. Claiming is
  *      the act that fences promote, so an unclaimed row is still AECi's to write
- *      and an edit here would be overwritten by the next promote.
+ *      and an edit here would be overwritten by the next promote;
+ *   5. the owner of a RETIRED row → 409 `INTEGRATION_RETIRED` (AECI-1010), the same
+ *      answer every other vendor write on a retired row gets. Restore first.
+ *
+ * The AECI-1010 retire and restore keep their own copy of steps 1-4
+ * (`refusalFor` in `routes/vendor-integration-retire.ts`), because restore is the
+ * one owner write that must reach a retired row. So this gate is the edit's.
  *
  * There is no capability or entitlement step. A seat is the whole gate
  * (AECI-1003 decision 15).
@@ -33,6 +39,7 @@ import { ApiError, notFoundError } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
+import { assertIntegrationLive, liveIntegrationWhere } from './live-integration';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -117,12 +124,19 @@ export async function ownerWriteRefusal(
       'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it from AECi.',
     );
   }
+  // AECI-1010: last, because a retired row is always claimed.
+  try {
+    assertIntegrationLive(row);
+  } catch (error) {
+    if (error instanceof ApiError) return error;
+    throw error;
+  }
   return null;
 }
 
 /**
  * The `WHERE` of an owner write's guarded `UPDATE`: this row, still owned by the
- * caller, still claimed. An `owner` contest accepted by AECi between the handler's
+ * caller, still claimed, not retired. An `owner` contest accepted by AECi between the handler's
  * read and its batch reassigns `built_by_vendor_id` and clears `claimed_at`
  * (ADR 0035), and this is what stops the old owner's write landing after it.
  */
@@ -131,6 +145,9 @@ export function ownerWriteWhere(integrationId: string, vendorId: string) {
     eq(integrations.id, integrationId),
     eq(integrations.builtByVendorId, vendorId),
     isNotNull(integrations.claimedAt),
+    // AECI-1010: and still live, so a retire that lands between the read and the
+    // batch stops the edit at the sentinel.
+    liveIntegrationWhere,
   );
 }
 

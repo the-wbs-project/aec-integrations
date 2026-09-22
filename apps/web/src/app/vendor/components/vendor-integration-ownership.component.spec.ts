@@ -130,6 +130,13 @@ describe('VendorIntegrationOwnership — what it shows', () => {
     expect(q(fixture, '[data-testid="claim-integration"]')).toBeNull();
   });
 
+  it('offers no Edit on a claimed row the owner has retired (AECI-1010)', async () => {
+    const fixture = await create({ ...CLAIMED, retired_at: '2026-09-21T00:00:00.000Z' });
+    expect(q(fixture, '[data-testid="edit-integration"]')).toBeNull();
+    expect(q(fixture, '[data-testid="claim-integration"]')).toBeNull();
+    expect(el(fixture).textContent).toContain('has retired it. Restore it to edit its details.');
+  });
+
   it('offers neither on a connector-delivered row it owns (decision 9)', async () => {
     const fixture = await create({ ...CLAIMED, attestable: false });
     expect(line(fixture)).toContain('cannot be claimed or edited yet');

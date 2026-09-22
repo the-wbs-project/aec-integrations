@@ -588,6 +588,7 @@ export class PreviewVendorApi extends VendorApi {
       throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
     }
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
+    if (first.retired_at) throw apiError(409, 'INTEGRATION_RETIRED', 'Retired');
     if (mode === 'retire' && first.retired_at !== null) {
       throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
     }
