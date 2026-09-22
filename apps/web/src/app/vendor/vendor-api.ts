@@ -22,7 +22,10 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   RetireIntegrationResponse,
+  ClaimIntegrationResponse,
   CreateVendorClaimInput,
+  UpdateVendorIntegrationInput,
+  UpdateVendorIntegrationResponse,
   DecideContestInput,
   ListVendorContestsResponse,
   SubmitIntegrationContestInput,
@@ -316,6 +319,34 @@ export class VendorApi {
       this.http.post<VendorContestResponse>(
         `/api/vendor/contests/${encodeURIComponent(contestId)}/withdraw`,
         null,
+      ),
+    );
+  }
+
+  // ─── Integration ownership (AECI-1005 claim / AECI-1006 edit) ───────────────
+
+  /** `POST /api/vendor/integrations/:id/claim` — the recorded owner takes the row
+   *  (200). No body. From then on promote writes nothing to it. */
+  claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
+    return firstValueFrom(
+      this.http.post<ClaimIntegrationResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/claim`,
+        null,
+      ),
+    );
+  }
+
+  /** `PATCH /api/vendor/integrations/:id` — the claimed owner edits standard
+   *  fields. Send only the changed ones; `direction` is framed by
+   *  `context_product_id`. Goes live with no moderation. */
+  updateIntegration(
+    integrationId: string,
+    body: UpdateVendorIntegrationInput,
+  ): Promise<UpdateVendorIntegrationResponse> {
+    return firstValueFrom(
+      this.http.patch<UpdateVendorIntegrationResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}`,
+        body,
       ),
     );
   }

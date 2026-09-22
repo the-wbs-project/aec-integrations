@@ -361,6 +361,12 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `last_reviewed_at`, which the marker rule above says must purge. From then on
   promote writes nothing to that row, so a promote of the same edge no longer
   purges it either: the pair page changes only through the owner's own writes.
+- **An owner's edit of its integration** (`PATCH
+  /api/vendor/integrations/:id`, AECI-1006) → the **same three tags**. It writes
+  columns the pair page and the product-detail integrations table render (name,
+  type, direction, links, pricing, maturity) and transfers `maintained_by`. An
+  integration `name` also appears in no `index:*` hub, so no index tag is needed.
+  A body that changes nothing purges nothing.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with

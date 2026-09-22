@@ -181,12 +181,14 @@ export class ContestQueue {
    * is `a_to_b | b_to_a | both` with A the source product, and `owner` is a vendor
    * id whose name the server sends as the label.
    */
-  protected valueDisplay(c: AdminContest, which: 'current' | 'proposed'): string {
-    const value = which === 'current' ? c.current_value : c.proposed_value;
-    const label = which === 'current' ? c.current_label : c.proposed_label;
+  protected valueDisplay(c: AdminContest, which: 'current' | 'proposed' | 'live'): string {
+    const value =
+      which === 'current' ? c.current_value : which === 'live' ? c.live_value : c.proposed_value;
+    const label =
+      which === 'current' ? c.current_label : which === 'live' ? c.live_label : c.proposed_label;
     if (c.field === 'owner') {
       if (value === null) {
-        return which === 'current'
+        return which !== 'proposed'
           ? $localize`:@@admin.contests.owner.noneOnRecord:No owner on record`
           : $localize`:@@admin.contests.owner.neither:Neither endpoint vendor`;
       }
@@ -209,6 +211,16 @@ export class ContestQueue {
       }
     }
     return value;
+  }
+
+  /**
+   * Whether the field's live value moved since the contest was filed (AECI-1006).
+   * Only an open contest shows it: on a closed one the difference is history, not
+   * a reason to act. `live_value` is `undefined` from a pre-AECI-1006 API, which
+   * reads as "no difference".
+   */
+  protected liveDiffers(c: AdminContest): boolean {
+    return c.status === 'open' && c.live_value !== undefined && c.live_value !== c.current_value;
   }
 
   /** The owner snapshot taken at submit, or the plain absence of one. */
@@ -289,6 +301,16 @@ export class ContestQueue {
       return;
     }
     this.failedActionId.set(id);
+    if (code === 'CONTEST_VALUE_STALE') {
+      // The value moved since this list loaded. Reload so the row shows the live
+      // value and the stale note, and say why nothing changed.
+      this.closeForm();
+      this.liveMessage.set(
+        $localize`:@@admin.contests.announce.stale:Not accepted. The value on the integration changed after this contest was filed, so accepting would overwrite it. The list has been reloaded to show the current value.`,
+      );
+      void this.load();
+      return;
+    }
     if (code === 'CONTEST_ROUTED_TO_OWNER') {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.routedToOwner:The integration's owner decides this contest, not AEC Integrations. Nothing was changed.`,

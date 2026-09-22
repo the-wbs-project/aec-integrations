@@ -3,6 +3,9 @@ import { Injectable } from '@angular/core';
 
 import type {
   RetireIntegrationResponse,
+  ClaimIntegrationResponse,
+  UpdateVendorIntegrationInput,
+  UpdateVendorIntegrationResponse,
   DecideContestInput,
   ListVendorContestsResponse,
   SubmitIntegrationContestInput,
@@ -30,7 +33,13 @@ import type {
   VendorSeat,
   VendorUpdatesResponse,
 } from '@aeci/shared';
-import { computeAgreement, contestValueProblem } from '@aeci/shared';
+import {
+  INTEGRATION_EDIT_FIELDS,
+  computeAgreement,
+  contestValueProblem,
+  integrationEditValueProblem,
+  type ContextDirection,
+} from '@aeci/shared';
 
 import { VendorApi, type VendorAttestationPosition } from '../../vendor/vendor-api';
 import {
@@ -79,6 +88,12 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
 
 /** Build the error body the API Worker actually returns, so the preview
  *  exercises the same `readVendorApiError` branch the live surface does. */
+/** The same direction seen from the other endpoint. */
+function mirrorDirection(direction: ContextDirection): ContextDirection {
+  if (direction === 'both') return 'both';
+  return direction === 'outbound' ? 'inbound' : 'outbound';
+}
+
 function apiError(
   status: number,
   code: string,
@@ -453,6 +468,96 @@ export class PreviewVendorApi extends VendorApi {
     return { contest: clone(contest) };
   }
 
+  // ─── Integration ownership (AECI-1005 claim / AECI-1006 edit) ───────────────
+
+  /** The claim, fixture-side: the same refusal order as the handler, then every
+   *  entry for the integration (both frames when the caller owns both sides)
+   *  reads as claimed. */
+  override async claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
+    const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
+    const integration = entries[0];
+    if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (!integration.is_owner) {
+      throw integration.owner
+        ? apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration')
+        : apiError(409, 'INTEGRATION_OWNER_UNKNOWN', 'No owner is on file');
+    }
+    if (!integration.attestable) {
+      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
+    }
+    if (integration.claimed_at) {
+      throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
+    }
+    const now = '2026-09-22T12:00:00.000Z';
+    for (const entry of entries) entry.claimed_at = now;
+    return {
+      integration: {
+        id: integrationId,
+        owner_vendor_id: integration.owner?.id ?? '',
+        claimed_at: now,
+        maintained_by: 'vendor',
+        last_reviewed_at: now,
+      },
+    };
+  }
+
+  /** The owner's edit, fixture-side: the handler's gate and value rule, applied
+   *  to every frame of the integration so the two entries of a both-sides row
+   *  stay in step. `direction` is re-framed per entry, as the server does. */
+  override async updateIntegration(
+    integrationId: string,
+    body: UpdateVendorIntegrationInput,
+  ): Promise<UpdateVendorIntegrationResponse> {
+    const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
+    const integration = entries[0];
+    if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (!integration.is_owner) {
+      throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration');
+    }
+    if (!integration.attestable) {
+      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
+    }
+    if (!integration.claimed_at) {
+      throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
+    }
+    const frame =
+      entries.find((e) => e.context_product.id === body.context_product_id) ?? integration;
+    const changed: (typeof INTEGRATION_EDIT_FIELDS)[number][] = [];
+    for (const field of INTEGRATION_EDIT_FIELDS) {
+      const raw = body[field];
+      if (raw === undefined) continue;
+      const value = raw === null || raw.trim() === '' ? null : raw.trim();
+      const problem = integrationEditValueProblem(field, value);
+      if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
+      if (value === (frame.contestable_fields[field] ?? null)) continue;
+      changed.push(field);
+      for (const entry of entries) {
+        const sameFrame = entry.context_product.id === frame.context_product.id;
+        // A both-sides row shows the mirrored direction on its other entry.
+        const framed =
+          field === 'direction' && value !== null && !sameFrame
+            ? mirrorDirection(value as ContextDirection)
+            : value;
+        entry.contestable_fields = { ...entry.contestable_fields, [field]: framed };
+        if (field === 'name') entry.name = value;
+        if (field === 'mechanism_name') entry.mechanism_name = value;
+        if (field === 'mechanism_kind' && value !== null) {
+          entry.mechanism_kind = value as typeof entry.mechanism_kind;
+        }
+      }
+    }
+    const now = '2026-09-22T12:00:00.000Z';
+    return {
+      integration: {
+        id: integrationId,
+        changed,
+        maintained_by: 'vendor',
+        last_reviewed_at: now,
+        updated_at: now,
+      },
+    };
+  }
+
   override async withdrawContest(contestId: string): Promise<VendorContestResponse> {
     const contest = this.contests.submitted.find((c) => c.id === contestId);
     if (!contest) throw apiError(404, 'NOT_FOUND', 'Contest not found');
@@ -483,6 +588,7 @@ export class PreviewVendorApi extends VendorApi {
       throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
     }
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
+    if (first.retired_at) throw apiError(409, 'INTEGRATION_RETIRED', 'Retired');
     if (mode === 'retire' && first.retired_at !== null) {
       throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
     }

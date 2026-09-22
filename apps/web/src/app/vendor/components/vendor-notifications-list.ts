@@ -247,6 +247,12 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    if (notification.kind === 'integration_update') {
+      const fields = notification.fields.map(contestFieldLabelLoose).join(', ');
+      return [notification.owner_name, notification.integration_name, fields].filter(
+        (part): part is string => !!part,
+      );
+    }
     return [contestFieldLabelLoose(notification.field), notification.integration_name].filter(
       (part): part is string => !!part,
     );
@@ -281,6 +287,9 @@ function titleOf(notification: VendorNotification): string {
     return notification.event === 'retired'
       ? $localize`:@@vendor.retire.notify.retired:The owner retired an integration on your product`
       : $localize`:@@vendor.retire.notify.restored:The owner restored an integration on your product`;
+  }
+  if (notification.kind === 'integration_update') {
+    return $localize`:@@vendor.integrationEdit.notify.updated:The owner edited an integration on your product`;
   }
   return contestNotificationTitle(notification.event);
 }

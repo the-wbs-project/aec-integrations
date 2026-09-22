@@ -437,6 +437,17 @@ describe('GET /api/vendor/integrations', () => {
     expect(b.is_owner).toBe(true);
     // Same stored `a_to_b`, framed from endpoint B.
     expect(b.contestable_fields.direction).toBe('inbound');
+    // AECI-1006: unclaimed until the owner claims it.
+    expect(b.claimed_at).toBeNull();
+  });
+
+  it('carries claimed_at once the owner has claimed, so the portal offers Edit (AECI-1006)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ builtByVendorId: VENDOR_B, claimedAt: '2026-09-01T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    const b = (await call('/api/vendor/integrations', {}, AUTH_B)).body.integrations[0];
+    expect(b.claimed_at).toBe('2026-09-01T00:00:00.000Z');
   });
 
   it('lists a connector-powered edge, flagged and attributed (AECI-705)', async () => {

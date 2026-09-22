@@ -126,6 +126,7 @@ import {
   createWithdrawContestHandler,
 } from './routes/vendor-contests';
 import { createClaimIntegrationHandler } from './routes/vendor-integration-claims';
+import { createUpdateVendorIntegrationHandler } from './routes/vendor-integration-edits';
 import {
   createRestoreIntegrationHandler,
   createRetireIntegrationHandler,
@@ -961,6 +962,17 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createRestoreIntegrationHandler(),
+);
+// AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
+// (the eleven contestable content fields). A SEAT IS THE WHOLE GATE (decision 15),
+// as for the claim above. Gate order: `requireVendor()` → `rateLimit('write')` →
+// ownership → connector-powered → claimed, the last three inside the handler
+// (`lib/integration-owner-writes.ts`). The GET list above is a different path.
+authVendor.patch(
+  '/api/vendor/integrations/:id',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorIntegrationHandler(),
 );
 //
 // Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on

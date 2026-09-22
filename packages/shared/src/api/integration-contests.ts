@@ -283,6 +283,19 @@ export const AdminContestSchema = z.object({
   proposed_value: z.string().nullable(),
   current_label: z.string().nullable(),
   proposed_label: z.string().nullable(),
+  /**
+   * The field's value on the row NOW, in storage form (AECI-1006), beside
+   * `current_value`, which is the value recorded at submit. `live_label` is the
+   * vendor name for an `owner` value. Defaulted for deploy skew.
+   */
+  live_value: z.string().nullable().default(null),
+  live_label: z.string().nullable().default(null),
+  /**
+   * True when an accept would be refused with `409 CONTEST_VALUE_STALE`: a content
+   * contest on a claimed row whose live value differs from `current_value`. The
+   * server computes it with the same rule the accept enforces.
+   */
+  value_stale: z.boolean().default(false),
   reason: z.string(),
   routed_to: ContestRouteSchema,
   status: ContestStatusSchema,

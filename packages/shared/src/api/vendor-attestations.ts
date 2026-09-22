@@ -311,8 +311,10 @@ export const VendorIntegrationSchema = z.object({
   owner: ContestVendorRefSchema.nullable().default(null),
   /**
    * When the owner claimed this row (AECI-1005), or `null` while it is unclaimed.
-   * A claimed row is the owner's: promote writes nothing to it. The portal offers
-   * the owner Retire only once it is claimed. Defaulted for deploy skew.
+   * A claimed row is the owner's: promote writes nothing to it. The portal shows
+   * the owner a Claim button while it is `null`, and the edit form (AECI-1006) and
+   * Retire once it is set. Defaulted for deploy skew: an older API reads as
+   * unclaimed, and the edit route refuses an unclaimed row server-side regardless.
    */
   claimed_at: z.string().nullable().default(null),
   /**

@@ -18,6 +18,7 @@ import { VendorContestForm } from './vendor-contest-form';
 import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
 import { VendorIntegrationRetire } from './vendor-integration-retire';
+import { VendorIntegrationOwnership } from './vendor-integration-ownership';
 
 /**
  * One integration touching a product this vendor owns (AECI-606 / §6), rendered
@@ -55,6 +56,7 @@ import { VendorIntegrationRetire } from './vendor-integration-retire';
     VendorContestForm,
     VendorHealthPill,
     VendorIntegrationRetire,
+    VendorIntegrationOwnership,
   ],
   styles: [':host { display: block; }'],
   template: `
@@ -173,6 +175,13 @@ import { VendorIntegrationRetire } from './vendor-integration-retire';
             (duplicate)="onDuplicate($event)"
           />
         }
+
+        <!--
+          AECI-1005 / AECI-1006 (spec 4.5.6). Who offers this integration, and
+          the owner's Claim or Edit action. Seat-only, like the contest form:
+          never gated on canWrite.
+        -->
+        <aec-vendor-integration-ownership [integration]="integration()" />
 
         <!--
           AECI-1008 (spec 11b). Seat-only: gated on NOT being the owner, never

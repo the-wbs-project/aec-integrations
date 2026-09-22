@@ -11,8 +11,9 @@
  * batch as the contest transition, addressed to the other side of the contest.
  * Since AECI-1005 so does the integration claim (`metadata.kind =
  * 'integration_claim'`), addressed to every other endpoint vendor, and since
- * AECI-1010 the retire and restore (`metadata.kind = 'integration_retire'`), to the
- * same recipients.
+ * AECI-1010 the retire and restore (`metadata.kind = 'integration_retire'`), and since
+ * AECI-1006 the owner's edit (`metadata.kind = 'integration_update'`), to the same
+ * recipients.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -56,6 +57,7 @@ import {
   type VendorContestNotification,
   type VendorIntegrationClaimNotification,
   type VendorIntegrationRetireNotification,
+  type VendorIntegrationUpdateNotification,
   type VendorNotification,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
@@ -75,6 +77,10 @@ import {
   type RetireNotificationMetadata,
 } from '../lib/integration-retire';
 import { pairPathFor, type ContestNotificationMetadata } from '../lib/integration-contests';
+import {
+  UPDATE_NOTIFICATION_KIND,
+  type UpdateNotificationMetadata,
+} from '../lib/integration-owner-writes';
 import { sessionVendorId, type VendorContext } from './vendor-shared';
 
 const DAY_MS = 86_400_000;
@@ -145,6 +151,8 @@ function toVendorNotification(row: {
   if (kind === CLAIM_NOTIFICATION_KIND) return toClaimNotification(row);
   // AECI-1010: an owner retired or restored an integration on one of its products.
   if (kind === RETIRE_NOTIFICATION_KIND) return toRetireNotification(row);
+  // AECI-1006: the owner edited an integration on one of this vendor's products.
+  if (kind === UPDATE_NOTIFICATION_KIND) return toUpdateNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -258,6 +266,38 @@ function toRetireNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
+    pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one owner-edit ledger row (AECI-1006), or `null` when it is not recognisable.
+ * Same tolerance as the other mappers: a non-string field name is dropped, never
+ * a 500.
+ */
+function toUpdateNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorIntegrationUpdateNotification | null {
+  const meta = row.metadata as Partial<UpdateNotificationMetadata> | null;
+  if (!meta || typeof meta.integrationId !== 'string') return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'integration_update',
+    id: row.id,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
+    fields: Array.isArray(meta.fields)
+      ? meta.fields.filter((field): field is string => typeof field === 'string')
+      : [],
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

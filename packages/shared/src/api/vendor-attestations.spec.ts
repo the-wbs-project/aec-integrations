@@ -201,6 +201,15 @@ describe('VendorIntegrationSchema', () => {
     });
   });
 
+  it('defaults claimed_at to null for a pre-AECI-1005 API (AECI-1006)', () => {
+    const { claimed_at: _c, ...older } = INTEGRATION;
+    expect(VendorIntegrationSchema.parse(older).claimed_at).toBeNull();
+    expect(
+      VendorIntegrationSchema.parse({ ...INTEGRATION, claimed_at: '2026-09-01T00:00:00.000Z' })
+        .claimed_at,
+    ).toBe('2026-09-01T00:00:00.000Z');
+  });
+
   it('requires every contestable field to be present when the map is sent', () => {
     const { website: _w, ...partial } = INTEGRATION.contestable_fields;
     expect(

@@ -35,8 +35,12 @@ import { VendorIntegrationRetire, retireErrorMessage } from './vendor-integratio
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
-/** Owned and claimed: the Retire case. */
-const OWNED = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.is_owner)!;
+/** Owned and claimed: the Retire case. The fixture row is unclaimed (AECI-1006's
+ *  preview starts at Claim), so the claim is set here. */
+const OWNED: VendorIntegration = {
+  ...VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.is_owner)!,
+  claimed_at: '2026-09-01T00:00:00.000Z',
+};
 /** Retired by the other endpoint's owner: the read-only case. */
 const RETIRED_BY_OTHER = INTEGRATION_RETIRED_BY_OTHER;
 const RETIRED_AT = '2026-09-20T00:00:00.000Z';
