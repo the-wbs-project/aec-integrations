@@ -88,8 +88,10 @@ import {
   vendors,
 } from '../db/schema';
 
+import { isConnectorPoweredEdge } from './connector-powered';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveIntegrationWhere } from './live-integration';
+import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
 
 // ---------------------------------------------------------------------------
 // Shared read orderings
@@ -553,6 +555,9 @@ export const integrationPairConfig = {
     // mechanism — `computePairMaintenance` folds them into one header value.
     lastReviewedAt: true,
     maintainedBy: true,
+    // AECI-1007: the connector fence on per-side links reads the raw FK, not the
+    // hydrated relation, so the verdict is `isConnectorPoweredEdge`'s own.
+    poweredByProductId: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -577,6 +582,9 @@ export const integrationPairConfig = {
     // (and both would need their disambiguated `relationName`, since two FKs point
     // at one table) for data already in hand.
     claims: pairClaimsConfig,
+    // AECI-1007: each endpoint vendor's own links. Three columns; the mapper keeps
+    // only the rows whose product is still one of this row's endpoints.
+    vendorLinks: { columns: { productId: true, kind: true, url: true } },
   },
 } as const;
 
@@ -1111,6 +1119,12 @@ export interface RawIntegrationPairRow {
   builtByVendor: RawVendorLink | null;
   poweredByProduct: RawProductLink | null;
   claims: RawPairClaimRow[];
+  /** AECI-1007. Optional so a hand-built fixture without links still type-checks
+   *  as "no links"; the read config always selects it. */
+  vendorLinks?: StoredVendorLink[];
+  /** AECI-1007. The raw FK behind `poweredByProduct`. Optional for hand-built
+   *  fixtures, which fall back to the hydrated relation's id. */
+  poweredByProductId?: string | null;
   // Folded into the page header by `computePairMaintenance`, not surfaced per
   // mechanism (AECI-616).
   maintainedBy: string;
@@ -1589,6 +1603,20 @@ function toProductPairMechanism(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // Decision 9: a connector-powered row shows no per-side links. Promote can make
+    // an unclaimed row connector-powered IN PLACE (a connector `mechanism_kind`, or
+    // a Convention-A self-reference), and the links stored before that stay in the
+    // table until their vendor removes them. They are stranded, not shown.
+    vendor_links: isConnectorPoweredEdge({
+      poweredByProductId: raw.poweredByProductId ?? raw.poweredByProduct?.id ?? null,
+      mechanismKind: raw.mechanismKind,
+    })
+      ? { context: null, other: null }
+      : toPairVendorLinks(
+          raw.vendorLinks ?? [],
+          contextProductId,
+          contextIsSource ? raw.targetProduct.id : raw.sourceProduct.id,
+        ),
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     // Always null on an `integrations` row — the evidenced-pair arm of the pair
@@ -1638,6 +1666,8 @@ function toProductPairMechanismFromEvidencedPair(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // Connector-powered by construction, so no vendor writes links here (decision 9).
+    vendor_links: { context: null, other: null },
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     // `powered_by_product` stays null: on an evidenced pair the connector is
     // structural, and the byline reads it from `via`. Setting both would let a

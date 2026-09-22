@@ -926,6 +926,8 @@ describe('connector lane (AECI-714)', () => {
     // carry table for each of the three, not one. The contest table is a leaf: its
     // own children are none, but its `ON DELETE CASCADE` means a recreate of
     // `integrations` in drizzle-kit's generated order would delete every contest.
+    // `integration_vendor_links` (AECI-1007, 0045) is a second leaf of the same kind:
+    // a recreate would delete every endpoint vendor's own listing and docs links.
     const t = await makeTestDb();
     const inbound = t.raw
       .prepare(
@@ -937,7 +939,7 @@ describe('connector lane (AECI-714)', () => {
       )
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(inbound).toEqual(['claims', 'integration_field_challenges']);
+    expect(inbound).toEqual(['claims', 'integration_field_challenges', 'integration_vendor_links']);
     t.dispose();
   });
 

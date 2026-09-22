@@ -2331,7 +2331,7 @@ unconditionally. That is §13.4's own reasoning applied to the rest of the surfa
 the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
 "Updated" is the accurate verb for a save.
 
-The eight write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth):
+The nine write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth, AECI-1007 the ninth):
 
 | Endpoint | Row | Shape |
 |---|---|---|
@@ -2343,6 +2343,7 @@ The eight write sites are the complete list (five at AECI-981; AECI-1008 added t
 | `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations` | folded into the field write; one `integration.updated` row with before/after, `metadata.reason = 'contest-accepted'` |
 | `POST /api/vendor/integrations/:id/claim` (AECI-1005) | `integrations` | folded into the claim write (`claimed_at` + the transfer in one statement); one `integration.claimed` row with before/after, `metadata.reason = 'owner-claim'` |
 | `PATCH /api/vendor/integrations/:id` (AECI-1006) | `integrations` | folded into the field write (the changed columns + the transfer in one statement); one `integration.updated` row with before/after, `metadata.reason = 'owner-edit'` |
+| `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind` (AECI-1007) | `integrations` | own statement in the link batch (the link lives in `integration_vendor_links`); one `integration.link_set` / `integration.link_removed` row carrying the link's before/after. A DELETE of an unset link writes nothing and transfers nothing |
 
 The sixth is the owner of an integration accepting another vendor's contest
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). It writes the contested column and the
@@ -2383,7 +2384,7 @@ Four consequences worth stating, because each is a thing someone will otherwise
    transition instead sets `metadata.maintenanceTransfer: true`, and only on the
    write that actually changes hands — flagging every later save would make the
    flag useless for finding the ones that mattered. The key is **omitted**, not
-   set to `false`, on every later save, and identically on all seven sites: a
+   set to `false`, on every later save, and identically on all nine sites: a
    key-presence query over `audit_log.metadata` has to mean the same thing
    whichever surface wrote the row.
 2. **Per row, never transitive.** A vendor editing its company profile does not flip

@@ -7,6 +7,8 @@ import type {
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
   DecideContestInput,
+  IntegrationLinkKind,
+  IntegrationLinkResponse,
   ListVendorContestsResponse,
   SubmitIntegrationContestInput,
   VendorContest,
@@ -638,6 +640,45 @@ export class PreviewVendorApi extends VendorApi {
       if (claim) return { integration, claim };
     }
     return null;
+  }
+
+  // ─── Per-side integration links (AECI-1007) ────────────────────────────────
+
+  /** Mirrors the handler: the entry must be the caller's own side, and a
+   *  connector-powered row is `403 INTEGRATION_CONNECTOR_POWERED`. */
+  override async putIntegrationLink(
+    integrationId: string,
+    productId: string,
+    kind: IntegrationLinkKind,
+    url: string,
+  ): Promise<IntegrationLinkResponse> {
+    return this.writeLink(integrationId, productId, kind, url);
+  }
+
+  override async deleteIntegrationLink(
+    integrationId: string,
+    productId: string,
+    kind: IntegrationLinkKind,
+  ): Promise<IntegrationLinkResponse> {
+    return this.writeLink(integrationId, productId, kind, null);
+  }
+
+  private writeLink(
+    integrationId: string,
+    productId: string,
+    kind: IntegrationLinkKind,
+    url: string | null,
+  ): IntegrationLinkResponse {
+    const entry = this.integrations.integrations.find(
+      (i) => i.id === integrationId && i.context_product.id === productId,
+    );
+    if (!entry) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (!entry.attestable) {
+      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered integration');
+    }
+    const links = { ...entry.own_links, [kind === 'listing' ? 'listing_url' : 'docs_url']: url };
+    entry.own_links = links;
+    return clone({ integration_id: integrationId, product_id: productId, links });
   }
 }
 

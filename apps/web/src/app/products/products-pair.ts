@@ -198,14 +198,66 @@ function confirmedRatioText(confirmed: number, total: number, singleSource: numb
   return `${bilateral} · ${oneSided}`;
 }
 
+/** One external link on a mechanism card, label already localized. */
+interface MechanismLink {
+  readonly href: string;
+  readonly label: string;
+}
+
+/** Whose name labels a side's own link: its vendor, else the product itself. */
+interface PairSideNames {
+  readonly context: string;
+  readonly other: string;
+}
+
+/**
+ * The mechanism card's external links (AECI-1007). Per kind, each endpoint vendor's
+ * OWN link wins and is labelled with that vendor's name, context side first. Only
+ * when neither side has set that kind does the card fall back to AECi's curated
+ * `listing_url` / `docs_url`, under the unlabelled copy it always had. Listing links
+ * come before docs links, as they did before.
+ */
+function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): MechanismLink[] {
+  // `?.` because the SSR Worker may read an API that predates the field, and the
+  // response is not re-parsed through the schema default on every path.
+  const sides = [
+    { links: m.vendor_links?.context ?? null, name: names.context },
+    { links: m.vendor_links?.other ?? null, name: names.other },
+  ];
+  const out: MechanismLink[] = [];
+  const listings = sides.filter((side) => side.links?.listing_url);
+  if (listings.length > 0) {
+    for (const side of listings) {
+      out.push({
+        href: side.links!.listing_url!,
+        label: $localize`:@@pair.mechanism.listingBy:${side.name}:vendor: listing`,
+      });
+    }
+  } else if (m.listing_url) {
+    out.push({ href: m.listing_url, label: $localize`:@@pair.mechanism.listing:View listing` });
+  }
+  const docs = sides.filter((side) => side.links?.docs_url);
+  if (docs.length > 0) {
+    for (const side of docs) {
+      out.push({
+        href: side.links!.docs_url!,
+        label: $localize`:@@pair.mechanism.docsBy:${side.name}:vendor: documentation`,
+      });
+    }
+  } else if (m.docs_url) {
+    out.push({ href: m.docs_url, label: $localize`:@@pair.mechanism.docs:Documentation` });
+  }
+  return out;
+}
+
 /** One mechanism with its direction copy resolved against the `other` product. */
 interface MechanismView {
   readonly id: string;
   readonly kindLabel: string;
   readonly name: string | null;
   readonly description: string | null;
-  readonly listingUrl: string | null;
-  readonly docsUrl: string | null;
+  /** Listing and docs links, vendor-own first per kind, AECi-curated as fallback. */
+  readonly links: readonly MechanismLink[];
   readonly direction: ContextDirection | null;
   readonly glyph: string;
   readonly directionLabel: string;
@@ -821,12 +873,14 @@ function writePairViewCookie(mode: PairViewMode): void {
                      (the Arrow Rule). The rel gained both nofollow and noreferrer:
                      these are vendor-controlled destinations and the external
                      recipe covers both axes, which the old pair only half did. -->
-                @if (m.listingUrl || m.docsUrl) {
+                @if (m.links.length > 0) {
+                  <!-- AECI-1007: each endpoint vendor's own links carry its name, and
+                       AECi's curated link is the fallback per kind. -->
                   <ul class="-mx-3 flex flex-wrap gap-1">
-                    @if (m.listingUrl) {
+                    @for (link of m.links; track $index) {
                       <li>
                         <a
-                          [href]="m.listingUrl"
+                          [href]="link.href"
                           target="_blank"
                           rel="noopener noreferrer nofollow"
                           aecTrackExternalLink="pair_detail"
@@ -836,25 +890,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                             hover:text-(--text-primary) focus-visible:outline-2
                             focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         >
-                          <span i18n="@@pair.mechanism.listing">View listing</span>
-                          <aec-new-tab-icon />
-                        </a>
-                      </li>
-                    }
-                    @if (m.docsUrl) {
-                      <li>
-                        <a
-                          [href]="m.docsUrl"
-                          target="_blank"
-                          rel="noopener noreferrer nofollow"
-                          aecTrackExternalLink="pair_detail"
-                          class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
-                            text-xs font-medium text-(--text-secondary) underline
-                            decoration-(--border-strong) underline-offset-4 transition-colors
-                            hover:text-(--text-primary) focus-visible:outline-2
-                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                        >
-                          <span i18n="@@pair.mechanism.docs">Documentation</span>
+                          <span>{{ link.label }}</span>
                           <aec-new-tab-icon />
                         </a>
                       </li>
@@ -947,7 +983,13 @@ export class ProductsPairPage {
       context: pair.context_product.vendor?.name ?? null,
       other: pair.other_product.vendor?.name ?? null,
     };
-    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName, vendorNames));
+    const sideNames: PairSideNames = {
+      context: vendorNames.context ?? pair.context_product.name,
+      other: vendorNames.other ?? otherName,
+    };
+    const mechanisms = pair.mechanisms.map((m) =>
+      this.toMechanismView(m, otherName, vendorNames, sideNames),
+    );
     return {
       pair,
       mechanisms,
@@ -978,14 +1020,14 @@ export class ProductsPairPage {
     m: ProductPairMechanism,
     otherName: string,
     vendorNames: PairVendorNames,
+    sideNames: PairSideNames,
   ): MechanismView {
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
       name: m.mechanism_name,
       description: m.description,
-      listingUrl: m.listing_url,
-      docsUrl: m.docs_url,
+      links: mechanismLinks(m, sideNames),
       direction: m.direction,
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',

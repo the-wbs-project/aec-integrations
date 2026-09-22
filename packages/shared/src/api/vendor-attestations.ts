@@ -8,6 +8,7 @@ import {
   EMPTY_CONTESTABLE_FIELDS,
 } from './integration-contests';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
+import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vendor-links';
 import type { AttestationSource } from './promote';
 
 /**
@@ -344,6 +345,15 @@ export const VendorIntegrationSchema = z.object({
    * vendor" plus the caller's own company.
    */
   endpoint_vendors: z.array(ContestVendorRefSchema).default([]),
+  // ── AECI-1007: per-side links ──────────────────────────────────────────────
+  /**
+   * The caller's OWN links for this integration, on the side of `context_product`
+   * (AECI-1007). Editable through `PUT`/`DELETE …/links/:productId/:kind` with
+   * `context_product.id`, unless `attestable` is `false`: a connector-powered row
+   * takes no per-side links (decision 9), and the server refuses the write with
+   * `403 INTEGRATION_CONNECTOR_POWERED` regardless. Defaulted for deploy skew.
+   */
+  own_links: IntegrationSideLinksSchema.default(EMPTY_SIDE_LINKS),
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;

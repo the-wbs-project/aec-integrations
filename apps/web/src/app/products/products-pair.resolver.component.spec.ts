@@ -74,6 +74,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
         description: null,
         listing_url: null,
         docs_url: null,
+        vendor_links: { context: null, other: null },
         built_by_vendor: {
           id: 'v1',
           name: 'Autodesk',

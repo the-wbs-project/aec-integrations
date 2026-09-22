@@ -19,6 +19,8 @@ import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
 import { VendorIntegrationRetire } from './vendor-integration-retire';
 import { VendorIntegrationOwnership } from './vendor-integration-ownership';
+// AECI-1007: per-side links.
+import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
 
 /**
  * One integration touching a product this vendor owns (AECI-606 / §6), rendered
@@ -57,6 +59,7 @@ import { VendorIntegrationOwnership } from './vendor-integration-ownership';
     VendorHealthPill,
     VendorIntegrationRetire,
     VendorIntegrationOwnership,
+    VendorIntegrationLinksForm,
   ],
   styles: [':host { display: block; }'],
   template: `
@@ -184,6 +187,23 @@ import { VendorIntegrationOwnership } from './vendor-integration-ownership';
         <aec-vendor-integration-ownership [integration]="integration()" />
 
         <!--
+          AECI-1007 (spec 4.5.7): per-side links. Seat-only, like the contest
+          form below: gated on the edge taking vendor writes (attestable is the
+          server's connector-powered verdict, decision 9), never on canWrite.
+          On a connector-powered row it renders only while the vendor still has
+          a stored link, read-only with Remove (the links were stranded when
+          promote made the row connector-powered in place). Hidden on a retired
+          row (AECI-1010): the API refuses link writes there.
+        -->
+        @if (!retired() && (integration().attestable || hasOwnLinks())) {
+          <aec-vendor-integration-links-form
+            [integration]="integration()"
+            [vendorName]="vendorName()"
+          />
+        }
+        <!-- end AECI-1007 -->
+
+        <!--
           AECI-1008 (spec 11b). Seat-only: gated on NOT being the owner, never
           on canWrite or the edge being attestable. A vendor without active
           access, or on a connector-powered edge, can still ask for a wrong
@@ -295,6 +315,11 @@ export class VendorIntegrationCard {
    * write it takes is the owner's Restore, in the retire section.
    */
   protected readonly retired = computed(() => this.integration().retired_at !== null);
+  /** AECI-1007: the caller still holds a link on this entry's side. */
+  protected readonly hasOwnLinks = computed(() => {
+    const links = this.integration().own_links;
+    return links.listing_url !== null || links.docs_url !== null;
+  });
 
   protected readonly retiredBadgeClass =
     'inline-flex items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-raised) px-2 py-0.5 text-xs font-semibold text-(--text-primary)';

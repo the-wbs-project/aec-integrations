@@ -132,6 +132,10 @@ import {
   createRetireIntegrationHandler,
 } from './routes/vendor-integration-retire';
 import {
+  createDeleteIntegrationLinkHandler,
+  createPutIntegrationLinkHandler,
+} from './routes/vendor-integration-links';
+import {
   createAdminContestsListHandler,
   createModerateContestHandler,
 } from './routes/admin-contests';
@@ -973,6 +977,23 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorIntegrationHandler(),
+);
+// AECI-1007 / ADR 0035 decision 6: each endpoint vendor sets its OWN listing and
+// docs links on an integration. `:productId` is the endpoint the link speaks for,
+// never a source/target position. A SEAT IS THE WHOLE GATE (decision 15): no
+// `requireCapability`. Side ownership (404) and the connector-powered 403 are
+// decided in the handler, in that order. Integration ownership is not required.
+authVendor.put(
+  '/api/vendor/integrations/:id/links/:productId/:kind',
+  requireVendor(),
+  rateLimit('write'),
+  createPutIntegrationLinkHandler(),
+);
+authVendor.delete(
+  '/api/vendor/integrations/:id/links/:productId/:kind',
+  requireVendor(),
+  rateLimit('write'),
+  createDeleteIntegrationLinkHandler(),
 );
 //
 // Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on

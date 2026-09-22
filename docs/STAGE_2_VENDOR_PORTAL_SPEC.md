@@ -307,7 +307,7 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 
 ### 4.5 Integrations are vendor-owned; AECi seeds (AECI-1005 — 2026-09-21)
 
-**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits, §4.5.6, shipped), AECI-1007 (per-side links), AECI-1010 (retire), AECI-1011 (create).
+**The contract for integration ownership.** ADR 0035 records the decisions; epic AECI-1003 holds the fifteen rulings it binds. The later owner writes build on this section: AECI-1006 (owner edits, §4.5.6, shipped), AECI-1007 (per-side links, §4.5.7), AECI-1010 (retire), AECI-1011 (create).
 
 #### 4.5.1 Who owns an integration
 
@@ -390,6 +390,28 @@ The claimed owner edits its integration's standard fields, and the edit goes liv
 Two consequences. First, an owner accept after an edit writes the contest's proposed value over whatever the owner typed, because that is what accepting means, and the owner is the one choosing it. Second, an **AECi accept of a content contest on a claimed row** (§11b.6) would write its proposed value over a later owner edit of that field. That one is refused (ruled 2026-09-22 on AECI-1006): the accept answers `409 CONTEST_VALUE_STALE` when the live column no longer holds the value recorded at submit, and `/admin/contests` shows the live value so the admin can see why (§11b.6).
 
 **The portal.** §6.14.
+
+#### 4.5.7 Per-side links (AECI-1007 — 2026-09-22)
+
+**Each endpoint vendor stores its own listing and docs link on an integration** (decision 6), shown on the pair page beside the other side's. They are web links. Nothing routes on them and nothing reads them to grant anything.
+
+| Rule | As built |
+|---|---|
+| Routes | `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind`, `kind` = `listing` or `docs`. Wire shape: `API_CONTRACTS.md` §6.14 |
+| Gate | `requireVendor()` → `rateLimit('write')` → side ownership → connector fence, all in that order. **A seat is the whole gate** (decision 15). |
+| Who may write a side | The vendor that holds that endpoint product through `product_vendors`. **Not** the integration's owner as such, and no claim is needed: a link is the endpoint vendor's statement about its own side. A vendor that owns both endpoints writes both sides, one at a time. A non-endpoint owner has no side to link. |
+| Refusals | Every miss is the same `404`: unknown id, a product that is not an endpoint, an endpoint the caller does not hold (including the other side of a row it can see). Then a `PUT` on a connector-powered row is `403 INTEGRATION_CONNECTOR_POWERED` (decision 9, ruled 2026-09-18 for links). A `DELETE` passes that fence, so a stranded link can be removed (see "When links are lost" below). Then a retired row is `409 INTEGRATION_RETIRED` (AECI-1010). A non-https URL, credentials in the URL, or more than 2,048 characters is `400`. |
+| Why a product id and not `a`/`b` | Promote swaps an unclaimed row's source and target in bulk (AECI-920). A positional key would hand one vendor's link to the other. An endpoint re-point leaves the old product's link stored and unread. |
+| One batch | The upsert (or the DELETE plus a one-row race sentinel), the §13.9 maintenance transfer on the `integrations` row, and one `integration.link_set` / `integration.link_removed` audit row. The transfer moves `integrations.updated_at`, which is how the §2.2 freshness cursor sees the write on both sides. |
+| After commit | Purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl (`CACHE_STRATEGY.md` §3). |
+| Promote | Never writes the table (`promote-vendor-links.spec.ts`). It keeps writing AECi's curated `listing_url` / `docs_url` on unclaimed rows; the pair page falls back to those per kind when neither side has set one (`STAGE_1_5_SPEC.md` §7.1). |
+| When links are lost, or stranded | **Deleted** only with their row, or with their product. On an **unclaimed** row the row goes with a retraction, a datatool prune, an `ops:retract-product` of an endpoint, or a promote cross-table move into `connector_evidenced_pairs`. `ops:retract-product` also deletes every link whose `product_id` is the retracted product, on any row, because `product_id` carries no FK and nothing else would clear it. A vendor-held row is refused by every one of those lanes (§4.5.5). `ops:retract-product` counts the links on its tombstone, and the retraction consumer reports them on its cascade line (reported, not ceilinged), both behind a table probe for tiers without `0045`. **Stranded, not deleted, when promote makes an unclaimed row connector-powered in place**: a connector `mechanism_kind` (`iPaaS`, `integrator`) or a Convention-A self-reference keeps the row in `integrations`, so its links stay stored. The pair read then returns empty `vendor_links` for it (`isConnectorPoweredEdge`, decision 9). The vendor can still remove its own link, since a `DELETE` passes the connector fence and removing is not an edit. That DELETE writes no maintenance transfer. A `PUT` stays refused. |
+
+**The portal.** `own_links` on `GET /api/vendor/integrations` carries the caller's own side per entry. The card's "Your links" block (`vendor-integration-links-form.ts`) shows them and opens a two-field form. It renders on every attestable card whatever the entitlement. On a connector-powered card it renders only while the vendor still holds a stranded link: read-only, with a sentence saying readers no longer see the links and a Remove action per link. With no stored link it does not render there at all. Saving is pessimistic: one request per changed field, each echo spliced into the store (never a whole-list refetch, which would clobber a concurrent data-flow write), then one announcement through the portal's live region.
+
+**Retired rows (AECI-1010).** A retired row refuses both PUT and DELETE with `409 INTEGRATION_RETIRED`, after the side check and the connector fence, through `assertIntegrationLive`. The batch opens with `integrationLiveSentinel`, so a retire that lands between the read and the batch stops the write. The card hides "Your links" on a retired row.
+
+**Not built here.** Links do not appear on the product-detail page, in Algolia, or in the public integration detail read.
 
 ### 4.6 The owner retires and restores an integration (AECI-1010 — 2026-09-22)
 

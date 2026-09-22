@@ -27,6 +27,8 @@ import type {
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
   DecideContestInput,
+  IntegrationLinkKind,
+  IntegrationLinkResponse,
   ListVendorContestsResponse,
   SubmitIntegrationContestInput,
   VendorContestResponse,
@@ -361,4 +363,43 @@ export class VendorApi {
       ),
     );
   }
+
+  // ─── Per-side integration links (AECI-1007) ────────────────────────────────
+
+  /** `PUT /api/vendor/integrations/:id/links/:productId/:kind` — set the caller's
+   *  own listing or docs link for its product on this integration. Seat-gated only. */
+  putIntegrationLink(
+    integrationId: string,
+    productId: string,
+    kind: IntegrationLinkKind,
+    url: string,
+  ): Promise<IntegrationLinkResponse> {
+    return firstValueFrom(
+      this.http.put<IntegrationLinkResponse>(integrationLinkPath(integrationId, productId, kind), {
+        url,
+      }),
+    );
+  }
+
+  /** `DELETE …/links/:productId/:kind` — remove it. Removing an unset link is a
+   *  200 that writes nothing. */
+  deleteIntegrationLink(
+    integrationId: string,
+    productId: string,
+    kind: IntegrationLinkKind,
+  ): Promise<IntegrationLinkResponse> {
+    return firstValueFrom(
+      this.http.delete<IntegrationLinkResponse>(
+        integrationLinkPath(integrationId, productId, kind),
+      ),
+    );
+  }
+}
+
+function integrationLinkPath(
+  integrationId: string,
+  productId: string,
+  kind: IntegrationLinkKind,
+): string {
+  return `/api/vendor/integrations/${encodeURIComponent(integrationId)}/links/${encodeURIComponent(productId)}/${kind}`;
 }

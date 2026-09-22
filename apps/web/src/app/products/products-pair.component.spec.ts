@@ -102,6 +102,7 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         built_by_vendor: null,
         powered_by_product: null,
         via: null,
+        vendor_links: { context: null, other: null },
         claims: [],
       },
     ],
@@ -195,6 +196,61 @@ describe('ProductsPairPage', () => {
     expect(el.textContent).toContain('Marketplace app');
     expect(el.textContent).toContain('Procore + Autodesk Construction Cloud');
     expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
+  });
+
+  // AECI-1007: each endpoint vendor's own links, labelled by vendor, with AECi's
+  // curated link as the per-kind fallback.
+  describe('per-side vendor links (AECI-1007)', () => {
+    const withLinks = (vendor_links: ProductPairResponse['mechanisms'][number]['vendor_links']) => {
+      const pair = buildPair({
+        context_product: productListItem('procore', 'Procore', {
+          vendor: {
+            id: 'v1',
+            name: 'Procore Technologies',
+            slug: 'procore-tech',
+            logo_url: null,
+            verified: false,
+          },
+        }),
+      });
+      pair.mechanisms[0] = {
+        ...pair.mechanisms[0]!,
+        vendor_links,
+        docs_url: 'https://aeci.example/docs',
+      };
+      return pair;
+    };
+    const links = (el: HTMLElement) =>
+      [...el.querySelectorAll('article a[target="_blank"]')].map((a) => ({
+        href: a.getAttribute('href'),
+        // The first span is the label; the new-tab icon adds its own hidden text.
+        text: a.querySelector('span')?.textContent?.trim(),
+        rel: a.getAttribute('rel'),
+      }));
+
+    it('labels each side by its vendor, falling back to the product name', () => {
+      const { el } = setup(
+        withLinks({
+          context: { listing_url: 'https://procore.example/l', docs_url: null },
+          other: { listing_url: 'https://revit.example/l', docs_url: null },
+        }),
+      );
+      const found = links(el);
+      expect(found.map((l) => [l.href, l.text])).toEqual([
+        ['https://procore.example/l', 'Procore Technologies listing'],
+        ['https://revit.example/l', 'Revit listing'],
+        // No vendor set a docs link, so AECi's curated one stays, unlabelled.
+        ['https://aeci.example/docs', 'Documentation'],
+      ]);
+      // The curated listing link is replaced, not shown beside the vendors' own.
+      expect(el.querySelector('a[href="https://example.com/listing"]')).toBeNull();
+      for (const l of found) expect(l.rel).toBe('noopener noreferrer nofollow');
+    });
+
+    it('keeps the legacy links when no vendor has set any', () => {
+      const { el } = setup(withLinks({ context: null, other: null }));
+      expect(links(el).map((l) => l.text)).toEqual(['View listing', 'Documentation']);
+    });
   });
 
   // AECI-919. The rail separator used to be a literal "\u21C4" \u2014 the same character

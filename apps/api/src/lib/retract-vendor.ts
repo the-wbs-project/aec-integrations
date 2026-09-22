@@ -36,6 +36,12 @@
  *   claims                     created_by_vendor_id     set null    allowed; reported + NULLed
  *   attestations               attested_by_vendor_id    set null    allowed; reported + NULLed
  *   page_views                 vendor_id                —           allowed; NULLed, never deleted
+ *   integration_vendor_links   vendor_id                set null    allowed; NULLed by the FK action
+ *
+ * `integration_vendor_links` (AECI-1007, migration 0045) is the one row above the plan
+ * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
+ * explicit UPDATE would fail the whole batch on a tier that has not applied 0045 yet.
+ * The link itself survives: it describes the product, not the company that typed it.
  *
  * D1 ENFORCES FOREIGN KEYS. `PRAGMA foreign_keys = on|off` is not available on D1 (only
  * `defer_foreign_keys`, and that defers violation *reporting*, not cascade *actions* —

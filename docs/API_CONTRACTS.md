@@ -258,9 +258,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
-| `INTEGRATION_CONNECTOR_POWERED` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`). Decision 9 keeps the claim off those rows in v1; AECI-1040 opens it |
+| `INTEGRATION_CONNECTOR_POWERED` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`). Decision 9 keeps the claim off those rows in v1; AECI-1040 opens it. Also `PUT /api/vendor/integrations/:id/links/…` on such a row, after the side check (AECI-1007). A `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
-| `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), and the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race). Withdrawing an attestation is still allowed (AECI-1010) |
+| `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` on a live row (AECI-1010) |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore or owner edit whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
@@ -878,8 +878,14 @@ export const ProductPairMechanismSchema = z.object({
                                         // client promotes `mechanism_kind`'s label to the heading.
   direction: ContextDirectionSchema.nullable(),   // the stored a_to_b/b_to_a/both, translated context-relative (§3.2)
   description: z.string().nullable(),
-  listing_url: z.string().url().nullable(),
-  docs_url: z.string().url().nullable(),
+  listing_url: z.string().url().nullable(),   // AECi-curated (promote); the pair page's
+  docs_url: z.string().url().nullable(),      // fallback per kind when no vendor set one
+  vendor_links: PairVendorLinksSchema.default({ context: null, other: null }),
+                                        // AECI-1007: each endpoint vendor's OWN links,
+                                        // { context, other }, each null or
+                                        // { listing_url, docs_url }. Framed to the context
+                                        // product; only the row's CURRENT endpoints are read.
+                                        // Always both-null on a connector_evidenced_pairs row.
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
   via: ProductLinkSchema.nullable().default(null),   // the connector, when this mechanism is a
@@ -4978,7 +4984,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so will every later owner write on integrations (1007 per-side links, 1010 retire, 1011 create). Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so will every later owner write on integrations (1010 retire, 1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5546,6 +5552,9 @@ export const VendorIntegrationSchema = z.object({
     // when the owner claimed the row, null while unclaimed. The portal offers the
     // owner Claim while null, and Edit and Retire once set
   retired_at: z.string().nullable().default(null),  // set while the owner has it retired
+  own_links: IntegrationSideLinksSchema.default({ listing_url: null, docs_url: null }),
+    // AECI-1007: the caller's OWN links on the context_product side. Editable
+    // unless `attestable` is false (connector-powered, decision 9)
 });
 
 export const ListVendorIntegrationsResponseSchema = z.object({
@@ -5773,6 +5782,35 @@ export const UpdateVendorIntegrationResponseSchema = z.object({
 **One batch.** The guarded `UPDATE … SET <changed columns>, maintained_by = 'vendor', last_reviewed_at, updated_at WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT NULL AND retired_at IS NULL`, a race sentinel right after it, an `integration.updated` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-edit'`, `fields`, before and after of the changed fields plus the maintenance columns, `maintenanceTransfer: true` only on the hand-changing write), and one `notification.sent` row (`metadata.kind: 'integration_update'`) per vendor of either endpoint other than the owner. A lost race (an AECi `owner` accept reassigned the row, the claim was cleared, or the owner retired it) writes nothing and answers what the pre-check now would, or `409 INTEGRATION_CHANGED_WHILE_SAVING` when nothing explains it. A body whose every value equals the one on record answers `200` with `changed: []` and writes nothing, not even an audit row.
 
 **After commit** it runs a by-id Algolia sync of the integration record alone (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.edit_algolia_sync_failed`. That is the same tail retire uses, and it is why a changed mechanism, direction or description reaches search without waiting a night. Then it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl. The bumped `updated_at` still puts the row in the nightly watermark sweep as a backstop, and moves the `integrations` freshness cursor for both endpoint vendors. **Open contests are not touched**: see `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6.
+
+
+#### Per-side integration links — `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind`
+
+Stage 2.1 (AECI-1007, ADR 0035 decision 6, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.7). Each endpoint vendor sets its own listing and docs link. Zod in `packages/shared/src/api/integration-vendor-links.ts` (the URL rule is `HttpsUrlSchema` in `https-url.ts`, shared with `LogoUrlSchema`), handler in `apps/api/src/routes/vendor-integration-links.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `PUT` | `/api/vendor/integrations/:id/links/:productId/:kind` | seat, `rateLimit('write')`, caller's vendor holds `:productId`, which is an endpoint | `200 IntegrationLinkResponse` |
+| `DELETE` | same | same | `200 IntegrationLinkResponse` |
+
+```typescript
+export const IntegrationLinkKindSchema = z.enum(['listing', 'docs']);
+export const PutIntegrationLinkSchema = z.object({ url: HttpsUrlSchema }).strict();
+  // HttpsUrlSchema: trimmed, <= 2048, absolute https:, no username/password
+export const IntegrationLinkResponseSchema = z.object({
+  integration_id: z.string().uuid(),
+  product_id: z.string(),
+  links: z.object({ listing_url: z.string().url().nullable(), docs_url: z.string().url().nullable() }),
+});   // the caller's side as it now stands
+```
+
+**`:productId`, not `a`/`b`.** The side is the endpoint product the link speaks for, so a promote that swaps source and target cannot move a link to the other vendor.
+
+**Order: params → row → side → connector.** An unknown `kind` is `400 VALIDATION_FAILED`. An unknown id, a product that is not an endpoint, and an endpoint the caller does not hold are all the same `404`, including the other side of a row the caller can see. A `PUT` on a connector-powered row (`isConnectorPoweredEdge`) is then `403 INTEGRATION_CONNECTOR_POWERED`. A `DELETE` passes that fence: promote can make an unclaimed row connector-powered in place (a connector `mechanism_kind` or a Convention-A self-reference), the links set before stay stored, and removing your own is not an edit of the row. A retired row is `409 INTEGRATION_RETIRED` (AECI-1010, PUT and DELETE alike; the batch also opens with `integrationLiveSentinel`). A bad URL is `400`. Integration ownership and a claim are not required.
+
+**One batch.** The link upsert on `(integration_id, product_id, kind)` (or the DELETE plus a one-row race sentinel), the §13.9 maintenance transfer on the `integrations` row, and an `integration.link_set` / `integration.link_removed` audit row (`entity_type: 'integration'`, before/after `{ product_id, kind, url }`, `metadata.source: 'vendor-portal'`). The transfer moves `integrations.updated_at`, which is what moves the `integrations` freshness cursor for both sides. A `DELETE` on a connector-powered row writes no transfer, because that row stays AECi's to curate: it bumps `updated_at` alone and marks the audit row `metadata.connectorPowered: true`. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl. A DELETE of an unset link, or one a concurrent request removed first, writes nothing and answers `200`.
+
+**Links are never routes and never permissions.** Nothing reads a stored URL to decide anything, and promote never writes the table.
 
 ## 7. Validation rules
 

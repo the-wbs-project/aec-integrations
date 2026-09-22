@@ -960,6 +960,19 @@ async function main() {
   // Re-asserted in the DELETE itself, so a row claimed after this read survives the
   // write and `verifyDeleted` reports it instead of it being confirmed.
   const integrationsDeletable = notVendorHeldSql(integrationsDdl);
+  // AECI-1007: the per-side links an integration delete cascades, counted and reported
+  // like `ops:retract-product` does. Probed, because migration 0045 reaches each tier
+  // only at its next deploy and naming a missing table would fail the read. Reported,
+  // not ceilinged: a link on an unclaimed row is lost with its row by design
+  // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.7), and a vendor-held row is refused above.
+  const vendorLinksTable =
+    d1Read(
+      target,
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'integration_vendor_links'`,
+    ).length > 0;
+  const vendorLinksSql = vendorLinksTable
+    ? '(SELECT COUNT(*) FROM integration_vendor_links WHERE integration_id = i.id)'
+    : '0';
   for (const part of chunk(allIds, ID_CHUNK)) {
     const ph = sqlIdList(part);
     integrationRows.push(
@@ -970,7 +983,8 @@ async function main() {
                 i.target_product_id AS p2, NULL AS p3, ${integrationsHeldSql},
                 (SELECT COUNT(*) FROM claims WHERE integration_id = i.id) AS claims,
                 (SELECT COUNT(*) FROM attestations WHERE claim_id IN
-                   (SELECT id FROM claims WHERE integration_id = i.id)) AS attestations
+                   (SELECT id FROM claims WHERE integration_id = i.id)) AS attestations,
+                ${vendorLinksSql} AS vendorLinks
            FROM integrations i
            LEFT JOIN products s ON s.id = i.source_product_id
            LEFT JOIN products t ON t.id = i.target_product_id
@@ -985,7 +999,8 @@ async function main() {
                 e.product_b_id AS p2, e.connector_product_id AS p3, ${pairsHeldSql},
                 (SELECT COUNT(*) FROM claims WHERE connector_evidenced_pair_id = e.id) AS claims,
                 (SELECT COUNT(*) FROM attestations WHERE claim_id IN
-                   (SELECT id FROM claims WHERE connector_evidenced_pair_id = e.id)) AS attestations
+                   (SELECT id FROM claims WHERE connector_evidenced_pair_id = e.id)) AS attestations,
+                0 AS vendorLinks
            FROM connector_evidenced_pairs e
            LEFT JOIN products a ON a.id = e.product_a_id
            LEFT JOIN products b ON b.id = e.product_b_id
@@ -1162,11 +1177,16 @@ async function main() {
     (acc, p) => ({
       claims: acc.claims + num(p.row.claims),
       attestations: acc.attestations + num(p.row.attestations),
+      vendorLinks: acc.vendorLinks + num(p.row.vendorLinks),
     }),
-    { claims: 0, attestations: 0 },
+    { claims: 0, attestations: 0, vendorLinks: 0 },
   );
   const withClaims = plan.filter((p) => num(p.row.claims) > 0);
-  console.log(`cascade: ${cascade.claims} claims, ${cascade.attestations} attestations`);
+  console.log(
+    `cascade: ${cascade.claims} claims, ${cascade.attestations} attestations, ` +
+      `${cascade.vendorLinks} per-side vendor links` +
+      (vendorLinksTable ? '' : ' (no integration_vendor_links table on this tier)'),
+  );
   if (withClaims.length) {
     console.log('rows in the plan that carry claims:');
     console.table(
@@ -1330,7 +1350,11 @@ async function main() {
           entry: p.entry,
           table: p.table,
           row: p.row,
-          cascade: { claims: num(p.row.claims), attestations: num(p.row.attestations) },
+          cascade: {
+            claims: num(p.row.claims),
+            attestations: num(p.row.attestations),
+            vendorLinks: num(p.row.vendorLinks),
+          },
           affectedProductIds: affectedByEntry.get(p.entry.supabaseId) ?? [],
           ruling,
         }),

@@ -18,6 +18,7 @@ import {
   type ProductDeleteArgs,
   formatFootprintReport,
   parseFootprint,
+  VENDOR_LINKS_TABLE_SQL,
   type ProductRow,
   type RawFootprintRow,
   type RetractFootprint,
@@ -331,10 +332,24 @@ function seed(t: TestDb): void {
   run(
     `INSERT INTO integration_field_challenges (id, integration_id, field, reason, submitter_vendor_id, routed_to, created_at, updated_at) VALUES ('fc1', 'i1', 'name', 'r', 'v1', 'aeci', ${TS}, ${TS});`,
   );
+  // AECI-1007: one endpoint vendor's own listing link on i1, where the table exists
+  // (the pre-0044 and pre-0045 cases below seed an older schema).
+  if (t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()) {
+    run(
+      `INSERT INTO integration_vendor_links (id, integration_id, product_id, kind, url, vendor_id, created_at, updated_at) VALUES ('vl1', 'i1', '${Q}', 'listing', 'https://example.com/l', 'v1', ${TS}, ${TS});`,
+    );
+  }
   // Q → R powered by P: survives, detached.
   run(
     `INSERT INTO integrations (id, source_product_id, target_product_id, powered_by_product_id, created_at, updated_at) VALUES ('i2', '${Q}', '${R}', '${P}', ${TS}, ${TS});`,
   );
+  // AECI-1007: a link that still names P on i2, a row P does not sit on (left by an
+  // endpoint re-point). `product_id` has no FK, so only the plan can clear it.
+  if (t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()) {
+    run(
+      `INSERT INTO integration_vendor_links (id, integration_id, product_id, kind, url, vendor_id, created_at, updated_at) VALUES ('vl2', 'i2', '${P}', 'docs', 'https://example.com/d', 'v1', ${TS}, ${TS});`,
+    );
+  }
   // Evidenced pair with P as endpoint A (A < B by id order: 'prod-other' < 'prod-retract').
   run(
     `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, created_at, updated_at) VALUES ('ep1', '${C}', '${Q}', '${P}', ${TS}, ${TS});`,
@@ -378,6 +393,28 @@ type AuditRow = {
   created_at: string;
 };
 
+describe('a tier without migration 0045 (AECI-1007)', () => {
+  it('never names integration_vendor_links when the probe says the table is absent', () => {
+    const product = { id: P, slug: 'retract-me', name: 'retract-me', promotion_status: 'promoted' };
+    const footprint = parseFootprint(RAW_EMPTY);
+    const without = buildDeleteStatements({
+      product,
+      footprint,
+      auditId: 'a',
+      now: NOW,
+      vendorLinksTable: false,
+    }).join('\n');
+    expect(without).not.toContain('integration_vendor_links');
+    expect(buildFootprintSql(P, { vendorLinksTable: false })).not.toContain(
+      'integration_vendor_links',
+    );
+    // HEAD's schema has the table, so the default plan deletes from it.
+    expect(
+      buildDeleteStatements({ product, footprint, auditId: 'a', now: NOW }).join('\n'),
+    ).toContain('DELETE FROM "integration_vendor_links"');
+  });
+});
+
 describe('buildDeleteStatements against the migrated schema', () => {
   it('reads a footprint that counts every relation it will touch', async () => {
     const t = await makeTestDb();
@@ -393,6 +430,8 @@ describe('buildDeleteStatements against the migrated schema', () => {
       claims: 2,
       attestations: 1,
       fieldChallenges: 1,
+      // vl1 on the endpoint row i1, plus vl2 naming P on i2.
+      vendorLinks: 2,
       reviews: 1,
       productVersions: 1,
       pageViews: 1,
@@ -427,6 +466,8 @@ describe('buildDeleteStatements against the migrated schema', () => {
     expect(count(`SELECT count(*) AS n FROM claims`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM attestations`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM integration_field_challenges`)).toBe(0);
+    // Both: vl1 went with i1, and vl2 (naming P on the surviving i2) by product_id.
+    expect(count(`SELECT count(*) AS n FROM integration_vendor_links`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM reviews`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM product_versions`)).toBe(0);
     // Survivors: the powered_by edge (detached) and the page view (detached).
@@ -469,7 +510,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
     expect(JSON.parse(byEntity.i1!.before_state)).toMatchObject({
       table: 'integrations',
       row: { id: 'i1', source_product_id: P, target_product_id: Q },
-      cascade: { claims: 1, attestations: 1, field_challenges: 1 },
+      cascade: { claims: 1, attestations: 1, field_challenges: 1, vendor_links: 1 },
     });
     expect(JSON.parse(byEntity.ep1!.metadata).table).toBe('connector_evidenced_pairs');
     expect(JSON.parse(byEntity.ep1!.before_state)).toMatchObject({
@@ -485,6 +526,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         evidenced_pairs: 1,
         reviews: 1,
         product_versions: 1,
+        vendor_links: 2,
       },
       detached: { page_views: 1, powered_by: 1 },
     });
@@ -558,7 +600,12 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
     const ddl = (t.raw.prepare(INTEGRATIONS_DDL_SQL).get() as { sql: string } | undefined)?.sql;
     return parseFootprint(
       t.raw
-        .prepare(buildFootprintSql(id, { vendorHeldColumns: ddlHasVendorHeldColumns(ddl) }))
+        .prepare(
+          buildFootprintSql(id, {
+            vendorHeldColumns: ddlHasVendorHeldColumns(ddl),
+            vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
+          }),
+        )
         .get() as RawFootprintRow,
     );
   };
