@@ -44,6 +44,8 @@ function tally(
   const all = new Set<string>();
   const perProduct = new Map<string, { product: ProductClaimCount['product']; ids: Set<string> }>();
   for (const integration of integrations) {
+    // A retired integration is off the public record: listed, never counted (AECI-1010).
+    if (integration.retired_at) continue;
     if (!include(integration)) continue;
     for (const claim of integration.claims) {
       if (!match(claim)) continue;

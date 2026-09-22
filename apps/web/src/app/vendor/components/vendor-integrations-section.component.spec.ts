@@ -705,6 +705,38 @@ describe('VendorIntegrationsSection — drill-down (AECI-999)', () => {
     expect(toggleOf(groupNamed(fixture, 'Acumatica')).getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('lists a retired row under All but leaves it out of every chip count (AECI-1010)', async () => {
+    const fixture = await create();
+    const before = [...el(fixture).querySelectorAll('[role="group"] button')].map((b) =>
+      b.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+    const cards = el(fixture).querySelectorAll('aec-vendor-integration-card').length;
+
+    const store = TestBed.inject(VendorPortalStore);
+    const conflicted = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) =>
+      i.claims.some((c) => c.agreement === 'conflict'),
+    )!;
+    store
+      .apply('integrations', (list) => [
+        ...list,
+        {
+          ...conflicted,
+          id: '00000000-0000-4000-8000-00000000a1e0',
+          retired_at: '2026-09-18T00:00:00.000Z',
+        },
+      ])
+      .commit();
+    fixture.detectChanges();
+
+    // Listed: one more card.
+    expect(el(fixture).querySelectorAll('aec-vendor-integration-card')).toHaveLength(cards + 1);
+    // Not counted: every chip, All included, reads exactly as before.
+    const after = [...el(fixture).querySelectorAll('[role="group"] button')].map((b) =>
+      b.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+    expect(after).toEqual(before);
+  });
+
   it('filters by status, and clears', async () => {
     const fixture = await create();
     chip(fixture, 'Conflict').click();
