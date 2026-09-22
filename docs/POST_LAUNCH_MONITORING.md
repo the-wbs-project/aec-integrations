@@ -618,6 +618,16 @@ email says so in both renderings.
 | `LANDING_CF_COVERAGE_MIN` | `0.9` | `apps/api/src/lib/data-quality.ts` | The share of a 30-day window's `mailing_list` signups that must carry an `asn` (AECI-876). Lower than the arrival floor **because the denominator is smaller, not because the bar is softer.** Read it with the row minimum below — they were chosen as a pair, and neither is meaningful alone |
 | `LANDING_CF_COVERAGE_MIN_ROWS` | `10` | `apps/api/src/lib/data-quality.ts` | Below this many signups in the window the check reports "nothing to measure" and passes (AECI-876). For one legitimate NULL to be survivable the denominator must satisfy `N >= 1 / (1 - floor)`; at `0.9` that is ten. **Raising the floor to `0.95` without raising this to twenty would make one odd row a failing run** |
 
+**`ARRIVAL_CF_COVERAGE_MIN` was measured on 2026-09-22 and left at `0.95` (AECI-875).** Across the
+eight full UTC days after the fix, 2026-09-14 through 2026-09-21, production wrote **20,876 of
+20,876** arrivals with a `cf_asn`. The NULL tail was **0.000% on every day**, so the floor is loose by
+the whole 5% and no normal day comes near it. The legitimate NULL tail the rationale above allows for
+has not yet been observed in production. Lower the floor only if a real tail appears; do not raise it
+to `1.0`, because one `.cf`-less request would then fail the day. **The promote day, 2026-09-13, reads
+degraded by design.** Its stored `quality.arrival_cf_coverage` is `0.926` (4,870 of 5,257), below the
+floor, because the 387 arrivals before the 04:00Z cutover had no ASN. That day was genuinely 7%
+blind, so the degraded marker and the suppressed deltas on it are correct, not a calibration miss.
+
 **The landing pair has one reader**, unlike the four below — the nightly check and nothing
 else. That is why it lives beside the check in `data-quality.ts` rather than in its own
 module: AECI-876 deliberately added no `metrics_daily` series, no digest line and no admin
