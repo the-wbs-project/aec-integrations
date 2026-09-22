@@ -73,7 +73,7 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 **Integrations a vendor adds.** A vendor can also add an integration it offers for one of its own products. It belongs to that vendor and is claimed from the moment it is added, and it goes live without review by us. We did not research it, and its page says "Added by the vendor" beside the "Offered by" line. If we already list an integration that looks the same, the vendor is told, but it is not stopped. Our catalogue updates will not add a second copy of an integration a vendor holds.
 
-**Integrations delivered through a connector.** Where a third-party connector product carries the data, no vendor can yet claim, edit, retire, add, or put its own links on the integration. Those stay as we recorded them. A vendor that thinks one is wrong can tell us through the correction route below.
+**Integrations delivered through a connector.** Where a third-party connector product carries the data, no vendor can yet claim, edit, retire, add, or put its own links on the integration. Those stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
 
 ## No pay-for-placement
 

@@ -95,6 +95,8 @@ A contest about who owns the integration never comes to you. It always goes to A
 
 Where a third-party connector product carries the data, no vendor can yet claim, edit, retire, or add links to the integration. These stay as AEC Integrations recorded them. You can still contest a detail on one that appears on your Integrations tab.
 
+An integration can become connector-delivered after you added your links to it, when our records change. Your links are then no longer shown on the public page. They still appear under **Your links** on the card, and you can remove them there.
+
 ## Related
 
 - [How we research and verify listings](/methodology) explains ownership for readers.
