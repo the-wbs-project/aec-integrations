@@ -31,8 +31,9 @@
  *
  * The two platforms answer it differently, and the asymmetry is the point:
  *
- *   - **Server.** Nothing here can mint a fresh access token, so the honest move
- *     is to hand the visitor to the login page. `@angular/ssr` turns the
+ *   - **Server.** The SSR gate already tried a refresh before the render
+ *     (`server/auth/session-refresh.ts`), so a 401 here means it failed and the
+ *     honest move is to hand the visitor to the login page. `@angular/ssr` turns the
  *     `RedirectCommand` into a real 302. `RESPONSE_INIT.status` is deliberately
  *     LEFT ALONE on this branch — the engine feeds it into its redirect-response
  *     builder, which rejects any status outside 301/302/303/307/308.

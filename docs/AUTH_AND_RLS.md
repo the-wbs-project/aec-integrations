@@ -379,9 +379,18 @@ stale-cookie case fell through to SSR and rendered "Page not found".
 
 Two properties of that branch are load-bearing and must survive any refactor.
 
+0. **The SSR gate refreshes first (2026-09-22).** On `/admin*`, `/vendor*` and
+   `/account` the SSR Worker trades an expired access token before rendering
+   (`apps/web/src/server/auth/session-refresh.ts`), forwards the new cookie to the
+   resolver's API call, and returns it as `Set-Cookie` on a `private, no-store`
+   response. The refresh gives up after 3 s (`REFRESH_DEADLINE_MS`), so a GoTrue outage
+   cannot stall the render. The resolver therefore sees a 401 only when that refresh
+   failed or timed out. This is a
+   convenience, not an authorization layer: the API still verifies whatever it is sent.
+   `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6 has the full rule.
 1. **The client probes before it decides.** An access token lives about an hour; the
-   refresh token beside it lives weeks, and only the browser can trade one for the
-   other (`@supabase/ssr` does it inside `getSession()`). The client branch calls
+   refresh token beside it lives weeks. The browser can trade one for the other too
+   (`@supabase/ssr` does it inside `getSession()`). The client branch calls
    `hasLiveSession()`, retries once when a session survives, and redirects only when
    one does not.
 2. **That probe is the loop breaker.** §4.2's "a verified token with no `profiles` row

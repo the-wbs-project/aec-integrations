@@ -6,13 +6,12 @@
  * state is **recoverable** — the session is fine, the short-lived half of it just
  * went stale.
  *
- * Nothing on the server can act on that. The SSR Worker forwards the inbound
- * `Cookie` untouched to the API (`createServerApiClient`'s `forwardCookieFrom`),
- * and the API verifies what it is given; neither can mint a new access token, and
- * AECI-689 closed with a grace window scoped to the `page_views` operator flag,
- * not to `/api/*` authorization. The browser can: `@supabase/ssr`'s client
- * refreshes inside `getSession()` and writes the repaired session back to the
- * cookie.
+ * On a full page load of `/admin*`, `/vendor*` or `/account` the SSR gate now
+ * does that trade itself before rendering (`server/auth/session-refresh.ts`).
+ * This probe covers what the server cannot: a client-side navigation, where no
+ * SSR request happens, and a server refresh that failed. `@supabase/ssr`'s
+ * browser client refreshes inside `getSession()` and writes the repaired session
+ * back to the cookie.
  *
  * So this is the step an authenticated read takes after a 401, before deciding
  * whether the visitor needs the login page. `true` means "the cookie is good now

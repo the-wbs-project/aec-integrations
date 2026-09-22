@@ -30,8 +30,12 @@
  * is already loud: the worker gate sends a cookie-less visitor straight to
  * `/auth/login`, so routing a 401 there discloses nothing new.
  *
- * The two platforms answer it differently. The server has no way to mint a fresh
- * access token, so it redirects; `@angular/ssr` turns that `RedirectCommand` into
+ * Most expired tokens never reach this branch: the SSR gate refreshes an
+ * expired-but-refreshable session before the render and forwards the new cookie
+ * (`server/auth/session-refresh.ts`). A 401 here means that refresh failed.
+ *
+ * The two platforms answer it differently. The server has already tried its
+ * refresh, so it redirects; `@angular/ssr` turns that `RedirectCommand` into
  * a real 302, and `RESPONSE_INIT.status` is deliberately LEFT ALONE on the branch
  * because the engine feeds it into its redirect-response builder, which rejects
  * any status outside 301/302/303/307/308. The browser CAN recover — `@supabase/ssr`

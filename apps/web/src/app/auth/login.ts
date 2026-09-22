@@ -42,11 +42,13 @@ const MagicLinkSchema = z.object({
  * Arriving here with `?return=` and a session that is still good means the
  * visitor does NOT need to sign in — they need their access token refreshed. That
  * is the ordinary "my login timed out" state: the access token lives about an
- * hour, the refresh token beside it lives weeks, and only the browser can trade
- * one for the other (`@supabase/ssr` does it inside `getSession()`).
+ * hour, the refresh token beside it lives weeks, and `@supabase/ssr` trades one
+ * for the other inside `getSession()`.
  *
- * The `/vendor` and `/admin` gates cannot do that trade under SSR, so they bounce
- * a 401 here. This page finishes the job: with a cookie present it paints a brief
+ * The SSR gate on `/vendor` and `/admin` now tries that trade itself before the
+ * render (`server/auth/session-refresh.ts`), so this page only sees the cases
+ * where it failed, such as GoTrue being unreachable. Those bounce a 401 here.
+ * This page finishes the job: with a cookie present it paints a brief
  * "restoring" panel instead of the form, probes once, and navigates straight back
  * to the return path when a session survives. The visitor sees a flash, not a
  * magic-link round trip. A probe that finds nothing falls through to the form,

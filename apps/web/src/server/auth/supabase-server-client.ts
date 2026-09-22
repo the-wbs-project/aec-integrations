@@ -30,7 +30,9 @@
  * The distinction matters to anyone proposing to write a cookie from SSR: a
  * `Set-Cookie` on the cacheable branch would be stored by the native Workers
  * Cache and served to other visitors. AECI-689 declined a server-side token
- * refresh for exactly this reason (§13 D22).
+ * refresh for exactly this reason (§13 D22). The refresh that does exist
+ * (`session-refresh.ts`) runs only on non-cacheable paths and forces
+ * `private, no-store` on any response that carries a cookie.
  */
 
 import { createServerClient } from '@supabase/ssr';

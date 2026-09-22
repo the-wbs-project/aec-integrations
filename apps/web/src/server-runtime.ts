@@ -97,6 +97,7 @@ import { NOINDEX_DIRECTIVE, indexingAllowed } from './server/robots-policy';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { createAuthCallbackHandler, sanitizeReturnPath } from './server/routes/auth-callback';
+import { refreshSessionCookies, withRefreshedCookies } from './server/auth/session-refresh';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
 import { createVersionHandler } from './server/routes/version';
@@ -1540,7 +1541,7 @@ export function createApp(options: {
   app.get('/integrations/:id', pairRedirect);
 
   // Everything else: cache-aware SSR pipeline.
-  app.all('*', (c) => {
+  app.all('*', async (c) => {
     // `/preview/*` is dev/preview-only. Block on the public tiers (production +
     // demo) before invoking Angular so the lazy preview chunks never load on a
     // public, non-Access-gated Worker. See `isPreviewPath` above for the
@@ -1612,6 +1613,30 @@ export function createApp(options: {
             'Cache-Control': 'private, no-store',
           },
         });
+      }
+
+      // Server-side session refresh on the authenticated surfaces. A cookie
+      // that got past the presence gate above may hold an EXPIRED access token
+      // beside a live refresh token (the ordinary "back after an hour" state).
+      // Trading it here lets the resolver's forwarded cookie authenticate on the
+      // first try, instead of a 401 → `/auth/login` → "Restoring your session"
+      // → client navigation back. A fresh token costs no network. All three
+      // paths are non-cacheable, which is what makes the `Set-Cookie` safe —
+      // see `server/auth/session-refresh.ts` for why this does not reopen
+      // ADMIN_PANEL_SPEC.md §13 D22.
+      if (
+        (isAdminPath(path) || isVendorPath(path) || isAccountPath(path)) &&
+        hasSessionCookie(c.req.raw)
+      ) {
+        const refreshed = await refreshSessionCookies(c.req.raw, c.env);
+        const response = await handleSsr(
+          refreshed.request,
+          c.env,
+          renderer,
+          c.executionCtx,
+          transformResponse,
+        );
+        return withRefreshedCookies(response, refreshed.setCookies);
       }
     }
 
