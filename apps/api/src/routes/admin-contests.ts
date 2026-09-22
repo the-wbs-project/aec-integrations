@@ -111,6 +111,7 @@ import {
   type ContestAppliedMode,
   type LinearIssueOutcome,
 } from '../lib/linear';
+import { ownerStillHolds, toContestProtest } from '../lib/contest-protests';
 import { pairCacheTag } from './promote-pair';
 import {
   CONTEST_WORKFLOW_TYPE,
@@ -130,7 +131,7 @@ const FINAL_OUTCOME = { accepted: 'approved', declined: 'rejected' } as const;
 
 // ─── Mapping ─────────────────────────────────────────────────────────────────
 
-function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminContest | null {
+export function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminContest | null {
   const integration = hydration.integrations.get(row.integrationId);
   if (!integration) return null;
   const link = (p: ContestIntegrationContext['sourceProduct']) => ({
@@ -170,6 +171,9 @@ function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminCont
     upstream_linear_issue_url: row.upstreamLinearIssueUrl,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
+    // AECI-1009: the protest, and whether the vendor that decided still holds the row.
+    protest: toContestProtest(row),
+    owner_changed: row.ownerVendorId !== null && !ownerStillHolds(row, integration),
   };
 }
 
@@ -190,7 +194,7 @@ function emitModeration(
   }
 }
 
-function forwarders(c: AdminContext) {
+export function forwarders(c: AdminContext) {
   const log = (message: string, extra: Record<string, unknown>) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -226,10 +230,16 @@ export function createAdminContestsListHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
     const { db } = dbFor(c.env);
-    const where = and(
-      eq(integrationFieldChallenges.status, query.status),
-      eq(integrationFieldChallenges.routedTo, query.routed_to),
-    );
+    // AECI-1009: `protest_status` switches the list to the Protests view. Every
+    // protested row is `declined` and owner-routed, so the two contest filters are
+    // ignored there. Served by `integration_field_challenges_protest_idx`.
+    const protestView = query.protest_status !== undefined;
+    const where = protestView
+      ? eq(integrationFieldChallenges.protestStatus, query.protest_status as string)
+      : and(
+          eq(integrationFieldChallenges.status, query.status),
+          eq(integrationFieldChallenges.routedTo, query.routed_to),
+        );
     // Served by `integration_field_challenges_queue_idx (routed_to, status,
     // created_at)`. `id` breaks a `created_at` tie so pages are stable (AECI-99).
     const [rows, totalRows] = await Promise.all([
@@ -237,7 +247,14 @@ export function createAdminContestsListHandler(
         .select()
         .from(integrationFieldChallenges)
         .where(where)
-        .orderBy(desc(integrationFieldChallenges.createdAt), asc(integrationFieldChallenges.id))
+        .orderBy(
+          desc(
+            protestView
+              ? integrationFieldChallenges.protestedAt
+              : integrationFieldChallenges.createdAt,
+          ),
+          asc(integrationFieldChallenges.id),
+        )
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
       db.select({ value: count() }).from(integrationFieldChallenges).where(where),
@@ -719,7 +736,7 @@ export async function planAcceptWrites(
   return { stmts, audits, tags, appliedMode };
 }
 
-async function readJson(c: AdminContext): Promise<unknown> {
+export async function readJson(c: AdminContext): Promise<unknown> {
   try {
     return await c.req.json();
   } catch {

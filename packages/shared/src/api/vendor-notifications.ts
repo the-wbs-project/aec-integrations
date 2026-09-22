@@ -111,6 +111,14 @@ export const CONTEST_NOTIFICATION_EVENTS = [
   'accepted',
   'declined',
   'closed_by_retire',
+  // AECI-1009 protests (§11b.12.10). `protested` and `protest_withdrawn` reach the
+  // owner, `protest_replied` the submitter, and the two decisions reach BOTH sides,
+  // told apart by `recipient_role`.
+  'protested',
+  'protest_replied',
+  'protest_withdrawn',
+  'protest_upheld',
+  'protest_rejected',
 ] as const;
 export type ContestNotificationEvent = (typeof CONTEST_NOTIFICATION_EVENTS)[number];
 
@@ -138,6 +146,14 @@ export const VendorContestNotificationSchema = z.object({
   retired_by: IntegrationRetiredBySchema.optional(),
   pair_path: z.string().nullable(),
   created_at: z.string(),
+  /** AECI-1009. Which side this row addresses, on the two protest decisions. */
+  recipient_role: z.enum(['submitter', 'owner']).nullable().default(null),
+  /** AECI-1009. On an owner `declined`: the last instant a protest may be filed. */
+  protest_closes_at: z.string().nullable().default(null),
+  /** AECI-1009. On `protested`: the owner's reply deadline. */
+  reply_due_at: z.string().nullable().default(null),
+  /** AECI-1009. On `protest_rejected`: when the submitter may contest the field again. */
+  cooldown_until: z.string().nullable().default(null),
 });
 export type VendorContestNotification = z.infer<typeof VendorContestNotificationSchema>;
 

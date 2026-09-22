@@ -46,7 +46,9 @@
  */
 
 import {
+  addContestDays,
   ApiErrorCode,
+  CONTEST_PROTEST_FILING_DAYS,
   contestValueProblem,
   DecideContestSchema,
   ListVendorContestsResponseSchema,
@@ -109,6 +111,11 @@ import {
 } from '../lib/integration-contests';
 import { isClaimed } from '../lib/integration-claims';
 import {
+  protestSubmitRefusal,
+  submitterProtestFields,
+  toContestProtest,
+} from '../lib/contest-protests';
+import {
   assertIntegrationLive,
   integrationLiveSentinel,
   integrationRetiredError,
@@ -169,11 +176,17 @@ function frameIsSource(owned: ReadonlySet<string>, sourceId: string, targetId: s
 }
 
 /** Row → wire, for either side. Returns `null` for a row whose integration is gone
- *  (the FK cascades, so only a concurrent delete can produce one). */
+ *  (the FK cascades, so only a concurrent delete can produce one).
+ *
+ *  `viewerVendorId` and `now` drive the AECI-1009 submitter-side fields (the
+ *  protest window and the cooldown). They are sent only to the vendor that filed
+ *  the contest; the owner's copy of the same row carries `null` in each. */
 export function toVendorContest(
   row: ContestRow,
   hydration: ContestHydration,
   owned: ReadonlySet<string>,
+  viewerVendorId: string | null = null,
+  now: string = new Date().toISOString(),
 ): VendorContest | null {
   const integration = hydration.integrations.get(row.integrationId);
   if (!integration) return null;
@@ -211,10 +224,19 @@ export function toVendorContest(
     decided_at: row.decidedAt,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
+    protest: toContestProtest(row),
+    ...(viewerVendorId !== null && row.submitterVendorId === viewerVendorId
+      ? submitterProtestFields(row, integration, now)
+      : {
+          protest_opens_at: null,
+          protest_closes_at: null,
+          protest_basis: null,
+          cooldown_until: null,
+        }),
   };
 }
 
-async function echo(
+export async function echo(
   c: VendorContext,
   db: Db,
   vendorId: string,
@@ -225,7 +247,7 @@ async function echo(
     hydrateContests(db, [row]),
     ownedProductSet(db, vendorId),
   ]);
-  const contest = toVendorContest(row, hydration, owned);
+  const contest = toVendorContest(row, hydration, owned, vendorId);
   if (!contest) throw notFoundError('contest', { id: row.id });
   const body: VendorContestResponse = { contest };
   validateResponseInDev(c.env, () => VendorContestResponseSchema.parse(body));
@@ -442,6 +464,17 @@ export function createSubmitContestHandler(
     });
     if (duplicate) throw duplicateContest(duplicate.id);
 
+    // 6. AECI-1009 (§11b.12.8): an open protest on this field, then a lost
+    //    protest's 90-day cooldown, which any change to the value lifts.
+    const refusal = await protestSubmitRefusal(db, {
+      integrationId,
+      field,
+      vendorId,
+      liveValue: currentValue,
+      now: new Date().toISOString(),
+    });
+    if (refusal) throw refusal;
+
     const { routedTo, ownerVendorId } = routeContest(integration, field, claimed);
     const now = new Date().toISOString();
     const contestId = crypto.randomUUID();
@@ -470,6 +503,7 @@ export function createSubmitContestHandler(
       upstreamLinearIssueId: null,
       upstreamLinearIssueUrl: null,
       workflowId,
+      ...EMPTY_PROTEST_COLUMNS,
       createdAt: now,
       updatedAt: now,
     };
@@ -555,6 +589,25 @@ export function createSubmitContestHandler(
   };
 }
 
+/** Every AECI-1009 protest column, empty. A new contest carries no protest. */
+const EMPTY_PROTEST_COLUMNS = {
+  protestStatus: null,
+  protestBasis: null,
+  protestReason: null,
+  protestEvidence: null,
+  protestedBy: null,
+  protestedAt: null,
+  protestReplyDueAt: null,
+  protestReply: null,
+  protestReplyEvidence: null,
+  protestRepliedBy: null,
+  protestRepliedAt: null,
+  protestDecisionNote: null,
+  protestDecidedBy: null,
+  protestDecidedAt: null,
+  protestWorkflowId: null,
+} satisfies Partial<ContestRow>;
+
 function duplicateContest(existingId: string | null): ApiError {
   return new ApiError(
     409,
@@ -572,7 +625,7 @@ function duplicateContest(existingId: string | null): ApiError {
  * the `contests` cursor on `GET /api/vendor/updates` imports. Not rate-limited
  * and not audited: it is a read.
  *
- * Each list is newest first, `id` as the tiebreaker, and capped at
+ * Each list is most recently updated first (AECI-1009), `id` as the tiebreaker, and capped at
  * `VENDOR_CONTEST_LIST_CAP`. The cursor reports on the whole scope, so an edit to
  * a row past the cap moves it without changing what the list shows. That costs
  * one wasted refetch and nothing else, and a vendor with more than 100 contests on
@@ -585,7 +638,10 @@ export function createListVendorContestsHandler(
     const vendorId = sessionVendorId(c);
     const { db } = dbFor(c.env);
 
-    const order = [desc(integrationFieldChallenges.createdAt), asc(integrationFieldChallenges.id)];
+    // AECI-1009: newest ACTIVITY first. A protest can land on a contest filed months
+    // ago, and under `created_at` that row could sit past the cap and never show
+    // while the cursor still moved for it.
+    const order = [desc(integrationFieldChallenges.updatedAt), asc(integrationFieldChallenges.id)];
     const [submitted, received, owned] = await Promise.all([
       db
         .select()
@@ -602,9 +658,10 @@ export function createListVendorContestsHandler(
       ownedProductSet(db, vendorId),
     ]);
     const hydration = await hydrateContests(db, [...submitted, ...received]);
+    const now = new Date().toISOString();
     const map = (rows: ContestRow[]) =>
       rows
-        .map((row) => toVendorContest(row, hydration, owned))
+        .map((row) => toVendorContest(row, hydration, owned, vendorId, now))
         .filter((row): row is VendorContest => row !== null);
 
     const body: ListVendorContestsResponse = {
@@ -696,6 +753,7 @@ export async function notificationFor(
   row: ContestRow,
   actor: { userId: string; role: string },
   event: ContestNotificationEvent,
+  extra: { protestClosesAt?: string } = {},
 ): Promise<AuditLogEntry | null> {
   const toOwner = event === 'submitted' || event === 'withdrawn';
   const recipient = toOwner
@@ -721,6 +779,7 @@ export async function notificationFor(
       field: row.field as IntegrationContestField,
       event,
       pairSlugs,
+      ...extra,
     },
   );
 }
@@ -864,7 +923,18 @@ export function createDecideContestHandler(
       }
     }
 
-    const notify = await notificationFor(db, row, session, status);
+    // AECI-1009: an OWNER decline can be protested to AECi for 30 days, and the
+    // notification says until when. This is the owner's decision route, so it is
+    // always an owner decision; an AECi decline never carries the date.
+    const notify = await notificationFor(
+      db,
+      row,
+      session,
+      status,
+      status === 'declined'
+        ? { protestClosesAt: addContestDays(now, CONTEST_PROTEST_FILING_DAYS) }
+        : {},
+    );
     if (notify) audits.push(notify);
     const workflow = closeWorkflow(
       db,

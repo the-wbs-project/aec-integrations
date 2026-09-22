@@ -30,6 +30,15 @@ export const ApiErrorCode = {
   // AECI-1006: an AECi accept of a content contest on a claimed row whose column no
   // longer holds the value recorded at submit (usually the owner edited it).
   CONTEST_VALUE_STALE: 'CONTEST_VALUE_STALE',
+  // AECI-1009 protests (`API_CONTRACTS.md` §4), all 409. `PROTEST_NOT_AVAILABLE`
+  // carries `details.reason`. The two CONTEST_ codes answer a NEW contest: one on a
+  // field with an open protest, and one inside a lost protest's 90-day cooldown.
+  PROTEST_NOT_AVAILABLE: 'PROTEST_NOT_AVAILABLE',
+  PROTEST_NOT_OPEN: 'PROTEST_NOT_OPEN',
+  PROTEST_REPLY_EXISTS: 'PROTEST_REPLY_EXISTS',
+  PROTEST_REPLY_CLOSED: 'PROTEST_REPLY_CLOSED',
+  CONTEST_PROTEST_OPEN: 'CONTEST_PROTEST_OPEN',
+  CONTEST_COOLDOWN: 'CONTEST_COOLDOWN',
   // AECI-1005 integration ownership claims (`API_CONTRACTS.md` §4).
   INTEGRATION_NOT_OWNER: 'INTEGRATION_NOT_OWNER',
   INTEGRATION_OWNER_UNKNOWN: 'INTEGRATION_OWNER_UNKNOWN',

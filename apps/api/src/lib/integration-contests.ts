@@ -187,6 +187,15 @@ export interface ContestNotificationMetadata {
    *  rows written before it, which were owner retires. Never the admin's reason. */
   retiredBy?: IntegrationRetiredBy;
   pairSlugs: readonly [string, string] | null;
+  /** AECI-1009: which side a protest decision addresses (both sides get one). */
+  recipientRole?: 'submitter' | 'owner';
+  /** AECI-1009: on an owner `declined`, the last instant a protest may be filed. */
+  protestClosesAt?: string;
+  /** AECI-1009: on `protested`, the basis and the owner's reply deadline. */
+  basis?: 'declined' | 'silence';
+  replyDueAt?: string;
+  /** AECI-1009: on `protest_rejected` to the submitter, the cooldown end. */
+  cooldownUntil?: string;
 }
 
 /**

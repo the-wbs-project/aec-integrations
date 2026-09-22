@@ -330,6 +330,13 @@
       "when": 1790064411059,
       "tag": "0046_absurd_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1790066363919,
+      "tag": "0047_quick_makkari",
+      "breakpoints": true
     }
   ]
 }

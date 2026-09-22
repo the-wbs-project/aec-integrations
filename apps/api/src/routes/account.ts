@@ -329,6 +329,20 @@ export function createDeleteAccountHandler(
         .update(integrationFieldChallenges)
         .set({ decidedBy: null })
         .where(eq(integrationFieldChallenges.decidedBy, userId)),
+      // AECI-1009: three more on the same row, under the same rule. The PROTEST
+      // survives; only who filed, replied to or decided it is severed.
+      db
+        .update(integrationFieldChallenges)
+        .set({ protestedBy: null })
+        .where(eq(integrationFieldChallenges.protestedBy, userId)),
+      db
+        .update(integrationFieldChallenges)
+        .set({ protestRepliedBy: null })
+        .where(eq(integrationFieldChallenges.protestRepliedBy, userId)),
+      db
+        .update(integrationFieldChallenges)
+        .set({ protestDecidedBy: null })
+        .where(eq(integrationFieldChallenges.protestDecidedBy, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];
