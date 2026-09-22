@@ -60,6 +60,21 @@ Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement pres
 
 Seeded empty **by design** — it is filled by rehearsal findings, parked-claim observations, and dark-window telemetry. This is the stage's actual work; the admission test in §1 governs what lands here.
 
+**Epic 5 (AECI-771, the deferred connector-lane features) was admitted here on 2026-09-22 by
+operator decision**, with its own gate kept: nothing in it starts until Epics 1–4 close (AECI-885
+still holds AECI-636 and AECI-1037). The project says *when*, the epic says *what*. Two things to
+know about the admission. First, it strains §1's "no new features" test — AECI-715 (coverage
+checker), AECI-716 (reachable-lane publication) and AECI-710 (`extension_of` rendering) are public
+surfaces, not vendor-portal refinements; only AECI-724 (the connector seat, `STAGE_2_SPEC.md` §8.9)
+and AECI-769 (the admin per-product list) pass it cleanly. The decision was taken knowingly, and
+the pull-forward rule above is not what admitted them — they were not in 2.5. Second, the epic's
+decision record (its Linear description) settles every child so the epic is buildable the day the
+gate opens: AECI-715's host is every live connector-role product page (`STAGE_1_5_SPEC.md` §13.7);
+AECI-711 renders only what exists; AECI-723 closed as *decided no for now* with the propose/approve
+half re-filed as AECI-1065 in Stage 2.5; AECI-928 is blocked on AECI-1064 (the reopened Zapier /
+Workato park); AECI-709 went to Stage 3 undecided; AECI-729 stays Marketing. Build order when the
+gate opens: AECI-724, then AECI-769 (same admin page), then AECI-716, AECI-710, AECI-715, AECI-711.
+
 **Findings so far:**
 
 | Issue | Found | What it fixes |

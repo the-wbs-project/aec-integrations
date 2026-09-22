@@ -1738,6 +1738,16 @@ Presentation only; the data lands in AECI-714 and the curation in the review app
 - **The coverage surface (AECI-715) is bounded by our catalog, not the connector's marketing
   graph** — expressed as **apps reached, not pairs possible** (linear in the catalog, where the
   pair cross-product is quadratic), and linking into the filtered pair view rather than enumerating.
+  **Host decided 2026-09-22 (AECI-715): the checker renders on every live connector-role product
+  page** — the §13.6 role-varied template for `connector` / `hybrid` — not on a standalone
+  `/connectors/:slug` route. The original design assumed a Zapier marquee page; AECI-700 parked
+  Zapier, and whether it is un-parked is AECI-1064's question, not this surface's. Today the hosts
+  are Agave ERP Sync, Aquifer, Kroo Connector and Trimble AppXchange. No new route, no new cache-tag
+  vocabulary: the product page's own tags cover it.
+- **The depth axis (AECI-711) renders direction and object coverage only when present** (decided
+  2026-09-22). No "not specified" marker and no empty axis; a row with a null `direction` and no
+  object claims renders exactly as today. Roughly 55% of live rows are null, and AECI-1066
+  root-causes that gap separately — this surface builds against whatever exists.
 
 **Epic 2 re-reads this section as a precondition, not a presentation task (AECI-883, 2026-09-13).**
 The I24 ruling retires the delivered rows these surfaces replace, so the order is fixed and the
