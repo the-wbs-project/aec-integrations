@@ -192,6 +192,15 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   > in `packages/shared/src/integration-context.ts` is the single rule. (The integrations tab is
   > still hidden — `STAGE_1_SPEC.md` §7.5 — so this facet is not currently reachable in the UI.)
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
+- **Membership (AECI-1010):** an `integrations` row is in the index when both endpoints are
+  promoted **and it is live** (`retired_at IS NULL`). A connector-evidenced pair needs only the
+  first, because it has no `retired_at`. The sync's delete arm is the exact complement (either
+  endpoint unpromoted, or retired), so the 08:00 sync removes a retired record and the 09:00
+  orphan sweep is only the backstop. The drift counter, both orphan id sets and the datatool
+  rebuild apply the same rule. A retire also re-indexes the integration, both product records and
+  the owner's vendor record by id right after commit. Retire changes no ranking signal's meaning:
+  it lowers `integration_count` on both products and the owner vendor, exactly as the edge being
+  gone would. `STAGE_1_5_SPEC.md` §13.5 holds the asserted site list.
 
 ### 3.4 `pairs` (deferred to Stage 2, AECI-298)
 
@@ -395,7 +404,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-137](https://linear.app/aec-integrations/issue/AECI-137) — index settings + record shapes as code (Phase 3.2).
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
-- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the sixteen-site `integration_count` lockstep §4.2 and §5 follow from. Sites 15 and 16 (AECI-789) are the Algolia **membership** id-sets behind the orphan sweep, not counts; they decide which objects stay in the `integrations` index.
+- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the `integration_count` lockstep (26 expressions plus four deliberate exclusions since AECI-1010, asserted as `LOCKSTEP_SITES` in `count-lockstep.spec.ts`) that §4.2 and §5 follow from. Sites 15 and 16 (AECI-789) are the Algolia **membership** id-sets behind the orphan sweep, not counts; they decide which objects stay in the `integrations` index.
 - [AECI-698](https://linear.app/aec-integrations/issue/AECI-698) — the mechanism vocabulary revision that introduces `integrator` (§4.1).
 - [AECI-721](https://linear.app/aec-integrations/issue/AECI-721) — the powered-edge migration: `integrator` in the enum, the pinned evidenced-pair rank (§4.2), and the `integration_count` semantics change (§5).
 - [AECI-735](https://linear.app/aec-integrations/issue/AECI-735) — settled that `iPaaS` is retained permanently, re-gated the `partner` retirement on [AECI-712](https://linear.app/aec-integrations/issue/AECI-712), and added the six-way vocabulary lockstep tests (§4.3).

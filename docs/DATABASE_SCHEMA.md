@@ -401,7 +401,12 @@ create table integrations (
   -- `origin` is who created it; nothing writes 'vendor' until AECI-1011. Its CHECK is a
   -- hand-written COLUMN constraint in 0044, not a `check()` in schema.ts, because
   -- drizzle-kit renders a CHECK change there as a table recreate.
-  -- `retired_at` is reserved for AECI-1010; nothing reads or writes it yet.
+  -- `retired_at` set = the owner retired the row (AECI-1010). Written ONLY by the
+  -- retire/restore routes, never by promote. A retired row keeps its claims and
+  -- attestations but counts nowhere and is on no public read: every lockstep site
+  -- filters `retired_at IS NULL` (`STAGE_1_5_SPEC.md` §13.5). Retired implies claimed;
+  -- the 04:00 data-quality check `retired_integration_unclaimed` holds that, because a
+  -- CHECK here would make drizzle-kit recreate the table.
   claimed_at text,
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at text,

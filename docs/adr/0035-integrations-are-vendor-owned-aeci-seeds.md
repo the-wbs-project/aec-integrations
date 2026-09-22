@@ -13,7 +13,7 @@ Three columns carry this, added by migration `0044` as plain `ADD COLUMN`s with 
 
 - `integrations.claimed_at` records that the owner took the row by an act. NULL means unclaimed.
 - `integrations.origin` records who created the row: `'aeci'` (promote, the default) or `'vendor'`.
-- `integrations.retired_at` is reserved for AECI-1010. Nothing reads or writes it yet.
+- `integrations.retired_at` is set while the owner has the row retired. Only the AECI-1010 retire and restore routes write it; every count and public read filters on it (`STAGE_1_5_SPEC.md` §13.5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 
 The owner claims with `POST /api/vendor/integrations/:id/claim`. From the moment `claimed_at` is set, the product promote arm writes nothing to that row. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 and `REVIEW_APP_PROMOTE_API.md` §4b.
 

@@ -315,6 +315,23 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   > marker is a claim about who is accountable and a stale one is a lie rather
   > than merely old.
 
+- **Integration retire and restore** (`POST /api/vendor/integrations/:id/retire` /
+  `/restore`, AECI-1010) → **seven tags**: `pair:{min}__{max}`, `product:{a}`,
+  `product:{b}`, `vendor:{ownerSlug}`, `index:products`, `taxonomy`, `sitemap`. It is
+  the widest vendor tag set because retire is the only vendor write that changes
+  COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,
+  which is baked into the cached HTML), both product pages and every browse page
+  listing them (`integration_count` on the card, so `index:products` too), the owner's
+  vendor page (the `built_by_vendor_id` count), the four taxonomy index pages (per-term
+  integration counts carry the `taxonomy` tag), and the sitemap (the pair URL leaves the
+  integrations list it paginates, or returns on restore). `index:home` is deliberately
+  **not** purged: the home numbers come from `stats_cache`, which only the daily cron
+  recomputes, and purging without recomputing would repaint the same stale figures. The
+  stored counts are recomputed after commit (`recomputeProductCounts`), before the tags
+  are useful. The pair and both product URLs are also queued for re-crawl, so a crawler
+  learns the pair page went `noindex`. The legacy `/integrations/:id` 301 keeps pointing
+  at the pair page (ruled 2026-09-22), so its `integration:{id}` tag needs no purge.
+
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
   /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
   plus `product:{sourceSlug}` and `product:{targetSlug}`**, three tags, all

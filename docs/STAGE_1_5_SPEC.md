@@ -1423,19 +1423,27 @@ mid-flight will make a local decision about a cross-cutting contract.
     the lockstep tests holding the vocabulary's **six** spellings together — the three TS lists in
     `@aeci/shared`, `VALID_MECHANISM_KINDS`, `MECHANISM_ORDER`, and the D1 CHECK — because two of
     the six degrade silently on drift.
-- **The lockstep set is SIXTEEN sites** (was ten; AECI-721 PR-A found four more while
-  implementing, and AECI-789 found the last two after they had already gone wrong in production).
+- **The lockstep set is 26 expressions plus four deliberate exclusions** (AECI-1010, 2026-09-22).
+  It was ten, then sixteen: AECI-721 PR-A found four more while implementing, and AECI-789 found
+  two after they had already gone wrong in production. AECI-1010's read-path inventory then found
+  that the sixteen numbered items resolve to more independent expressions than sixteen, and that
+  ten more outside the list express the same rule. **The authoritative list is now code, not this
+  prose**: `LOCKSTEP_SITES` in `apps/api/src/lib/count-lockstep.spec.ts`, asserted (see the
+  AECI-1010 bullet below). The numbering here is kept as history, and the spec reuses it.
   Migrating powered edges out of `integrations` without moving every one of them silently drops the
   edges and re-ranks the catalog as a side effect of a data migration. Enumerated so it cannot be
   half-done. The rule each site expresses, post-AECI-721:
 
   ```
-  product: count(integrations WHERE src=p OR tgt=p)
+  product: count(integrations WHERE (src=p OR tgt=p) AND retired_at IS NULL)
          + count(evidenced_pairs WHERE a=p OR b=p OR connector=p)   ← §12.5 option B
-  vendor:  count(integrations WHERE built_by=v)
+  vendor:  count(integrations WHERE built_by=v AND retired_at IS NULL)
          + count(evidenced_pairs WHERE built_by=v)
-  total:   count(integrations) + count(evidenced_pairs)
+  total:   count(integrations WHERE retired_at IS NULL) + count(evidenced_pairs)
   ```
+
+  The `retired_at IS NULL` terms are AECI-1010's. `connector_evidenced_pairs` has no such column
+  and never takes the term (see the AECI-1010 bullet below).
 
   1. `apps/api/src/lib/recompute-counts.ts` — `computeExpected`, the canonical definition.
   2. and 3. **the same rule as raw SQL, twice**, in `apps/api/scripts/reconcile-product-counts.ts`
@@ -1522,6 +1530,71 @@ mid-flight will make a local decision about a cross-cutting contract.
   line, so the two AECI-721 PRs reach prod D1 **together** at the `stage-2` → `main` promote, and at
   that boundary count-neutrality stops being a deployment-order property and becomes a code
   property. The spec is the artifact that survives the promote.
+- **A retired integration counts nowhere and is in no id set (AECI-1010, 2026-09-22).** The owner
+  of a claimed integration can retire it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6). Retire is not
+  retract (ADR 0030): nothing is deleted, claims and attestations are kept, and a restore is
+  lossless. What changes is `integrations.retired_at`, and **every lockstep site filters on
+  `retired_at IS NULL` through one shared predicate**: `liveIntegrationWhere` /
+  `liveIntegrationOn()` in `apps/api/src/lib/live-integration.ts` for Drizzle, and
+  `liveIntegrationSql(alias)` in `@aeci/shared/live-integration` for raw SQL (the datatool, the
+  catalog agent and the operator scripts). `scripts/ops/**` is plain `.mjs` and carries the literal.
+  Three rules, each with a failure behind it:
+  1. **`IS NULL`, never `= NULL`.** `eq(col, null)` binds a NULL and is never true. On the sweep's
+     id set that empties the set, every record looks orphaned, and the 50-delete cap then refuses
+     every pass, so retired records are never swept either.
+  2. **The `integrations` arm only.** Every evidenced pair is connector-powered, and AECI-1003
+     decision 9 keeps every vendor write, retire included, off connector-powered rows.
+  3. **Never key membership on `claimed_at` or `origin`.** Only `retired_at` removes a row. A
+     predicate that drops a small live subset sits under the sweep's cap and deletes it for good.
+
+  **The Algolia sync's delete arm is the primary remover** of a retired record, and it is the exact
+  complement of the upsert arm: `either endpoint unpromoted OR retired`. The 09:00 orphan sweep is
+  the backstop, and it refuses a pass above 50 deletes, so a bulk retire left to the sweep would stay
+  searchable. The retire route also re-indexes the integration, both products and the owner vendor
+  by id after commit, because the vendor record's count has no other refresh path.
+
+  **The asserted list** (`LOCKSTEP_SITES`). `executed` = run against the test D1 with a live and a
+  retired row between the same promoted endpoints; `scan` = cannot run in the api suite, so a source
+  scan requires the predicate within 40 lines of the named marker; `excluded` = deliberately
+  unfiltered, and the scan asserts the predicate is ABSENT. Delete authority on four:
+
+  | Id | Site | Proof |
+  |---|---|---|
+  | 1 | `recompute-counts.ts` `computeExpected` | executed |
+  | 2, 3 | `scripts/reconcile-product-counts.ts` `DRIFT_QUERY`, `RECOMPUTE_SQL` | executed |
+  | 4 | `apps/datatool/src/prune-integrations.ts` recount | scan |
+  | 5 | `algolia-transforms.ts` product record | excluded: reads the stored column |
+  | 6a | `algolia-transforms.ts` `algoliaVendorConfig` | executed |
+  | 6b | `apps/datatool/src/algolia-reindex.ts` `buildVendorRecords` | scan |
+  | 7 | `algolia-reindex.ts` `buildProductRecords` | excluded: reads the stored column |
+  | 8a-8d | `home-stats.ts` total, 30-day window, most-active category, recent rail | executed |
+  | 9 | `admin-catalog.ts` `claimCoverage` (numerator restricted to live anchors too) | executed |
+  | 10 | `metrics-snapshot.ts` `catalog.integrations_total` | scan |
+  | 11 | `admin-overview.ts` module-local `catalogTotals` | scan |
+  | 12 | `admin-catalog.ts` exported `catalogTotals` | executed |
+  | 13 | `algolia-drift-deps.ts` `drizzleDriftCounter` | executed |
+  | 14a | `drizzle-helpers.ts` `vendorListConfig` | executed |
+  | 14b | `admin-vendors.ts` vendor detail count | scan |
+  | 15 | `algolia-drift-deps.ts` `drizzlePromotedIds` (**deletes**) | executed |
+  | 16 | `scripts/reconcile-algolia-drift.ts` `INTEGRATION_IDS_SQL` (**deletes**) | executed |
+  | X1 | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**) | executed |
+  | X2 | `algolia-reindex.ts` `buildIntegrationRecords` full rebuild (**deletes**) | scan |
+  | X3 | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts) | executed |
+  | X4 | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series | scan |
+  | X5 | `scripts/ops/2026-09-retraction-consumer/consume.mjs` recount | scan |
+  | X6 | `apps/agent/src/tools/count-integrations.ts` `COUNT_SQL` | scan |
+  | X7 | `apps/agent/src/lib/corpus.ts` `EDGES_SQL` | scan |
+  | X8 | `retract-vendor.ts` footprint | excluded: a foreign-key blocker must count retired rows |
+  | X9 | the three spent 2026-09 one-off `retract.mjs` scripts | excluded: never re-run |
+
+  The same predicate also filters the public reads that are not counts: the integrations list (and
+  so the sitemap), the pair page and its timeline, `resolveMovedPair`, the product page's three
+  integration relations, `readPairCounterpartSlugs`, and the §7 detector sweep. It deliberately does
+  **not** filter `GET /api/integrations/:id`, which only the legacy `/integrations/:id` 301 reads
+  (ruled 2026-09-22): the redirect keeps working, and the pair page it lands on falls to its
+  existing `noindex` branch when no live mechanism is left. Two pre-existing gaps surfaced and are
+  unchanged: X3 and X4 read `integrations` alone, so evidenced pairs have never counted toward a
+  taxonomy term or the net additions series.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 

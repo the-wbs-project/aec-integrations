@@ -65,7 +65,15 @@ This is what real users see and where the connector lane made structural changes
 
 ### 3.3 `integration_count` lockstep — the highest-value check
 AECI-721 unioned two tables across fourteen call sites (the spec's own list named ten), and
-AECI-789 found two more — **sixteen**. A drift here is silent and user-visible.
+AECI-789 found two more — **sixteen**. AECI-1010 re-counted them as 26 expressions plus four
+deliberate exclusions, filtered every one on `retired_at IS NULL`, and made the list an asserted
+constant (`LOCKSTEP_SITES` in `apps/api/src/lib/count-lockstep.spec.ts`). A drift here is silent
+and user-visible.
+- [ ] **Retire a claimed integration in the portal, then restore it** (AECI-1010). After the retire:
+      the pair page drops the mechanism (and goes `noindex` if it was the only one), both product
+      counts fall by one, the owner's vendor count falls by one, the search record is gone, and the
+      other endpoint vendor's portal shows the row marked retired. After the restore, all of it
+      comes back.
 - [ ] Product card count == product detail count == taxonomy index count == search facet count, for the same product.
 - [ ] Check at least one endpoint product, one connector, one hybrid.
 - [ ] **After any `integrations` index rebuild, re-check the count the NEXT morning.** Sites 15 and
