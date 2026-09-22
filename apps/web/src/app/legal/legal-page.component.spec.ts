@@ -72,8 +72,14 @@ describe('LegalPage', () => {
     // Routing as `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4 builds it.
     expect(text).toContain('if the owner has claimed the integration, the owner decides');
     expect(text).toContain('always comes to us, even after a claim');
-    // AECI-1009 is designed, not built: the policy must not offer a protest.
-    expect(text).not.toMatch(/protest|appeal/i);
+    // AECI-1009: an owner decline can be reviewed by us, and the view is advice.
+    expect(h2s).not.toContain("Asking us to review an owner's decision");
+    const h3s = Array.from(article!.querySelectorAll('h3')).map((h) => h.textContent?.trim());
+    expect(h3s).toContain("Asking us to review an owner's decision");
+    expect(text).toContain('within 30 days of the decline');
+    expect(text).toContain('Our view is advice.');
+    expect(text).toContain('may not contest the same detail of that integration again for 90 days');
+    expect(text).toContain('We do not publish anything about a review');
   });
 
   it('sets the per-slug document title chrome via MetaService', () => {

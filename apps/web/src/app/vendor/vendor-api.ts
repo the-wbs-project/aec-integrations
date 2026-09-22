@@ -30,6 +30,8 @@ import type {
   UpdateVendorIntegrationInput,
   UpdateVendorIntegrationResponse,
   DecideContestInput,
+  FileContestProtestInput,
+  ReplyContestProtestInput,
   IntegrationLinkKind,
   IntegrationLinkResponse,
   ListVendorContestsResponse,
@@ -323,6 +325,47 @@ export class VendorApi {
     return firstValueFrom(
       this.http.post<VendorContestResponse>(
         `/api/vendor/contests/${encodeURIComponent(contestId)}/withdraw`,
+        null,
+      ),
+    );
+  }
+
+  // ─── Protests to AECi (AECI-1009 / §11b.12) ────────────────────────────────
+
+  /** `POST /api/vendor/contests/:id/protest` — the submitter asks AECi to review
+   *  an owner decline, or 30 days of the owner's silence. AECi's answer is advice. */
+  fileContestProtest(
+    contestId: string,
+    body: FileContestProtestInput,
+  ): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/contests/${encodeURIComponent(contestId)}/protest`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/contests/:id/protest/reply` — the owner replies, once,
+   *  before the due date. */
+  replyContestProtest(
+    contestId: string,
+    body: ReplyContestProtestInput,
+  ): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/contests/${encodeURIComponent(contestId)}/protest/reply`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/contests/:id/protest/withdraw` — the submitter withdraws an
+   *  open protest. No cooldown, and the contest cannot be protested again. */
+  withdrawContestProtest(contestId: string): Promise<VendorContestResponse> {
+    return firstValueFrom(
+      this.http.post<VendorContestResponse>(
+        `/api/vendor/contests/${encodeURIComponent(contestId)}/protest/withdraw`,
         null,
       ),
     );

@@ -145,6 +145,12 @@ import {
   createAdminContestsListHandler,
   createModerateContestHandler,
 } from './routes/admin-contests';
+import { createDecideContestProtestHandler } from './routes/admin-contest-protests';
+import {
+  createFileContestProtestHandler,
+  createReplyContestProtestHandler,
+  createWithdrawContestProtestHandler,
+} from './routes/vendor-contest-protests';
 import {
   createDeleteProductVersionHandler,
   createListProductVersionsHandler,
@@ -636,6 +642,15 @@ authAdmin.patch(
   rateLimit('write'),
   createModerateContestHandler(),
 );
+// AECI-1009: AECi rules on a protest. ADVICE ONLY: it writes the protest columns and
+// nothing else (no catalog write, no purge, no Linear issue). Same named decision-write
+// exception as the contest PATCH above.
+authAdmin.patch(
+  '/api/admin/contests/:id/protest',
+  requireAdmin(),
+  rateLimit('write'),
+  createDecideContestProtestHandler(),
+);
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 // Stage 2 / AECI-532: the admin entitlement action (set / renew / clear). Owns the
@@ -978,6 +993,27 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createDecideContestHandler(),
+);
+// AECI-1009: protest a declined (or 30-day-unanswered) contest to AECi. A SEAT IS
+// THE WHOLE GATE, the same §11b.2 exception as the contest routes above. Writes carry
+// `rateLimit('write')` after the guard; party checks (404) live in the handlers.
+authVendor.post(
+  '/api/vendor/contests/:id/protest',
+  requireVendor(),
+  rateLimit('write'),
+  createFileContestProtestHandler(),
+);
+authVendor.post(
+  '/api/vendor/contests/:id/protest/reply',
+  requireVendor(),
+  rateLimit('write'),
+  createReplyContestProtestHandler(),
+);
+authVendor.post(
+  '/api/vendor/contests/:id/protest/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawContestProtestHandler(),
 );
 // AECI-1005 / ADR 0035: the recorded owner (`built_by_vendor_id`) claims its
 // integration, with no approval. A SEAT IS THE WHOLE GATE (decision 15), exactly as

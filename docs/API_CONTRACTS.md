@@ -255,6 +255,12 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
 | `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed. The whole batch rolled back; reload and decide again (AECI-1005) |
 | `CONTEST_VALUE_STALE` | 409 | `PATCH /api/admin/contests/:id` accept of a **content** contest on a **claimed** row, when the column no longer holds the value recorded at submit (almost always the owner's own edit, AECI-1006). Accepting would overwrite that change, so nothing is written. Checked on the handler's read and again inside the batch. The admin declines, or the submitter withdraws and re-files against the current value |
+| `PROTEST_NOT_AVAILABLE` | 409 | `POST /api/vendor/contests/:id/protest` when the contest cannot be protested now. `details.reason` is `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`), `window_closed`, `contest_open` (the caller has another open contest on the same integration and field; checked on the read and inside the batch), or `contest_changed` for a lost race (AECI-1009, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12) |
+| `PROTEST_NOT_OPEN` | 409 | A protest reply, withdraw or decision on a protest that is absent, already decided or withdrawn, or that lost a race (AECI-1009) |
+| `PROTEST_REPLY_EXISTS` | 409 | A second owner reply to a protest (AECI-1009) |
+| `PROTEST_REPLY_CLOSED` | 409 | An owner reply at or after `protest_reply_due_at` (AECI-1009) |
+| `CONTEST_PROTEST_OPEN` | 409 | `POST /api/vendor/integrations/:id/contests` on a field the caller already has an open protest on. `details.contest_id` names it (AECI-1009) |
+| `CONTEST_COOLDOWN` | 409 | `POST /api/vendor/integrations/:id/contests` inside the 90 days after AECi agreed with the owner on a protest of this field by this vendor, while the value on record is unchanged. `details.until` is when it ends (AECI-1009) |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
@@ -1273,7 +1279,7 @@ resolver's gate and the in-shell badge feed.
 | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
-| `pending_contests` | `integration_field_challenges.routed_to = 'aeci' AND status = 'open'` (AECI-1008). A fifth count on a different table, so still disjoint. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
+| `pending_contests` | Open contests AECi decides: `status = 'open'` and either `routed_to = 'aeci'` or a stranded owner-routed row (AECI-1008, AECI-1005), **plus** every `protest_status = 'open'` row (AECI-1009). A protested row is `declined`, so the two terms are disjoint. A fifth count on a different table, so still disjoint from the other four. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
 
 **The five are disjoint, and the header badge SUMS them.** Requests and claims
 are one table split by `kind`, so `pending_requests` is corrections-only; an
@@ -2881,6 +2887,8 @@ The integration field contest queue (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Pag
 export const ListAdminContestsQuerySchema = PageQuerySchema.extend({
   status: z.enum(['open', 'accepted', 'declined', 'withdrawn']).default('open'),
   routed_to: z.enum(['owner', 'aeci']).default('aeci'),   // `owner` = read-only view
+  // AECI-1009: when present, the Protests view. Filters on protest_status alone.
+  protest_status: z.enum(['open', 'upheld', 'rejected', 'withdrawn']).optional(),
 });
 
 export const AdminContestSchema = z.object({
@@ -2911,11 +2919,13 @@ export const AdminContestSchema = z.object({
   upstream_linear_issue_url: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  protest: ContestProtestSchema.nullable().default(null),  // AECI-1009, see below
+  owner_changed: z.boolean().default(false),               // no longer claimed by owner_vendor
 });
 export const ListAdminContestsResponseSchema = paginatedResponseSchema(AdminContestSchema);
 ```
 
-Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue_idx`. Read-only, no audit row.
+Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue_idx`. With `protest_status` (AECI-1009) the list ignores `status` and `routed_to`, because every protested row is `declined` and owner-routed, and orders by `protested_at DESC, id ASC` on `integration_field_challenges_protest_idx`. Read-only, no audit row.
 
 #### `PATCH /api/admin/contests/:id` (AECI-1008)
 
@@ -2939,6 +2949,14 @@ One batch: the guarded contest UPDATE (`WHERE status = 'open'`), the contest sen
 **A stale accept is refused (AECI-1006).** On a claimed row a content accept writes the column, so it must not land on a value that moved since submit. Routing is frozen at submit, so a contest filed before the claim stays AECi's to decide after it, while the owner may have edited the same field through `PATCH /api/vendor/integrations/:id`. When the live column differs from the contest's recorded `current_value` (`NULL` counts as a value), the accept answers `409 CONTEST_VALUE_STALE` and writes nothing. The handler checks it on its own read, and a `contestValueUnchangedSentinel` (a `ONE_ROW` guard) checks it again inside the batch, so an owner edit that lands between the two is caught too. The list read carries `live_value` and `value_stale` so the queue can show why before the admin tries. Declining a stale contest is always allowed. An unclaimed row is never stale, because its accept writes nothing here, and an `owner` contest is decided on ownership rather than on a column.
 
 Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `409 CONTEST_VALUE_STALE` when a content accept on a claimed row would overwrite a value that changed since submit (nothing written); `400 VALIDATION_FAILED` for a bad body.
+
+#### `PATCH /api/admin/contests/:id/protest` (AECI-1009)
+
+AECi says which side of a protest it agrees with (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12). Body: `DecideContestProtestSchema` (`{ decision: 'uphold' | 'reject', note }`, the note **required**). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
+
+**Advice only.** It writes the protest columns and nothing else: no `integrations` write, no purge, no re-crawl, no Algolia write, no Linear issue. The owner's reply due date does not block it. One batch: the guarded `UPDATE … WHERE protest_status = 'open'`, the `changes() = 0` sentinel, the protest's workflow instance closed with its transition, an `integration.contest.protest_upheld | protest_rejected` audit row, and a `notification.sent` row to the submitter and to the owner (when `owner_vendor_id` is set), each with `metadata.recipientRole`. A rejected protest starts the submitter's 90-day cooldown on the field.
+
+Errors: `NOT_FOUND`; `409 PROTEST_NOT_OPEN` when the row has no open protest or another admin won the race; `400 VALIDATION_FAILED` for a bad body, including a missing note.
 
 #### `GET /api/admin/reindex` (AECI-946)
 
@@ -5692,6 +5710,9 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 | `GET` | `/api/vendor/contests` | seat | `200 { submitted, received }` |
 | `POST` | `/api/vendor/contests/:id/withdraw` | seat + submitter, `rateLimit('write')` | `200 { contest }` |
 | `POST` | `/api/vendor/contests/:id/decision` | seat + owner of an owner-routed row, `rateLimit('write')` | `200 { contest }` |
+| `POST` | `/api/vendor/contests/:id/protest` | seat + submitter still on an endpoint, `rateLimit('write')` | `200 { contest }` |
+| `POST` | `/api/vendor/contests/:id/protest/reply` | seat + snapshot owner, `rateLimit('write')` | `200 { contest }` |
+| `POST` | `/api/vendor/contests/:id/protest/withdraw` | seat + submitter, `rateLimit('write')` | `200 { contest }` |
 
 **No capability gate.** This is the named exception to invariant 3 above.
 
@@ -5730,14 +5751,40 @@ export const VendorContestSchema = z.object({
   decided_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  // AECI-1009 (each defaulted to null for deploy skew):
+  protest: ContestProtestSchema.nullable(),          // both sides
+  protest_opens_at: z.string().nullable(),           // submitted side: the window, while protestable
+  protest_closes_at: z.string().nullable(),
+  protest_basis: z.enum(['declined', 'silence']).nullable(),
+  cooldown_until: z.string().nullable(),             // submitted side: a lost protest still blocking
 });
+
+export const ContestProtestSchema = z.object({
+  status: z.enum(['open', 'upheld', 'rejected', 'withdrawn']),
+  basis: z.enum(['declined', 'silence']),
+  reason: z.string(),
+  evidence_urls: z.array(z.string()),
+  protested_at: z.string(),
+  reply_due_at: z.string(),                          // protested_at + 14 days, stored
+  reply: z.string().nullable(),
+  reply_evidence_urls: z.array(z.string()),
+  replied_at: z.string().nullable(),
+  decision_note: z.string().nullable(),
+  decided_at: z.string().nullable(),
+});
+
+// Bodies. ProtestEvidenceSchema: at most three absolute http(s) URLs, default [].
+export const FileContestProtestSchema = z.object({ reason: contestText, evidence_urls: ProtestEvidenceSchema });
+export const ReplyContestProtestSchema = z.object({ reply: contestText, evidence_urls: ProtestEvidenceSchema });
 ```
 
-- **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each newest first with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as owner is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
+- **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each most recently updated first (AECI-1009) with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as owner is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
 - **Withdraw** is the submitter's alone. **Decision** is the owner's alone, and only on an owner-routed row. Everyone else gets `404`. A closed contest is `409 CONTEST_NOT_OPEN`, which is also the answer to the loser of a race. Since AECI-1005 the decision also requires that the integration is **still claimed by the caller**, checked up front and again in the batch; otherwise `409 CONTEST_INTEGRATION_CHANGED` and nothing is written. An AECi owner reassignment moves the row's open owner-routed contests to AECi in the same batch (`integration.contest.rerouted`).
 - **An owner accept writes the catalog** in the same batch: the column, the §13.9 maintenance transfer, and an `integration.updated` audit row. It then purges `pair:{a}__{b}` and both `product:` tags. A decline, a withdraw and a submit purge nothing.
 - **Routing is fixed at submit.** A contest routes to the owner when the integration is claimed (`claimed_at IS NOT NULL`, AECI-1005 replaced the stub) and the field is not `owner`. Otherwise it routes to AECi. The `owner` field routes to AECi even on a claimed row.
 - **Every write** carries its `audit_log` row (`integration.contest.*`, `entity_type: 'integration_field_challenge'`, `metadata.source: 'vendor-portal'`), a `workflow_transitions` row on a `correction_request` instance, and a `notification.sent` row for the other side, all in one batch.
+- **Submit, two more refusals (AECI-1009).** After the duplicate check: `409 CONTEST_PROTEST_OPEN` while the caller has an open protest on the field, then `409 CONTEST_COOLDOWN` for 90 days after AECi agreed with the owner on the caller's protest of the field, unless the value on record has changed since.
+- **Protest (AECI-1009, §11b.12).** The submitter asks AECi to review an owner decline within 30 days of it, or a contest the owner left unanswered, from day 30 after filing to day 60. Order: row (`404`) → still an endpoint vendor (`404`) → eligibility and one live dispute per field (`409 PROTEST_NOT_AVAILABLE`, reason `contest_open` for another open contest on the field) → body (`400`) → the same owner still holds the claimed row (`409 CONTEST_INTEGRATION_CHANGED`) → the value is unchanged (`409 CONTEST_VALUE_STALE`). A silence protest moves the contest `open → declined` in its own batch, with `decided_at` at day 30 and an `integration.contest.lapsed` audit row. The owner replies once before `reply_due_at` (`PROTEST_REPLY_EXISTS`, `PROTEST_REPLY_CLOSED`). The submitter may withdraw an open protest (`PROTEST_NOT_OPEN` otherwise). No protest write purges anything or writes the catalog.
 
 #### Integration ownership claim — `POST /api/vendor/integrations/:id/claim`
 

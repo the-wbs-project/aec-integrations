@@ -1,5 +1,13 @@
-import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, effect, inject, untracked } from '@angular/core';
+import { DatePipe, formatDate } from '@angular/common';
+import {
+  Component,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  untracked,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { isAttestationNotification, type VendorNotification } from '@aeci/shared';
@@ -153,6 +161,7 @@ export class VendorNotificationsList {
   private readonly store = inject(VendorPortalStore);
   private readonly baseline = inject(VendorNotificationBaseline);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly notifications = this.store.notifications;
   protected readonly loading = this.store.notificationsLoading;
@@ -243,7 +252,7 @@ export class VendorNotificationsList {
   }
 
   protected noteFor(notification: VendorNotification): string | null {
-    return noteOf(notification);
+    return noteOf(notification, (iso) => formatDate(iso, 'medium', this.locale));
   }
 
   /** The secondary line before the date. An attestation row names the data flow
@@ -320,7 +329,7 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
-  return contestNotificationTitle(notification.event, notification.retired_by);
+  return contestNotificationTitle(notification);
 }
 
 /**
@@ -330,7 +339,10 @@ function titleOf(notification: VendorNotification): string {
  * of its kind, which is why `accepted` has no note (see
  * {@link contestNotificationNote}).
  */
-function noteOf(notification: VendorNotification): string | null {
+function noteOf(
+  notification: VendorNotification,
+  formatDay: (iso: string) => string,
+): string | null {
   if (isAttestationNotification(notification)) return null;
   switch (notification.kind) {
     case 'integration_claim':
@@ -349,6 +361,6 @@ function noteOf(notification: VendorNotification): string | null {
     case 'integration_update':
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
     case 'contest':
-      return contestNotificationNote(notification.event, notification.retired_by);
+      return contestNotificationNote(notification, formatDay);
   }
 }

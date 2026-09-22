@@ -92,6 +92,8 @@ A vendor at either end that does not own the integration can contest one of its 
 
 A contest about who owns the integration never comes to you. It always goes to AEC Integrations.
 
+If you decline a contest, or leave it unanswered for 30 days, the vendor that sent it can ask AEC Integrations to review it. You see the request in Messages under Field contests and can reply once, within 14 days. AEC Integrations reads both sides and says which it agrees with. Its view is advice. It does not change your integration, and the value on record stays unless you change it. Nothing about a review is public.
+
 ## Integrations delivered through a connector
 
 Where a third-party connector product carries the data, no vendor can yet claim, edit, retire, or add links to the integration. These stay as AEC Integrations recorded them. You can still contest a detail on one that appears on your Integrations tab.

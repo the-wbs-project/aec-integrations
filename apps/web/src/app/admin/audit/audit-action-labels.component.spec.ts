@@ -41,6 +41,13 @@ const EMITTED_ACTIONS = [
   'integration.contest.withdrawn',
   'integration.contest.accepted',
   'integration.contest.declined',
+  // AECI-1009. The two decisions are chosen in one expression, so listed by hand.
+  'integration.contest.lapsed',
+  'integration.contest.protested',
+  'integration.contest.protest_replied',
+  'integration.contest.protest_withdrawn',
+  'integration.contest.protest_upheld',
+  'integration.contest.protest_rejected',
   'category.created',
   'audience.created',
   'phase.created',

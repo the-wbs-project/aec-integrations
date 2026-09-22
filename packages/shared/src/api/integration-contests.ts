@@ -101,11 +101,105 @@ export const CONTEST_DECISIONS = ['accept', 'decline'] as const;
 export const ContestDecisionSchema = z.enum(CONTEST_DECISIONS);
 export type ContestDecision = z.infer<typeof ContestDecisionSchema>;
 
+// ─── Protests (AECI-1009 / §11b.12) ──────────────────────────────────────────
+
+/**
+ * A protest's own state, beside the contest's `status` on the same row. A
+ * protested contest's `status` stays `declined`: the `status` CHECK is closed and
+ * opening it would recreate the table. Mirrored by the column-level CHECK
+ * `integration_field_challenges_protest_status_check` (migration 0047).
+ */
+export const CONTEST_PROTEST_STATUSES = ['open', 'upheld', 'rejected', 'withdrawn'] as const;
+export const ContestProtestStatusSchema = z.enum(CONTEST_PROTEST_STATUSES);
+export type ContestProtestStatus = z.infer<typeof ContestProtestStatusSchema>;
+
+/** What a protest protests: the owner's decline, or 30 days of the owner's silence. */
+export const CONTEST_PROTEST_BASES = ['declined', 'silence'] as const;
+export const ContestProtestBasisSchema = z.enum(CONTEST_PROTEST_BASES);
+export type ContestProtestBasis = z.infer<typeof ContestProtestBasisSchema>;
+
+export const CONTEST_PROTEST_DECISIONS = ['uphold', 'reject'] as const;
+export const ContestProtestDecisionSchema = z.enum(CONTEST_PROTEST_DECISIONS);
+export type ContestProtestDecision = z.infer<typeof ContestProtestDecisionSchema>;
+
+/** Days an owner-routed contest may go unanswered before silence counts as a decline. */
+export const CONTEST_OWNER_SILENCE_DAYS = 30;
+/** Days after a decline (or the silence-decline date) in which a protest may be filed. */
+export const CONTEST_PROTEST_FILING_DAYS = 30;
+/** Days the owner has to reply, from the protest. Stored on the row as a date. */
+export const CONTEST_PROTEST_REPLY_DAYS = 14;
+/** Days a lost protest blocks re-contesting the field, unless its value changes. */
+export const CONTEST_PROTEST_COOLDOWN_DAYS = 90;
+/** Evidence links a protest or a reply may carry. */
+export const CONTEST_PROTEST_MAX_EVIDENCE = 3;
+
+const DAY_MS = 86_400_000;
+
+/** `iso` plus whole 24-hour days, as an ISO string. No calendar, no time zone. */
+export function addContestDays(iso: string, days: number): string {
+  return new Date(Date.parse(iso) + days * DAY_MS).toISOString();
+}
+
+/** The fields of a contest row the protest window depends on. */
+export interface ContestProtestWindowInput {
+  routed_to: string;
+  owner_vendor_id: string | null;
+  status: string;
+  protest_status: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+/**
+ * When a protest on this contest can be filed, ignoring the live-state checks
+ * (owner and value unchanged), or `null` when it never can.
+ *
+ * - `declined`: an owner decline. Opens at `decided_at`, closes 30 days later.
+ * - `silence`: an owner-routed contest still open. Silence counts as a decline on
+ *   day 30 after `created_at` (the silence-decline date), and the 30-day filing
+ *   window runs from there, so it closes on day 60.
+ *
+ * Both windows are half-open: protestable while `opens_at <= now < closes_at`.
+ */
+export function contestProtestWindow(
+  row: ContestProtestWindowInput,
+): { basis: ContestProtestBasis; opens_at: string; closes_at: string } | null {
+  if (row.routed_to !== 'owner' || row.owner_vendor_id === null) return null;
+  if (row.protest_status !== null) return null;
+  if (row.status === 'declined' && row.decided_at) {
+    return {
+      basis: 'declined',
+      opens_at: row.decided_at,
+      closes_at: addContestDays(row.decided_at, CONTEST_PROTEST_FILING_DAYS),
+    };
+  }
+  if (row.status === 'open') {
+    const silenceAt = addContestDays(row.created_at, CONTEST_OWNER_SILENCE_DAYS);
+    return {
+      basis: 'silence',
+      opens_at: silenceAt,
+      closes_at: addContestDays(silenceAt, CONTEST_PROTEST_FILING_DAYS),
+    };
+  }
+  return null;
+}
+
+/** Where `now` falls in a protest window. ISO strings compare by instant. */
+export function contestProtestPhase(
+  window: { opens_at: string; closes_at: string },
+  now: string,
+): 'not_yet' | 'open' | 'closed' {
+  const at = Date.parse(now);
+  if (at < Date.parse(window.opens_at)) return 'not_yet';
+  if (at >= Date.parse(window.closes_at)) return 'closed';
+  return 'open';
+}
+
 // ─── The per-field rule ──────────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function isHttpUrl(value: string): boolean {
+export function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';
@@ -175,6 +269,42 @@ export const DecideContestSchema = z.object({
 });
 export type DecideContestInput = z.infer<typeof DecideContestSchema>;
 
+/** Up to three absolute `http(s)` URLs. The server deduplicates them. */
+export const ProtestEvidenceSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(2048)
+      .refine(isHttpUrl, 'Each evidence link must be an absolute http(s) URL'),
+  )
+  .max(CONTEST_PROTEST_MAX_EVIDENCE)
+  .default([]);
+
+/** `POST /api/vendor/contests/:id/protest`. The proposal is not in the body: it
+ *  stays frozen at what the owner declined. */
+export const FileContestProtestSchema = z.object({
+  reason: contestText,
+  evidence_urls: ProtestEvidenceSchema,
+});
+export type FileContestProtestInput = z.input<typeof FileContestProtestSchema>;
+
+/** `POST /api/vendor/contests/:id/protest/reply`. Once per protest. */
+export const ReplyContestProtestSchema = z.object({
+  reply: contestText,
+  evidence_urls: ProtestEvidenceSchema,
+});
+export type ReplyContestProtestInput = z.input<typeof ReplyContestProtestSchema>;
+
+/** `PATCH /api/admin/contests/:id/protest`. The note is REQUIRED: an advisory
+ *  ruling's reasons are the whole of what it gives either vendor. */
+export const DecideContestProtestSchema = z.object({
+  decision: ContestProtestDecisionSchema,
+  note: contestText,
+});
+export type DecideContestProtestInput = z.infer<typeof DecideContestProtestSchema>;
+
 // ─── Read shapes ─────────────────────────────────────────────────────────────
 
 /** A vendor, as a contest names one. Not a `VendorLink`: no slug or logo is needed
@@ -184,6 +314,25 @@ export const ContestVendorRefSchema = z.object({
   name: z.string(),
 });
 export type ContestVendorRef = z.infer<typeof ContestVendorRefSchema>;
+
+/**
+ * A protest as either vendor and AECi see it (§11b.12.9). Both vendors see the
+ * whole record, including each other's text and evidence. No profile id is sent.
+ */
+export const ContestProtestSchema = z.object({
+  status: ContestProtestStatusSchema,
+  basis: ContestProtestBasisSchema,
+  reason: z.string(),
+  evidence_urls: z.array(z.string()),
+  protested_at: z.string(),
+  reply_due_at: z.string(),
+  reply: z.string().nullable(),
+  reply_evidence_urls: z.array(z.string()),
+  replied_at: z.string().nullable(),
+  decision_note: z.string().nullable(),
+  decided_at: z.string().nullable(),
+});
+export type ContestProtest = z.infer<typeof ContestProtestSchema>;
 
 /**
  * One contest as a vendor sees it, either side.
@@ -213,6 +362,21 @@ export const VendorContestSchema = z.object({
   decided_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  /** AECI-1009. The protest on this contest, on both sides. Defaulted for skew. */
+  protest: ContestProtestSchema.nullable().default(null),
+  /**
+   * Submitted side only. The protest window (§11b.12.8) while this contest has
+   * no protest and passes every other check (owner-routed, the same owner still
+   * holds the claimed row, the value on record unchanged). `opens_at` may be in
+   * the future (an open contest before day 30). Both `null` means the contest is
+   * not protestable and will not become so by waiting.
+   */
+  protest_opens_at: z.string().nullable().default(null),
+  protest_closes_at: z.string().nullable().default(null),
+  protest_basis: ContestProtestBasisSchema.nullable().default(null),
+  /** Submitted side only. Set while this row's lost protest blocks a new contest
+   *  on the field (§11b.12.8). */
+  cooldown_until: z.string().nullable().default(null),
 });
 export type VendorContest = z.infer<typeof VendorContestSchema>;
 
@@ -261,6 +425,12 @@ export const EMPTY_CONTESTABLE_FIELDS: ContestableFields = Object.fromEntries(
 export const ListAdminContestsQuerySchema = PageQuerySchema.extend({
   status: ContestStatusSchema.default('open'),
   routed_to: ContestRouteSchema.default('aeci'),
+  /**
+   * AECI-1009. When present the list is the Protests view: it filters on
+   * `protest_status` alone and ignores `status` and `routed_to` (every protested
+   * row is `declined` and owner-routed), newest protest first.
+   */
+  protest_status: ContestProtestStatusSchema.optional(),
 });
 export type ListAdminContestsQuery = z.infer<typeof ListAdminContestsQuerySchema>;
 
@@ -307,6 +477,10 @@ export const AdminContestSchema = z.object({
   upstream_linear_issue_url: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  /** AECI-1009. Defaulted for deploy skew. */
+  protest: ContestProtestSchema.nullable().default(null),
+  /** True when the integration is no longer claimed by `owner_vendor.id`. */
+  owner_changed: z.boolean().default(false),
 });
 export type AdminContest = z.infer<typeof AdminContestSchema>;
 

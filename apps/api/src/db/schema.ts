@@ -1566,7 +1566,9 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * ── PROFILES ────────────────────────────────────────────────────────────────
  * `submitted_by` and `decided_by` are two of the ten inbound FKs to
  * `profiles.id`, both `ON DELETE SET NULL` AND nulled explicitly in the
- * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8).
+ * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8). AECI-1009
+ * added three more, `protested_by`, `protest_replied_by` and
+ * `protest_decided_by`, under the same double rule.
  *
  * `workflow_id` points at a `correction_request` instance whose `entity_id` is this
  * row's id. That type is REUSED rather than added, because
@@ -1609,10 +1611,46 @@ export const integrationFieldChallenges = sqliteTable(
       onDelete: 'set null',
     }),
 
+    // ── Protest to AECi (AECI-1009, §11b.12; migration 0047, hand-authored) ──
+    // `protest_status` and `protest_basis` carry COLUMN-level CHECKs written by
+    // hand into the migration, never a table-level `check()` here: declaring one
+    // would make every later `db:generate` render a recreate of this cascade child.
+    // The four FK columns likewise got their `ON DELETE SET NULL` by hand, because
+    // drizzle-kit's `ADD … REFERENCES` drops the clause (`docs/migrations.md` §0).
+    protestStatus: text('protest_status'),
+    protestBasis: text('protest_basis'),
+    protestReason: text('protest_reason'),
+    /** JSON array of up to three http(s) URLs. */
+    protestEvidence: text('protest_evidence'),
+    protestedBy: text('protested_by').references(() => profiles.id, { onDelete: 'set null' }),
+    protestedAt: text('protested_at'),
+    /** `protested_at + 14 days`, stored so a later constant cannot move it. */
+    protestReplyDueAt: text('protest_reply_due_at'),
+    protestReply: text('protest_reply'),
+    /** JSON array of up to three http(s) URLs. */
+    protestReplyEvidence: text('protest_reply_evidence'),
+    protestRepliedBy: text('protest_replied_by').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    protestRepliedAt: text('protest_replied_at'),
+    protestDecisionNote: text('protest_decision_note'),
+    protestDecidedBy: text('protest_decided_by').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    protestDecidedAt: text('protest_decided_at'),
+    /** The protest's own `correction_request` instance (the contest's second). */
+    protestWorkflowId: text('protest_workflow_id').references(() => workflowInstances.id, {
+      onDelete: 'set null',
+    }),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    // AECI-1009: the admin Protests view and the badge's open-protest term.
+    index('integration_field_challenges_protest_idx')
+      .on(t.protestStatus, t.protestedAt)
+      .where(sql`"protest_status" IS NOT NULL`),
     // One OPEN contest per (integration, field, submitting vendor). Partial, so a
     // decided or withdrawn row never blocks a fresh challenge.
     uniqueIndex('integration_field_challenges_open_key')

@@ -55,8 +55,16 @@ A contest is decided by whoever was deciding when it was sent, even if the integ
 A contest ends in one of three ways:
 
 - **Accepted.** The proposed value replaces the value on record. Where we accept a contest on an integration nobody has claimed, the change is generally published with our next catalogue update.
-- **Declined.** The decider does not agree with the proposed value. The value on record stays, the contest is closed, and the vendor that sent it is told, together with any note the decider added.
+- **Declined.** The decider does not agree with the proposed value. The value on record stays, the contest is closed, and the vendor that sent it is told, together with any note the decider added. Where the owner declined it, the vendor may ask us to review the decision, as described below.
 - **Withdrawn.** The vendor that sent a contest may withdraw it while it is open. An open contest is also closed as withdrawn if the owner or we retire the integration, and restoring the integration does not reopen it.
+
+### Asking us to review an owner's decision
+
+Where the owner declined a contest, the vendor that sent it may ask us to review that decision within 30 days of the decline. Where the owner has not answered a contest for 30 days, we treat it as declined, and the vendor may ask us to review it within the following 30 days. The request gives the vendor's reasons and may include up to three links. The owner may reply once, within 14 days. We may give our view before the owner replies or after that time has passed.
+
+We then say which side we agree with, and give our reasons to both vendors. **Our view is advice.** We do not change the integration, because the owner maintains its details. The value on record stays unless the owner changes it. Where we agree with the owner, the vendor that asked may not contest the same detail of that integration again for 90 days, unless the value on record changes in the meantime. The vendor that asked may withdraw its request while we are considering it, and it may not ask again about the same contest.
+
+We do not publish anything about a review: not that one was asked for, and not our view.
 
 A contest is separate from a correction request. Anyone may still ask us for a correction under the section above.
 

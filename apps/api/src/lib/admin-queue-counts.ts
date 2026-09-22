@@ -33,7 +33,8 @@
 
  * `pending_contests` (AECI-1008) is a different table too
  * (`integration_field_challenges`), counted as `routed_to = 'aeci' AND status =
- * 'open'`, so it is disjoint from all four. It badges `/admin/contests` and is
+ * 'open'` (plus stranded owner-routed rows, AECI-1005, and open protests,
+ * AECI-1009), so it is disjoint from all four. It badges `/admin/contests` and is
  * summed into the Operations trigger and the header badge like the others.
  *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
@@ -90,17 +91,22 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .select({ value: count() })
       .from(integrationFieldChallenges)
       .where(
-        and(
-          // AECi-routed, plus STRANDED owner-routed rows (owner vendor deleted, so
-          // `owner_vendor_id` is NULL), which AECi decides since AECI-1005.
-          or(
-            eq(integrationFieldChallenges.routedTo, 'aeci'),
-            and(
-              eq(integrationFieldChallenges.routedTo, 'owner'),
-              isNull(integrationFieldChallenges.ownerVendorId),
+        or(
+          and(
+            // AECi-routed, plus STRANDED owner-routed rows (owner vendor deleted, so
+            // `owner_vendor_id` is NULL), which AECi decides since AECI-1005.
+            or(
+              eq(integrationFieldChallenges.routedTo, 'aeci'),
+              and(
+                eq(integrationFieldChallenges.routedTo, 'owner'),
+                isNull(integrationFieldChallenges.ownerVendorId),
+              ),
             ),
+            eq(integrationFieldChallenges.status, 'open'),
           ),
-          eq(integrationFieldChallenges.status, 'open'),
+          // AECI-1009: plus every OPEN PROTEST, which AECi decides. Disjoint from the
+          // term above by construction: a protested row's `status` is `declined`.
+          eq(integrationFieldChallenges.protestStatus, 'open'),
         ),
       ),
   ]);

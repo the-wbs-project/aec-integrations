@@ -4,6 +4,7 @@ import {
   INTEGRATION_CONTEST_FIELDS,
   contestValueProblem,
   type ContestNotificationEvent,
+  type ContestProtestStatus,
   type ContestRoute,
   type ContestStatus,
   type ContextDirection,
@@ -128,17 +129,30 @@ export function contestRouteLabel(route: ContestRoute): string {
   }
 }
 
+/** The fields of a contest notification the title and note read. */
+export interface ContestNotificationLike {
+  readonly event: ContestNotificationEvent;
+  readonly recipient_role?: 'submitter' | 'owner' | null;
+  readonly protest_closes_at?: string | null;
+  readonly reply_due_at?: string | null;
+  readonly cooldown_until?: string | null;
+  /** AECI-1046: who retired the integration, on a `closed_by_retire` row. */
+  readonly retired_by?: 'owner' | 'aeci' | null;
+}
+
 /**
  * The notification archive's title for a contest event. The recipient is always
  * the OTHER side (§11b.8): `submitted` and `withdrawn` reach the owner, the two
  * decisions and a retire's close (AECI-1010) reach the submitter, so each
- * sentence is written from that seat.
+ * sentence is written from that seat. The two protest decisions (AECI-1009) reach
+ * BOTH sides, told apart by `recipient_role`.
+ *
+ * The `default` branch is the deploy-skew fallback: a web build older than the
+ * API meets an event it does not know, and must still render a title.
  */
-export function contestNotificationTitle(
-  event: ContestNotificationEvent,
-  retiredBy?: 'owner' | 'aeci',
-): string {
-  switch (event) {
+export function contestNotificationTitle(notification: ContestNotificationLike): string {
+  const owner = notification.recipient_role === 'owner';
+  switch (notification.event) {
     case 'submitted':
       return $localize`:@@vendor.contest.notify.submitted:Another vendor contested a field on your integration`;
     case 'withdrawn':
@@ -149,9 +163,25 @@ export function contestNotificationTitle(
       return $localize`:@@vendor.contest.notify.declined:Your contest was declined`;
     case 'closed_by_retire':
       // AECI-1046: an admin retire names AEC Integrations, not the owner.
-      return retiredBy === 'aeci'
+      return notification.retired_by === 'aeci'
         ? $localize`:@@vendor.contest.notify.closedByAeciRetire:Your contest was closed because AEC Integrations retired the integration`
         : $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
+    case 'protested':
+      return $localize`:@@vendor.contest.notify.protested:A vendor asked AEC Integrations to review a contest on your integration`;
+    case 'protest_replied':
+      return $localize`:@@vendor.contest.notify.protestReplied:The owner replied to your review request`;
+    case 'protest_withdrawn':
+      return $localize`:@@vendor.contest.notify.protestWithdrawn:A review request on your integration was withdrawn`;
+    case 'protest_upheld':
+      return owner
+        ? $localize`:@@vendor.contest.notify.protestUpheld.owner:AEC Integrations agrees with a contest on your integration`
+        : $localize`:@@vendor.contest.notify.protestUpheld.submitter:AEC Integrations agrees with your contest`;
+    case 'protest_rejected':
+      return owner
+        ? $localize`:@@vendor.contest.notify.protestRejected.owner:AEC Integrations agrees with your decision`
+        : $localize`:@@vendor.contest.notify.protestRejected.submitter:AEC Integrations agrees with the owner`;
+    default:
+      return $localize`:@@vendor.contest.notify.fallback:An update on a field contest`;
   }
 }
 
@@ -162,28 +192,125 @@ export function contestNotificationTitle(
  * `accepted` carries no note on purpose. What an accept changes depends on who
  * decided and whether the row was claimed (`STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.6), and the event does not say which, so any sentence about when the page
- * changes would be wrong for some rows. `declined` says the value stays, and
- * nothing more: a protest to AECi (AECI-1009) is designed, not built, so the
- * note must not offer one.
+ * changes would be wrong for some rows.
+ *
+ * `declined` offers a review by AEC Integrations (AECI-1009) only when the row
+ * carries `protest_closes_at`, which the server sets on an OWNER decline alone. An
+ * AECi decline, and every row written before AECI-1009, says the value stays and
+ * nothing more. `formatDate` renders the dates in the page's locale.
  */
 export function contestNotificationNote(
-  event: ContestNotificationEvent,
-  retiredBy?: 'owner' | 'aeci',
+  notification: ContestNotificationLike,
+  formatDate: (iso: string) => string,
 ): string | null {
-  switch (event) {
+  const owner = notification.recipient_role === 'owner';
+  switch (notification.event) {
     case 'submitted':
       return $localize`:@@vendor.contest.notify.note.submitted:Accept or decline it under Field contests in Messages. Until you decide, the public page keeps the value on record.`;
-    case 'declined':
+    case 'declined': {
+      const closes = notification.protest_closes_at;
+      if (closes) {
+        const date = formatDate(closes);
+        return $localize`:@@vendor.contest.notify.note.declinedProtestable:The value on record stays as it is. If you disagree, you can ask AEC Integrations to review it until ${date}:DATE:, from Field contests in Messages.`;
+      }
       return $localize`:@@vendor.contest.notify.note.declined:The value on record stays as it is.`;
+    }
     case 'closed_by_retire':
-      if (retiredBy === 'aeci') {
+      if (notification.retired_by === 'aeci') {
         return $localize`:@@vendor.contest.notify.note.closedByAeciRetire:Only AEC Integrations can restore the integration, and restoring it does not reopen your contest. If it comes back and you still want the change, send a new one.`;
       }
       return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your contest. If it comes back and you still want the change, send a new one.`;
-    case 'withdrawn':
-    case 'accepted':
+    case 'protested': {
+      const due = notification.reply_due_at;
+      if (!due) {
+        return $localize`:@@vendor.contest.notify.note.protestedNoDate:You can reply once, under Field contests in Messages. Nothing about it is public.`;
+      }
+      const date = formatDate(due);
+      return $localize`:@@vendor.contest.notify.note.protested:You can reply once, by ${date}:DATE:, under Field contests in Messages. Nothing about it is public.`;
+    }
+    case 'protest_upheld':
+      return owner
+        ? $localize`:@@vendor.contest.notify.note.protestUpheld.owner:This is advice. The value on record stays unless you change it.`
+        : $localize`:@@vendor.contest.notify.note.protestUpheld.submitter:The owner has not changed the field. Only the owner can change it, so the value on record stays until it does.`;
+    case 'protest_rejected': {
+      if (owner) return null;
+      const until = notification.cooldown_until;
+      if (!until) return null;
+      const date = formatDate(until);
+      return $localize`:@@vendor.contest.notify.note.protestRejected:You can't contest this field again until ${date}:DATE:, unless its value changes.`;
+    }
+    default:
       return null;
   }
+}
+
+// ─── Protests (AECI-1009 / §11b.12) ──────────────────────────────────────────
+
+/** A protest's state, as the pill beside it reads. */
+export function protestStatusLabel(status: ContestProtestStatus): string {
+  switch (status) {
+    case 'open':
+      return $localize`:@@vendor.protest.status.open:With AEC Integrations`;
+    case 'upheld':
+      return $localize`:@@vendor.protest.status.upheld:AEC Integrations agreed with the contest`;
+    case 'rejected':
+      return $localize`:@@vendor.protest.status.rejected:AEC Integrations agreed with the owner`;
+    case 'withdrawn':
+      return $localize`:@@vendor.protest.status.withdrawn:Review request withdrawn`;
+  }
+}
+
+/** The refusals the three protest routes can answer, mapped to what to do next. */
+export function protestErrorMessage(err: unknown): string {
+  const info = readVendorApiError(err);
+  switch (info?.code) {
+    case 'PROTEST_NOT_AVAILABLE': {
+      const reason = info.details?.['reason'];
+      if (reason === 'window_closed') {
+        return $localize`:@@vendor.protest.error.windowClosed:The 30 days to ask for a review of this contest have passed.`;
+      }
+      if (reason === 'owner_not_silent_yet') {
+        return $localize`:@@vendor.protest.error.notYet:The owner still has time to answer this contest.`;
+      }
+      if (reason === 'contest_open') {
+        return $localize`:@@vendor.protest.error.contestOpen:You have an open contest on this field of this integration. Withdraw it, or wait for its answer, before you ask for a review.`;
+      }
+      if (reason === 'already_protested') {
+        return $localize`:@@vendor.protest.error.already:This contest already has a review request.`;
+      }
+      return $localize`:@@vendor.protest.error.changed:This contest changed, for example the owner answered it. The list now shows where it stands.`;
+    }
+    case 'CONTEST_VALUE_STALE':
+      return $localize`:@@vendor.protest.error.stale:The owner changed this field since. Contest the new value instead.`;
+    case 'CONTEST_INTEGRATION_CHANGED':
+      return $localize`:@@vendor.protest.error.newOwner:This integration has a new owner. Contest it again to reach them.`;
+    case 'PROTEST_NOT_OPEN':
+      return $localize`:@@vendor.protest.error.notOpen:This review request was already decided or withdrawn. The list now shows where it stands.`;
+    case 'PROTEST_REPLY_EXISTS':
+      return $localize`:@@vendor.protest.error.replyExists:A reply is already on file for this review request.`;
+    case 'PROTEST_REPLY_CLOSED':
+      return $localize`:@@vendor.protest.error.replyClosed:The time to reply has passed.`;
+    case 'RATE_LIMITED':
+      return $localize`:@@vendor.protest.error.rate:Too many requests in a short time. Wait a minute and try again.`;
+    case 'VALIDATION_FAILED':
+      return $localize`:@@vendor.protest.error.invalid:Check the reason and the links. Each link must be a full web address.`;
+    default:
+      return $localize`:@@vendor.protest.error.generic:Could not save that. Try again.`;
+  }
+}
+
+/** True for the refusals after which the list should reload to show the state
+ *  that won. A validation or rate-limit error keeps the form as it is. */
+export function protestErrorReloads(err: unknown): boolean {
+  const code = readVendorApiError(err)?.code;
+  return (
+    code === 'PROTEST_NOT_AVAILABLE' ||
+    code === 'CONTEST_VALUE_STALE' ||
+    code === 'CONTEST_INTEGRATION_CHANGED' ||
+    code === 'PROTEST_NOT_OPEN' ||
+    code === 'PROTEST_REPLY_EXISTS' ||
+    code === 'PROTEST_REPLY_CLOSED'
+  );
 }
 
 /**
@@ -228,6 +355,10 @@ export function contestSubmitErrorMessage(err: unknown): string {
       return $localize`:@@vendor.contest.submit.error.invalid:That value is not valid for this field. Check it and try again.`;
     case 'CONTEST_OWN_INTEGRATION':
       return $localize`:@@vendor.contest.submit.error.isOwner:Your company is recorded as the owner of this integration, so you cannot contest it.`;
+    case 'CONTEST_PROTEST_OPEN':
+      return $localize`:@@vendor.contest.submit.error.protestOpen:You asked AEC Integrations to review a contest on this field. Wait for its answer, or withdraw that request in Messages first.`;
+    case 'CONTEST_COOLDOWN':
+      return $localize`:@@vendor.contest.submit.error.cooldown:AEC Integrations agreed with the owner on this field, so you can't contest it again yet unless its value changes.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.contest.submit.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

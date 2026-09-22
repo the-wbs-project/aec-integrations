@@ -59,12 +59,15 @@ function makeContest(over: Partial<AdminContest> & { id: string }): AdminContest
     upstream_linear_issue_url: over.upstream_linear_issue_url ?? null,
     created_at: over.created_at ?? '2026-09-18T00:00:00.000Z',
     updated_at: over.updated_at ?? '2026-09-18T00:00:00.000Z',
+    protest: over.protest ?? null,
+    owner_changed: over.owner_changed ?? false,
   };
 }
 
 interface ApiMock {
   listContests: ReturnType<typeof vi.fn>;
   decide: ReturnType<typeof vi.fn>;
+  decideProtest: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(rows: AdminContest[], total = rows.length): ApiMock {
@@ -74,6 +77,7 @@ function makeApiMock(rows: AdminContest[], total = rows.length): ApiMock {
     decide: vi.fn(async (id: string, input: DecideContestInput) =>
       makeContest({ id, status: input.decision === 'accept' ? 'accepted' : 'declined' }),
     ),
+    decideProtest: vi.fn(async (id: string) => makeContest({ id, status: 'declined' })),
   };
 }
 
@@ -435,7 +439,8 @@ describe('ContestQueue', () => {
     expect(el.querySelectorAll('h2')).toHaveLength(1);
     expect(el.querySelector('h1')).toBeNull();
     const groups = [...el.querySelectorAll('[role="group"]')];
-    expect(groups).toHaveLength(2);
+    // Show (AECI-1009), Status, Decided by.
+    expect(groups).toHaveLength(3);
     for (const g of groups) {
       const label = el.querySelector(`#${g.getAttribute('aria-labelledby')}`);
       expect(label?.textContent?.trim()).toBeTruthy();
@@ -443,5 +448,94 @@ describe('ContestQueue', () => {
     expect(el.querySelectorAll('[aria-live]')).toHaveLength(1);
     const article = el.querySelector('article')!;
     expect(el.querySelector(`#${article.getAttribute('aria-labelledby')}`)?.tagName).toBe('H3');
+  });
+
+  // ─── AECI-1009: protests ────────────────────────────────────────────────────
+
+  const OPEN_PROTEST = {
+    status: 'open' as const,
+    basis: 'silence' as const,
+    reason: 'The listing uses the longer name.',
+    evidence_urls: ['https://example.test/listing'],
+    protested_at: '2026-09-20T00:00:00.000Z',
+    reply_due_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+    reply: null,
+    reply_evidence_urls: [],
+    replied_at: null,
+    decision_note: null,
+    decided_at: null,
+  };
+
+  it('switches to the Protests view and loads by protest status', async () => {
+    const api = makeApiMock([]);
+    const { fixture, el } = await setup(api);
+    api.listContests.mockResolvedValueOnce({
+      data: [
+        makeContest({ id: 'p1', status: 'declined', routed_to: 'owner', protest: OPEN_PROTEST }),
+      ],
+      page: 1,
+      perPage: 100,
+      total: 1,
+    });
+    buttonByText(el, 'Protests').click();
+    await flush(fixture);
+    expect(api.listContests).toHaveBeenLastCalledWith({
+      protest_status: 'open',
+      page: 1,
+      perPage: 100,
+    });
+    const card = el.querySelector('article') as HTMLElement;
+    expect(card.textContent).toContain('did not answer the contest within 30 days');
+    expect(card.textContent).toContain(OPEN_PROTEST.reason);
+    expect(card.textContent).toContain('Reply due');
+    // The help text says what the answer is, and that the owner may still reply.
+    expect(card.textContent).toContain('Your answer is advice');
+    expect(card.textContent).toContain('Deciding now means deciding without that reply');
+  });
+
+  it('requires a note, then records the answer and decrements the badge', async () => {
+    const api = makeApiMock([
+      makeContest({ id: 'p1', status: 'declined', routed_to: 'owner', protest: OPEN_PROTEST }),
+    ]);
+    const { fixture, el, store } = await setup(api);
+    const decrement = vi.spyOn(store, 'decrement');
+    buttonByText(el, 'Protests').click();
+    await flush(fixture);
+    buttonByText(el, 'Agree with the owner').click();
+    await flush(fixture);
+    submitForm(el.querySelector('article') as HTMLElement);
+    await flush(fixture);
+    expect(api.decideProtest).not.toHaveBeenCalled();
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain('Write a note');
+
+    typeNote(fixture, el.querySelector('article') as HTMLElement, 'Procore says its half is beta.');
+    submitForm(el.querySelector('article') as HTMLElement);
+    await flush(fixture);
+    expect(api.decideProtest).toHaveBeenCalledWith('p1', {
+      decision: 'reject',
+      note: 'Procore says its half is beta.',
+    });
+    expect(decrement).toHaveBeenCalledWith('contests');
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      'AEC Integrations agrees with the owner',
+    );
+  });
+
+  it('reloads on PROTEST_NOT_OPEN without decrementing', async () => {
+    const api = makeApiMock([
+      makeContest({ id: 'p1', status: 'declined', routed_to: 'owner', protest: OPEN_PROTEST }),
+    ]);
+    api.decideProtest.mockRejectedValueOnce(apiError(409, 'PROTEST_NOT_OPEN'));
+    const { fixture, el, store } = await setup(api);
+    const decrement = vi.spyOn(store, 'decrement');
+    buttonByText(el, 'Protests').click();
+    await flush(fixture);
+    buttonByText(el, 'Agree with the submitter').click();
+    await flush(fixture);
+    typeNote(fixture, el.querySelector('article') as HTMLElement, 'ok');
+    submitForm(el.querySelector('article') as HTMLElement);
+    await flush(fixture);
+    expect(decrement).not.toHaveBeenCalled();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Already decided');
   });
 });

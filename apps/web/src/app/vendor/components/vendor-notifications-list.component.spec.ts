@@ -103,6 +103,10 @@ describe('VendorNotificationsList', () => {
         field: 'docs_url',
         pair_path: '/products/procore/integrations/summit',
         created_at: '2026-09-18T12:00:00.000Z',
+        recipient_role: null,
+        protest_closes_at: null,
+        reply_due_at: null,
+        cooldown_until: null,
       },
     ];
     getNotifications.mockResolvedValue({ notifications: withContest });
@@ -119,6 +123,66 @@ describe('VendorNotificationsList', () => {
       '/products/procore/integrations/summit',
     );
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(4)');
+  });
+
+  // AECI-1009: the protest events, the seat-dependent decisions, the declined note
+  // that offers a review only with a date, and the skew fallback.
+  it.each([
+    [
+      'protested',
+      null,
+      'asked AEC Integrations to review a contest on your integration',
+      'reply once',
+    ],
+    ['protest_replied', null, 'The owner replied to your review request', null],
+    ['protest_withdrawn', null, 'A review request on your integration was withdrawn', null],
+    [
+      'protest_upheld',
+      'submitter',
+      'AEC Integrations agrees with your contest',
+      'Only the owner can change it',
+    ],
+    [
+      'protest_upheld',
+      'owner',
+      'AEC Integrations agrees with a contest on your integration',
+      'This is advice',
+    ],
+    [
+      'protest_rejected',
+      'submitter',
+      'AEC Integrations agrees with the owner',
+      "can't contest this field again",
+    ],
+    ['protest_rejected', 'owner', 'AEC Integrations agrees with your decision', null],
+    [
+      'declined',
+      null,
+      'Your contest was declined',
+      'you can ask AEC Integrations to review it until',
+    ],
+    ['brand_new_event', null, 'An update on a field contest', null],
+  ] as const)('renders `%s` (%s) with its title and note', async (event, role, title, note) => {
+    const row: VendorNotification = {
+      kind: 'contest',
+      id: '00000000-0000-4000-8000-00000000c0d0',
+      event: event as never,
+      contest_id: '00000000-0000-4000-8000-00000000c0df',
+      integration_id: '00000000-0000-4000-8000-00000000c0e0',
+      integration_name: 'Summit ↔ Procore',
+      field: 'name',
+      pair_path: null,
+      created_at: '2026-09-18T12:00:00.000Z',
+      recipient_role: role,
+      protest_closes_at: event === 'declined' ? '2026-10-18T12:00:00.000Z' : null,
+      reply_due_at: event === 'protested' ? '2026-10-02T12:00:00.000Z' : null,
+      cooldown_until: event === 'protest_rejected' ? '2026-12-17T12:00:00.000Z' : null,
+    };
+    getNotifications.mockResolvedValue({ notifications: [row] });
+    const fixture = await create();
+    const li = el(fixture).querySelector('li')!;
+    expect(li.textContent).toContain(title);
+    if (note) expect(li.textContent).toContain(note);
   });
 
   it('renders an integration claim row, naming the owner and the integration (AECI-1005)', async () => {

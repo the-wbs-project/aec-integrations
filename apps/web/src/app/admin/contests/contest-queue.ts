@@ -6,6 +6,8 @@ import { RouterLink } from '@angular/router';
 import type {
   AdminContest,
   ContestDecision,
+  ContestProtestDecision,
+  ContestProtestStatus,
   ContestRoute,
   ContestStatus,
   DecideContestInput,
@@ -49,6 +51,14 @@ const QUEUE_PAGE_SIZE = 100;
  * refuses them with `409 CONTEST_ROUTED_TO_OWNER`, and two deciders on one row is
  * how a contest gets accepted twice with two values.
  *
+ * ── PROTESTS (AECI-1009 / §11b.12) ──────────────────────────────────────────
+ * A Contests / Protests switch. Protests lists rows by `protest_status` and shows
+ * both sides in full: the contest, the owner's note (or 30 days of silence), the
+ * submitter's case and links, and the owner's one reply or its due date. The
+ * decision is "Agree with the submitter" or "Agree with the owner", with a
+ * REQUIRED note. It is advice: it changes nothing on the listing and files no
+ * Linear issue, and the form says so. The owner's reply date does not block it.
+ *
  * ── THE BADGE ───────────────────────────────────────────────────────────────
  * `pending_contests` counts open AECi-routed rows, a different table from the
  * other Operations queues, so the Operations sum stays honest. A successful
@@ -90,6 +100,27 @@ export class ContestQueue {
 
   protected readonly statusFilter = signal<ContestStatus>('open');
   protected readonly routeFilter = signal<ContestRoute>('aeci');
+  /** AECI-1009: which list the screen shows. */
+  protected readonly view = signal<'contests' | 'protests'>('contests');
+  protected readonly protestFilter = signal<ContestProtestStatus>('open');
+
+  protected readonly viewOptions: ReadonlyArray<{ key: 'contests' | 'protests'; label: string }> = [
+    { key: 'contests', label: $localize`:@@admin.contests.view.contests:Contests` },
+    { key: 'protests', label: $localize`:@@admin.contests.view.protests:Protests` },
+  ];
+
+  protected readonly protestOptions: ReadonlyArray<{ key: ContestProtestStatus; label: string }> = [
+    { key: 'open', label: $localize`:@@admin.contests.protest.filter.open:Open` },
+    {
+      key: 'upheld',
+      label: $localize`:@@admin.contests.protest.filter.upheld:Agreed with the submitter`,
+    },
+    {
+      key: 'rejected',
+      label: $localize`:@@admin.contests.protest.filter.rejected:Agreed with the owner`,
+    },
+    { key: 'withdrawn', label: $localize`:@@admin.contests.protest.filter.withdrawn:Withdrawn` },
+  ];
 
   protected readonly statusOptions: ReadonlyArray<{ key: ContestStatus; label: string }> = [
     { key: 'open', label: $localize`:@@admin.contests.filter.status.open:Open` },
@@ -116,12 +147,15 @@ export class ContestQueue {
   private async load(): Promise<void> {
     this.loadFailed.set(false);
     this.loading.set(true);
-    const query: Partial<ListAdminContestsQuery> = {
-      status: this.statusFilter(),
-      routed_to: this.routeFilter(),
-      page: 1,
-      perPage: QUEUE_PAGE_SIZE,
-    };
+    const query: Partial<ListAdminContestsQuery> =
+      this.view() === 'protests'
+        ? { protest_status: this.protestFilter(), page: 1, perPage: QUEUE_PAGE_SIZE }
+        : {
+            status: this.statusFilter(),
+            routed_to: this.routeFilter(),
+            page: 1,
+            perPage: QUEUE_PAGE_SIZE,
+          };
     try {
       const res = await this.api.listContests(query);
       this.contests.set(res.data);
@@ -141,6 +175,21 @@ export class ContestQueue {
     if (this.statusFilter() === status) return;
     this.statusFilter.set(status);
     this.closeForm();
+    void this.load();
+  }
+
+  protected setView(view: 'contests' | 'protests'): void {
+    if (this.view() === view) return;
+    this.view.set(view);
+    this.closeForm();
+    this.closeProtestForm();
+    void this.load();
+  }
+
+  protected setProtestFilter(status: ContestProtestStatus): void {
+    if (this.protestFilter() === status) return;
+    this.protestFilter.set(status);
+    this.closeProtestForm();
     void this.load();
   }
 
@@ -320,6 +369,82 @@ export class ContestQueue {
     this.failedActionMessage.set(
       $localize`:@@admin.contests.action.failed:Something went wrong. Please try again.`,
     );
+  }
+
+  // ── Protests (AECI-1009) ─────────────────────────────────────────────────
+
+  protected readonly protestFormOpenId = signal<string | null>(null);
+  protected readonly protestMode = signal<ContestProtestDecision | null>(null);
+  protected readonly protestNote = signal('');
+  protected readonly protestNoteMissing = signal(false);
+
+  protected protestStatusLabel(status: ContestProtestStatus): string {
+    return this.protestOptions.find((o) => o.key === status)?.label ?? status;
+  }
+
+  /** True while the owner can still reply: no reply yet and the due date ahead. */
+  protected replyPending(c: AdminContest): boolean {
+    const p = c.protest;
+    return (
+      !!p && p.status === 'open' && p.reply === null && Date.now() < Date.parse(p.reply_due_at)
+    );
+  }
+
+  protected openProtestForm(id: string, mode: ContestProtestDecision): void {
+    this.failedActionId.set(null);
+    this.protestNote.set('');
+    this.protestNoteMissing.set(false);
+    this.protestMode.set(mode);
+    this.protestFormOpenId.set(id);
+  }
+
+  protected closeProtestForm(): void {
+    this.protestFormOpenId.set(null);
+    this.protestMode.set(null);
+    this.protestNote.set('');
+    this.protestNoteMissing.set(false);
+  }
+
+  protected onProtestNote(event: Event): void {
+    this.protestNote.set((event.target as HTMLTextAreaElement).value);
+    if (this.protestNoteMissing()) this.protestNoteMissing.set(false);
+  }
+
+  protected async confirmProtest(id: string, decision: ContestProtestDecision): Promise<void> {
+    if (this.pendingActionId()) return;
+    const note = this.protestNote().trim();
+    if (note === '') {
+      this.protestNoteMissing.set(true);
+      return;
+    }
+    this.failedActionId.set(null);
+    this.pendingActionId.set(id);
+    try {
+      await this.api.decideProtest(id, { decision, note });
+      this.closeProtestForm();
+      this.removeRow(id);
+      this.summaryStore.decrement('contests');
+      this.liveMessage.set(
+        decision === 'uphold'
+          ? $localize`:@@admin.contests.protest.announce.upheld:Recorded: AEC Integrations agrees with the submitter. Both vendors can see your note. The listing did not change.`
+          : $localize`:@@admin.contests.protest.announce.rejected:Recorded: AEC Integrations agrees with the owner. Both vendors can see your note, and the submitter cannot contest this field again for 90 days unless its value changes.`,
+      );
+    } catch (err) {
+      if (apiErrorCode(err) === 'PROTEST_NOT_OPEN') {
+        this.closeProtestForm();
+        this.liveMessage.set(
+          $localize`:@@admin.contests.protest.announce.notOpen:Already decided or withdrawn. The list has been reloaded.`,
+        );
+        void this.load();
+      } else {
+        this.failedActionId.set(id);
+        this.failedActionMessage.set(
+          $localize`:@@admin.contests.protest.failed:Something went wrong. Please try again.`,
+        );
+      }
+    } finally {
+      this.pendingActionId.set(null);
+    }
   }
 
   private removeRow(id: string): void {

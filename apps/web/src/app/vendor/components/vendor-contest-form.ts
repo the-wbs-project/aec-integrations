@@ -1,6 +1,8 @@
+import { formatDate } from '@angular/common';
 import {
   Component,
   ElementRef,
+  LOCALE_ID,
   afterNextRender,
   computed,
   inject,
@@ -369,6 +371,7 @@ export class VendorContestForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly locale = inject(LOCALE_ID);
 
   readonly integration = input.required<VendorIntegration>();
   /** The caller's company, for the owner picker when the wire carries no
@@ -417,10 +420,44 @@ export class VendorContestForm {
     return $localize`:@@vendor.contest.openLine:You have an open contest on this integration: ${names}:FIELDS:. Follow it in Messages.`;
   });
 
+  /**
+   * AECI-1009: fields a NEW contest would be refused on. An open protest on the
+   * field (`409 CONTEST_PROTEST_OPEN`), or a lost protest's cooldown that has not
+   * ended (`409 CONTEST_COOLDOWN`, mapped to its end date). The server sends
+   * `cooldown_until` only while the value is unchanged; any owner edit refetches
+   * the contests (the store revalidates them with `integrations`) and lifts it.
+   */
+  private readonly protestBlocks = computed<
+    ReadonlyMap<IntegrationContestField, { readonly until: string | null }>
+  >(() => {
+    const id = this.integration().id;
+    const now = Date.now();
+    const blocks = new Map<IntegrationContestField, { until: string | null }>();
+    for (const c of this.store.contests().submitted) {
+      if (c.integration_id !== id) continue;
+      if (c.protest?.status === 'open') blocks.set(c.field, { until: null });
+      else if (c.cooldown_until && Date.parse(c.cooldown_until) > now && !blocks.has(c.field)) {
+        blocks.set(c.field, { until: c.cooldown_until });
+      }
+    }
+    return blocks;
+  });
+
   protected readonly fieldOptions = computed<readonly SelectOption[]>(() =>
     INTEGRATION_CONTEST_FIELDS.map((f) => {
       const busy = this.openFields().has(f);
+      const block = this.protestBlocks().get(f);
       const label = contestFieldLabel(f);
+      if (!busy && block) {
+        const until = block.until ? formatDate(block.until, 'medium', this.locale) : null;
+        return {
+          value: f,
+          label: until
+            ? $localize`:@@vendor.contest.form.field.cooldown:${label}:FIELD: (not until ${until}:DATE:)`
+            : $localize`:@@vendor.contest.form.field.protestOpen:${label}:FIELD: (with AEC Integrations for review)`,
+          disabled: true,
+        };
+      }
       return {
         value: f,
         label: busy

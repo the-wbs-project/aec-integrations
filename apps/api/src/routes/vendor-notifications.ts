@@ -222,6 +222,14 @@ function toContestNotification(row: {
       : {}),
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
+    // AECI-1009 protest metadata. Absent on every older row, so each reads `null`.
+    recipient_role:
+      meta.recipientRole === 'submitter' || meta.recipientRole === 'owner'
+        ? meta.recipientRole
+        : null,
+    protest_closes_at: typeof meta.protestClosesAt === 'string' ? meta.protestClosesAt : null,
+    reply_due_at: typeof meta.replyDueAt === 'string' ? meta.replyDueAt : null,
+    cooldown_until: typeof meta.cooldownUntil === 'string' ? meta.cooldownUntil : null,
   };
 }
 
