@@ -29,6 +29,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 
 import {
   drainIndexNowQueue,
+  drainMetricOutcome,
   INDEXNOW_DRAINED_ACTION,
   INDEXNOW_EXPIRED_METRIC,
   INDEXNOW_SUBMIT_METRIC,
@@ -307,6 +308,9 @@ describe('drainIndexNowQueue', () => {
 
     expect(result).toMatchObject({ ok: false, submitted: 2, deleted: 0, pending: 2, status: 429 });
     expect(result.reason).toContain('429');
+    // A refusal, not a local fault: the heartbeat must not reach the combined
+    // cron-failure alert, which pages on any `outcome:failed` (AECI-864).
+    expect(drainMetricOutcome(result)).toBe('refused');
     expect(await queued()).toHaveLength(2);
     expect(await drainAudits()).toHaveLength(0);
     expect(s.metrics).toContainEqual({
@@ -357,6 +361,7 @@ describe('drainIndexNowQueue', () => {
     });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: true, submitted: 0, pending: 0 });
+    expect(drainMetricOutcome(result)).toBe('ok');
     // No submission means no submit metric. The always-on heartbeat is
     // `aeci.indexnow.drain`, emitted by the scheduled.ts wrapper, not here.
     expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMIT_METRIC)).toEqual([]);
@@ -376,6 +381,7 @@ describe('drainIndexNowQueue', () => {
     });
 
     expect(result).toMatchObject({ ok: false, reason: 'no_creds' });
+    expect(drainMetricOutcome(result)).toBe('skipped');
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(await queued()).toHaveLength(1);
   });
@@ -394,6 +400,9 @@ describe('drainIndexNowQueue', () => {
     });
 
     expect(result).toMatchObject({ ok: false, reason: 'invalid_public_site_url' });
+    expect(result.refused).toBeUndefined();
+    // The one drain outcome that reaches the combined cron-failure alert.
+    expect(drainMetricOutcome(result)).toBe('failed');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
