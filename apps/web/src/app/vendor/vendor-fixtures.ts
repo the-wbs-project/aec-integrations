@@ -708,7 +708,6 @@ const INTEGRATION_PROCORE: VendorIntegration = {
   // Procore is on record as the owner; the caller (Summit) is not.
   is_owner: false,
   owner: PROCORE_VENDOR,
-  claimed_at: null,
   retired_at: null,
   contestable_fields: {
     name: 'Summit Model Coordination ↔ Procore',

@@ -71,7 +71,6 @@ const INTEGRATION = {
     { id: uuid(40), name: 'Bentley' },
     { id: uuid(41), name: 'Autodesk' },
   ],
-  claimed_at: null,
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
