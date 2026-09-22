@@ -48,6 +48,8 @@ import { auditActorType } from '../lib/authz';
 import {
   assertProtestable,
   dedupeEvidence,
+  hasOtherOpenContest,
+  noOtherOpenContestSentinel,
   ownerStillHolds,
   PROTEST_ACTIONS,
   protestNotAvailable,
@@ -193,9 +195,12 @@ export function createFileContestProtestHandler(
     if (!row) throw notFoundError('contest', { id });
     await assertStillEndpointVendor(db, vendorId, row);
 
-    // 3. Eligibility: routing, owner, one protest, and the window.
+    // 3. Eligibility: routing, owner, one protest, and the window. Then one live
+    //    dispute per field (ruling 8): no protest while the submitter has another
+    //    open contest on the same field of the same integration.
     const now = clock().toISOString();
     const window = assertProtestable(row, now);
+    if (await hasOtherOpenContest(db, row)) throw protestNotAvailable('contest_open');
 
     // 4. The body.
     const payload = await parseJsonBody(
@@ -272,6 +277,8 @@ export function createFileContestProtestHandler(
         row.field as ContentContestField,
         row.currentValue,
       ),
+      // Ruling 8, in the batch: a contest on this field filed after the read above.
+      noOtherOpenContestSentinel(db, row),
     ];
 
     if (silence) {
@@ -332,6 +339,7 @@ export function createFileContestProtestHandler(
       if (!fresh) return notFoundError('contest', { id });
       if (fresh.protestStatus !== null) return protestNotAvailable('already_protested');
       if (fresh.status !== row.status) return protestNotAvailable('contest_changed');
+      if (await hasOtherOpenContest(db, row)) return protestNotAvailable('contest_open');
       const live = await db.query.integrations.findFirst({
         where: eq(integrations.id, row.integrationId),
       });

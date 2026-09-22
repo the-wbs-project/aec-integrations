@@ -374,6 +374,48 @@ describe('POST /api/vendor/contests/:id/protest — declined basis', () => {
     expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
   });
 
+  // Ruling 8, one live dispute per field, from the protest side (review of 3c59540a).
+  const OTHER_OPEN = uuid(310);
+  const insertOpenContest = () =>
+    t.raw
+      .prepare(
+        `INSERT INTO integration_field_challenges
+           (id, integration_id, field, current_value, proposed_value, reason,
+            submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
+         VALUES (?, ?, 'name', ?, 'Another name', 'Again.', ?, 'owner', ?, 'open', ?, ?)`,
+      )
+      .run(OTHER_OPEN, I_MAIN, LIVE_NAME, VENDOR_A, VENDOR_B, nowIso, nowIso);
+
+  it('refuses a protest while the submitter has an open contest on the same field', async () => {
+    await seedContest();
+    insertOpenContest();
+    const res = await file();
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'PROTEST_NOT_AVAILABLE',
+      details: { reason: 'contest_open' },
+    });
+    expect(await actions()).toEqual([]);
+  });
+
+  it('catches a contest on the same field filed between the read and the batch', async () => {
+    await seedContest();
+    const res = await file(AUTH_A, PROTEST, racingFactory(insertOpenContest));
+    expect(res.status).toBe(409);
+    expect(res.body.error.details.reason).toBe('contest_open');
+    expect((await row()).protestStatus).toBeNull();
+    expect(await actions()).toEqual([]);
+  });
+
+  it('allows the protest once that other contest is closed', async () => {
+    await seedContest();
+    insertOpenContest();
+    t.raw
+      .prepare(`UPDATE integration_field_challenges SET status = 'withdrawn' WHERE id = ?`)
+      .run(OTHER_OPEN);
+    expect((await file()).status).toBe(200);
+  });
+
   it('accepts a protest on a retired integration', async () => {
     await seedContest();
     await t.db
@@ -742,8 +784,8 @@ describe('reads', () => {
     const spy = vi.spyOn(t.db, 'batch');
     await file();
     const stmts = spy.mock.calls[0]![0] as readonly unknown[];
-    // instance, UPDATE, 3 sentinels, transition, protested audit, owner notification
-    expect(stmts).toHaveLength(8);
+    // instance, UPDATE, 4 sentinels, transition, protested audit, owner notification
+    expect(stmts).toHaveLength(9);
     const rows = await t.db
       .select()
       .from(auditLog)

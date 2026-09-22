@@ -31,13 +31,13 @@ import {
   type ContestProtestBasis,
   type IntegrationContestField,
 } from '@aeci/shared';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, ne, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { integrationFieldChallenges } from '../db/schema';
 import { ApiError } from '../errors';
 import type { BatchStmt, BatchTuple } from './audit';
-import { isClaimed } from './integration-claims';
+import { isClaimed, ONE_ROW } from './integration-claims';
 import {
   isContestRaceError,
   storedFieldValue,
@@ -180,6 +180,7 @@ export type ProtestUnavailableReason =
   | 'not_declined'
   | 'owner_not_silent_yet'
   | 'window_closed'
+  | 'contest_open'
   | 'contest_changed';
 
 export function protestNotAvailable(
@@ -194,6 +195,8 @@ export function protestNotAvailable(
     owner_not_silent_yet:
       'The owner has 30 days to answer before an unanswered contest can be protested.',
     window_closed: 'The 30 days to protest this contest have passed.',
+    contest_open:
+      'You have an open contest on this field of this integration. Withdraw it, or wait for its answer, before asking for a review.',
     contest_changed:
       'The contest changed while you were writing, for example the owner answered it. Reload and look again.',
   };
@@ -222,6 +225,50 @@ export function assertProtestable(
   }
   if (phase === 'closed') throw protestNotAvailable('window_closed');
   return { basis: window.basis, opensAt: window.opens_at, closesAt: window.closes_at };
+}
+
+// ─── One live dispute per field, from the protest side (ruling 8) ───────────
+
+/** Where the submitter's OTHER open contests on this row's field live. The row
+ *  itself is excluded: on a silence basis it is still `open` until the file batch
+ *  declines it. */
+function otherOpenContestWhere(row: ContestRow) {
+  return and(
+    eq(integrationFieldChallenges.integrationId, row.integrationId),
+    eq(integrationFieldChallenges.field, row.field),
+    eq(integrationFieldChallenges.submitterVendorId, row.submitterVendorId),
+    eq(integrationFieldChallenges.status, 'open'),
+    ne(integrationFieldChallenges.id, row.id),
+  );
+}
+
+/**
+ * Does the submitter have ANOTHER open contest on this integration and field?
+ * Then a protest would make two live disputes on one field, which ruling 8 forbids
+ * from both sides: a new contest is refused while a protest is open
+ * (`CONTEST_PROTEST_OPEN`), and a protest is refused while a contest is open
+ * (`PROTEST_NOT_AVAILABLE`, reason `contest_open`).
+ */
+export async function hasOtherOpenContest(db: Db, row: ContestRow): Promise<boolean> {
+  const found = await db.query.integrationFieldChallenges.findFirst({
+    columns: { id: true },
+    where: otherOpenContestWhere(row),
+  });
+  return !!found;
+}
+
+/** The in-batch half of {@link hasOtherOpenContest}: aborts the file batch when a
+ *  contest on the same field was filed between the handler's read and the batch. */
+export function noOtherOpenContestSentinel(db: Db, row: ContestRow) {
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM "integration_field_challenges"
+        WHERE "integration_id" = ${row.integrationId} AND "field" = ${row.field}
+          AND "submitter_vendor_id" = ${row.submitterVendorId} AND "status" = 'open'
+          AND "id" <> ${row.id})
+        THEN json('protest-contest-open') END`,
+    })
+    .from(ONE_ROW);
 }
 
 // ─── The two contest-submit refusals ─────────────────────────────────────────

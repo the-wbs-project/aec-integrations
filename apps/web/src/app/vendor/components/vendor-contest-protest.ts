@@ -123,7 +123,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               }
             } @else if (p.status === 'open' && replyOpen()) {
               <ng-container i18n="@@vendor.protest.reply.due"
-                >Due {{ p.reply_due_at | date: 'mediumDate' }}</ng-container
+                >Due {{ p.reply_due_at | date: 'medium' }}</ng-container
               >
             } @else {
               <ng-container i18n="@@vendor.protest.reply.none">No reply</ng-container>
@@ -209,9 +209,8 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             ></textarea>
             <p [id]="ids.replyHint" class="max-w-prose text-xs text-(--text-secondary)">
               <ng-container i18n="@@vendor.protest.reply.hint"
-                >You can reply once, by {{ p.reply_due_at | date: 'mediumDate' }}. AEC Integrations
-                and the vendor that sent the contest see it. Nothing about it is
-                public.</ng-container
+                >You can reply once, by {{ p.reply_due_at | date: 'medium' }}. AEC Integrations and
+                the vendor that sent the contest see it. Nothing about it is public.</ng-container
               >
             </p>
             <ng-container [ngTemplateOutlet]="evidenceFields" />
@@ -230,8 +229,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         <p class="max-w-prose text-xs text-(--text-secondary)">
           <ng-container i18n="@@vendor.protest.notYet"
             >You can ask AEC Integrations to review this from
-            {{ c.protest_opens_at | date: 'mediumDate' }} if the owner has not
-            answered.</ng-container
+            {{ c.protest_opens_at | date: 'medium' }} if the owner has not answered.</ng-container
           >
         </p>
       } @else if (windowPhase() === 'open') {
@@ -282,7 +280,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               >
               @if (c.protest_closes_at; as closes) {
                 <ng-container i18n="@@vendor.protest.form.deadline">
-                  You can ask until {{ closes | date: 'mediumDate' }}.</ng-container
+                  You can ask until {{ closes | date: 'medium' }}.</ng-container
                 >
               }
             </p>
@@ -327,8 +325,8 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
     @if (side() === 'submitted' && c.cooldown_until; as until) {
       <p class="mt-2 max-w-prose text-xs text-(--text-secondary)">
         <ng-container i18n="@@vendor.protest.cooldown"
-          >You can't contest this field again until {{ until | date: 'mediumDate' }}, unless its
-          value changes.</ng-container
+          >You can't contest this field again until {{ until | date: 'medium' }}, unless its value
+          changes.</ng-container
         >
       </p>
     }

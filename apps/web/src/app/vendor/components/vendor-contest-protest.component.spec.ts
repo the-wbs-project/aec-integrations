@@ -162,6 +162,40 @@ describe('VendorContestProtest — the submitter', () => {
     expect(api.getContests).toHaveBeenCalledTimes(2);
   });
 
+  it('explains an open contest on the same field blocks the request (ruling 8)', async () => {
+    api.fileContestProtest.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 409,
+        error: {
+          error: {
+            code: 'PROTEST_NOT_AVAILABLE',
+            message: 'x',
+            details: { reason: 'contest_open' },
+          },
+        },
+      }),
+    );
+    const fixture = await create();
+    const r = row(fixture, PROTESTABLE.id);
+    button(r, 'Ask AEC Integrations to review').click();
+    await settle(fixture);
+    type(r.querySelector('textarea')!, 'Reason');
+    submit(r);
+    await settle(fixture);
+    expect(row(fixture, PROTESTABLE.id).textContent).toContain(
+      'You have an open contest on this field',
+    );
+  });
+
+  it('shows the deadline with its time, not just the day', async () => {
+    const fixture = await create();
+    const r = row(fixture, PROTESTABLE.id);
+    button(r, 'Ask AEC Integrations to review').click();
+    await settle(fixture);
+    // Angular's `medium` format carries the time of day ("…, 4:14:30 PM").
+    expect(r.textContent).toMatch(/You can ask until .+\d{1,2}:\d{2}:\d{2}/);
+  });
+
   it('says when an unanswered contest can be protested', async () => {
     const early: VendorContest = {
       ...PROTESTABLE,

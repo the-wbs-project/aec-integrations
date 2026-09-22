@@ -272,6 +272,9 @@ export function protestErrorMessage(err: unknown): string {
       if (reason === 'owner_not_silent_yet') {
         return $localize`:@@vendor.protest.error.notYet:The owner still has time to answer this contest.`;
       }
+      if (reason === 'contest_open') {
+        return $localize`:@@vendor.protest.error.contestOpen:You have an open contest on this field of this integration. Withdraw it, or wait for its answer, before you ask for a review.`;
+      }
       if (reason === 'already_protested') {
         return $localize`:@@vendor.protest.error.already:This contest already has a review request.`;
       }

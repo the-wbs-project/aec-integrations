@@ -404,11 +404,11 @@
               <dd class="mt-1 max-w-prose whitespace-pre-line text-(--text-primary)">
                 @if (p.reply) { {{ p.reply }} } @else if (replyPending(c)) {
                 <span i18n="@@admin.contests.protest.replyDue"
-                  >Reply due {{ p.reply_due_at | date: 'mediumDate' }}</span
+                  >Reply due {{ p.reply_due_at | date: 'medium' }}</span
                 >
                 } @else {
                 <span i18n="@@admin.contests.protest.noReply"
-                  >No reply by {{ p.reply_due_at | date: 'mediumDate' }}</span
+                  >No reply by {{ p.reply_due_at | date: 'medium' }}</span
                 >
                 }
               </dd>
@@ -493,8 +493,8 @@
             >
             @if (replyPending(c)) {
             <span i18n="@@admin.contests.protest.helpBeforeReply">
-              The owner can still reply until {{ p.reply_due_at | date: 'mediumDate' }}. Deciding
-              now means deciding without that reply.</span
+              The owner can still reply until {{ p.reply_due_at | date: 'medium' }}. Deciding now
+              means deciding without that reply.</span
             >
             }
           </p>

@@ -449,7 +449,7 @@ export class VendorContestForm {
       const block = this.protestBlocks().get(f);
       const label = contestFieldLabel(f);
       if (!busy && block) {
-        const until = block.until ? formatDate(block.until, 'mediumDate', this.locale) : null;
+        const until = block.until ? formatDate(block.until, 'medium', this.locale) : null;
         return {
           value: f,
           label: until

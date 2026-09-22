@@ -252,7 +252,7 @@ export class VendorNotificationsList {
   }
 
   protected noteFor(notification: VendorNotification): string | null {
-    return noteOf(notification, (iso) => formatDate(iso, 'mediumDate', this.locale));
+    return noteOf(notification, (iso) => formatDate(iso, 'medium', this.locale));
   }
 
   /** The secondary line before the date. An attestation row names the data flow
