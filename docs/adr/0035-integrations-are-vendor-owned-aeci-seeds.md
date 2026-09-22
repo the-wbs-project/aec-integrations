@@ -101,7 +101,7 @@ AECI-1017 raised that rule 7's original "can claim" did not hold as AECI-1005 wa
 
 - The review app is no longer the source of truth for a claimed integration. Its copy of that row is dead until one path hands the row back: an AECi admin accept of an `owner` contest that reassigns the row to another vendor (or to "neither") clears `claimed_at`, so promote writes it again. That accept also re-routes the old owner's open contests to AECi in the same batch.
 - Every owner write refuses a connector-powered row, the claim included (decision 9, v1). AECI-1040 lifts that for claim, edit and retire together.
-- The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves; a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
+- The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves (the AECI-992 row read); a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
 - `built_by_vendor_id` on a claimed row can change only through AECi's own admin path (an `owner` contest accept), never through promote. Reassigning it clears `claimed_at`.
 
 ## Revisit

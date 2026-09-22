@@ -335,7 +335,7 @@ Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/ro
 
 - **Promote writes nothing to the row** from then on: no content, no owner, no endpoint re-point, no cross-table move, no claims or attestations. `REVIEW_APP_PROMOTE_API.md` §4b is the review-app contract.
 - **Content contests route to the owner** (§11b.4). `isIntegrationClaimed` is now the real `claimed_at` test.
-- **The `integrations` freshness cursor moves** (`STAGE_2_REALTIME_SPEC.md` §2.2): it now covers the rows themselves, not only their claims and attestations.
+- **The `integrations` freshness cursor moves** (`STAGE_2_REALTIME_SPEC.md` §2.2). The row-level read AECI-992 added covers the rows themselves, not only their claims and attestations, so a claim needs no cursor change of its own.
 - **The ops lanes treat the row as vendor-held** (§4.5.5).
 - **One path un-claims a row:** an AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). That accept also re-routes the old owner's open contests to AECi. Nothing else, promote included, clears it.
 
@@ -2034,7 +2034,7 @@ The route is decided at submit and stored on the row, with the owner snapshot in
 **The four gaps AECI-1008 listed for AECI-1005, and how each was closed.** The original text is kept below each so the reasoning stays legible.
 
 - **Closed: promote no longer reverts an owner accept.** A claimed row is fenced wholesale (`REVIEW_APP_PROMOTE_API.md` §4b), and only a claimed row routes contests to its owner.
-- **Closed: the `integrations` cursor now sees an owner accept.** It covers `MAX(integrations.updated_at)` under the same `ownedEndpointJoin` (`STAGE_2_REALTIME_SPEC.md` §2.2).
+- **Closed: the `integrations` cursor now sees an owner accept.** It covers `MAX(integrations.updated_at)` under the same `ownedEndpointJoin` (`STAGE_2_REALTIME_SPEC.md` §2.2). AECI-992 shipped that read on `main` first, and AECI-1005 relies on it rather than adding a second one.
 - **Closed: a deleted owner no longer strands an owner-routed contest.** An owner-routed row whose `owner_vendor_id` is NULL is decidable by the admin PATCH as if routed to AECi, is counted in `pending_contests`, and shows Accept and Decline on `/admin/contests` (§11b.5).
 - **Closed structurally: a `direction` contest's anchor cannot be re-oriented under it.** Only promote re-points endpoints, and promote can no longer write a claimed row, which is the only kind of row an owner-routed contest sits on.
 

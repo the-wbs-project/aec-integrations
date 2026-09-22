@@ -578,6 +578,18 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
     t.dispose();
   });
 
+  it('refuses a vendor-held integration even with --delete-evidenced-pairs (AECI-904)', async () => {
+    // The AECI-904 flag waives the evidenced-pair refusal only. It must never become a
+    // second way round the vendor-held one.
+    const t = await makeTestDb();
+    seed(t);
+    markI1(t, `claimed_at = ${TS}`);
+    const verdict = classifyRetraction(footprintWithProbe(t, P), { deleteEvidencedPairs: true });
+    expect(verdict.safe).toBe(false);
+    expect(verdict.refusals).toEqual([expect.stringMatching(/vendor-held/)]);
+    t.dispose();
+  });
+
   it('refuses a product whose endpoint integration a vendor created', async () => {
     const t = await makeTestDb();
     seed(t);
