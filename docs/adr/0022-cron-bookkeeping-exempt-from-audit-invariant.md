@@ -53,7 +53,7 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 
 - **A three-part test is more judgment than a blanket rule.** Mitigated by naming the exempt tables explicitly in §26.1 rather than leaving the test to be applied from scratch each time; a new exemption is a spec edit, not a reviewer's call.
 - **"Invisible on every public surface" can drift.** If a table currently exempt later feeds a public number, the exemption must be revisited. `stats_cache` is the live example — it is exempt but *does* back public home-page stats, and it qualifies only because it is fully recomputable from domain data that is itself audited. That is a fine distinction and the most likely place this ADR is misapplied.
-- **The audit log stops being a complete changelog of the database.** It never was one, but the old wording implied it. Anyone reconstructing history from `audit_log` must now consult `job_runs` and the forwarded logs/metrics as well (Datadog today, PostHog after AECI-651 — ADR 0024) — which `ADMIN_PANEL_SPEC.md` §4 already establishes for other reasons (827 `integration.created` events against 496 live rows).
+- **The audit log stops being a complete changelog of the database.** It never was one, but the old wording implied it. Anyone reconstructing history from `audit_log` must now consult `job_runs` and the forwarded logs/metrics as well (PostHog since AECI-651 — ADR 0024) — which `ADMIN_PANEL_SPEC.md` §4 already establishes for other reasons (827 `integration.created` events against 496 live rows).
 
 **Surfaced but not fixed here**
 

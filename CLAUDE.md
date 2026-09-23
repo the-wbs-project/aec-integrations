@@ -1,369 +1,359 @@
 # AEC Integrations — Claude Code Instructions
 
-This file tells Claude Code how to work in this repo. Read this before starting any task.
+Read this before starting any task. This file is a **pointer file**: it tells you which document
+governs a topic and states the rules that must never be broken. It does not retell history.
+Provenance lives in git, Linear, and the ADRs, and a size gate (`scripts/check-claude-md-size.mjs`,
+run by `pnpm lint`) keeps this file under 30 KB. When you learn something, record it in the
+governing doc, not here.
 
 ## What this project is
 
-**AEC Integrations (AECi)** is a directory and review platform for software integrations in the Architecture, Engineering, and Construction industry. The product is built around dual-vendor-verified integration reviews, AEC-native taxonomy, trust-first positioning (no pay-for-placement), and dual reviews separating product quality from onboarding experience.
+**AEC Integrations (AECi)** is a directory and review platform for software integrations in the
+Architecture, Engineering, and Construction industry: dual-vendor-verified integration reviews,
+AEC-native taxonomy, trust-first positioning (no pay-for-placement), and dual reviews separating
+product quality from onboarding experience.
 
-The site is **live in production** (apex cutover 2026-07, AECI-247/277; canonical host `www.aecintegrations.com`). The app database is Cloudflare D1; Supabase is Auth-only. Catalog data is curated upstream in the review app and pushed into D1 via the async promote protocol (`docs/REVIEW_APP_PROMOTE_API.md`). `main` is the production line and, since the 2026-09-03 Stage 2 merge, the only line (see "Git workflow").
+The site is **live in production** (canonical host `www.aecintegrations.com`). The app database is
+Cloudflare D1; Supabase is Auth-only. Catalog data is curated upstream in the review app and pushed
+into D1 via the async promote protocol. `main` is the production line and the only line.
 
 ## Sibling repos — check you're in the right one
 
-AECi spans **three** GitHub repos under `the-wbs-project`, and Linear issues for all three are filed on
-the **AECi** team. The routing signal is the issue's **project** and **title prefix**, not the team:
+AECi spans three GitHub repos under `the-wbs-project`. Linear issues for all three are on the
+**AECi** team; the routing signal is the issue's **project** and **title prefix**, not the team.
 
 | Repo | What it holds | Linear routing |
 |---|---|---|
 | **`aec-integrations`** (this one) | The app: Angular SSR + Workers + D1, and the specs that govern it | Default. No prefix; project is the stage/epic |
-| **`aec-integrations-review`** | The curation/review app upstream of promote — the catalog, connector catalogues/stubs/mappings, and `docs/connector-vendors.md`. Reachable read-only from here via the `aeci-review` MCP | Title prefixed **`REVIEW - `**, no project |
-| **`aec-integrations-marketing`** | **No application code — all Markdown.** Positioning, strategy, content plan, channel copy, and partner/vendor outreach material under `docs/outreach/`. `CLAUDE.md` is a symlink to `AGENTS.md`; its copy rules are stricter than this repo's (sentence case, **no em dashes**) | Project **"Marketing"**, no prefix |
+| **`aec-integrations-review`** | The curation/review app upstream of promote: catalog, connector catalogues/stubs/mappings, `docs/connector-vendors.md`. Read-only from here via the `aeci-review` MCP | Title prefixed **`REVIEW - `**, no project |
+| **`aec-integrations-marketing`** | All Markdown: positioning, strategy, content plan, outreach under `docs/outreach/`. Stricter copy rules (sentence case, no em dashes) | Project **"Marketing"**, no prefix |
 
-**When you file an issue, pick the repo first and route it accordingly** — a call brief, an outreach
-email, or positioning copy belongs in the marketing repo under the Marketing project, not here. If work
-you're doing turns out to belong to another repo, say so rather than writing it into this one; you
-generally cannot commit across repos from a single workspace.
+Pick the repo before filing an issue. If work belongs in another repo, say so rather than writing
+it here; you cannot commit across repos from one workspace.
 
 ## Where to start
 
-`docs/STAGE_1_SPEC.md` is the master spec and the contract — but it's 1,600+ lines. **Don't read it end-to-end; load only the section that governs your task.**
+`docs/STAGE_1_SPEC.md` is the master spec, 1,600+ lines. **Load only the section that governs
+your task.**
 
-1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue and resolves its `**Spec section:**` line by scanning the whole line for every doc it names and every `§X.Y` it names, then pairing them — so `§6.2, §6.7 (docs/STAGE_1_PHASE_6_SPEC.md)` resolves to that doc, not to the `docs/STAGE_1_SPEC.md` default. **An anchor whose heading does not exist in the resolved doc is reported, never silently re-pointed at a same-numbered section elsewhere** (AECI-601). It then loads just that section and follows the cross-references into the companion docs (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.). (Linear has no custom-field feature on our plan, so the anchor lives in the issue description as a text convention. `docs/linear-issue-conventions.md` is the grammar and the checked-in mirror of the Linear templates that carry it — the templates themselves live only in Linear, which is how they drifted for four months before AECI-601.)
-2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing any code.** It reviews the plan against the section it just loaded and returns findings rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR — the cheap moment to catch a spec contradiction, a missing contract element, or a governing doc the plan will make stale. Issues with no `§X.Y` anchor go through the skill's n/a ladder rather than being skipped (AECI-550).
-3. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. **This table is the complete index** — the spec's own §1a "Companion Documents" section points back here rather than keeping a second list (AECI-598).
-4. If the spec is ambiguous or wrong, raise it — don't guess. The docs are stale in known places, so check the code before treating a doc/plan divergence as a defect.
+1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue, resolves
+   its `**Spec section:**` line (grammar: `docs/linear-issue-conventions.md`), loads that section,
+   and follows cross-references. An anchor whose heading does not exist is reported, never silently
+   re-pointed.
+2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing code.**
+   Findings are rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR. Issues with no `§X.Y` anchor go through the
+   skill's n/a ladder.
+3. Not working from an issue? Use the source-of-truth table below. It is the complete index.
+4. If the spec is ambiguous or wrong, raise it; don't guess. Docs are stale in known places, so
+   check the code before treating a doc/plan divergence as a defect.
 
 ## Documents that are source of truth
+
+If your work touches a topic below, that document is the truth, not your prior knowledge.
 
 | Topic | Source of truth |
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
-| Phase 2 scope and spec (supersedes §16 Phase 2 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md` |
-| Phase 5 scope and spec (auth & reviews; supersedes §16 Phase 5 of the Stage 1 spec) | `docs/STAGE_1_PHASE_5_SPEC.md` |
-| Phase 6 scope and spec (requests & moderation; supersedes §16 Phase 6 + §12 of the Stage 1 spec) | `docs/STAGE_1_PHASE_6_SPEC.md` |
-| Stage 1.5 scope and spec (Integration Redesign: product-PAIR page + claim/attestation model; supersedes the integration portions of §3.1/§4.4/§7.5 of the Stage 1 spec) | `docs/STAGE_1_5_SPEC.md` |
-| Vendor and product logo editing, validated R2 uploads and promote ownership (AECI-955) | `docs/STAGE_2_5_SPEC.md` §11 and `docs/adr/0032-logo-uploads-are-validated-not-transformed.md` |
-| Vendor-authored "How teams use it" narrative (AECI-963): `products.usefulness` moves from AECi-owned to vendor-written, published live with no moderation, behind a new `product.usefulness.edit` capability. Ownership is fenced by a nullable `usefulness_source` tested **inside** the SQL UPDATE — ADR 0032's `logo_source` mechanism on a second column — so promote stops writing the field for that product, one-way and permanently. Two things differ from the logo precedent: promote emits a `preserved[]` receipt (`kind: 'usefulness'`, advisory and one-sided), and the wire shape carries the term **slug only**, never the display `name`, which the public page interpolates verbatim | `docs/STAGE_2_5_SPEC.md` §12 and `docs/adr/0033-usefulness-narrative-is-vendor-authored.md` |
-| Integration ownership (AECI-1005, epic AECI-1003): **integrations are vendor-owned; AECi seeds them**, reversing "integrations are AECi-curated and not vendor-editable". The owner is `built_by_vendor_id` (no `owner_vendor_id`), it claims with no approval through `POST /api/vendor/integrations/:id/claim` (a seat is the whole gate, decision 15), and once the row is vendor-held (`claimed_at IS NOT NULL OR origin = 'vendor'`) **promote writes nothing to that row**: no content, owner, endpoint re-point, cross-table move, claims or attestations. **The fence keys on `claimed_at IS NOT NULL OR origin = 'vendor'`, never on `maintained_by`**, which also flips on a mere attestation. Migration `0044` adds `claimed_at`, `origin` and `retired_at` as plain `ADD COLUMN`s, never a recreate. The strand audit, the datatool prune, the retraction consumer and `ops:retract-product` treat a vendor-held row (claimed, or `origin = 'vendor'`) as the vendor's, not as an orphan. **Connector-powered rows cannot be claimed in v1** (decision 9, ruled 2026-09-22: `403 INTEGRATION_CONNECTOR_POWERED`; AECI-1040 opens claim, edit and retire together). **Owner-unknown claims are AECI-1008 `owner` contests**: an AECi accept proposing the submitter writes the owner + `claimed_at` and files `REVIEW - Record integration owner`; an AECi accept on a claimed row writes the value here, because promote no longer can. `ops:retract-product` also refuses to cascade a vendor-held integration, with no `--force` override. **Since AECI-1046 an AECi admin can retire and restore a vendor-held row** (`POST /api/admin/integrations/:id/retire` and `/restore`, required reason, the owner retire's batch shared through `routes/integration-retire-write.ts`, from the Integrations tab on `/admin/vendors/:id`). An AECi-held row is refused with `409 INTEGRATION_NOT_VENDOR_HELD`. Migration `0046` records who retired a row in `integrations.retired_by` (`'owner'` | `'aeci'`, NULL on a retired row = owner). **Only an admin restores an admin retire (`403 INTEGRATION_RETIRED_BY_AECI` to the owner), and an admin never undoes an owner retire (`409 INTEGRATION_RETIRED_BY_OWNER`).** This is the base the owner writes (1006 edit, 1007 per-side links, 1010 retire, 1011 create) build on. **A vendor create (AECI-1011, `POST /api/vendor/integrations`) is born claimed with `origin = 'vendor'`, and promote refuses any write that would create a curated strong-match twin of a vendor-held row, live or retired, reporting `skipped[] { reason: 'VENDOR_OWNED_TWIN', existingId }`**. The twin guard covers three paths: an insert, a de-route out of `connector_evidenced_pairs`, and an UPDATE of an unclaimed row that changes any key field (its endpoints, connector, `mechanism_kind` or owner). An UPDATE that changes none of them is not checked. A curated row that already was a twin keeps updating: an UPDATE is skipped only for a twin it did not have before. A strong match is the same pair in either orientation, the same connector, the same `mechanism_kind`, and an owner that is equal or unknown (`lib/integration-twins.ts`). None of this is in production yet. 1010 and 1011 are both on `main` (1010 at `8cc6daf8`, 1011 at `99642693`). Any SHA at or after `99642693` carries both, so a production promote from one cannot let a curator re-add undo a retire | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 to §4.7 (admin retire §4.6.4) and `docs/adr/0035-integrations-are-vendor-owned-aeci-seeds.md`; promote side `docs/REVIEW_APP_PROMOTE_API.md` §4b and §4c |
-| Integration field contests (AECI-1008): a seated endpoint vendor that does not own an integration challenges one of twelve fields. **A seat is the whole gate**, a named exception to the entitlement rule. Routing is frozen at submit: to the owner when the integration is claimed (`claimed_at` set, since AECI-1005 replaced the `isIntegrationClaimed` stub), otherwise to AECi, and an `owner` contest always goes to AECi. An owner accept writes the catalog plus the §13.9 maintenance transfer. An AECi accept files a `REVIEW - ` Linear issue (playbook AECI-1025) and **writes catalog data only where promote no longer can**: nothing on an unclaimed row, the column on a claimed one (§11b.6, AECI-1005). Table `integration_field_challenges`, the `contests` cursor scope, contest rows in the notification feed, and the `/admin/contests` queue (`docs/ADMIN_PANEL_SPEC.md` §5.12). **The protest to AECi (AECI-1009)**: the submitter of an owner-declined contest (or one unanswered for 30 days) asks AECi to review it within 30 days, and AECi's answer is **advice that never writes the catalog**. A second state machine on the same row (`protest_status`, migration `0047`), no cron (silence is computed at submit time), nothing public, and a 90-day cooldown after a lost protest | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b; the protest is §11b.12 |
-| Stage 2 scope outline (vendor portal / self-serve claiming, paid tiers [no pay-for-placement], real-time, integration attestations; supersedes §18 Stage 2 Forward Compatibility of the Stage 1 spec; **kickoff draft — not yet a build contract**) | `docs/STAGE_2_SPEC.md` |
-| Stage 2 Vendor Portal build spec (the AECI-513 epic: claimant identity resolution, claim→verified-account grant, the `/api/vendor/*` vendor authz seam, admin claim-review, vendor portal, verified-badge activation on trust + search surfaces, claim-decision emails; the build contract each AECI-513 sub-issue [519…525, 527, 528, 529] anchors to; supersedes the integration/portal portions of §2.1 of `STAGE_2_SPEC.md`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
-| Stage 2 Paid Tiers & Entitlements build spec (the AECI-515 epic: the `vendor_entitlements` table with `vendors.verified` demoted to a **mirror**, the capability registry + the asserted no-pay-for-placement ranking firewall, the entitlement gate on `AuthenticatedSession`, the admin set/renew/clear action, term-expiry **warnings** [never auto-lapse], the vendor plan panel; the build contract each AECI-515 sub-issue [609…615 plus the re-scoped 532] anchors to; supersedes the entitlement/billing portions of §2.2 + the first two §8.2 open items of `STAGE_2_SPEC.md`, and §8.3(1)'s "no new schema") | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
-| Stage 2 Integration Attestations build spec (the AECI-514 epic: attestation authority + claim provenance, promote coexistence, the `single_source` agreement state + conflict UI, vendor attestation authoring, the detector/notification pipeline, the product-version model + version-diff timeline, the maintenance marker's real `last_reviewed_at`; the build contract each AECI-514 sub-issue [301, 302, 303, 603…608, 616] anchors to — **plus §13.9, which is Stage 2.1 rather than a 514 sub-issue** (AECI-981: every vendor-authorized catalog write transfers `maintained_by` + `last_reviewed_at`, per row and never transitively, and promote refuses a `lastReviewedAt` on a vendor-maintained row and reports it as `kind: 'review-signal'`; the seat-revoke path back to `'aeci'` is deferred to AECI-989); supersedes §2.4 of `STAGE_2_SPEC.md` and activates the Stage 1.5 carve-outs in §10 of `STAGE_1_5_SPEC.md`) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
-| Stage 2 Real-Time / Live Portal build spec (the AECI-516 epic: **scoped client revalidation, not sockets** — ADR 0023 declined Durable-Object WebSockets and SSE, with a named re-open trigger; the read-only `GET /api/vendor/updates` per-scope freshness cursor [eight SELECTs for seven scopes in one `db.batch` — AECI-1008 added `contests`, AECI-992 a second `integrations` read — **no audit row**, never entitlement-gated] and its "every cursor query reuses its handler's scoping predicate" invariant, the shared `VendorPortalStore` + `revalidate(scopes)`, the visibility-aware `VendorLiveSync` cadence [20 s focused / 60 s unfocused / paused hidden, 160 s backoff cap], optimistic **toggle** writes with visible rollback [forms stay pessimistic, deliberately], the live entitlement flip + session-scoped new-notification count, and the **one hoisted polite live region** [fed by the root `VendorPortalAnnouncer`, one per dashboard concept]; the build contract each AECI-516 sub-issue [626…632] anchors to — **all seven shipped 2026-08-19, every section carries an as-built subsection and §1.5 indexes the six divergences**; supersedes §2.3 + the third §8.2 open item of `STAGE_2_SPEC.md`, and corrects its §4(5) and §7 epic-table "Durable Objects". **No migration, no binding, no queue, no `Cache-Tag`.**) | `docs/STAGE_2_REALTIME_SPEC.md` |
-| Vendor Performance reporting build spec (the three vendor-performance epics: measurement foundation [AECI-929 pair-page attribution first], the search-console channel [per-URL Google + Bing], and the `/vendor/:vendorSlug/performance` page behind `analytics.view` — the first consumer of that capability; admitted into Stage 2.5 as its second named surface exception, `STAGE_2_5_SPEC.md` §10; **reads the same population definition as the digest and adds no predicate of its own, and is a read outside the AECI-516 cursor**; comparative figures and emailed reports deferred to `STAGE_3_SPEC.md` §4) | `docs/VENDOR_PERFORMANCE_SPEC.md` (rationale + 2026-09-14 verification: `docs/design/vendor-performance-direction.md`) |
-| Stage 2 Product Docs / Help Center scope outline (the AECI-634 epic: reader-facing `/docs` **inside `apps/web`** — decided **not** a separate site/app/subdomain, with a re-open trigger; generalizes the legal-pages build-time-inlined-markdown pattern; tech stack, authoring technique [docs-as-code, the same-PR sync rule, no screenshots at v0], v0 site map; **kickoff draft — not yet a build contract**, vendor-guide content deferred until vendor-portal testing settles) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` |
-| Connector lane (iPaaS reachability) — **the lane is split across all three repos, and almost none of it is here.** `docs/connector-vendors.md` in **`aec-integrations-review`** is the source of truth for tracked catalogues, stub/mapping state and the pair-page classifier. The **MindCloud call brief + outcome record** (AECI-703 / epic AECI-695) lives in **`aec-integrations-marketing`** at `docs/outreach/connector-lane-mindcloud-call.md` — the trade, the AECI-702 fence on what may be said, the questions, and the workstream-D decision table. **Current posture (2026-08-31): the call is deferred** — we scrape what we can get ourselves first, and an **incomplete coverage list is explicitly acceptable**, so workstream D is not blocked on a MindCloud feed. This repo holds the Stage 1.5 Addendum B slice (`products.product_role`, `integrations.powered_by_product_id`, the powered hub), the **Addendum C presentation contract** (§13, AECI-708 — the delivered/reachable/buildable vocabulary, the endpoint Integrations split, the role-varied connector template, the ten-site `integration_count` lockstep), the **commercial model** — `STAGE_2_SPEC.md` **§8.8** (AECI-702: the endpoint vendor pays; `hybrid` counts as endpoint; the connector surface is not invoiced) and **§8.9** (AECI-704: what a pure connector vendor gets instead is a catalogue-maintenance seat carried by **no `vendor_entitlements` row**, so the public account label never appears) and **§8.10** (AECI-1017: a connector vendor that **owns** integrations it manages pays, on the ordinary `verified` seat; §8.9 now covers only one that owns none) with the operator claim-routing procedure in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 — and — since **AECI-714** — the **connector-lane schema + sync**: six app-DB tables projecting the review model (`docs/DATABASE_SCHEMA.md` §9a) plus the paged `POST /api/promote/connector-catalog` (`docs/REVIEW_APP_PROMOTE_API.md` §3a) — and, since **AECI-720**, the **management cutoff**: `connector_catalogs.managed_by` is held *and* enforced here, so the promote arm refuses any page for a `vendor`-managed catalogue with `CATALOG_VENDOR_MANAGED`, the flag is **off the promote wire entirely**, and the only operator control is the audited `PATCH /api/admin/connector-catalogs/:id` (reversible — "one-way forever" governs the data direction, not the flag; it grants **no** seat, which was provisioned by AECI-740 and consumed by AECI-724). `connector_evidenced_pairs` is created **empty**; **AECI-721** fills it and owns every change to an existing table — split expand→contract: **PR-A (additive)** unions both tables across every read surface and the `integration_count` lockstep sites — **fourteen** as PR-A counted them (§13.5's own list named ten), and **sixteen** after **AECI-789**, which found that the two expressing the rule as an id **SET** rather than a count were still single-table: `drizzlePromotedIds` (the 09:00 orphan sweep) and `INTEGRATION_IDS_SQL` (the operator CLI). **Since AECI-1010 the count is 26 expressions plus four deliberate exclusions, each filtered on `retired_at IS NULL`, and the list is the asserted `LOCKSTEP_SITES` in `apps/api/src/lib/count-lockstep.spec.ts`.** Both hold DELETE authority, so that miss was a live defect and not a reporting bug — the sweep would have removed every connector-evidenced pair from any `<env>_integrations` index that held them. They hold DELETE authority for exactly that reason, and they do **not** live in the same file — `drizzlePromotedIds` sits beside the drift counter in `apps/api/src/lib/algolia-drift-deps.ts`, while `INTEGRATION_IDS_SQL` is in `apps/api/scripts/reconcile-algolia-drift.ts` (the CLI caller, which reaches a deployed D1 through `wrangler` because a Node process has no `env.DB`). What holds them together is `apps/api/src/lib/count-lockstep.spec.ts`, not proximity, adds `integrator` to the enums + `MECHANISM_RANK` and to the AECI-705 attestation gate, and pins connector-evidenced pairs to `mechanism_rank` 4; **PR-B** is migration `0027_powerful_killraven.sql` (the `mechanism_kind` CHECK, the powered-edge move, the claims re-home) plus the promote-path routing that stops the migration undoing itself. Two things to know before touching either: the claim anchor is now **polymorphic over THREE arms** — `claims` carries three nullable FKs (`integration_id`, `connector_evidenced_pair_id` and, since **AECI-891** on 2026-09-13, `connector_pair_id`), a STORED generated `anchor_id` coalescing all three, and an exactly-one CHECK written as a **sum** rather than the original `<>` XOR, because with three terms `a <> b <> c` parses as `(a <> b) <> c` and is TRUE when all three are set (ADR 0018's 2026-08-31 amendment, amended again 2026-09-13). **The third arm is the only one that points at a row asserting NO delivery** — `connector_pairs` is the reachable tier, so a claim there says "this would flow if you joined these two through that connector", and rendering the three identically would turn reach back into a delivery claim — and `0027`'s **statement order is a data-loss control**, because the `integrations` → `claims` → `attestations` cascade is two levels deep and `PRAGMA defer_foreign_keys` does not defer cascade *actions*. Regenerating that file destroys 1,697 claims and 1,697 attestations — `src/test/migration-0027.spec.ts` is what catches it, though note that spec applies the **committed** order and asserts conservation; it does not itself reproduce the generated order. **AECI-891's `0033_solid_nightcrawler.sql` recreates `claims` again** on the same carry-table pattern, and measuring it there showed the loss is **asymmetric**: the generated order destroys every `attestations` row and **zero** claims, because claims are copied to `__new_claims` before the drop. That is what makes it quiet. `0033` also voided `0032`'s all-clear — `connector_pairs` now HAS a cascade child, so the next recreate of that table is two levels deep; the guard that watches for new children lives in `apps/api/src/test/d1.spec.ts`, not in `migration-0032.spec.ts`, whose assertion is pinned to a pre-`0033` schema and can never fail. `iPaaS` and `partner` both STAY in the enum — and **AECI-735 closed that asymmetrically**: `iPaaS` is retained **permanently** (three shipped predicates key off it — `isConnectorPoweredEdge`, `routeIntegrationLane` clause (c), `MECHANISM_ORDER` — over a population that structurally cannot drain), while `partner` is the one sequenced follow-up, re-gated onto **AECI-712**'s upstream re-key. The vocabulary has **six** independent spellings (three TS lists in `@aeci/shared`, `VALID_MECHANISM_KINDS`, `MECHANISM_ORDER`, the D1 CHECK) and two degrade *silently* on drift, so AECI-735 added lockstep tests rather than a comment. And — since **AECI-722** — the **first reader**: `/admin/connectors` + `/admin/connectors/:id` over five admin `GET`s (`ADMIN_PANEL_SPEC.md` §5.9), which also discharged the remaining `relations()` deferral (the five non-evidenced tables; AECI-721 had already added the evidenced-pairs block) and carries the UI for AECI-720's `managed_by` flip. Triage there is **read-only** — the sync upserts mappings wholesale, so AECi-side authoring waits for AECI-724 gated on `managed_by = 'vendor'`. The *public* coverage surfaces are still mostly unbuilt, but **AECI-892 (2026-09-14) built the first one**: §13.7's endpoint reach line, *"N more pairs reachable via connectors"*, which is AECI-716's first bullet and the only part of 715/716 that exists. It ships **unlinked** (§13.7 says it links "our filtered view" and no such route exists; linking the curated pair set would make one sentence inherit the whole publication gate), hidden at zero, outside the `Integrations (N)` count, and naming no connector — a Via card that outlived its own delivered row would assert a delivery I24 has just ruled away. Three things follow. **The split key was NOT changed and must not be**: `routeIntegrationLane` reads `via` and `powered_by_product`, both delivered-tier, so no predicate recovers a deleted row; `connector-lane-grouping.ts` is untouched. **The read is `apps/api/src/lib/connector-reach.ts`** — two `UNION` branches, never an `OR` across `stub_a_id`/`stub_b_id` (SQLite uses neither index through that OR), `publishableMappingOn` at both ends, and **no `surface` predicate at all**, because all 669 Kroo Connector and Trimble AppXchange pairs are `derived` and a `curated` filter would report both catalogues as reaching nothing. **The cache-tag obligation is discharged**: `dispatchConnectorHooks` is three hooks now, emitting `product:{connectorSlug}` plus `product:{slug}` per moved endpoint and never `pair:*` or `sitemap` (`CACHE_STRATEGY.md` §3 rule 5) — though `demo`/`production` run uncached today, so that emission is live on preview and staging only. Reach still **never counts** (§13.5), guarded by a source scan in `count-lockstep.spec.ts`. **AECI-1013 (2026-09-18) added a second, private reader**: the vendor portal's read-only Connectors section on a product's Integrations tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13), over `GET /api/vendor/products/:id/connectors` and `reachablePartnersByConnector`. It names the connector, keeps Delivered and Reachable apart, dates every reach, and sits **outside the live-update cursor** — it does not open §13.7's publication gate. **Production carries real data since AECI-764 (2026-09-10)**: the review-side sender (AECI-731) shipped, and the first production sync loaded four catalogues — Agave ERP Sync, Trimble AppXchange, Aquifer and Kroo Connector — as 5 surfaces, 203 stubs, 171 mappings and 85 pairs, with 68 mappings correctly in `skipped[]` because their product is not promoted. Three things that run does NOT change: **MindCloud stays unsynced** by decision (it is `promotion_status: unreviewed`, and `connector_catalogs.connector_product_id` is NOT NULL, so every one of its 12 pages would skip whole and write nothing), Zapier stays parked (AECI-700), and **every catalogue currently fits in ONE page**, so the >512 KiB KV spill path in the Workflow is still unexercised in production. Non-production environments still have no connector data, so `apps/api/seed/connector-fixtures.sql` remains what makes the screen renderable locally | `docs/STAGE_1_5_SPEC.md` §12 Addendum B (shipped) + **§13 Addendum C** (the contract for the unbuilt surfaces); brief + evidence in the sibling repos above |
-| Stage 2.1 vendor-activation interlude (the discipline firewall between the Stage 2 **dark launch** [merged/live, zero vendor seats granted] and Stage 2.5: dress-rehearsal + refinement of the already-built vendor-management surface, the dark-window parked-claim posture, the moved-forward close-out items [AECI-623, AECI-633], the one-way pull-forward rule for 2.5 items that block seat-granting, the Stage 2 ship-gate list as entry preconditions; exit = pilot vendors seated and live; **proposal — not yet seeded into Linear**) | `docs/STAGE_2_1_SPEC.md` |
-| Stage 2.5 hardening interlude (the finishable punch list between Stage 2.1 and Stage 3: the AECI-636 search-ranking overhaul [evidence-gated / depth-weighted / surface-scoped — retires `integration_count`] as anchor, live-defect fixes, catalog integrity, the remaining Stage 2 close-out debt, docs de-stale sweep, and — since AECI-804 — **§7 public trust and answer-surface artifacts**, the one admitted exception to its own "no new surface area" rule, which governs the shipped `/methodology` page and holds the AECI-788 epic's doc debt; opens when Stage 2.1's exit is green; **proposal — not yet seeded into Linear**, though §7 is a real build contract for shipped code) | `docs/STAGE_2_5_SPEC.md` |
-| Stage 3 scope outline (trust & verification ladder [evidence rungs 2/3, demand-ordered queue], pSEO search-intent growth [adopts the Pair-Page Search Intent project], stack-aware discovery candidate, DX tail, accessibility remediation, and — since 2026-09-11 — **§2.6 rebrand / name-change handling (AECI-863), which is a bookmarked option survey and NOT a design: its mechanism is unchosen and §5(6) holds the four decisions that must close before it is decomposed)**; Product Docs [AECI-634] explicitly stays Stage 2; includes the 2026-08-24 backlog triage table; supersedes the scattered "Stage 3" forward references; **kickoff draft — not yet a build contract**) | `docs/STAGE_3_SPEC.md` |
-| `data_object` controlled vocabulary (Stage 1.5; the frozen, closed list both apps seed from — slug/name/description/display_order/aliases) | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated `docs/data-object-vocabulary.json` mirror) |
-| `trade` controlled vocabulary — the **fourth taxonomy facet** ("what work does your company sell?", AECI-538 epic): the closed 34-term list, the trade-specific-value tagging rule, find-only promote resolution, and the publication gate | `docs/TRADES_VOCABULARY.md` (+ generated `docs/trades-vocabulary.json` mirror); facet behaviour in `docs/STAGE_1_SPEC.md` §5.5a |
-| API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
-| Review-app → app-DB promotion push — the **async** kick-off/poll/collect protocol (`POST /api/promote` → `202 { jobId }`, `GET /api/promote/jobs/:id`, payload/response, the two idempotency keys, integration rule) — **and, since AECI-714, the second arm** `POST /api/promote/connector-catalog` (§3a: paged connector-catalogue mirror, one page = one job, a *third* idempotency key in the review record id). **§5.1 is the retraction half and it flows the other way** (AECI-882): promote cannot **retract**, so an upstream delete is pulled down by `scripts/ops/2026-09-retraction-consumer/consume.mjs` reading `list_retractions`, and the order is **delete → verify → confirm, always**. That consumer has a **second cohort source** since AECI-916 — `--ruling <file>`, a committed operator ruling — because the feed cannot carry every retraction: a journal entry needs the upstream record to have held a `supabase_integration_id`, so a row whose write-back never landed is unreachable from **both** directions once the record is deleted. Ruling mode keeps every guard and never calls `confirm_retractions`; it refuses a non-empty journal so the cohorts cannot mix, and refuses a ruled id that resolves in neither table. Prefer the journal route whenever the upstream record still exists — the curator's words beat a reconstruction. "Cannot retract" is narrower than "never deletes", and the difference is AECI-888: promote never infers a delete from **absence** (that is the ADR 0030 rule, and it is unchanged), but an **id-directed cross-table move** does drop the old row in the same batch as the insert. `powered_by_product_id` routes an edge between `integrations` and `connector_evidenced_pairs`, and because identity is table-scoped while the routing key is mutable, a re-promote that flips it must move the row rather than mint a second one — which is what stranded the Roofr → QuickBooks Online edge for three days (AECI-798). Both directions of that move re-home the claims **before** dropping the source, because the cascade is two levels deep and nothing can make `claims_anchor_check` block a delete. Two traps: a `supabaseId` on a journal entry names a row in **either** `integrations` or `connector_evidenced_pairs` and does not say which, so a single-table consumer silently confirms what it cannot see; and confirming before deleting is unrecoverable, because the journal holds the only surviving copy of that id. The daily strand audit's `pendingRetractions` bucket is what catches an unconsumed one | `docs/REVIEW_APP_PROMOTE_API.md` (design rationale: `docs/adr/0021-async-promote-ingest-via-workflows.md`) |
-| Database schema (D1/Drizzle; §12 is the app-layer authorization model — there are no RLS hooks on app tables) | `docs/DATABASE_SCHEMA.md` |
-| Migration workflow (generating SQL via drizzle-kit, applying via `wrangler d1 migrations apply`) | `docs/migrations.md` §0 (D1 + drizzle-kit; the legacy Supabase-CLI sections below §0 are Auth-project history only) |
-| Local dev tracing (agent-queryable OTel traces in `wrangler dev`: Local Explorer SQL endpoint, `spans`/`logs` schema, debugging recipes) | `docs/local-tracing.md` |
-| Drizzle/D1 data layer (client, schema, `db.batch()` audit/workflow builders) | `apps/api/src/db/` + `apps/api/src/lib/{audit,drizzle-helpers,recompute-counts}.ts` (ADR 0016) |
-| CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
-| Environment topology, promotion model, operator runbook (tiers, PR-preview lifecycle, bootstrap) | `docs/environments.md` |
-| Cloudflare Access for non-prod environments (allowlist, service token rotation, lockout) | `docs/access.md` |
-| Rate limiting, **both layers**. §0–§5 are the Cloudflare **zone**: WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) — **and the zone-level bot settings** (§3b, AECI-800: Super Bot Fight Mode, the AI bot policies, the deprecating `Block AI bots` toggle, AI Crawl Control). Those are dashboard-only, run outside the Ruleset Engine, and a WAF `Skip` rule cannot exempt most of them, so a bot block that no §2 rule explains is almost always there. **§6 is the in-Worker limiter** (AECI-773 / ADR 0026), which is changed by editing `apps/api/src/rate-limit-middleware.ts` and deploying, never by touching the zone. §6.4 is how you tell which layer stopped a caller — that is the triage question, and getting it wrong means re-tuning the wrong thing | `docs/waf-rate-limits.md` |
-| Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
-| Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
-| Manual accessibility testing (repeatable VoiceOver/NVDA + keyboard-only screen-reader pass; the human layer beyond axe/Lighthouse CI) — §5 is the tool-assisted Chrome-accessibility-tree pre-pass, §6/§7 the scripted VoiceOver + NVDA walkthroughs | `docs/a11y-manual-testing-checklist.md` |
-| Accessibility audit **results** (dated runs of the above; the AECI-244 public-site pass of 2026-09-09 against prod `44aba9cf` is the first). Holds the standing warning that **axe structurally cannot see the WCAG 4.1.3 status-message class** — the defect only exists after a form submit, and axe never submits | `docs/ACCESSIBILITY_AUDIT.md` |
-| Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
-| Code-review exemptions (accepted/deferred findings, expiry rules) | `docs/CODE_REVIEW_EXEMPTIONS.md` |
-| Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
-| Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
-| Observability: custom metric catalog, dashboards + alerts — canonical for the live plane, which is **PostHog only** since AECI-651 | `docs/OBSERVABILITY.md` |
-| Observability migration Datadog → PostHog (the AECI-639 epic: the dual-run transport fan-out, two-mode consent-aware browser init, the alert/liveness-sweep model, project topology, decommission gates; the build contract each AECI-639 sub-issue [640…651] anchored to). **Complete — AECI-651 removed the Datadog leg, and the 2026-09-03 Stage 2 merge carried it onto `main`**, so the spec is now a build record rather than an in-flight contract; `docs/OBSERVABILITY.md` is canonical for the live plane | `docs/POSTHOG_MIGRATION_SPEC.md` (rationale: `docs/adr/0024-observability-migrates-to-posthog.md`) |
-| Analytics/marketing measurement baseline (AECI-326): PostHog + Datadog-RUM instrumentation status, starting-numbers snapshot, weekly read procedure. **Its "prod is dark, gated on secrets" state is stale** — corrected by the dated AECI-648 addendum inside the file (verified live 2026-08-24); the historical snapshot is deliberately left intact | `docs/ANALYTICS_BASELINE.md` |
-| **Product** analytics — the event catalogue, naming + never-in-a-property rules, the consent-tier caveat on every number, the `search_performed → product_viewed → external_link_clicked` activation funnel, and the identify/vendor-group identity model (AECI-649; the product companion to `OBSERVABILITY.md`, which keeps the is-it-healthy half) | `docs/ANALYTICS.md` |
-| Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
-| Incident runbooks for the live alerts — **PostHog** (hourly cadence; absence detection is the scheduled-CI liveness sweep, not a vendor feature). Also the only surviving record of the 26 retired Datadog monitors' thresholds, in its disposition table | `docs/RUNBOOKS.md` |
-| Post-launch monitoring (AECI-279 / Phase 8.1): the daily/weekly operate-and-tune procedure over the shipped dashboards, monitors, and crons; the launch-tunable-threshold table; the triage→ticket loop | `docs/POST_LAUNCH_MONITORING.md` |
-| Post-launch health-report log (AECI-279 / Phase 8.1): dated first-week/first-month snapshots fed by the monitoring runbook | `docs/POST_LAUNCH_HEALTH_REPORT.md` |
-| Admin panel / operator console (traffic, audience, catalog, moderation, system health; the consent-independent read surface over `page_views` + a screen for the two cron digests) — **v1.0 build contract**; **Phase 8.3**, `main` line, epic AECI-572 shipped to `main` 2026-08-14 | `docs/ADMIN_PANEL_SPEC.md` |
-| Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
-| Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..8}_COMPLETION.md` (Phase 8 = the living post-launch checkpoint) |
-| Auth model and authorization (the Worker request guard is the **only** layer for app tables — D1 has no PostgREST/GRANT/RLS, ADR 0016; the Postgres GRANT/RLS design is retained under banners as history; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
-| Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
-| Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
-| Angular / TypeScript conventions (zoneless, signals, control flow, OnPush, SSR safety, file naming, lint rules) | `ANGULAR_STYLE_GUIDE.md` (repo root) |
-| Brand book (palette, contrast, visual principles, DOCX export) | `docs/BRAND_GUIDELINES.md` |
-| Logo construction spec (coordinates, geometry, type specs — companion to the brand book) | `branding/logo-construction.md` (repo root) |
-| v0.dev → Angular design workflow (the loop: spec → prompt → iterate → port → review → ship) | `docs/design/workflow.md` |
-| v0.dev → Angular porting rules + token map (the contract a port is reviewed against) | `docs/design/v0-porting-rules.md` |
-| v0.dev account-level aesthetic directives / system prompt | `docs/design/v0-system-prompt.md` |
-| Foundation stack validation (Phase 1 reference: Angular SSR + Workers + Spartan UI) | `docs/STACK_VALIDATION_TEST.md` |
-| Linear issue conventions — the `**Spec section:**` anchor grammar (including the `n/a` form), the three-repo title-prefix routing, and the checked-in mirror of the team's Linear issue templates | `docs/linear-issue-conventions.md` |
-| The curation store upstream of promote (the review app's own Cloudflare D1 since 2026-08-25; why upstream ids still look like `rec…`; why no Airtable credential exists here) | `docs/adr/0029-curation-store-is-the-review-apps-own-d1.md` |
-| Architecture Decision Records — why key choices were made | `docs/adr/README.md` (index) |
-
-If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.
+| Phase 2 / 5 / 6 scope (supersede §16 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md`, `docs/STAGE_1_PHASE_5_SPEC.md`, `docs/STAGE_1_PHASE_6_SPEC.md` |
+| Stage 1.5 integration redesign (product-PAIR page, claim/attestation model) | `docs/STAGE_1_5_SPEC.md` |
+| Connector lane (iPaaS reachability): Addendum B schema, Addendum C presentation contract, connector-catalog sync, evidenced pairs, reach line, vendor Connectors tab | `docs/STAGE_1_5_SPEC.md` §12 + §13; schema `docs/DATABASE_SCHEMA.md` §9a; sync `docs/REVIEW_APP_PROMOTE_API.md` §3a; commercial model `docs/STAGE_2_SPEC.md` §8.8–§8.10; catalogue truth in the review repo's `docs/connector-vendors.md` |
+| Vendor and product logo editing (validated R2 uploads, promote ownership) | `docs/STAGE_2_5_SPEC.md` §11, ADR 0032 |
+| Vendor-authored "How teams use it" narrative (`product.usefulness.edit`, `usefulness_source` fence) | `docs/STAGE_2_5_SPEC.md` §12, ADR 0033 |
+| Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence and twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; promote side `docs/REVIEW_APP_PROMOTE_API.md` §4b–§4c |
+| Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
+| Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
+| Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, verified badge) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
+| Stage 2 Paid Tiers & Entitlements (`vendor_entitlements`, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
+| Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
+| Stage 2 Real-Time / Live Portal: scoped client revalidation, not sockets (ADR 0023); `GET /api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
+| Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
+| Product Docs / Help Center (`/docs` inside `apps/web`; kickoff draft) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` |
+| Stage 2.1 vendor-activation interlude (dark launch → seat pilot vendors; proposal) | `docs/STAGE_2_1_SPEC.md` |
+| Stage 2.5 hardening interlude (search-ranking overhaul, §7 trust/answer-surface artifacts; proposal) | `docs/STAGE_2_5_SPEC.md` |
+| Stage 3 scope outline (trust ladder, pSEO, rebrand option survey §2.6; kickoff draft) | `docs/STAGE_3_SPEC.md` |
+| `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
+| `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
+| API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
+| Review-app → app-DB promote (async kick-off/poll/collect, idempotency keys, connector-catalog arm §3a, retraction consumer §5.1, cross-table moves) | `docs/REVIEW_APP_PROMOTE_API.md`; ADR 0021, ADR 0030 |
+| Database schema (§12 is the app-layer authorization model; no RLS on app tables) | `docs/DATABASE_SCHEMA.md` |
+| Migration workflow, D1 recreate hazards, cascade data-loss controls | `docs/migrations.md` §0; ADR 0018 |
+| Local dev: ports, Conductor workspaces, service binding, version reporting | `docs/local-dev.md` |
+| Local dev tracing (OTel traces over a SQL endpoint in `wrangler dev`) | `docs/local-tracing.md` |
+| Drizzle/D1 data layer (client, schema, `db.batch()` audit/workflow builders) | `apps/api/src/db/`, `apps/api/src/lib/{audit,drizzle-helpers,recompute-counts}.ts`; ADR 0016 |
+| CI/CD, environments, deployment, branch model | `docs/CICD_PLAN.md`; topology + runbook `docs/environments.md` |
+| Cloudflare Access for non-prod | `docs/access.md` |
+| Rate limiting, both layers (zone WAF + bot settings §0–§5; in-Worker limiter §6; which layer stopped a caller §6.4) | `docs/waf-rate-limits.md`; ADR 0026 |
+| Testing tools, coverage, patterns; writing unit tests | `docs/TESTING_STRATEGY.md`; `docs/UNIT_TESTING_GUIDE.md` |
+| Manual accessibility testing; audit results | `docs/a11y-manual-testing-checklist.md`; `docs/ACCESSIBILITY_AUDIT.md` |
+| Reviewing code; accepted exemptions | `docs/CODE_REVIEW_CHECKLIST.md`; `docs/CODE_REVIEW_EXEMPTIONS.md` |
+| Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |
+| Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
+| Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
+| Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
+| Transactional email, magic-link SMTP, deliverability | `docs/email.md` |
+| Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
+| Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
+| Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |
+| Phase completion checkpoints | `docs/PHASE_{2..8}_COMPLETION.md` |
+| Auth model and authorization (the Worker guard is the only layer) | `docs/AUTH_AND_RLS.md` |
+| Strategic product / brand context | `PRODUCT.md` |
+| Visual design system (tokens, components) | `DESIGN.md` |
+| Angular / TypeScript conventions and the lint-rule map (§24) | `ANGULAR_STYLE_GUIDE.md` |
+| Brand book; logo construction | `docs/BRAND_GUIDELINES.md`; `branding/logo-construction.md` |
+| v0.dev → Angular design workflow, porting rules, system prompt | `docs/design/workflow.md`, `docs/design/v0-porting-rules.md`, `docs/design/v0-system-prompt.md` |
+| Foundation stack validation | `docs/STACK_VALIDATION_TEST.md` |
+| Linear issue conventions (anchor grammar, title-prefix routing, templates) | `docs/linear-issue-conventions.md` |
+| The curation store upstream of promote (review app's own D1; `rec…` ids are format only) | ADR 0029 |
+| Catalog agent spike (`apps/agent` on Flue) | ADR 0034; `apps/agent/README.md` |
+| Architecture Decision Records index | `docs/adr/README.md` |
 
 ## Stack at a glance
 
-- **Frontend:** Angular 21+ with SSR, zoneless change detection
-- **Styling:** Tailwind CSS v4 + Spartan UI (brain primitives) + Angular CDK. New interactive/form-control patterns (select, combobox, listbox, radio, accordion, tabs, …) use Angular Aria (`@angular/aria`, stable in v22); Spartan stays for overlay primitives (Popover, Dialog). Two deviations to know: Aria@22 ships no `radio`/`select`, so combobox/listbox stand in; and discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]` (native inputs only). See `docs/adr/0010-angular-aria-alongside-spartan.md` (Accepted).
-- **Hosting:** Cloudflare Workers (SSR Worker + private API Worker via service binding). SSR Worker runs with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills. The API Worker also runs a **Cloudflare Workflow** (`PromoteWorkflow`, one per env) carrying the promote ingest — ADR 0021.
-- **Database:** Cloudflare D1 (SQLite) via Drizzle ORM (`drizzle-orm/d1`) over the API Worker's `DB` binding — no external proxy, no `nodejs_compat` for the DB path (ADR 0016). Supabase is retained for **Auth only**. Lead capture (`feedback`/`mailing_list`) lives in D1 (AECI-257), written by `POST /api/feedback` + `/api/subscribe`; the caller is the shared mailing-list signup band in `apps/web` via the SSR Worker's `/api/*` passthrough (the pre-launch `apps/landing` Worker was retired at the apex cutover, AECI-247/277). Signups fire fail-open operator-alert + subscriber-welcome sends (AECI-327); unsubscribe (AECI-537) is a tokenized **soft-delete** via `POST /api/unsubscribe` + RFC 8058 one-click header — the `/unsubscribe` page confirms-then-POSTs (a GET never mutates) and is noindex + non-cacheable. Details: `docs/email.md`.
-- **Search:** Algolia + InstantSearch Angular
-- **Auth:** Supabase Auth (magic link + Google OAuth)
-- **Observability:** **PostHog only** (ADR 0024 / epic AECI-639). Logs, metrics, error tracking, web vitals and product analytics all land there. The AECI-639 dual-run ran PostHog beside Datadog to verify the swap against live traffic; **AECI-651 then deleted the Datadog leg** — both Worker adapters, `@datadog/browser-rum`, `observability/datadog/`, every `DD_*` var, and the CSP grants to the `browser-intake-*` hosts. **Since the 2026-09-03 `stage-2 → main` merge this is the code on `main` too** — so the Datadog leg is gone from the production line, and it reaches live production at the next `promote-to-demo` → `promote-to-prod` (a prod promote is what actually flips prod's observability plane, not the merge). Three facts worth knowing before touching observability: the Workers hold **no observability secret at all** (the publishable `phc_` `POSTHOG_PROJECT_KEY` is a committed per-env wrangler var, AECI-640); PostHog has **no `notify_no_data` equivalent**, so cron-absence detection is an external scheduled-CI liveness sweep (AECI-647); and **alerts evaluate hourly**, not every 5 minutes — the largest accepted degradation in the swap
-- **Catalog agent (spike, not a pillar):** `apps/agent` — a hand-deployed Worker on **Flue** (the Astro team's agent framework) that answers natural-language catalog questions. One agent mounted twice, on Workers AI and on Claude, to compare them over one harness. Retrieval is **Cloudflare AI Search** over an R2 corpus, which is the agent-scoped revisit ADR 0006 named; **site search stays on Algolia**. Claude bills through **AI Gateway Unified Billing**, so the Worker holds no Anthropic key and there is no Anthropic account. Three things differ from every other app here: the build is **Vite**, so deploys read the emitted `dist/aeci_agent/wrangler.json` with `-c` and the tier is chosen by `CLOUDFLARE_ENV` at build time rather than `--env`; it is **not deployed by CI** and deploys by hand, like `apps/datatool` (the root `pnpm -r` lint/typecheck/test:unit lanes still run it on every PR, so a failure there blocks merge); and it writes **no domain state**, so §26.1 does not apply to it. ADR 0034; build record `apps/agent/README.md`
-- **Issue tracker:** Linear
-- **i18n:** `@angular/localize` (en-US only at launch; architecture supports more)
-- **Email:** Resend (transactional — `apps/api/src/lib/email.ts`, AECI-240) + Microsoft 365 (mailboxes). Supabase Auth magic links send over Resend custom SMTP. `docs/email.md` is the source of truth *(external provider state — re-verify there, not here)*.
-- **Workflow automation:** Cloudflare Worker for the form→Linear request pipeline (n8n **dropped** — Phase 2 §18.1 / `docs/STAGE_1_PHASE_6_SPEC.md`). No Slack (Linear native email + admin-email-on-failure).
-- **Theme:** light only — a single light theme, no toggle, no system-preference detection (AECI-226). Dark theme is not roadmapped (the Stage 2 reintroduction was dropped — `docs/STAGE_2_SPEC.md` §9). Tokens defined in `docs/STAGE_1_SPEC.md` §2a
+- **Frontend:** Angular 21+ with SSR, zoneless. **Styling:** Tailwind v4 + Spartan UI + Angular
+  CDK; new form-control patterns use Angular Aria, Spartan stays for overlays (ADR 0010).
+- **Hosting:** Cloudflare Workers: SSR Worker + private API Worker over a service binding. The API
+  Worker also runs the `PromoteWorkflow` Cloudflare Workflow (ADR 0021).
+- **Database:** Cloudflare D1 via Drizzle over the `DB` binding (ADR 0016). Supabase is Auth only.
+  Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, tokenized soft-delete unsubscribe);
+  `docs/email.md`.
+- **Search:** Algolia + InstantSearch Angular. **Auth:** Supabase Auth (magic link + Google OAuth).
+- **Observability:** PostHog only (ADR 0024). Workers hold no observability secret; the `phc_`
+  project key is a committed per-env wrangler var. Alerts evaluate hourly; cron-absence detection
+  is a scheduled-CI liveness sweep. `docs/OBSERVABILITY.md`.
+- **Catalog agent (spike):** `apps/agent`, hand-deployed, Vite build, writes no domain state.
+  ADR 0034.
+- **Issue tracker:** Linear. **i18n:** `@angular/localize`, en-US only at launch.
+- **Email:** Resend (transactional) + Microsoft 365 (mailboxes). `docs/email.md` is truth.
+- **Workflow automation:** a Cloudflare Worker for the form→Linear pipeline. No n8n, no Slack.
+- **Theme:** light only. No toggle, no system-preference detection. Dark is not roadmapped.
 
 ## Constraints that aren't negotiable
 
-These appear repeatedly in tasks and Claude Code may be tempted to violate them. Don't.
+These recur in tasks and are tempting to violate. Don't. Several are enforced by `pnpm lint`
+(`Lint: ✅`); the rule-to-constraint map is `ANGULAR_STYLE_GUIDE.md` §24. The rest are
+`Lint: 🟡 review-only`. Each bullet is the rule plus one pointer; the history is in the pointer.
 
-Several are now **enforced mechanically** rather than by recall — they fail `pnpm lint` (AECI-549), so violating one is a build failure, not a review comment. Those bullets are tagged `Lint: ✅`. The rule-to-constraint map, including which mechanism catches what and why some can only be caught by a line scanner rather than ESLint, is `ANGULAR_STYLE_GUIDE.md` §24.
-
-- **Use Drizzle over the D1 binding (no Prisma in the Worker).** `Lint: ✅` — `no-restricted-imports` bans `@prisma/*`, `pg`, `postgres`, `@neondatabase/serverless`, and the Postgres Drizzle drivers; `no-restricted-syntax` bans the `getPrisma` / `PrismaClient` identifiers and the `DATABASE_URL` / `DIRECT_URL` vars. Tests included. Get a request-scoped client via `getDb(env)` (`apps/api/src/db/client.ts`), which wraps `drizzle(env.DB, { schema })`. Reads use the relational query builder (`db.query.<table>.findMany/findFirst`) or `db.select()`; the schema source of truth is `apps/api/src/db/schema.ts`, with read configs/mappers in `apps/api/src/lib/drizzle-helpers.ts`. **D1 has no interactive transactions** — atomic multi-statement writes go through `db.batch([...])` (ADR 0016 / AECI-249), and every state-changing write emits its `audit_log` (+ `workflow_transitions`) row into the SAME batch via the `apps/api/src/lib/audit.ts` builders (the §26.1 invariant). The §26.5 audit-log forwards run post-commit in `ctx.waitUntil` (to PostHog Logs through the injected forwarder seam under ADR 0024 — the §26.1 in-batch invariant was untouched by that swap). There is no `getPrisma`, no `@prisma/extension-accelerate`, no pg adapter on the Worker, and no Prisma in application code. Prisma is fully removed (AECI-278): no `@prisma/client`, no `prisma` CLI, no `apps/api/prisma/schema.prisma`, and no `DATABASE_URL` / `DIRECT_URL` / Accelerate anywhere. ADR 0016.
-- **Promote is async — never commit on the request (ADR 0021 / AECI-563).** `POST /api/promote` (`apps/api/src/routes/promote-kickoff.ts`) validates, starts the `PROMOTE_WORKFLOW` Cloudflare Workflow, and returns `202 { jobId }`; the plan-then-batch ingest (`runPromoteIngest` in `routes/promote.ts`) runs inside **one non-retried `step.do`** and `GET /api/promote/jobs/:id` serves the ID map. Do not reintroduce a synchronous promote handler, and do not make the ingest depend on a Hono `Context` — it takes a narrow `PromoteRunCtx` (`env` / `waitUntil` / `request` / `bookmark`) precisely so it can run off-request. The commit step throws `NonRetryableError(message, code)`: never let it be auto-retried, or a half-planned create can replay as a duplicate product. **The caller-supplied `jobId` IS the Workflow instance id**, and since **AECI-571** it is also the primary key of a `promote_jobs` ledger row that `runPromoteIngest` writes as the **first statement of the same `db.batch`** — so a replayed step (Workflows are at-least-once) trips the PK, the whole batch rolls back, and the ingest returns the recorded `PromoteIngestResult` (identical ids, identical slug) instead of committing again. Never move that insert out of the batch, never add `ON CONFLICT DO NOTHING` to it, never compute `wrote` after pushing it, and never let an unreadable ledger row fall through to a re-plan — an unreadable ledger means the promote **already committed**. Post-commit hooks stay fire-and-forget and are dispatched from `run()` *after* the step, never inside it (which is why a replay must still be able to drive them from the ledger). **Upsert-by-`supabaseId` falls back to insert** when the supplied id no longer resolves (AECI-568) — the update branch must stay gated on the existence read, never on `Boolean(supabaseId)`, or a dead pointer becomes a no-op `UPDATE` reported as `updated` with an empty slug. Each fallback is reported via `aeci.api.promote.stale_id`; `scripts/ops/2026-09-stranded-row-audit/` is the read-only sweep that finds them, and since AECI-796 it is what `.github/workflows/promote-strand-audit.yml` runs daily at 09:00 UTC over `AECI_MCP_TOKEN` — **fail-closed**: a missing credential exits 2 and goes red, because an unchecked audit is not a pass. Its 2026-08 predecessor read a decommissioned Airtable base and skipped green for all 25 of its scheduled runs; it was deleted in that change. **Since AECI-714 the same Workflow binding carries a second job kind** — a connector-catalogue *page* (`POST /api/promote/connector-catalog`) — on a discriminated `PromoteWorkflowParams` union whose `kind` is **absent** for the product arm, so pre-AECI-714 instances still replay as product promotes; never make that field required. Everything above holds per page: single non-retried step, single `db.batch`, ledger row first. What does **not** hold is atomicity *across* pages — one ledger row protects one commit — so every statement the connector planner emits is an idempotent upsert keyed on the review app's own record id, which is also the app-DB primary key. A page re-sent with nothing changed must write nothing at all, including no `audit_log` row.
-- **drizzle-kit + `wrangler d1` own migrations.** Edit `apps/api/src/db/schema.ts`, then `pnpm db:generate` (drizzle-kit writes `apps/api/migrations/*`), apply locally with `pnpm db:migrate:local` (`wrangler d1 migrations apply aeci-app-preview --local`), and seed with `pnpm db:seed:local`. `pnpm db:setup:local` does both, and `pnpm dev`/`dev:preview` run it before booting (so the local D1 is always migrated + seeded). The retired Supabase-CLI / `prisma migrate` / `prisma db pull` workflow no longer applies to the app DB. See `docs/migrations.md`.
-- **Release every `fetch` response body you don't read, and batch fan-out (AECI-666).** `Lint: 🟡 review-only` — a Worker invocation may hold only ~6 connections waiting for response headers (`fetch`, KV, R2, Cache API, **Queues `send()`**, outbound WebSockets all count), and a `fetch` whose body is never consumed keeps holding one. Past the limit the runtime cancels the stalled responses to break the deadlock — and **a cancelled `fetch` returns a promise that never settles**, so the caller's own `catch` never fires, the work is lost with no log line, and the invocation is eventually killed as hung (`"your Worker's code had hung and would never generate a response"`), taking every other in-flight task with it. That is how the promote post-commit hooks silently dropped Algolia upserts and cache purges on ~8% of production promotes. AECI-651 **halved** the cost of every emission by retiring the second vendor — one `logToPosthog` call is now one connection, not two — but the budget is still a budget. Three rules: **(a)** call `discardResponseBody(res)` (`@aeci/shared/response-drain`) on every path that doesn't read the body — including error paths that only inspect `res.status`; **(b)** never fan out an unbounded `Promise.all` of `fetch` — if the upstream takes a batch, send one request (the §26.5 audit forwards go through `logBatchToPosthog`: N entries → one request); if it genuinely has no batch endpoint (Google Indexing, the GoTrue per-id/per-email lookups), run it through `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` from `@aeci/shared/concurrency`; **(c)** a Queue producer with more than one message uses `queue.sendBatch()`, not a `send()` per message. Batching beats bounding; bounding beats nothing. Fire-and-forget `waitUntil` work in the promote path additionally goes through `dispatchHook`, whose **20s** watchdog turns a wedged transport into a `console.warn` instead of a dead invocation — 20s and not 30s because `waitUntil` extends execution only *up to* 30s, so a 30s watchdog races teardown and its warning never lands. See ADR 0021's 2026-08-27 amendment.
-- **`nodejs_compat` is for SSR, not for the DB.** The SSR Worker needs `compatibility_flags: ["nodejs_compat"]` because `@angular/ssr` reaches for Node polyfills at runtime. That flag is unrelated to database access — the API Worker reaches D1 through its native `DB` binding (Drizzle), no pg adapter, no Accelerate, no `nodejs_compat`. Validated pattern: `apps/web/wrangler.jsonc:43`.
-- **Cloudflare plan is Pro** *(external account state — re-verify on audit; last checked 2026-09)*. `Cache-Tag` and purge-by-tag are available on **all plans as of April 2025** and are the AECi strategy from Phase 2 onward. Every cacheable SSR response sets `Cache-Tag` via the AECI-56 helper; invalidation is native `ctx.cache.purge()` — in-process for `POST /admin/purge`, and cross-Worker (promote / moderation / datatool) via the `aeci-cache-purge-{env}` Cloudflare Queue whose SSR consumer delegates into `Renderer`. `Vary: Accept-Language` is permitted because URL-prefix locale dispatch already handles actual variance; any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. **The `Vary` half of this bullet is `Lint: ✅`** (AECI-549): `no-restricted-syntax` rejects `headers.set`/`append` and the object-literal form with any value other than `Accept-Language`, in shipped source. Test files are exempt because fixtures legitimately build a forbidden `Vary` to prove the middleware strips it. `Cache-Tag` emission itself stays review-only. **The SSR Worker uses native Cloudflare Workers Cache (`apps/web/wrangler.jsonc`; a HIT skips the Worker): WC-3 (AECI-317) enabled it on preview + staging and deleted the hand-rolled `caches.default` match/put; WC-4 (AECI-318) restored cache-key normalization (utm-strip / per-route allowlist / canonical order / multi-select CSV sort) as `cacheKeyFor()` behind a two-entrypoint gateway (`default`, cache off) → cached `Renderer` pair (per-env `exports` block; `ctx.exports` is default-on at the current compatibility date); WC-5 (AECI-319) moved cross-Worker invalidation onto a Cloudflare Queue whose SSR consumer delegates the purge into the `Renderer` entrypoint; WC-6 (AECI-320) migrated the SSR `POST /admin/purge` to in-process `ctx.cache.purge()`; WC-7 (AECI-321) routed datatool bulk purge through the same queue; WC-8 (AECI-322) baked the crawler `noindex` decision into the cached payload (a HIT can't leak an indexable non-prod page) and retired the cache-hit-rate monitor; and WC-10 (AECI-324) retired the HTTP `callCloudflarePurge` transport + pruned `CF_PURGE_API_TOKEN` (keep `CF_ZONE_ID` for the WAF poll). Native caching is live on preview + staging only — `demo`/`production` ship the same two-entrypoint code but currently run uncached (no `exports` block); enabling them is a deliberate future step.** Wrangler/Miniflare does not emulate the native front cache locally: local responses carry no `Cf-Cache-Status`/`Age`, and the exact `MISS → HIT` contract runs against each deployed PR preview (AECI-323). Tag emission, TTLs, and the `Vary` discipline are unchanged; WC-3 also added `stale-while-revalidate` / `stale-if-error` on detail/index routes. See `docs/CACHE_STRATEGY.md` for tag vocabulary, TTLs, the purge endpoint shape, and the SEO header set.
-- **Zoneless Angular.** `Lint: ✅` — `no-restricted-imports` bans `zone.js`, `zone.js/*`, and the `NgZone` / `provideZoneChangeDetection` symbols from `@angular/core`, in every package including tests. No `zone.js`. Use `provideZonelessChangeDetection()`. Pair with `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — Angular v22 incremental hydration is on by default and auto-enables event replay, so an explicit `withEventReplay()` is redundant (AECI-130). Validated pattern: `apps/web/src/app/app.config.ts:42-50`. See `ANGULAR_STYLE_GUIDE.md` for the full set of Angular and TypeScript conventions (signals, control flow, OnPush, SSR safety, host bindings, `NgOptimizedImage`, `inject()` DI, file naming) and the ESLint rules that enforce them.
-- **Router scroll restoration.** `provideRouter` is configured with `withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })` (`apps/web/src/app/app.config.ts:19-40`) so a navigation opens the new route at the top — SPA navigations are same-document, so without this the browser carries the previous page's scroll offset over — while Back/Forward restores the prior position. Because the router resets scroll via `window.scrollTo`, which honors the global `html { scroll-behavior: smooth }` rule, the browser-only `ScrollBehaviorManager` (`apps/web/src/app/core/scroll-behavior-manager.ts`, started from `App`) toggles `scroll-behavior: auto` for the span of each navigation so the reset is instant. **A same-document fragment click is not exempt from any of this.** The section-nav ships plain `<a href="{path}#id">` anchors so the browser scrolls natively, but a fragment navigation fires `popstate` as well as `hashchange`, and Angular's `HistoryStateManager` treats `popstate` as a browser-driven navigation — so the router runs a navigation and `RouterScroller` re-scrolls to the same fragment a moment later. Angular's stock `ViewportScroller.scrollToAnchor()` computes that scroll as `rect.top + scrollY - offset` and **ignores `scroll-margin-top` entirely**, so it overshot the browser's correct landing by each section's `scroll-mt-20` and parked the `<h2>` under the sticky nav. `provideScrollMarginViewportScroller()` (`apps/web/src/app/core/scroll-margin-viewport-scroller.ts`, registered after `provideRouter` in `app.config.ts`) replaces it with one that subtracts the target's own `scroll-margin-*`, so the native scroll and the router's follow-up land on the identical pixel. Do not "fix" a future variant of this with `setOffset([0, N])` — that offset is global and would open an N-pixel gap on every anchor with no sticky nav above it, `#main` first. `withInMemoryScrolling` also sets `history.scrollRestoration = 'manual'`, which disables the browser's native "scroll to `#id` on load", and the router does **not** emit a `Scroll` event on the initial hydration navigation — so a reload or externally-shared deep link to a `…#section` URL would land at the top. `InitialFragmentScroller` (`apps/web/src/app/core/initial-fragment-scroller.ts`, also started from `App`) closes that gap: on the first `NavigationEnd` it scrolls to `location.hash` via `Element.scrollIntoView()` (which honors each detail section's `scroll-mt-20`).
-- **Cached SSR routes must render visitor-state-neutral HTML.** The native Workers Cache is keyed by URL (path + query + Worker version), NOT cookies. If SSR reads a cookie (e.g., `theme`) and bakes it into the response, the first visitor poisons the cache for everyone. The Worker strips visitor-state cookies before forwarding to SSR for cacheable routes and keeps the API client cookie-free; the client reconciles after hydration. Validated pattern: `stripVisitorStateCookies` / `VISITOR_STATE_COOKIES` in `apps/web/src/server-runtime.ts`.
-- **No pay-for-placement.** Search rankings are purely algorithmic. Paid vendor tiers (Stage 4+) affect profile richness, never ranking position.
-- **i18n from day one.** `Lint: 🟡 review-only` — this one resisted mechanization. No hardcoded English strings in templates. Wrap everything in `i18n` attributes or `$localize` tags. Even though we launch English-only, retrofitting i18n is painful. AECI-549 evaluated `@angular-eslint/template/i18n` and rejected it: its attribute check produced 53 findings here and **zero** real ones (it flags `d`, `stroke-linecap`, `rel`, `inputmode`, `aria-labelledby`, …), because it is configured by denylist and the allowlist we would need is inexpressible. Don't re-propose it without new information; the reasoning is recorded in `ANGULAR_STYLE_GUIDE.md` §24.
-- **Light only (Stage 1).** `Lint: ✅` — `no-restricted-syntax` catches `dark:` variants (including stacked `md:dark:`) and `.theme-dark` in `.ts`; `apps/web/scripts/check-source-constraints.mjs` catches them in external `.html` and `.css`, along with `@custom-variant dark`, `prefers-color-scheme: dark`, and `[data-theme=…]`. Two mechanisms because ESLint cannot read Tailwind class strings inside external templates, and nothing lints CSS here. AECi ships a single light theme — no theme toggle, no system-preference detection (AECI-226, supersedes the former "Both themes always" rule). Do not add `dark:` Tailwind variants, a `.theme-dark` block, or a theme toggle. Dark theme is **not roadmapped** — the Stage 2 reintroduction was dropped (`docs/STAGE_2_SPEC.md` §9). The semantic tokens (`--surface-*`/`--text-*`/`--accent-*`) and the dormant `.theme-dark` scaffolding stay in place so a later stage *could* revisit it, but nothing is planned.
-- **Case never decides an alphabetical order (AECI-825).** `Lint: 🟡 review-only`. Every default is wrong here, which is why this is a constraint and not a preference: SQLite/D1's default collation is `BINARY`, JS `.sort()` compares UTF-16 code units, and Algolia orders a string attribute by lexicographical Unicode — all three rank every capital ahead of every lowercase letter. On this catalog that put `ADP Workforce Now` above `Access Coins Evo` and sorted `eSUB` / `iSqFt` / `openBIM` after `Zoho`. Three fixes, one per layer: **D1** uses `textAsc` / `textDesc` / `textDir` (`apps/api/src/lib/collation.ts`, i.e. `COLLATE NOCASE`); **in memory** uses `compareText` from `@aeci/shared/text-sort` (an `Intl.Collator` pinned to `'en'` — never a bare `.sort()`, never `a < b`, never an unpinned `localeCompare`, whose collation follows the ambient locale and so can differ between the SSR Worker and the browser); **Algolia** ranks its `*_name_asc` replicas on the precomputed `name_sort` / `company_name_sort` keys, never on the display attribute. Two things not to undo: the AECI-99 `id ASC` tiebreaker is now load-bearing, because `NOCASE` reports `ADP` and `adp` as EQUAL and a paginated list without a unique trailing term can drop or duplicate a row; and `slug`/id/enum/ISO-timestamp orderings deliberately stay on `BINARY`, where it is already correct and cheaper. Every one of these regressions is **silent** — the sort still returns 200 and still looks sorted. `docs/API_CONTRACTS.md` §3.2, `ANGULAR_STYLE_GUIDE.md` §20a.
-- **Reads are never rate-limited (AECI-773).** `Lint: 🟡 review-only`. The in-Worker limiter (`rateLimit()` in `apps/api/src/rate-limit-middleware.ts`) is registered **per route, after the authz guard, on writes only** — never globally, because a global middleware runs before every per-route guard, can never see `c.get('auth')`, and would silently collapse every key to client IP. The exceptionless part is the reads: `GET /api/vendor/updates` is polled every 20 s per focused vendor seat and one poll can fan out to seven scope refetches, so any write-shaped ceiling trips inside a minute — and the failure is silent in **both** directions (a permanently stale portal, or a self-inflicted poll amplifier) with nothing logged either way. `GET /api/seat-invites/:token` is the one place the rule costs something and it is still not excepted; the reasoning is in ADR 0026. Two more traps in the same mechanism: the `ratelimits` binding is **not inherited across wrangler environments**, so each bucket is declared in all five blocks and `apps/api/src/wrangler-ratelimits.spec.ts` is the only thing that catches a missing one (the PR suite runs no `wrangler deploy --dry-run`); and `simple.period` is a strict enum of **10 or 60 seconds**, so anything hourly or daily is a D1 count, not a binding. `docs/waf-rate-limits.md` §6.
-- **Accessibility is built-in, not bolted on.** Spartan + Angular CDK give you a11y by default — don't break it. Run axe-core locally before pushing.
+- **Drizzle over the D1 binding; no Prisma, no pg, no Postgres drivers.** `Lint: ✅`. Get a
+  request-scoped client via `getDb(env)`; schema truth is `apps/api/src/db/schema.ts`. D1 has no
+  interactive transactions: atomic writes go through `db.batch([...])`, and every domain-state
+  write emits its `audit_log` row into the same batch (`apps/api/src/lib/audit.ts`). ADR 0016.
+- **Promote is async; never commit on the request.** `Lint: 🟡`. `POST /api/promote` validates,
+  starts the Workflow, returns `202 { jobId }`. The ingest runs in one non-retried `step.do`, takes
+  a narrow `PromoteRunCtx`, and writes the `promote_jobs` ledger row as the first statement of the
+  same batch so a replay trips the PK and returns the recorded result. Never move that insert,
+  never add `ON CONFLICT DO NOTHING`, never let an unreadable ledger row re-plan. Upsert-by-id
+  falls back to insert when the id no longer resolves, gated on the existence read. The
+  connector-catalog arm shares the binding on a `kind` field that must stay optional. Promote
+  never infers a delete from absence (ADR 0030); id-directed cross-table moves re-home claims
+  before dropping the source. `docs/REVIEW_APP_PROMOTE_API.md`, ADR 0021.
+- **drizzle-kit + `wrangler d1` own migrations.** Edit `schema.ts`, `pnpm db:generate`,
+  `pnpm db:migrate:local`, `pnpm db:seed:local`. A drizzle-kit table recreate on D1 fires
+  `ON DELETE CASCADE` two levels deep and `PRAGMA defer_foreign_keys` does not stop it; statement
+  order in a recreate migration is a data-loss control. `docs/migrations.md` §0, ADR 0018.
+- **Release every `fetch` body you don't read, and batch fan-out.** `Lint: 🟡`. A Worker holds
+  about six pending connections; a cancelled `fetch` returns a promise that never settles, so the
+  loss is silent. Call `discardResponseBody(res)` on every unread path, prefer one batched request,
+  else `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`; multi-message Queue producers use
+  `sendBatch()`. Promote post-commit hooks go through `dispatchHook` with its 20 s watchdog.
+  ADR 0021 (2026-08-27 amendment).
+- **`nodejs_compat` is for SSR, not the DB.** The SSR Worker needs it for `@angular/ssr`; the API
+  Worker reaches D1 natively. `apps/web/wrangler.jsonc`.
+- **Cache: tags, native Workers Cache, and `Vary`.** Every cacheable SSR response sets `Cache-Tag`
+  via the helper in `apps/web/src/server/cache-tags.ts`; invalidation is `ctx.cache.purge()`,
+  cross-Worker via the `aeci-cache-purge-{env}` Queue. `Vary` may only be `Accept-Language`
+  (`Lint: ✅`, tests exempt). Native caching is live on preview + staging only; demo/production run
+  uncached today. Miniflare does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
+- **Cached SSR routes render visitor-state-neutral HTML.** The cache is keyed by URL, not cookies.
+  Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
+  `apps/web/src/server-runtime.ts`) and reconcile after hydration.
+- **Zoneless Angular.** `Lint: ✅`. No `zone.js`, no `NgZone`. `provideZonelessChangeDetection()`
+  plus `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`.
+  `ANGULAR_STYLE_GUIDE.md`.
+- **Router scroll restoration is already solved; don't re-solve it.** `withInMemoryScrolling`,
+  `ScrollBehaviorManager`, `provideScrollMarginViewportScroller()` and `InitialFragmentScroller`
+  work together. Never fix an anchor offset with a global `setOffset([0, N])`.
+  `ANGULAR_STYLE_GUIDE.md`.
+- **No pay-for-placement.** Rankings are purely algorithmic. Paid tiers affect profile richness,
+  never position. `docs/STAGE_2_PAID_TIERS_SPEC.md`.
+- **i18n from day one.** `Lint: 🟡`. No hardcoded English in templates; use `i18n` attributes or
+  `$localize`. The template i18n ESLint rule was evaluated and rejected; don't re-propose it
+  without new information (`ANGULAR_STYLE_GUIDE.md` §24).
+- **Light only.** `Lint: ✅` (ESLint for `.ts`, `apps/web/scripts/check-source-constraints.mjs`
+  for `.html`/`.css`). No `dark:` variants, no `.theme-dark`, no toggle. Tokens stay in place.
+- **Case never decides an alphabetical order.** `Lint: 🟡`. D1 uses `textAsc`/`textDesc`
+  (`apps/api/src/lib/collation.ts`); in memory use `compareText` from `@aeci/shared/text-sort`,
+  never a bare `.sort()` or unpinned `localeCompare`; Algolia ranks on `name_sort` keys. The
+  `id ASC` tiebreaker is load-bearing; slug/id/enum/timestamp orderings stay `BINARY`.
+  `docs/API_CONTRACTS.md` §3.2, `ANGULAR_STYLE_GUIDE.md` §20a.
+- **Reads are never rate-limited.** `Lint: 🟡`. `rateLimit()` is registered per route, after the
+  authz guard, on writes only, never globally. The `ratelimits` binding is not inherited across
+  wrangler environments (declare it in all five blocks); `simple.period` is 10 or 60 seconds only.
+  `docs/waf-rate-limits.md` §6, ADR 0026.
+- **Audit logging is transactional.** See "Audit logging" below.
+- **Accessibility is built in.** Spartan + CDK give a11y by default; don't break it. Run axe-core
+  locally before pushing.
 
 ## Design checklist (UI-touching issues only)
 
-For any issue that touches rendered UI in `apps/web/`, run this checklist before pushing. Issues that don't render UI (API, schema, infra, docs, CI, types) skip it.
+For any issue that renders UI in `apps/web/`. `PRODUCT.md` and `DESIGN.md` are part of the
+contract.
 
-`PRODUCT.md` (strategic context — users, brand, anti-references, principles) and `DESIGN.md` (visual system — colors, typography, components, do's/don'ts) are loaded by every Impeccable command before design work. If you're touching UI, both files are part of the contract.
-
-1. **Critique the surface first.** Run `/impeccable critique <surface>` (or the standalone `/critique`) to capture a baseline against PRODUCT.md and DESIGN.md before you change anything. The output lands in `.impeccable/critique/` (gitignored).
-2. **Pick the anchor reference before building.** If the surface is new or its visual direction is unsettled, consult Mobbin (`mcp__mobbin__*` — see §"MCP usage rules") and record the chosen anchor site in the Linear issue or commit message. From that point, components for this surface come from the *same* anchor site unless an exception is explicitly justified. Binding rule: `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
-3. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
-4. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
-5. **Detect anti-patterns — scan the RENDERED SURFACE, not the file.** Run `npx impeccable detect <url>` against the running surface (`pnpm dev:agent`, then the route) and resolve every P0. If P0s remain, fix or open a follow-up issue with the exact references before merging. **A file-path scan does not work in this repo and reports a false clean:** `detect` does not read inline Angular templates, and almost every component here writes its template inline in the `.ts` file — so `detect apps/web/src/app/<dir>` typically returns zero findings *because it examined nothing*. Treat any past "detect clean" claim made from a file path as unverified.
-6. **Light theme only.** Per the "Light only (Stage 1)" constraint above — there is one theme; do not add `dark:` variants or a toggle. (No dark-theme verification step in Stage 1.)
-7. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
+1. **Critique first:** `/impeccable critique <surface>` for a baseline (output in `.impeccable/`).
+2. **Pick the anchor reference** via Mobbin before building; record it in the issue or commit.
+   Components for a surface come from the same anchor site (`DESIGN.md` "The Anchor-Site Rule").
+3. **Build via the matching skill:** `/impeccable craft`, or `typeset` / `layout` / `colorize` /
+   `distill` for refinement. Design-system alignment is part of `polish`.
+4. **Polish:** `/impeccable polish`.
+5. **Detect anti-patterns against the RENDERED surface:** `npx impeccable detect <url>` with
+   `pnpm dev:agent` running. A file-path scan reports a false clean here because templates are
+   inline in `.ts`. Resolve every P0 or open a follow-up.
+6. **Light theme only.**
+7. **Run axe-core locally**; resolve every error and `serious` violation.
 
 ## API contracts approach
 
-Shared TypeScript types in `packages/shared/`, validated at runtime with Zod schemas. See `docs/API_CONTRACTS.md` §2.
-
-- Type definitions and Zod schemas live in `packages/shared/src/api/`
-- The SSR Worker imports types from `@aeci/shared`
-- The API Worker validates incoming requests with Zod, throws `ApiError` on failure
-- A centralized error middleware converts `ApiError` and `ZodError` to structured responses
-- No OpenAPI generation. No code generation. Types and schemas are the contract.
+Shared types in `packages/shared/src/api/`, validated at runtime with Zod. The SSR Worker imports
+types from `@aeci/shared`; the API Worker validates with Zod and throws `ApiError`; a central
+middleware converts `ApiError` and `ZodError` to structured responses. No OpenAPI, no codegen.
+`docs/API_CONTRACTS.md` §2.
 
 ## Build and dev workflow
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Run locally — boots the AECi app: SSR Worker (:8788) + private API Worker (:8787), bound.
-# Alias for `pnpm dev:bound` (uses .dev.vars for secrets).
-pnpm dev
-
-# Type check across the monorepo
+pnpm dev:agent       # boot SSR + API in an agent workspace (auto-picks free ports from 8790/8789)
 pnpm typecheck
-
-# Lint and format
-pnpm lint            # ESLint across all packages + Prettier --check
-pnpm lint:fix        # ESLint --fix across all packages + Prettier --write
-pnpm format          # Prettier --write .
-pnpm format:check    # Prettier --check .
-
-# Run tests
+pnpm lint            # ESLint + Prettier --check + source-constraint guards + CLAUDE.md size gate
+pnpm lint:fix
 pnpm test            # unit + integration
-pnpm test:unit       # Vitest only
+pnpm test:unit
 pnpm test:e2e        # Playwright against local wrangler dev
-
-# Build for deployment
 pnpm build
 ```
 
-Local secrets live in `.dev.vars` (per Worker package). Not committed. `.dev.vars.example` shows what's required.
-
-### SSR ↔ API service binding in local dev
-
-The SSR Worker calls the private API Worker over a service binding (`env.API`). In local dev, wrangler's cross-Worker registry resolves the binding only when both Workers are running **and** the API Worker's registered name matches the SSR Worker's `service` value. The bound name is `aeci-api-preview`, which is the API Worker's `env.preview.name` — so the API Worker must be started with `--env preview`.
-
-```bash
-# Boots API on :8787 (as aeci-api-preview) and SSR on :8788 in parallel.
-pnpm dev:bound
-```
-
-`pnpm dev:bound` runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`. Running only one of the two Workers leaves the binding unresolved and the SSR `/api/health` proxy will fail. The legacy single-Worker `pnpm dev:web` / `pnpm dev:api` scripts remain for solo-Worker iteration.
-
-#### Parallel Conductor workspaces: `dev:conductor` vs `dev:agent`
-
-Many Conductor workspaces run in parallel. Naively they collide two ways: on **ports** (`Address already in use` on `8788/8787`) **and** on wrangler's **local dev registry**, which is keyed by *worker name* (`aeci-web` / `aeci-api-preview`), not port. The registry clash is the nastier one — a second workspace registering the same names makes the first `wrangler dev` exit immediately, and pnpm `--parallel` then SIGTERMs its sibling (symptom: `web: Done` + `api: … signal "SIGTERM"`, no "Address already in use"). Both clashes are fixed:
-
-- **Ports** — two scripts split the lanes:
-  - **`pnpm dev:conductor`** — pins SSR `8788` / API `8787`, always (`scripts/dev-conductor.sh`), and **reclaims those ports** if a stale/previous session is holding them. This pair is **reserved for the human's primary workspace** (whose preview button/URL points at `localhost:8788`). Exactly one workspace should use this.
-  - **`pnpm dev:agent`** — for every other (agent) workspace. Auto-scans for a free pair **starting at `8790/8789`** (`scripts/dev-launch.sh`), stepping up in twos, so it never touches the reserved conductor pair. Prints the URL it chose.
-- **Registry** — `dev:bound` sets `WRANGLER_REGISTRY_PATH=$PWD/.wrangler/registry`, giving **each workspace its own isolated dev registry** (gitignored). Both Workers in a workspace share it (so the `env.API` service binding still resolves), but no two workspaces share names — so no cross-workspace SIGTERM and no binding cross-talk.
-- **Freshness (stale `dist`)** — both `dev:conductor` and `dev:agent` **rebuild the web bundle and clear the local SSR cache** (`apps/web/.wrangler/state/v3/cache`, Cache-API only — no D1/KV) before booting. `dev:bound` runs each app's `dev:preview`, which serves a *prebuilt* `dist/` with **no build step** — and the legal/content `.md` files are inlined into that bundle at build time, so a stale `dist/` silently serves old content on launch. The rebuild makes every launch reflect current source; set `DEV_SKIP_BUILD=1` for a fast restart when the bundle is already current. (Bare `pnpm dev` / `pnpm dev:bound` skip this — they still serve whatever is in `dist/`.)
-
-The port override is plumbed through `AECI_WEB_PORT` / `AECI_API_PORT` (honored by each app's `dev:preview` and by `playwright.config.ts`); both default to `8788/8787`, so direct `pnpm dev:bound`, CI, and e2e are unchanged (each gets its own registry too). **When you (an agent) need to boot the app in a workspace, use `pnpm dev:agent`, not `pnpm dev:conductor` / `pnpm dev` / `pnpm dev:bound`** — leave the constant pair for the human.
-
-If launches start failing with the SIGTERM symptom, it's almost always **orphaned `workerd` processes** from a prior run that Conductor didn't clean up. Clear them: `lsof -nP -iTCP -sTCP:LISTEN | grep workerd` then `kill` the PIDs (or just re-run `dev:conductor`, which reclaims its own pair).
-
-#### Local tracing — debug a 500 with SQL instead of `console.log` (AECI-548)
-
-Wrangler (pinned `^4.123.0`) captures OpenTelemetry traces for every local Worker invocation — handler lifecycle, outbound `fetch()`, and **binding calls (D1, KV, R2, DO, Queues)** — with no SDK, no config, and no code change, and exposes them over a **read-only SQL endpoint**. So the debug loop for a local failure is *query the runtime*, not *add a log → rebuild → re-curl*. **`docs/local-tracing.md` is the source of truth** (schema, guardrails, recipes); the essentials:
-
-- **Derive the URL from the port your session actually bound — never hardcode `8787`.** `dev:agent` scans up from `8790/8789`; `8788/8787` belong to the human's `dev:conductor`, so querying `8787` from an agent workspace reads *someone else's* dev server. Both Workers print their own hint on boot (`The Local Explorer API is available at http://localhost:8790/cdn-cgi/local/explorer/api`), and `scripts/dev-launch.sh` prints the pair on its first line. If the banner scrolled away: `lsof -nP -iTCP -sTCP:LISTEN | grep workerd`.
-- **Two Workers ⇒ two trace stores, one per port.** `dev:bound` runs two separate `wrangler dev` processes, so a request crossing `env.API` produces **two traces with different `trace_id`s** — trace context does not propagate across the dev-registry hop. **All D1 spans live on the API store** (`:<API_PORT>`); the SSR store holds the browser-facing request, the WC-4 gateway→`Renderer` hop, and the outbound binding `fetch`. Correlate the halves on `url.full` + `start_ms` (recipe 6).
-- **Failures are NOT in `spans.outcome`/`spans.error`.** A request that 500s on a D1 batch still records `outcome = 'ok'` on every span; the message is in the attributes as `error.type`. `WHERE outcome <> 'ok'` returns zero rows and looks like "no failures". Filter on `json_extract(json(attributes), '$."error.type"')` / `'$."http.response.status_code"'` — and note `attributes` is JSONB whose keys contain dots, so the path segment must be quoted.
-- `db.batch()` spans carry every statement in `db.query.text` plus `db.operation.batch.size`, which makes the §26.1 audit-row-in-the-same-batch invariant directly checkable per request.
-- Opt out with `X_LOCAL_OBSERVABILITY=false` (measured cost is ≈2 ms/request; you almost certainly don't need to).
+- **Agents boot with `pnpm dev:agent`, never `dev:conductor` / `dev` / `dev:bound`.** The
+  `8788/8787` pair and its dev-registry names are reserved for the human's primary workspace.
+  `dev:agent` prints the pair it chose; rebuilds the web bundle and clears the SSR cache first
+  (`DEV_SKIP_BUILD=1` to skip). Launch failures with a SIGTERM symptom are orphaned `workerd`
+  processes; see `docs/local-dev.md`.
+- Local secrets live in `.dev.vars` per Worker; `.dev.vars.example` lists what's required.
+- **Debug a local 500 with SQL, not `console.log`.** `wrangler dev` records OTel traces for every
+  invocation and binding call and serves them over a read-only SQL endpoint. Derive the port from
+  the pair your session printed; the API store holds the D1 spans; failures are in
+  `error.type` attributes, not `spans.outcome`. `docs/local-tracing.md`.
 
 ```bash
-API_PORT=8789   # ← the port YOUR session printed, not a copied constant
+API_PORT=8789
 curl -sX POST "http://localhost:$API_PORT/cdn-cgi/local/explorer/api/local/observability/query" \
   -H 'Content-Type: application/json' \
   -d '{"sql":"SELECT service, name, outcome, duration_ms FROM spans WHERE parent_id IS NULL LIMIT 20"}'
-# → {"success":true,"result":{"columns":[...],"rows":[[...]]}}   rows are positional arrays
 ```
 
-### Version reporting (AECI-74)
-
-`apps/api` exposes `GET /api/version` returning `{ sha, deployedAt, environment }`. The SSR Worker proxies the same path via the existing `/api/*` service binding, so `GET /api/version` on `apps/web` reports the **API Worker's** values. The SSR Worker *also* serves its **own** `GET /_version` (`apps/web/src/server/routes/version.ts`, AECI-92) — same response shape, but **not proxied**, so it reports the **SSR Worker's** `COMMIT_SHA`. The two endpoints exist precisely because `/api/version` alone can't catch a stale SSR deploy (the SSR Worker forwards `/api/*` untouched to the API Worker). The deploy gates (`deploy.yml`, `promote-to-prod.yml`, `pr-preview.yml`, `refresh-staging.yml`) assert **both** equal the target commit via `scripts/verify-version.sh`.
-
-`COMMIT_SHA` and `DEPLOYED_AT` are injected via `wrangler --var` and override the `"unknown"` / epoch placeholders declared in **each** Worker's `wrangler.jsonc` (`apps/api/wrangler.jsonc` and, per-env, `apps/web/wrangler.jsonc`). Both Workers' `dev` and `dev:preview` scripts derive them from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`. **Any new `wrangler dev` / `wrangler deploy` invocation that targets *either* Worker must pass these flags** or that Worker's version endpoint will report `sha: "unknown"`:
-
-```bash
-wrangler deploy --env staging \
-  --var COMMIT_SHA:"$GITHUB_SHA" \
-  --var DEPLOYED_AT:"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-```
-
-CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) landed in AECI-71; the dual SSR+API SHA gate landed in AECI-92.
+- **Version reporting:** `GET /api/version` reports the API Worker; `GET /_version` reports the SSR
+  Worker. Any new `wrangler dev`/`deploy` invocation must pass `--var COMMIT_SHA` and
+  `--var DEPLOYED_AT` or that endpoint reports `unknown`. `docs/local-dev.md`, `docs/CICD_PLAN.md`.
 
 ## Skills
 
-Shared Claude Code skills live in `.agents/skills/`, checked into the repo so every contributor (and CI agents) get them automatically.
+Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
 
-The skills checked in for the engineering build phase:
+- **`spec-anchor`**: anchor an AECI issue to its spec section, then check the plan against it
+  (see "Where to start").
+- **`pbakaus/impeccable`**: the design skill (23 sub-commands). Reads `PRODUCT.md` and `DESIGN.md`.
+  Refresh with `npx impeccable skills update`.
+- **`angular-developer`** / **`angular-new-app`**: official Angular skills, installed with
+  `npx skills add https://github.com/angular/skills`.
+- **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: the Cloudflare
+  skills this repo uses, copied from the user-level set so nothing outside the repo has to load.
+  Not copied as standalone skills: `durable-objects` and `agents-sdk` (ADR 0023 declined them),
+  `cloudflare-email-service` (email is Resend), the `sandbox-*` and `cloudflare-one*` bundles.
+  Note the umbrella `cloudflare` skill still carries `durable-objects`, `agents-sdk`, `sandbox`
+  and the email topics under its own `references/`; that is upstream content, not an adoption.
+- The `coreyhaines31/marketingskills` bundle is removed; restore with `pnpm skills:update`. It must
+  never clobber `impeccable/`.
 
-- **`spec-anchor`** — local skill that does two jobs (see "Where to start"). **Anchor:** fetches the Linear issue, resolves its `**Spec section:**` line (a two-pass scan — see `docs/linear-issue-conventions.md` for the grammar authors write), loads that section and its companion docs. **Check (step 4.5, AECI-550):** once a plan exists, reviews the plan against that contract before any code is written, rating findings 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR. Advisory, not blocking. Two rules make it usable rather than noisy: a **precedence chain** (`CLAUDE.md` constraints → ADRs → superseding spec → companion doc → `STAGE_1_SPEC.md` last) and **verify-before-flag** — every finding must cite a doc *and* a code artifact, so a stale doc yields an advisory MINOR instead of a false blocker. Issues with no `§X.Y` anchor use the n/a ladder. It is the pre-implementation half of `docs/CODE_REVIEW_CHECKLIST.md`.
-- **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
-- **`angular-developer`** — official Angular skill (`angular/skills`) that loads version-specific Angular best practices on demand (signals/reactivity, forms, DI, routing, SSR, ARIA, animations, styling, testing, CLI) from a bundled `references/` library. Auto-triggers when you create or modify Angular code in `apps/web/`. Pairs with the `angular-cli` MCP server (see "MCP usage rules"). Added in AECI-131.
-- **`angular-new-app`** — official Angular skill (`angular/skills`) for scaffolding a new Angular app with the CLI. Rarely needed in this established monorepo, but kept for parity with the upstream set.
-
-The two Angular skills are installed with `npx skills add https://github.com/angular/skills` — the same openskills CLI as `pnpm skills:update`. It writes the skill dirs under `.agents/skills/`, the `.claude/skills/` symlinks, and `skills-lock.json` entries (and must not re-hydrate the removed marketing bundle).
-
-The **`coreyhaines31/marketingskills`** bundle (~39 marketing/SEO/CRO skills) is removed from the tree; restore it for marketing work with `pnpm skills:update`. It must never clobber `impeccable/` — a same-named skill in the bundle is a bug.
-
-Commit any changes under `.agents/skills/`.
+Repo-level agents live in `.claude/agents/` (six, each under 2 KB and written against this repo's
+docs): `code-reviewer`, `security-engineer`, `accessibility-auditor`, `technical-writer`,
+`reality-checker`, `evidence-collector`. They are the only agent definitions this repo needs; the
+user-level `~/.claude/agents/` set is not required here.
 
 ## Git workflow
 
-> **Branch model (2026-09-03 — `stage-2` merged and RETIRED; ADR 0019 / `docs/CICD_PLAN.md` §10).**
-> `main` is **the single line again.** The long-lived `stage-2` integration branch merged into
-> `main` at the Stage 2 dark launch and was retired; **branch everything from `main` and merge
-> back to `main`.** There is no longer a "which line does this belong to?" question at the branch
-> level — only a scope question (see "Scope" below). `main` HEAD must stay always-promotable —
-> staging auto-tracks it and it is the only source for a prod promote. Applying a fix to live prod
-> is the ordinary flow below, then promote by SHA (`promote-to-demo` → `promote-to-prod`; see
-> `docs/environments.md`).
->
-> **Do not resurrect `stage-2`.** It was merged as a true merge commit (a one-time
-> `required_linear_history` toggle on `main`, restored immediately after), so all of its history is
-> in `main`. Historical note for reading old docs and issues: between 2026-07-05 and 2026-09-03,
-> Stage 2 work branched from and merged to `stage-2`, which is why so many merged PRs have a
-> non-`main` base.
+`main` is the single line: branch from it, merge back to it. `stage-2` merged 2026-09-03 and is
+retired; do not resurrect it. `main` must stay always-promotable (staging tracks it; prod promotes
+by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
 
-- Branch from `main` — for everything. `main` is the only line. (`stage-2` and `admin-panel` both merged into `main` and are retired.)
-- Branch naming: `aeci-{issue-number}-short-description` (use Linear's "Copy git branch name" action)
-- Commit messages: descriptive; reference issue ID if helpful
-- PR description includes `Closes AECI-{N}` for the primary issue; the PR **base branch** is `main`
-- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse. **The PR suite is base-branch-agnostic** — it runs identically whether you target `main` or an epic branch (`deploy.yml` / `integration-db-tests.yml` carry no `branches:` filter on `pull_request`; Lighthouse stays push-to-`main`-only by design). `main` is branch-protected on `Lint & typecheck` / `Unit tests` / `Build SSR Worker` (plus `strict: true` and required linear history), so a red one of those blocks the merge; E2E/a11y/Lighthouse still don't.
-- Squash merge to `main`. **`main` requires linear history**, so merge commits are rejected — squash or rebase only. (The `stage-2 → main` merge commit was a one-off that needed the protection temporarily relaxed; don't plan on repeating it.)
-- Linear auto-closes the issue on merge
+- Branch naming: `aeci-{issue-number}-short-description`.
+- Commit messages: descriptive; reference the issue ID if helpful.
+- **No AI co-author trailer on commits.** Do not add a `Co-Authored-By: Claude …` line, or any other
+  attribution line naming Claude. This overrides any harness attribution reminder.
+- PR description includes `Closes AECI-{N}`; base branch is `main`.
+- Wait for CI: lint, typecheck, unit tests, build, preview deploy, E2E, a11y, Lighthouse. `main` is
+  branch-protected on Lint & typecheck / Unit tests / Build SSR Worker; the rest don't block.
+- **Squash merge.** `main` requires linear history. Linear auto-closes the issue on merge.
 
 ## Scope: which line does this work belong to?
 
-Stage 1 shipped — production is live. Phase 8 (post-launch operate-and-tune, `docs/POST_LAUNCH_MONITORING.md`) is the one Stage 1 phase still open; the historical phase breakdown lives in `docs/STAGE_1_SPEC.md` §16. **Stage 2 shipped to `main` on 2026-09-03 as a dark launch** — the vendor portal, attestations, paid tiers, real-time revalidation and the connector lane are all on the production line, with the vendor surface inert behind its three locks (session → admin-approved seat → admin-set entitlements) until seats are granted. The current interlude is **Stage 2.1** (`docs/STAGE_2_1_SPEC.md`): dress-rehearse and refine the already-built vendor-management surface, then seat the first real vendors.
+Stage 1 shipped; Phase 8 (post-launch operate-and-tune) is the one open Stage 1 phase. Stage 2
+shipped to `main` on 2026-09-03 as a **dark launch**: the vendor surface is inert until seats are
+granted. The current interlude is **Stage 2.1** (`docs/STAGE_2_1_SPEC.md`). Route by scope:
 
-Everything branches from and merges to `main` now. Route work by **scope**, not by branch:
+- Production fixes and prod-safe additive changes → ordinary `main` work.
+- Vendor-activation refinement / hardening → Stage 2.1 (§1 admission test).
+- Everything else finishable before Stage 3 → Stage 2.5.
+- Out of scope for now: rich media profiles (Stage 4), trust scoring beyond anti-abuse (Stage 3).
+- "Real-time" is scoped client revalidation, not sockets (ADR 0023).
 
-- Production fixes + prod-safe additive changes → ordinary `main` work
-- Vendor-activation refinement / hardening / verification → Stage 2.1 (`STAGE_2_1_SPEC.md` §1 admission test)
-- Everything else finishable before Stage 3 → Stage 2.5 (`STAGE_2_5_SPEC.md`)
-- Out of scope everywhere for now: rich media profiles (Stage 4), trust scoring beyond basic anti-abuse (Stage 3)
-- **"Real-time" is not out of scope, but it is not sockets.** Stage 2's answer is **scoped client
-  revalidation** in the vendor portal — a polled freshness cursor. ADR 0023 declined Durable-Object
-  WebSockets and SSE; see `docs/STAGE_2_REALTIME_SPEC.md`.
-
-If an issue's stage assignment is unclear, check its project/epic in Linear rather than assuming. The failure mode that survives the branch merge is the scope one: pulling Stage 2.5 feature work into the Stage 2.1 window (the `STAGE_2_1_SPEC.md` §1 admission test exists precisely to stop that), or flagging assigned Stage 2.1 work as "out of scope" because Stage 2 already shipped.
+If the stage is unclear, check the issue's project/epic in Linear. Don't pull 2.5 work into the
+2.1 window, and don't flag assigned 2.1 work as out of scope because Stage 2 shipped.
 
 ## When the spec is wrong
 
-If you discover the spec contradicts itself, contradicts reality, or doesn't cover a real requirement:
-
-1. Don't silently work around it
-2. Don't invent an approach
-3. Raise it as a Linear issue or comment on your current issue
-4. Wait for direction before proceeding
-
-The spec is the contract. Maintaining its integrity matters more than shipping the current task.
+Don't silently work around it. Don't invent an approach. Raise a Linear issue or comment on your
+current issue, and wait for direction. The spec is the contract.
 
 ## Audit logging and the observability forward
 
-Every write that changes **domain state** must emit its `audit_log` row in the SAME atomic `db.batch([...])` as the mutation (the `auditInsert`/`workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`), then forward it post-commit via `ctx.waitUntil(forwardAuditLog(...))`. See `docs/STAGE_1_SPEC.md` §26. Failure to log is a transactional failure (the batch rolls back).
-
-**The forward target moved, the invariant did not.** Under ADR 0024 the post-commit forward moved from **Datadog** to **PostHog Logs** through the injected-forwarder seam in `packages/shared/src/audit-log.ts` — a wiring change at the injection site, not a change to the audit path. AECI-651 removed the Datadog leg entirely. What never changes: the row goes in the **same batch**, the forward is **post-commit only**, it rides `ctx.waitUntil`, and a forwarding failure must warn and swallow rather than throw.
-
-**Scope (ADR 0022).** Domain state = catalog, users/profiles, reviews/moderation, claims/attestations, requests/workflows. **Derived and log-class writes are exempt** — `page_views`, `mailing_list`, `feedback`, `stats_cache`, the Algolia watermark, `recompute-counts`, and the cron-written `metrics_daily`/`job_runs`; they are observable via `job_runs` + the emitted metrics instead (the exemption is vendor-independent). The test is **entity class, not actor class**: a cron or `actorType: 'system'` write that touches domain state still audits (`POST /api/promote` is the canonical example). **Scheduled `DELETE`s are never exempt** — one summary row per run (`action='retention.pruned'`).
+Every write that changes **domain state** emits its `audit_log` row (+ `workflow_transitions`) in
+the same `db.batch` as the mutation, via the builders in `apps/api/src/lib/audit.ts`, then forwards
+post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
+`packages/shared/src/audit-log.ts`. A forwarding failure warns and swallows; a missing row is a
+transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
+claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
+`mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
+`job_runs`). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
+`docs/STAGE_1_SPEC.md` §26, ADR 0022.
 
 ## Cache invalidation
 
-Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`apps/web/src/server/cache-tags.ts`). Writes that affect cached pages purge by Cache-Tag: API/datatool producers enqueue a typed purge message onto the tier's Cloudflare Queue (for promote, from the Workflow's post-commit hooks rather than the request — ADR 0021), and the SSR consumer delegates `ctx.cache.purge()` into the cached `Renderer` entrypoint (WC-5 / AECI-319). The SSR Worker's `POST /admin/purge` (the manual/incident + CI surface) already runs inside `Renderer` and purges in-process (WC-6 / AECI-320). Tests for write paths assert the queued directive; consumer tests assert the `Renderer.purgeCache()` call plus ack/retry behavior. Tag vocabulary, TTLs, composition rules, and the helper signature live in `docs/CACHE_STRATEGY.md`. The `invalidateForEntity()` / URL-invalidation-map approach in `docs/STAGE_1_SPEC.md` §9.3 is superseded.
+Writes that affect cached pages purge by `Cache-Tag`: producers enqueue a typed message on the
+tier's Queue (promote from the Workflow's post-commit hooks), the SSR consumer delegates
+`ctx.cache.purge()` into `Renderer`, and `POST /admin/purge` purges in-process. Tests for write
+paths assert the queued directive. `docs/CACHE_STRATEGY.md`; the §9.3 URL-map approach in the
+Stage 1 spec is superseded.
 
 ## MCP usage rules
 
-**Angular CLI MCP (`angular-cli`):** wired via the repo-root `.mcp.json` and pre-approved through `enabledMcpjsonServers` in `.claude/settings.json` (AECI-131), so it connects automatically. It runs the workspace's Angular v22 CLI **from `apps/web`** — `sh -c 'cd "$CLAUDE_PROJECT_DIR/apps/web" && exec npx -y @angular/cli mcp -E all'` — because `@angular/cli` is a dependency of `apps/web`, not the repo root, so `ng` only resolves there. It registers the stable read tools (`get_best_practices`, `search_documentation`, `list_projects`, `onpush_zoneless_migration`, `ai_tutor`) **plus** the experimental `run_target` (build / test / lint / e2e) and `devserver.start` / `devserver.stop` / `devserver.wait_for_build` tools. The experimental tools can build and serve `apps/web`, so invoke them deliberately.
-- Before writing, modifying, or analyzing any Angular code, call `get_best_practices` once per session.
-- For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
-- Use `list_projects` to orient before generating files in the workspace — it discovers `apps/web/angular.json`; pass that workspace `path` to `run_target` and the devserver tools.
-- The companion `angular-developer` skill (see "Skills") loads version-specific best-practice references on demand; prefer it over training-data recall for Angular patterns.
-
-**Linear MCP (`linear`):** wired via the repo-root `.mcp.json` (remote HTTP, `https://mcp.linear.app/mcp`) and pre-approved in `enabledMcpjsonServers`, so it connects automatically. Auth is `Authorization: Bearer ${LINEAR_API_KEY}`; the token is injected from the Conductor keychain (`.conductor/settings.local.toml` → `[environment_variables]`), never committed. Tools cover issues (`list_issues`, `get_issue`, `save_issue`, `list_issue_statuses`, `list_issue_labels`), comments (`list_comments`, `save_comment`), projects, cycles, documents, and releases.
-- The team prefix is `AECI`. This is the server the **`spec-anchor` skill** uses to fetch an issue and read its `**Spec section:** §X.Y` line — that skill assumes this MCP is connected.
-- **Keep the tracker current without asking.** Linear is the agent's working surface as much as the operator's, so the default is to write: file issues for work you discover, assign to `chrisw@thewbsproject.com`, move status to match reality (In Progress at workspace start, In Review / Done as the PR moves), and comment your findings on an issue you're working — verification results, blockers, deferred scope. Don't stop to confirm any of that; a stale tracker costs more than an unnecessary comment. **Confirm first only when the write lands on someone else's work or destroys context:** editing or reassigning an issue another person owns, closing an issue you didn't do the work for, deleting comments, or restructuring projects/cycles.
-
-**AECi review-app MCP (`aeci-review`):** wired via the repo-root `.mcp.json` (remote HTTP, `https://review.aecintegrations.com/mcp`) and pre-approved in `enabledMcpjsonServers`. Auth is `Authorization: Bearer ${AECI_MCP_TOKEN}`, also injected from the Conductor keychain.
-- What it is: the **curation/review application** upstream of this repo — the system described in `docs/REVIEW_APP_PROMOTE_API.md` that pushes promoted products into the AECi API via `POST /api/promote`. It exposes the curation catalog: vendors, products, integrations, claims/attestations, and taxonomy.
-- When to use: to inspect real production catalog shape when building or debugging a surface that renders it — `list_products` / `get_product` / `find_product`, `list_vendors` / `get_vendor`, `list_integrations` / `get_integration`, `list_claims` / `get_claim`, `list_taxonomy`, and the scoring/demand tools (`compute_product_score`, `compute_vendor_score`, `compute_product_search_demand`, `compute_product_reddit_mentions`). Prefer it over inventing fixture data when you need to know what the real records look like.
-- **Treat the write tools as production actions.** `create_*`, `update_*`, `add_attestation`, and especially `promote_product` mutate the live curation database — and `promote_product` pushes rows into the live AECi database and purges edge cache. Never call them to "try something out"; confirm with the user first. Default to the read tools.
-
-**Mobbin MCP (`mobbin`):**
-- What it is: a visual reference library of real shipping apps — flows, screens, and component patterns sourced from production iOS, Android, and web products.
-- When to use: any UI-touching issue. During `/impeccable shape` (or equivalent) to pick the named anchor reference(s) for a surface; during `/impeccable craft` or component-level work to look up patterns *from the same anchor site* already chosen for that surface.
-- Auth: surfaced tools are `mcp__mobbin__authenticate` and `mcp__mobbin__complete_authentication`. Call `authenticate` first, then `complete_authentication`; additional Mobbin tools become callable in the same session after auth completes.
-- **The anchor-site rule.** Once a surface picks a Mobbin site as its theme, additional components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — the originating theme site stays the visual anchor (composition, hierarchy, density, atmosphere). This protects editorial coherence: AECi should read as one publication, not a mashup. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule" for the binding rule.
+- **`angular-cli`**: runs the workspace CLI from `apps/web`. Call `get_best_practices` once per
+  session before touching Angular code; use `search_documentation` for API questions; `list_projects`
+  before generating files. The `run_target` / `devserver.*` tools build and serve; invoke deliberately.
+- **`linear`**: team prefix `AECI`; `spec-anchor` depends on it. **Keep the tracker current without
+  asking**: file issues for discovered work, assign to `chrisw@thewbsproject.com`, move status to
+  match reality, comment findings on the issue you're on. Confirm first only when a write lands on
+  someone else's work or destroys context.
+- **`aeci-review`**: the curation app upstream of promote. Use the read tools (`list_*`, `get_*`,
+  `find_product`, `compute_*`) to see real catalog shape instead of inventing fixtures. **Write tools
+  are production actions** (`create_*`, `update_*`, `add_attestation`, `promote_product`): never call
+  them to try something; confirm with the user first.
+- **`mobbin`**: visual reference library for any UI-touching issue. `authenticate` then
+  `complete_authentication`. Honour the anchor-site rule.
 
 ## Writing for Chris
 
 Chris reads your final message to decide what to do. Write it so he can act without re-reading.
 These rules apply to every report, finding, plan summary, and Linear comment.
 
-- **Answer first.** Open with the conclusion or the outcome. Evidence and reasoning come after,
-  never before.
+- **Answer first.** Open with the conclusion or the outcome. Evidence and reasoning come after.
 - **Every finding has three parts, in this order:** what is wrong, why it matters, what to do. If
   you cannot fill all three, say which one is missing.
 - **One claim per sentence.** About 20 words. No em dashes, no semicolons joining clauses, no
@@ -372,26 +362,24 @@ These rules apply to every report, finding, plan summary, and Linear comment.
   do not know" to "this remains to be validated". Never write "plausibly", "arguably", or "it is
   worth noting".
 - **Gloss every term the first time.** Assume Chris knows the product and the stack but not the
-  acronym you just coined. Expand it or replace it.
+  acronym you just coined.
 - **Numbers and code go in blocks or tables, not prose.** Name at most one file, function, or flag
   per sentence.
-- **End with a bullet summary.** Five to eight bullets, each an action or a decision, so he can
-  read the bullets and choose whether to read the rest.
+- **End with a bullet summary.** Five to eight bullets, each an action or a decision.
 - **Do not perform expertise.** If a sentence exists to sound authoritative rather than to tell him
   something, delete it.
 
 ## Commands you hand to the operator
 
-When you write a shell command for the human to copy-paste, hand over the command **and nothing
-else**. No `#` comment lines, no trailing `# explanation`, no `$` prompt prefixes, no placeholder
-angle brackets left inside an otherwise-runnable line. Chris pastes these into a terminal in one
-block, and a comment line that wraps, or a smart-quoted `—` inside a comment, aborts the paste or
-runs a truncated command. Put the explanation in prose **above or below** the code block instead,
-and keep the block itself executable top to bottom. This applies to every runnable snippet
-(`bash`, `sh`, `zsh`, `sql`), not just long ones.
+When you write a shell command for the human to paste, hand over the command **and nothing else**:
+no `#` comment lines, no `$` prompt prefixes, no placeholder angle brackets inside a runnable line.
+Put the explanation in prose above or below the block. Applies to every runnable snippet.
 
 ## Closing notes
 
-This file evolves in both directions. If a recurring instruction keeps coming up in code reviews, add it here. When a stage/phase boundary lands (a launch, a stage merge into `main`), run a line audit: for each line, name the failure it prevents or delete it, and re-verify the lines marked *external account state* — those reference dashboard settings no repo check can catch when they drift. PR like any other doc change.
+This file is a pointer file and must stay under 30 KB (`scripts/check-claude-md-size.mjs`). When a
+lesson is learned, record it in the governing doc and, if needed, add a one-line pointer here.
+Never append narrative, issue history, or dated incident detail to this file. At each stage
+boundary, audit every line: name the failure it prevents or delete it.
 
 Last updated: see git log.

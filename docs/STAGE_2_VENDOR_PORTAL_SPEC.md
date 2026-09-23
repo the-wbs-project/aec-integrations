@@ -1818,6 +1818,12 @@ the route to every guard cell, a cross-vendor 404 and an unverified-owner read.
 `vendor-product-connectors.component.spec.ts` covers hidden at zero, the tier labels and "as of",
 no links, product switch and retry.
 
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- This section is the second reader of the connector lane, and it is private. The first is the public endpoint reach line (`STAGE_1_5_SPEC.md` §13.7, AECI-892).
+- Each card names its connector. It keeps Delivered and Reachable apart, and it dates every reach.
+- It sits outside the live-update cursor, and it does not open §13.7's publication gate.
+
 ### 6.14 As built — ownership on the integration card: Claim, Edit, "Offered by" (AECI-1006 — 2026-09-22)
 
 AECI-1005 shipped the claim with no UI. The card now says who offers each integration and gives the owner the one action its state allows. Component: `components/vendor-integration-ownership.ts`, mounted by `vendor-integration-card.ts` in its own block above the contest form. Copy helpers: `components/vendor-integration-ownership-labels.ts`. Design anchor: the sibling contest form on the same card (§11b.10), whose disclosure trigger, control set and button classes this reuses, so it stays on the vendor portal's existing anchor and adds no new Mobbin reference.

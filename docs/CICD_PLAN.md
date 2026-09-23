@@ -408,6 +408,11 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
 
 The multi-locale Angular build emits a single `server.mjs` that dispatches by URL prefix (`/`, `/es`, etc.) — no per-locale deploys, no per-locale Workers. The deploy command is just `wrangler deploy --env <env>`. See `STAGE_1_SPEC.md` §7a.3a.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The `nodejs_compat` flag on the SSR Worker is the validated pattern in `apps/web/wrangler.jsonc`. CLAUDE.md cited it as line 43. As of 2026-09-23 the flag sits at line 73, with the explanation in the file's header note.
+- The API Worker needs no pg adapter, no Accelerate and no `nodejs_compat`. It reaches D1 through its native `DB` binding with Drizzle.
+
 ### 4.2 Service bindings
 
 The SSR Worker calls the API Worker via service binding, configured per environment:
@@ -840,6 +845,26 @@ If the smoke check fails, the deployment is marked failed and:
 
 > Slack alerting was intentionally dropped from Phase 1; **Datadog events are the prod alert channel today**, and remain so for the whole ADR 0024 dual-run — PostHog alerts (hourly cadence) take over at AECI-647, and the Datadog side is deleted at AECI-651. A Playwright smoke suite (home / product / vendor / search / auth-login page renders) is **deferred to a later phase** — until then the dual-Worker version verification above is the smoke gate.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+Version reporting (AECI-74):
+
+- `apps/api` exposes `GET /api/version`, returning `{ sha, deployedAt, environment }`.
+- The SSR Worker proxies that path over the existing `/api/*` service binding. So `GET /api/version` on `apps/web` reports the API Worker's values.
+- The SSR Worker also serves its own `GET /_version` from `apps/web/src/server/routes/version.ts` (AECI-92). It has the same response shape but is not proxied, so it reports the SSR Worker's `COMMIT_SHA`.
+- Both endpoints exist because `/api/version` alone cannot catch a stale SSR deploy. The SSR Worker forwards `/api/*` untouched to the API Worker.
+- The deploy gates that assert both endpoints equal the target commit via `scripts/verify-version.sh` are `deploy.yml`, `promote-to-prod.yml`, `pr-preview.yml` and `refresh-staging.yml`.
+- `COMMIT_SHA` and `DEPLOYED_AT` are injected with `wrangler --var`. They override the `"unknown"` and epoch placeholders declared in each Worker's `wrangler.jsonc`: `apps/api/wrangler.jsonc`, and per env in `apps/web/wrangler.jsonc`.
+- Both Workers' `dev` and `dev:preview` scripts derive the two values from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`.
+- Any new `wrangler dev` or `wrangler deploy` invocation that targets either Worker must pass both flags. Otherwise that Worker's version endpoint reports `sha: "unknown"`.
+- CI wiring, which resolves `$GITHUB_SHA` and the workflow timestamp, landed in AECI-71. The dual SSR plus API SHA gate landed in AECI-92.
+
+```bash
+wrangler deploy --env staging \
+  --var COMMIT_SHA:"$GITHUB_SHA" \
+  --var DEPLOYED_AT:"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+```
+
 ---
 
 ## 10. Branch strategy
@@ -940,6 +965,19 @@ squash-merged; **no `develop`/long-lived branches** (`main` always deployable to
 release tags from `main` after each validated prod deploy. This keeps the model simple — if
 parallel feature work creates conflicts, work it out in PRs. ADR 0019 reinstates this once
 `stage-2` merges up and no further parallel-stage work is outstanding.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Branch from `main` for everything and merge back to `main`. `stage-2` and `admin-panel` both merged into `main` and are retired. There is no branch-level "which line?" question any more, only a scope question.
+- Branch naming is `aeci-{issue-number}-short-description`. Use Linear's "Copy git branch name" action.
+- Commit messages are descriptive and reference the issue ID where helpful.
+- No AI co-author trailer on commits. Do not add a `Co-Authored-By: Claude` line, or any other attribution line naming Claude, to a commit message. This overrides any harness attribution reminder.
+- The PR description includes `Closes AECI-{N}` for the primary issue, and the PR base branch is `main`.
+- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility and Lighthouse. Only `Lint & typecheck`, `Unit tests` and `Build SSR Worker` block a merge. E2E, accessibility and Lighthouse do not.
+- The PR suite is base-branch-agnostic. It runs identically whether a PR targets `main` or an epic branch, because `deploy.yml` and `integration-db-tests.yml` carry no `branches:` filter on `pull_request`. Lighthouse stays push-to-`main` only by design.
+- Squash merge to `main`. Required linear history rejects merge commits, so squash or rebase only. The `stage-2` to `main` merge commit was a one-off that needed the protection temporarily relaxed. Do not plan on repeating it.
+- Applying a fix to live prod is the ordinary flow, then promote by SHA (`promote-to-demo`, then `promote-to-prod`; see `docs/environments.md`).
+- Linear auto-closes the issue on merge.
 
 ---
 

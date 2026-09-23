@@ -368,6 +368,12 @@ change and no `wrangler.jsonc` change.
   binding (`getBookmark()` → `null`); read-your-writes is automatic there. The
   perf win is **prod-only** and appears only after the per-database flip above.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The same four scripts run from the repo root without the filter as `pnpm db:generate`, `pnpm db:migrate:local`, `pnpm db:seed:local` and `pnpm db:setup:local`. `db:setup:local` runs the migrate and then the seed.
+- `apps/api`'s `dev` and `dev:preview` scripts run `pnpm db:setup:local` before booting `wrangler dev`, so `pnpm dev` and `dev:preview` always start against a migrated and seeded local D1.
+- The retired Supabase-CLI, `prisma migrate` and `prisma db pull` workflow no longer applies to the app DB.
+
 ---
 
 > **⚠️ Legacy — Supabase-CLI workflow (Supabase Auth project only).**
@@ -474,6 +480,13 @@ SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
 So the abort is not the hazard. It is a tripwire in front of the hazard, and the obvious repair — drop the `CASE` into the generated `INSERT` and move on — is the one that steps over it. Two corollaries: a CHECK change that also needs a value backfill will always fail loudly on non-empty data first, so never read that abort as "the recreate is safe once the data is fixed"; and an empty database hides both halves, which is rule 3 again. `apps/api/src/test/migration-0034.spec.ts` guards the committed order by conservation.
 
 Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
+
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- **`0027_powerful_killraven.sql`'s statement order is a data-loss control.** The `integrations` → `claims` → `attestations` cascade is two levels deep, and `PRAGMA defer_foreign_keys` does not defer cascade actions. Regenerating that file destroys 1,697 claims and 1,697 attestations.
+- **`src/test/migration-0027.spec.ts` is what catches a regenerated `0027`, with one limit.** It applies the committed order and asserts conservation. It does not itself reproduce the generated order.
+- **`0033_solid_nightcrawler.sql` (AECI-891) showed the loss is asymmetric.** Measured there, the generated order destroys every `attestations` row and zero claims, because claims are copied to `__new_claims` before the drop. That is what makes the loss quiet: the table you changed looks intact.
+- **`0033` voided `0032`'s all-clear.** `connector_pairs` now has a cascade child, so the next recreate of that table is two levels deep. The guard that watches for new children lives in `apps/api/src/test/d1.spec.ts`, not in `migration-0032.spec.ts`, whose assertion is pinned to a pre-`0033` schema and can never fail.
 
 ### 3.4 Idempotency where cheap
 

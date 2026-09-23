@@ -41,6 +41,17 @@ If a rule here contradicts one of those, the more-specific document wins.
 
 Lint: ✅ `no-restricted-imports` bans `zone.js`, `zone.js/*`, and the `NgZone` / `provideZoneChangeDetection` symbols from `@angular/core` in every package, tests included (AECI-549). 🟡 review-only for the *ordering* of the hydration providers, which no rule checks.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- **Why the router resets scroll at all.** SPA navigations are same-document, so without `withInMemoryScrolling` the browser carries the previous page's scroll offset over to the new route.
+- **The fragment-click re-scroll, in full.** The section-nav ships plain `<a href="{path}#id">` anchors so the browser scrolls natively. A fragment navigation fires `popstate` as well as `hashchange`. Angular's `HistoryStateManager` treats `popstate` as a browser-driven navigation, so the router runs a navigation and `RouterScroller` re-scrolls to the same fragment a moment later.
+- **Why the stock scroller overshot.** Angular's `ViewportScroller.scrollToAnchor()` computes the scroll as `rect.top + scrollY - offset` and ignores `scroll-margin-top` entirely. It overshot the browser's correct landing by each section's `scroll-mt-20` and parked the `<h2>` under the sticky nav.
+- **Where the fix lives.** `provideScrollMarginViewportScroller()` is in `apps/web/src/app/core/scroll-margin-viewport-scroller.ts`. It is registered after `provideRouter` in `app.config.ts`. It subtracts the target's own `scroll-margin-*`, so the native scroll and the router's follow-up land on the identical pixel.
+- **Do not use `setOffset([0, N])` for a future variant.** That offset is global. It would open an N-pixel gap on every anchor with no sticky nav above it, starting with `#main`.
+- **The initial deep-link gap.** `withInMemoryScrolling` itself sets `history.scrollRestoration = 'manual'`, which disables the browser's native scroll to `#id` on load. The router does not emit a `Scroll` event on the initial hydration navigation. So a reload or an externally shared `…#section` link would land at the top.
+- **How `InitialFragmentScroller` closes it.** It lives in `apps/web/src/app/core/initial-fragment-scroller.ts`. On the first `NavigationEnd` it scrolls to `location.hash` via `Element.scrollIntoView()`, which honors each detail section's `scroll-mt-20`.
+- Full paths for the other two helpers: `apps/web/src/app/core/scroll-behavior-manager.ts` (`ScrollBehaviorManager`, which toggles `scroll-behavior: auto` for the span of each navigation) and the fragment scroller above. Both are started from `App`.
+
 ---
 
 ## 4. Standalone everywhere, no `NgModule`
@@ -338,6 +349,11 @@ same order, which `apps/api/src/lib/collation.spec.ts` asserts against real SQLi
 
 Lint: 🟡 review-only.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Every regression of this rule is silent. The sort still returns 200 and still looks sorted.
+- The full three-layer rule (D1, in memory, Algolia), the AECI-99 tiebreaker and the `eSUB` / `iSqFt` / `openBIM` example live in `docs/API_CONTRACTS.md` §3.2 "Collation".
+
 ---
 
 ## 21. Accessibility (WCAG AA + axe-clean)
@@ -356,6 +372,11 @@ Lint: 🟡 review-only.
 - **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter. See `CLAUDE.md` constraints and ADR 0016. Lint: ✅ (AECI-549).
 - **Cached SSR is visitor-state-neutral.** See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §9.1a.
 - **No pay-for-placement.** Ranking is algorithmic. See `PRODUCT.md`.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- **Why i18n from day one.** We launch English-only, but retrofitting i18n later is painful.
+- **Light only keeps its scaffolding.** The semantic tokens (`--surface-*` / `--text-*` / `--accent-*`) and the dormant `.theme-dark` scaffolding stay in place so a later stage could revisit dark theme. Nothing is planned.
 
 ---
 
@@ -517,3 +538,13 @@ The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.t
 ### Rule lifecycle
 
 New rules land at `error` when the base branch is already clean, which is how the AECI-549 set shipped. Note that `warn` is **not** a usable staging severity here: `pnpm lint` runs without `--max-warnings`, so a warning does not fail the build and the rule is decorative. If a rule must land against a dirty baseline, either fix the baseline in the same PR or land the rule scoped (via `files` / `ignores`) to the clean subset and widen it as the rest is cleaned up.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+Three review-only constraints are not in the review-only table above. None has a lint rule.
+
+| Constraint | Where it is specified |
+|---|---|
+| Release every `fetch` response body you do not read (`discardResponseBody`), and batch or bound fan-out (AECI-666) | ADR 0021, 2026-08-27 amendment |
+| Case never decides an alphabetical order (AECI-825) | §20a, `docs/API_CONTRACTS.md` §3.2 |
+| Reads are never rate-limited; the in-Worker limiter is per route, after the authz guard, on writes only (AECI-773) | `docs/waf-rate-limits.md` §6, ADR 0026 |

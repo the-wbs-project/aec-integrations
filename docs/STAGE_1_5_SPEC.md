@@ -1618,6 +1618,12 @@ mid-flight will make a local decision about a cross-cutting contract.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- **The two DELETE-authority sites do not share a file.** `drizzlePromotedIds` sits beside the drift counter in `apps/api/src/lib/algolia-drift-deps.ts`. `INTEGRATION_IDS_SQL` is in `apps/api/scripts/reconcile-algolia-drift.ts`, the CLI caller, which reaches a deployed D1 through `wrangler` because a Node process has no `env.DB`. What holds them together is `apps/api/src/lib/count-lockstep.spec.ts`, not proximity.
+- **AECI-721 PR-A also added `integrator` to the AECI-705 attestation gate**, alongside the enums and `MECHANISM_RANK`.
+- **"Reach never counts" is guarded by a source scan** in `count-lockstep.spec.ts` (AECI-892).
+
 ### 13.6 Role-varied product detail for `connector` / `hybrid` (AECI-707)
 
 - **Section order — `connector` only.** Today the body renders
@@ -2036,3 +2042,17 @@ argument.
 **Still nothing counts it.** §13.5 holds unchanged: the screen reports pair-page counts per
 `surface` under a `reachable_never_counted` advisory, and no reachable figure reaches a heading,
 `integration_count`, a facet or the home stats.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- **The connector lane is split across all three repos, and almost none of it is here.** `docs/connector-vendors.md` in `aec-integrations-review` is the source of truth for tracked catalogues, stub and mapping state, and the pair-page classifier.
+- **The MindCloud call brief and outcome record** (AECI-703, epic AECI-695) live in `aec-integrations-marketing` at `docs/outreach/connector-lane-mindcloud-call.md`. It holds the trade, the AECI-702 fence on what may be said, the questions, and the workstream-D decision table.
+- **Posture as of 2026-08-31: the call is deferred.** We scrape what we can get ourselves first. An incomplete coverage list is explicitly acceptable, so workstream D is not blocked on a MindCloud feed.
+- **`relations()` split.** AECI-722 discharged the remaining deferral, which covered the five non-evidenced tables. AECI-721 had already added the evidenced-pairs block.
+- **The AECI-892 reach read applies `publishableMappingOn` at both ends** of the pair.
+- **The `dispatchConnectorHooks` purge is live on preview and staging only.** `demo` and `production` run uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
+- **AECI-1013's vendor-portal reader** reads through `GET /api/vendor/products/:id/connectors`. It dates every reach and sits outside the live-update cursor.
+- **The first production sync (AECI-764, 2026-09-10) followed the review-side sender, AECI-731, shipping.** Three things that run did not change:
+  - **MindCloud stays unsynced by decision.** It is `promotion_status: unreviewed`, and `connector_catalogs.connector_product_id` is NOT NULL, so every one of its 12 pages would skip whole and write nothing.
+  - **Zapier stays parked** (AECI-700).
+  - **Every catalogue currently fits in one page**, so the >512 KiB KV spill path in the Workflow is still unexercised in production.
