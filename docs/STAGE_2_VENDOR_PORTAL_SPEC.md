@@ -1247,6 +1247,13 @@ cookie lives weeks. So the ordinary "my login timed out" state is **recoverable*
   at 3 s (`REFRESH_DEADLINE_MS`), because the SDK otherwise retries a GoTrue 5xx or
   network failure for up to 30 s. Everything below is now the fallback for a refresh
   that fails or times out, such as a GoTrue outage.
+  > **Verified in production 2026-09-23** against a real Supabase session on
+  > `www.aecintegrations.com` (prod SHA `918528c7`). An access token left to expire with
+  > no browser tab open to refresh it: `/admin/overview` and `/account` each rendered
+  > signed-in on the first request, `redirectCount: 0`, no `/auth/login` hop and no
+  > "Restoring your session" panel, with the auth cookie rotated by the response.
+  > `/vendor*` is unverified against a live session, because no operator account holds a
+  > vendor seat yet — that path runs the same gate and the same helper.
 - **Server branch.** Redirect straight to login. `@angular/ssr` emits a real 302
   whenever the router's final URL differs from the requested one — the same mechanism
   §6.2's bare-`/vendor` redirect already relies on.
