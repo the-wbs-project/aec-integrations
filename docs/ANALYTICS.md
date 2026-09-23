@@ -216,6 +216,9 @@ retrofitted (§3.10).
   the B2B piece and it is the reason groups exist here at all: it makes "how
   many **vendors** activated" answerable, which a per-person count cannot
   approximate. One vendor with four seats is one activated vendor, not four.
+- **`setPersonProperties({ is_internal: true })` for admin-role profiles
+  (AECI-1053).** The one person property the client sends, and only for
+  `role = 'admin'`. See §9 for why it exists and how it is gated.
 - **`posthog.reset()` on logout.** Without it, the next anonymous session on
   that browser is attributed to the person who just left — which is both wrong
   and, on a shared machine, a privacy problem.
@@ -249,6 +252,51 @@ retrofitted (§3.10).
   production product analytics carry operator traffic and `page_views` does not
   — so the two surfaces disagree for a reason that looks like a bug. Configure
   PostHog's "filter internal and test users" on project 354071.
+- **How the operator is marked internal: by code, since 2026-09-23 (AECI-1053).**
+  Both projects gained the person-property rule "`is_internal` is not set" in
+  their internal-user filter on **2026-09-23** (AECI-1053). It sits beside each
+  project's existing rule:
+
+  | Project | Rules in "filter internal and test users" |
+  |---|---|
+  | 354071 (prod) | event `$host` not matching `localhost` / `127.0.0.1`, **and** person `is_internal` is not set |
+  | 525793 (dev) | not in cohort 432998 "Internal / Test users", **and** person `is_internal` is not set |
+
+  ~~AECI-858 closed on 2026-09-22 with the operator excluded by a hand-set
+  `is_internal` person tag.~~ **Superseded on 2026-09-23 (AECI-1053).** An API
+  read that day found no `is_internal` rule in either project, so that exclusion
+  was never in effect (correction comment on AECI-858). A hand tag would not
+  have lasted anyway: a newly seated admin, a person deleted or merged in
+  PostHog, or a new project each produces an untagged person.
+
+  Cohort 432998 matches person `$internal_or_test_user = true` or an email
+  containing `@thewbsproject.com`. The client sends neither (§2 forbids the
+  email), so on its own that cohort excludes nobody the app identifies.
+
+  Now `AnalyticsIdentity` reads the header's existing `GET /api/account` probe.
+  When the live profile has `role = 'admin'` in D1, it calls
+  `Analytics.markInternal()`, which sends `setPersonProperties({ is_internal: true })`.
+  The rules:
+
+  - **Admin only.** No other role is ever tagged, and the client never writes
+    `false`.
+  - **Same consent gate as `identify()`.** A declined, DNT or GPC admin sends
+    nothing.
+  - **Bound to the identified user, and sent after `identify()`,** so the tag
+    lands on that person.
+  - **Its own `$set`, not a rider on `identify()`.** `identify()` sends no
+    `$identify` when the distinct id is unchanged, so a rider would fire once
+    per browser and never reach an admin identified before this shipped. The
+    SDK dedupes the `$set` within a page load, so it costs one event per admin
+    page load at most.
+  - **Never the email** (§2).
+
+  Limits. Both projects store person properties on each event at capture time,
+  so events captured before the tag landed stay unfiltered, and every number
+  before 2026-09-23 includes the operator. The project filter reaches a
+  committed SQL insight only when that insight sets `filterTestAccounts: true`
+  (see the next bullet). An admin who never grants consent is never tagged, but
+  also sends no product events, so there is nothing to filter.
 - **Which committed insights apply that filter (AECI-858).** The project setting
   reaches a PostHog UI insight through its "Filter out internal and test users"
   toggle. It reaches a committed SQL insight only through a `{filters}` placeholder

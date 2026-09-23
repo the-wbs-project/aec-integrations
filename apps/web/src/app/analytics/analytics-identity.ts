@@ -27,6 +27,18 @@
  * `AuthService.currentUserId()` returns before the SDK is imported at all
  * (AECI-221), which is the case that guards the detail-page JS budget.
  *
+ * ## The internal-user tag (AECI-1053)
+ *
+ * When the signed-in profile has `role = 'admin'` in D1, this also calls
+ * `Analytics.markInternal()`, which sets `is_internal = true` on the PostHog
+ * person (`docs/ANALYTICS.md` §9). Both projects filter internal users on it.
+ * No other role is ever tagged.
+ *
+ * The role comes from `RoleStatus.profile()`, the header's existing
+ * `GET /api/account` probe, so this adds no request. It reads `profile()`, not
+ * `role()`: `role()` can be the `sessionStorage` hint, while `profile()` is set
+ * only by a live read and carries the `user_id` the tag is bound to.
+ *
  * ## Consent
  *
  * Deliberately absent from this file. Resolving the id is a purely local read
@@ -38,9 +50,10 @@
  * direction outright.
  */
 import { isPlatformBrowser } from '@angular/common';
-import { Injectable, PLATFORM_ID, afterNextRender, inject } from '@angular/core';
+import { Injectable, PLATFORM_ID, afterNextRender, effect, inject } from '@angular/core';
 
 import { AuthService } from '../auth/auth.service';
+import { RoleStatus } from '../auth/role-status';
 import { Analytics } from './analytics';
 
 @Injectable({ providedIn: 'root' })
@@ -48,6 +61,7 @@ export class AnalyticsIdentity {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private readonly auth = inject(AuthService);
   private readonly analytics = inject(Analytics);
+  private readonly roleStatus = inject(RoleStatus);
 
   constructor() {
     // Browser-only, and after the first render: SSR has no session SDK, and a
@@ -55,6 +69,13 @@ export class AnalyticsIdentity {
     // (§9.1a). Mirrors `SessionStatus`.
     if (!this.isBrowser) return;
     afterNextRender(() => void this.resolve());
+
+    // AECI-1053: admin role only. Any other role, or no live probe yet, sends
+    // nothing. `Analytics` holds the consent gate, as it does for `identify`.
+    effect(() => {
+      const me = this.roleStatus.profile();
+      if (me?.role === 'admin' && me.user_id) this.analytics.markInternal(me.user_id);
+    });
   }
 
   private async resolve(): Promise<void> {

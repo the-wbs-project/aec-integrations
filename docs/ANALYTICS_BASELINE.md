@@ -172,6 +172,9 @@ live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Cred
 >   `page_views` excludes him via his verified admin session. Until PostHog's internal-user
 >   exclusion is configured on 354071, the two surfaces disagree for a reason that looks like
 >   a bug and is not.
+>   **Cutover: 2026-09-23 (AECI-1053).** Both projects now filter on the person property
+>   `is_internal`, which the app sets for admin-role profiles. Filtering is not retroactive:
+>   every PostHog number before 2026-09-23 includes the operator (`docs/ANALYTICS.md` §9).
 >
 > **What is changing next.** ADR 0024 migrates observability from Datadog to PostHog as a
 > **dual-run** (epic AECI-639): Datadog RUM stays live beside the PostHog browser client, and

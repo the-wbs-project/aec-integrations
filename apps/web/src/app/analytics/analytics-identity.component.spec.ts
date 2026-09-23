@@ -13,11 +13,20 @@
  * in one place), and a failing probe is silently anonymous rather than a thrown
  * error.
  */
-import { Component, PLATFORM_ID, inject, provideZonelessChangeDetection } from '@angular/core';
+import {
+  Component,
+  PLATFORM_ID,
+  inject,
+  provideZonelessChangeDetection,
+  signal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AccountProfileResponse } from '@aeci/shared';
+
 import { AuthService } from '../auth/auth.service';
+import { RoleStatus } from '../auth/role-status';
 import { Analytics } from './analytics';
 import { AnalyticsIdentity } from './analytics-identity';
 
@@ -29,16 +38,34 @@ class Host {
   readonly identity = inject(AnalyticsIdentity);
 }
 
+/** A live `GET /api/account` payload for the given role. */
+function profileFor(role: string, userId = 'user-1'): AccountProfileResponse {
+  return {
+    user_id: userId,
+    email: 'someone@example.com',
+    display_name: null,
+    listing_view_preference: null,
+    role,
+    pending_reviews: null,
+    pending_requests: null,
+    pending_claims: null,
+    pending_reindex: null,
+  };
+}
+
 function setup(opts: {
   userId?: string | null;
   throws?: boolean;
   platform?: 'browser' | 'server';
+  profile?: AccountProfileResponse | null;
 }) {
   const currentUserId = vi.fn(async () => {
     if (opts.throws) throw new Error('SDK chunk failed to load');
     return opts.userId ?? null;
   });
   const identify = vi.fn();
+  const markInternal = vi.fn();
+  const profile = signal<AccountProfileResponse | null>(opts.profile ?? null);
 
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -46,13 +73,14 @@ function setup(opts: {
       provideZonelessChangeDetection(),
       { provide: PLATFORM_ID, useValue: opts.platform ?? 'browser' },
       { provide: AuthService, useValue: { currentUserId } },
-      { provide: Analytics, useValue: { identify } },
+      { provide: Analytics, useValue: { identify, markInternal } },
+      { provide: RoleStatus, useValue: { profile } },
     ],
   });
   const fixture = TestBed.createComponent(Host);
   // `detectChanges` drives the render that flushes `afterNextRender`.
   fixture.detectChanges();
-  return { currentUserId, identify };
+  return { currentUserId, identify, markInternal, profile };
 }
 
 describe('AnalyticsIdentity', () => {
@@ -91,5 +119,53 @@ describe('AnalyticsIdentity', () => {
     const { identify } = setup({ userId: 'user-1' });
     await settle();
     expect(identify).toHaveBeenCalledWith('user-1');
+  });
+
+  // AECI-1053: `is_internal` is set for the admin role and for no other.
+  it('marks an admin-role profile internal, bound to its user id', async () => {
+    const { markInternal } = setup({ userId: 'user-1', profile: profileFor('admin') });
+    TestBed.tick();
+    await settle();
+    expect(markInternal).toHaveBeenCalledExactlyOnceWith('user-1');
+  });
+
+  it.each(['reviewer', 'vendor_admin', 'Admin', ''])(
+    'never marks a %s-role profile internal',
+    async (role) => {
+      const { markInternal } = setup({ userId: 'user-1', profile: profileFor(role) });
+      TestBed.tick();
+      await settle();
+      expect(markInternal).not.toHaveBeenCalled();
+    },
+  );
+
+  it('marks the admin once the live probe lands after the first render', async () => {
+    const { markInternal, profile } = setup({ userId: 'user-1' });
+    TestBed.tick();
+    await settle();
+    expect(markInternal).not.toHaveBeenCalled();
+
+    profile.set(profileFor('admin'));
+    TestBed.tick();
+    await settle();
+    expect(markInternal).toHaveBeenCalledExactlyOnceWith('user-1');
+  });
+
+  it('never passes the email', async () => {
+    const { markInternal } = setup({ userId: 'user-1', profile: profileFor('admin') });
+    TestBed.tick();
+    await settle();
+    expect(JSON.stringify(markInternal.mock.calls)).not.toContain('@');
+  });
+
+  it('never marks on the server platform', async () => {
+    const { markInternal } = setup({
+      userId: 'user-1',
+      platform: 'server',
+      profile: profileFor('admin'),
+    });
+    TestBed.tick();
+    await settle();
+    expect(markInternal).not.toHaveBeenCalled();
   });
 });

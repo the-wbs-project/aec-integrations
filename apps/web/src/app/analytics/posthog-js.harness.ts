@@ -42,6 +42,7 @@ export interface PostHogJsFake {
   historyAutocapture: { startIfEnabled: ReturnType<typeof vi.fn> };
   /** Identity (AECI-649 / `docs/ANALYTICS.md` §8). */
   identify: ReturnType<typeof vi.fn>;
+  setPersonProperties: ReturnType<typeof vi.fn>;
   group: ReturnType<typeof vi.fn>;
   reset: ReturnType<typeof vi.fn>;
 }
@@ -59,6 +60,7 @@ export const posthogJsFake: PostHogJsFake = {
   captureException: vi.fn(),
   historyAutocapture: { startIfEnabled: vi.fn() },
   identify: vi.fn(),
+  setPersonProperties: vi.fn(),
   group: vi.fn(),
   reset: vi.fn(),
 };
@@ -77,6 +79,7 @@ export function resetPosthogJsFake(): void {
   posthogJsFake.captureException.mockReset();
   posthogJsFake.historyAutocapture.startIfEnabled.mockReset();
   posthogJsFake.identify.mockReset();
+  posthogJsFake.setPersonProperties.mockReset();
   posthogJsFake.group.mockReset();
   posthogJsFake.reset.mockReset();
 }

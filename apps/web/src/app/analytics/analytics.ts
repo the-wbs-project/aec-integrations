@@ -40,8 +40,11 @@
  *     ONE activated vendor, which a per-person count cannot approximate.
  *   - `resetIdentity()` — on logout, so the next anonymous session on that
  *     browser is not attributed to the person who just left.
+ *   - `markInternal(userId)` — sets `is_internal = true` on the person when the
+ *     signed-in profile is an admin (AECI-1053, `docs/ANALYTICS.md` §9). Both
+ *     PostHog projects filter internal users on that property.
  *
- * `identify` and `groupVendor` are **stored, not sent**, until consent is
+ * `identify`, `groupVendor` and `markInternal` are **stored, not sent**, until consent is
  * granted. Both facts arrive on their own schedule and in either order (a
  * returning visitor is consented before the session resolves; a first-time
  * visitor signs in and accepts the banner afterwards), so a single effect
@@ -85,6 +88,14 @@ export const APP_STARTED_EVENT = 'app_started';
  */
 export const VENDOR_GROUP_TYPE = 'vendor';
 
+/**
+ * The person property both PostHog projects filter internal users on
+ * (AECI-858: the rule is "`is_internal` is not set"). Exported so the spec
+ * asserts the literal. A typo here would tag a property no filter reads, and
+ * the operator would silently count again (`docs/ANALYTICS.md` §9).
+ */
+export const INTERNAL_PERSON_PROPERTY = 'is_internal';
+
 @Injectable({ providedIn: 'root' })
 export class Analytics {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
@@ -111,11 +122,19 @@ export class Analytics {
    */
   private readonly pendingUserId = signal<string | null>(null);
   private readonly pendingVendor = signal<{ id: string; name: string } | null>(null);
+  /** The user id an admin-role profile was resolved for (AECI-1053). Only
+   *  sent when it matches `pendingUserId`, so the tag lands on that person. */
+  private readonly pendingInternalFor = signal<string | null>(null);
 
   /** What has actually been written to PostHog, so a re-navigation to
    *  `/vendor` or a second session probe does not re-send. */
   private identifiedAs: string | null = null;
   private groupedAs: string | null = null;
+  private internalMarkedFor: string | null = null;
+
+  /** The last `identify` write. `markInternalNow` awaits it so the `$set`
+   *  lands on the identified person, not the anonymous one before it. */
+  private identifyWrite: Promise<void> = Promise.resolve();
 
   /** The route the visitor was on BEFORE the current one — drives `source`. */
   private previousUrl: string | null = null;
@@ -160,8 +179,10 @@ export class Analytics {
       if (this.consent.state() !== 'granted') return;
       const userId = this.pendingUserId();
       const vendor = this.pendingVendor();
+      const internalFor = this.pendingInternalFor();
       if (userId) void this.identifyNow(userId);
       if (vendor) void this.groupVendorNow(vendor);
+      if (userId && internalFor === userId) void this.markInternalNow(userId);
     });
   }
 
@@ -274,6 +295,28 @@ export class Analytics {
   }
 
   /**
+   * Tag the signed-in person as internal (AECI-1053, `docs/ANALYTICS.md` §9).
+   *
+   * The caller decides who is internal: `AnalyticsIdentity` calls this only
+   * when the live `GET /api/account` probe returns `role = 'admin'`. This
+   * method only writes `is_internal = true`. It never writes `false`, and it
+   * sends nothing else about the person (§2).
+   *
+   * Same consent gate and same store-then-send shape as {@link identify}. It is
+   * also bound to the identified user: the write fires only while `userId` is
+   * the id `identify()` recorded, so the tag cannot land on someone else.
+   *
+   * Sent through `setPersonProperties`, not as a `$set` riding `identify`.
+   * `identify` sends no `$identify` when the distinct id is unchanged, so a
+   * rider would fire once per browser and never reach an admin identified
+   * before this shipped.
+   */
+  markInternal(userId: string): void {
+    if (!this.isBrowser || !userId) return;
+    this.pendingInternalFor.set(userId);
+  }
+
+  /**
    * Drop the PostHog identity on logout (`docs/ANALYTICS.md` §8).
    *
    * ## What `reset()` actually does, and what the client is left running
@@ -319,8 +362,10 @@ export class Analytics {
     if (!this.isBrowser) return;
     this.pendingUserId.set(null);
     this.pendingVendor.set(null);
+    this.pendingInternalFor.set(null);
     this.identifiedAs = null;
     this.groupedAs = null;
+    this.internalMarkedFor = null;
     try {
       const client = await this.boot();
       if (!client) return;
@@ -434,11 +479,26 @@ export class Analytics {
   private async identifyNow(userId: string): Promise<void> {
     if (this.identifiedAs === userId) return;
     this.identifiedAs = userId;
+    this.identifyWrite = (async () => {
+      try {
+        await this.upgrade();
+        const client = await this.boot();
+        // The Supabase user id, alone. Never the email (§2).
+        client?.identify(userId);
+      } catch {
+        // Analytics MUST NOT break the app.
+      }
+    })();
+    await this.identifyWrite;
+  }
+
+  private async markInternalNow(userId: string): Promise<void> {
+    if (this.internalMarkedFor === userId) return;
+    this.internalMarkedFor = userId;
     try {
-      await this.upgrade();
+      await this.identifyWrite;
       const client = await this.boot();
-      // The Supabase user id, alone. Never the email (§2).
-      client?.identify(userId);
+      client?.setPersonProperties({ [INTERNAL_PERSON_PROPERTY]: true });
     } catch {
       // Analytics MUST NOT break the app.
     }
