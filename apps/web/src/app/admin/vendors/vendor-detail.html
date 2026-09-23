@@ -165,7 +165,21 @@
               >No products on record</span
             >
             } @else {
-            <span>{{ roleBreakdownLabel(v.product_roles) }}</span>
+            <!-- AECI-769: the breakdown says how many of each role; the Products
+                 tab says WHICH product is the connector. The visible text stays
+                 the count, and the sr-only half names the destination so the
+                 accessible name is not just a string of numbers. Same routerLink
+                 shape as the tab row, so it lands on the identical URL. -->
+            <a
+              [routerLink]="[]"
+              [queryParams]="tabQueryParams('products')"
+              class="rounded-(--radius-sm) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ roleBreakdownLabel(v.product_roles) }}<span
+                class="sr-only"
+                i18n="@@admin.vendors.detail.roles.productsTabLink"
+                >, see each product on the Products tab</span
+              ></a
+            >
             @if (v.is_pure_connector_vendor) { @if (v.owned_integrations.total > 0) {
             <!-- AECI-1041 / §8.10: a connector vendor that owns integrations is a
                  paying owner, so the "no paid access" chip would be wrong here. -->
