@@ -150,6 +150,15 @@ Two consequences worth knowing before touching a sort:
 
 `COLLATE NOCASE` and `compareText` produce the identical order across the ASCII catalog; `apps/api/src/lib/collation.spec.ts` asserts that agreement against real SQLite rather than asserting it in prose.
 
+##### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Every default is wrong here. SQLite/D1 defaults to `BINARY`, JS `.sort()` compares UTF-16 code units, and Algolia orders a string attribute by lexicographical Unicode. All three rank every capital ahead of every lowercase letter.
+- The Algolia `*_name_asc` replicas rank on the precomputed `name_sort` / `company_name_sort` keys, never on the display attribute.
+- In memory, never use a bare `.sort()`, `a < b`, or an unpinned `localeCompare`. An unpinned `localeCompare` follows the ambient locale, so it can differ between the SSR Worker and the browser. See `ANGULAR_STYLE_GUIDE.md` §20a.
+- `BINARY` is also cheaper, which is part of why slug, id, enum and ISO-timestamp orderings stay on it.
+- Every regression of this rule is silent. The sort still returns 200 and still looks sorted.
+- The rule has no lint enforcement. It is review-only.
+
 #### Taxonomy ordering — `display_order` NULLs go LAST (AECI-925)
 
 **`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.

@@ -18,6 +18,10 @@
 
 Native Workers Cache is **zoneless**: no zone-level cache configuration touches it. Cache Rules, the "ignore query string" toggle, and dashboard / API / Terraform `purge_cache` calls all operate on the separate zone CDN cache and are **inert** against Workers Cache — which is exactly why cross-Worker invalidation goes through the queue rather than a zone purge (§5). The limits that bind are Workers Cache's own: **≤ 1000 `Cache-Tag` values per response**, **≤ 1024 chars per tag** (printable ASCII, case-insensitive), and **≤ 1000 tags per `ctx.cache.purge()` call** — comfortably above AECi's per-write purge volume, and far above the retired HTTP purge transport's **≤ 30 tags/call** ceiling (ADR 0004, superseded on transport by ADR 0020).
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The Pro plan is external account state. Re-verify it on audit. It was last checked 2026-09.
+
 ---
 
 ## 2. Tag vocabulary
@@ -213,6 +217,10 @@ return Renderer.fetch(request, { cf });
 **The `LANDING_CF_HEADERS` path is a POST, so this rule never governed it (AECI-876).** The gateway supplies a `cf` init on the GET/HEAD branch only; a POST takes `Renderer.fetch(request)` with no second argument, so `request.cf` reaches `Renderer` untouched. `POST /api/subscribe` and `POST /api/feedback` therefore never lost their metadata to this defect, for the same reason the browser tracker's `spa` rows did not. **That is not the same as being watched.** Nothing checked that the landing headers arrived until AECI-876 added `landing_cf_coverage` (severity `warn`, over `mailing_list.asn`) as that path's own tripwire. Anyone diagnosing a NULL `mailing_list.as_organization` should start at `withForwardedLandingCf` in `server-runtime.ts`, not here.
 
 **Two guards, because a comment is not a guard.** `apps/web/src/cache-key-url.spec.ts` asserts the full merged `cf` for GET and HEAD (the pre-existing gateway tests asserted the key and nothing else, which is how this shipped), and `apps/api/src/lib/data-quality.ts`'s `arrival_cf_coverage` check fails the nightly 04:00 UTC suite when arrivals exist and fewer than 95% carry a `cf_asn` — the deployed tripwire, since a unit test cannot see a runtime that stops populating `request.cf`.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The gateway reaches `Renderer` through `ctx.exports`. `ctx.exports` is default-on at the current compatibility date.
 
 ---
 
@@ -454,6 +462,12 @@ Both are **recommended, not required** (`RECOMMENDED_SECRETS`, warn-and-skip): a
 
 > **History (2026-08-12).** These were documented as manual `wrangler secret put` steps and had never actually been placed on **any** deployed tier, so `POST /admin/purge` 401'd on staging, demo, and production, and the API Worker's post-promote purge silently no-op'd everywhere. `wrangler secret list` is the check: run it per env from `apps/web` and `apps/api` and expect the names above.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Tests for write paths assert the queued purge directive.
+- Consumer tests assert the `Renderer.purgeCache()` call plus the ack and retry behavior.
+- The `invalidateForEntity()` / URL-invalidation-map approach in `STAGE_1_SPEC.md` §9.3 is superseded by purge-by-`Cache-Tag`. Do not reintroduce it.
+
 ---
 
 ## 6. Cookie / cache hygiene
@@ -471,6 +485,12 @@ This is *not* solvable with `Vary: Cookie` — see §7 below for which `Vary` va
 **Incremental hydration stays cache-neutral.** The two detail-page `@defer (on viewport; hydrate on viewport)` grids (`product-detail.ts` integrations, `vendor-detail.ts` products; AECI-130) SSR-render their main template instead of the `@placeholder`. The rendered rows come only from resolver data (no request cookie is read), so the SSR HTML remains visitor-state-neutral and the edge cache is not fragmented.
 
 **Client-only preference cookies are exempt — and MUST stay that way.** A per-visitor preference that the browser reconciles *after* hydration is cache-safe precisely because SSR never reads it, so it must **not** be added to `VISITOR_STATE_COOKIES` (that list is for cookies SSR *does* read, which are then stripped on the cacheable branch). Current examples: the product-PAIR page's `aeci_pair_view` cookie remembers the reader's Basic/Detailed choice; the listing pages' `aeci_listing_view` cookie remembers the Cards/Table choice on `/products` + taxonomy browse (and the signed-in counterpart is `profiles.listing_view_preference`, fetched through the same post-hydration `GET /api/account` probe the header already makes). Both are written only on a toggle click and read only in `afterNextRender` (browser-only), so the SSR render always emits the default (`detailed` / `cards`) and the URL-keyed edge entry stays shared. The deep-linkable `?view=` param (a cache-key fork, §4a) remains the source of truth; the remembered value only supplies the default when the URL carries no `?view=`. Neither restore navigates: on a listing page the index `httpResource` rebuilds its request from the whole query-param map, so writing `?view=` back after hydration would cancel and re-issue the in-flight `/api/products` fetch. The analytics-consent state (`localStorage`, `consent-banner.ts`) is the same pattern in a different store. The rule: if you introduce a per-visitor preference, reconcile it post-hydration from the client store — do **not** make SSR read it.
+
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The native Workers Cache key is the URL: path, query and Worker version. It is not keyed by cookies. If SSR reads a cookie and bakes it into the response, the first visitor poisons the cache for everyone.
+- The validated pattern is `stripVisitorStateCookies` / `VISITOR_STATE_COOKIES` in `apps/web/src/server-runtime.ts`.
+- The Worker strips visitor-state cookies before forwarding to SSR for cacheable routes, and keeps the API client cookie-free. The client reconciles after hydration.
 
 ### 6.2 Pinned-404 trap
 
@@ -532,6 +552,13 @@ Two things worth noting about that last row: those pages are all non-cacheable, 
 The trade case is the only **count-gated** one, and it is deliberately paired with sitemap exclusion — the two must agree, or the sitemap advertises a page that tells the crawler to go away. The `/trades` index page and the three sibling taxonomy facets are never gated. Full policy: `TRADES_VOCABULARY.md` §6.
 
 The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-wide value): a `noindex`ed page's outbound links should still be followed. This differs from §7.1 on purpose — a pre-launch site wants nothing crawled onward, whereas a thin-but-real page's links to products are worth following.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The `Vary` rule is lint-enforced (AECI-549). ESLint `no-restricted-syntax` rejects `headers.set` / `headers.append` and the object-literal header form with any `Vary` value other than `Accept-Language`, in shipped source.
+- Test files are exempt, because fixtures legitimately build a forbidden `Vary` to prove the middleware strips it.
+- `Cache-Tag` emission itself is not lint-enforced. It stays review-only.
+- The mapping lives in `ANGULAR_STYLE_GUIDE.md` §24.
 
 ---
 

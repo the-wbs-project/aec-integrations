@@ -48,6 +48,15 @@ Three shapes were considered:
 
 **Hard cutover, no dual mode.** There is no opt-in flag and no synchronous fallback: `POST /api/promote` always returns `202`. Two shapes for one endpoint would have to be maintained, documented, and tested in both directions for the life of the transition, and the sync path is precisely the thing being removed. The cost is a coordinated release — see Consequences.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The kick-off handler is `apps/api/src/routes/promote-kickoff.ts`. It validates, starts the `PROMOTE_WORKFLOW` Workflow and returns `202 { jobId }`.
+- `runPromoteIngest` lives in `apps/api/src/routes/promote.ts` and runs inside one non-retried `step.do`.
+- Do not reintroduce a synchronous promote handler.
+- Do not make the ingest depend on a Hono `Context`. `PromoteRunCtx` exists so the ingest can run off-request.
+- **Upsert-by-`supabaseId` falls back to insert** when the supplied id no longer resolves (AECI-568). The update branch must stay gated on the existence read, never on `Boolean(supabaseId)`. Gating on the boolean turns a dead pointer into a no-op `UPDATE` reported as `updated` with an empty slug.
+- Each fallback is reported via the `aeci.api.promote.stale_id` metric. The read-only sweep that finds them is `scripts/ops/2026-09-stranded-row-audit/` (daily run and fail-closed rules: `docs/REVIEW_APP_PROMOTE_API.md` §5.1).
+
 ## Consequences
 
 **Gained**
@@ -141,6 +150,15 @@ migration.
   third, never-expiring result source behind the instance and the KV mirror. Attractive and
   small, but it changes 404 semantics and belongs in its own issue.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+The ledger guard has four rules that must not be broken:
+
+- Never move the `promote_jobs` insert out of the promote's `db.batch`.
+- Never add `ON CONFLICT DO NOTHING` to it.
+- Never compute `wrote` after pushing it.
+- Never let an unreadable ledger row fall through to a re-plan. An unreadable ledger means the promote already committed.
+
 ## Amendment 2026-08-27 — bounded hook dispatch (AECI-666)
 
 **Status:** Accepted · **Issue:** AECI-666
@@ -225,6 +243,18 @@ them into a per-invocation buffer flushed once would cut the tail's request coun
 an order of magnitude. Deferred — it changes the transport's contract for both
 Workers and was not needed to close the incident.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The budget is about 6 connections per Worker invocation waiting for response headers (`WORKER_CONNECTION_LIMIT`). `fetch`, KV, R2, the Cache API, Queues `send()` and outbound WebSockets all count against it. A `fetch` whose body is never consumed keeps holding one.
+- A hung invocation takes every other in-flight task with it. That is how the promote post-commit hooks silently dropped Algolia upserts and cache purges on about 8% of production promotes.
+- Since AECI-651 one `logToPosthog` call is one connection, not two.
+- Rule (a): call `discardResponseBody(res)` from `@aeci/shared/response-drain` on every path that does not read the body. That includes error paths that only inspect `res.status`.
+- Rule (b): never fan out an unbounded `Promise.all` of `fetch`. If the upstream takes a batch, send one request. The §26.5 audit forwards go through `logBatchToPosthog`, so N entries become one request. If the upstream genuinely has no batch endpoint (Google Indexing, the GoTrue per-id and per-email lookups), use `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` from `@aeci/shared/concurrency`.
+- Rule (c): a Queue producer with more than one message uses `queue.sendBatch()`, not one `send()` per message.
+- Batching beats bounding. Bounding beats nothing.
+- Fire-and-forget `waitUntil` work in the promote path also goes through `dispatchHook` and its 20s watchdog.
+- No lint rule enforces any of this. It is review-only (`docs/CODE_REVIEW_CHECKLIST.md` §Performance).
+
 ## Amendment 2026-08-31 — a second job kind, and where atomicity stops (AECI-714)
 
 Everything above continues to hold **per job**. This records a second arm on the same
@@ -270,3 +300,7 @@ never counts anywhere, and no cacheable route depends on these rows until AECI-7
 absence is asserted by a source guard in `routes/promote-connector.spec.ts` rather than by a
 spy, because the thing worth preventing is a future refactor wiring this arm into
 `dispatchPromoteHooks` wholesale.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Never make the `kind` field of `PromoteWorkflowParams` required. It is absent for the product arm so that pre-AECI-714 instances still replay as product promotes.

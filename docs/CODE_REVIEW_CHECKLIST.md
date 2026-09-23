@@ -86,6 +86,19 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Cache headers missing or wrong TTL on cacheable responses
 - `ctx.waitUntil()` missing on fire-and-forget side effects (writes that block the response unnecessarily)
 
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+Connection budget and fan-out (AECI-666, ADR 0021's 2026-08-27 amendment). `Lint: 🟡 review-only`.
+
+- A Worker invocation may hold only about 6 connections waiting for response headers. `fetch`, KV, R2, the Cache API, Queues `send()` and outbound WebSockets all count. A `fetch` whose body is never consumed keeps holding one.
+- Past the limit the runtime cancels stalled responses. A cancelled `fetch` returns a promise that never settles, so the caller's own `catch` never fires and the work is lost with no log line. The invocation is eventually killed as hung (`"your Worker's code had hung and would never generate a response"`), taking every other in-flight task with it. That is how the promote post-commit hooks silently dropped Algolia upserts and cache purges on about 8% of production promotes.
+- AECI-651 halved the cost of every emission: one `logToPosthog` call is now one connection, not two. The budget is still a budget.
+- Flag any path that does not read a response body and does not call `discardResponseBody(res)` from `@aeci/shared/response-drain`. Error paths that only inspect `res.status` count.
+- Flag any unbounded `Promise.all` of `fetch`. If the upstream takes a batch, send one request (the §26.5 audit forwards go through `logBatchToPosthog`: N entries, one request). If it genuinely has no batch endpoint (Google Indexing, the GoTrue per-id and per-email lookups), it must run through `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` from `@aeci/shared/concurrency`.
+- Flag a Queue producer that sends more than one message with one `send()` per message. It must use `queue.sendBatch()`.
+- Batching beats bounding. Bounding beats nothing.
+- Fire-and-forget `waitUntil` work in the promote path must go through `dispatchHook`. Its 20s watchdog turns a wedged transport into a `console.warn` instead of a dead invocation. It is 20s and not 30s because `waitUntil` extends execution only up to 30s, so a 30s watchdog races teardown and its warning never lands.
+
 ### Error handling
 
 - Unhandled promise rejections

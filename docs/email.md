@@ -50,6 +50,13 @@ decision record; no separate ADR.
   `null` on **PR previews and local dev**, where the key is absent by design
   (`AUTH_AND_RLS.md` §3.1).
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- Lead capture (`feedback` and `mailing_list`) lives in D1 (AECI-257). It is written by `POST /api/feedback` and `POST /api/subscribe`.
+- The caller is the shared mailing-list signup band in `apps/web`, through the SSR Worker's `/api/*` passthrough. The pre-launch `apps/landing` Worker was retired at the apex cutover (AECI-247/277).
+- Unsubscribe (AECI-537) is a tokenized soft-delete through `POST /api/unsubscribe`, with the RFC 8058 one-click header.
+- The `/unsubscribe` page confirms, then POSTs. A GET never mutates. The page is noindex and non-cacheable.
+
 ## House layout (the shared shell)
 
 **`apps/api/src/lib/email-layout.ts` is the standard every transactional email renders

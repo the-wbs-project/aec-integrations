@@ -46,6 +46,11 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
    but detect silence became one scheduled-CI sweep. See "Absence detection moved
    out of the vendor entirely".
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The AECI-651 deletion ran on the `stage-2` line. The 2026-09-03 `stage-2 → main` merge carried it onto `main`, so the Datadog leg is gone from the production line.
+- It reaches live production only at the next `promote-to-demo` then `promote-to-prod`. A prod promote is what flips prod's observability plane, not the merge.
+
 ## Pipes
 
 Three pipes, one vendor. Every one of them is fire-and-forget

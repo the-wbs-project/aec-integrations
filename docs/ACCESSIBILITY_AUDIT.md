@@ -52,6 +52,11 @@ The pass was run with Chrome MCP browser automation. `read_page` returns **Chrom
 - **Run-validity gate: clean.** Zero AECi console errors and zero hydration errors (NG0500 / NG0602) on every surface. The only console traffic came from a browser extension. Extension-injected DOM was excluded from the results — `div#1p-menu-live-region` is 1Password, not ours.
 - `[ngh]` dehydrated-block count reached `0` on product detail, so the `@defer (on viewport)` integration tables **did** render despite the hidden tab. That risk did not materialise.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- This file holds the dated **results** of runs of `docs/a11y-manual-testing-checklist.md`. The AECI-244 public-site pass of 2026-09-09, against prod `44aba9cf`, is the first run.
+- Standing warning for every run: axe structurally cannot see the WCAG 4.1.3 status-message class. The defect only exists after a form submit, and axe never submits.
+
 ---
 
 ## 3. Findings

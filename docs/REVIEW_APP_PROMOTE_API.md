@@ -1267,6 +1267,10 @@ on `main`: AECI-1010 at `8cc6daf8` and AECI-1011 at `99642693`, which descends f
 Neither is in production yet. **Any production promote at or after `99642693` carries
 both, which satisfies the order rule.**
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The strong-match test that decides a `VENDOR_OWNED_TWIN` skip is implemented in `apps/api/src/lib/integration-twins.ts`.
+
 ---
 
 ## 5. Idempotency, updates, and duplicates
@@ -1626,6 +1630,11 @@ on the AECi side with `pnpm --filter @aeci/api ops:retract-vendor`, which refuse
 owns something and has no `--force`. It detaches `claims`, `attestations` and `page_views`, deletes
 the vendor, and writes one `audit_log` row (`action = 'vendor.deleted'`) in the same batch. Only
 **after** that run does the review app clear the record's `supabase_vendor_id` and delete it.
+
+#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The edge AECI-798 stranded was Roofr → QuickBooks Online, and it stayed stranded for three days.
+- Both directions of the id-directed cross-table move re-home the claims **before** dropping the source row. The cascade is two levels deep (`integrations` or `connector_evidenced_pairs` → `claims` → `attestations`). Nothing can make `claims_anchor_check` block a delete, so the order is the only protection.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 

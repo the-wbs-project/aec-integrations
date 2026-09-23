@@ -30,6 +30,11 @@ behaviour, the cardinality arithmetic that changed the tag vocabulary, and the c
 state of every operator prerequisite. Where §8 and an earlier section disagree, §8 wins;
 the earlier text is left intact so the delta stays legible.
 
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The "`main` still runs Datadog-only code until the branches merge" deviation above is closed. The 2026-09-03 Stage 2 merge carried AECI-651 onto `main`.
+- Live production flips at the next `promote-to-demo` then `promote-to-prod`. A prod promote flips prod's observability plane, not the merge.
+
 ---
 
 ## Decisions record (ratified 2026-08-24)

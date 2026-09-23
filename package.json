@@ -25,7 +25,7 @@
     "db:list": "supabase migration list",
     "build": "pnpm -r --if-present run build",
     "build:web": "pnpm --filter @aeci/web build",
-    "lint": "pnpm -r run lint && pnpm run format:check",
+    "lint": "node scripts/check-claude-md-size.mjs && pnpm -r run lint && pnpm run format:check",
     "lint:fix": "pnpm -r run lint:fix && pnpm run format",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

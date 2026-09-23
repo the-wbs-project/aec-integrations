@@ -105,3 +105,8 @@ changed query shape → revisit the manual dashboard recipes; the CI sweep provi
 as a liveness backstop → reconsider a paid no-data mechanism or an external uptime
 service; session replay wanted → its own privacy review, consent-gated + masked per the
 EV policy.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
+
+- The status line's "`main` still carries Datadog-only code until the branches merge" is closed. The 2026-09-03 `stage-2 → main` merge carried AECI-651 onto `main`.
+- Live production flips at the next `promote-to-demo` then `promote-to-prod`. A prod promote flips prod's observability plane, not the merge.
