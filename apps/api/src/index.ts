@@ -1058,8 +1058,9 @@ authVendor.post(
   createClaimIntegrationHandler(),
 );
 // AECI-1010: the owner retires and restores its CLAIMED integration. Same gates as the
-// claim above: a seat is the whole gate, `requireVendor()` → `rateLimit('write')` →
-// ownership, connector-powered and state inside the handler. Retire hides the row from
+// claim above: `requireVendor()` → `rateLimit('write')` → ownership, the entitlement on
+// a connector-powered row (AECI-1091, either table) and state inside the handler; on an
+// ordinary row a seat is the whole gate. Retire hides the row from
 // every count, id set and public read (`lib/live-integration.ts`); nothing is deleted.
 authVendor.post(
   '/api/vendor/integrations/:id/retire',

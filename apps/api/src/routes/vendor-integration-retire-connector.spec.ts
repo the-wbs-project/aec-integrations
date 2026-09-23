@@ -507,8 +507,12 @@ describe('owner retire on a connector-powered integrations row (AECI-1091)', () 
     });
     expect(row!.retiredBy).toBe('owner');
     const [audit] = await auditsFor(INTEGRATION_RETIRED_ACTION);
-    // An `integrations` row keeps the `integration` entity type.
+    // An `integrations` row keeps the `integration` entity type, with the carve-out
+    // markers the claim and the edit write.
     expect(audit).toMatchObject({ entityType: 'integration', entityId: I_POWERED });
+    expect(audit!.metadata).toMatchObject({ connectorPowered: true, anchor: 'integration' });
+    // The `powered_by` product's page lists the row, so it is purged too.
+    expect(tagsOf(res.send)).toContain('product:agave-sync');
     expect((await restore(AUTH_B, I_POWERED)).status).toBe(200);
   });
 

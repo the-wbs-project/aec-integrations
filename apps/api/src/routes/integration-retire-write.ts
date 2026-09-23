@@ -61,6 +61,7 @@ import {
 } from '../lib/integration-retire';
 import { publicSiteBase } from '../lib/public-urls';
 import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { logToPosthog, submitCount, submitDistribution, submitMetricsBatch } from '../posthog';
 import { dispatchHook, type PromoteRunCtx } from './promote';
 import { pairCacheTag } from './promote-pair';
@@ -125,6 +126,9 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
       source: input.source,
       ...input.metadata,
       retiredBy: input.retiredBy,
+      // On a connector-powered row, the carve-out markers the AECI-1089 claim and the
+      // AECI-1090 edit write (AECI-1091 review).
+      ...(isConnectorPoweredEdge(row) ? { connectorPowered: true, anchor: 'integration' } : {}),
       ...(mode === 'retire' ? { withdrawnContestIds } : {}),
     },
   };
@@ -376,8 +380,9 @@ export interface RetireCommitInput {
   productIds: readonly string[];
   owner: { id: string; slug: string } | null;
   pairSlugs: readonly [string, string] | null;
-  /** The connector product's slug, for an evidenced pair (AECI-1091): its page
-   *  lists the pair and its count moved. `null` on an `integrations` row. */
+  /** The connector product's slug (AECI-1091): a pair's connector, whose page lists
+   *  the pair and whose count moved, or an `integrations` row's `powered_by`
+   *  product, whose page lists the row. `null` when there is none. */
   connectorSlug?: string | null;
   audits: readonly AuditLogEntry[];
   /** Hook name prefix and the Algolia failure log message, per route. */

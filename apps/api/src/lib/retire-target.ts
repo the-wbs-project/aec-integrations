@@ -146,14 +146,21 @@ export async function endpointVendorIds(db: Db, located: LocatedRetireRow): Prom
 
 /**
  * The slugs the purge and the notification snapshot need: the two endpoints in the
- * row's own order (source/target, or A/B), and the connector's for a pair. One read.
+ * row's own order (source/target, or A/B), and the connector's (a pair's connector,
+ * or an `integrations` row's `powered_by` product). One read.
  */
 export async function retireSlugs(
   db: Db,
   located: LocatedRetireRow,
 ): Promise<{ pairSlugs: readonly [string, string] | null; connectorSlug: string | null }> {
   const target = retireTargetOf(located);
-  const connectorId = located.anchor === 'evidenced_pair' ? located.pair.connectorProductId : null;
+  // The connector's page lists the rows it delivers: a pair's connector, or the
+  // `powered_by` product of an `integrations` row (AECI-1091 review). Its count moves
+  // only for a pair, but its page shows the row either way, so it is purged.
+  const connectorId =
+    located.anchor === 'evidenced_pair'
+      ? located.pair.connectorProductId
+      : (located.row.poweredByProductId ?? null);
   const ids = [...target.endpointIds, ...(connectorId ? [connectorId] : [])];
   const rows = await db
     .select({ id: products.id, slug: products.slug })
