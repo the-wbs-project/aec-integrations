@@ -502,6 +502,16 @@ export const routes: Routes = [
     path: 'unsubscribe',
     loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
   },
+  // AECI-1104 — the product docs (`/docs/<section>/<slug>`,
+  // `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`). Only the vendor guide exists so far.
+  // Lazy children generated from the docs manifest, so the Markdown ships only
+  // on docs routes and an unknown `/docs/*` falls through to the `**` 404.
+  // Cacheable on the static-page TTL; `/docs/vendors/*` is noindex until the
+  // portal opens (AECI-1105).
+  {
+    path: 'docs',
+    loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),
+  },
   // AECI-237 — Phase 7.2 legal pages. Four counsel-tracked documents
   // (`STAGE_1_SPEC.md` §13/§27) rendered from Markdown (`src/content/legal/`) by
   // one `LegalPage`, selected by the route's `data.slug` (short public slug →

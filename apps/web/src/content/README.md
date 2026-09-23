@@ -1,13 +1,16 @@
 # Build-time Markdown content
 
 Long-form page copy that is authored as Markdown and **inlined into the bundle at build time**, not
-fetched at runtime. Two families live here, plus two unrendered product-docs drafts (AECI-1023):
+fetched at runtime. Three families live here, plus one unrendered product-docs draft (AECI-1023):
 
 | Content | Registry | Route(s) | Governed by |
 | --- | --- | --- | --- |
 | `legal/*.md` (4 files) | `src/app/legal/legal-content.ts` | `/legal/terms`, `/legal/privacy`, `/legal/review-guidelines`, `/legal/listing-accuracy` | `STAGE_1_SPEC.md` §13 + §27 |
 | `methodology.md` | `src/app/methodology/methodology-content.ts` | `/methodology` | `STAGE_2_5_SPEC.md` §7.1 |
-| `docs/**/*.md` (2 drafts) | none yet: **not imported, not bundled** | none until AECI-634 builds `/docs` | `STAGE_2_PRODUCT_DOCS_SPEC.md` §3, §5 |
+| `docs/vendors/*.md` (6 pages) | `src/app/docs/docs-content.ts` (the docs manifest) | `/docs/vendors/:slug`, one explicit route per page (`docs.routes.ts`); noindex until AECI-1105 | `STAGE_2_PRODUCT_DOCS_SPEC.md` §3–§5 |
+| `docs/reviewers/requests-and-corrections.md` (draft) | none yet: **not imported, not bundled** | none until the reviewer tranche | `STAGE_2_PRODUCT_DOCS_SPEC.md` §5 |
+
+A docs page is added by dropping the `.md` into its section folder and listing it in `SECTIONS` in `docs-content.ts`. The route, the section rail and the tests pick it up from there. Its frontmatter `section` must match the folder or the manifest throws at module init. Each page ends with a `## Related` list linking its neighbours.
 
 The legal set has its own stricter workflow (versioning, counsel sign-off, frontmatter schema) in
 `legal/README.md`. **Read that one before touching anything under `legal/`.** This file covers the

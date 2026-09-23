@@ -402,6 +402,17 @@ h3 {
   border-color: var(--border-strong);
 }
 
+/* The /docs section rail (AECI-1104, `docs/docs-page.ts`). The current page
+   carries a Forest start-edge rule. `border-(--accent-primary)` would lose to the
+   unlayered `*` rule (the `.aec-nav-tab` note), so the edge colour lives here. */
+.aec-docs-nav-link {
+  border-inline-start-color: transparent;
+}
+
+.aec-docs-nav-link[aria-current='page'] {
+  border-inline-start-color: var(--accent-primary);
+}
+
 hr {
   border-color: var(--border-default);
 }
@@ -532,10 +543,10 @@ html {
    body lives here, keyed off the `.aec-prose` wrapper.
 
    Named `.aec-prose` rather than `.legal-prose` since AECI-804: it is shared by
-   every build-time-Markdown page, not just the legal set. Two mounts today —
-   `legal/legal-page.ts` (`/legal/*`) and `methodology/methodology.ts`
-   (`/methodology`) — and `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` plans a third for
-   the AECI-634 `/docs` area, which generalizes the same pattern.
+   every build-time-Markdown page, not just the legal set. Three mounts today:
+   `legal/legal-page.ts` (`/legal/*`), `methodology/methodology.ts`
+   (`/methodology`) and `docs/docs-page.ts` (`/docs/*`, AECI-1104), which
+   generalizes the same pattern into a manifest.
 
    The global element rules above already give `h1–h3` Source Serif and body text
    Atkinson; this block adds only what's missing. Logical properties keep it

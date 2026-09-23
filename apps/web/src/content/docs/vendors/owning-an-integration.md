@@ -2,13 +2,13 @@
 title: Owning an integration
 description: How the vendor that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
-order: 6
-last_updated: 22 September 2026
+order: 4
+last_updated: 23 September 2026
 ---
 
 An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The public integration page names that vendor on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the vendor that owns one.
 
-Everything here needs a seat on your company's vendor account. None of it depends on your plan, and none of it affects where anything ranks.
+Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it depends on your plan, and none of it affects where anything ranks.
 
 ## Find your integrations
 
@@ -85,14 +85,7 @@ If a similar integration was already listed for the same two products, you are t
 
 ## Contests you receive
 
-A vendor at either end that does not own the integration can contest one of its details. Once you have claimed the integration, those contests come to you in Messages under Field contests. Each one shows the value on record, the proposed value, and the reason.
-
-- **Accept** writes the proposed value to the public page straight away.
-- **Decline** leaves the value as it is. You can add a note, which the sender sees.
-
-A contest about who owns the integration never comes to you. It always goes to AEC Integrations.
-
-If you decline a contest, or leave it unanswered for 30 days, the vendor that sent it can ask AEC Integrations to review it. You see the request in Messages under Field contests and can reply once, within 14 days. AEC Integrations reads both sides and says which it agrees with. Its view is advice. It does not change your integration, and the value on record stays unless you change it. Nothing about a review is public.
+A vendor at either end that does not own the integration can contest one of its details. Once you have claimed the integration, those contests come to you in **Messages** under **Field contests**, and you accept or decline each one. A contest about who owns the integration never comes to you. It always goes to AEC Integrations. [Contests and protests](/docs/vendors/contests-and-protests) covers both sides of a contest, including what happens if you decline one.
 
 ## Integrations delivered through a connector
 
@@ -102,5 +95,7 @@ An integration can become connector-delivered after you added your links to it, 
 
 ## Related
 
+- Previous: [Attesting an integration](/docs/vendors/attesting-an-integration).
+- Next: [Contests and protests](/docs/vendors/contests-and-protests).
 - [How we research and verify listings](/methodology) explains ownership for readers.
 - The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the contest and correction routes.

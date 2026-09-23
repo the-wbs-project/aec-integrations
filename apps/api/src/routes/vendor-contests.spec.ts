@@ -445,6 +445,30 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
       field: 'name',
     });
   });
+
+  it('routes to AECi, stamped and with no owner notice, while the owner has no active seat (AECI-989)', async () => {
+    claimed = true;
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-09-23T00:00:00.000Z' })
+      .where(eq(profiles.id, SEAT_B));
+    const { status, body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(status).toBe(201);
+    expect(body.contest.routed_to).toBe('aeci');
+    const [row] = await contestRows();
+    expect(row).toMatchObject({ routedTo: 'aeci', ownerVendorId: VENDOR_B });
+    // The stamp is what lets the unban route it back (`lib/vendor-handback.ts`).
+    expect(row!.ownerSeatLapsedAt).not.toBeNull();
+    expect(await notificationRows()).toHaveLength(0);
+  });
+
+  it('leaves the stamp NULL on every ordinary contest', async () => {
+    claimed = true;
+    await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    const [row] = await contestRows();
+    expect(row!.routedTo).toBe('owner');
+    expect(row!.ownerSeatLapsedAt).toBeNull();
+  });
 });
 
 // ─── GET /api/vendor/contests ────────────────────────────────────────────────

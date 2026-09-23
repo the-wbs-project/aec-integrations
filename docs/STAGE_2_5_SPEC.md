@@ -47,6 +47,8 @@ Build sequence (from the issue, unchanged):
 
 Two items went straight to Stage 2.1 on 2026-09-22 under the pull-forward rule, and are recorded here as that rule requires. **AECI-770** (a failed profile-ensure leaves a signed-in user with no `profiles` row) gates seat-granting. **AECI-1053** (set `is_internal` on the operator's PostHog person from code) keeps vendor-seat telemetry clean. See `STAGE_2_1_SPEC.md` §3.3.1.
 
+One more item left this stage for Stage 2.1 on **2026-09-23**. **AECI-989** (revoking a vendor's last seat does not hand the record back to AECi) gates seating a pilot vendor AECi might need to revoke. It is recorded in `STAGE_2_1_SPEC.md` §3.3.1, and is no longer Stage 2.5 work.
+
 | Issue | What is broken | Priority |
 |---|---|---|
 | ~~**AECI-618**~~ | ~~Listing pages SSR an error string and zero product links on both public tiers.~~ **Closed 2026-09-11 as a duplicate of AECI-746, which shipped the fix.** Fix direction 1 is what landed: `apps/web/src/app/app.routes.ts` prefetches page 1 through the service binding during resolution. Locked by `apps/web/e2e/ssr-listing-crawlability.spec.ts` and by the deployed-tier probe `scripts/check-ssr-listings.sh`. **No longer Stage 2.5 work.** | — |

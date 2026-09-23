@@ -1,0 +1,1 @@
+ALTER TABLE `integration_field_challenges` ADD `owner_seat_lapsed_at` text;

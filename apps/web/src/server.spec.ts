@@ -169,6 +169,8 @@ describe('cacheControlForRoute', () => {
     // the same deliberate absence of the resilience pair.
     ['/methodology', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
+    // AECI-1104 — the /docs vendor guide is static build-inlined content.
+    ['/docs/vendors/your-seat', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0, ...R }],
     ['/vendors/autodesk', { edge: 900, browser: 0, ...R }],
     // AECI-294 — the product-PAIR page is a detail-class route (900/0).
@@ -415,6 +417,21 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     );
 
     expect(res.headers.get('X-Robots-Tag')).toBeNull();
+  });
+
+  it('stamps /docs/vendors/* even when ALLOW_INDEXING is "true" (AECI-1104, until AECI-1105)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/docs/vendors/your-seat'),
+      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('public');
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
   });
 
   it('stamps redirects too (301 → /products) so removed URLs drop from the index', async () => {
