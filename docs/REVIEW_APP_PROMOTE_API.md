@@ -1218,9 +1218,10 @@ writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 **The same fence on `connector_evidenced_pairs` (AECI-1088, migration 0049).** The owner
 carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold an evidenced pair, so this section
 applies to a vendor-held pair exactly as to a vendor-held integration. Vendor-held means the same
-`claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). No
-route can claim a pair yet: that is AECI-1089. Until it ships, no production pair is vendor-held
-and nothing changes on your side.
+`claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). The
+vendor claim route claims a pair since AECI-1089, for an owner with an active entitlement. Until
+that reaches production, and until an owner holds an entitlement (none did on 2026-09-23), no
+production pair is vendor-held and nothing changes on your side.
 
 - `claimFenceRefuses` and the `locateEdge` evidenced read in `apps/api/src/routes/promote.ts`
   cover the second table. The in-batch claim sentinel has an evidenced twin,

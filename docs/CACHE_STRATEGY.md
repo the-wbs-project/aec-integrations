@@ -398,6 +398,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `last_reviewed_at`, which the marker rule above says must purge. From then on
   promote writes nothing to that row, so a promote of the same edge no longer
   purges it either: the pair page changes only through the owner's own writes.
+  **Since AECI-1089 the claim also reaches a `connector_evidenced_pairs` row**,
+  and there it adds a fourth tag, `product:{connector-slug}`: the same set
+  `ops:retract-product` derives for an evidenced pair (§2, the `pair:` row).
 - **An owner's edit of its integration** (`PATCH
   /api/vendor/integrations/:id`, AECI-1006) → the **same three tags**. It writes
   columns the pair page and the product-detail integrations table render (name,

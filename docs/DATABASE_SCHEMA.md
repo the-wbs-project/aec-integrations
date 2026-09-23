@@ -2950,9 +2950,11 @@ retire an evidenced pair, and AECi gets an admin retire and restore on a vendor-
 `0049` added the four columns `0044` and `0046` gave `integrations`: `claimed_at`, `origin`,
 `retired_at` and `retired_by`, with the same meaning. Every existing pair took `origin = 'aeci'`
 and NULL for the other three. **What reads and writes them today:** the promote fence, the
-promote twin guard and the ops lanes below. No vendor or admin route writes them yet. The claim
-across both tables is AECI-1089, and retire and restore, with the `retired_at` filter on every
-count and public read, is AECI-1091.
+promote twin guard and the ops lanes below. **Since AECI-1089 the vendor claim route writes
+`claimed_at`** (with the §13.9 maintenance transfer) on a pair its entitled owner claims
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2). No route writes `origin`, `retired_at` or
+`retired_by` yet. Retire and restore, with the `retired_at` filter on every count and public
+read, is AECI-1091.
 
 - **Vendor-held means the same thing on both tables:** `claimed_at IS NOT NULL OR origin =
   'vendor'`. The one definition is `isVendorHeld` in `apps/api/src/lib/integration-claims.ts`.
