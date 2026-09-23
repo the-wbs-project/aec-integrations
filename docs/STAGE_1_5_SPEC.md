@@ -1659,7 +1659,9 @@ read and the write rolls the batch back with its audit row.
 its batch. A page planned while a catalogue is `review` and committed after an operator flipped it
 to `vendor` and a seat edited a row could overwrite that edit. The window is one page's plan-to-commit
 time, the flip is operator-only, and reclaiming already "reconciles nothing". Not closed here,
-because a sentinel in the promote batch would change the ADR 0021 ledger batch.
+because a sentinel in the promote batch would change the ADR 0021 ledger batch. **Tracked as
+AECI-1084**: give the planner's mapping upsert the same `managed_by = 'vendor'` guard the PATCH
+uses, after the ledger insert, so a page planned before the flip writes nothing after it.
 
 **The seat authorizes on ownership, never on an entitlement.** `requireVendor()`, then the caller's
 `vendor_id` must hold the catalogue's `connector`-role product through `product_vendors`. No
