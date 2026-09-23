@@ -16,6 +16,12 @@ export const ApiErrorCode = {
   SLUG_CONFLICT: 'SLUG_CONFLICT',
   GRANT_CONFLICT: 'GRANT_CONFLICT',
   CATALOG_VENDOR_MANAGED: 'CATALOG_VENDOR_MANAGED',
+  // AECI-724: the inverse gate. A mapping edit on a catalogue the review app still
+  // authors would be overwritten by the next sync page, so it is refused (409).
+  CATALOG_REVIEW_MANAGED: 'CATALOG_REVIEW_MANAGED',
+  // AECI-724: the edit would collide with another mapping on the same stub — the same
+  // product twice, or a second stub-level decision (409).
+  MAPPING_CONFLICT: 'MAPPING_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   // AECI-1008 integration field contests (`API_CONTRACTS.md` §4).
   CONTEST_OWN_INTEGRATION: 'CONTEST_OWN_INTEGRATION',

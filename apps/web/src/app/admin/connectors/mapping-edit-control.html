@@ -1,0 +1,158 @@
+@if (!open()) {
+<button
+  type="button"
+  class="ms-1 cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+  (click)="openForm()"
+>
+  <span i18n="@@admin.connectors.mapping.edit">Edit</span>
+  <span class="sr-only" i18n="@@admin.connectors.mapping.editFor">
+    mapping for {{ listing() }}</span
+  >
+</button>
+} @else {
+<form
+  novalidate
+  class="mt-2 space-y-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-3"
+  (submit)="$event.preventDefault(); submit()"
+>
+  <aec-select
+    i18n-label="@@admin.connectors.mapping.status.label"
+    label="Status"
+    layout="stacked"
+    [options]="statusOptions"
+    [value]="status()"
+    [idPrefix]="idPrefix() + '-status'"
+    (changed)="onStatusChange($event)"
+  />
+
+  @if (namesProduct()) {
+  <div>
+    <label
+      class="block text-xs font-bold text-(--text-secondary)"
+      [attr.for]="idPrefix() + '-product'"
+      i18n="@@admin.connectors.mapping.product.label"
+    >
+      Product
+    </label>
+    @if (product(); as p) {
+    <p class="mt-1 flex items-center gap-2 text-sm text-(--text-primary)">
+      <span>{{ p.name }}</span>
+      <button
+        type="button"
+        class="cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="clearProduct()"
+        i18n="@@admin.connectors.mapping.product.change"
+      >
+        Change
+      </button>
+    </p>
+    } @else {
+    <div class="mt-1 flex gap-2">
+      <input
+        [id]="idPrefix() + '-product'"
+        type="search"
+        class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n-placeholder="@@admin.connectors.mapping.product.placeholder"
+        placeholder="Search published products"
+        [value]="productQuery()"
+        (input)="onProductQueryInput($event)"
+        (keydown.enter)="$event.preventDefault(); searchProducts()"
+      />
+      <button
+        type="button"
+        class="shrink-0 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="productSearching()"
+        (click)="searchProducts()"
+        i18n="@@admin.connectors.mapping.product.find"
+      >
+        Find
+      </button>
+    </div>
+    @if (searchNotice()) {
+    <p class="mt-1 text-xs text-(--text-secondary)">{{ searchNotice() }}</p>
+    } @if (productResults().length > 0) {
+    <ul
+      role="list"
+      class="mt-2 space-y-1"
+      i18n-aria-label="@@admin.connectors.mapping.product.results"
+      aria-label="Matching products"
+    >
+      @for (p of productResults(); track p.id) {
+      <li>
+        <button
+          type="button"
+          class="w-full cursor-pointer rounded-(--radius-sm) px-2 py-1 text-start text-sm text-(--text-primary) hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          (click)="chooseProduct(p)"
+        >
+          {{ p.name }}
+          <span class="block text-xs text-(--text-secondary)">{{ p.slug }}</span>
+        </button>
+      </li>
+      }
+    </ul>
+    } }
+  </div>
+  }
+
+  <aec-select
+    i18n-label="@@admin.connectors.mapping.confidence.label"
+    label="Confidence"
+    layout="stacked"
+    [options]="confidenceOptions"
+    [value]="confidence()"
+    [idPrefix]="idPrefix() + '-confidence'"
+    (changed)="onConfidenceChange($event)"
+  />
+
+  <div>
+    <label
+      class="block text-xs font-bold text-(--text-secondary)"
+      [attr.for]="idPrefix() + '-evidence'"
+      i18n="@@admin.connectors.mapping.evidence.label"
+    >
+      Evidence link (optional)
+    </label>
+    <input
+      [id]="idPrefix() + '-evidence'"
+      type="url"
+      inputmode="url"
+      maxlength="2048"
+      class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      placeholder="https://"
+      [value]="evidenceUrl()"
+      (input)="onEvidenceInput($event)"
+    />
+  </div>
+
+  <!-- Said out loud: saving is what makes a matched row public on the reach line. -->
+  <p class="text-xs text-(--text-secondary)" i18n="@@admin.connectors.mapping.decider">
+    Saving records AECi as the decider. A matched listing then counts toward the product's public
+    reach.
+  </p>
+
+  <div class="flex gap-2">
+    <button
+      type="submit"
+      class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [disabled]="pending()"
+    >
+      @if (pending()) {
+      <span i18n="@@admin.connectors.mapping.working">Saving…</span>
+      } @else {
+      <span i18n="@@admin.connectors.mapping.save">Save mapping</span>
+      }
+    </button>
+    <button
+      type="button"
+      class="cursor-pointer px-3 py-2 text-sm text-(--text-secondary) underline disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [disabled]="pending()"
+      (click)="closeForm()"
+      i18n="@@admin.connectors.mapping.cancel"
+    >
+      Cancel
+    </button>
+  </div>
+</form>
+} @if (failedMessage()) {
+<p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+}

@@ -342,3 +342,69 @@ describe('VendorPlanPanel — compact (AECI-983)', () => {
     expect(text(fixture)).toContain('does not affect search ranking or placement');
   });
 });
+
+describe('VendorPlanPanel — the connector catalogue seat (AECI-724, §8.9(5))', () => {
+  /** The AECI-740 provisioned shape: a seat and no `vendor_entitlements` row. */
+  const NO_ROW: VendorEntitlementBlock = {
+    tier: 'unclaimed',
+    status: null,
+    period_end: null,
+    capabilities: [],
+  };
+
+  function createWith(
+    entitlement: VendorEntitlementBlock,
+    roles: readonly string[],
+    compact = false,
+  ): ComponentFixture<VendorPlanPanel> {
+    const fixture = TestBed.createComponent(VendorPlanPanel);
+    fixture.componentRef.setInput('entitlement', entitlement);
+    fixture.componentRef.setInput(
+      'products',
+      roles.map((product_role) => ({ product_role })),
+    );
+    fixture.componentRef.setInput('compact', compact);
+    fixture.componentRef.setInput('now', NOW);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('replaces the upsell: no CTA, no "not active" chip, no account framing', () => {
+    const fixture = createWith(NO_ROW, ['connector']);
+    const copy = text(fixture);
+
+    expect(copy).toContain('Catalogue maintenance seat');
+    expect(copy).toContain('maintains your connector catalogue');
+    // Replaced, not softened: none of the `none` state's upsell survives.
+    expect(renewLink(fixture)).toBeNull();
+    expect(el(fixture).querySelector('a')).toBeNull();
+    expect(copy).not.toContain('Ask about vendor access');
+    expect(copy).not.toContain('not active');
+    expect(copy).not.toContain('An active vendor account means');
+    // The trust line survives in the seat's own words.
+    expect(copy).toContain('does not affect search ranking or placement');
+  });
+
+  it('keeps the ordinary upsell for a never-arranged vendor with no connector product', () => {
+    const copy = text(createWith(NO_ROW, ['application', 'hybrid']));
+    expect(copy).toContain('Editing access is not active yet');
+    expect(copy).toContain('Ask about vendor access');
+    expect(copy).not.toContain('Catalogue maintenance seat');
+  });
+
+  it('defaults to the ordinary panel when no products are passed', () => {
+    expect(text(create(NO_ROW))).toContain('Ask about vendor access');
+  });
+
+  it('yields to a real entitlement: a paying connector vendor sees its account', () => {
+    const copy = text(createWith(activeIn(200), ['connector']));
+    expect(copy).not.toContain('Catalogue maintenance seat');
+    expect(copy).toContain('yours to edit');
+  });
+
+  it('renders in full on the overview, where compact is set', () => {
+    const fixture = createWith(NO_ROW, ['connector'], true);
+    expect(fixture.componentInstance.isCompact()).toBe(false);
+    expect(text(fixture)).toContain('Catalogue maintenance seat');
+  });
+});

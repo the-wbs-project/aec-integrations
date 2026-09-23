@@ -153,6 +153,6 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 
 - Account label appears nowhere: production and demo have **zero** `verified = 1` vendors. The entitlement backfill is a confirmed no-op.
 - Connector coverage surfaces (AECI-715 / 716) are **unbuilt** — public "reaches N of M" pages do not exist yet. The one exception since AECI-892 is the product page's unlinked *"N more pairs reachable via connectors"* line; it renders only where connector data exists.
-- Vendor-side connector authoring is not available: `/admin/connectors` is read-only until AECI-724.
+- Connector mapping authoring (AECI-724) works only on a **vendor-managed** catalogue. On a review-managed one there is no Edit control, and the API answers 409 `CATALOG_REVIEW_MANAGED`. That is the design, not a defect. The seat holder has an API route and no portal screen yet.
 - Datadog dashboards going quiet is the intended AECI-651 outcome.
 - `/vendor` returning 404 on `www` is the dark launch, not the WAF.

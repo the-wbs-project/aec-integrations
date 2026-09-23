@@ -59,7 +59,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
             Account access
           </h2>
           <div class="mt-4">
-            <aec-vendor-plan-panel [entitlement]="m.entitlement" />
+            <aec-vendor-plan-panel [entitlement]="m.entitlement" [products]="m.products" />
           </div>
         </section>
 

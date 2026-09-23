@@ -9,7 +9,7 @@ import {
 import { NgTemplateOutlet, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
-import type { VendorEntitlementBlock } from '@aeci/shared';
+import type { VendorEntitlementBlock, VendorProduct } from '@aeci/shared';
 import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
 import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-account-badge';
@@ -60,6 +60,21 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
  *    vendor KEEPS (dashboard, listing, reviews, seats, everything readable),
  *    names the one thing that is paused, and offers a renewal path.
  *  - **`none`** (`status: null`) — never arranged. An invitation, not a loss.
+ *  - **`catalogue`** (`status: null` on a vendor holding a `connector`-role
+ *    product) — the connector catalogue-maintenance seat (AECI-724,
+ *    `STAGE_2_SPEC.md` §8.9). NOT a variant of `none`. `none` invites the vendor
+ *    to arrange access; this seat is never sold that access (§8.8/§8.9), so it
+ *    gets no CTA, no "not active" chip and no account framing. It says what the
+ *    seat is and stops. §8.9(5) is explicit that softening `none`'s copy is not
+ *    the fix.
+ *
+ *    The signal is data the dashboard already holds: `entitlement.status` and
+ *    `products[].product_role` on `GET /api/vendor/me`. No tier, no capability.
+ *    `status: null` on a seat is reachable only through the AECI-740 provision
+ *    (every claim grant opens a row), which is the §8.9 seat by construction, so
+ *    "holds a connector-role product" is enough to tell it from an ordinary
+ *    never-arranged vendor. A connector vendor that later pays gets a row, leaves
+ *    `null`, and the ordinary states take over with nothing to reconcile.
  *
  * The `active` arm resolves fail-closed, the same way `tierFor` does: a row that
  * says `active` but carries a tier this build does not know grants nothing, so
@@ -211,6 +226,19 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
               >Renew access</a
             >
           }
+          @case ('catalogue') {
+            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
+              <span i18n="@@vendor.plan.catalogue.body"
+                >This seat maintains your connector catalogue on AECi: your listings, the products
+                each one maps to, and the evidence behind each mapping.</span
+              >
+            </p>
+            <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <span i18n="@@vendor.plan.catalogue.scope"
+                >Your company profile and product details stay with the AECi team.</span
+              >
+            </p>
+          }
           @case ('none') {
             <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
               <span i18n="@@vendor.plan.none.body"
@@ -226,7 +254,15 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
         }
 
         <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
-          <ng-container [ngTemplateOutlet]="framing" />
+          @if (state() === 'catalogue') {
+            <!-- The account framing describes an account this seat does not hold. -->
+            <span i18n="@@vendor.plan.catalogue.framing"
+              >Catalogue maintenance carries no public account label, and it does not affect search
+              ranking or placement.</span
+            >
+          } @else {
+            <ng-container [ngTemplateOutlet]="framing" />
+          }
         </p>
       </div>
     }
@@ -246,6 +282,14 @@ export class VendorPlanPanel {
 
   /** The `entitlement` block from `GET /api/vendor/me`. */
   readonly entitlement = input.required<VendorEntitlementBlock>();
+
+  /**
+   * The `products` array from `GET /api/vendor/me`, read for `product_role`
+   * alone: it is what separates the connector catalogue seat from an ordinary
+   * never-arranged vendor (AECI-724). Defaults to none, so a caller that omits it
+   * gets the pre-AECI-724 panel rather than a guess.
+   */
+  readonly products = input<readonly Pick<VendorProduct, 'product_role'>[]>([]);
 
   /**
    * Clock injection point, so the expiring state is testable without freezing
@@ -285,12 +329,17 @@ export class VendorPlanPanel {
     const days = this.daysRemaining();
     if (this.isActive()) return days !== null && days <= EXPIRY_SOON_DAYS ? 'expiring' : 'active';
     const status = this.entitlement().status;
-    if (status === null) return 'none';
+    if (status === null) return this.holdsConnector() ? 'catalogue' : 'none';
     if (status === 'pending') return 'pending';
     // `expired`, `revoked`, and the active-status/unknown-tier drift above all
     // land here: a state we cannot name confidently is still a downgraded one.
     return 'lapsed';
   });
+
+  /** §8.9's signal: the vendor holds at least one `connector`-role product. */
+  private readonly holdsConnector = computed(() =>
+    this.products().some((p) => p.product_role === 'connector'),
+  );
 
   /** `compact` honoured, which only the quiet `active` state allows. */
   readonly isCompact = computed(() => this.compact() && this.state() === 'active');
@@ -335,6 +384,8 @@ export class VendorPlanPanel {
     switch (this.state()) {
       case 'pending':
         return $localize`:@@vendor.plan.chip.pending:Editing access pending`;
+      case 'catalogue':
+        return $localize`:@@vendor.plan.chip.catalogue:Catalogue maintenance seat`;
       case 'lapsed':
         return $localize`:@@vendor.plan.chip.ended:Editing access ended`;
       default:
@@ -370,9 +421,9 @@ export class VendorPlanPanel {
     'mt-4 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
 
-/** The five rendered panels. `none` and `lapsed` are both downgraded — and are
+/** The six rendered panels. `none` and `lapsed` are both downgraded — and are
  *  deliberately different conversations (never arranged vs. lost it). */
-type PlanState = 'active' | 'expiring' | 'pending' | 'lapsed' | 'none';
+type PlanState = 'active' | 'expiring' | 'pending' | 'lapsed' | 'none' | 'catalogue';
 
 const DAY_MS = 86_400_000;
 

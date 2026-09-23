@@ -2455,9 +2455,10 @@ same column names, same semantics, so review → AECi is a copy rather than a tr
 sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
 
 Rows arrive only through `POST /api/promote/connector-catalog`
-(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them — with one deliberate exception
-that writes no catalogue *content*: `PATCH /api/admin/connector-catalogs/:id` (AECI-720) moves
-`connector_catalogs.managed_by`, and nothing else.
+(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them, with two deliberate exceptions.
+`PATCH /api/admin/connector-catalogs/:id` (AECI-720) moves `connector_catalogs.managed_by` and no
+catalogue content. The mapping edit (AECI-724, §9a.4 below) writes one `connector_stub_mappings`
+row, and only on a catalogue whose `managed_by = 'vendor'`, where the sync is refused.
 
 **The first reader is `/admin/connectors` (AECI-722**, `ADMIN_PANEL_SPEC.md` §5.9). It also added
 the six tables' `relations()` entries plus the inverses on `productsRelations`, discharging the
@@ -2477,12 +2478,14 @@ gate for the reachable tier, which stays `curated`-only and unbuilt (AECI-716). 
 no `surface` predicate at all, deliberately: all 669 Kroo Connector and Trimble AppXchange pairs
 are `derived`, and filtering to `curated` would report both catalogues as reaching nothing.
 
-**Mapping decisions are not writable from AECi, and the reason is in this table's own upsert.**
-The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`, `evidence_url`, `decided_by`,
-`decided_at`, `checked_at` and `notes` from the page, and skips only rows it computes as
-*unchanged* — so an AECi-authored decision is exactly the row the next page overwrites. Authoring
-therefore waits for AECI-724 and is gated on `managed_by = 'vendor'`, the one state in which the
-sync is frozen out of a catalogue.
+**Mapping decisions are writable from AECi only on a vendor-managed catalogue, and the reason is
+in this table's own upsert.** The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`,
+`evidence_url`, `decided_by`, `decided_at`, `checked_at` and `notes` from the page, and skips only
+rows it computes as *unchanged*. So on a `review`-managed catalogue an AECi-authored decision is
+exactly the row the next page overwrites. **AECI-724 shipped the edit gated on
+`managed_by = 'vendor'`**, the one state in which the sync is refused (`CATALOG_VENDOR_MANAGED`).
+The edit refuses every other catalogue with `CATALOG_REVIEW_MANAGED`. The two gates are exact
+complements, so the sync and the edit never write the same row. §9a.4 has the columns.
 
 **Two tiers, and conflating them is the failure this lane exists to prevent** (`STAGE_1_5_SPEC.md`
 §13.1):
@@ -2703,6 +2706,24 @@ create index connector_stub_mappings_status_idx on connector_stub_mappings(catal
 - **The publication gate is provenance, not confidence**: `status = 'mapped' AND product_id IS NOT
   NULL AND decided_by IS NOT NULL AND decided_by <> 'auto-name-match'`. Gating on `confidence`
   would publish hundreds of machine guesses at `medium`.
+
+**AECi-side writes (AECI-724).** `PATCH /api/admin/connector-stub-mappings/:id` and its seat twin
+`PATCH /api/vendor/connector-stub-mappings/:id` edit one row, on a `vendor`-managed catalogue only
+(`API_CONTRACTS.md` §6.10 and §6.14). Column by column:
+
+| Column | Written by the edit | How |
+|---|---|---|
+| `product_id`, `status` | yes, from the body | The pointer. The merged row must satisfy the two-column invariant above (422 otherwise). A newly named product must be promoted |
+| `confidence`, `evidence_url` | yes, from the body | The depth of the assertion. `evidence_url` must be `https:` |
+| `decided_by` | yes, stamped | **Semantics widened.** Before AECI-724 only the review app wrote it: a reviewer's name or `auto-name-match`. The edit writes `aeci-operator` for an admin and `vendor:{vendor slug}` for a connector seat. Both clear the gate, so an edited `mapped` row is publishable |
+| `decided_at`, `checked_at` | yes, stamped | The edit's timestamp |
+| `notes`, `stub_id`, `catalog_id` | no | `notes` is not a pointer or depth field. The other two are identity |
+
+The two unique indexes answer as a named **409 `MAPPING_CONFLICT`**, never a constraint 500. The
+audit row files under `entity_type = 'connector_catalog'` with the mapping id in
+`metadata.mapping_id`, so the catalogue's audit tab shows it. Taking a lane back to `review` does
+not reconcile these rows: the next sync page overwrites them, which is AECI-720's documented
+"reclaiming reconciles nothing".
 
 ### 9a.5 `connector_pairs`
 
@@ -3082,6 +3103,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
+- Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---
 

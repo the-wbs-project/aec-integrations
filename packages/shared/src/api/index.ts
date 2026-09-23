@@ -11,6 +11,7 @@ export * from './admin-reviewers';
 export * from './admin-users';
 export * from './admin-vendors';
 export * from './common';
+export * from './connector-stub-mappings';
 export * from './integrations';
 export * from './integration-contests';
 export * from './integration-claims';

@@ -587,6 +587,10 @@ const VENDOR_METADATA_ACTIONS = [
   'vendor_seat.invite_resent',
   'vendor_seat.invite_revoked',
   'vendor_seat.invite_accepted',
+  // AECI-724: a connector seat's mapping edit files under its CATALOGUE, so only
+  // `metadata.vendor_id` reaches it from the vendor's own tab. An admin edit carries
+  // no `vendor_id` and stays on the catalogue's tab alone.
+  'connector_mapping.updated',
 ] as const;
 
 /**

@@ -40,6 +40,10 @@ type ResourceKind =
   // vendor-scoped 404s above there is nothing to hide here — a catalogue id is the
   // review app's own record id and the caller is an authenticated admin.
   | 'connector_catalog'
+  // One mapping row on a connector catalogue (AECI-724). On the vendor route a
+  // mapping on another vendor's catalogue answers this too, indistinguishable from
+  // an unknown id.
+  | 'connector_stub_mapping'
   // A row on the Google re-crawl worklist (AECI-946). Nothing to hide here
   // either: the caller is an authenticated admin and the id is an autoincrement
   // the same screen just handed them. The 404 exists because the row may have

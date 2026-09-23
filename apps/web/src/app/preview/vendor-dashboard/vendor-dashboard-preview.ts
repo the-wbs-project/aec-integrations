@@ -9,6 +9,7 @@ import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-in
 import { VendorApi } from '../../vendor/vendor-api';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
+  VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
   VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_EXPIRING_FIXTURE,
   VENDOR_ME_LARGE_CATALOG_FIXTURE,
@@ -19,7 +20,13 @@ import {
 import { PreviewVendorApi } from './preview-vendor-api';
 
 type Concept = 'a' | 'b';
-type FixtureKey = 'verified' | 'expiring' | 'downgraded' | 'unverified' | 'large-catalog';
+type FixtureKey =
+  | 'verified'
+  | 'expiring'
+  | 'downgraded'
+  | 'unverified'
+  | 'connector-seat'
+  | 'large-catalog';
 
 /** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -153,6 +160,9 @@ export class VendorDashboardPreview {
     { key: 'expiring', label: 'Active · expiring soon' },
     { key: 'downgraded', label: 'Downgraded · revoked' },
     { key: 'unverified', label: 'No access · new' },
+    // AECI-724: the §8.9 connector seat. No entitlement row, like the one above,
+    // and a different panel on purpose: it is never sold the access that one offers.
+    { key: 'connector-seat', label: 'Catalogue seat · connector' },
     // Not an entitlement state: a catalog big enough to show how the product
     // list page (§6.11) reads at length. Two products cannot.
     { key: 'large-catalog', label: 'Active · 20 products' },
@@ -168,6 +178,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_LARGE_CATALOG_FIXTURE;
       case 'unverified':
         return VENDOR_ME_UNVERIFIED_FIXTURE;
+      case 'connector-seat':
+        return VENDOR_ME_CONNECTOR_SEAT_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
     }
@@ -176,7 +188,9 @@ export class VendorDashboardPreview {
   /** The downgraded vendor keeps its seats: clearing an entitlement does not
    *  revoke them (§5.2), and the preview has to show that it doesn't. */
   private readonly activeSeats = computed(() =>
-    this.fixture() === 'unverified' ? SINGLE_SEAT_FIXTURE : VENDOR_SEATS_FIXTURE,
+    this.fixture() === 'unverified' || this.fixture() === 'connector-seat'
+      ? SINGLE_SEAT_FIXTURE
+      : VENDOR_SEATS_FIXTURE,
   );
 
   constructor() {

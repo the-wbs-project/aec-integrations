@@ -414,6 +414,14 @@
                     i18n="@@admin.connectors.stub.confirmed"
                     >Confirmed</span
                   >
+                  } @if (mappingsEditable()) {
+                  <aec-mapping-edit-control
+                    [mapping]="m"
+                    [listing]="s.label || s.slug"
+                    [idPrefix]="'map-' + m.id"
+                    (changed)="onMappingChanged($event)"
+                    (announce)="onAnnounce($event)"
+                  />
                   }
                 </li>
                 }
