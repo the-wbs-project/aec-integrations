@@ -194,7 +194,7 @@ Run these before the sitting ends. On production they are mandatory, not tidy-up
 |---|---|---|
 | C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has seen the label. | Status `revoked`, `vendors.verified` false, public label gone on the next request. |
 | C2 | **Staging only.** Claimant (A) retracts every attestation written in steps 11 and 12c. | Each `DELETE` returns `204`. The pair returns to `unverified`, and "Maintained by AEC Integrations" returns. `last_reviewed_at` stays by design. |
-| C3 | Admin revokes every seat on A (and B on staging) through `/admin/vendors/:id`. | As 16a. The vendor is inert again. |
+| C3 | Admin revokes every seat on A (and B on staging) through `/admin/vendors/:id`. | As 16a. The **last** revoke also hands the record back (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The vendor and each product it owns alone read "Maintained by AEC Integrations" again, with `last_reviewed_at` kept. Every live integration it claimed has `claimed_at` NULL, so promote writes it again. Its open owner contests sit in `/admin/contests`. Claims and attestations remain. The vendor is inert again. |
 | C4 | **Production:** reject AECI-855 and AECI-856 in `/admin/claims/:id`, then cancel their Linear issues. Reject AECI-923 in **demo's** admin, then cancel its issue. Close AECI-857's Linear issue with a pointer to this run. | Each reject returns `200` and sends `Your claim for {name} was not approved` to the submitter. The `reason` goes to the audit log only. |
 | C5 | The morning after C1, after 08:00 UTC, load `/search` on both environments. | No vendor card shows the label. On staging this proves the clear reached search. |
 
