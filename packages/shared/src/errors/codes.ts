@@ -51,6 +51,10 @@ export const ApiErrorCode = {
   INTEGRATION_ALREADY_CLAIMED: 'INTEGRATION_ALREADY_CLAIMED',
   // AECI-1005 Q1 ruling (2026-09-22): decision 9 blocks the claim too in v1.
   INTEGRATION_CONNECTOR_POWERED: 'INTEGRATION_CONNECTOR_POWERED',
+  // AECI-1089 (AECI-1040 ruling 2): an owner write on a connector-powered row from a
+  // seat with no active entitlement (403). Its own code, because ENTITLEMENT_REQUIRED
+  // promises `details.capability` and this gate names none. `details: { tier, status }`.
+  INTEGRATION_ENTITLEMENT_REQUIRED: 'INTEGRATION_ENTITLEMENT_REQUIRED',
   // AECI-1005: a promote planned against an unclaimed integration that was claimed
   // before its batch committed. The batch rolls back; re-push and the fence skips it.
   INTEGRATION_CLAIMED_DURING_PROMOTE: 'INTEGRATION_CLAIMED_DURING_PROMOTE',
