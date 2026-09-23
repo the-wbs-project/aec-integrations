@@ -99,6 +99,7 @@ import {
 import {
   isSeatsChangedError,
   planOwnerSeatLapse,
+  planSeatGrantReturn,
   planVendorHandback,
   seatLossOutcome,
   seatRaceSentinels,
@@ -1126,9 +1127,32 @@ export function createProvisionSeatHandler(
       reason: payload.reason ?? null,
     });
 
-    await db.batch(batch.stmts as BatchTuple);
+    // AECI-989: a new active seat returns the contests a ban moved to AECi.
+    const returned = await planSeatGrantReturn(
+      db,
+      {
+        vendorId,
+        actorId: auth.userId,
+        actorType: auditActorType(auth),
+        now: new Date().toISOString(),
+        source: CLAIM_AUDIT_SOURCE,
+      },
+      userId,
+    );
+
+    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     emitSeatProvision(c, 'ok');
-    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    const provisionForwarder = makeForwarder(c);
+    const provisionWorkflowForwarder = forwarders(c).workflow;
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(batch.auditEntry, provisionForwarder),
+        ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, provisionForwarder)),
+        ...(returned?.transitions ?? []).map((entry) =>
+          forwardWorkflowTransition(entry, provisionWorkflowForwarder),
+        ),
+      ]),
+    );
 
     const body = readout(false);
     validateResponseInDev(c.env, () => ProvisionVendorSeatResponseSchema.parse(body));

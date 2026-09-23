@@ -40,7 +40,8 @@ import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
-import { createAdminRevokeSeatHandler } from './admin-vendors';
+import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
+import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
 
 vi.mock('../posthog', () => ({
@@ -198,12 +199,21 @@ function adminApp(): App {
   });
   app.delete('/api/admin/vendors/:id/seats/:userId', createAdminRevokeSeatHandler(t.factory));
   app.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
+  app.post(
+    '/api/admin/vendors/:id/seats',
+    createProvisionSeatHandler(t.factory, (async () => ({
+      outcome: 'linked',
+      userId: SEAT_B,
+      email: 'new-seat@bentley.example',
+      profile: null,
+    })) as unknown as typeof resolveClaimantIdentity),
+  );
   return app;
 }
 
 async function call(
   path: string,
-  method: 'DELETE' | 'PATCH',
+  method: 'DELETE' | 'PATCH' | 'POST',
   payload?: unknown,
 ): Promise<{ status: number; send: ReturnType<typeof vi.fn> }> {
   const send = vi.fn().mockResolvedValue(undefined);
@@ -571,5 +581,35 @@ describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGE
     // A retry now sees the last seat and hands back.
     expect((await revoke(SEAT_A)).status).toBe(204);
     expect((await integration(I_OWNED)).claimedAt).toBeNull();
+  });
+});
+
+// ─── A new seat returns ban-moved contests (ruled 2026-09-23) ────────────────
+
+describe('a new seat grant returns the contests a ban moved to AECi', () => {
+  const provision = () =>
+    call(`/api/admin/vendors/${VENDOR}/seats`, 'POST', { email: 'new-seat@bentley.example' });
+
+  it('routes the stamped contest back to the owner when a fresh seat is provisioned', async () => {
+    await ban(SEAT_A);
+    expect((await contest()).routedTo).toBe('aeci');
+
+    expect((await provision()).status).toBe(201);
+    const row = await contest();
+    expect(row.routedTo).toBe('owner');
+    expect(row.ownerSeatLapsedAt).toBeNull();
+    const restored = (
+      await t.db.select().from(auditLog).where(eq(auditLog.action, 'integration.contest.rerouted'))
+    ).filter((r) => (r.metadata as { reason: string }).reason === 'owner-seat-restored');
+    expect(restored).toHaveLength(1);
+  });
+
+  it('returns nothing when the profile getting the new seat is banned', async () => {
+    await ban(SEAT_A);
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
+    await provision();
+    expect((await contest()).routedTo).toBe('aeci');
   });
 });

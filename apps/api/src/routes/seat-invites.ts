@@ -51,6 +51,7 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { computeDomainMatch } from '../lib/domain-match';
+import { planSeatGrantReturn } from '../lib/vendor-handback';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
 import { afterVendorWrite } from './vendor-shared';
 
@@ -205,11 +206,23 @@ export function createAcceptSeatInviteHandler(
           }
         : null,
     });
-    await db.batch(batch.stmts as BatchTuple);
+    // AECI-989: a new active seat returns the contests a ban moved to AECi.
+    const returned = await planSeatGrantReturn(
+      db,
+      {
+        vendorId: invite.vendorId,
+        actorId: auth.userId,
+        actorType: auditActorType(auth),
+        now,
+        source: 'vendor-portal',
+      },
+      auth.userId,
+    );
+    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     // Post-commit forward (§26.5). No cache tags: a seat change renders on no
     // cacheable page — the portal is `private, no-store` by the fail-closed
     // classifier, and `vendors.verified` is untouched by design (§8.3(2)).
-    afterVendorWrite(c, [], batch.auditEntry);
+    afterVendorWrite(c, [], [batch.auditEntry, ...(returned?.audits ?? [])]);
 
     const body: AcceptSeatInviteResponse = {
       vendor_slug: invite.vendorSlug,

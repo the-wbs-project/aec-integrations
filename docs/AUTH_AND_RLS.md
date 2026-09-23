@@ -306,7 +306,7 @@ revoke of a vendor's **last** seat also hands its record back to AECi in the sam
 marker returns to `'aeci'`, its live claimed integrations lose `claimed_at`, and its owner
 contests go to AECi. A later re-grant restores access, but the vendor must claim its
 integrations again. A ban of the last active seat hands nothing back. It only moves open
-owner contests to AECi until the unban (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Full contract:
+owner contests to AECi until the vendor has an unbanned seat again, by an unban or a new seat grant (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
 
 ---

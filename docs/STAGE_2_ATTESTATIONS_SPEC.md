@@ -2546,7 +2546,7 @@ while the vendor has no unbanned `vendor_admin`:
   (`planOwnerSeatLapse`).
 - **New contests route there too.** The contest submit routes to AECi, stamped, when the
   owner has no unbanned seat, and sends the owner no notice.
-- **An unban routes them back** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`).
+- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing.
   It returns every open, stamped contest whose row is live and has been claimed by that
   vendor since before the stamp, and clears the stamp. "Since before the stamp" is what
   stops a contest the hand-back took for good from returning after a re-seated vendor
@@ -2573,7 +2573,7 @@ that is not the last and against only banned seats remaining. It also covers eac
 integration case, kept claims and attestations, and the audit set with its reasons. It
 checks the purge set, and that the real promote ingest writes a handed-back edge it
 fenced a moment earlier. For bans it covers ban, unban, a decided contest, and a
-hand-back contest that must never return. Three race cases cover a double-click, a seat
+hand-back contest that must never return. Two cases cover the return on a new seat grant, and none when that seat's profile is banned. Three race cases cover a double-click, a seat
 provisioned mid-revoke, and two seats revoked at once. `routes/vendor-contests.spec.ts` covers the
 stamped submit.
 

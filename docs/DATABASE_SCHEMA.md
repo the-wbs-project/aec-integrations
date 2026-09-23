@@ -1638,10 +1638,11 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
 `ADD COLUMN`, no CHECK).** Set while an open contest sits with AECi **only** because its owner
 vendor has no unbanned `vendor_admin` seat. A ban of the last active seat, or a revoke that
 leaves only banned seats, re-routes open owner contests to AECi and stamps them. A contest
-submitted in that window routes to AECi stamped. An unban routes every stamped open contest
-back to the owner, if the row is live and claimed by that owner since before the stamp, and
-clears it. NULL on every other row. `routed_to` stays the one routing column that every reader
-uses. The stamp only tells the unban which rows to move back
+submitted in that window routes to AECi stamped. When the vendor has an unbanned seat again,
+by an unban or by a new seat grant, every stamped open contest routes back to the owner, if
+the row is live and claimed by that owner since before the stamp, and the stamp clears. NULL
+on every other row. `routed_to` stays the one routing column that every reader uses. The
+stamp only tells the return which rows to move back
 (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `apps/api/src/lib/vendor-handback.ts`).
 
 **Protest columns (AECI-1009, migration `0047_quick_makkari.sql`, hand-authored `ADD COLUMN`s).**

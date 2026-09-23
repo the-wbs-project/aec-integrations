@@ -149,7 +149,7 @@ The Revisit section named this trigger: a claimed row going back to AECi other t
 - **Revoking a vendor's last `vendor_admin` seat clears `claimed_at` on every live row it owns and claimed**, in the revoke's batch, with an `integration.updated` row (`metadata.reason = 'owner-seat-revoked'`). Promote writes those rows again. `built_by_vendor_id` stays. Its open owner contests re-route to AECi.
 - **`origin` is never changed.** A vendor-created row stays fenced without its claim, as the AECI-1011 consequence above already says for the reassignment accept. It shows in `vendor_integration_unclaimed`.
 - **A retired row keeps its claim**, so "retired implies vendor-held" holds and a re-seated vendor can restore its own retire.
-- **A ban un-claims nothing** (ruled 2026-09-23). A ban is reversible. While a vendor has no unbanned seat, its open owner contests route to AECi, and an unban routes them back.
+- **A ban un-claims nothing** (ruled 2026-09-23). A ban is reversible. While a vendor has no unbanned seat, its open owner contests route to AECi, and an unban or a new seat grant routes them back.
 - **No delete, and claims, attestations, links and contests survive.** Decisions 1 to 15 are unchanged.
 
 Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9, builder `apps/api/src/lib/vendor-handback.ts`. Account erasure of the last seat is the one remaining path, AECI-1106.

@@ -1870,6 +1870,8 @@ The `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision email
 is injected into the post-commit seam at the route registration (`index.ts`),
 fail-open like every send.
 
+**A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
 ```typescript
 export const ClaimEntitlementSchema = z.object({
   // The offline PO/invoice arrangement. Since AECI-612 this is written to the
@@ -2358,7 +2360,7 @@ what else rides the same batch:
 | Seats left after the revoke | Also in the batch |
 |---|---|
 | at least one unbanned | nothing |
-| only banned ones | open owner contests re-route to AECi, stamped so an unban routes them back |
+| only banned ones | open owner contests re-route to AECi, stamped so an unban or a new seat grant routes them back |
 | none | the hand-back: `vendors.maintained_by` and each solely-owned product's `maintained_by` → `'aeci'`; `claimed_at` cleared on each live integration the vendor owns and claimed, so promote writes it again; that integration's `maintained_by` → `'aeci'` when no live vendor attestation survives; open owner contests → AECi for good |
 
 Each write carries its own audit row (`vendor.updated`, `product.updated`,
@@ -2396,6 +2398,8 @@ Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_adm
 (or `200 OK` on an idempotent no-op). Behind `requireAdmin()`. Source of truth:
 `packages/shared/src/api/admin-vendors.ts`, `apps/api/src/routes/admin-vendors.ts`;
 model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+
+**A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
 ```typescript
 export const ProvisionVendorSeatSchema = z.object({
@@ -5361,6 +5365,8 @@ Deliberately thin: the token is in a URL, so treat everything behind it as semi-
 
 Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client can land the new seat on `/vendor/:slug/overview`.
 
+**A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
 **The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
@@ -5870,7 +5876,7 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **Submit order: authority → owner → shape → value → duplicate.** A caller owning neither endpoint, or an unknown id, gets the same `404` before the body is read. The owner gets `403 CONTEST_OWN_INTEGRATION`. Then `400 VALIDATION_FAILED` for the body shape, `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
-**Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped for the unban to route back, and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
+**Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped so it routes back when the vendor has an unbanned seat again (an unban or a new seat grant), and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
 
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({

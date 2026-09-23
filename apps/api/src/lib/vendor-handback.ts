@@ -51,7 +51,8 @@
  * `owner_seat_lapsed_at`. `claimed_at` is untouched.
  *
  * ── 3. THE SEAT RETURN: `planOwnerSeatReturn` ───────────────────────────────
- * Runs on an unban. Every open, stamped contest whose integration is still live
+ * Runs whenever the vendor has an unbanned seat again: on an unban, and on any new
+ * seat grant (`planSeatGrantReturn`, ruled 2026-09-23). Every open, stamped contest whose integration is still live
  * and has been claimed by this vendor since before the stamp goes back to the
  * owner, and the stamp clears. "Since before the stamp" is what keeps a contest a
  * hand-back took for good from returning after the vendor re-claims the row.
@@ -525,6 +526,34 @@ export async function planOwnerSeatReturn(db: Db, p: HandbackParams): Promise<Ha
     });
   }
   return sealed(batch, db);
+}
+
+/**
+ * The seat-GRANT half of the return (ruled 2026-09-23): a vendor that gets an
+ * unbanned `vendor_admin` again by a NEW seat, not only by an unban, gets its
+ * ban-moved contests back. Called by all three seat writers: the admin provision
+ * (`POST /api/admin/vendors/:id/seats`), the claim grant
+ * (`PATCH /api/admin/claims/:id`) and the invite redeem
+ * (`POST /api/seat-invites/:token/accept`).
+ *
+ * `null` when the new seat's own profile is banned, because a banned seat is not
+ * an active one, or when nothing is stamped. The pre-batch read cannot see the new
+ * seat, so the caller's grant is what makes the vendor active again. A grant that
+ * lands on no row (a lost race) still commits these guarded re-routes. That is
+ * accepted: the grant's own batch is what decides whether the seat exists.
+ */
+export async function planSeatGrantReturn(
+  db: Db,
+  p: HandbackParams,
+  seatUserId: string,
+): Promise<HandbackBatch | null> {
+  const seat = await db.query.profiles.findFirst({
+    columns: { bannedAt: true },
+    where: eq(profiles.id, seatUserId),
+  });
+  if (seat?.bannedAt) return null;
+  const batch = await planOwnerSeatReturn(db, p);
+  return batch.stmts.length > 0 ? batch : null;
 }
 
 // ─── Shared: one contest re-route ────────────────────────────────────────────
