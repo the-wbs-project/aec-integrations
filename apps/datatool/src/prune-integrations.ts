@@ -69,8 +69,11 @@
 
 import {
   ddlHasRetiredColumn,
+  EVIDENCED_PAIRS_DDL_QUERY,
+  evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
   integrationsDdlOrThrow,
+  liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
 
@@ -336,6 +339,13 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
+/** The same probe for `connector_evidenced_pairs` (migration 0048, AECI-1091): the
+ *  recount's evidenced arm counts live pairs only once the column exists. */
+export async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {
+  const [row] = await selectAll(db, EVIDENCED_PAIRS_DDL_QUERY, []);
+  return ddlHasRetiredColumn(evidencedPairsDdlOrThrow(row?.sql));
+}
+
 /**
  * The requested ids whose rows are vendor-held, in id order, in EITHER anchor table.
  *
@@ -498,6 +508,7 @@ export async function pruneExecute(
 ): Promise<PruneResult> {
   const ph = placeholders(ids.length);
   const retiredColumn = await hasRetiredColumn(db);
+  const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
 
   // The route refuses vendor-held ids before it gets here. This is the second gate, so
   // a future caller that skips the plan still cannot delete a vendor's row (AECI-1005).
@@ -556,7 +567,8 @@ export async function pruneExecute(
                    WHERE (source_product_id = ? OR target_product_id = ?)
                      AND ${liveIntegrationSqlIf('integrations', retiredColumn)})
                 + (SELECT COUNT(*) FROM connector_evidenced_pairs
-                     WHERE product_a_id = ? OR product_b_id = ? OR connector_product_id = ?))
+                     WHERE (product_a_id = ? OR product_b_id = ? OR connector_product_id = ?)
+                       AND ${liveEvidencedPairSqlIf('connector_evidenced_pairs', pairsRetiredColumn)}))
              WHERE id = ?`,
           )
           .bind(pid, pid, pid, pid, pid, pid),

@@ -3,8 +3,8 @@
  * `lib/product-counts.ts` (ADR 0016 / AECI-253). Aggregation rule:
  *   - `integration_count` = **delivered edges, regardless of which table holds
  *     them** (`STAGE_1_5_SPEC.md` §13.5). That is: LIVE rows of `integrations`
- *     (`retired_at IS NULL`, AECI-1010) where the product is source OR target, PLUS rows of `connector_evidenced_pairs`
- *     where it is an endpoint OR **the connector**.
+ *     (`retired_at IS NULL`, AECI-1010) where the product is source OR target, PLUS LIVE rows
+ *     of `connector_evidenced_pairs` (AECI-1091) where it is an endpoint OR **the connector**.
  *   - `review_count` + both averages count ONLY `status = 'approved'` reviews;
  *     zero approved reviews → NULL averages.
  *
@@ -43,7 +43,7 @@ import { and, avg, count, eq, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 export const COUNTED_REVIEW_STATUS = 'approved';
 
@@ -86,8 +86,8 @@ function toNum(v: string | number | null | undefined): number | null {
  * Two arms. LIVE `integrations` rows where the product is source or target
  * (AECI-1010: a retired row counts nowhere), plus `connector_evidenced_pairs` where
  * it is an endpoint in either canonical slot or the connector itself (§12.5 option
- * B). The evidenced arm takes no retired filter: that table has no `retired_at`
- * (see `lib/live-integration.ts`).
+ * B). Both arms count LIVE rows only: since AECI-1091 an evidenced pair can be
+ * retired too (`lib/live-integration.ts` rule 2).
  */
 function integrationCountSql(productId: string): SQL<number> {
   return sql<number>`(
@@ -96,9 +96,10 @@ function integrationCountSql(productId: string): SQL<number> {
           OR ${integrations.targetProductId} = ${productId})
         AND ${liveIntegrationWhere})
     + (SELECT COUNT(*) FROM ${connectorEvidencedPairs}
-        WHERE ${connectorEvidencedPairs.productAId} = ${productId}
+        WHERE (${connectorEvidencedPairs.productAId} = ${productId}
            OR ${connectorEvidencedPairs.productBId} = ${productId}
-           OR ${connectorEvidencedPairs.connectorProductId} = ${productId}))`;
+           OR ${connectorEvidencedPairs.connectorProductId} = ${productId})
+          AND ${liveEvidencedPairWhere}))`;
 }
 
 async function computeExpected(db: Db, productId: string): Promise<ExpectedProductCounts> {

@@ -73,7 +73,7 @@ import {
 } from '../db/schema';
 // AECI-745 lifted these predicates out of `analytics-digest` into their own module.
 import { textAsc } from './collation';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
@@ -138,10 +138,12 @@ const TRENDING_MIN_VIEWS = 3;
  * explain. Both tables, always.
  */
 export async function computeTotalIntegrations(db: Db): Promise<number> {
-  // Live `integrations` rows only (AECI-1010). The evidenced table has no
-  // `retired_at`, so its arm is unfiltered.
+  // Live rows only, in both tables (AECI-1010, AECI-1091).
   const [row] = await db.select({ value: count() }).from(integrations).where(liveIntegrationWhere);
-  const [evidenced] = await db.select({ value: count() }).from(connectorEvidencedPairs);
+  const [evidenced] = await db
+    .select({ value: count() })
+    .from(connectorEvidencedPairs)
+    .where(liveEvidencedPairWhere);
   return (row?.value ?? 0) + (evidenced?.value ?? 0);
 }
 
@@ -158,7 +160,7 @@ export async function computeIntegrationsAdded30d(db: Db, now: Date): Promise<nu
   const [evidenced] = await db
     .select({ value: count() })
     .from(connectorEvidencedPairs)
-    .where(gte(connectorEvidencedPairs.createdAt, since));
+    .where(and(gte(connectorEvidencedPairs.createdAt, since), liveEvidencedPairWhere));
   return (row?.value ?? 0) + (evidenced?.value ?? 0);
 }
 
@@ -255,6 +257,7 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
     }),
     db.query.connectorEvidencedPairs.findMany({
       columns: { id: true },
+      where: liveEvidencedPairWhere,
       with: {
         productA: { columns: {}, with: { productCategories: { columns: { categoryId: true } } } },
         productB: { columns: {}, with: { productCategories: { columns: { categoryId: true } } } },
@@ -331,6 +334,7 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
     }),
     db.query.connectorEvidencedPairs.findMany({
       ...connectorEvidencedPairListConfig,
+      where: liveEvidencedPairWhere,
       orderBy: [desc(connectorEvidencedPairs.createdAt)],
       limit: 10,
     }),

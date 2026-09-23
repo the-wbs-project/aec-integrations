@@ -61,6 +61,7 @@ import {
 
 import type { Db } from '../db/client';
 import {
+  connectorEvidencedPairs,
   integrations,
   mailingList,
   products,
@@ -508,10 +509,33 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
       ),
     )
     .orderBy(asc(integrations.id));
+  // AECI-1091: the same invariant on `connector_evidenced_pairs`, which the owner and
+  // AECi retire since then. Both columns exist there from migration 0048 on.
+  const pairs = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      name: connectorEvidencedPairs.name,
+      retiredAt: connectorEvidencedPairs.retiredAt,
+    })
+    .from(connectorEvidencedPairs)
+    .where(
+      and(
+        isNotNull(connectorEvidencedPairs.retiredAt),
+        isNull(connectorEvidencedPairs.claimedAt),
+        ne(connectorEvidencedPairs.origin, 'vendor'),
+      ),
+    )
+    .orderBy(asc(connectorEvidencedPairs.id));
   return {
-    lines: rows.map(
-      (r) => `${r.name ?? '(unnamed)'} (${r.id}) retired ${r.retiredAt}, not vendor-held`,
-    ),
+    lines: [
+      ...rows.map(
+        (r) => `${r.name ?? '(unnamed)'} (${r.id}) retired ${r.retiredAt}, not vendor-held`,
+      ),
+      ...pairs.map(
+        (r) =>
+          `${r.name ?? '(unnamed)'} (${r.id}, connector_evidenced_pairs) retired ${r.retiredAt}, not vendor-held`,
+      ),
+    ],
   };
 }
 

@@ -100,7 +100,7 @@ import { readPosthogBrowserStarts, type BrowserStartsWindow } from '../lib/posth
 import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
 import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
-import { liveIntegrationWhere } from '../lib/live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
 // but this handler reads no auth context — so it is typed on Bindings alone,
@@ -400,12 +400,12 @@ async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
 async function catalogTotals(db: Db) {
   const [p, i, v, cl, at, ep] = await Promise.all([
     countAll(db, products),
-    // Live rows only (AECI-1010); the evidenced arm has no `retired_at`.
+    // Live rows only, in both tables (AECI-1010, AECI-1091).
     countAll(db, integrations, liveIntegrationWhere),
     countAll(db, vendors),
     countAll(db, claims),
     countAll(db, attestations),
-    countAll(db, connectorEvidencedPairs),
+    countAll(db, connectorEvidencedPairs, liveEvidencedPairWhere),
   ]);
   return { products: p, integrations: i + ep, vendors: v, claims: cl, attestations: at };
 }

@@ -87,6 +87,7 @@ import { note } from '../lib/admin-analytics';
 import type { AuthzVariables } from '../lib/authz';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { liveEvidencedPairWhere } from '../lib/live-integration';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
 
@@ -591,7 +592,13 @@ export function createAdminConnectorPairsHandler(
     const offset = (query.page - 1) * query.perPage;
 
     if (query.lane === 'evidenced') {
-      const where = eq(connectorEvidencedPairs.connectorProductId, catalog.connectorProductId);
+      // Live pairs only (AECI-1091): the delivered lane the public connector page
+      // renders. A retired pair is listed, with its Restore, on the owner's
+      // vendor page (`/admin/vendors/:id`, Integrations tab), not here.
+      const where = and(
+        eq(connectorEvidencedPairs.connectorProductId, catalog.connectorProductId),
+        liveEvidencedPairWhere,
+      );
       const [rows, totals] = await db.batch([
         db
           .select({

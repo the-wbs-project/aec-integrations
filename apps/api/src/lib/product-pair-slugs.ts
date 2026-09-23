@@ -46,7 +46,7 @@ import { unionAll } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products } from '../db/schema';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 /**
  * The slugs of every product that `productId` shares a pair page with, deduped.
@@ -70,12 +70,12 @@ export async function readPairCounterpartSlugs(db: Db, productId: string): Promi
       .select({ slug: products.slug })
       .from(connectorEvidencedPairs)
       .innerJoin(products, eq(products.id, connectorEvidencedPairs.productBId))
-      .where(eq(connectorEvidencedPairs.productAId, productId)),
+      .where(and(eq(connectorEvidencedPairs.productAId, productId), liveEvidencedPairWhere)),
     db
       .select({ slug: products.slug })
       .from(connectorEvidencedPairs)
       .innerJoin(products, eq(products.id, connectorEvidencedPairs.productAId))
-      .where(eq(connectorEvidencedPairs.productBId, productId)),
+      .where(and(eq(connectorEvidencedPairs.productBId, productId), liveEvidencedPairWhere)),
   );
 
   // Deduped here rather than with `union`, because two rows CAN legitimately

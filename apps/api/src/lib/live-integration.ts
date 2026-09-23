@@ -17,14 +17,18 @@
  * template with a literal alias is NOT re-aliased; those sites use
  * `sql.raw(liveIntegrationSql('bi'))` from the shared module.
  *
- * `connector_evidenced_pairs` has no `retired_at` and never takes this predicate.
+ * **Both arms (AECI-1091, rule 2).** `connector_evidenced_pairs` carries `retired_at`
+ * too (migration `0048`), and the owner and AECi retire pairs through the same routes.
+ * Every count, id set and public read over that table filters it with
+ * {@link liveEvidencedPairWhere} / {@link liveEvidencedPairOn}. Same SQL, separate
+ * name, so `count-lockstep.spec.ts` can prove a site filters both arms and not one.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
 import { eq, isNotNull, isNull, sql, type Column, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations } from '../db/schema';
+import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { ApiError } from '../errors';
 
 /** Live over any table object carrying the column, including an `alias()`. */
@@ -42,6 +46,18 @@ export const liveIntegrationWhere: SQL = liveIntegrationOn(integrations);
 
 /** `integrations.retired_at IS NOT NULL`, for the unaliased table. */
 export const retiredIntegrationWhere: SQL = retiredIntegrationOn(integrations);
+
+/** The evidenced arm (AECI-1091): live over `connector_evidenced_pairs`, or an
+ *  `alias()` of it. The same predicate as {@link liveIntegrationOn}, named apart. */
+export function liveEvidencedPairOn(t: { readonly retiredAt: Column }): SQL {
+  return isNull(t.retiredAt);
+}
+
+/** `connector_evidenced_pairs.retired_at IS NULL`, for the unaliased table. */
+export const liveEvidencedPairWhere: SQL = liveEvidencedPairOn(connectorEvidencedPairs);
+
+/** `connector_evidenced_pairs.retired_at IS NOT NULL`. The exact complement. */
+export const retiredEvidencedPairWhere: SQL = isNotNull(connectorEvidencedPairs.retiredAt);
 
 /** The in-memory twin, for rows already loaded. */
 export function isLiveIntegration(row: { readonly retiredAt: string | null | undefined }): boolean {

@@ -41,7 +41,7 @@
  * membership is "both endpoints promoted", copied from
  * `apps/api/src/lib/algolia-drift-deps.ts`.
  */
-import { liveIntegrationSql } from '@aeci/shared/live-integration';
+import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 
 import { CONNECTOR_EVIDENCED_BUCKET, UNKNOWN_MECHANISM_BUCKET } from '../tools/count-integrations';
 import { orderByTextThenId, textThenIdTerms } from './collation';
@@ -240,7 +240,8 @@ ORDER BY product_id ASC, facet ASC, ${textThenIdTerms('term_name', 'term_slug')}
  * surface a record the site does not show. An unpromoted connector therefore
  * yields a NULL name and the document says "via a connector".
  *
- * The `integrations` branches read LIVE rows only (AECI-1010). A retired edge stays
+ * Every branch reads LIVE rows only: the `integrations` branches since AECI-1010,
+ * the evidenced branches since AECI-1091. A retired edge stays
  * in AI Search until the next `POST /admin/reindex`, because this corpus is rebuilt
  * only on demand.
  */
@@ -271,6 +272,7 @@ FROM connector_evidenced_pairs cep
 JOIN products pa ON pa.id = cep.product_a_id AND pa.promotion_status = ?
 JOIN products pb ON pb.id = cep.product_b_id AND pb.promotion_status = ?
 LEFT JOIN products conn ON conn.id = cep.connector_product_id AND conn.promotion_status = ?
+WHERE ${liveEvidencedPairSql('cep')}
 
 UNION ALL
 
@@ -279,6 +281,7 @@ FROM connector_evidenced_pairs cep
 JOIN products pa ON pa.id = cep.product_a_id AND pa.promotion_status = ?
 JOIN products pb ON pb.id = cep.product_b_id AND pb.promotion_status = ?
 LEFT JOIN products conn ON conn.id = cep.connector_product_id AND conn.promotion_status = ?
+WHERE ${liveEvidencedPairSql('cep')}
 
 ORDER BY product_id ASC, ${textThenIdTerms('partner_name', 'edge_id')}
 `;

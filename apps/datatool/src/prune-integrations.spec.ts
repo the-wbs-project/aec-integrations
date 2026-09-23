@@ -310,6 +310,42 @@ describe('pruneExecute', () => {
     ]);
   });
 
+  it('the recount counts a live evidenced pair and drops a retired one (AECI-1091)', async () => {
+    h.raw
+      .prepare(
+        "INSERT INTO products (id, slug, name, promotion_status, created_at, updated_at) VALUES ('prod-c','agave','Agave','promoted',?,?), ('prod-d','workato','Workato','promoted',?,?)",
+      )
+      .run(TS, TS, TS, TS);
+    const pair = h.raw.prepare(
+      `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, claimed_at, retired_at, retired_by, created_at, updated_at)
+       VALUES (?, ?, 'prod-1', 'prod-2', ?, ?, ?, ?, ?)`,
+    );
+    pair.run('pair-live', 'prod-c', null, null, null, TS, TS);
+    pair.run('pair-retired', 'prod-d', TS, TS, 'owner', TS, TS);
+
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    await pruneExecute(h.db, [ORPHAN], plan.affectedProductIds);
+    // Each endpoint: the surviving integration + the live pair. Not 3.
+    const counts = h.raw
+      .prepare(
+        "SELECT slug, integration_count AS c FROM products WHERE id IN ('prod-1','prod-2') ORDER BY slug",
+      )
+      .all();
+    expect(counts).toEqual([
+      { slug: 'procore', c: 2 },
+      { slug: 'smartsheet', c: 2 },
+    ]);
+  });
+
+  it('runs on a tier whose pair table lacks retired_at (AECI-1091)', async () => {
+    // 0048 can reach a tier later than 0044. The probe degrades the evidenced arm.
+    h.raw.prepare('ALTER TABLE connector_evidenced_pairs DROP COLUMN retired_by').run();
+    h.raw.prepare('ALTER TABLE connector_evidenced_pairs DROP COLUMN retired_at').run();
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    const result = await pruneExecute(h.db, [ORPHAN], plan.affectedProductIds);
+    expect(result.deleted.integrations).toBe(1);
+  });
+
   it('refuses a vendor-held id even when called without the route (AECI-1005)', async () => {
     const plan = await prunePlan(h.db, [ORPHAN]);
     h.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(TS, ORPHAN);

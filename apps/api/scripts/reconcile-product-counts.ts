@@ -37,8 +37,11 @@ import { spawnSync } from 'node:child_process';
 
 import {
   ddlHasRetiredColumn,
+  EVIDENCED_PAIRS_DDL_QUERY,
+  evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
   integrationsDdlOrThrow,
+  liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
 
@@ -55,13 +58,15 @@ import {
 // `integrations` where the product is an endpoint, plus `connector_evidenced_pairs`
 // where it is an endpoint in either canonical slot OR the connector (§12.5 option B).
 //
-// The `integrations` arm counts LIVE rows only (`retired_at IS NULL`, AECI-1010);
-// the evidenced arm takes no such filter because that table has no `retired_at`.
+// Both arms count LIVE rows only (`retired_at IS NULL`): the `integrations` arm since
+// AECI-1010, the evidenced arm since AECI-1091.
 //
-// The live filter is DDL-probed (`liveIntegrationSqlIf`): this script runs daily
-// against production, whose migrations lag `main` until the next prod promote, and a
-// query naming a missing `retired_at` would fail every run until then. `main()` reads
-// the table definition first; without the column no row is retired.
+// Each live filter is DDL-probed (`liveIntegrationSqlIf`, `liveEvidencedPairSqlIf`):
+// this script runs daily against production, whose migrations lag `main` until the
+// next prod promote, and a query naming a missing `retired_at` would fail every run
+// until then. `main()` reads both table definitions first, separately, because `0044`
+// and `0048` reach a tier at different promotes. Without the column no row of that
+// table is retired.
 //
 // These two are sites 2 and 3 of the lockstep list (`LOCKSTEP_SITES` in
 // `src/lib/count-lockstep.spec.ts`, which executes both), and they are the pair
@@ -72,25 +77,37 @@ import {
 // remote D1 through wrangler, so any change here has to be made twice on purpose;
 // `computeExpected` in `../src/lib/recompute-counts.ts` is the definition being
 // mirrored, and its header carries the reasoning.
-const EVIDENCED_COUNT_SQL = (productIdExpr: string) => `(SELECT COUNT(*)
+const EVIDENCED_COUNT_SQL = (
+  productIdExpr: string,
+  pairsRetiredColumn: boolean,
+) => `(SELECT COUNT(*)
      FROM "connector_evidenced_pairs" cep
-     WHERE cep."product_a_id" = ${productIdExpr}
+     WHERE (cep."product_a_id" = ${productIdExpr}
         OR cep."product_b_id" = ${productIdExpr}
-        OR cep."connector_product_id" = ${productIdExpr})`;
+        OR cep."connector_product_id" = ${productIdExpr})
+       AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)})`;
+
+/** Which of the two tables carry `retired_at` on the target (migrations `0044` and
+ *  `0048`). Both default to true: the exported constants are the migrated form. */
+export interface RetiredColumns {
+  integrations: boolean;
+  evidencedPairs: boolean;
+}
+const MIGRATED: RetiredColumns = { integrations: true, evidencedPairs: true };
 
 // ─── Drift query ─────────────────────────────────────────────────────────────
 // Per-product: the STORED aggregates alongside the EXPECTED values recomputed
 // from source rows. The comparison (counts exact; averages 2dp/0.005 tolerance,
 // null-aware) is done in TS by `diffProductCounts`, NOT in SQL, so the rule stays
 // single-sourced and unit-tested. Mirrors `computeExpected` in recompute-counts.ts.
-export function driftQuery(retiredColumn = true): string {
+export function driftQuery(columns: RetiredColumns = MIGRATED): string {
   return `SELECT
   p."id" AS product_id,
   p."integration_count" AS stored_integration_count,
   ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = p."id" OR i."target_product_id" = p."id")
-       AND ${liveIntegrationSqlIf('i', retiredColumn)})
-   + ${EVIDENCED_COUNT_SQL('p."id"')}) AS expected_integration_count,
+       AND ${liveIntegrationSqlIf('i', columns.integrations)})
+   + ${EVIDENCED_COUNT_SQL('p."id"', columns.evidencedPairs)}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
@@ -107,12 +124,12 @@ export const DRIFT_QUERY = driftQuery();
 // `--fix` repair: recompute ALL four aggregates in place for the drifted ids.
 // Same aggregation as DRIFT_QUERY's expected columns + the seed-reviews
 // RECOMPUTE_PRODUCTS block. `__IDS__` is replaced with a quoted id list.
-export function recomputeSql(retiredColumn = true): string {
+export function recomputeSql(columns: RetiredColumns = MIGRATED): string {
   return `UPDATE "products" SET
   "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
-       AND ${liveIntegrationSqlIf('i', retiredColumn)})
-   + ${EVIDENCED_COUNT_SQL('"products"."id"')}),
+       AND ${liveIntegrationSqlIf('i', columns.integrations)})
+   + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs)}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
   "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r
@@ -209,12 +226,11 @@ function wranglerMissing(err: unknown): boolean {
 const WRANGLER_HINT =
   'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api db:reconcile-counts';
 
-/** Whether the target's `integrations` has `retired_at` yet (AECI-1010). An empty or
- *  failed read THROWS: "could not check" is never "no column". */
-function hasRetiredColumn(target: Target): boolean {
+/** One table's `CREATE TABLE` text off the target. A failed read THROWS. */
+function readDdl(target: Target, query: string, table: string): unknown {
   const res = spawnSync(
     'wrangler',
-    ['d1', 'execute', target.db, ...target.flags, '--json', '--command', INTEGRATIONS_DDL_QUERY],
+    ['d1', 'execute', target.db, ...target.flags, '--json', '--command', query],
     { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
   );
   if (res.error) {
@@ -223,17 +239,33 @@ function hasRetiredColumn(target: Target): boolean {
   }
   if (res.status !== 0) {
     throw new Error(
-      `Could not read the integrations table definition from D1 "${target.db}" (wrangler exit ${res.status}).\n\n${res.stderr}`,
+      `Could not read the ${table} table definition from D1 "${target.db}" (wrangler exit ${res.status}).\n\n${res.stderr}`,
     );
   }
   const rows = parseWranglerJson<{ sql: string }>(res.stdout)[0]?.results ?? [];
-  return ddlHasRetiredColumn(integrationsDdlOrThrow(rows[0]?.sql));
+  return rows[0]?.sql;
 }
 
-function runQuery(target: Target, retiredColumn: boolean): RawDriftRow[] {
+/** Whether each table has `retired_at` yet on the target: `integrations` since
+ *  AECI-1010 (`0044`), `connector_evidenced_pairs` since AECI-1091 (`0048`). An empty
+ *  or failed read THROWS: "could not check" is never "no column". */
+function retiredColumnsOf(target: Target): RetiredColumns {
+  return {
+    integrations: ddlHasRetiredColumn(
+      integrationsDdlOrThrow(readDdl(target, INTEGRATIONS_DDL_QUERY, 'integrations')),
+    ),
+    evidencedPairs: ddlHasRetiredColumn(
+      evidencedPairsDdlOrThrow(
+        readDdl(target, EVIDENCED_PAIRS_DDL_QUERY, 'connector_evidenced_pairs'),
+      ),
+    ),
+  };
+}
+
+function runQuery(target: Target, columns: RetiredColumns): RawDriftRow[] {
   const res = spawnSync(
     'wrangler',
-    ['d1', 'execute', target.db, ...target.flags, '--json', '--command', driftQuery(retiredColumn)],
+    ['d1', 'execute', target.db, ...target.flags, '--json', '--command', driftQuery(columns)],
     { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
   );
   if (res.error) {
@@ -251,10 +283,10 @@ function runQuery(target: Target, retiredColumn: boolean): RawDriftRow[] {
   return parseWranglerJson<RawDriftRow>(res.stdout)[0]?.results ?? [];
 }
 
-function applyFix(target: Target, productIds: string[], retiredColumn: boolean): void {
+function applyFix(target: Target, productIds: string[], columns: RetiredColumns): void {
   if (productIds.length === 0) return;
   const inList = productIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ');
-  const sql = recomputeSql(retiredColumn).replace('__IDS__', inList);
+  const sql = recomputeSql(columns).replace('__IDS__', inList);
   const res = spawnSync(
     'wrangler',
     ['d1', 'execute', target.db, ...target.flags, '--command', sql],
@@ -363,14 +395,14 @@ export async function main(argv: string[]): Promise<number> {
   console.log(
     `Reconciling product counts on ${target.db}${target.remote ? ` (--env ${target.label}, remote)` : ' (local)'}…`,
   );
-  const retiredColumn = hasRetiredColumn(target);
-  let drift = evaluateDrift(runQuery(target, retiredColumn));
+  const columns = retiredColumnsOf(target);
+  let drift = evaluateDrift(runQuery(target, columns));
 
   if (drift.length > 0 && fix) {
     const ids = [...new Set(drift.map((d) => d.productId))];
     console.log(`Repairing ${ids.length} product(s) with --fix…`);
-    applyFix(target, ids, retiredColumn);
-    drift = evaluateDrift(runQuery(target, retiredColumn)); // re-check after repair
+    applyFix(target, ids, columns);
+    drift = evaluateDrift(runQuery(target, columns)); // re-check after repair
   }
 
   const driftedProducts = new Set(drift.map((d) => d.productId)).size;

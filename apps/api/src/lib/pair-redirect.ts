@@ -56,7 +56,7 @@ import {
   integrations,
   products,
 } from '../db/schema';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 /** The pair URL to 301 to, already oriented for the requesting URL. */
 export interface MovedPairTarget {
@@ -130,7 +130,8 @@ export async function resolveMovedPair(
     }),
     db.query.connectorEvidencedPairs.findMany({
       columns: { id: true, productAId: true, productBId: true },
-      where: inArray(connectorEvidencedPairs.id, edgeIds),
+      // Live pairs only (AECI-1091), for the same reason.
+      where: and(inArray(connectorEvidencedPairs.id, edgeIds), liveEvidencedPairWhere),
     }),
   ]);
 
