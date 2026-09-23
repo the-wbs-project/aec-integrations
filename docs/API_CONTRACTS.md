@@ -282,6 +282,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId` or `PATCH /api/admin/reviewers/:id` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989) |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore or owner edit whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -2346,11 +2347,29 @@ cannot help here: it is scoped to the caller's own session vendor.
 Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
 the `vendor_claim.seat_revoked` row lands in the SAME `db.batch` as the profile write
 (§26.1), its metadata carries `vendor_id` (which is what makes the row reachable from
-the audit viewer after `profiles.vendor_id` is nulled), and **no statement names
-`vendors`** — enforced by an ESLint rule and a generated-SQL assertion. **A seat revoke
-is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2): the badge, the
-entitlement row and `vendors.verified` are all untouched. No cache purge — nothing a
-revoke changes is rendered on a cached page.
+the audit viewer after `profiles.vendor_id` is nulled), and **no statement in that
+builder names `vendors`** — enforced by an ESLint rule and a generated-SQL assertion.
+**A seat revoke is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2):
+the badge, the entitlement row and `vendors.verified` are all untouched.
+
+**The last seat hands the record back (AECI-989).** What the vendor is left with decides
+what else rides the same batch:
+
+| Seats left after the revoke | Also in the batch |
+|---|---|
+| at least one unbanned | nothing |
+| only banned ones | open owner contests re-route to AECi, stamped so an unban routes them back |
+| none | the hand-back: `vendors.maintained_by` and each solely-owned product's `maintained_by` → `'aeci'`; `claimed_at` cleared on each live integration the vendor owns and claimed, so promote writes it again; that integration's `maintained_by` → `'aeci'` when no live vendor attestation survives; open owner contests → AECi for good |
+
+Each write carries its own audit row (`vendor.updated`, `product.updated`,
+`integration.updated`, `integration.contest.rerouted`). A write that would change nothing
+is omitted with its row. `last_reviewed_at`, `built_by_vendor_id`, `origin`, retired rows,
+claims and attestations are never touched, and nothing is deleted. **Purge:** only the pages
+whose maintenance marker changed, through `CACHE_PURGE_QUEUE` with `source: 'moderation'`.
+That means `vendor:{slug}`, each flipped `product:{slug}` plus `index:products`, and the pair
+tag plus both product tags for each integration whose marker flipped. A revoke that leaves
+a seat purges nothing. The response is `204` in every case, and the wire shape is unchanged.
+Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 
 **Three deliberate differences from the portal endpoint:** `vendorId` comes from the
 path and scopes the target read (so a stray seat cannot be un-granted by naming the
@@ -2367,6 +2386,7 @@ Errors:
 | Status | Code | When |
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id, or `:userId` is not a `vendor_admin` seat **on that vendor** — a cross-vendor id is indistinguishable from a nonexistent one |
+| 409 | `VENDOR_SEATS_CHANGED` | The batch lost a race with another seat write on this vendor, so the planned hand-back no longer matches the seats left. Nothing was written (AECI-989) |
 | 400 | `VALIDATION_FAILED` | Missing path parameter |
 
 #### `POST /api/admin/vendors/:id/seats` (Stage 2 — AECI-740)
@@ -2966,6 +2986,17 @@ audit `action` and the `aeci.moderation.ban` `role:` tag become role-aware. The 
 **per-seat** — it never touches the vendor's other seats or `vendors.verified`
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §7). The `reviewer_id` field name is retained; for a
 vendor seat it is simply the seat's profile id.
+
+**Contest routing on a vendor seat (AECI-989).** A ban that leaves the vendor with no
+unbanned `vendor_admin` re-routes its open owner contests to AECi in the same batch,
+stamped with `owner_seat_lapsed_at` (`integration.contest.rerouted`,
+`metadata.reason = 'owner-seat-lapsed'`, an `open → open` transition each). An unban of a
+vendor seat routes every stamped open contest back to the owner, when the row is live and
+claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`). A ban
+hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is still no
+cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
+vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
+writes nothing.
 
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
@@ -5839,6 +5870,8 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **Submit order: authority → owner → shape → value → duplicate.** A caller owning neither endpoint, or an unknown id, gets the same `404` before the body is read. The owner gets `403 CONTEST_OWN_INTEGRATION`. Then `400 VALIDATION_FAILED` for the body shape, `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
+**Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped for the unban to route back, and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
+
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({
   field: IntegrationContestFieldSchema,       // the twelve INTEGRATION_CONTEST_FIELDS
@@ -5864,7 +5897,7 @@ export const VendorContestSchema = z.object({
   current_label: z.string().nullable(), // vendor name for `owner`, else null
   proposed_label: z.string().nullable(),
   reason: z.string(),
-  routed_to: z.enum(['owner', 'aeci']),
+  routed_to: z.enum(['owner', 'aeci']),               // `aeci` when the owner has no active seat (AECI-989)
   status: z.enum(['open', 'accepted', 'declined', 'withdrawn']),
   submitter_vendor: ContestVendorRefSchema,           // { id, name }
   owner_vendor: ContestVendorRefSchema.nullable(),

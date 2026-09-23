@@ -40,6 +40,9 @@ const P_SOURCE = uuid(10);
 const P_TARGET = uuid(11);
 const I_MAIN = uuid(20);
 const SEAT_A = uuid(100);
+/** The owner's seat. An owner with no active seat gets no owner-routed contest
+ *  (AECI-989), so the owner routes below need one. */
+const SEAT_B = uuid(101);
 const ADMIN_ID = uuid(200);
 
 const AUTH_A: AuthzVariables['auth'] = {
@@ -89,6 +92,7 @@ beforeEach(async () => {
   });
   await t.db.insert(profiles).values([
     { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR_A },
+    { id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR_B },
     { id: ADMIN_ID, role: 'admin' },
   ]);
 });

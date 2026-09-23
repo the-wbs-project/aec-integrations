@@ -41,6 +41,7 @@ const TABLE_ALLOWED = new Set([
   'lib/integration-retire.ts', // a retire closes open contests (AECI-1010 / AECI-1046)
   'routes/integration-retire-write.ts', // the shared retire batch
   'routes/vendor-updates.ts', // the vendor `contests` freshness cursor, authenticated
+  'lib/vendor-handback.ts', // seat loss re-routes owner contests (AECI-989)
 ]);
 
 const PROTEST_COLUMN =

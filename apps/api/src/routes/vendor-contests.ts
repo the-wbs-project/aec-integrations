@@ -110,6 +110,7 @@ import {
   isContestRaceError,
 } from '../lib/integration-contests';
 import { isClaimed } from '../lib/integration-claims';
+import { ownerSeatLapsed } from '../lib/vendor-handback';
 import {
   protestSubmitRefusal,
   submitterProtestFields,
@@ -475,8 +476,16 @@ export function createSubmitContestHandler(
     });
     if (refusal) throw refusal;
 
-    const { routedTo, ownerVendorId } = routeContest(integration, field, claimed);
+    const route = routeContest(integration, field, claimed);
     const now = new Date().toISOString();
+    // AECI-989: an owner with no unbanned seat cannot answer. The contest goes to
+    // AECi, stamped so an unban routes it back (`lib/vendor-handback.ts`).
+    const seatLapsed =
+      route.routedTo === 'owner' &&
+      route.ownerVendorId !== null &&
+      (await ownerSeatLapsed(db, route.ownerVendorId));
+    const routedTo: typeof route.routedTo = seatLapsed ? 'aeci' : route.routedTo;
+    const { ownerVendorId } = route;
     const contestId = crypto.randomUUID();
     const workflowId = crypto.randomUUID();
     const pairSlugs = await endpointSlugs(
@@ -503,6 +512,7 @@ export function createSubmitContestHandler(
       upstreamLinearIssueId: null,
       upstreamLinearIssueUrl: null,
       workflowId,
+      ownerSeatLapsedAt: seatLapsed ? now : null,
       ...EMPTY_PROTEST_COLUMNS,
       createdAt: now,
       updatedAt: now,
